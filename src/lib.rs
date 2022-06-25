@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 
 use ordered_float::OrderedFloat;
@@ -32,47 +32,31 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// Represents an index in the `Context::nodes` map
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct Node(usize);
-impl From<usize> for Node {
-    fn from(v: usize) -> Self {
-        Self(v)
-    }
-}
-impl From<Node> for usize {
-    fn from(v: Node) -> Self {
-        v.0
-    }
+////////////////////////////////////////////////////////////////////////////////
+
+macro_rules! define_handle {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+        pub struct $name(usize);
+        impl From<usize> for $name {
+            fn from(v: usize) -> Self {
+                Self(v)
+            }
+        }
+        impl From<$name> for usize {
+            fn from(v: $name) -> Self {
+                v.0
+            }
+        }
+    };
 }
 
-/// Represents an index in the `Context::vars` map
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct VarNode(usize);
-impl From<usize> for VarNode {
-    fn from(v: usize) -> Self {
-        Self(v)
-    }
-}
-impl From<VarNode> for usize {
-    fn from(v: VarNode) -> Self {
-        v.0
-    }
-}
+define_handle!(Node, "An index in the `Context::nodes` map");
+define_handle!(VarNode, "An index in the `Context::vars` map");
+define_handle!(ConstNode, "An index in the `Context::consts` map");
 
-/// Represents an index in the `Context::consts` map
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct ConstNode(usize);
-impl From<usize> for ConstNode {
-    fn from(v: usize) -> Self {
-        Self(v)
-    }
-}
-impl From<ConstNode> for usize {
-    fn from(v: ConstNode) -> Self {
-        v.0
-    }
-}
+////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub enum Op {
@@ -510,6 +494,18 @@ impl Context {
     }
 
     ////////////////////////////////////////////////////////////////////////////
+    /// Evaluates the given node with the provided values for X, Y, and Z.
+    ///
+    /// ```
+    /// # let mut ctx = jitfive::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let z = ctx.z();
+    /// let op = ctx.mul(x, y).unwrap();
+    /// let op = ctx.div(op, z).unwrap();
+    /// let v = ctx.eval_xyz(op, 3.0, 5.0, 2.0).unwrap();
+    /// assert_eq!(v, 7.5); // (3.0 * 5.0) / 2.0
+    /// ```
     pub fn eval_xyz(
         &self,
         root: Node,
@@ -523,6 +519,7 @@ impl Context {
             .collect();
         self.eval(root, &vars)
     }
+    /// Evaluates the given node with a generic set of variables
     pub fn eval(
         &self,
         root: Node,
@@ -594,8 +591,6 @@ impl Context {
     /// This representation is loosely defined and only intended for use in
     /// quick experiments.
     pub fn from_text<R: Read>(r: &mut R) -> Result<(Self, Node), Error> {
-        use parse_int::parse;
-
         let reader = BufReader::new(r);
         let mut ctx = Self::new();
         let mut seen = BTreeMap::new();
@@ -606,10 +601,10 @@ impl Context {
                 continue;
             }
             let mut iter = line.split_whitespace();
-            let i: u64 = parse(iter.next().unwrap()).unwrap();
+            let i: String = iter.next().unwrap().to_owned();
             let opcode = iter.next().unwrap();
 
-            let mut pop = || seen[&parse(iter.next().unwrap()).unwrap()];
+            let mut pop = || seen[iter.next().unwrap()];
             let node = match opcode {
                 "const" => ctx.constant(iter.next().unwrap().parse().unwrap()),
                 "var-x" => ctx.x(),
@@ -758,6 +753,71 @@ impl Context {
             }
         }
         Ok(out)
+    }
+
+    pub fn lol(&self, root: Node) {
+        let mut cache = BTreeMap::new();
+        self.lol_inner(root, None, &mut cache);
+
+        for (n, r) in &cache {
+            println!(
+                "{:?} {:?} {:?}",
+                n,
+                self.ops.get_by_index(*n).unwrap(),
+                r
+            );
+        }
+        let cache: BTreeMap<Node, Vec<(Node, bool)>> = cache
+            .into_iter()
+            .map(|(a, b)| (a, b.into_iter().collect()))
+            .collect();
+
+        let mut group_counts: BTreeMap<Vec<(Node, bool)>, usize> =
+            BTreeMap::new();
+        for c in cache.values() {
+            *group_counts.entry(c.clone()).or_default() += 1;
+        }
+        println!();
+        for bla in group_counts {
+            println!("{} {}", bla.0.len(), bla.1);
+        }
+    }
+    pub fn lol_inner(
+        &self,
+        node: Node,
+        parent: Option<(Node, bool)>,
+        cache: &mut BTreeMap<Node, BTreeSet<(Node, bool)>>,
+    ) {
+        // Update this node's parents
+        cache.entry(node).or_default().extend(parent.iter());
+
+        match self.ops.get_by_index(node).unwrap() {
+            // If this node is a min/max node, then it becomes the parent of
+            // child nodes.
+            Op::Min(a, b) | Op::Max(a, b) => {
+                self.lol_inner(*a, Some((node, true)), cache);
+                self.lol_inner(*b, Some((node, false)), cache);
+            }
+            Op::Add(a, b) | Op::Mul(a, b) => {
+                self.lol_inner(*a, parent, cache);
+                self.lol_inner(*b, parent, cache);
+            }
+
+            Op::Neg(a)
+            | Op::Abs(a)
+            | Op::Recip(a)
+            | Op::Sqrt(a)
+            | Op::Sin(a)
+            | Op::Cos(a)
+            | Op::Tan(a)
+            | Op::Asin(a)
+            | Op::Acos(a)
+            | Op::Atan(a)
+            | Op::Exp(a)
+            | Op::Ln(a) => self.lol_inner(*a, parent, cache),
+
+            Op::Var(..) | Op::Const(..) => (),
+        }
     }
 }
 

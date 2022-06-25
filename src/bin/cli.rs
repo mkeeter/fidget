@@ -44,5 +44,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             image::ColorType::L8,
         )?;
     }
+    ctx.lol(node);
     Ok(())
 }

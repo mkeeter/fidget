@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 ordered-float = "3"
-parse_int = "0.6"
 thiserror = "1"
 
+# CLI-specific dependencies
 clap = { version = "3.2.6", features = ["derive"], optional = true }
 image = { version = "0.24", default-features = false, features = ["png"], optional = true}
 
