@@ -83,7 +83,7 @@ impl Context {
     // Primitives
     /// Constructs or finds a variable node named "X"
     /// ```
-    /// use jitfive::{Context};
+    /// use jitfive::Context;
     /// let mut ctx = Context::new();
     /// let x = ctx.x();
     /// let v = ctx.eval_xyz(x, 1.0, 0.0, 0.0).unwrap();

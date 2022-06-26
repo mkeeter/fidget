@@ -1,19 +1,5 @@
-[package]
-name = "jitfive"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-ordered-float = "3"
-thiserror = "1"
-
-# CLI-specific dependencies
-clap = { version = "3.2.6", features = ["derive"], optional = true }
-image = { version = "0.24", default-features = false, features = ["png"], optional = true}
-
-[features]
-cli = ["clap", "image"]
-
-[[bin]]
-name = "cli"
-required-features = ["cli"]
+[workspace]
+members = [
+    "jitfive",
+    "demo",
+]

@@ -1,4 +1,5 @@
 use clap::Parser;
+use jitfive::Context;
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -20,15 +21,13 @@ struct Args {
     filename: String,
 }
 
-use jitfive::Context;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, node) = Context::from_text(&mut file)?;
 
     if let Some(dot) = args.dot {
-        let compiler = jitfive::compiler::Compiler::new(&ctx, node);
+        let compiler = jitfive::Compiler::new(&ctx, node);
         let mut out = std::fs::File::create(dot)?;
         compiler.write_dot(&mut out)?;
     }

@@ -1,9 +1,10 @@
-pub mod compiler;
+mod compiler;
 mod context;
 mod error;
 mod indexed;
 mod op;
 
+pub use compiler::Compiler;
 pub use context::Context;
 pub use op::Op;
 

@@ -1,7 +1,7 @@
 use crate::{
+    context::Context,
     error::Error,
     op::{Node, Op},
-    Context,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;

@@ -1,0 +1,9 @@
+[package]
+name = "jitfive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordered-float = "3"
+thiserror = "1"
+
