@@ -28,7 +28,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ctx, node) = Context::from_text(&mut file)?;
 
     if let Some(dot) = args.dot {
-        ctx.to_dot(&mut std::fs::File::create(dot)?, node)?;
+        let compiler = jitfive::compiler::Compiler::new(&ctx, node);
+        let mut out = std::fs::File::create(dot)?;
+        compiler.write_dot(&mut out)?;
     }
     if let Some(img) = args.image {
         let out = ctx.render_2d(node, args.size)?;
@@ -44,6 +46,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             image::ColorType::L8,
         )?;
     }
-    ctx.lol(node);
     Ok(())
 }

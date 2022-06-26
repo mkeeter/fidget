@@ -66,7 +66,8 @@ impl Context {
     }
 
     /// Looks up the constant associated with the given node. If the node is
-    /// invalid for this tree or is not `Op::Const`, returns `None`.
+    /// invalid for this tree, returns an error; if the node is not a constant,
+    /// returns `Ok(None)`.
     pub fn const_value(&self, n: Node) -> Result<Option<f64>, Error> {
         match self.ops.get_by_index(n) {
             Some(Op::Const(c)) => match self.consts.get_by_index(*c) {
@@ -587,7 +588,7 @@ impl Context {
         }
         Ok(out)
     }
-    pub fn write_node_dot<W: Write>(
+    pub(crate) fn write_node_dot<W: Write>(
         &self,
         node: Node,
         w: &mut W,
@@ -631,7 +632,7 @@ impl Context {
         Ok(())
     }
 
-    fn write_edges_dot<W: Write>(
+    pub(crate) fn write_edges_dot<W: Write>(
         &self,
         node: Node,
         w: &mut W,
@@ -675,114 +676,15 @@ impl Context {
         Ok(())
     }
 
-    pub fn to_dot_grouped<W: Write>(
-        &self,
-        root: Node,
-        w: &mut W,
-    ) -> Result<(), Error> {
-        let mut cache = BTreeMap::new();
-        self.find_groups(root, Source::Root, &mut cache);
-
-        for (n, r) in &cache {
-            println!(
-                "{:?} {:?} {:?}",
-                n,
-                self.ops.get_by_index(*n).unwrap(),
-                r
-            );
-        }
-        let mut groups: BTreeMap<BTreeSet<Source>, Vec<Node>> = BTreeMap::new();
-        for (node, source) in cache.iter() {
-            groups.entry(source.clone()).or_default().push(*node);
-        }
-        println!("groups: {:?}", groups.len());
-        writeln!(w, "digraph mygraph {{")?;
-        writeln!(w, "compound=true")?;
-        let mut subgraph_num = 0;
-        for group in groups.values() {
-            if group.len() > 1 {
-                writeln!(w, "subgraph cluster_{} {{", subgraph_num)?;
-                subgraph_num += 1;
-            }
-            for node in group {
-                self.write_node_dot(*node, w)?;
-            }
-            if group.len() > 1 {
-                writeln!(w, "}}")?;
-            }
-        }
-        for node in groups.values().flat_map(|g| g.iter()) {
-            self.write_edges_dot(*node, w)?;
-        }
-        writeln!(w, "}}")?;
-        Ok(())
+    /// Looks up an operation by [Node] handle
+    /// ```
+    /// # use jitfive::Op;
+    /// # let mut ctx = jitfive::Context::new();
+    /// let x = ctx.x();
+    /// let op_x = ctx.get_op(x).unwrap();
+    /// assert!(matches!(op_x, Op::Var(_)));
+    /// ```
+    pub fn get_op(&self, node: Node) -> Option<&Op> {
+        self.ops.get_by_index(node)
     }
-
-    fn find_groups(
-        &self,
-        node: Node,
-        parent: Source,
-        cache: &mut BTreeMap<Node, BTreeSet<Source>>,
-    ) {
-        // Update this node's parents
-        let c = cache.entry(node).or_default();
-        match parent {
-            Source::Left(n) if c.contains(&Source::Right(n)) => {
-                c.remove(&Source::Right(n));
-                c.insert(Source::Both(n));
-            }
-            Source::Right(n) if c.contains(&Source::Left(n)) => {
-                c.remove(&Source::Left(n));
-                c.insert(Source::Both(n));
-            }
-            Source::Left(n) | Source::Right(n)
-                if c.contains(&Source::Both(n)) =>
-            {
-                // Nothing to do here
-            }
-            Source::Root | Source::Left(..) | Source::Right(..) => {
-                c.insert(parent);
-            }
-            Source::Both(..) => panic!("parent should never be `Both`"),
-        };
-
-        match self.ops.get_by_index(node).unwrap() {
-            // If this node is a min/max node, then it becomes the parent of
-            // child nodes.
-            Op::Min(a, b) | Op::Max(a, b) => {
-                self.find_groups(*a, Source::Left(node), cache);
-                self.find_groups(*b, Source::Right(node), cache);
-            }
-            Op::Add(a, b) | Op::Mul(a, b) => {
-                self.find_groups(*a, parent, cache);
-                self.find_groups(*b, parent, cache);
-            }
-
-            Op::Neg(a)
-            | Op::Abs(a)
-            | Op::Recip(a)
-            | Op::Sqrt(a)
-            | Op::Sin(a)
-            | Op::Cos(a)
-            | Op::Tan(a)
-            | Op::Asin(a)
-            | Op::Acos(a)
-            | Op::Atan(a)
-            | Op::Exp(a)
-            | Op::Ln(a) => self.find_groups(*a, parent, cache),
-
-            Op::Var(..) | Op::Const(..) => (),
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///// TODO: move this
-
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-enum Source {
-    Root,
-    Left(Node),
-    Right(Node),
-    Both(Node),
 }

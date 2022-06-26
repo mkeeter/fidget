@@ -10,6 +10,10 @@ impl Node {
     }
 }
 
+/// Represents an operation in a math expression.
+///
+/// An `Op` is tightly coupled to the [`Context`](crate::context::Context)
+/// which generated it, and will not be valid for a different `Context`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub enum Op {
     Var(VarNode),

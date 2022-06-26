@@ -1,9 +1,11 @@
+pub mod compiler;
 mod context;
 mod error;
 mod indexed;
 mod op;
 
 pub use context::Context;
+pub use op::Op;
 
 #[cfg(test)]
 mod tests {
