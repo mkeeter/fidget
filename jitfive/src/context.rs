@@ -5,13 +5,13 @@ use crate::{
 };
 
 use ordered_float::OrderedFloat;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 
 /// A `Context` holds a set of deduplicated constants, variables, and
 /// operations.
 ///
-/// It should be used like an arena allocator: it grows over time, then frees.
+/// It should be used like an arena allocator: it grows over time, then frees
 /// all of its contents when dropped.
 #[derive(Debug, Default)]
 pub struct Context {

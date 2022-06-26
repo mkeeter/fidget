@@ -14,6 +14,8 @@ enum Source {
     Both(Node),
 }
 
+/// Represents a [Context] along with meta-data to efficiently generate code
+/// for the given tree.
 pub struct Compiler<'a> {
     ctx: &'a Context,
     root: Node,
