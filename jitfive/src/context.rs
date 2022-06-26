@@ -72,10 +72,10 @@ impl Context {
         match self.ops.get_by_index(n) {
             Some(Op::Const(c)) => match self.consts.get_by_index(*c) {
                 Some(c) => Ok(Some(**c)),
-                None => Err(Error::NoSuchConst),
+                None => Err(Error::BadConst),
             },
             Some(_) => Ok(None),
-            _ => Err(Error::NoSuchNode),
+            _ => Err(Error::BadNode),
         }
     }
 
@@ -122,7 +122,7 @@ impl Context {
     where
         F: Fn(Node) -> Op,
     {
-        let op_a = *self.ops.get_by_index(a).ok_or(Error::NoSuchNode)?;
+        let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
         let n = self.get_node(op(a));
         let out = if matches!(op_a, Op::Const(_)) {
             let v = self.eval(n, &BTreeMap::new())?;
@@ -139,8 +139,8 @@ impl Context {
     where
         F: Fn(Node, Node) -> Op,
     {
-        let op_a = *self.ops.get_by_index(a).ok_or(Error::NoSuchNode)?;
-        let op_b = *self.ops.get_by_index(b).ok_or(Error::NoSuchNode)?;
+        let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
+        let op_b = *self.ops.get_by_index(b).ok_or(Error::BadNode)?;
         let n = self.get_node(op(a, b));
         let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
             let v = self.eval(n, &BTreeMap::new())?;
@@ -459,7 +459,7 @@ impl Context {
             return Ok(v);
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
-        let v = match self.ops.get_by_index(node).ok_or(Error::NoSuchNode)? {
+        let v = match self.ops.get_by_index(node).ok_or(Error::BadNode)? {
             Op::Var(v) => {
                 let var_name = self.vars.get_by_index(*v).unwrap();
                 *vars.get(var_name).unwrap()
@@ -525,22 +525,27 @@ impl Context {
             let i: String = iter.next().unwrap().to_owned();
             let opcode = iter.next().unwrap();
 
-            let mut pop = || seen[iter.next().unwrap()];
+            let mut pop = || {
+                let txt = iter.next().unwrap();
+                seen.get(txt)
+                    .cloned()
+                    .ok_or_else(|| Error::UnknownVariable(txt.to_string()))
+            };
             let node = match opcode {
                 "const" => ctx.constant(iter.next().unwrap().parse().unwrap()),
                 "var-x" => ctx.x(),
                 "var-y" => ctx.y(),
                 "var-z" => ctx.z(),
-                "abs" => ctx.abs(pop())?,
-                "neg" => ctx.neg(pop())?,
-                "sqrt" => ctx.sqrt(pop())?,
-                "square" => ctx.square(pop())?,
-                "add" => ctx.add(pop(), pop())?,
-                "mul" => ctx.mul(pop(), pop())?,
-                "min" => ctx.min(pop(), pop())?,
-                "max" => ctx.max(pop(), pop())?,
-                "div" => ctx.div(pop(), pop())?,
-                "sub" => ctx.sub(pop(), pop())?,
+                "abs" => ctx.abs(pop()?)?,
+                "neg" => ctx.neg(pop()?)?,
+                "sqrt" => ctx.sqrt(pop()?)?,
+                "square" => ctx.square(pop()?)?,
+                "add" => ctx.add(pop()?, pop()?)?,
+                "mul" => ctx.mul(pop()?, pop()?)?,
+                "min" => ctx.min(pop()?, pop()?)?,
+                "max" => ctx.max(pop()?, pop()?)?,
+                "div" => ctx.div(pop()?, pop()?)?,
+                "sub" => ctx.sub(pop()?, pop()?)?,
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
@@ -598,12 +603,11 @@ impl Context {
         write!(w, r#"n{} [label = ""#, node.dot_name())?;
         match op {
             Op::Const(c) => {
-                let v =
-                    self.consts.get_by_index(*c).ok_or(Error::NoSuchConst)?;
+                let v = self.consts.get_by_index(*c).ok_or(Error::BadConst)?;
                 write!(w, "{}", v)
             }
             Op::Var(v) => {
-                let v = self.vars.get_by_index(*v).ok_or(Error::NoSuchVar)?;
+                let v = self.vars.get_by_index(*v).ok_or(Error::BadVar)?;
                 write!(w, "{}", v)
             }
             Op::Add(..) => write!(w, "add"),
@@ -676,15 +680,22 @@ impl Context {
         Ok(())
     }
 
-    /// Looks up an operation by [Node] handle
-    /// ```
-    /// # use jitfive::Op;
-    /// # let mut ctx = jitfive::Context::new();
-    /// let x = ctx.x();
-    /// let op_x = ctx.get_op(x).unwrap();
-    /// assert!(matches!(op_x, Op::Var(_)));
-    /// ```
-    pub fn get_op(&self, node: Node) -> Option<&Op> {
+    /// Looks up an operation by `Node` handle
+    pub(crate) fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // This can't be in a doctest, because it uses a pub(crate) function
+    #[test]
+    fn test_get_op() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let op_x = ctx.get_op(x).unwrap();
+        assert!(matches!(op_x, Op::Var(_)));
     }
 }

@@ -12,10 +12,15 @@ impl Node {
 
 /// Represents an operation in a math expression.
 ///
-/// An `Op` is tightly coupled to the [`Context`](crate::context::Context)
+/// `Op`s should be constructed by calling functions on
+/// [`Context`](crate::context::Context), e.g.
+/// [`Context::add`](crate::context::Context::add) will generate an `Op::Add`
+/// node and return an opaque handle.
+///
+/// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-pub enum Op {
+pub(crate) enum Op {
     Var(VarNode),
     Const(ConstNode),
 

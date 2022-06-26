@@ -4,25 +4,25 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("node is not present in this `Context`")]
-    NoSuchNode,
+    BadNode,
+    #[error("variable is not present in this `Context`")]
+    BadVar,
+    #[error("constant is not present in this `Context`")]
+    BadConst,
+
     #[error("`Context` is empty")]
     EmptyContext,
     #[error("`IndexMap` is empty")]
     EmptyMap,
+
     #[error("unknown opcode {0}")]
     UnknownOpcode(String),
+    #[error("unknown variable {0}")]
+    UnknownVariable(String),
+
     #[error("empty file")]
     EmptyFile,
-    #[error("The variable was not found in the tree")]
-    NoSuchVar,
-    #[error("The constant was not found in the tree")]
-    NoSuchConst,
-    #[error("Error occurred during i/o operation: {0}")]
-    Io(std::io::Error),
-}
 
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
+    #[error("i/o error: {0}")]
+    Io(#[from] std::io::Error),
 }

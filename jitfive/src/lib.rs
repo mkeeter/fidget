@@ -6,7 +6,6 @@ mod op;
 
 pub use compiler::Compiler;
 pub use context::Context;
-pub use op::Op;
 
 #[cfg(test)]
 mod tests {
