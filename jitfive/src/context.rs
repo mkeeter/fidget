@@ -566,8 +566,8 @@ impl Context {
         writeln!(w, "digraph mygraph {{")?;
         for (_op, node) in self.ops.iter() {
             // TODO: don't use _op
-            self.write_node_dot(*node, w)?;
-            self.write_edges_dot(*node, w)?;
+            self.write_node_dot(w, *node)?;
+            self.write_edges_dot(w, *node)?;
         }
         writeln!(w, "}}")?;
         Ok(())
@@ -595,8 +595,8 @@ impl Context {
     }
     pub(crate) fn write_node_dot<W: Write>(
         &self,
-        node: Node,
         w: &mut W,
+        node: Node,
     ) -> Result<(), Error> {
         let op = self.ops.get_by_index(node).unwrap();
         // Write node label
@@ -638,8 +638,8 @@ impl Context {
 
     pub(crate) fn write_edges_dot<W: Write>(
         &self,
-        node: Node,
         w: &mut W,
+        node: Node,
     ) -> Result<(), Error> {
         let op = self.ops.get_by_index(node).unwrap();
         let edge_color = format!("{}4", op.dot_node_color());

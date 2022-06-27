@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dot) = args.dot {
         let compiler = jitfive::Compiler::new(&ctx, node);
         let mut out = std::fs::File::create(dot)?;
-        compiler.write_dot(&mut out)?;
+        compiler.write_dot_grouped(&mut out)?;
     }
     if let Some(img) = args.image {
         let out = ctx.render_2d(node, args.size)?;

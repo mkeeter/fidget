@@ -14,6 +14,15 @@ enum Source {
     Both(Node),
 }
 
+impl Source {
+    fn node(&self) -> Option<Node> {
+        match self {
+            Source::Left(a) | Source::Right(a) | Source::Both(a) => Some(*a),
+            Source::Root => None,
+        }
+    }
+}
+
 /// Represents a [Context] along with meta-data to efficiently generate code
 /// for the given tree.
 pub struct Compiler<'a> {
@@ -25,7 +34,7 @@ pub struct Compiler<'a> {
     /// The parent group of the given group.
     tree: BTreeMap<BTreeSet<Source>, Vec<BTreeSet<Source>>>,
 
-    /// Minimum distance to the root of the tree; the root has rank 0
+    /// Maximum distance from the root of the tree; the root has rank 0
     rank: BTreeMap<Node, usize>,
 }
 
@@ -55,12 +64,8 @@ impl<'a> Compiler<'a> {
         }
         for g in out.groups.keys() {
             let a =
-                out.least_common_ancestor(g.iter().filter_map(|g| match g {
-                    Source::Left(a) | Source::Right(a) | Source::Both(a) => {
-                        Some(*a)
-                    }
-                    Source::Root => None,
-                }));
+                out.least_common_ancestor(g.iter().filter_map(Source::node));
+
             if let Some(a) = a {
                 out.tree
                     .entry(out.parent.get(&a).unwrap().clone())
@@ -68,29 +73,55 @@ impl<'a> Compiler<'a> {
                     .push(g.clone());
             }
         }
-        out.bla_recurse(&[Source::Root].into_iter().collect(), 0);
         out
     }
 
-    fn bla_recurse(&self, s: &BTreeSet<Source>, indent: usize) {
-        println!("{:indent$}{:?}", "", s);
-        let indent = indent + 2;
-        for n in self.groups.get(s).unwrap() {
-            println!(
-                "{:indent$}{:?} {:?}",
-                "",
-                n,
-                self.ctx.get_op(*n).unwrap()
-            );
+    pub fn write_dot_grouped<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w, "digraph mygraph {{")?;
+        writeln!(w, "compound=true")?;
+        self.write_dot_grouped_inner(
+            w,
+            &[Source::Root].into_iter().collect(),
+            &mut 0,
+        )?;
+        // Write edges afterwards, after all nodes have been defined
+        for node in self.groups.values().flat_map(|g| g.iter()) {
+            self.ctx.write_edges_dot(w, *node)?;
         }
-        for t in self.tree.get(s).iter().flat_map(|t| t.iter()) {
-            self.bla_recurse(t, indent);
+        writeln!(w, "}}")?;
+        Ok(())
+    }
+    fn write_dot_grouped_inner<W: Write>(
+        &self,
+        w: &mut W,
+        s: &BTreeSet<Source>,
+        subgraph_num: &mut usize,
+    ) -> Result<(), Error> {
+        let groups = self.groups.get(s).unwrap();
+        let subtrees = self.tree.get(s);
+
+        let with_subgraph = groups.len() > 1 || subtrees.is_some();
+        if with_subgraph {
+            write!(w, "subgraph cluster_{} {{", subgraph_num)?;
         }
+
+        *subgraph_num += 1;
+
+        for node in groups {
+            self.ctx.write_node_dot(w, *node)?;
+        }
+        for t in subtrees.iter().flat_map(|t| t.iter()) {
+            self.write_dot_grouped_inner(w, t, subgraph_num)?;
+        }
+        if with_subgraph {
+            write!(w, "}}")?;
+        }
+        Ok(())
     }
 
     fn find_groups(&mut self, node: Node, source: Source, rank: usize) {
         let r = self.rank.entry(node).or_insert(rank);
-        *r = rank.min(*r);
+        *r = rank.max(*r);
         let rank = rank + 1;
 
         // Update this node's parents
@@ -146,19 +177,18 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn write_dot<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        println!("groups: {:?}", self.groups.len());
         writeln!(w, "digraph mygraph {{")?;
         writeln!(w, "compound=true")?;
         for (i, group) in self.groups.values().enumerate() {
             writeln!(w, "subgraph cluster_{} {{", i)?;
             for node in group {
-                self.ctx.write_node_dot(*node, w)?;
+                self.ctx.write_node_dot(w, *node)?;
             }
             writeln!(w, "}}")?;
         }
         // Write edges afterwards, after all nodes have been defined
         for node in self.groups.values().flat_map(|g| g.iter()) {
-            self.ctx.write_edges_dot(*node, w)?;
+            self.ctx.write_edges_dot(w, *node)?;
         }
         writeln!(w, "}}")?;
         Ok(())
@@ -173,12 +203,9 @@ impl<'a> Compiler<'a> {
     }
     fn ancestors_inner(&self, node: Node, out: &mut BTreeSet<Node>) {
         out.insert(node);
-        for b in self.parent.get(&node).unwrap() {
-            match b {
-                Source::Left(a) | Source::Right(a) | Source::Both(a) => {
-                    self.ancestors_inner(*a, out)
-                }
-                Source::Root => (),
+        for source in self.parent.get(&node).unwrap() {
+            if let Some(n) = source.node() {
+                self.ancestors_inner(n, out);
             }
         }
     }
