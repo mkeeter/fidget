@@ -7,8 +7,6 @@ pub enum Error {
     BadNode,
     #[error("variable is not present in this `Context`")]
     BadVar,
-    #[error("constant is not present in this `Context`")]
-    BadConst,
 
     #[error("`Context` is empty")]
     EmptyContext,

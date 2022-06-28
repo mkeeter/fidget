@@ -1,8 +1,8 @@
 use crate::indexed::define_index;
+use ordered_float::OrderedFloat;
 
-define_index!(Node, "An index in the `Context::nodes` map");
+define_index!(Node, "An index in the `Context::ops` map");
 define_index!(VarNode, "An index in the `Context::vars` map");
-define_index!(ConstNode, "An index in the `Context::consts` map");
 
 impl Node {
     pub fn dot_name(&self) -> String {
@@ -19,10 +19,10 @@ impl Node {
 ///
 /// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-pub(crate) enum Op {
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Op {
     Var(VarNode),
-    Const(ConstNode),
+    Const(OrderedFloat<f64>),
 
     // Commutative ops
     Add(Node, Node),

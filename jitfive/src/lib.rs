@@ -4,8 +4,9 @@ mod error;
 mod indexed;
 mod op;
 
-pub use compiler::Compiler;
+pub use compiler::{Asm, Compiler};
 pub use context::Context;
+pub use op::Op;
 
 #[cfg(test)]
 mod tests {

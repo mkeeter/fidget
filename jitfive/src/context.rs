@@ -1,12 +1,13 @@
 use crate::{
     error::Error,
     indexed::{IndexMap, IndexVec},
-    op::{ConstNode, Node, Op, VarNode},
+    op::{Node, Op, VarNode},
 };
 
-use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
+
+use ordered_float::OrderedFloat;
 
 /// A `Context` holds a set of deduplicated constants, variables, and
 /// operations.
@@ -17,7 +18,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 pub struct Context {
     ops: IndexMap<Op, Node>,
     vars: IndexMap<String, VarNode>,
-    consts: IndexMap<OrderedFloat<f64>, ConstNode>,
 }
 
 impl Context {
@@ -25,7 +25,7 @@ impl Context {
     pub fn new() -> Self {
         Self::default()
     }
-    /// Returns the number of [Op] nodes in the context
+    /// Returns the number of `Op` nodes in the context
     pub fn len(&self) -> usize {
         self.ops.len()
     }
@@ -39,15 +39,6 @@ impl Context {
         match self.vars.get_by_value(&s) {
             Some(v) => v,
             None => self.vars.insert(s),
-        }
-    }
-    /// Looks up the [ConstNode] corresponding to the given value, inserting
-    /// it if it doesn't already exist.
-    fn get_const(&mut self, s: f64) -> ConstNode {
-        let s = OrderedFloat(s);
-        match self.consts.get_by_value(&s) {
-            Some(v) => v,
-            None => self.consts.insert(s),
         }
     }
     /// Looks up the [Node] corresponding to the given operation, inserting
@@ -70,12 +61,27 @@ impl Context {
     /// returns `Ok(None)`.
     pub fn const_value(&self, n: Node) -> Result<Option<f64>, Error> {
         match self.ops.get_by_index(n) {
-            Some(Op::Const(c)) => match self.consts.get_by_index(*c) {
-                Some(c) => Ok(Some(**c)),
-                None => Err(Error::BadConst),
-            },
+            Some(Op::Const(c)) => Ok(Some(c.0)),
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
+        }
+    }
+
+    /// Looks up the variable name associated with the given node. If the node
+    /// is invalid for this tree, returns an error; if the node is not a
+    /// `Op::Var`, returns `Ok(None)`.
+    pub fn var_name(&self, n: Node) -> Result<Option<&str>, Error> {
+        match self.ops.get_by_index(n) {
+            Some(Op::Var(c)) => self.get_var_by_index(*c).map(Some),
+            Some(_) => Ok(None),
+            _ => Err(Error::BadNode),
+        }
+    }
+    /// Looks up the variable name associated with the given `VarNode`
+    pub fn get_var_by_index(&self, n: VarNode) -> Result<&str, Error> {
+        match self.vars.get_by_index(n) {
+            Some(c) => Ok(c),
+            None => Err(Error::BadVar),
         }
     }
 
@@ -93,7 +99,7 @@ impl Context {
         let v = self.get_var("X");
         self.get_node(Op::Var(v))
     }
-    /// Constructs or finds a variable node named "Z"
+    /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
         let v = self.get_var("Y");
         self.get_node(Op::Var(v))
@@ -110,8 +116,7 @@ impl Context {
     /// assert_eq!(ctx.eval_xyz(v, 0.0, 0.0, 0.0).unwrap(), 3.0);
     /// ```
     pub fn constant(&mut self, f: f64) -> Node {
-        let v = self.get_const(f);
-        self.get_node(Op::Const(v))
+        self.get_node(Op::Const(OrderedFloat(f)))
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -464,7 +469,7 @@ impl Context {
                 let var_name = self.vars.get_by_index(*v).unwrap();
                 *vars.get(var_name).unwrap()
             }
-            Op::Const(c) => self.consts.get_by_index(*c).unwrap().0,
+            Op::Const(c) => c.0,
 
             Op::Add(a, b) => get(*a)? + get(*b)?,
             Op::Mul(a, b) => get(*a)? * get(*b)?,
@@ -603,8 +608,7 @@ impl Context {
         write!(w, r#"n{} [label = ""#, node.dot_name())?;
         match op {
             Op::Const(c) => {
-                let v = self.consts.get_by_index(*c).ok_or(Error::BadConst)?;
-                write!(w, "{}", v)
+                write!(w, "{}", c)
             }
             Op::Var(v) => {
                 let v = self.vars.get_by_index(*v).ok_or(Error::BadVar)?;
