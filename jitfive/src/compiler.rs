@@ -1,8 +1,11 @@
 use crate::{
     context::Context,
     error::Error,
-    op::{Node, Op},
+    indexed::IndexMap,
+    op::{Node, Op, VarNode},
+    program::{Choice, ChoiceIndex, Instruction, RegIndex, VarIndex},
 };
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
@@ -23,51 +26,6 @@ impl Source {
         match self {
             Source::Left(a) | Source::Right(a) | Source::Both(a) => Some(*a),
             Source::Root => None,
-        }
-    }
-}
-
-/// Represents a block of pseudo-assembly.
-///
-/// A `Vec<Asm>` represents a program that can be evaluated independently, or
-/// converted into a different form.  Note that such a block is divorced from
-/// the generating `Context`:
-/// - `Node` ids represent pseudo-registers and no longer represent indexes
-///   into the original `Context`
-/// - Constants and variables are stored in-line
-#[derive(Debug)]
-pub enum Asm {
-    /// Evaluate the given opcode, using the `Node` ids as pseudo-registers
-    Eval(Node, Op),
-    /// Load the given variable (identified as a String) into the target `Node`
-    Var(Node, String),
-    /// If any condition in `Source` is met, execute the assembly
-    Cond(Vec<Source>, Vec<Asm>),
-}
-impl Asm {
-    pub fn pretty_print(&self) {
-        self.pprint_inner(0)
-    }
-    fn pprint_inner(&self, indent: usize) {
-        match self {
-            Asm::Eval(node, op @ Op::Min(a, b))
-            | Asm::Eval(node, op @ Op::Max(a, b)) => {
-                println!("{:indent$}Match({:?},", "", node);
-                println!("{:indent$}  Left => {:?},", "", a);
-                println!("{:indent$}  Right => {:?},", "", b);
-                println!("{:indent$}  _ => {:?}", "", op);
-                println!("{:indent$})", "");
-            }
-            Asm::Eval(..) | Asm::Var(..) => {
-                println!("{:indent$}{:?}", "", self)
-            }
-            Asm::Cond(src, asm) => {
-                println!("{:indent$}Cond(Or({:?}),", "", src);
-                for v in asm {
-                    v.pprint_inner(indent + 2);
-                }
-                println!("{:indent$})", "");
-            }
         }
     }
 }
@@ -144,9 +102,6 @@ impl<'a> Compiler<'a> {
             &mut group_ranks,
         );
         self.group_rank = group_ranks;
-        for v in self.to_asm() {
-            v.pretty_print();
-        }
     }
 
     /// Recursively finds group ranks, populating the provided map and
@@ -174,10 +129,22 @@ impl<'a> Compiler<'a> {
         min_rank
     }
 
-    pub fn to_asm(&self) -> Vec<Asm> {
-        self.to_asm_inner(&[Source::Root].into_iter().collect())
+    pub fn to_tape(
+        &self,
+        regs: &mut IndexMap<Node, RegIndex>,
+        vars: &mut IndexMap<VarNode, VarIndex>,
+        choices: &mut IndexMap<Node, ChoiceIndex>,
+    ) -> Vec<Instruction> {
+        let start = [Source::Root].into_iter().collect();
+        self.to_tape_inner(&start, regs, vars, choices)
     }
-    fn to_asm_inner(&self, s: &GroupId) -> Vec<Asm> {
+    fn to_tape_inner(
+        &self,
+        s: &GroupId,
+        regs: &mut IndexMap<Node, RegIndex>,
+        vars: &mut IndexMap<VarNode, VarIndex>,
+        choices: &mut IndexMap<Node, ChoiceIndex>,
+    ) -> Vec<Instruction> {
         #[derive(Debug)]
         enum Target<'a> {
             Node(Node),
@@ -202,24 +169,33 @@ impl<'a> Compiler<'a> {
         let mut out = vec![];
         for t in targets.iter().rev() {
             match t {
-                Target::Node(n) => match self.ctx.get_op(*n).unwrap() {
-                    Op::Var(v) => out.push(Asm::Var(
-                        *n,
-                        self.ctx.get_var_by_index(*v).unwrap().to_string(),
-                    )),
-                    op => out.push(Asm::Eval(*n, *op)),
-                },
+                Target::Node(n) => out.push(
+                    self.ctx
+                        .get_op(*n)
+                        .unwrap()
+                        .to_instruction(*n, regs, vars, choices),
+                ),
                 Target::Group(g) => {
-                    // If there are Both sources here, then we have to evaluate
+                    // If there are Both sources here, then we *must* evaluate
                     // this group (because we're bound to take one or the
                     // other branch).
                     // XXX Is this right??
                     if g.iter().any(|g| matches!(g, Source::Both(..))) {
-                        out.extend(self.to_asm_inner(g));
+                        out.extend(self.to_tape_inner(g, regs, vars, choices));
                     } else {
-                        out.push(Asm::Cond(
-                            g.iter().cloned().collect(),
-                            self.to_asm_inner(g),
+                        out.push(Instruction::Cond(
+                            g.iter()
+                                .map(|s| match s {
+                                    Source::Left(n) => {
+                                        (choices.insert(*n), Choice::Left)
+                                    }
+                                    Source::Right(n) => {
+                                        (choices.insert(*n), Choice::Left)
+                                    }
+                                    _ => panic!(),
+                                })
+                                .collect(),
+                            self.to_tape_inner(g, regs, vars, choices),
                         ))
                     }
                 }

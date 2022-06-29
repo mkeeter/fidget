@@ -39,17 +39,20 @@ where
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-    pub fn get_by_value(&self, d: &Value) -> Option<Index> {
-        self.map.get(d).cloned()
-    }
     pub fn get_by_index(&self, v: Index) -> Option<&Value> {
         self.data.get(usize::from(v))
     }
+    /// Insert the given value into the map, returning a handle.
+    ///
+    /// If the value is already in the map, the handle will be to the existing
+    /// instance (so it will not be inserted twice). Note that this will
+    /// interact badly with `pop()`;
     pub fn insert(&mut self, v: Value) -> Index {
-        let out = Index::from(self.data.len());
-        self.data.push(v.clone());
-        self.map.insert(v, out);
-        out
+        *self.map.entry(v.clone()).or_insert_with(|| {
+            let out = Index::from(self.data.len());
+            self.data.push(v);
+            out
+        })
     }
     pub fn pop(&mut self) -> Result<Value, Error> {
         match self.data.pop() {
@@ -67,6 +70,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug)]
 pub struct IndexVec<Value, Index> {
     data: Vec<Value>,
     _phantom: std::marker::PhantomData<*const Index>,

@@ -32,23 +32,6 @@ impl Context {
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }
-    /// Looks up the [VarNode] corresponding to the given string, inserting
-    /// it if it doesn't already exist.
-    fn get_var(&mut self, s: &str) -> VarNode {
-        let s = s.to_owned();
-        match self.vars.get_by_value(&s) {
-            Some(v) => v,
-            None => self.vars.insert(s),
-        }
-    }
-    /// Looks up the [Node] corresponding to the given operation, inserting
-    /// it if it doesn't already exist.
-    fn get_node(&mut self, op: Op) -> Node {
-        match self.ops.get_by_value(&op) {
-            Some(v) => v,
-            None => self.ops.insert(op),
-        }
-    }
     /// Erases the most recently added node from the tree. This should only
     /// be called to delete a temporary operation node, as it will invalidate
     /// any existing handles to the node; therefore, it's private.
@@ -96,18 +79,18 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn x(&mut self) -> Node {
-        let v = self.get_var("X");
-        self.get_node(Op::Var(v))
+        let v = self.vars.insert(String::from("X"));
+        self.ops.insert(Op::Var(v))
     }
     /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
-        let v = self.get_var("Y");
-        self.get_node(Op::Var(v))
+        let v = self.vars.insert(String::from("Y"));
+        self.ops.insert(Op::Var(v))
     }
     /// Constructs or finds a variable node named "Z"
     pub fn z(&mut self) -> Node {
-        let v = self.get_var("Z");
-        self.get_node(Op::Var(v))
+        let v = self.vars.insert(String::from("Z"));
+        self.ops.insert(Op::Var(v))
     }
     /// Returns a node representing the given constant value.
     /// ```
@@ -116,7 +99,7 @@ impl Context {
     /// assert_eq!(ctx.eval_xyz(v, 0.0, 0.0, 0.0).unwrap(), 3.0);
     /// ```
     pub fn constant(&mut self, f: f64) -> Node {
-        self.get_node(Op::Const(OrderedFloat(f)))
+        self.ops.insert(Op::Const(OrderedFloat(f)))
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -128,7 +111,7 @@ impl Context {
         F: Fn(Node) -> Op,
     {
         let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
-        let n = self.get_node(op(a));
+        let n = self.ops.insert(op(a));
         let out = if matches!(op_a, Op::Const(_)) {
             let v = self.eval(n, &BTreeMap::new())?;
             self.pop().unwrap(); // removes `n`
@@ -146,7 +129,11 @@ impl Context {
     {
         let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
         let op_b = *self.ops.get_by_index(b).ok_or(Error::BadNode)?;
-        let n = self.get_node(op(a, b));
+
+        // This call to `insert` should always insert the node, because we
+        // don't permanently store operations in the tree that could be
+        // constant-folded (indeed, we pop the node right afterwards)
+        let n = self.ops.insert(op(a, b));
         let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
             let v = self.eval(n, &BTreeMap::new())?;
             self.pop().unwrap(); // removes `n`
