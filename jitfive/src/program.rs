@@ -127,12 +127,19 @@ impl Program {
         let mut vars = IndexMap::default();
         let mut choices = IndexMap::default();
         let tape = c.to_tape(&mut regs, &mut vars, &mut choices);
+
+        let var_names = vars
+            .iter()
+            .map(|(vn, vi)| {
+                (c.ctx.get_var_by_index(*vn).unwrap().to_string(), *vi)
+            })
+            .collect();
         Self {
             tape,
             reg_count: regs.len(),
             var_count: vars.len(),
             choice_count: choices.len(),
-            vars: Default::default(), // TODO
+            vars: var_names,
         }
     }
 }

@@ -36,7 +36,7 @@ type GroupId = BTreeSet<Source>;
 /// Represents a [Context] along with meta-data to efficiently generate code
 /// for the given tree.
 pub struct Compiler<'a> {
-    ctx: &'a Context,
+    pub ctx: &'a Context,
     root: Node,
     parent: BTreeMap<Node, GroupId>,
     groups: BTreeMap<GroupId, Vec<Node>>,
