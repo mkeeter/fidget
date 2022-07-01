@@ -13,6 +13,10 @@ struct Args {
     #[clap(short, long)]
     image: Option<String>,
 
+    /// Name of a `.metal` file to write
+    #[clap(short, long)]
+    metal: Option<String>,
+
     /// Image size
     #[clap(short, long, requires = "image", default_value = "100")]
     size: usize,
@@ -28,11 +32,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let compiler = jitfive::Compiler::new(&ctx, node);
     let prog = Program::from_compiler(&compiler);
-    println!("{:?}", prog);
 
     if let Some(dot) = args.dot {
         let mut out = std::fs::File::create(dot)?;
         compiler.write_dot_grouped(&mut out)?;
+    }
+    if let Some(metal) = args.metal {
+        let mut out = std::fs::File::create(metal)?;
+        prog.write_metal(&mut out)?;
     }
     if let Some(img) = args.image {
         let out = ctx.render_2d(node, args.size)?;

@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     indexed::IndexMap,
     op::{Node, Op, VarNode},
-    program::{Choice, ChoiceIndex, Instruction, RegIndex, VarIndex},
+    program::{Block, Choice, ChoiceIndex, Instruction, RegIndex, VarIndex},
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -190,12 +190,12 @@ impl<'a> Compiler<'a> {
                                         (choices.insert(*n), Choice::Left)
                                     }
                                     Source::Right(n) => {
-                                        (choices.insert(*n), Choice::Left)
+                                        (choices.insert(*n), Choice::Right)
                                     }
                                     _ => panic!(),
                                 })
                                 .collect(),
-                            self.to_tape_inner(g, regs, vars, choices),
+                            Block(self.to_tape_inner(g, regs, vars, choices)),
                         ))
                     }
                 }
