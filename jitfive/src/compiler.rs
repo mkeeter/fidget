@@ -108,7 +108,9 @@ impl<'a> Compiler<'a> {
 
         // Build the hierarchical GroupId tree
         for g in self.groups.keys() {
-            if let Some(a) = self.least_common_ancestor(g) {
+            let parents: BTreeSet<Node> =
+                g.iter().filter_map(|s| s.node()).collect();
+            if let Some(a) = self.least_common_ancestor(&parents) {
                 self.tree
                     .entry(self.parent.get(&a).unwrap().clone())
                     .or_default()
@@ -356,6 +358,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    /*
     /// Calculate the common ancestor that's farthest from the root
     ///
     /// Returns `None` if there is no such ancestor (i.e. one of the inputs
@@ -459,5 +462,56 @@ impl<'a> Compiler<'a> {
                 index: group.index,
             });
         }
+    }
+    */
+
+    /// Finds every node which is an ancestor (closer to the root) of the
+    /// given node, including itself.
+    fn ancestors(&self, node: Node) -> BTreeSet<Node> {
+        let mut out = BTreeSet::new();
+        self.ancestors_inner(node, &mut out);
+        out
+    }
+    fn ancestors_inner(&self, node: Node, out: &mut BTreeSet<Node>) {
+        out.insert(node);
+        for source in self.parent.get(&node).unwrap() {
+            if let Some(n) = source.node() {
+                self.ancestors_inner(n, out);
+            }
+        }
+    }
+    fn common_ancestors(&self, node: Node) -> BTreeSet<Node> {
+        let mut iter = self
+            .parent
+            .get(&node)
+            .unwrap()
+            .iter()
+            .filter_map(|i| i.node())
+            .map(|i| self.common_ancestors(i));
+
+        let mut out = match iter.next() {
+            None => return [node].into_iter().collect(),
+            Some(e) => e,
+        };
+        for rest in iter {
+            out = out.intersection(&rest).cloned().collect();
+        }
+        out.insert(node);
+        out
+    }
+    /// Calculate the common ancestor that's farthest from the root
+    ///
+    /// TODO: this is very inefficient. A wavefront-style search would be
+    /// much faster, since it wouldn't need to find every ancestor of every
+    /// node.
+    fn least_common_ancestor(&self, nodes: &BTreeSet<Node>) -> Option<Node> {
+        let mut iter = nodes.iter().map(|n| self.common_ancestors(*n));
+        let mut out = iter.next()?;
+        for rest in iter {
+            out = out.intersection(&rest).cloned().collect();
+        }
+        out.iter()
+            .max_by_key(|n| self.rank.get(n).unwrap().root_max)
+            .cloned()
     }
 }
