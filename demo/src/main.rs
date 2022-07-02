@@ -1,5 +1,5 @@
 use clap::Parser;
-use jitfive::{Context, Program};
+use jitfive::{compiler::Compiler, context::Context, program::Program};
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, node) = Context::from_text(&mut file)?;
 
-    let compiler = jitfive::Compiler::new(&ctx, node);
+    let compiler = Compiler::new(&ctx, node);
     let prog = Program::from_compiler(&compiler);
 
     if let Some(dot) = args.dot {

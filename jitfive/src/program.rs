@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use indoc::formatdoc;
+use indoc::{formatdoc, writedoc};
 
 use crate::{
     compiler::Compiler,
@@ -129,13 +129,55 @@ impl Instruction {
             Self::Cond(..) => (),
         }
     }
+    /// Returns an interator over registers used in this instruction (both as
+    /// inputs and outputs). Returns nothing for [Instruction::Cond].
+    ///
+    /// ```
+    /// # use jitfive::program::{Instruction, RegIndex};
+    /// let i = Instruction::Neg { reg: 0.into(), out: 1.into() };
+    /// let mut iter = i.iter_regs();
+    /// assert_eq!(iter.next(), Some(1.into()));
+    /// assert_eq!(iter.next(), Some(0.into()));
+    /// assert_eq!(iter.next(), None);
+    /// ```
+    pub fn iter_regs(&self) -> impl Iterator<Item = RegIndex> {
+        let out = match self {
+            Self::Var { out, .. } | Self::Const { out, .. } => {
+                [Some(*out), None, None]
+            }
+            Self::Add { lhs, rhs, out }
+            | Self::Mul { lhs, rhs, out }
+            | Self::Min { lhs, rhs, out, .. }
+            | Self::Max { lhs, rhs, out, .. } => {
+                [Some(*out), Some(*lhs), Some(*rhs)]
+            }
+            Self::Neg { reg, out }
+            | Self::Abs { reg, out }
+            | Self::Recip { reg, out }
+            | Self::Sqrt { reg, out }
+            | Self::Sin { reg, out }
+            | Self::Cos { reg, out }
+            | Self::Tan { reg, out }
+            | Self::Asin { reg, out }
+            | Self::Acos { reg, out }
+            | Self::Atan { reg, out }
+            | Self::Exp { reg, out }
+            | Self::Ln { reg, out } => [Some(*out), Some(*reg), None],
+            Self::Cond(..) => [None, None, None],
+        };
+        out.into_iter().filter_map(|i| i)
+    }
     fn to_metal(&self) -> Option<String> {
         let out = self.out_reg()?.0;
         Some(match self {
-            Self::Var { var, .. } => format!("v{} = vars[{}];", out, var.0),
-            Self::Const { value, .. } => format!("v{} = {};", out, value),
+            Self::Var { var, .. } => {
+                format!("v{} = t_const(vars[{}]);", out, var.0)
+            }
+            Self::Const { value, .. } => {
+                format!("v{} = t_const({});", out, value)
+            }
             Self::Mul { lhs, rhs, .. } | Self::Add { lhs, rhs, .. } => {
-                format!("v{} = {}(v{}, v{});", out, self.name(), lhs.0, rhs.0)
+                format!("v{} = t_{}(v{}, v{});", out, self.name(), lhs.0, rhs.0)
             }
             Self::Max {
                 lhs, rhs, choice, ..
@@ -147,7 +189,7 @@ impl Instruction {
                     "switch (choices[{0}]) {{
                         case LHS: v{1} = v{2}; break;
                         case RHS: v{1} = v{3}; break;
-                        default: v{1} = {4}(v{2}, v{3}); break;
+                        default: v{1} = t_{4}(v{2}, v{3}); break;
                     }}",
                     choice.0,
                     out,
@@ -233,6 +275,27 @@ impl Block {
         }
         out
     }
+    fn max_depth(&self) -> usize {
+        1 + self
+            .0
+            .iter()
+            .filter_map(|i| {
+                if let Instruction::Cond(_, b) = i {
+                    Some(b.max_depth())
+                } else {
+                    None
+                }
+            })
+            .max()
+            .unwrap_or(0)
+    }
+    fn reg_blocks(
+        &self,
+        path: &mut Vec<usize>,
+        out: BTreeMap<RegIndex, Vec<usize>>,
+    ) {
+        // TODO
+    }
 }
 
 /// Represents a choice by a `min` or `max` node.
@@ -260,9 +323,15 @@ impl Choice {
 #[derive(Debug)]
 pub struct Program {
     tape: Block,
+    root: RegIndex,
 
     /// Number of registers used during evaluation
     reg_count: usize,
+
+    /// Represents registers that must be defined in each block.
+    /// The key is a path to the block (i.e. the empty key is the root block).
+    //reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>>,
+
     /// Number of choice slots used during evaluation
     choice_count: usize,
     /// Number of variables needed for evaluation
@@ -291,12 +360,44 @@ impl Program {
             var_count: vars.len(),
             choice_count: choices.len(),
             vars: var_names,
+            root: regs.insert(c.root),
         }
     }
     pub fn write_metal<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        writeln!(w, "float hello(const device float* vars, const device Choice* choices) {{")?;
-        self.as_metal_inner(w, &self.tape, BTreeSet::default(), 4)?;
-        writeln!(w, "}}")?;
+        writedoc!(w, "
+            #include <metal_stdlib>
+
+            #define RHS 1
+            #define LHS 2
+
+            float t_mul(float a, float b) {{
+                return a * b;
+            }}
+            float t_add(float a, float b) {{
+                return a + b;
+            }}
+            float t_min(float a, float b) {{
+                return metal::fmin(a, b);
+            }}
+            float t_max(float a, float b) {{
+                return metal::fmax(a, b);
+            }}
+            float t_neg(float a) {{
+                return -a;
+            }}
+            float t_sqrt(float a) {{
+                return sqrt(a);
+            }}
+            float t_const(float a) {{
+                return a;
+            }}
+            float hello(const device float* vars, const device uint8_t* choices) {{
+        ")?;
+
+        // Disable indentation for large shaders
+        let indent = if self.tape.max_depth() > 16 { 0 } else { 4 };
+        self.as_metal_inner(w, &self.tape, BTreeSet::default(), indent)?;
+        writeln!(w, "    return v{};\n}}", self.root.0)?;
         Ok(())
     }
     fn as_metal_inner<W: Write>(
@@ -352,7 +453,12 @@ impl Program {
                 }
                 writeln!(w, ") {{")?;
                 let new_regs = parent_regs.union(&my_regs).cloned().collect();
-                self.as_metal_inner(w, next, new_regs, indent + 4)?;
+                self.as_metal_inner(
+                    w,
+                    next,
+                    new_regs,
+                    if indent > 0 { indent + 4 } else { 0 },
+                )?;
                 writeln!(w, "{:indent$}}}", "")?;
             } else {
                 panic!("Could not get out register or Cond block");

@@ -1,15 +1,10 @@
-mod compiler;
-mod context;
-mod error;
-mod eval;
-mod indexed;
-mod op;
-mod program;
-
-pub use compiler::Compiler;
-pub use context::Context;
-pub use op::Op;
-pub use program::{Instruction, Program};
+pub mod compiler;
+pub mod context;
+pub mod error;
+pub mod eval;
+pub mod indexed;
+pub mod op;
+pub mod program;
 
 #[cfg(test)]
 mod tests {
