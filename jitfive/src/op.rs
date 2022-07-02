@@ -116,7 +116,7 @@ impl Op {
 
             Op::Var(..) | Op::Const(..) => [None, None],
         };
-        out.into_iter().filter_map(|i| i)
+        out.into_iter().flatten()
     }
 
     /// Converts the given `Op` into an `Instruction`, freeing it from its

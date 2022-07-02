@@ -109,7 +109,7 @@ impl<'a> Compiler<'a> {
         // Build the hierarchical GroupId tree
         for g in self.groups.keys() {
             let parents: BTreeSet<Node> =
-                g.iter().filter_map(|s| s.node()).collect();
+                g.iter().filter_map(Source::node).collect();
             if let Some(a) = self.least_common_ancestor(&parents) {
                 self.tree
                     .entry(self.parent.get(&a).unwrap().clone())

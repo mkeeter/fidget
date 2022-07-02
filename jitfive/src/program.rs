@@ -138,7 +138,7 @@ impl Instruction {
             | Self::Ln { reg, out } => [Some(*out), Some(*reg), None],
             Self::Cond(..) => [None, None, None],
         };
-        out.into_iter().filter_map(|i| i)
+        out.into_iter().flatten()
     }
     fn to_metal(&self) -> Option<String> {
         let out = self.out_reg()?.0;
