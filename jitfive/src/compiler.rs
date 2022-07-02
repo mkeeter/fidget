@@ -275,32 +275,15 @@ impl<'a> Compiler<'a> {
         };
 
         // Recurse!
-        match self.ctx.get_op(node).unwrap() {
+        let op = self.ctx.get_op(node).unwrap();
+        match op {
             // If this node is a min/max node, then it becomes the source of
             // child nodes.
             Op::Min(a, b) | Op::Max(a, b) => {
-                self.find_groups(*a, Source::Left(node), rank);
-                self.find_groups(*b, Source::Right(node), rank);
+                self.find_groups(*a, Source::Left(node));
+                self.find_groups(*b, Source::Right(node));
             }
-            Op::Add(a, b) | Op::Mul(a, b) => {
-                self.find_groups(*a, source, rank);
-                self.find_groups(*b, source, rank);
-            }
-
-            Op::Neg(a)
-            | Op::Abs(a)
-            | Op::Recip(a)
-            | Op::Sqrt(a)
-            | Op::Sin(a)
-            | Op::Cos(a)
-            | Op::Tan(a)
-            | Op::Asin(a)
-            | Op::Acos(a)
-            | Op::Atan(a)
-            | Op::Exp(a)
-            | Op::Ln(a) => self.find_groups(*a, source, rank),
-
-            Op::Var(..) | Op::Const(..) => (),
+            _ => op.iter_children().for_each(|c| self.find_groups(c, source)),
         }
     }
 

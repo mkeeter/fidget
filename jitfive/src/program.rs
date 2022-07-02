@@ -98,39 +98,12 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    fn accumulate_regs(&self, set: &mut BTreeSet<RegIndex>) {
-        match self {
-            Self::Var { out, .. } | Self::Const { out, .. } => {
-                set.insert(*out);
-            }
-            Self::Add { lhs, rhs, out }
-            | Self::Mul { lhs, rhs, out }
-            | Self::Min { lhs, rhs, out, .. }
-            | Self::Max { lhs, rhs, out, .. } => {
-                set.insert(*out);
-                set.insert(*lhs);
-                set.insert(*rhs);
-            }
-            Self::Neg { reg, out }
-            | Self::Abs { reg, out }
-            | Self::Recip { reg, out }
-            | Self::Sqrt { reg, out }
-            | Self::Sin { reg, out }
-            | Self::Cos { reg, out }
-            | Self::Tan { reg, out }
-            | Self::Asin { reg, out }
-            | Self::Acos { reg, out }
-            | Self::Atan { reg, out }
-            | Self::Exp { reg, out }
-            | Self::Ln { reg, out } => {
-                set.insert(*reg);
-                set.insert(*out);
-            }
-            Self::Cond(..) => (),
-        }
-    }
     /// Returns an interator over registers used in this instruction (both as
-    /// inputs and outputs). Returns nothing for [Instruction::Cond].
+    /// inputs and outputs).
+    ///
+    /// The iterator is guaranteed to put the output register first.
+    ///
+    /// Returns nothing for [Instruction::Cond].
     ///
     /// ```
     /// # use jitfive::program::{Instruction, RegIndex};
@@ -210,33 +183,13 @@ impl Instruction {
             | Self::Recip { reg, .. }
             | Self::Abs { reg, .. }
             | Self::Neg { reg, .. } => {
-                format!("v{} = {}(v{});", out, self.name(), reg.0)
+                format!("v{} = t_{}(v{});", out, self.name(), reg.0)
             }
             Self::Cond(..) => return None,
         })
     }
     fn out_reg(&self) -> Option<RegIndex> {
-        match self {
-            Self::Var { out, .. }
-            | Self::Const { out, .. }
-            | Self::Add { out, .. }
-            | Self::Mul { out, .. }
-            | Self::Min { out, .. }
-            | Self::Max { out, .. }
-            | Self::Neg { out, .. }
-            | Self::Abs { out, .. }
-            | Self::Recip { out, .. }
-            | Self::Sqrt { out, .. }
-            | Self::Sin { out, .. }
-            | Self::Cos { out, .. }
-            | Self::Tan { out, .. }
-            | Self::Asin { out, .. }
-            | Self::Acos { out, .. }
-            | Self::Atan { out, .. }
-            | Self::Exp { out, .. }
-            | Self::Ln { out, .. } => Some(*out),
-            Self::Cond(..) => None,
-        }
+        self.iter_regs().next()
     }
     fn name(&self) -> &str {
         match self {
@@ -266,15 +219,6 @@ impl Instruction {
 #[derive(Debug)]
 pub struct Block(pub Vec<Instruction>);
 impl Block {
-    /// Returns a set of registers used in this block of the program,
-    /// **without** recursing into `Cond` instructions.
-    fn my_regs(&self) -> BTreeSet<RegIndex> {
-        let mut out = BTreeSet::new();
-        for r in &self.0 {
-            r.accumulate_regs(&mut out);
-        }
-        out
-    }
     fn max_depth(&self) -> usize {
         1 + self
             .0
@@ -289,12 +233,39 @@ impl Block {
             .max()
             .unwrap_or(0)
     }
+    /// Calculates the block at which each register must be defined
     fn reg_blocks(
         &self,
         path: &mut Vec<usize>,
-        out: BTreeMap<RegIndex, Vec<usize>>,
+        out: &mut BTreeMap<RegIndex, Vec<usize>>,
     ) {
-        // TODO
+        use std::collections::btree_map::Entry;
+        for (index, instruction) in self.0.iter().enumerate() {
+            for r in instruction.iter_regs() {
+                match out.entry(r) {
+                    Entry::Vacant(v) => {
+                        v.insert(path.clone());
+                    }
+                    Entry::Occupied(mut v) => {
+                        // Find the longest common prefix, which is the block
+                        // in which the register should be defined.
+                        let prefix_len = v
+                            .get()
+                            .iter()
+                            .zip(path.iter())
+                            .take_while(|(a, b)| a == b)
+                            .count();
+                        assert!(prefix_len <= v.get().len());
+                        v.get_mut().resize(prefix_len, usize::MAX);
+                    }
+                }
+            }
+            if let Instruction::Cond(_, b) = instruction {
+                path.push(index);
+                b.reg_blocks(path, out);
+                path.pop();
+            }
+        }
     }
 }
 
@@ -330,7 +301,7 @@ pub struct Program {
 
     /// Represents registers that must be defined in each block.
     /// The key is a path to the block (i.e. the empty key is the root block).
-    //reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>>,
+    reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>>,
 
     /// Number of choice slots used during evaluation
     choice_count: usize,
@@ -346,7 +317,7 @@ impl Program {
         let mut regs = IndexMap::default();
         let mut vars = IndexMap::default();
         let mut choices = IndexMap::default();
-        let tape = c.to_tape(&mut regs, &mut vars, &mut choices);
+        let tape = Block(c.to_tape(&mut regs, &mut vars, &mut choices));
 
         let var_names = vars
             .iter()
@@ -354,8 +325,19 @@ impl Program {
                 (c.ctx.get_var_by_index(*vn).unwrap().to_string(), *vi)
             })
             .collect();
+
+        // Find the root blocks of every register
+        let mut reg_blocks = BTreeMap::new();
+        tape.reg_blocks(&mut vec![], &mut reg_blocks);
+        let mut reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>> =
+            BTreeMap::new();
+        for (r, b) in reg_blocks.into_iter() {
+            reg_paths.entry(b).or_default().push(r);
+        }
+
         Self {
-            tape: Block(tape),
+            tape,
+            reg_paths,
             reg_count: regs.len(),
             var_count: vars.len(),
             choice_count: choices.len(),
@@ -386,7 +368,7 @@ impl Program {
                 return -a;
             }}
             float t_sqrt(float a) {{
-                return sqrt(a);
+                return metal::sqrt(a);
             }}
             float t_const(float a) {{
                 return a;
@@ -396,7 +378,7 @@ impl Program {
 
         // Disable indentation for large shaders
         let indent = if self.tape.max_depth() > 16 { 0 } else { 4 };
-        self.as_metal_inner(w, &self.tape, BTreeSet::default(), indent)?;
+        self.as_metal_inner(w, &self.tape, &mut vec![], indent)?;
         writeln!(w, "    return v{};\n}}", self.root.0)?;
         Ok(())
     }
@@ -404,12 +386,11 @@ impl Program {
         &self,
         w: &mut W,
         block: &Block,
-        parent_regs: BTreeSet<RegIndex>,
+        path: &mut Vec<usize>,
         indent: usize,
     ) -> std::io::Result<()> {
-        let my_regs = block.my_regs();
         let mut first = true;
-        for r in my_regs.difference(&parent_regs) {
+        for r in self.reg_paths.get(path).into_iter().flat_map(|i| i.iter()) {
             if first {
                 write!(w, "{:indent$}float ", "")?;
                 first = false;
@@ -421,12 +402,12 @@ impl Program {
         if !first {
             writeln!(w, ";")?;
         }
-        for b in &block.0 {
-            if let Some(out) = b.to_metal() {
+        for (index, instruction) in block.0.iter().enumerate() {
+            if let Some(out) = instruction.to_metal() {
                 for line in out.lines() {
                     writeln!(w, "{:indent$}{}", "", line)?;
                 }
-            } else if let Instruction::Cond(cond, next) = &b {
+            } else if let Instruction::Cond(cond, next) = &instruction {
                 write!(w, "{:indent$}if (", "")?;
                 if cond.len() > 1 {
                     let mut first = true;
@@ -452,13 +433,14 @@ impl Program {
                     )?;
                 }
                 writeln!(w, ") {{")?;
-                let new_regs = parent_regs.union(&my_regs).cloned().collect();
+                path.push(index);
                 self.as_metal_inner(
                     w,
                     next,
-                    new_regs,
+                    path,
                     if indent > 0 { indent + 4 } else { 0 },
                 )?;
+                path.pop();
                 writeln!(w, "{:indent$}}}", "")?;
             } else {
                 panic!("Could not get out register or Cond block");

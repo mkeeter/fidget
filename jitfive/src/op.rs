@@ -95,6 +95,30 @@ impl Op {
         }
     }
 
+    pub fn iter_children(&self) -> impl Iterator<Item = Node> {
+        let out = match self {
+            Op::Min(a, b) | Op::Max(a, b) | Op::Add(a, b) | Op::Mul(a, b) => {
+                [Some(*a), Some(*b)]
+            }
+
+            Op::Neg(a)
+            | Op::Abs(a)
+            | Op::Recip(a)
+            | Op::Sqrt(a)
+            | Op::Sin(a)
+            | Op::Cos(a)
+            | Op::Tan(a)
+            | Op::Asin(a)
+            | Op::Acos(a)
+            | Op::Atan(a)
+            | Op::Exp(a)
+            | Op::Ln(a) => [Some(*a), None],
+
+            Op::Var(..) | Op::Const(..) => [None, None],
+        };
+        out.into_iter().filter_map(|i| i)
+    }
+
     /// Converts the given `Op` into an `Instruction`, freeing it from its
     /// parent context.
     ///
