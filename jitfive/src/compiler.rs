@@ -30,6 +30,29 @@ impl Source {
     }
 }
 
+/// Various node ranks, grouped for convenience
+pub struct Rank {
+    /// Minimum distance to the root (the root has value 0)
+    root_min: usize,
+    /// Maximum distance to the root (the root has value 0)
+    root_max: usize,
+    /// Minimum distance to a leaf (constants and vars have value 0)
+    leaf_min: usize,
+    /// Maximum distance to a leaf (constants and vars have value 0)
+    leaf_max: usize,
+}
+
+impl Default for Rank {
+    fn default() -> Self {
+        Rank {
+            root_min: usize::MAX,
+            root_max: 0,
+            leaf_min: usize::MAX,
+            leaf_max: 0,
+        }
+    }
+}
+
 /// Groups are uniquely identified by a set of `Source` nodes
 type GroupId = BTreeSet<Source>;
 
@@ -44,10 +67,10 @@ pub struct Compiler<'a> {
     /// The parent group of the given group.
     tree: BTreeMap<GroupId, Vec<GroupId>>,
 
-    /// Maximum distance from the root of the tree; the root has rank 0
-    rank: BTreeMap<Node, usize>,
+    /// Node ranks of various flavors
+    rank: BTreeMap<Node, Rank>,
 
-    /// Minimum rank in a particular group
+    /// Group ranks, which are `min(root_max)` within the group
     group_rank: BTreeMap<GroupId, usize>,
 }
 
@@ -67,7 +90,8 @@ impl<'a> Compiler<'a> {
     }
 
     fn initialize(&mut self) {
-        self.find_groups(self.root, Source::Root, 0);
+        self.find_ranks(self.root, 0);
+        self.find_groups(self.root, Source::Root);
 
         // Any group which includes the root will _always_ be evaluated, so
         // reset it to just contain `Source::Root`
@@ -115,7 +139,7 @@ impl<'a> Compiler<'a> {
         if let Some(nodes) = self.groups.get(s) {
             let node_min_rank = nodes
                 .iter()
-                .map(|n| *self.rank.get(n).unwrap())
+                .map(|n| self.rank.get(n).unwrap().root_max)
                 .min()
                 .unwrap_or(usize::MAX);
             min_rank = min_rank.min(node_min_rank);
@@ -163,8 +187,8 @@ impl<'a> Compiler<'a> {
             )
             .collect();
         targets.sort_by_key(|t| match t {
-            Target::Node(n) => self.rank.get(n).unwrap(),
-            Target::Group(g) => self.group_rank.get(g).unwrap(),
+            Target::Node(n) => self.rank.get(n).unwrap().root_max,
+            Target::Group(g) => *self.group_rank.get(g).unwrap(),
         });
         let mut out = vec![];
         for t in targets.iter().rev() {
@@ -247,11 +271,38 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn find_groups(&mut self, node: Node, source: Source, rank: usize) {
-        let r = self.rank.entry(node).or_insert(rank);
-        *r = rank.max(*r);
-        let rank = rank + 1;
+    fn find_ranks(&mut self, node: Node, root_rank: usize) {
+        let e = self.rank.entry(node).or_default();
+        e.root_max = e.root_max.max(root_rank);
+        e.root_min = e.root_min.min(root_rank);
 
+        let op = self.ctx.get_op(node).unwrap();
+        for i in op.iter_children() {
+            self.find_ranks(i, root_rank + 1);
+        }
+
+        let (leaf_min, leaf_max) = if matches!(op, Op::Const(..) | Op::Var(..))
+        {
+            (0, 0)
+        } else {
+            let leaf_min = op
+                .iter_children()
+                .map(|i| self.rank.get(&i).unwrap().leaf_min)
+                .min()
+                .unwrap();
+            let leaf_max = op
+                .iter_children()
+                .map(|i| self.rank.get(&i).unwrap().leaf_max)
+                .max()
+                .unwrap();
+            (leaf_min + 1, leaf_max + 1)
+        };
+        let e = self.rank.entry(node).or_default();
+        e.leaf_min = leaf_min;
+        e.leaf_max = leaf_max;
+    }
+
+    fn find_groups(&mut self, node: Node, source: Source) {
         // Update this node's parents
         let c = self.parent.entry(node).or_default();
         match source {
@@ -352,7 +403,7 @@ impl<'a> Compiler<'a> {
         for (i, n) in parents.iter().enumerate() {
             match n.node() {
                 Some(n) => {
-                    let rank = *self.rank.get(&n).unwrap();
+                    let rank = self.rank.get(&n).unwrap().root_max;
                     // Using a BTreeSet as a de-facto priority queue. Normally, you'd
                     // be tempted to reach for BinaryHeap, but that doesn't provide
                     // deduplication.
@@ -388,7 +439,7 @@ impl<'a> Compiler<'a> {
             let sources = self.parent.get(&node).unwrap();
             for n in sources {
                 if let Some(n) = n.node() {
-                    let rank = *self.rank.get(&n).unwrap();
+                    let rank = self.rank.get(&n).unwrap().root_max;
 
                     // If this ndoe wasn't already in the group, then increment
                     // the active count and see if it's now in every group
