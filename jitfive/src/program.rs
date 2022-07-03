@@ -356,7 +356,17 @@ impl Program {
     pub fn config(&self) -> &Config {
         &self.config
     }
+
+    /// Converts the program to a Metal shader
+    pub fn to_metal(&self) -> String {
+        let mut buf = Vec::new();
+        self.write_metal(&mut buf).unwrap();
+        std::str::from_utf8(buf.as_slice()).unwrap().to_string()
+    }
+
     pub fn write_metal<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+        writeln!(w, "#define VAR_COUNT {}", self.config.var_count)?;
+        writeln!(w, "#define CHOICE_COUNT {}", self.config.choice_count)?;
         write!(w, "{}", METAL_PRELUDE_FLOAT)?;
 
         // Disable indentation for large shaders
@@ -465,19 +475,13 @@ float t_const(float a) {
 // Forward declaration
 float t_eval(const device float* vars, const device uint8_t* choices);
 
-struct Config {
-    const uint32_t var_count;
-    const uint32_t choice_count;
-};
-
-kernel void eval(const device Config& config [[buffer(0)]],
-                 const device float* vars [[buffer(1)]],
-                 const device uint8_t* choices [[buffer(2)]],
-                 device float* result [[buffer(3)]],
-                 uint index [[thread_position_in_grid]])
+kernel void main0(const device float* vars [[buffer(0)]],
+                  const device uint8_t* choices [[buffer(1)]],
+                  device float* result [[buffer(2)]],
+                  uint index [[thread_position_in_grid]])
 {
-    result[index] = t_eval(&vars[index * config.var_count],
-                           &choices[index * config.var_count]);
+    result[index] = t_eval(&vars[index * VAR_COUNT],
+                           &choices[index * CHOICE_COUNT]);
 }
 
 float t_eval(const device float* vars, const device uint8_t* choices) {

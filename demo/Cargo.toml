@@ -9,3 +9,4 @@ edition = "2021"
 jitfive = { path = "../jitfive" }
 clap = { version = "3.2.6", features = ["derive"] }
 image = { version = "0.24", default-features = false, features = ["png"] }
+piet-gpu-hal = { git = "https://github.com/linebender/piet-gpu" }
