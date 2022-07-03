@@ -521,12 +521,8 @@ impl Program {
             BTreeMap::new();
         self.to_metal_inner(&self.tape, &mut vec![], &mut functions);
 
-        out += "// Forward declarations\n";
-        for f in functions.values() {
-            out += &format!("{};\n", f.declaration());
-        }
         out += "\n// Function definitions\n";
-        for f in functions.values() {
+        for f in functions.values().rev() {
             out += &format!("{} {{\n{}}}\n", f.declaration(), f.body);
         }
         out += "\n";
@@ -664,3 +660,12 @@ kernel void main0(const device float* vars [[buffer(0)]],
                            &choices[index * CHOICE_COUNT]);
 }
 "#;
+
+// TODO:
+/*
+#define VC const device float* vars, const device uint8_t* choices
+#define IF inline float
+#define IV inline void
+#define CF const float
+#define TF thread float&
+*/

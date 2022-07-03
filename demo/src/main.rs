@@ -102,7 +102,7 @@ mod gpu {
 
             let mut vars = vec![];
             for x in 0..size {
-                let x = 1.2 - ((x as f32) / (size - 1) as f32) * 2.0;
+                let x = 1.0 - ((x as f32) / (size - 1) as f32) * 2.0;
                 for y in 0..size {
                     let y = ((y as f32) / (size - 1) as f32) * 2.0 - 1.0;
                     // TODO order
