@@ -1,7 +1,6 @@
 pub mod compiler;
 pub mod context;
 pub mod error;
-pub mod eval;
 pub mod indexed;
 pub mod op;
 pub mod program;

@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::Write;
 
-use indoc::{formatdoc, writedoc};
+use indoc::formatdoc;
 
 use crate::{
     compiler::Compiler,
@@ -287,6 +287,21 @@ impl Choice {
     }
 }
 
+/// Represents configuration for a generated program
+#[derive(Debug)]
+pub struct Config {
+    /// Number of registers used during evaluation
+    pub reg_count: usize,
+
+    /// Number of choice slots used during evaluation
+    pub choice_count: usize,
+    /// Number of variables needed for evaluation
+    pub var_count: usize,
+
+    /// Map of variable names to indexes (in the range `0..var_count`)
+    pub vars: BTreeMap<String, VarIndex>,
+}
+
 /// Represents a program that can be evaluated or converted to a new form.
 ///
 /// Note that such a block is divorced from the generating `Context`, and
@@ -296,20 +311,11 @@ pub struct Program {
     tape: Block,
     root: RegIndex,
 
-    /// Number of registers used during evaluation
-    reg_count: usize,
-
     /// Represents registers that must be defined in each block.
     /// The key is a path to the block (i.e. the empty key is the root block).
     reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>>,
 
-    /// Number of choice slots used during evaluation
-    choice_count: usize,
-    /// Number of variables needed for evaluation
-    var_count: usize,
-
-    /// Map of variable names to indexes (in the range `0..var_count`)
-    vars: BTreeMap<String, VarIndex>,
+    config: Config,
 }
 
 impl Program {
@@ -338,43 +344,20 @@ impl Program {
         Self {
             tape,
             reg_paths,
-            reg_count: regs.len(),
-            var_count: vars.len(),
-            choice_count: choices.len(),
-            vars: var_names,
+            config: Config {
+                reg_count: regs.len(),
+                var_count: vars.len(),
+                choice_count: choices.len(),
+                vars: var_names,
+            },
             root: regs.insert(c.root),
         }
     }
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
     pub fn write_metal<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        writedoc!(w, "
-            #include <metal_stdlib>
-
-            #define RHS 1
-            #define LHS 2
-
-            float t_mul(float a, float b) {{
-                return a * b;
-            }}
-            float t_add(float a, float b) {{
-                return a + b;
-            }}
-            float t_min(float a, float b) {{
-                return metal::fmin(a, b);
-            }}
-            float t_max(float a, float b) {{
-                return metal::fmax(a, b);
-            }}
-            float t_neg(float a) {{
-                return -a;
-            }}
-            float t_sqrt(float a) {{
-                return metal::sqrt(a);
-            }}
-            float t_const(float a) {{
-                return a;
-            }}
-            float hello(const device float* vars, const device uint8_t* choices) {{
-        ")?;
+        write!(w, "{}", METAL_PRELUDE_FLOAT)?;
 
         // Disable indentation for large shaders
         let indent = if self.tape.max_depth() > 16 { 0 } else { 4 };
@@ -449,3 +432,53 @@ impl Program {
         Ok(())
     }
 }
+
+const METAL_PRELUDE_FLOAT: &'static str = r#"\
+#include <metal_stdlib>
+
+#define RHS 1
+#define LHS 2
+
+// Shapes
+float t_mul(float a, float b) {
+    return a * b;
+}
+float t_add(float a, float b) {
+    return a + b;
+}
+float t_min(float a, float b) {
+    return metal::fmin(a, b);
+}
+float t_max(float a, float b) {
+    return metal::fmax(a, b);
+}
+float t_neg(float a) {
+    return -a;
+}
+float t_sqrt(float a) {
+    return metal::sqrt(a);
+}
+float t_const(float a) {
+    return a;
+}
+
+// Forward declaration
+float t_eval(const device float* vars, const device uint8_t* choices);
+
+struct Config {
+    const uint32_t var_count;
+    const uint32_t choice_count;
+};
+
+kernel void eval(const device Config& config [[buffer(0)]],
+                 const device float* vars [[buffer(1)]],
+                 const device uint8_t* choices [[buffer(2)]],
+                 device float* result [[buffer(3)]],
+                 uint index [[thread_position_in_grid]])
+{
+    result[index] = t_eval(&vars[index * config.var_count],
+                           &choices[index * config.var_count]);
+}
+
+float t_eval(const device float* vars, const device uint8_t* choices) {
+"#;

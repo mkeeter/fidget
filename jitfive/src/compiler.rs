@@ -108,8 +108,7 @@ impl<'a> Compiler<'a> {
 
         // Build the hierarchical GroupId tree
         for g in self.groups.keys() {
-            let parents: BTreeSet<Node> =
-                g.iter().filter_map(Source::node).collect();
+            let parents = g.iter().filter_map(Source::node).collect();
             if let Some(a) = self.least_common_ancestor(&parents) {
                 self.tree
                     .entry(self.parent.get(&a).unwrap().clone())
@@ -465,21 +464,8 @@ impl<'a> Compiler<'a> {
     }
     */
 
-    /// Finds every node which is an ancestor (closer to the root) of the
-    /// given node, including itself.
-    fn ancestors(&self, node: Node) -> BTreeSet<Node> {
-        let mut out = BTreeSet::new();
-        self.ancestors_inner(node, &mut out);
-        out
-    }
-    fn ancestors_inner(&self, node: Node, out: &mut BTreeSet<Node>) {
-        out.insert(node);
-        for source in self.parent.get(&node).unwrap() {
-            if let Some(n) = source.node() {
-                self.ancestors_inner(n, out);
-            }
-        }
-    }
+    /// Finds every node which is a common ancestor (i.e. on the path from
+    /// all sources of this node to the root).
     fn common_ancestors(&self, node: Node) -> BTreeSet<Node> {
         let mut iter = self
             .parent
