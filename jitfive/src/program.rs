@@ -158,16 +158,12 @@ impl Instruction {
                 lhs, rhs, choice, ..
             } => {
                 formatdoc!(
-                    "switch (choices[{0}]) {{
-                        case LHS: v{1} = v{2}; break;
-                        case RHS: v{1} = v{3}; break;
-                        default: v{1} = t_{4}(v{2}, v{3}); break;
-                    }}",
-                    choice.0,
+                    "v{} = t_{}(choices[{}], v{}, v{});",
                     out,
+                    self.name(),
+                    choice.0,
                     lhs.0,
                     rhs.0,
-                    self.name(),
                 )
             }
             Self::Ln { reg, .. }
@@ -627,25 +623,33 @@ const METAL_PRELUDE_FLOAT: &str = r#"
 #define LHS 2
 
 // Shapes
-inline float t_mul(float a, float b) {
+inline float t_mul(const float a, const float b) {
     return a * b;
 }
-inline float t_add(float a, float b) {
+inline float t_add(const float a, const float b) {
     return a + b;
 }
-inline float t_min(float a, float b) {
-    return metal::fmin(a, b);
+inline float t_min(const uint8_t choice, const float a, const float b) {
+    switch (choice) {
+        case LHS: return a;
+        case RHS: return b;
+        default: return metal::fmin(a, b);
+    }
 }
-inline float t_max(float a, float b) {
-    return metal::fmax(a, b);
+inline float t_max(const uint8_t choice, const float a, const float b) {
+    switch (choice) {
+        case LHS: return a;
+        case RHS: return b;
+        default: return metal::fmax(a, b);
+    }
 }
-inline float t_neg(float a) {
+inline float t_neg(const float a) {
     return -a;
 }
-inline float t_sqrt(float a) {
+inline float t_sqrt(const float a) {
     return metal::sqrt(a);
 }
-inline float t_const(float a) {
+inline float t_const(const float a) {
     return a;
 }
 "#;
