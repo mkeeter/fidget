@@ -1,5 +1,4 @@
-use std::collections::BTreeMap;
-use std::io::Write;
+use std::collections::{BTreeMap, BTreeSet};
 
 use indoc::formatdoc;
 
@@ -217,30 +216,126 @@ impl Instruction {
 }
 
 #[derive(Debug)]
-pub struct Block(pub Vec<Instruction>);
+pub struct Block {
+    tape: Vec<Instruction>,
+
+    /// Registers which are sourced externally to this block and unmodified
+    inputs: BTreeSet<RegIndex>,
+    /// Registers which are sourced externally to this block and modified
+    outputs: BTreeSet<RegIndex>,
+    /// Registers which are only used within this block
+    locals: BTreeSet<RegIndex>,
+}
+
 impl Block {
-    fn max_depth(&self) -> usize {
-        1 + self
-            .0
-            .iter()
-            .filter_map(|i| {
-                if let Instruction::Cond(_, b) = i {
-                    Some(b.max_depth())
-                } else {
-                    None
-                }
-            })
-            .max()
-            .unwrap_or(0)
+    /// Returns an inner block, with `inputs` / `outputs` / `locals`
+    /// uninitialized.
+    ///
+    /// This should be stored within a higher-level tape that is passed into
+    /// `Block::new` for finalization.
+    pub fn inner(tape: Vec<Instruction>) -> Self {
+        Self {
+            tape,
+            inputs: Default::default(),
+            outputs: Default::default(),
+            locals: Default::default(),
+        }
     }
-    /// Calculates the block at which each register must be defined
+    /// Builds a top-level `Block` from the given instruction tape.
+    fn new(tape: Vec<Instruction>) -> Self {
+        let mut out = Self {
+            tape,
+            inputs: Default::default(),
+            outputs: Default::default(),
+            locals: Default::default(),
+        };
+        // Find the root blocks of every register
+        let mut reg_blocks = BTreeMap::new();
+        out.reg_blocks(&mut vec![], &mut reg_blocks);
+
+        // Turn that data inside out and store the registers at each root block
+        let mut reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>> =
+            BTreeMap::new();
+        for (r, b) in reg_blocks.iter() {
+            reg_paths.entry(b.to_vec()).or_default().push(*r);
+        }
+
+        // Recurse down the tree, saving local registers for each block
+        out.populate_locals(&mut vec![], &reg_paths);
+
+        // Store input and output registers at each block
+        out.populate_io();
+
+        // The root tape should have all local variables
+        assert!(out.inputs.is_empty());
+        assert!(out.outputs.is_empty());
+
+        out
+    }
+
+    /// Populates `self.locals` recursively from the root of the tree.
+    fn populate_locals(
+        &mut self,
+        path: &mut Vec<usize>,
+        reg_paths: &BTreeMap<Vec<usize>, Vec<RegIndex>>,
+    ) {
+        self.locals
+            .extend(reg_paths.get(path).into_iter().flat_map(|i| i.iter()));
+        for (index, instruction) in self.tape.iter_mut().enumerate() {
+            if let Instruction::Cond(_, b) = instruction {
+                path.push(index);
+                b.populate_locals(path, reg_paths);
+                path.pop();
+            }
+        }
+    }
+
+    /// Populates `self.inputs`, `self.outputs`, and `self.locals`
+    fn populate_io(&mut self) {
+        for instruction in self.tape.iter_mut() {
+            // Store registers
+            for (r, out) in instruction
+                .iter_regs()
+                .zip(std::iter::once(true).chain(std::iter::repeat(false)))
+            {
+                if self.locals.contains(&r) {
+                    // Nothing to do here
+                } else if out {
+                    self.outputs.insert(r);
+                } else {
+                    self.inputs.insert(r);
+                }
+            }
+            // Recurse into condition blocks
+            if let Instruction::Cond(_, b) = instruction {
+                b.populate_io();
+
+                // We forward IO from children blocks, excluding registers
+                // which are local to this block.
+                self.inputs.extend(b.inputs.difference(&self.locals));
+                self.outputs.extend(b.outputs.difference(&self.locals));
+            }
+        }
+        // Remove outputs from input set. It's possible for one register
+        // to be defined in both sets, if it's assigned in this block then
+        // used in both this block and outside of this block.
+        self.inputs = self.inputs.difference(&self.outputs).cloned().collect();
+
+        assert!(self.inputs.intersection(&self.locals).next().is_none());
+        assert!(self.outputs.intersection(&self.locals).next().is_none());
+        assert!(self.inputs.intersection(&self.outputs).next().is_none());
+    }
+
+    /// Calculates the block at which each register must be defined.
+    ///
+    /// Blocks are given as addresses from the root block.
     fn reg_blocks(
         &self,
         path: &mut Vec<usize>,
         out: &mut BTreeMap<RegIndex, Vec<usize>>,
     ) {
         use std::collections::btree_map::Entry;
-        for (index, instruction) in self.0.iter().enumerate() {
+        for (index, instruction) in self.tape.iter().enumerate() {
             for r in instruction.iter_regs() {
                 match out.entry(r) {
                     Entry::Vacant(v) => {
@@ -306,16 +401,76 @@ pub struct Config {
 ///
 /// Note that such a block is divorced from the generating `Context`, and
 /// can be processed independantly.
+///
+/// The program is in SSA form, i.e. each register is only assigned to once.
 #[derive(Debug)]
 pub struct Program {
     tape: Block,
     root: RegIndex,
-
-    /// Represents registers that must be defined in each block.
-    /// The key is a path to the block (i.e. the empty key is the root block).
-    reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>>,
-
     config: Config,
+}
+
+/// A generated function.
+///
+/// The opening of the function is omitted but can be reconstructed
+/// from the index, inputs, and outputs.
+struct MetalFunction {
+    index: usize,
+    body: String,
+    root: bool,
+    /// Registers which are sourced externally to this block and unmodified
+    inputs: BTreeSet<RegIndex>,
+    /// Registers which are sourced externally to this block and modified
+    outputs: BTreeSet<RegIndex>,
+}
+
+impl MetalFunction {
+    fn declaration(&self) -> String {
+        let mut out = String::new();
+        out += &formatdoc!(
+            "
+            inline {} t_shape_{}(
+                const device float* vars, const device uint8_t* choices",
+            if self.root { "float" } else { "void" },
+            self.index
+        );
+        let mut first = true;
+        for i in &self.inputs {
+            if first {
+                out += ",\n    ";
+            } else {
+                out += ", ";
+            }
+            first = false;
+            out += &format!("const float v{}", i.0);
+        }
+        let mut first = true;
+        for i in &self.outputs {
+            if first {
+                out += ",\n    ";
+            } else {
+                out += ", ";
+            }
+            first = false;
+            out += &format!("thread float& v{}", i.0);
+        }
+        out += "\n)";
+        out
+    }
+    /// Generates text to call a function
+    fn call(&self) -> String {
+        let mut out = String::new();
+        out += &format!("t_shape_{}(vars, choices", self.index);
+
+        for i in &self.inputs {
+            out += &format!(", v{}", i.0);
+        }
+        for i in &self.outputs {
+            out += &format!(", v{}", i.0);
+        }
+        out += ");";
+        out
+    }
 }
 
 impl Program {
@@ -323,7 +478,7 @@ impl Program {
         let mut regs = IndexMap::default();
         let mut vars = IndexMap::default();
         let mut choices = IndexMap::default();
-        let tape = Block(c.to_tape(&mut regs, &mut vars, &mut choices));
+        let tape = Block::new(c.to_tape(&mut regs, &mut vars, &mut choices));
 
         let var_names = vars
             .iter()
@@ -332,18 +487,8 @@ impl Program {
             })
             .collect();
 
-        // Find the root blocks of every register
-        let mut reg_blocks = BTreeMap::new();
-        tape.reg_blocks(&mut vec![], &mut reg_blocks);
-        let mut reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>> =
-            BTreeMap::new();
-        for (r, b) in reg_blocks.into_iter() {
-            reg_paths.entry(b).or_default().push(r);
-        }
-
         Self {
             tape,
-            reg_paths,
             config: Config {
                 reg_count: regs.len(),
                 var_count: vars.len(),
@@ -359,122 +504,157 @@ impl Program {
 
     /// Converts the program to a Metal shader
     pub fn to_metal(&self) -> String {
-        let mut buf = Vec::new();
-        self.write_metal(&mut buf).unwrap();
-        std::str::from_utf8(buf.as_slice()).unwrap().to_string()
+        let mut out = formatdoc!(
+            "
+            #define VAR_COUNT {}
+            #define CHOICE_COUNT {}
+
+            {}
+            ",
+            self.config.var_count,
+            self.config.choice_count,
+            METAL_PRELUDE_FLOAT
+        );
+
+        // Global map from block paths to (function index, body)
+        let mut functions: BTreeMap<Vec<usize>, MetalFunction> =
+            BTreeMap::new();
+        self.to_metal_inner(&self.tape, &mut vec![], &mut functions);
+
+        out += "// Forward declarations\n";
+        for f in functions.values() {
+            out += &format!("{};\n", f.declaration());
+        }
+        out += "\n// Function definitions\n";
+        for f in functions.values() {
+            out += &format!("{} {{\n{}}}\n", f.declaration(), f.body);
+        }
+        out += "\n";
+        out += &formatdoc!(
+            "
+        // Root function
+        inline float t_eval(const device float* vars,
+                            const device uint8_t* choices)
+        {{
+            return t_shape_{}(vars, choices);
+        }}",
+            functions.get(&vec![]).unwrap().index
+        );
+        out += METAL_KERNEL_FLOAT;
+        out
     }
 
-    pub fn write_metal<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        writeln!(w, "#define VAR_COUNT {}", self.config.var_count)?;
-        writeln!(w, "#define CHOICE_COUNT {}", self.config.choice_count)?;
-        write!(w, "{}", METAL_PRELUDE_FLOAT)?;
-
-        // Disable indentation for large shaders
-        let indent = if self.tape.max_depth() > 16 { 0 } else { 4 };
-        self.as_metal_inner(w, &self.tape, &mut vec![], indent)?;
-        writeln!(w, "    return v{};\n}}", self.root.0)?;
-        Ok(())
-    }
-    fn as_metal_inner<W: Write>(
+    fn to_metal_inner(
         &self,
-        w: &mut W,
         block: &Block,
         path: &mut Vec<usize>,
-        indent: usize,
-    ) -> std::io::Result<()> {
+        functions: &mut BTreeMap<Vec<usize>, MetalFunction>,
+    ) {
         let mut first = true;
-        for r in self.reg_paths.get(path).into_iter().flat_map(|i| i.iter()) {
+        let mut out = String::new();
+        for r in block.locals.iter() {
             if first {
-                write!(w, "{:indent$}float ", "")?;
+                out += "    float ";
                 first = false;
             } else {
-                write!(w, ", ")?;
+                out += ", ";
             }
-            write!(w, "v{}", r.0)?;
+            out += &format!("v{}", r.0);
         }
         if !first {
-            writeln!(w, ";")?;
+            out += ";\n"
         }
-        for (index, instruction) in block.0.iter().enumerate() {
-            if let Some(out) = instruction.to_metal() {
-                for line in out.lines() {
-                    writeln!(w, "{:indent$}{}", "", line)?;
+        for (index, instruction) in block.tape.iter().enumerate() {
+            if let Some(i) = instruction.to_metal() {
+                for line in i.lines() {
+                    out += &format!("    {}\n", line);
                 }
             } else if let Instruction::Cond(cond, next) = &instruction {
-                write!(w, "{:indent$}if (", "")?;
+                // Recurse!
+                path.push(index);
+                self.to_metal_inner(next, path, functions);
+                let f = functions.get(path).unwrap();
+                path.pop();
+
+                // Write out the conditional, calling the inner function
+                out += "    if (";
                 if cond.len() > 1 {
                     let mut first = true;
                     for c in cond {
                         if first {
                             first = false;
                         } else {
-                            write!(w, " || ")?;
+                            out += " || ";
                         }
-                        write!(
-                            w,
+                        out += &format!(
                             "(choices[{}] & {})",
                             c.0 .0,
                             c.1.to_metal()
-                        )?;
+                        );
                     }
                 } else {
-                    write!(
-                        w,
+                    out += &format!(
                         "choices[{}] & {}",
                         cond[0].0 .0,
                         cond[0].1.to_metal()
-                    )?;
+                    );
                 }
-                writeln!(w, ") {{")?;
-                path.push(index);
-                self.as_metal_inner(
-                    w,
-                    next,
-                    path,
-                    if indent > 0 { indent + 4 } else { 0 },
-                )?;
-                path.pop();
-                writeln!(w, "{:indent$}}}", "")?;
+                out += ") {\n        ";
+                out += &f.call();
+                out += "\n    }\n";
             } else {
                 panic!("Could not get out register or Cond block");
             }
         }
-        Ok(())
+        let i = functions.len();
+        let root = path.is_empty();
+        if root {
+            out += &format!("    return v{};\n", self.root.0);
+        }
+        functions.insert(
+            path.clone(),
+            MetalFunction {
+                index: i,
+                body: out,
+                root,
+                inputs: block.inputs.clone(),
+                outputs: block.outputs.clone(),
+            },
+        );
     }
 }
 
-const METAL_PRELUDE_FLOAT: &'static str = r#"\
+const METAL_PRELUDE_FLOAT: &str = r#"
 #include <metal_stdlib>
 
 #define RHS 1
 #define LHS 2
 
 // Shapes
-float t_mul(float a, float b) {
+inline float t_mul(float a, float b) {
     return a * b;
 }
-float t_add(float a, float b) {
+inline float t_add(float a, float b) {
     return a + b;
 }
-float t_min(float a, float b) {
+inline float t_min(float a, float b) {
     return metal::fmin(a, b);
 }
-float t_max(float a, float b) {
+inline float t_max(float a, float b) {
     return metal::fmax(a, b);
 }
-float t_neg(float a) {
+inline float t_neg(float a) {
     return -a;
 }
-float t_sqrt(float a) {
+inline float t_sqrt(float a) {
     return metal::sqrt(a);
 }
-float t_const(float a) {
+inline float t_const(float a) {
     return a;
 }
+"#;
 
-// Forward declaration
-float t_eval(const device float* vars, const device uint8_t* choices);
-
+const METAL_KERNEL_FLOAT: &str = r#"
 kernel void main0(const device float* vars [[buffer(0)]],
                   const device uint8_t* choices [[buffer(1)]],
                   device float* result [[buffer(2)]],
@@ -483,6 +663,4 @@ kernel void main0(const device float* vars [[buffer(0)]],
     result[index] = t_eval(&vars[index * VAR_COUNT],
                            &choices[index * CHOICE_COUNT]);
 }
-
-float t_eval(const device float* vars, const device uint8_t* choices) {
 "#;

@@ -3,3 +3,5 @@ members = [
     "jitfive",
     "demo",
 ]
+[profile.release]
+debug = true

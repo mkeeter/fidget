@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use clap::Parser;
 use jitfive::{compiler::Compiler, context::Context, program::Program};
 
@@ -30,20 +32,26 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, node) = Context::from_text(&mut file)?;
+    println!("Loaded file in {:?}", now.elapsed());
 
+    let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);
+    println!("Build Compiler in {:?}", now.elapsed());
+
+    let now = Instant::now();
     let prog = Program::from_compiler(&compiler);
+    println!("Built Program in {:?}", now.elapsed());
 
     if let Some(dot) = args.dot {
         let mut out = std::fs::File::create(dot)?;
         compiler.write_dot_grouped(&mut out)?;
     }
     if let Some(metal) = args.metal {
-        let mut out = std::fs::File::create(metal)?;
-        prog.write_metal(&mut out)?;
+        std::fs::write(metal, prog.to_metal())?;
     }
     if let Some(img) = args.image {
         let out = if args.gpu {
@@ -74,10 +82,13 @@ mod gpu {
     use piet_gpu_hal::{BufferUsage, Instance, InstanceFlags, Session};
 
     pub fn render(prog: &Program, size: usize) -> Vec<bool> {
+        let now = Instant::now();
         let (instance, _) =
             Instance::new(None, InstanceFlags::empty()).unwrap();
+        println!("Got instance at {:?}", now.elapsed());
 
         let shader_f = prog.to_metal();
+        println!("Got shader text at {:?}", now.elapsed());
         let cfg = prog.config();
 
         let thread_count: usize = size * size;
@@ -85,11 +96,20 @@ mod gpu {
 
         unsafe {
             let device = instance.device(None).unwrap();
+            println!("Got device at {:?}", now.elapsed());
             let session = Session::new(device);
+            println!("Got session at {:?}", now.elapsed());
 
-            let vars = std::iter::repeat(0.0)
-                .take(thread_count * cfg.var_count)
-                .collect::<Vec<f32>>();
+            let mut vars = vec![];
+            for x in 0..size {
+                let x = 1.2 - ((x as f32) / (size - 1) as f32) * 2.0;
+                for y in 0..size {
+                    let y = ((y as f32) / (size - 1) as f32) * 2.0 - 1.0;
+                    // TODO order
+                    vars.push(x);
+                    vars.push(y);
+                }
+            }
             let var_buf = session
                 .create_buffer_init(
                     &vars,
@@ -114,6 +134,7 @@ mod gpu {
                     BufferUsage::STORAGE | BufferUsage::MAP_READ,
                 )
                 .unwrap();
+            println!("Created buffers at {:?}", now.elapsed());
 
             let pipeline = session
                 .create_compute_pipeline(
@@ -125,13 +146,17 @@ mod gpu {
                     ],
                 )
                 .unwrap();
+            println!("Created pipeline at {:?}", now.elapsed());
+
             let descriptor_set = session
                 .create_simple_descriptor_set(
                     &pipeline,
                     &[&var_buf, &choice_buf, &out_buf],
                 )
                 .unwrap();
+
             let query_pool = session.create_query_pool(2).unwrap();
+
             let mut cmd_buf = session.cmd_buf().unwrap();
             cmd_buf.begin();
             cmd_buf.reset_query_pool(&query_pool);
@@ -151,8 +176,11 @@ mod gpu {
             cmd_buf.finish_timestamps(&query_pool);
             cmd_buf.host_barrier();
             cmd_buf.finish();
+
+            println!("Starting run {:?}", now.elapsed());
             let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
             submitted.wait().unwrap();
+            println!("Done at {:?}", now.elapsed());
             let timestamps = session.fetch_query_pool(&query_pool);
 
             out_buf.read(&mut dst).unwrap();

@@ -220,7 +220,9 @@ impl<'a> Compiler<'a> {
                                     _ => panic!(),
                                 })
                                 .collect(),
-                            Block(self.to_tape_inner(g, regs, vars, choices)),
+                            Block::inner(
+                                self.to_tape_inner(g, regs, vars, choices),
+                            ),
                         ))
                     }
                 }
