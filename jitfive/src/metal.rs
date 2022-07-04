@@ -36,6 +36,13 @@ pub enum Mode {
 }
 
 impl Mode {
+    fn function_prefix(&self) -> &str {
+        match self {
+            Mode::Float => "f",
+            Mode::Interval => "i",
+        }
+    }
+
     fn vars_type(&self) -> &str {
         match self {
             Mode::Float => "const device float*",
@@ -112,17 +119,17 @@ impl Function {
 impl Instruction {
     fn to_metal(&self, mode: Mode) -> Option<String> {
         let out = usize::from(self.out_reg()?);
+        let t = mode.function_prefix();
         Some(match self {
             Self::Var { var, .. } => {
-                format!("v{} = t_var(vars[{}]);", out, usize::from(*var))
+                format!("v{out} = {t}_var(vars[{}]);", usize::from(*var))
             }
             Self::Const { value, .. } => {
-                format!("v{} = t_const({});", out, value)
+                format!("v{out} = {t}_const({});", value)
             }
             Self::Mul { lhs, rhs, .. } | Self::Add { lhs, rhs, .. } => {
                 format!(
-                    "v{} = t_{}(v{}, v{});",
-                    out,
+                    "v{out} = {t}_{}(v{}, v{});",
                     self.name(),
                     usize::from(*lhs),
                     usize::from(*rhs)
@@ -135,19 +142,17 @@ impl Instruction {
                 lhs, rhs, choice, ..
             } => {
                 let mut switch = formatdoc!(
-                    "switch (choices[{0}]) {{
-                        case LHS: v{1} = v{2}; break;
-                        case RHS: v{1} = v{3}; break;
+                    "switch (choices[{}]) {{
+                        case LHS: v{out} = v{}; break;
+                        case RHS: v{out} = v{}; break;
                         default: ",
                     usize::from(*choice),
-                    out,
                     usize::from(*lhs),
                     usize::from(*rhs),
                 );
                 switch += &match mode {
                     Mode::Float => format!(
-                        "v{} = t_{}(v{}, v{}); break;",
-                        out,
+                        "v{out} = {t}_{}(v{}, v{}); break;",
                         self.name(),
                         usize::from(*lhs),
                         usize::from(*rhs)
@@ -166,7 +171,7 @@ impl Instruction {
                                 choices[{choice}] = RHS;
                                 v{out} = v{b};
                             }} else {{
-                                v{out} = t_max(v{a}, v{b});
+                                v{out} = i_max(v{a}, v{b});
                             }}
                             "
                             ),
@@ -179,7 +184,7 @@ impl Instruction {
                                 choices[{choice}] = RHS;
                                 v{out} = v{b};
                             }} else {{
-                                v{out} = t_min(v{a}, v{b});
+                                v{out} = i_min(v{a}, v{b});
                             }}
                             "
                             ),
@@ -201,7 +206,7 @@ impl Instruction {
             | Self::Recip { reg, .. }
             | Self::Abs { reg, .. }
             | Self::Neg { reg, .. } => {
-                format!("v{} = t_{}(v{});", out, self.name(), usize::from(*reg))
+                format!("v{out} = {t}_{}(v{});", self.name(), usize::from(*reg))
             }
             Self::Cond(..) => return None,
         })
@@ -213,16 +218,9 @@ impl Program {
     pub fn to_metal(&self, mode: Mode) -> String {
         let mut out = formatdoc!(
             "
-            #define VAR_COUNT {}
-            #define CHOICE_COUNT {}
             {}
             ",
-            self.config().var_count,
-            self.config().choice_count,
-            match mode {
-                Mode::Float => METAL_PRELUDE_FLOAT,
-                Mode::Interval => METAL_PRELUDE_INTERVAL,
-            }
+            METAL_PRELUDE,
         );
 
         // Global map from block paths to (function index, body)
@@ -241,16 +239,33 @@ impl Program {
                          {} choices)
         {{
             return t_shape_{}(vars, choices);
-        }}",
+        }}
+        ",
             mode.local_type(),
             mode.vars_type(),
             mode.choice_type(),
             functions.get(&vec![]).unwrap().index
         );
-        out += match mode {
-            Mode::Float => METAL_KERNEL_FLOAT,
-            Mode::Interval => METAL_KERNEL_INTERVAL,
-        };
+        out += &formatdoc!(
+            "
+            #define VAR_COUNT {}
+            #define CHOICE_COUNT {}
+
+            kernel void main0({} vars [[buffer(0)]],
+                              {} choices [[buffer(1)]],
+                              device {}* result [[buffer(2)]],
+                              uint index [[thread_position_in_grid]])
+            {{
+                result[index] = t_eval(&vars[index * VAR_COUNT],
+                                       &choices[index * CHOICE_COUNT]);
+            }}
+            ",
+            self.config().var_count,
+            self.config().choice_count,
+            mode.vars_type(),
+            mode.choice_type(),
+            mode.local_type(),
+        );
         out
     }
 
@@ -335,48 +350,42 @@ impl Program {
     }
 }
 
-const METAL_PRELUDE_FLOAT: &str = r#"
+const METAL_PRELUDE: &str = r#"
 // Prelude
 #include <metal_stdlib>
 
 #define RHS 1
 #define LHS 2
 
-inline float t_mul(const float a, const float b) {
+// Floating-point math
+inline float f_mul(const float a, const float b) {
     return a * b;
 }
-inline float t_add(const float a, const float b) {
+inline float f_add(const float a, const float b) {
     return a + b;
 }
 
-inline float t_min(const float a, const float b) {
+inline float f_min(const float a, const float b) {
     return metal::fmin(a, b);
 }
-inline float t_max(const float a, const float b) {
+inline float f_max(const float a, const float b) {
     return metal::fmax(a, b);
 }
-inline float t_neg(const float a) {
+inline float f_neg(const float a) {
     return -a;
 }
-inline float t_sqrt(const float a) {
+inline float f_sqrt(const float a) {
     return metal::sqrt(a);
 }
-inline float t_const(const float a) {
+inline float f_const(const float a) {
     return a;
 }
-inline float t_var(const float a) {
+inline float f_var(const float a) {
     return a;
 }
-"#;
 
-const METAL_PRELUDE_INTERVAL: &str = r#"
-// Interval prelude
-#include <metal_stdlib>
-
-#define RHS 1
-#define LHS 2
-
-inline float2 t_mul(const float2 a, const float2 b) {
+// Interval math
+inline float2 i_mul(const float2 a, const float2 b) {
     if (a[0] < 0.0f) {
         if (a[1] > 0.0f) {
             if (b[0] < 0.0f) {
@@ -428,19 +437,19 @@ inline float2 t_mul(const float2 a, const float2 b) {
         }
     }
 }
-inline float2 t_add(const float2 a, const float2 b) {
+inline float2 i_add(const float2 a, const float2 b) {
     return a + b;
 }
-inline float2 t_min(const float2 a, const float2 b) {
+inline float2 i_min(const float2 a, const float2 b) {
     return metal::fmin(a, b);
 }
-inline float2 t_max(const float2 a, const float2 b) {
+inline float2 i_max(const float2 a, const float2 b) {
     return metal::fmax(a, b);
 }
-inline float2 t_neg(const float2 a) {
+inline float2 i_neg(const float2 a) {
     return float2(-a[1], -a[0]);
 }
-inline float2 t_sqrt(const float2 a) {
+inline float2 i_sqrt(const float2 a) {
     if (a[1] < 0.0) {
         return float2(-1e8, 1e8); // XXX
     } else if (a[0] <= 0.0) {
@@ -449,32 +458,11 @@ inline float2 t_sqrt(const float2 a) {
         return float2(metal::sqrt(a[0]), metal::sqrt(a[1]));
     }
 }
-inline float2 t_const(const float a) {
+inline float2 i_const(const float a) {
     return float2(a, a);
 }
-inline float2 t_var(const float2 a) {
+inline float2 i_var(const float2 a) {
     return a;
-}
-"#;
-
-const METAL_KERNEL_FLOAT: &str = r#"
-kernel void main0(const device float* vars [[buffer(0)]],
-                  const device uint8_t* choices [[buffer(1)]],
-                  device float* result [[buffer(2)]],
-                  uint index [[thread_position_in_grid]])
-{
-    result[index] = t_eval(&vars[index * VAR_COUNT],
-                           &choices[index * CHOICE_COUNT]);
-}
-"#;
-const METAL_KERNEL_INTERVAL: &str = r#"
-kernel void main0(const device float2* vars [[buffer(0)]],
-                  device uint8_t* choices [[buffer(1)]],
-                  device float2* result [[buffer(2)]],
-                  uint index [[thread_position_in_grid]])
-{
-    result[index] = t_eval(&vars[index * VAR_COUNT],
-                           &choices[index * CHOICE_COUNT]);
 }
 "#;
 
