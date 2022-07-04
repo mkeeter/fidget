@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ordered-float = "3"
-thiserror = "1"
+bytemuck = { version = "1", features = ["derive"] }
 indoc = "1.0"
+ordered-float = "3"
+piet-gpu-hal = { git = "https://github.com/linebender/piet-gpu" }
+thiserror = "1"

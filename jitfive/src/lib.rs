@@ -2,6 +2,7 @@ pub mod compiler;
 pub mod context;
 pub mod error;
 pub mod indexed;
+pub mod metal;
 pub mod op;
 pub mod program;
 
