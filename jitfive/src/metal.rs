@@ -31,33 +31,33 @@ struct Function {
 /// Shader mode
 #[derive(Copy, Clone, Debug)]
 pub enum Mode {
-    Float,
+    Pixel,
     Interval,
 }
 
 impl Mode {
     fn function_prefix(&self) -> &str {
         match self {
-            Mode::Float => "f",
+            Mode::Pixel => "f",
             Mode::Interval => "i",
         }
     }
 
     fn vars_type(&self) -> &str {
         match self {
-            Mode::Float => "const device float*",
-            Mode::Interval => "const device float2*",
+            Mode::Pixel => "const thread float*",
+            Mode::Interval => "const thread float2*",
         }
     }
     fn local_type(&self) -> &str {
         match self {
-            Mode::Float => "float",
+            Mode::Pixel => "float",
             Mode::Interval => "float2",
         }
     }
     fn choice_type(&self) -> &str {
         match self {
-            Mode::Float => "const device uint8_t*",
+            Mode::Pixel => "const device uint8_t*",
             Mode::Interval => "device uint8_t*",
         }
     }
@@ -151,7 +151,7 @@ impl Instruction {
                     usize::from(*rhs),
                 );
                 switch += &match mode {
-                    Mode::Float => format!(
+                    Mode::Pixel => format!(
                         "v{out} = {t}_{}(v{}, v{}); break;",
                         self.name(),
                         usize::from(*lhs),
@@ -250,22 +250,14 @@ impl Program {
             "
             #define VAR_COUNT {}
             #define CHOICE_COUNT {}
-
-            kernel void main0({} vars [[buffer(0)]],
-                              {} choices [[buffer(1)]],
-                              device {}* result [[buffer(2)]],
-                              uint index [[thread_position_in_grid]])
-            {{
-                result[index] = t_eval(&vars[index * VAR_COUNT],
-                                       &choices[index * CHOICE_COUNT]);
-            }}
             ",
             self.config().var_count,
             self.config().choice_count,
-            mode.vars_type(),
-            mode.choice_type(),
-            mode.local_type(),
         );
+        out += match mode {
+            Mode::Interval => METAL_KERNEL_INTERVALS,
+            Mode::Pixel => METAL_KERNEL_PIXELS,
+        };
         out
     }
 
@@ -356,6 +348,15 @@ const METAL_PRELUDE: &str = r#"
 
 #define RHS 1
 #define LHS 2
+
+// This must be kept in sync with the Rust `struct RenderConfig`!
+struct RenderConfig {
+    uint32_t image_size;
+    uint32_t tile_size;
+    uint32_t var_index_x;
+    uint32_t var_index_y;
+    uint32_t var_index_z;
+};
 
 // Floating-point math
 inline float f_mul(const float a, const float b) {
@@ -466,6 +467,66 @@ inline float2 i_var(const float2 a) {
 }
 "#;
 
+const METAL_KERNEL_INTERVALS: &str = r#"
+kernel void main0({} vars [[buffer(0)]],
+                  {} choices [[buffer(1)]],
+                  device {}* result [[buffer(2)]],
+                  uint index [[thread_position_in_grid]])
+{
+    result[index] = t_eval(&vars[index * VAR_COUNT],
+                           &choices[index * CHOICE_COUNT]);
+}
+"#;
+
+const METAL_KERNEL_PIXELS: &str = r#"
+// This should be called with a 1D grid of size
+//      ((cfg.image_size / cfg.tile_size) ** 2, 1, 1)
+// and with a threadgroup size of
+//      (cfg.tile_size ** 2, 1, 1).
+kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
+                  const device uint32_t* tiles [[buffer(1)]],
+                  const device uint8_t* choices [[buffer(2)]],
+                  device uchar4* out [[buffer(3)]],
+                  uint index [[thread_position_in_grid]])
+{
+    // Calculate the corner position of this tile, in pixels
+    const uint32_t tile_index = index / (cfg.tile_size * cfg.tile_size);
+    const uint32_t tile = tiles[tile_index];
+    const uint2 tile_corner = cfg.tile_size * uint2(tile & 0xFFFF, tile >> 16);
+
+    // Calculate the offset within the tile, again in pixels
+    const uint32_t offset = index % (cfg.tile_size * cfg.tile_size);
+    const uint2 tile_offset(offset % cfg.tile_size, offset / cfg.tile_size);
+
+    // Absolute pixel position
+    const uint2 pixel = tile_corner + tile_offset;
+
+    // Early exit
+    if (pixel.x > cfg.image_size || pixel.y > cfg.image_size) {
+        //return;
+    }
+
+    // Image location (-1 to 1)
+    const float2 pos = 1.0 - float2(pixel) / float2(cfg.image_size - 1) * 2.0;
+
+    // Inject X and Y into local (thread) variables array
+    float vars[VAR_COUNT];
+    if (cfg.var_index_x < VAR_COUNT) {
+        vars[cfg.var_index_x] = pos.x;
+    }
+    if (cfg.var_index_y < VAR_COUNT) {
+        vars[cfg.var_index_y] = pos.y;
+    }
+
+    const float result =
+        t_eval(vars, &choices[tile_index * CHOICE_COUNT]);
+
+    const uint8_t v = result < 0.0 ? 0xFF : 0;
+
+    out[pixel.x + pixel.y * cfg.image_size] = uchar4(v, v, v, 255);
+}
+"#;
+
 // TODO:
 /*
 #define VC const device float* vars, const device uint8_t* choices
@@ -482,12 +543,14 @@ use piet_gpu_hal::{BindType, BufferUsage, ComputePassDescriptor, ShaderCode};
 pub struct Render {
     config: Config,
 
+    cfg_buf: piet_gpu_hal::Buffer,
+    tile_buf: piet_gpu_hal::Buffer,
+
     // Working memory
     choice_buf: piet_gpu_hal::Buffer,
-    var_buf: piet_gpu_hal::Buffer,
     out_buf: piet_gpu_hal::Buffer,
 
-    interval: piet_gpu_hal::Pipeline,
+    //interval: piet_gpu_hal::Pipeline,
     pixels: piet_gpu_hal::Pipeline,
 }
 
@@ -498,116 +561,176 @@ pub struct Render {
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, Zeroable, Pod)]
 pub struct RenderConfig {
-    pub size_pixels: u32,
-    // TODO
+    /// Total image size, in pixels.  This will be a multiple of `tile_size`.
+    pub image_size: u32,
+
+    /// Size of a render tile, in pixels
+    pub tile_size: u32,
+
+    /// Index of the X variable in `vars`, or `u32::MAX` if not present
+    pub var_index_x: u32,
+
+    /// Index of the Y variable in `vars`, or `u32::MAX` if not present
+    pub var_index_y: u32,
+
+    /// Index of the Z variable in `vars`, or `u32::MAX` if not present
+    pub var_index_z: u32,
 }
 
 impl Render {
-    pub unsafe fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
+    pub fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
+        let cfg_buf = session
+            .create_buffer(
+                std::mem::size_of::<RenderConfig>().try_into().unwrap(),
+                BufferUsage::MAP_WRITE | BufferUsage::STORAGE,
+            )
+            .unwrap();
+        let tile_buf = session
+            .create_buffer(8, BufferUsage::MAP_WRITE | BufferUsage::STORAGE)
+            .unwrap();
         let out_buf = session
             .create_buffer(8, BufferUsage::STORAGE | BufferUsage::MAP_READ)
             .unwrap();
-        let var_buf = session.create_buffer(8, BufferUsage::STORAGE).unwrap();
         let choice_buf =
             session.create_buffer(8, BufferUsage::STORAGE).unwrap();
 
-        let shader_f = prog.to_metal(Mode::Float);
-        println!("{}", shader_f);
-        let pixels = session
-            .create_compute_pipeline(
-                ShaderCode::Msl(&shader_f),
-                &[
-                    BindType::BufReadOnly,
-                    BindType::BufReadOnly, // choices
-                    BindType::Buffer,      // out
-                ],
-            )
-            .unwrap();
+        let shader_f = prog.to_metal(Mode::Pixel);
+        //let shader_i = prog.to_metal(Mode::Interval);
 
-        let shader_i = prog.to_metal(Mode::Interval);
-        println!("{}", shader_i);
-        let interval = session
-            .create_compute_pipeline(
-                ShaderCode::Msl(&shader_i),
-                &[
-                    BindType::BufReadOnly,
-                    BindType::Buffer, // choices
-                    BindType::Buffer, // out
-                ],
-            )
-            .unwrap();
+        // SAFETY: it's doing GPU stuff, so who knows?
+        let pixels = unsafe {
+            let pixels = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(&shader_f),
+                    &[
+                        BindType::BufReadOnly, // config
+                        BindType::BufReadOnly, // tiles
+                        BindType::BufReadOnly, // choices
+                        BindType::Buffer,      // out
+                    ],
+                )
+                .unwrap();
+            /* TODO
+            let interval = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(&shader_i),
+                    &[
+                        BindType::BufReadOnly,
+                        BindType::Buffer, // choices
+                        BindType::Buffer, // out
+                    ],
+                )
+                .unwrap();
+            (pixels, interval)
+            */
+            pixels
+        };
+
         Self {
             config: prog.config().clone(),
             choice_buf,
-            var_buf,
+            tile_buf,
+            cfg_buf,
             out_buf,
-            interval,
+            //interval,
             pixels,
         }
     }
-    pub unsafe fn render(
-        &mut self,
-        size: usize,
+
+    /// Sends the given data to a buffer, resizing to fit if needed
+    unsafe fn send_to_buf<T: Pod>(
         session: &piet_gpu_hal::Session,
-    ) -> Vec<bool> {
-        assert_eq!(size % 64, 0, "Size must be a multiple of 64");
-        let thread_count = size * size;
-
-        // Initialize variables
-        let mut vars: Vec<f32> = vec![];
-        for x in 0..size {
-            let x = 1.0 - ((x as f32) / (size - 1) as f32) * 2.0;
-            for y in 0..size {
-                let y = ((y as f32) / (size - 1) as f32) * 2.0 - 1.0;
-                vars.push(x);
-                vars.push(y);
-            }
-        }
-        // TODO: initialize choices and vars with a compute shader
-        if vars.len() * std::mem::size_of::<f32>()
-            > self.var_buf.size().try_into().unwrap()
+        buf: &mut piet_gpu_hal::Buffer,
+        data: &[T],
+    ) {
+        if data.len() * std::mem::size_of::<T>()
+            > buf.size().try_into().unwrap()
         {
-            self.var_buf = session
+            *buf = session
                 .create_buffer_init(
-                    &vars,
+                    data,
                     BufferUsage::MAP_WRITE | BufferUsage::STORAGE,
                 )
                 .unwrap();
         } else {
-            self.var_buf.write(&vars).unwrap();
+            buf.write(data).unwrap();
         }
-        let choices = std::iter::repeat(0b11)
-            .take(thread_count * self.config.choice_count)
-            .collect::<Vec<u8>>();
-        if choices.len() * std::mem::size_of::<u8>()
-            > self.choice_buf.size().try_into().unwrap()
-        {
-            self.choice_buf = session
-                .create_buffer_init(
-                    &choices,
-                    BufferUsage::MAP_WRITE | BufferUsage::STORAGE,
-                )
-                .unwrap();
-        } else {
-            self.choice_buf.write(&choices).unwrap();
-        }
+    }
 
-        // Resize out buffer to fit one value per thread
-        let out_buf_size =
-            u64::try_from(thread_count * std::mem::size_of::<f32>()).unwrap();
-        if out_buf_size > self.out_buf.size() {
-            self.out_buf = session
+    unsafe fn resize_to_fit<T: Pod>(
+        session: &piet_gpu_hal::Session,
+        buf: &mut piet_gpu_hal::Buffer,
+        count: usize,
+    ) {
+        let size_bytes = count * std::mem::size_of::<T>();
+        if size_bytes > buf.size().try_into().unwrap() {
+            *buf = session
                 .create_buffer(
-                    out_buf_size,
+                    size_bytes.try_into().unwrap(),
                     BufferUsage::STORAGE | BufferUsage::MAP_READ,
                 )
                 .unwrap();
         }
+    }
+
+    /// # Safety
+    /// It's doing GPU stuff, who knows?
+    pub unsafe fn render(
+        &mut self,
+        size: usize,
+        session: &piet_gpu_hal::Session,
+    ) -> Vec<[u8; 4]> {
+        let cfg = RenderConfig {
+            tile_size: 8,
+            image_size: size.try_into().unwrap(),
+            var_index_x: usize::from(self.config.vars["X"])
+                .try_into()
+                .unwrap_or(u32::MAX),
+            var_index_y: usize::from(self.config.vars["Y"])
+                .try_into()
+                .unwrap_or(u32::MAX),
+            var_index_z: u32::MAX,
+        };
+
+        self.cfg_buf.write(std::slice::from_ref(&cfg)).unwrap();
+
+        assert_eq!(
+            size % (cfg.tile_size as usize),
+            0,
+            "Size must be a multiple of tile size"
+        );
+        let group_count = (size / cfg.tile_size as usize).pow(2);
+
+        // Initialize tiles to contain every tile in the image
+        let mut tiles: Vec<u32> = vec![];
+        for x in 0..(cfg.image_size / cfg.tile_size) {
+            let x = u16::try_from(x).unwrap();
+            for y in 0..(cfg.image_size / cfg.tile_size) {
+                let y = u16::try_from(y).unwrap();
+                tiles.push((u32::from(x) << 16) | u32::from(y));
+            }
+        }
+        Self::send_to_buf(session, &mut self.tile_buf, &tiles);
+
+        // Initialize choices array. Each choice array is shared by a tile's
+        // worth of threads in the thread group.
+        let choices = std::iter::repeat(0b11)
+            .take(group_count * self.config.choice_count)
+            .collect::<Vec<u8>>();
+        Self::send_to_buf(session, &mut self.choice_buf, &choices);
+
+        // Resize out buffer to fit one `uchar4` per thread
+        Self::resize_to_fit::<[u8; 4]>(session, &mut self.out_buf, size.pow(2));
 
         let descriptor_set = session
             .create_simple_descriptor_set(
                 &self.pixels,
-                &[&self.var_buf, &self.choice_buf, &self.out_buf],
+                &[
+                    &self.cfg_buf,
+                    &self.tile_buf,
+                    &self.choice_buf,
+                    &self.out_buf,
+                ],
             )
             .unwrap();
 
@@ -623,8 +746,8 @@ impl Render {
             pass.dispatch(
                 &self.pixels,
                 &descriptor_set,
-                (u32::try_from(thread_count / 64).unwrap(), 1, 1),
-                (64, 1, 1),
+                (u32::try_from(group_count).unwrap(), 1, 1),
+                (cfg.tile_size.pow(2), 1, 1),
             );
             pass.end();
         }
@@ -637,10 +760,14 @@ impl Render {
         submitted.wait().unwrap();
         let timestamps = session.fetch_query_pool(&query_pool);
 
-        let mut dst: Vec<f32> = vec![];
+        let mut dst: Vec<[u8; 4]> = vec![];
         self.out_buf.read(&mut dst).unwrap();
         println!("{:?}", timestamps);
+        println!("dst size: {}", self.out_buf.size());
+        println!("dst len : {}", dst.len());
 
-        dst.into_iter().map(|i| i < 0.0).collect()
+        println!("{:?}\ngroup cnt {}", cfg, group_count);
+
+        dst
     }
 }

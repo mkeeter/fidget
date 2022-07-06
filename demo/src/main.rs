@@ -54,24 +54,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Some(m) = args.metal {
-        std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Float))?
+        std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Pixel))?
     }
     if let Some(img) = args.image {
-        let out = if args.gpu {
+        let buffer: Vec<[u8; 4]> = if args.gpu {
             gpu::render(&prog, args.size)
         } else {
-            ctx.render_2d(node, args.size)?
+            let out = ctx.render_2d(node, args.size)?;
+            out.into_iter()
+                .map(|b| if b { [u8::MAX; 4] } else { [0; 4] })
+                .collect()
         };
-        let buffer: Vec<u8> = out
-            .into_iter()
-            .map(|b| if b { u8::MAX } else { 0 })
-            .collect();
+
+        // Flatten into a single array
+        let buffer: Vec<u8> =
+            buffer.into_iter().flat_map(|i| i.into_iter()).collect();
+
         image::save_buffer(
             img,
             &buffer,
             args.size as u32,
             args.size as u32,
-            image::ColorType::L8,
+            image::ColorType::Rgba8,
         )?;
     }
     Ok(())
@@ -83,7 +87,7 @@ mod gpu {
     use super::*;
     use piet_gpu_hal::{Instance, InstanceFlags, Session};
 
-    pub fn render(prog: &Program, size: usize) -> Vec<bool> {
+    pub fn render(prog: &Program, size: usize) -> Vec<[u8; 4]> {
         let (instance, _) =
             Instance::new(None, InstanceFlags::empty()).unwrap();
 
