@@ -107,9 +107,10 @@ impl<'a> Compiler<'a> {
         }
 
         // Build the hierarchical GroupId tree
+        let mut cache = BTreeMap::new(); // common ancestors cache
         for g in self.groups.keys() {
             let parents = g.iter().filter_map(Source::node).collect();
-            if let Some(a) = self.least_common_ancestor(&parents) {
+            if let Some(a) = self.least_common_ancestor(&parents, &mut cache) {
                 self.tree
                     .entry(self.parent.get(&a).unwrap().clone())
                     .or_default()
@@ -468,14 +469,21 @@ impl<'a> Compiler<'a> {
 
     /// Finds every node which is a common ancestor (i.e. on the path from
     /// all sources of this node to the root).
-    fn common_ancestors(&self, node: Node) -> BTreeSet<Node> {
+    fn common_ancestors(
+        &self,
+        node: Node,
+        cache: &mut BTreeMap<Node, BTreeSet<Node>>,
+    ) -> BTreeSet<Node> {
+        if let Some(c) = cache.get(&node) {
+            return c.clone();
+        }
         let mut iter = self
             .parent
             .get(&node)
             .unwrap()
             .iter()
             .filter_map(|i| i.node())
-            .map(|i| self.common_ancestors(i));
+            .map(|i| self.common_ancestors(i, cache));
 
         let mut out = match iter.next() {
             None => return [node].into_iter().collect(),
@@ -485,6 +493,7 @@ impl<'a> Compiler<'a> {
             out = out.intersection(&rest).cloned().collect();
         }
         out.insert(node);
+        cache.insert(node, out.clone());
         out
     }
     /// Calculate the common ancestor that's farthest from the root
@@ -492,8 +501,12 @@ impl<'a> Compiler<'a> {
     /// TODO: this is very inefficient. A wavefront-style search would be
     /// much faster, since it wouldn't need to find every ancestor of every
     /// node.
-    fn least_common_ancestor(&self, nodes: &BTreeSet<Node>) -> Option<Node> {
-        let mut iter = nodes.iter().map(|n| self.common_ancestors(*n));
+    fn least_common_ancestor(
+        &self,
+        nodes: &BTreeSet<Node>,
+        cache: &mut BTreeMap<Node, BTreeSet<Node>>,
+    ) -> Option<Node> {
+        let mut iter = nodes.iter().map(|n| self.common_ancestors(*n, cache));
         let mut out = iter.next()?;
         for rest in iter {
             out = out.intersection(&rest).cloned().collect();
