@@ -498,9 +498,9 @@ impl<'a> Compiler<'a> {
     }
     /// Calculate the common ancestor that's farthest from the root
     ///
-    /// TODO: this is very inefficient. A wavefront-style search would be
-    /// much faster, since it wouldn't need to find every ancestor of every
-    /// node.
+    /// TODO: this may be inefficient, although it's mitigated by caching in
+    /// [Self::common_ancestors]. A wavefront-style search could be faster,
+    /// but is much trickier to implement.
     fn least_common_ancestor(
         &self,
         nodes: &BTreeSet<Node>,
