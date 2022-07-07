@@ -204,14 +204,14 @@ impl Block {
         out.reg_blocks(&mut vec![], &mut reg_blocks);
 
         // Turn that data inside out and store the registers at each root block
-        let mut reg_paths: BTreeMap<Vec<usize>, Vec<RegIndex>> =
+        let mut reg_paths: BTreeMap<Vec<usize>, BTreeSet<RegIndex>> =
             BTreeMap::new();
         for (r, b) in reg_blocks.iter() {
-            reg_paths.entry(b.to_vec()).or_default().push(*r);
+            reg_paths.entry(b.to_vec()).or_default().insert(*r);
         }
 
         // Recurse down the tree, saving local registers for each block
-        out.populate_locals(&mut vec![], &reg_paths);
+        out.populate_locals(&mut vec![], &mut reg_paths);
 
         // Store input and output registers at each block
         out.populate_io();
@@ -227,10 +227,12 @@ impl Block {
     fn populate_locals(
         &mut self,
         path: &mut Vec<usize>,
-        reg_paths: &BTreeMap<Vec<usize>, Vec<RegIndex>>,
+        reg_paths: &mut BTreeMap<Vec<usize>, BTreeSet<RegIndex>>,
     ) {
-        self.locals
-            .extend(reg_paths.get(path).into_iter().flat_map(|i| i.iter()));
+        if let Some(v) = reg_paths.remove(path) {
+            assert!(self.locals.is_empty());
+            self.locals = v;
+        }
         for (index, instruction) in self.tape.iter_mut().enumerate() {
             if let Instruction::Cond(_, b) = instruction {
                 path.push(index);
