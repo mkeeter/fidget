@@ -8,9 +8,15 @@
 struct RenderConfig {
     uint32_t image_size;
     uint32_t tile_size;
+    uint32_t tile_count;
     uint32_t var_index_x;
     uint32_t var_index_y;
     uint32_t var_index_z;
+
+    // Converts from a pixel position to a floating-point image position
+    float2 pixel_to_pos(uint2 pixel) const device {
+        return float2(pixel) / float2(image_size - 1) * 2.0 - 1.0;
+    }
 };
 
 // Floating-point math

@@ -379,6 +379,12 @@ pub struct RenderConfig {
     /// Size of a render tile, in pixels
     pub tile_size: u32,
 
+    /// Number of tiles being rendered in this pass.
+    ///
+    /// In interval evaluation, each tile corresponds to a single GPU thread;
+    /// in pixels evaluation, each tile spawns `tile_size**2` threads.
+    pub tile_count: u32,
+
     /// Index of the X variable in `vars`, or `u32::MAX` if not present
     pub var_index_x: u32,
 
@@ -492,9 +498,16 @@ impl Render {
         size: usize,
         session: &piet_gpu_hal::Session,
     ) -> Vec<[u8; 4]> {
+        const TILE_SIZE: u32 = 8;
+
+        // This is doing pixel evaluation with one thread-group per tile and
+        // tile_count**2 threads per thread group.
+        let tile_count = (size / TILE_SIZE as usize).pow(2);
+
         let cfg = RenderConfig {
-            tile_size: 8,
+            tile_size: TILE_SIZE,
             image_size: size.try_into().unwrap(),
+            tile_count: tile_count.try_into().unwrap(),
             var_index_x: usize::from(self.config.vars["X"])
                 .try_into()
                 .unwrap_or(u32::MAX),
@@ -511,7 +524,6 @@ impl Render {
             0,
             "Size must be a multiple of tile size"
         );
-        let group_count = (size / cfg.tile_size as usize).pow(2);
 
         // Initialize tiles to contain every tile in the image
         let mut tiles: Vec<u32> = vec![];
@@ -527,7 +539,7 @@ impl Render {
         // Initialize choices array. Each choice array is shared by a tile's
         // worth of threads in the thread group.
         let choices = std::iter::repeat(0b11)
-            .take(group_count * self.config.choice_count)
+            .take(tile_count * self.config.choice_count)
             .collect::<Vec<u8>>();
         Self::send_to_buf(session, &mut self.choice_buf, &choices);
 
@@ -558,7 +570,7 @@ impl Render {
             pass.dispatch(
                 &self.pixels,
                 &descriptor_set,
-                (u32::try_from(group_count).unwrap(), 1, 1),
+                (u32::try_from(tile_count).unwrap(), 1, 1),
                 (cfg.tile_size.pow(2), 1, 1),
             );
             pass.end();
@@ -577,8 +589,6 @@ impl Render {
         println!("{:?}", timestamps);
         println!("dst size: {}", self.out_buf.size());
         println!("dst len : {}", dst.len());
-
-        println!("{:?}\ngroup cnt {}", cfg, group_count);
 
         dst
     }

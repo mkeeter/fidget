@@ -8,25 +8,25 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
                   device uchar4* out [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
+    const uint32_t pixels_per_tile = cfg.tile_size * cfg.tile_size;
+    if (index >= cfg.tile_count * pixels_per_tile) {
+        return;
+    }
+
     // Calculate the corner position of this tile, in pixels
-    const uint32_t tile_index = index / (cfg.tile_size * cfg.tile_size);
+    const uint32_t tile_index = index / pixels_per_tile;
     const uint32_t tile = tiles[tile_index];
     const uint2 tile_corner = cfg.tile_size * uint2(tile & 0xFFFF, tile >> 16);
 
     // Calculate the offset within the tile, again in pixels
-    const uint32_t offset = index % (cfg.tile_size * cfg.tile_size);
+    const uint32_t offset = index % pixels_per_tile;
     const uint2 tile_offset(offset % cfg.tile_size, offset / cfg.tile_size);
 
     // Absolute pixel position
     const uint2 pixel = tile_corner + tile_offset;
 
-    // Early exit
-    if (pixel.x > cfg.image_size || pixel.y > cfg.image_size) {
-        //return;
-    }
-
     // Image location (-1 to 1)
-    const float2 pos = 1.0 - float2(pixel) / float2(cfg.image_size - 1) * 2.0;
+    const float2 pos = cfg.pixel_to_pos(pixel);
 
     // Inject X and Y into local (thread) variables array
     float vars[VAR_COUNT];
