@@ -9,14 +9,26 @@ struct RenderConfig {
     uint32_t image_size;
     uint32_t tile_size;
     uint32_t tile_count;
+    uint32_t tile_scale;
     uint32_t var_index_x;
     uint32_t var_index_y;
     uint32_t var_index_z;
+
+    // choice count is hard-coded as CHOICES_COUNT in the custom shaders, but
+    // also stored here so that we can pass it into the standard shaders
+    // (init.metal and subdivide.metal)
+    uint32_t choice_count;
 
     // Converts from a pixel position to a floating-point image position
     float2 pixel_to_pos(uint2 pixel) const device {
         return float2(pixel) / float2(image_size - 1) * 2.0 - 1.0;
     }
+};
+
+// Rust treats this as a Vec<u32>, so there's no equivalent struct to update
+struct RenderOut {
+    metal::atomic_uint active_tile_count;
+    uint32_t next[1]; // flexible array member
 };
 
 // Floating-point math

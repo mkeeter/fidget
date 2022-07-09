@@ -6,8 +6,10 @@
 // read-write: previous evaluation may have written to it, and this stage
 // may modify it further.
 kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
-                  const device uint32_t* tiles [[buffer(1)]],
+                  device uint32_t* tiles [[buffer(1)]],
                   device uint8_t* choices [[buffer(2)]],
+                  device uint* image [[buffer(3)]],
+                  device RenderOut& out [[buffer(4)]],
                   uint index [[thread_position_in_grid]])
 {
     // Early exit in case the kernel has a few extra threads
@@ -33,9 +35,27 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
         vars[cfg.var_index_y] = float2(lower_f.y, upper_f.y);
     }
 
-    // Perform interval evaluation, writing to the choices array
+    // Perform interval evaluation
     const float2 result = t_eval(vars, &choices[index * CHOICE_COUNT]);
 
-    result[index] = t_eval(&vars[index * VAR_COUNT],
-                           &choices[index * CHOICE_COUNT]);
+    // Accumulate the number of active tiles
+    const bool active = (result[0] <= 0.0 && result[1] >= 0.0);
+    if (active) {
+        // TODO: maybe separate thread-group then global accumulation?
+        const uint t = atomic_fetch_add_explicit(&out.active_tile_count, 1,
+                                                 metal::memory_order_relaxed);
+        // Assign the next level of the tree
+        out.next[t] = tile;
+        tiles[index] = t;
+    } else {
+        tiles[index] = 0xFFFFFFFF;
+    }
+
+    // If this interval is filled, color in this pixel.  `out` is a
+    // mipmap-style image, where each pixel represent a tile at our current
+    // scale.
+    if (result[1] < 0.0) {
+        const uint2 p = lower / cfg.tile_size;
+        image[p.x + p.y * cfg.image_size / cfg.tile_size] = 1;
+    }
 }

@@ -362,7 +362,10 @@ pub struct Render {
     choice_buf: piet_gpu_hal::Buffer,
     out_buf: piet_gpu_hal::Buffer,
 
-    //interval: piet_gpu_hal::Pipeline,
+    // Various compute pipelines
+    init: piet_gpu_hal::Pipeline,
+    subdivide: piet_gpu_hal::Pipeline,
+    interval: piet_gpu_hal::Pipeline,
     pixels: piet_gpu_hal::Pipeline,
 }
 
@@ -385,6 +388,12 @@ pub struct RenderConfig {
     /// in pixels evaluation, each tile spawns `tile_size**2` threads.
     pub tile_count: u32,
 
+    /// Subdivision factor between interval evaluation stages (1D).
+    ///
+    /// For example, if this is 8, each 2D tile will be split into 8x8 = 64
+    /// subtiles during subdivision.
+    pub tile_scale: u32,
+
     /// Index of the X variable in `vars`, or `u32::MAX` if not present
     pub var_index_x: u32,
 
@@ -393,6 +402,9 @@ pub struct RenderConfig {
 
     /// Index of the Z variable in `vars`, or `u32::MAX` if not present
     pub var_index_z: u32,
+
+    /// Number of choices in this program
+    pub choice_count: u32,
 }
 
 impl Render {
@@ -413,10 +425,23 @@ impl Render {
             session.create_buffer(8, BufferUsage::STORAGE).unwrap();
 
         let shader_f = prog.to_metal(Mode::Pixel);
-        //let shader_i = prog.to_metal(Mode::Interval);
+        let shader_i = prog.to_metal(Mode::Interval);
 
         // SAFETY: it's doing GPU stuff, so who knows?
-        let pixels = unsafe {
+        unsafe {
+            let init = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(concat!(
+                        include_str!("../shader/prelude.metal"),
+                        include_str!("../shader/init.metal")
+                    )),
+                    &[
+                        BindType::BufReadOnly, // config
+                        BindType::Buffer,      // tiles
+                        BindType::Buffer,      // choices
+                    ],
+                )
+                .unwrap();
             let pixels = session
                 .create_compute_pipeline(
                     ShaderCode::Msl(&shader_f),
@@ -428,30 +453,45 @@ impl Render {
                     ],
                 )
                 .unwrap();
-            /* TODO
             let interval = session
                 .create_compute_pipeline(
                     ShaderCode::Msl(&shader_i),
                     &[
-                        BindType::BufReadOnly,
-                        BindType::Buffer, // choices
-                        BindType::Buffer, // out
+                        BindType::BufReadOnly, // config
+                        BindType::Buffer,      // tiles
+                        BindType::Buffer,      // choices
+                        BindType::Buffer,      // images
+                        BindType::Buffer,      // out
                     ],
                 )
                 .unwrap();
-            (pixels, interval)
-            */
-            pixels
-        };
+            let subdivide = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(concat!(
+                        include_str!("../shader/prelude.metal"),
+                        include_str!("../shader/subdivide.metal")
+                    )),
+                    &[
+                        BindType::BufReadOnly, // config
+                        BindType::BufReadOnly, // prev
+                        BindType::BufReadOnly, // choices_in
+                        BindType::Buffer,      // subtiles
+                        BindType::Buffer,      // choices_out
+                    ],
+                )
+                .unwrap();
 
-        Self {
-            config: prog.config().clone(),
-            choice_buf,
-            tile_buf,
-            cfg_buf,
-            out_buf,
-            //interval,
-            pixels,
+            Self {
+                config: prog.config().clone(),
+                choice_buf,
+                tile_buf,
+                cfg_buf,
+                out_buf,
+                init,
+                subdivide,
+                interval,
+                pixels,
+            }
         }
     }
 
@@ -508,6 +548,8 @@ impl Render {
             tile_size: TILE_SIZE,
             image_size: size.try_into().unwrap(),
             tile_count: tile_count.try_into().unwrap(),
+            tile_scale: 8, // 8-fold subdivision at each stage
+            choice_count: self.config.choice_count.try_into().unwrap(),
             var_index_x: usize::from(self.config.vars["X"])
                 .try_into()
                 .unwrap_or(u32::MAX),
