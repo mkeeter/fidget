@@ -353,16 +353,23 @@ const METAL_KERNEL_PIXELS: &str = include_str!("../shader/pixels.metal");
 use piet_gpu_hal::{BindType, BufferUsage, ComputePassDescriptor, ShaderCode};
 
 pub struct IntervalRenderBuffers {
+    tile_count: u32,
+    choice_count: u32,
+
     tiles: piet_gpu_hal::Buffer,
     choices: piet_gpu_hal::Buffer,
     out: piet_gpu_hal::Buffer, // RenderOut
 }
 
 impl IntervalRenderBuffers {
-    fn new(config: &RenderConfig, session: &piet_gpu_hal::Session) -> Self {
+    fn new(
+        tile_count: u32,
+        choice_count: u32,
+        session: &piet_gpu_hal::Session,
+    ) -> Self {
         let tiles = session
             .create_buffer(
-                (config.tile_count as usize * std::mem::size_of::<u32>())
+                (tile_count as usize * std::mem::size_of::<u32>())
                     .try_into()
                     .unwrap(),
                 BufferUsage::STORAGE,
@@ -370,7 +377,7 @@ impl IntervalRenderBuffers {
             .unwrap();
         let choices = session
             .create_buffer(
-                u64::from(config.tile_count * config.choice_count),
+                u64::from(tile_count * choice_count),
                 BufferUsage::STORAGE,
             )
             .unwrap();
@@ -380,7 +387,7 @@ impl IntervalRenderBuffers {
         // correct number of threads in the next pass.
         let out = session
             .create_buffer(
-                ((config.tile_count as usize + 1) * std::mem::size_of::<u32>())
+                ((tile_count as usize + 1) * std::mem::size_of::<u32>())
                     .try_into()
                     .unwrap(),
                 BufferUsage::STORAGE | BufferUsage::MAP_READ,
@@ -388,9 +395,22 @@ impl IntervalRenderBuffers {
             .unwrap();
 
         Self {
+            tile_count,
+            choice_count,
             tiles,
             choices,
             out,
+        }
+    }
+
+    fn resize_to_fit(
+        &mut self,
+        tile_count: u32,
+        session: &piet_gpu_hal::Session,
+    ) {
+        if tile_count > self.tile_count {
+            let mut next = Self::new(tile_count, self.choice_count, session);
+            std::mem::swap(self, &mut next);
         }
     }
 }
@@ -474,6 +494,8 @@ pub struct Render {
     clear: piet_gpu_hal::Pipeline,
 
     image_buf: Option<ImageBuffers>,
+    stage0: Option<IntervalRenderBuffers>,
+    stage1: Option<IntervalRenderBuffers>,
 }
 
 /// The configuration block passed to compute
@@ -612,7 +634,10 @@ impl Render {
                 pixels,
                 merge,
                 clear,
+
                 image_buf: None,
+                stage0: None,
+                stage1: None,
             }
         }
     }
@@ -658,7 +683,19 @@ impl Render {
         self.config_buf
             .write(std::slice::from_ref(&stage0_cfg))
             .unwrap();
-        let stage0 = IntervalRenderBuffers::new(&stage0_cfg, session);
+
+        // Build Stage0 renderer, or resize an existing renderer to fit
+        let stage0 = if let Some(s) = self.stage0.as_mut() {
+            s.resize_to_fit(stage0_cfg.tile_count, session);
+            s
+        } else {
+            self.stage0 = Some(IntervalRenderBuffers::new(
+                stage0_cfg.tile_count,
+                stage0_cfg.choice_count,
+                session,
+            ));
+            self.stage0.as_ref().unwrap()
+        };
 
         let clear_descriptor_set = session
             .create_simple_descriptor_set(
@@ -751,7 +788,19 @@ impl Render {
         self.config_buf
             .write(std::slice::from_ref(&stage1_cfg))
             .unwrap();
-        let stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
+
+        // Build stage1 renderer, or resize an existing renderer to fit
+        let stage1 = if let Some(s) = self.stage1.as_mut() {
+            s.resize_to_fit(stage1_cfg.tile_count, session);
+            s
+        } else {
+            self.stage1 = Some(IntervalRenderBuffers::new(
+                stage1_cfg.tile_count,
+                stage1_cfg.choice_count,
+                session,
+            ));
+            self.stage1.as_ref().unwrap()
+        };
 
         let subdiv_descriptor_set = session
             .create_simple_descriptor_set(
