@@ -5,7 +5,7 @@
 // Each tile is associated with a chunk of the choices array, which is
 // read-write: previous evaluation may have written to it, and this stage
 // may modify it further.
-kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
+kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
                   device uint8_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],

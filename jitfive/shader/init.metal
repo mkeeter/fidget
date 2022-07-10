@@ -5,7 +5,7 @@
 // (not necessarily true in later stages, where we could render fewer tiles)
 //
 // The exact threads per group doesn't matter
-kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
+kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
                   device uint8_t* choices [[buffer(2)]],
                   uint index [[thread_position_in_grid]])

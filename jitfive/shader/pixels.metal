@@ -2,16 +2,15 @@
 //      (active_tiles, 1, 1)
 // and with a threadgroup size of
 //      (cfg.tile_size ** 2, 1, 1).
-kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
-                  const device RenderOut& prev [[buffer(1)]],
-                  const device uint8_t* choices [[buffer(2)]],
+kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
+                  const constant RenderOutConst& prev [[buffer(1)]],
+                  const constant uint8_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
     // We use this tile count instead of the one in the RenderConfig, which
     // is left over from the last pass of interval evaluation
-    const uint tile_count = atomic_load_explicit(
-        &prev.active_tile_count, metal::memory_order_relaxed);
+    const uint tile_count = prev.active_tile_count;
 
     const uint32_t pixels_per_tile = cfg.tile_size * cfg.tile_size;
     if (index >= tile_count * pixels_per_tile) {
@@ -46,7 +45,7 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     const float result =
         t_eval(vars, &choices[tile.prev_index * CHOICE_COUNT]);
 
-    const uint8_t v = result < 0.0 ? 0x1 : 0x2;
+    const uint8_t v = result < 0.0 ? FULL : EMPTY;
 
     image[pixel.x + pixel.y * cfg.image_size] = v;
 }

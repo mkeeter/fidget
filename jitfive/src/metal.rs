@@ -57,7 +57,7 @@ impl Mode {
     }
     fn choice_type(&self) -> &str {
         match self {
-            Mode::Pixel => "const device uint8_t*",
+            Mode::Pixel => "const constant uint8_t*",
             Mode::Interval => "device uint8_t*",
         }
     }
@@ -433,6 +433,9 @@ pub struct Render {
 
     /// Compute pipelines to render individual pixels
     pixels: piet_gpu_hal::Pipeline,
+
+    /// Compute pipeline to merge multiple mipmap levels
+    merge: piet_gpu_hal::Pipeline,
 }
 
 /// The configuration block passed to compute
@@ -477,8 +480,6 @@ impl Render {
     pub fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
         let shader_f = prog.to_metal(Mode::Pixel);
         let shader_i = prog.to_metal(Mode::Interval);
-
-        println!("{}", shader_i);
 
         // SAFETY: it's doing GPU stuff, so who knows?
         unsafe {
@@ -533,6 +534,21 @@ impl Render {
                     ],
                 )
                 .unwrap();
+            let merge = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(concat!(
+                        include_str!("../shader/prelude.metal"),
+                        include_str!("../shader/merge.metal")
+                    )),
+                    &[
+                        BindType::BufReadOnly, // config
+                        BindType::BufReadOnly, // 64x64
+                        BindType::BufReadOnly, // 8x8
+                        BindType::BufReadOnly, // 1x1
+                        BindType::Buffer,      // out
+                    ],
+                )
+                .unwrap();
 
             Self {
                 config: prog.config().clone(),
@@ -540,6 +556,7 @@ impl Render {
                 subdivide,
                 interval,
                 pixels,
+                merge,
             }
         }
     }
@@ -634,15 +651,6 @@ impl Render {
             active_tile_count, stage0_cfg.tile_count
         );
 
-        let mut out: Vec<u8> = vec![];
-        stage0.choices.read(&mut out).unwrap();
-        println!("Stage 0 choices: {:x?}", out);
-        let mut out: Vec<u32> = vec![];
-        stage0.out.read(&mut out).unwrap();
-        println!("Stage 0 out: {:x?}", out);
-        stage0.tiles.read(&mut out).unwrap();
-        println!("Stage 0 tiles: {:x?}", out);
-
         ///////////////////////////////////////////////////////////////////////
         // Stage 1: evaluation of 8x8 tiles using interval arithmetic
         let stage1_cfg = RenderConfig {
@@ -650,7 +658,6 @@ impl Render {
             tile_count: active_tile_count * SPLIT_RATIO.pow(2),
             ..stage0_cfg
         };
-        println!("{:#?}", stage1_cfg);
         let stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
 
         let subdiv_descriptor_set = session
@@ -717,15 +724,6 @@ impl Render {
             active_subtile_count, stage1_cfg.tile_count
         );
 
-        let mut out: Vec<u8> = vec![];
-        stage1.choices.read(&mut out).unwrap();
-        println!("Stage 1 choices: {:x?}", out);
-        let mut out: Vec<u32> = vec![];
-        stage1.out.read(&mut out).unwrap();
-        println!("Stage 1 out: {:x?}", out);
-        stage1.tiles.read(&mut out).unwrap();
-        println!("Stage 1 tiles: {:x?}", out);
-
         ///////////////////////////////////////////////////////////////////////
         // Stage 2: Per-pixel evaluation of remaining subtiles
         //
@@ -733,7 +731,13 @@ impl Render {
         // tile_count in favor of the active_tiles member of stage1.out
         let image = session
             .create_buffer(
-                image_size.pow(2).try_into().unwrap(),
+                u64::from(image_size.pow(2)),
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
+            )
+            .unwrap();
+        let final_image = session
+            .create_buffer(
+                u64::from(4 * image_size.pow(2)),
                 BufferUsage::STORAGE | BufferUsage::MAP_READ,
             )
             .unwrap();
@@ -741,6 +745,18 @@ impl Render {
             .create_simple_descriptor_set(
                 &self.pixels,
                 &[&stage1.config, &stage1.out, &stage1.choices, &image],
+            )
+            .unwrap();
+        let merge_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.merge,
+                &[
+                    &stage1.config,
+                    &stage0.image,
+                    &stage1.image,
+                    &image,
+                    &final_image,
+                ],
             )
             .unwrap();
 
@@ -758,6 +774,12 @@ impl Render {
                 (active_subtile_count, 1, 1),
                 (SPLIT_RATIO.pow(2), 1, 1),
             );
+            pass.dispatch(
+                &self.merge,
+                &merge_descriptor_set,
+                ((image_size / 8).pow(2), 1, 1),
+                (64, 1, 1),
+            );
             pass.end();
         }
         cmd_buf.finish_timestamps(&query_pool);
@@ -769,16 +791,8 @@ impl Render {
         let timestamps = session.fetch_query_pool(&query_pool);
         println!("stage 2: {:?}", timestamps);
 
-        let mut out: Vec<u8> = vec![];
-        image.read(&mut out).unwrap();
-
-        out.into_iter()
-            .map(|i| match i {
-                0 => [0, 0, 0, 0xFF],
-                1 => [0xFF, 0xFF, 0xFF, 0xFF],
-                2 => [0x88, 0x88, 0x88, 0xFF],
-                _ => [0xFF, 0, 0, 0xFF],
-            })
-            .collect()
+        let mut out: Vec<[u8; 4]> = vec![];
+        final_image.read(&mut out).unwrap();
+        out
     }
 }

@@ -4,15 +4,14 @@
 // evaluation stage.  It should be invoked with
 //      prev.active_tile_count * cfg.split_ratio**2
 // threads in total, with threadgroup size of (cfg.split_ratio**2, 1, 1)
-kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
-                  const device RenderOut& prev [[buffer(1)]],
-                  const device uint8_t* choices_in [[buffer(2)]],
+kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
+                  const constant RenderOutConst& prev [[buffer(1)]],
+                  const constant uint8_t* choices_in [[buffer(2)]],
                   device uint32_t* subtiles [[buffer(3)]],
                   device uint8_t* choices_out [[buffer(4)]],
                   uint index [[thread_position_in_grid]])
 {
-    const uint active_tile_count = atomic_load_explicit(
-        &prev.active_tile_count, metal::memory_order_relaxed);
+    const uint active_tile_count = prev.active_tile_count;
     const uint subtiles_per_tile = cfg.split_ratio * cfg.split_ratio;
     if (index >= active_tile_count * subtiles_per_tile) {
         return;
