@@ -42,6 +42,7 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     const bool active = (result[0] <= 0.0 && result[1] >= 0.0);
     if (active) {
         // TODO: maybe separate thread-group then global accumulation?
+        // simd_prefix_exclusive_sum is useful here
         const uint t = atomic_fetch_add_explicit(
             &out.active_tile_count, 1, metal::memory_order_relaxed);
         // Assign the next level of the tree

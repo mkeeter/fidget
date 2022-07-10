@@ -159,7 +159,7 @@ impl Instruction {
                     ),
                     Mode::Interval => {
                         let a = usize::from(*lhs);
-                        let b = usize::from(*lhs);
+                        let b = usize::from(*rhs);
                         let choice = usize::from(*choice);
                         match self {
                             Self::Max { .. } => formatdoc!(
