@@ -375,7 +375,7 @@ impl IntervalRenderBuffers {
                 (config.tile_count * config.choice_count)
                     .try_into()
                     .unwrap(),
-                BufferUsage::STORAGE | BufferUsage::MAP_READ, // XXX
+                BufferUsage::STORAGE,
             )
             .unwrap();
 
@@ -730,10 +730,7 @@ impl Render {
         // This step reuses the stage 1 configuration, but ignores its
         // tile_count in favor of the active_tiles member of stage1.out
         let image = session
-            .create_buffer(
-                u64::from(image_size.pow(2)),
-                BufferUsage::STORAGE | BufferUsage::MAP_READ,
-            )
+            .create_buffer(u64::from(image_size.pow(2)), BufferUsage::STORAGE)
             .unwrap();
         let final_image = session
             .create_buffer(
