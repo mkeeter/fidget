@@ -8,6 +8,7 @@
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
                   device uint8_t* choices [[buffer(2)]],
+                  device RenderOut& out [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
     if (index >= cfg.tile_count) {
@@ -30,5 +31,11 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     // Fill this chunk of the choices array to always take both branches
     for (uint i=0; i < cfg.choice_count; ++i) {
         choices[index * cfg.choice_count + i] = LHS | RHS;
+    }
+
+    // Reset the tile accumulator, in case this we're reusing a buffer
+    if (index == 0) {
+        atomic_store_explicit(
+            &out.active_tile_count, 0, metal::memory_order_relaxed);
     }
 }

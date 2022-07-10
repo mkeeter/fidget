@@ -457,12 +457,6 @@ pub struct RenderConfig {
     /// in pixels evaluation, each tile spawns `tile_size**2` threads.
     pub tile_count: u32,
 
-    /// Subdivision factor between interval evaluation stages (1D).
-    ///
-    /// For example, if this is 8, each 2D tile will be split into 8x8 = 64
-    /// subtiles during subdivision.
-    pub split_ratio: u32,
-
     /// Index of the X variable in `vars`, or `u32::MAX` if not present
     pub var_index_x: u32,
 
@@ -571,7 +565,9 @@ impl Render {
         ///////////////////////////////////////////////////////////////////////
         // Stage 0: evaluation of 64x64 tiles using interval arithmetic
         const STAGE0_TILE_SIZE: u32 = 64;
-        // 8-fold subdivision at each stage
+
+        // 8-fold subdivision at each stage, i.e. a 2D tile will be split into
+        // 64 subtiles.  This must be kept in sync with prelude.metal!
         const SPLIT_RATIO: u32 = 8;
 
         let tile_count = (image_size / STAGE0_TILE_SIZE).pow(2);
@@ -580,7 +576,6 @@ impl Render {
             tile_size: STAGE0_TILE_SIZE,
             image_size,
             tile_count,
-            split_ratio: SPLIT_RATIO,
             choice_count: self.config.choice_count.try_into().unwrap(),
             var_index_x: usize::from(self.config.vars["X"])
                 .try_into()
@@ -595,7 +590,7 @@ impl Render {
         let init_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.init,
-                &[&stage0.config, &stage0.tiles, &stage0.choices],
+                &[&stage0.config, &stage0.tiles, &stage0.choices, &stage0.out],
             )
             .unwrap();
         let stage0_descriptor_set = session
@@ -669,6 +664,7 @@ impl Render {
                     &stage0.choices,
                     &stage1.tiles,
                     &stage1.choices,
+                    &stage1.out,
                 ],
             )
             .unwrap();

@@ -9,12 +9,14 @@
 #define EMPTY 1
 #define FULL  2
 
+// Amount tiles are subdivided.  This must be kept in sync with Rust code!
+#define SPLIT_RATIO 8
+
 // This must be kept in sync with the Rust `struct RenderConfig`!
 struct RenderConfig {
     uint32_t image_size;
     uint32_t tile_size;
     uint32_t tile_count;
-    uint32_t split_ratio;
     uint32_t var_index_x;
     uint32_t var_index_y;
     uint32_t var_index_z;
