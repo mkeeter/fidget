@@ -356,7 +356,6 @@ pub struct IntervalRenderBuffers {
     config: piet_gpu_hal::Buffer,
     tiles: piet_gpu_hal::Buffer,
     choices: piet_gpu_hal::Buffer,
-    image: piet_gpu_hal::Buffer,
     out: piet_gpu_hal::Buffer, // RenderOut
 }
 
@@ -372,20 +371,7 @@ impl IntervalRenderBuffers {
             .unwrap();
         let choices = session
             .create_buffer(
-                (config.tile_count * config.choice_count)
-                    .try_into()
-                    .unwrap(),
-                BufferUsage::STORAGE,
-            )
-            .unwrap();
-
-        assert_eq!(config.image_size % config.tile_size, 0);
-        let image = session
-            .create_buffer(
-                (config.image_size / config.tile_size)
-                    .pow(2)
-                    .try_into()
-                    .unwrap(),
+                u64::from(config.tile_count * config.choice_count),
                 BufferUsage::STORAGE,
             )
             .unwrap();
@@ -413,8 +399,61 @@ impl IntervalRenderBuffers {
             config,
             tiles,
             choices,
-            image,
             out,
+        }
+    }
+}
+
+pub struct ImageBuffers {
+    image_size: u32,
+
+    image_64x64: piet_gpu_hal::Buffer,
+    image_8x8: piet_gpu_hal::Buffer,
+    image_1x1: piet_gpu_hal::Buffer,
+    final_image: piet_gpu_hal::Buffer,
+}
+
+impl ImageBuffers {
+    fn new(image_size: u32, session: &piet_gpu_hal::Session) -> Self {
+        assert_eq!(image_size % 64, 0);
+        let image_64x64 = session
+            .create_buffer(
+                u64::from((image_size / 64).pow(2)),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+        let image_8x8 = session
+            .create_buffer(
+                u64::from((image_size / 8).pow(2)),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+        let image_1x1 = session
+            .create_buffer(u64::from(image_size.pow(2)), BufferUsage::STORAGE)
+            .unwrap();
+        let final_image = session
+            .create_buffer(
+                u64::from(4 * image_size.pow(2)),
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
+            )
+            .unwrap();
+
+        Self {
+            image_size,
+            image_64x64,
+            image_8x8,
+            image_1x1,
+            final_image,
+        }
+    }
+    fn resize_to_fit(
+        &mut self,
+        image_size: u32,
+        session: &piet_gpu_hal::Session,
+    ) {
+        if image_size > self.image_size {
+            let mut next = Self::new(image_size, session);
+            std::mem::swap(self, &mut next);
         }
     }
 }
@@ -436,6 +475,11 @@ pub struct Render {
 
     /// Compute pipeline to merge multiple mipmap levels
     merge: piet_gpu_hal::Pipeline,
+
+    /// Compute pipeline to clear multiple mipmap levels
+    clear: piet_gpu_hal::Pipeline,
+
+    image_buf: Option<ImageBuffers>,
 }
 
 /// The configuration block passed to compute
@@ -543,6 +587,20 @@ impl Render {
                     ],
                 )
                 .unwrap();
+            let clear = session
+                .create_compute_pipeline(
+                    ShaderCode::Msl(concat!(
+                        include_str!("../shader/prelude.metal"),
+                        include_str!("../shader/clear.metal")
+                    )),
+                    &[
+                        BindType::Buffer, // config
+                        BindType::Buffer, // 64x64
+                        BindType::Buffer, // 8x8
+                        BindType::Buffer, // 1x1
+                    ],
+                )
+                .unwrap();
 
             Self {
                 config: prog.config().clone(),
@@ -551,6 +609,8 @@ impl Render {
                 interval,
                 pixels,
                 merge,
+                clear,
+                image_buf: None,
             }
         }
     }
@@ -562,12 +622,20 @@ impl Render {
         image_size: u32,
         session: &piet_gpu_hal::Session,
     ) -> Vec<[u8; 4]> {
+        let image_buf = if let Some(s) = self.image_buf.as_mut() {
+            s.resize_to_fit(image_size, session);
+            s
+        } else {
+            self.image_buf = Some(ImageBuffers::new(image_size, session));
+            self.image_buf.as_ref().unwrap()
+        };
+
         ///////////////////////////////////////////////////////////////////////
         // Stage 0: evaluation of 64x64 tiles using interval arithmetic
         const STAGE0_TILE_SIZE: u32 = 64;
 
         // 8-fold subdivision at each stage, i.e. a 2D tile will be split into
-        // 64 subtiles.  This must be kept in sync with prelude.metal!
+        // 64 subtiles.  This must be kept in sync with `prelude.metal`!
         const SPLIT_RATIO: u32 = 8;
 
         let tile_count = (image_size / STAGE0_TILE_SIZE).pow(2);
@@ -587,6 +655,17 @@ impl Render {
         };
         let stage0 = IntervalRenderBuffers::new(&stage0_cfg, session);
 
+        let clear_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.merge,
+                &[
+                    &stage0.config,
+                    &image_buf.image_64x64,
+                    &image_buf.image_8x8,
+                    &image_buf.image_1x1,
+                ],
+            )
+            .unwrap();
         let init_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.init,
@@ -600,7 +679,7 @@ impl Render {
                     &stage0.config,
                     &stage0.tiles,
                     &stage0.choices,
-                    &stage0.image,
+                    &image_buf.image_64x64,
                     &stage0.out,
                 ],
             )
@@ -614,6 +693,12 @@ impl Render {
         {
             let mut pass = cmd_buf.begin_compute_pass(
                 &ComputePassDescriptor::timer(&query_pool, 0, 1),
+            );
+            pass.dispatch(
+                &self.clear,
+                &clear_descriptor_set,
+                ((image_size / 8).pow(2), 1, 1),
+                (64, 1, 1),
             );
             pass.dispatch(
                 &self.init,
@@ -675,7 +760,7 @@ impl Render {
                     &stage1.config,
                     &stage1.tiles,
                     &stage1.choices,
-                    &stage1.image,
+                    &image_buf.image_8x8,
                     &stage1.out,
                 ],
             )
@@ -725,19 +810,15 @@ impl Render {
         //
         // This step reuses the stage 1 configuration, but ignores its
         // tile_count in favor of the active_tiles member of stage1.out
-        let image = session
-            .create_buffer(u64::from(image_size.pow(2)), BufferUsage::STORAGE)
-            .unwrap();
-        let final_image = session
-            .create_buffer(
-                u64::from(4 * image_size.pow(2)),
-                BufferUsage::STORAGE | BufferUsage::MAP_READ,
-            )
-            .unwrap();
         let stage2_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.pixels,
-                &[&stage1.config, &stage1.out, &stage1.choices, &image],
+                &[
+                    &stage1.config,
+                    &stage1.out,
+                    &stage1.choices,
+                    &image_buf.image_1x1,
+                ],
             )
             .unwrap();
         let merge_descriptor_set = session
@@ -745,10 +826,10 @@ impl Render {
                 &self.merge,
                 &[
                     &stage1.config,
-                    &stage0.image,
-                    &stage1.image,
-                    &image,
-                    &final_image,
+                    &image_buf.image_64x64,
+                    &image_buf.image_8x8,
+                    &image_buf.image_1x1,
+                    &image_buf.final_image,
                 ],
             )
             .unwrap();
@@ -785,7 +866,7 @@ impl Render {
         println!("stage 2: {:?}", timestamps);
 
         let mut out: Vec<[u8; 4]> = vec![];
-        final_image.read(&mut out).unwrap();
+        image_buf.final_image.read(&mut out).unwrap();
         out
     }
 }
