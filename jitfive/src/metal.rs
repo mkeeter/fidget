@@ -619,11 +619,11 @@ impl Render {
 
     /// # Safety
     /// It's doing GPU stuff, who knows?
-    pub unsafe fn render(
+    pub unsafe fn do_render(
         &mut self,
         image_size: u32,
         session: &piet_gpu_hal::Session,
-    ) -> Vec<[u8; 4]> {
+    ) {
         let image_buf = if let Some(s) = self.image_buf.as_mut() {
             s.resize_to_fit(image_size, session);
             s
@@ -877,9 +877,17 @@ impl Render {
         submitted.wait().unwrap();
         let timestamps = session.fetch_query_pool(&query_pool);
         println!("stage 2: {:?}", timestamps);
+    }
 
+    /// Reads the final image from the render buffer
+    pub unsafe fn load_image(&self) -> Vec<[u8; 4]> {
         let mut out: Vec<[u8; 4]> = vec![];
-        image_buf.final_image.read(&mut out).unwrap();
+        self.image_buf
+            .as_ref()
+            .unwrap()
+            .final_image
+            .read(&mut out)
+            .unwrap();
         out
     }
 }
