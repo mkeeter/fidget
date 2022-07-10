@@ -31,9 +31,14 @@ struct RenderConfig {
 };
 
 // Rust treats this as a Vec<u32>, so there's no equivalent struct to update
+struct TileIndex {
+    uint32_t prev_index;    // Index within the current evaluation
+    uint32_t tile;          // Tile to render in the next stage
+};
 struct RenderOut {
     metal::atomic_uint active_tile_count;
-    uint32_t next[1]; // flexible array member
+    uint32_t pad; // Ensure alignment
+    TileIndex tiles[1]; // flexible array member
 };
 
 // Floating-point math

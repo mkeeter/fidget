@@ -46,13 +46,15 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
         const uint t = atomic_fetch_add_explicit(
             &out.active_tile_count, 1, metal::memory_order_relaxed);
         // Assign the next level of the tree
-        out.next[t] = tile;
+        out.tiles[t] = TileIndex {
+            index,
+            tile,
+        };
 
-        // XXX: This builds the hierarchical tile tree, but also nukes the
-        // tile, which breaks pixel evaluation.
-        //tiles[index] = t;
+        // Build the hierarchical tile tree with an index into out.tiles
+        tiles[index] = t;
     } else {
-        //tiles[index] = 0xFFFFFFFF;
+        tiles[index] = 0xFFFFFFFF;
     }
 
     // If this interval is filled, color in this pixel.  `out` is a

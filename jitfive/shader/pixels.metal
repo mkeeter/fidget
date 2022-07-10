@@ -20,8 +20,9 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
 
     // Calculate the corner position of this tile, in pixels
     const uint32_t tile_index = index / pixels_per_tile;
-    const uint32_t tile = prev.next[tile_index];
-    const uint2 tile_corner = cfg.tile_size * uint2(tile & 0xFFFF, tile >> 16);
+    const TileIndex tile = prev.tiles[tile_index];
+    const uint2 tile_corner =
+        cfg.tile_size * uint2(tile.tile & 0xFFFF, tile.tile >> 16);
 
     // Calculate the offset within the tile, again in pixels
     const uint32_t offset = index % pixels_per_tile;
@@ -43,7 +44,7 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     }
 
     const float result =
-        t_eval(vars, &choices[tile_index * CHOICE_COUNT]);
+        t_eval(vars, &choices[tile.prev_index * CHOICE_COUNT]);
 
     const uint8_t v = result < 0.0 ? 0x1 : 0x2;
 

@@ -367,7 +367,7 @@ impl IntervalRenderBuffers {
                 (config.tile_count as usize * std::mem::size_of::<u32>())
                     .try_into()
                     .unwrap(),
-                BufferUsage::STORAGE | BufferUsage::MAP_READ,
+                BufferUsage::STORAGE,
             )
             .unwrap();
         let choices = session
@@ -375,7 +375,7 @@ impl IntervalRenderBuffers {
                 (config.tile_count * config.choice_count)
                     .try_into()
                     .unwrap(),
-                BufferUsage::STORAGE,
+                BufferUsage::STORAGE | BufferUsage::MAP_READ, // XXX
             )
             .unwrap();
 
@@ -390,6 +390,9 @@ impl IntervalRenderBuffers {
             )
             .unwrap();
 
+        // We need this to be readable because we load the number of active
+        // tiles from the first item in the buffer, in order to run the
+        // correct number of threads in the next pass.
         let out = session
             .create_buffer(
                 ((config.tile_count as usize + 1) * std::mem::size_of::<u32>())
@@ -474,6 +477,8 @@ impl Render {
     pub fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
         let shader_f = prog.to_metal(Mode::Pixel);
         let shader_i = prog.to_metal(Mode::Interval);
+
+        println!("{}", shader_i);
 
         // SAFETY: it's doing GPU stuff, so who knows?
         unsafe {
@@ -629,6 +634,9 @@ impl Render {
             active_tile_count, stage0_cfg.tile_count
         );
 
+        let mut out: Vec<u8> = vec![];
+        stage0.choices.read(&mut out).unwrap();
+        println!("Stage 0 choices: {:x?}", out);
         let mut out: Vec<u32> = vec![];
         stage0.out.read(&mut out).unwrap();
         println!("Stage 0 out: {:x?}", out);
@@ -709,6 +717,9 @@ impl Render {
             active_subtile_count, stage1_cfg.tile_count
         );
 
+        let mut out: Vec<u8> = vec![];
+        stage1.choices.read(&mut out).unwrap();
+        println!("Stage 1 choices: {:x?}", out);
         let mut out: Vec<u32> = vec![];
         stage1.out.read(&mut out).unwrap();
         println!("Stage 1 out: {:x?}", out);
