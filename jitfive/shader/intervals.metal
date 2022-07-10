@@ -7,7 +7,7 @@
 // may modify it further.
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
-                  device uint8_t* choices [[buffer(2)]],
+                  device uint32_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],
                   device RenderOut& out [[buffer(4)]],
                   uint index [[thread_position_in_grid]])
@@ -36,7 +36,7 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     }
 
     // Perform interval evaluation
-    const float2 result = t_eval(vars, &choices[index * CHOICE_COUNT]);
+    const float2 result = t_eval(vars, &choices[index * CHOICE_BUF_SIZE]);
 
     // Accumulate the number of active tiles
     const bool active = (result[0] <= 0.0 && result[1] >= 0.0);

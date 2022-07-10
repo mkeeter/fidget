@@ -4,7 +4,7 @@
 //      (cfg.tile_size ** 2, 1, 1).
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   const constant RenderOutConst& prev [[buffer(1)]],
-                  const constant uint8_t* choices [[buffer(2)]],
+                  const constant uint32_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
@@ -43,7 +43,7 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     }
 
     const float result =
-        t_eval(vars, &choices[tile.prev_index * CHOICE_COUNT]);
+        t_eval(vars, &choices[tile.prev_index * CHOICE_BUF_SIZE]);
 
     const uint8_t v = result < 0.0 ? FULL : EMPTY;
 

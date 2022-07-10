@@ -57,8 +57,8 @@ impl Mode {
     }
     fn choice_type(&self) -> &str {
         match self {
-            Mode::Pixel => "const constant uint8_t*",
-            Mode::Interval => "device uint8_t*",
+            Mode::Pixel => "const constant uint32_t*",
+            Mode::Interval => "device uint32_t*",
         }
     }
 }
@@ -141,12 +141,14 @@ impl Instruction {
             | Self::Min {
                 lhs, rhs, choice, ..
             } => {
+                let choice_u = usize::from(*choice);
+                let c_slot = choice_u / 16;
+                let c_shift = (choice_u % 16) * 2;
                 let mut switch = formatdoc!(
-                    "switch (choices[{}]) {{
+                    "switch ((choices[{c_slot}] >> {c_shift}) & 3) {{
                         case LHS: v{out} = v{}; break;
                         case RHS: v{out} = v{}; break;
                         default: ",
-                    usize::from(*choice),
                     usize::from(*lhs),
                     usize::from(*rhs),
                 );
@@ -160,15 +162,14 @@ impl Instruction {
                     Mode::Interval => {
                         let a = usize::from(*lhs);
                         let b = usize::from(*rhs);
-                        let choice = usize::from(*choice);
                         match self {
                             Self::Max { .. } => formatdoc!(
                                 "
                             if (v{a}[0] > v{b}[1]) {{
-                                choices[{choice}] = LHS;
+                                choices[{c_slot}] &= ~(RHS << {c_shift});
                                 v{out} = v{a};
                             }} else if (v{b}[0] > v{a}[1]) {{
-                                choices[{choice}] = RHS;
+                                choices[{c_slot}] &= ~(LHS << {c_shift});
                                 v{out} = v{b};
                             }} else {{
                                 v{out} = i_max(v{a}, v{b});
@@ -178,10 +179,10 @@ impl Instruction {
                             Self::Min { .. } => formatdoc!(
                                 "
                             if (v{a}[1] < v{b}[0]) {{
-                                choices[{choice}] = LHS;
+                                choices[{c_slot}] &= ~(RHS << {c_shift});
                                 v{out} = v{a};
                             }} else if (v{b}[1] < v{a}[0]) {{
-                                choices[{choice}] = RHS;
+                                choices[{c_slot}] &= ~(LHS << {c_shift});
                                 v{out} = v{b};
                             }} else {{
                                 v{out} = i_min(v{a}, v{b});
@@ -249,10 +250,10 @@ impl Program {
         out += &formatdoc!(
             "
             #define VAR_COUNT {}
-            #define CHOICE_COUNT {}
+            #define CHOICE_BUF_SIZE {}
             ",
             self.config().var_count,
-            self.config().choice_count,
+            (self.config().choice_count + 15) / 16,
         );
         out += match mode {
             Mode::Interval => METAL_KERNEL_INTERVALS,
@@ -304,17 +305,21 @@ impl Program {
                         } else {
                             out += " || ";
                         }
+                        let u = usize::from(c.0);
                         out += &format!(
-                            "(choices[{}] & {})",
-                            usize::from(c.0),
-                            c.1.to_metal()
+                            "(choices[{}] & ({} << {}))",
+                            u / 16,
+                            c.1.to_metal(),
+                            (u % 16) * 2,
                         );
                     }
                 } else {
+                    let u = usize::from(cond[0].0);
                     out += &format!(
-                        "choices[{}] & {}",
-                        usize::from(cond[0].0),
-                        cond[0].1.to_metal()
+                        "choices[{}] & ({} << {})",
+                        u / 16,
+                        cond[0].1.to_metal(),
+                        (u % 16) * 2,
                     );
                 }
                 out += ") {\n        ";
@@ -375,9 +380,15 @@ impl IntervalRenderBuffers {
                 BufferUsage::STORAGE,
             )
             .unwrap();
+
+        // We tightly pack 2-bit choices into a buffer of uint32_t
+        let choice_buf_size = (choice_count + 15) / 16;
         let choices = session
             .create_buffer(
-                u64::from(tile_count * choice_count),
+                ((tile_count * choice_buf_size) as usize
+                    * std::mem::size_of::<u32>())
+                .try_into()
+                .unwrap(),
                 BufferUsage::STORAGE,
             )
             .unwrap();
@@ -527,7 +538,7 @@ pub struct RenderConfig {
     pub var_index_z: u32,
 
     /// Number of choices in this program
-    pub choice_count: u32,
+    pub choice_buf_size: u32,
 }
 
 impl Render {
@@ -671,7 +682,9 @@ impl Render {
             tile_size: STAGE0_TILE_SIZE,
             image_size,
             tile_count,
-            choice_count: self.config.choice_count.try_into().unwrap(),
+            choice_buf_size: ((self.config.choice_count + 15) / 16)
+                .try_into()
+                .unwrap(),
             var_index_x: usize::from(self.config.vars["X"])
                 .try_into()
                 .unwrap_or(u32::MAX),
@@ -691,7 +704,7 @@ impl Render {
         } else {
             self.stage0 = Some(IntervalRenderBuffers::new(
                 stage0_cfg.tile_count,
-                stage0_cfg.choice_count,
+                self.config.choice_count.try_into().unwrap(),
                 session,
             ));
             self.stage0.as_ref().unwrap()
@@ -796,7 +809,7 @@ impl Render {
         } else {
             self.stage1 = Some(IntervalRenderBuffers::new(
                 stage1_cfg.tile_count,
-                stage1_cfg.choice_count,
+                self.config.choice_count.try_into().unwrap(),
                 session,
             ));
             self.stage1.as_ref().unwrap()

@@ -1,14 +1,14 @@
 // Subdivides the result of interval evaluation
 //
-// This should be invoked with `cfg` representing the most recently completed
+// This should be invoked with `cfg` representing the next render stage.
 // evaluation stage.  It should be invoked with
 //      prev.active_tile_count * SPLIT_RATIO**2
 // threads in total, with threadgroup size of (SPLIT_RATIO**2, 1, 1)
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   const constant RenderOutConst& prev [[buffer(1)]],
-                  const constant uint8_t* choices_in [[buffer(2)]],
+                  const constant uint32_t* choices_in [[buffer(2)]],
                   device uint32_t* subtiles [[buffer(3)]],
-                  device uint8_t* choices_out [[buffer(4)]],
+                  device uint32_t* choices_out [[buffer(4)]],
                   device RenderOut& out [[buffer(5)]],
                   uint index [[thread_position_in_grid]])
 {
@@ -38,9 +38,9 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     }
 
     // Copy the choices array from the tile into the subtile
-    for (uint i=0; i < cfg.choice_count; ++i) {
-        choices_out[index * cfg.choice_count + i] =
-            choices_in[tile.prev_index * cfg.choice_count + i];
+    for (uint i=0; i < cfg.choice_buf_size; ++i) {
+        choices_out[index * cfg.choice_buf_size + i] =
+            choices_in[tile.prev_index * cfg.choice_buf_size + i];
     }
 
     // Reset the tile accumulator, in case this we're reusing a buffer

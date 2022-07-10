@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Some(m) = args.metal {
-        std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Pixel))?
+        std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Interval))?
     }
     if let Some(img) = args.image {
         let buffer: Vec<[u8; 4]> = if args.gpu {

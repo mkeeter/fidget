@@ -7,7 +7,7 @@
 // The exact threads per group doesn't matter
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
-                  device uint8_t* choices [[buffer(2)]],
+                  device uint32_t* choices [[buffer(2)]],
                   device RenderOut& out [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
@@ -29,8 +29,8 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     }
 
     // Fill this chunk of the choices array to always take both branches
-    for (uint i=0; i < cfg.choice_count; ++i) {
-        choices[index * cfg.choice_count + i] = LHS | RHS;
+    for (uint i=0; i < cfg.choice_buf_size; ++i) {
+        choices[index * cfg.choice_buf_size + i] = 0xFFFFFFFF;
     }
 
     // Reset the tile accumulator, in case this we're reusing a buffer

@@ -21,10 +21,11 @@ struct RenderConfig {
     uint32_t var_index_y;
     uint32_t var_index_z;
 
-    // choice count is hard-coded as CHOICES_COUNT in the custom shaders, but
-    // also stored here so that we can pass it into the standard shaders
-    // (init.metal and subdivide.metal)
-    uint32_t choice_count;
+    // choice buffer size represents the number of uint32_t in the choice
+    // buffer, where each uint32_t holds 16 choices.  It is hard-coded as
+    // CHOICE_BUF_SIZE in the custom shaders, but also stored here so that we
+    // can pass it into the standard shaders (init.metal and subdivide.metal)
+    uint32_t choice_buf_size;
 
     // Converts from a pixel position to a floating-point image position
     float2 pixel_to_pos(uint2 pixel) const constant {
