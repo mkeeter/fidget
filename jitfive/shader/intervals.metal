@@ -46,6 +46,9 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
             &out.active_tile_count, 1, metal::memory_order_relaxed);
         // Assign the next level of the tree
         out.next[t] = tile;
+
+        // XXX: This builds the hierarchical tile tree, but also nukes the
+        // tile, which breaks pixel evaluation.
         //tiles[index] = t;
     } else {
         //tiles[index] = 0xFFFFFFFF;
@@ -54,8 +57,10 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     // If this interval is filled, color in this pixel.  `out` is a
     // mipmap-style image, where each pixel represent a tile at our current
     // scale.
+    const uint2 p = lower / cfg.tile_size;
     if (result[1] < 0.0) {
-        const uint2 p = lower / cfg.tile_size;
-        image[p.x + p.y * cfg.image_size / cfg.tile_size] = 1;
+        image[p.x + p.y * cfg.image_size / cfg.tile_size] = FULL;
+    } else if (result[0] > 0.0) {
+        image[p.x + p.y * cfg.image_size / cfg.tile_size] = EMPTY;
     }
 }

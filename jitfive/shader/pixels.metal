@@ -3,19 +3,24 @@
 // and with a threadgroup size of
 //      (cfg.tile_size ** 2, 1, 1).
 kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
-                  const device uint32_t* tiles [[buffer(1)]],
+                  const device RenderOut& prev [[buffer(1)]],
                   const device uint8_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
+    // We use this tile count instead of the one in the RenderConfig, which
+    // is left over from the last pass of interval evaluation
+    const uint tile_count = atomic_load_explicit(
+        &prev.active_tile_count, metal::memory_order_relaxed);
+
     const uint32_t pixels_per_tile = cfg.tile_size * cfg.tile_size;
-    if (index >= cfg.tile_count * pixels_per_tile) {
+    if (index >= tile_count * pixels_per_tile) {
         return;
     }
 
     // Calculate the corner position of this tile, in pixels
     const uint32_t tile_index = index / pixels_per_tile;
-    const uint32_t tile = tiles[tile_index];
+    const uint32_t tile = prev.next[tile_index];
     const uint2 tile_corner = cfg.tile_size * uint2(tile & 0xFFFF, tile >> 16);
 
     // Calculate the offset within the tile, again in pixels

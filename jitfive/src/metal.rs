@@ -367,7 +367,7 @@ impl IntervalRenderBuffers {
                 (config.tile_count as usize * std::mem::size_of::<u32>())
                     .try_into()
                     .unwrap(),
-                BufferUsage::STORAGE,
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
             )
             .unwrap();
         let choices = session
@@ -629,6 +629,12 @@ impl Render {
             active_tile_count, stage0_cfg.tile_count
         );
 
+        let mut out: Vec<u32> = vec![];
+        stage0.out.read(&mut out).unwrap();
+        println!("Stage 0 out: {:x?}", out);
+        stage0.tiles.read(&mut out).unwrap();
+        println!("Stage 0 tiles: {:x?}", out);
+
         ///////////////////////////////////////////////////////////////////////
         // Stage 1: evaluation of 8x8 tiles using interval arithmetic
         let stage1_cfg = RenderConfig {
@@ -636,8 +642,8 @@ impl Render {
             tile_count: active_tile_count * SPLIT_RATIO.pow(2),
             ..stage0_cfg
         };
-        println!("{:?}", stage1_cfg);
-        let mut stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
+        println!("{:#?}", stage1_cfg);
+        let stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
 
         let subdiv_descriptor_set = session
             .create_simple_descriptor_set(
@@ -703,18 +709,17 @@ impl Render {
             active_subtile_count, stage1_cfg.tile_count
         );
 
+        let mut out: Vec<u32> = vec![];
+        stage1.out.read(&mut out).unwrap();
+        println!("Stage 1 out: {:x?}", out);
+        stage1.tiles.read(&mut out).unwrap();
+        println!("Stage 1 tiles: {:x?}", out);
+
         ///////////////////////////////////////////////////////////////////////
         // Stage 2: Per-pixel evaluation of remaining subtiles
-        let stage2_cfg = RenderConfig {
-            tile_count: active_subtile_count,
-            ..stage1_cfg
-        };
-        println!("{:#?}", stage2_cfg);
-        // Reuse the stage1 config buffer to avoid extra allocations
-        stage1
-            .config
-            .write(std::slice::from_ref(&stage2_cfg))
-            .unwrap();
+        //
+        // This step reuses the stage 1 configuration, but ignores its
+        // tile_count in favor of the active_tiles member of stage1.out
         let image = session
             .create_buffer(
                 image_size.pow(2).try_into().unwrap(),
@@ -724,7 +729,7 @@ impl Render {
         let stage2_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.pixels,
-                &[&stage1.config, &stage1.tiles, &stage1.choices, &image],
+                &[&stage1.config, &stage1.out, &stage1.choices, &image],
             )
             .unwrap();
 
@@ -750,10 +755,11 @@ impl Render {
 
         let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
         submitted.wait().unwrap();
+        let timestamps = session.fetch_query_pool(&query_pool);
+        println!("stage 2: {:?}", timestamps);
 
         let mut out: Vec<u8> = vec![];
         image.read(&mut out).unwrap();
-        println!("{:?}, {}", out, out.len());
 
         out.into_iter()
             .map(|i| match i {
