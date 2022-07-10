@@ -353,7 +353,6 @@ const METAL_KERNEL_PIXELS: &str = include_str!("../shader/pixels.metal");
 use piet_gpu_hal::{BindType, BufferUsage, ComputePassDescriptor, ShaderCode};
 
 pub struct IntervalRenderBuffers {
-    config: piet_gpu_hal::Buffer,
     tiles: piet_gpu_hal::Buffer,
     choices: piet_gpu_hal::Buffer,
     out: piet_gpu_hal::Buffer, // RenderOut
@@ -388,15 +387,7 @@ impl IntervalRenderBuffers {
             )
             .unwrap();
 
-        let config = session
-            .create_buffer_init(
-                std::slice::from_ref(config),
-                BufferUsage::STORAGE,
-            )
-            .unwrap();
-
         Self {
-            config,
             tiles,
             choices,
             out,
@@ -461,6 +452,9 @@ impl ImageBuffers {
 pub struct Render {
     config: Config,
 
+    /// Buffer that's sized to hold a [RenderConfig]
+    config_buf: piet_gpu_hal::Buffer,
+
     /// Compute pipelines to initialize before the first interval evaluation
     init: piet_gpu_hal::Pipeline,
 
@@ -518,6 +512,13 @@ impl Render {
     pub fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
         let shader_f = prog.to_metal(Mode::Pixel);
         let shader_i = prog.to_metal(Mode::Interval);
+
+        let config_buf = session
+            .create_buffer(
+                std::mem::size_of::<RenderConfig>().try_into().unwrap(),
+                BufferUsage::STORAGE | BufferUsage::MAP_WRITE,
+            )
+            .unwrap();
 
         // SAFETY: it's doing GPU stuff, so who knows?
         unsafe {
@@ -604,6 +605,7 @@ impl Render {
 
             Self {
                 config: prog.config().clone(),
+                config_buf,
                 init,
                 subdivide,
                 interval,
@@ -632,11 +634,11 @@ impl Render {
 
         ///////////////////////////////////////////////////////////////////////
         // Stage 0: evaluation of 64x64 tiles using interval arithmetic
-        const STAGE0_TILE_SIZE: u32 = 64;
 
         // 8-fold subdivision at each stage, i.e. a 2D tile will be split into
         // 64 subtiles.  This must be kept in sync with `prelude.metal`!
         const SPLIT_RATIO: u32 = 8;
+        const STAGE0_TILE_SIZE: u32 = SPLIT_RATIO.pow(2);
 
         let tile_count = (image_size / STAGE0_TILE_SIZE).pow(2);
         println!("Got tile count {:?}", tile_count);
@@ -653,13 +655,16 @@ impl Render {
                 .unwrap_or(u32::MAX),
             var_index_z: u32::MAX,
         };
+        self.config_buf
+            .write(std::slice::from_ref(&stage0_cfg))
+            .unwrap();
         let stage0 = IntervalRenderBuffers::new(&stage0_cfg, session);
 
         let clear_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.merge,
                 &[
-                    &stage0.config,
+                    &self.config_buf,
                     &image_buf.image_64x64,
                     &image_buf.image_8x8,
                     &image_buf.image_1x1,
@@ -669,14 +674,19 @@ impl Render {
         let init_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.init,
-                &[&stage0.config, &stage0.tiles, &stage0.choices, &stage0.out],
+                &[
+                    &self.config_buf,
+                    &stage0.tiles,
+                    &stage0.choices,
+                    &stage0.out,
+                ],
             )
             .unwrap();
         let stage0_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.interval,
                 &[
-                    &stage0.config,
+                    &self.config_buf,
                     &stage0.tiles,
                     &stage0.choices,
                     &image_buf.image_64x64,
@@ -738,13 +748,16 @@ impl Render {
             tile_count: active_tile_count * SPLIT_RATIO.pow(2),
             ..stage0_cfg
         };
+        self.config_buf
+            .write(std::slice::from_ref(&stage1_cfg))
+            .unwrap();
         let stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
 
         let subdiv_descriptor_set = session
             .create_simple_descriptor_set(
                 &self.init,
                 &[
-                    &stage0.config,
+                    &self.config_buf,
                     &stage0.out,
                     &stage0.choices,
                     &stage1.tiles,
@@ -757,7 +770,7 @@ impl Render {
             .create_simple_descriptor_set(
                 &self.interval,
                 &[
-                    &stage1.config,
+                    &self.config_buf,
                     &stage1.tiles,
                     &stage1.choices,
                     &image_buf.image_8x8,
@@ -814,7 +827,7 @@ impl Render {
             .create_simple_descriptor_set(
                 &self.pixels,
                 &[
-                    &stage1.config,
+                    &self.config_buf,
                     &stage1.out,
                     &stage1.choices,
                     &image_buf.image_1x1,
@@ -825,7 +838,7 @@ impl Render {
             .create_simple_descriptor_set(
                 &self.merge,
                 &[
-                    &stage1.config,
+                    &self.config_buf,
                     &image_buf.image_64x64,
                     &image_buf.image_8x8,
                     &image_buf.image_1x1,
