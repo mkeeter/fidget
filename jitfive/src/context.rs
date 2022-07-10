@@ -571,9 +571,9 @@ impl Context {
     pub fn render_2d(
         &self,
         root: Node,
-        scale: usize,
+        scale: u32,
     ) -> Result<Vec<bool>, Error> {
-        let mut out = Vec::with_capacity(scale * scale);
+        let mut out = Vec::with_capacity((scale * scale) as usize);
         let div = (scale - 1) as f64;
         for i in 0..scale {
             let y = -(-1.0 + 2.0 * (i as f64) / div);

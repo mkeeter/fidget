@@ -27,7 +27,7 @@ struct Args {
 
     /// Image size
     #[clap(short, long, requires = "image", default_value = "128")]
-    size: usize,
+    size: u32,
 
     /// Name of the model file to load
     filename: String,
@@ -58,7 +58,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(img) = args.image {
         let buffer: Vec<[u8; 4]> = if args.gpu {
-            gpu::render(&prog, args.size)
+            let now = Instant::now();
+            let out = gpu::render(&prog, args.size);
+            println!("Done with GPU render in {:?}", now.elapsed());
+            out
         } else {
             let out = ctx.render_2d(node, args.size)?;
             out.into_iter()
@@ -87,7 +90,7 @@ mod gpu {
     use super::*;
     use piet_gpu_hal::{Instance, InstanceFlags, Session};
 
-    pub fn render(prog: &Program, size: usize) -> Vec<[u8; 4]> {
+    pub fn render(prog: &Program, size: u32) -> Vec<[u8; 4]> {
         let (instance, _) =
             Instance::new(None, InstanceFlags::empty()).unwrap();
 

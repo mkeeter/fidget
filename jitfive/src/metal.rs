@@ -352,20 +352,83 @@ const METAL_KERNEL_PIXELS: &str = include_str!("../shader/pixels.metal");
 
 use piet_gpu_hal::{BindType, BufferUsage, ComputePassDescriptor, ShaderCode};
 
+pub struct IntervalRenderBuffers {
+    config: piet_gpu_hal::Buffer,
+    tiles: piet_gpu_hal::Buffer,
+    choices: piet_gpu_hal::Buffer,
+    image: piet_gpu_hal::Buffer,
+    out: piet_gpu_hal::Buffer, // RenderOut
+}
+
+impl IntervalRenderBuffers {
+    fn new(config: &RenderConfig, session: &piet_gpu_hal::Session) -> Self {
+        let tiles = session
+            .create_buffer(
+                (config.tile_count as usize * std::mem::size_of::<u32>())
+                    .try_into()
+                    .unwrap(),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+        let choices = session
+            .create_buffer(
+                (config.tile_count * config.choice_count)
+                    .try_into()
+                    .unwrap(),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+
+        assert_eq!(config.image_size % config.tile_size, 0);
+        let image = session
+            .create_buffer(
+                (config.image_size / config.tile_size)
+                    .pow(2)
+                    .try_into()
+                    .unwrap(),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+
+        let out = session
+            .create_buffer(
+                ((config.tile_count as usize + 1) * std::mem::size_of::<u32>())
+                    .try_into()
+                    .unwrap(),
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
+            )
+            .unwrap();
+
+        let config = session
+            .create_buffer_init(
+                std::slice::from_ref(config),
+                BufferUsage::STORAGE,
+            )
+            .unwrap();
+
+        Self {
+            config,
+            tiles,
+            choices,
+            image,
+            out,
+        }
+    }
+}
+
 pub struct Render {
     config: Config,
 
-    cfg_buf: piet_gpu_hal::Buffer,
-    tile_buf: piet_gpu_hal::Buffer,
-
-    // Working memory
-    choice_buf: piet_gpu_hal::Buffer,
-    out_buf: piet_gpu_hal::Buffer,
-
-    // Various compute pipelines
+    /// Compute pipelines to initialize before the first interval evaluation
     init: piet_gpu_hal::Pipeline,
-    subdivide: piet_gpu_hal::Pipeline,
+
+    /// Compute pipeline to perform interval evaluation
     interval: piet_gpu_hal::Pipeline,
+
+    /// Compute pipelines to subdivide the results of interval evaluation
+    subdivide: piet_gpu_hal::Pipeline,
+
+    /// Compute pipelines to render individual pixels
     pixels: piet_gpu_hal::Pipeline,
 }
 
@@ -392,7 +455,7 @@ pub struct RenderConfig {
     ///
     /// For example, if this is 8, each 2D tile will be split into 8x8 = 64
     /// subtiles during subdivision.
-    pub tile_scale: u32,
+    pub split_ratio: u32,
 
     /// Index of the X variable in `vars`, or `u32::MAX` if not present
     pub var_index_x: u32,
@@ -409,21 +472,6 @@ pub struct RenderConfig {
 
 impl Render {
     pub fn new(prog: &Program, session: &piet_gpu_hal::Session) -> Self {
-        let cfg_buf = session
-            .create_buffer(
-                std::mem::size_of::<RenderConfig>().try_into().unwrap(),
-                BufferUsage::MAP_WRITE | BufferUsage::STORAGE,
-            )
-            .unwrap();
-        let tile_buf = session
-            .create_buffer(8, BufferUsage::MAP_WRITE | BufferUsage::STORAGE)
-            .unwrap();
-        let out_buf = session
-            .create_buffer(8, BufferUsage::STORAGE | BufferUsage::MAP_READ)
-            .unwrap();
-        let choice_buf =
-            session.create_buffer(8, BufferUsage::STORAGE).unwrap();
-
         let shader_f = prog.to_metal(Mode::Pixel);
         let shader_i = prog.to_metal(Mode::Interval);
 
@@ -483,10 +531,6 @@ impl Render {
 
             Self {
                 config: prog.config().clone(),
-                choice_buf,
-                tile_buf,
-                cfg_buf,
-                out_buf,
                 init,
                 subdivide,
                 interval,
@@ -495,60 +539,26 @@ impl Render {
         }
     }
 
-    /// Sends the given data to a buffer, resizing to fit if needed
-    unsafe fn send_to_buf<T: Pod>(
-        session: &piet_gpu_hal::Session,
-        buf: &mut piet_gpu_hal::Buffer,
-        data: &[T],
-    ) {
-        if data.len() * std::mem::size_of::<T>()
-            > buf.size().try_into().unwrap()
-        {
-            *buf = session
-                .create_buffer_init(
-                    data,
-                    BufferUsage::MAP_WRITE | BufferUsage::STORAGE,
-                )
-                .unwrap();
-        } else {
-            buf.write(data).unwrap();
-        }
-    }
-
-    unsafe fn resize_to_fit<T: Pod>(
-        session: &piet_gpu_hal::Session,
-        buf: &mut piet_gpu_hal::Buffer,
-        count: usize,
-    ) {
-        let size_bytes = count * std::mem::size_of::<T>();
-        if size_bytes > buf.size().try_into().unwrap() {
-            *buf = session
-                .create_buffer(
-                    size_bytes.try_into().unwrap(),
-                    BufferUsage::STORAGE | BufferUsage::MAP_READ,
-                )
-                .unwrap();
-        }
-    }
-
     /// # Safety
     /// It's doing GPU stuff, who knows?
     pub unsafe fn render(
         &mut self,
-        size: usize,
+        image_size: u32,
         session: &piet_gpu_hal::Session,
     ) -> Vec<[u8; 4]> {
-        const TILE_SIZE: u32 = 8;
+        ///////////////////////////////////////////////////////////////////////
+        // Stage 0: evaluation of 64x64 tiles using interval arithmetic
+        const STAGE0_TILE_SIZE: u32 = 64;
+        // 8-fold subdivision at each stage
+        const SPLIT_RATIO: u32 = 8;
 
-        // This is doing pixel evaluation with one thread-group per tile and
-        // tile_count**2 threads per thread group.
-        let tile_count = (size / TILE_SIZE as usize).pow(2);
-
-        let cfg = RenderConfig {
-            tile_size: TILE_SIZE,
-            image_size: size.try_into().unwrap(),
-            tile_count: tile_count.try_into().unwrap(),
-            tile_scale: 8, // 8-fold subdivision at each stage
+        let tile_count = (image_size / STAGE0_TILE_SIZE).pow(2);
+        println!("Got tile count {:?}", tile_count);
+        let stage0_cfg = RenderConfig {
+            tile_size: STAGE0_TILE_SIZE,
+            image_size,
+            tile_count,
+            split_ratio: SPLIT_RATIO,
             choice_count: self.config.choice_count.try_into().unwrap(),
             var_index_x: usize::from(self.config.vars["X"])
                 .try_into()
@@ -558,44 +568,23 @@ impl Render {
                 .unwrap_or(u32::MAX),
             var_index_z: u32::MAX,
         };
+        let stage0 = IntervalRenderBuffers::new(&stage0_cfg, session);
 
-        self.cfg_buf.write(std::slice::from_ref(&cfg)).unwrap();
-
-        assert_eq!(
-            size % (cfg.tile_size as usize),
-            0,
-            "Size must be a multiple of tile size"
-        );
-
-        // Initialize tiles to contain every tile in the image
-        let mut tiles: Vec<u32> = vec![];
-        for x in 0..(cfg.image_size / cfg.tile_size) {
-            let x = u16::try_from(x).unwrap();
-            for y in 0..(cfg.image_size / cfg.tile_size) {
-                let y = u16::try_from(y).unwrap();
-                tiles.push((u32::from(x) << 16) | u32::from(y));
-            }
-        }
-        Self::send_to_buf(session, &mut self.tile_buf, &tiles);
-
-        // Initialize choices array. Each choice array is shared by a tile's
-        // worth of threads in the thread group.
-        let choices = std::iter::repeat(0b11)
-            .take(tile_count * self.config.choice_count)
-            .collect::<Vec<u8>>();
-        Self::send_to_buf(session, &mut self.choice_buf, &choices);
-
-        // Resize out buffer to fit one `uchar4` per thread
-        Self::resize_to_fit::<[u8; 4]>(session, &mut self.out_buf, size.pow(2));
-
-        let descriptor_set = session
+        let init_descriptor_set = session
             .create_simple_descriptor_set(
-                &self.pixels,
+                &self.init,
+                &[&stage0.config, &stage0.tiles, &stage0.choices],
+            )
+            .unwrap();
+        let stage0_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.interval,
                 &[
-                    &self.cfg_buf,
-                    &self.tile_buf,
-                    &self.choice_buf,
-                    &self.out_buf,
+                    &stage0.config,
+                    &stage0.tiles,
+                    &stage0.choices,
+                    &stage0.image,
+                    &stage0.out,
                 ],
             )
             .unwrap();
@@ -610,10 +599,16 @@ impl Render {
                 &ComputePassDescriptor::timer(&query_pool, 0, 1),
             );
             pass.dispatch(
-                &self.pixels,
-                &descriptor_set,
-                (u32::try_from(tile_count).unwrap(), 1, 1),
-                (cfg.tile_size.pow(2), 1, 1),
+                &self.init,
+                &init_descriptor_set,
+                (((tile_count + 7) / 8), 1, 1),
+                (8, 1, 1),
+            );
+            pass.dispatch(
+                &self.interval,
+                &stage0_descriptor_set,
+                (((tile_count + 7) / 8), 1, 1),
+                (8, 1, 1),
             );
             pass.end();
         }
@@ -625,13 +620,148 @@ impl Render {
         let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
         submitted.wait().unwrap();
         let timestamps = session.fetch_query_pool(&query_pool);
+        println!("stage 0: {:?}", timestamps);
 
-        let mut dst: Vec<[u8; 4]> = vec![];
-        self.out_buf.read(&mut dst).unwrap();
-        println!("{:?}", timestamps);
-        println!("dst size: {}", self.out_buf.size());
-        println!("dst len : {}", dst.len());
+        let active_tile_count =
+            stage0.out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
+        println!(
+            "active tiles: {} / {}",
+            active_tile_count, stage0_cfg.tile_count
+        );
 
-        dst
+        ///////////////////////////////////////////////////////////////////////
+        // Stage 1: evaluation of 8x8 tiles using interval arithmetic
+        let stage1_cfg = RenderConfig {
+            tile_size: stage0_cfg.tile_size / SPLIT_RATIO,
+            tile_count: active_tile_count * SPLIT_RATIO.pow(2),
+            ..stage0_cfg
+        };
+        println!("{:?}", stage1_cfg);
+        let mut stage1 = IntervalRenderBuffers::new(&stage1_cfg, session);
+
+        let subdiv_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.init,
+                &[
+                    &stage0.config,
+                    &stage0.out,
+                    &stage0.choices,
+                    &stage1.tiles,
+                    &stage1.choices,
+                ],
+            )
+            .unwrap();
+        let stage1_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.interval,
+                &[
+                    &stage1.config,
+                    &stage1.tiles,
+                    &stage1.choices,
+                    &stage1.image,
+                    &stage1.out,
+                ],
+            )
+            .unwrap();
+
+        let query_pool = session.create_query_pool(2).unwrap();
+        let mut cmd_buf = session.cmd_buf().unwrap();
+        cmd_buf.begin();
+        cmd_buf.reset_query_pool(&query_pool);
+        {
+            let mut pass = cmd_buf.begin_compute_pass(
+                &ComputePassDescriptor::timer(&query_pool, 0, 1),
+            );
+            pass.dispatch(
+                &self.subdivide,
+                &subdiv_descriptor_set,
+                (active_tile_count, 1, 1),
+                (SPLIT_RATIO.pow(2), 1, 1),
+            );
+            pass.dispatch(
+                &self.interval,
+                &stage1_descriptor_set,
+                (active_tile_count, 1, 1),
+                (SPLIT_RATIO.pow(2), 1, 1),
+            );
+            pass.end();
+        }
+        cmd_buf.finish_timestamps(&query_pool);
+        cmd_buf.host_barrier();
+        cmd_buf.finish();
+
+        let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
+        submitted.wait().unwrap();
+
+        let timestamps = session.fetch_query_pool(&query_pool);
+        println!("stage 1: {:?}", timestamps);
+
+        let active_subtile_count =
+            stage1.out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
+        println!(
+            "active tiles: {} / {}",
+            active_subtile_count, stage1_cfg.tile_count
+        );
+
+        ///////////////////////////////////////////////////////////////////////
+        // Stage 2: Per-pixel evaluation of remaining subtiles
+        let stage2_cfg = RenderConfig {
+            tile_count: active_subtile_count,
+            ..stage1_cfg
+        };
+        println!("{:#?}", stage2_cfg);
+        // Reuse the stage1 config buffer to avoid extra allocations
+        stage1
+            .config
+            .write(std::slice::from_ref(&stage2_cfg))
+            .unwrap();
+        let image = session
+            .create_buffer(
+                image_size.pow(2).try_into().unwrap(),
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
+            )
+            .unwrap();
+        let stage2_descriptor_set = session
+            .create_simple_descriptor_set(
+                &self.pixels,
+                &[&stage1.config, &stage1.tiles, &stage1.choices, &image],
+            )
+            .unwrap();
+
+        let query_pool = session.create_query_pool(2).unwrap();
+        let mut cmd_buf = session.cmd_buf().unwrap();
+        cmd_buf.begin();
+        cmd_buf.reset_query_pool(&query_pool);
+        {
+            let mut pass = cmd_buf.begin_compute_pass(
+                &ComputePassDescriptor::timer(&query_pool, 0, 1),
+            );
+            pass.dispatch(
+                &self.pixels,
+                &stage2_descriptor_set,
+                (active_subtile_count, 1, 1),
+                (SPLIT_RATIO.pow(2), 1, 1),
+            );
+            pass.end();
+        }
+        cmd_buf.finish_timestamps(&query_pool);
+        cmd_buf.host_barrier();
+        cmd_buf.finish();
+
+        let submitted = session.run_cmd_buf(cmd_buf, &[], &[]).unwrap();
+        submitted.wait().unwrap();
+
+        let mut out: Vec<u8> = vec![];
+        image.read(&mut out).unwrap();
+        println!("{:?}, {}", out, out.len());
+
+        out.into_iter()
+            .map(|i| match i {
+                0 => [0, 0, 0, 0xFF],
+                1 => [0xFF, 0xFF, 0xFF, 0xFF],
+                2 => [0x88, 0x88, 0x88, 0xFF],
+                _ => [0xFF, 0, 0, 0xFF],
+            })
+            .collect()
     }
 }

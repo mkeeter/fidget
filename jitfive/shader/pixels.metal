@@ -1,11 +1,11 @@
 // This should be called with a 1D grid of size
-//      ((cfg.image_size / cfg.tile_size) ** 2, 1, 1)
+//      (active_tiles, 1, 1)
 // and with a threadgroup size of
 //      (cfg.tile_size ** 2, 1, 1).
 kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
                   const device uint32_t* tiles [[buffer(1)]],
                   const device uint8_t* choices [[buffer(2)]],
-                  device uchar4* out [[buffer(3)]],
+                  device uint8_t* image [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
     const uint32_t pixels_per_tile = cfg.tile_size * cfg.tile_size;
@@ -40,8 +40,8 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     const float result =
         t_eval(vars, &choices[tile_index * CHOICE_COUNT]);
 
-    const uint8_t v = result < 0.0 ? 0xFF : 0;
+    const uint8_t v = result < 0.0 ? 0x1 : 0x2;
 
-    out[pixel.x + pixel.y * cfg.image_size] = uchar4(v, v, v, 255);
+    image[pixel.x + pixel.y * cfg.image_size] = v;
 }
 

@@ -1,15 +1,20 @@
 // Prelude
 #include <metal_stdlib>
 
+// Values used in choices arrays
 #define RHS 1
 #define LHS 2
+
+// Values written to image arrays
+#define EMPTY 1
+#define FULL  2
 
 // This must be kept in sync with the Rust `struct RenderConfig`!
 struct RenderConfig {
     uint32_t image_size;
     uint32_t tile_size;
     uint32_t tile_count;
-    uint32_t tile_scale;
+    uint32_t split_ratio;
     uint32_t var_index_x;
     uint32_t var_index_y;
     uint32_t var_index_z;

@@ -8,7 +8,7 @@
 kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
                   device uint32_t* tiles [[buffer(1)]],
                   device uint8_t* choices [[buffer(2)]],
-                  device uint* image [[buffer(3)]],
+                  device uint8_t* image [[buffer(3)]],
                   device RenderOut& out [[buffer(4)]],
                   uint index [[thread_position_in_grid]])
 {
@@ -20,7 +20,7 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     // Find the upper and lower bounds of the tile, in pixel coordinates
     const uint32_t tile = tiles[index];
     const uint2 lower = cfg.tile_size * uint2(tile & 0xFFFF, tile >> 16);
-    const uint2 upper = lower + cfg.tile_scale;
+    const uint2 upper = lower + cfg.tile_size;
 
     // Image location (-1 to 1)
     const float2 lower_f = cfg.pixel_to_pos(lower);
@@ -42,13 +42,13 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
     const bool active = (result[0] <= 0.0 && result[1] >= 0.0);
     if (active) {
         // TODO: maybe separate thread-group then global accumulation?
-        const uint t = atomic_fetch_add_explicit(&out.active_tile_count, 1,
-                                                 metal::memory_order_relaxed);
+        const uint t = atomic_fetch_add_explicit(
+            &out.active_tile_count, 1, metal::memory_order_relaxed);
         // Assign the next level of the tree
         out.next[t] = tile;
-        tiles[index] = t;
+        //tiles[index] = t;
     } else {
-        tiles[index] = 0xFFFFFFFF;
+        //tiles[index] = 0xFFFFFFFF;
     }
 
     // If this interval is filled, color in this pixel.  `out` is a

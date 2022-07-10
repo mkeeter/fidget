@@ -2,8 +2,8 @@
 //
 // This should be invoked with `cfg` representing the most recently completed
 // evaluation stage.  It should be invoked with
-//      prev.active_tile_count * cfg.tile_scale**2
-// threads in total, with threadgroup size of (cfg.tile_scale**2, 1, 1)
+//      prev.active_tile_count * cfg.split_ratio**2
+// threads in total, with threadgroup size of (cfg.split_ratio**2, 1, 1)
 kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
                   const device RenderOut& prev [[buffer(1)]],
                   const device uint8_t* choices_in [[buffer(2)]],
@@ -13,7 +13,7 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
 {
     const uint active_tile_count = atomic_load_explicit(
         &prev.active_tile_count, metal::memory_order_relaxed);
-    const uint subtiles_per_tile = cfg.tile_scale * cfg.tile_scale;
+    const uint subtiles_per_tile = cfg.split_ratio * cfg.split_ratio;
     if (index >= active_tile_count * subtiles_per_tile) {
         return;
     }
@@ -23,10 +23,10 @@ kernel void main0(const device RenderConfig& cfg [[buffer(0)]],
 
     const uint tile_x = tile & 0xFFFF;
     const uint tile_y = tile >> 16;
-    const uint subtile_x = tile_x * cfg.tile_scale +
-                           subtile_index / cfg.tile_scale;
-    const uint subtile_y = tile_y * cfg.tile_scale +
-                           subtile_index % cfg.tile_scale;
+    const uint subtile_x = (tile_x * cfg.split_ratio) +
+                           (subtile_index / cfg.split_ratio);
+    const uint subtile_y = (tile_y * cfg.split_ratio) +
+                           (subtile_index % cfg.split_ratio);
     if (subtile_x > 0xFFFF || subtile_y > 0xFFFF) {
         // If there are too many subtiles, assign an obviously wrong value
         // (hard to check, alas)
