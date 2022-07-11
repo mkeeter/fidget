@@ -317,7 +317,7 @@ impl Block {
 }
 
 /// Represents a choice by a `min` or `max` node.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Choice {
     Left,
     Right,

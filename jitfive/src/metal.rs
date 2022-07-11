@@ -297,30 +297,33 @@ impl Program {
 
                 // Write out the conditional, calling the inner function
                 out += "    if (";
-                if cond.len() > 1 {
-                    let mut first = true;
-                    for c in cond {
-                        if first {
-                            first = false;
-                        } else {
-                            out += " || ";
-                        }
-                        let u = usize::from(c.0);
-                        out += &format!(
-                            "(choices[{}] & ({} << {}))",
-                            u / 16,
-                            c.1.to_metal(),
-                            (u % 16) * 2,
-                        );
+                let mut grouped_cond: BTreeMap<_, BTreeSet<_>> =
+                    BTreeMap::new();
+                for c in cond {
+                    let u = usize::from(c.0);
+                    grouped_cond
+                        .entry(u / 16)
+                        .or_default()
+                        .insert(((u % 16) * 2, c.1));
+                }
+                let mut first = true;
+                for (c_slot, v) in &grouped_cond {
+                    if first {
+                        first = false;
+                    } else {
+                        out += " ||\n        ";
                     }
-                } else {
-                    let u = usize::from(cond[0].0);
-                    out += &format!(
-                        "choices[{}] & ({} << {})",
-                        u / 16,
-                        cond[0].1.to_metal(),
-                        (u % 16) * 2,
-                    );
+                    out += &format!("(choices[{c_slot}] & (");
+                    let mut inner_first = true;
+                    for (c_shift, mask) in v {
+                        if inner_first {
+                            inner_first = false;
+                        } else {
+                            out += " | ";
+                        }
+                        out += &format!("({} << {c_shift})", mask.to_metal());
+                    }
+                    out += "))";
                 }
                 out += ") {\n        ";
                 out += &f.call();
