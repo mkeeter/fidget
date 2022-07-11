@@ -305,7 +305,6 @@ impl Program {
                 path.pop();
 
                 // Write out the conditional, calling the inner function
-                out += "    if (";
                 let mut grouped_cond: BTreeMap<_, BTreeSet<_>> =
                     BTreeMap::new();
                 for c in cond {
@@ -315,28 +314,42 @@ impl Program {
                         .or_default()
                         .insert(((u % 16) * 2, c.1));
                 }
-                let mut first = true;
-                for (c_slot, v) in &grouped_cond {
-                    if first {
-                        first = false;
-                    } else {
-                        out += " ||\n        ";
-                    }
-                    out += &format!("(choices[{c_slot}] & (");
-                    let mut inner_first = true;
-                    for (c_shift, mask) in v {
-                        if inner_first {
-                            inner_first = false;
+                // Optimization: only gate the inner group with a conditional
+                // if the cost of evaluating the group is greater than the cost
+                // of evaluating the conditional itself.
+                let use_if = next.weight > grouped_cond.len();
+                if use_if {
+                    out += "    if (";
+                    let mut first = true;
+                    for (c_slot, v) in &grouped_cond {
+                        if first {
+                            first = false;
                         } else {
-                            out += " | ";
+                            out += " ||\n        ";
                         }
-                        out += &format!("({} << {c_shift})", mask.to_metal());
+                        out += &format!("(choices[{c_slot}] & (");
+                        let mut inner_first = true;
+                        for (c_shift, mask) in v {
+                            if inner_first {
+                                inner_first = false;
+                            } else {
+                                out += " | ";
+                            }
+                            out +=
+                                &format!("({} << {c_shift})", mask.to_metal());
+                        }
+                        out += "))";
                     }
-                    out += "))";
+                    out += ") {\n        ";
+                } else {
+                    out += "    ";
                 }
-                out += ") {\n        ";
                 out += &f.call();
-                out += "\n    }\n";
+                if use_if {
+                    out += "\n    }\n";
+                } else {
+                    out += "\n";
+                }
             } else {
                 panic!("Could not get out register or Cond block");
             }

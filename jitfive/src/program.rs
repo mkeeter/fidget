@@ -175,6 +175,9 @@ pub struct Block {
     /// Does the block or any inner block contain choice lookups?
     pub has_choice: bool,
 
+    /// Number of instructions (including inner block)
+    pub weight: usize,
+
     /// Registers which are sourced externally to this block and unmodified
     pub inputs: BTreeSet<RegIndex>,
     /// Registers which are sourced externally to this block and modified
@@ -200,10 +203,18 @@ impl Block {
             Instruction::Min { .. } | Instruction::Max { .. } => true,
             _ => false,
         });
+        let weight = tape
+            .iter()
+            .map(|i| match i {
+                Instruction::Cond(_, b) => b.weight,
+                _ => 1,
+            })
+            .sum::<usize>();
         Self {
             tape,
             has_choice,
             has_var,
+            weight,
             inputs: Default::default(),
             outputs: Default::default(),
             locals: Default::default(),
