@@ -169,6 +169,12 @@ impl Instruction {
 pub struct Block {
     pub tape: Vec<Instruction>,
 
+    /// Does the block or any inner block contain variable lookups?
+    pub has_var: bool,
+
+    /// Does the block or any inner block contain choice lookups?
+    pub has_choice: bool,
+
     /// Registers which are sourced externally to this block and unmodified
     pub inputs: BTreeSet<RegIndex>,
     /// Registers which are sourced externally to this block and modified
@@ -184,8 +190,20 @@ impl Block {
     /// This should be stored within a higher-level tape that is passed into
     /// `Block::new` for finalization.
     pub fn inner(tape: Vec<Instruction>) -> Self {
+        let has_var = tape.iter().any(|i| match i {
+            Instruction::Var { .. } => true,
+            Instruction::Cond(_, b) => b.has_var,
+            _ => false,
+        });
+        let has_choice = tape.iter().any(|i| match i {
+            Instruction::Cond(_, b) => b.has_choice,
+            Instruction::Min { .. } | Instruction::Max { .. } => true,
+            _ => false,
+        });
         Self {
             tape,
+            has_choice,
+            has_var,
             inputs: Default::default(),
             outputs: Default::default(),
             locals: Default::default(),
@@ -193,12 +211,8 @@ impl Block {
     }
     /// Builds a top-level `Block` from the given instruction tape.
     fn new(tape: Vec<Instruction>) -> Self {
-        let mut out = Self {
-            tape,
-            inputs: Default::default(),
-            outputs: Default::default(),
-            locals: Default::default(),
-        };
+        let mut out = Self::inner(tape);
+
         // Find the root blocks of every register
         let mut reg_blocks = BTreeMap::new();
         out.reg_blocks(&mut vec![], &mut reg_blocks);

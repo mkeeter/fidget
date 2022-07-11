@@ -22,6 +22,10 @@ struct Function {
     index: usize,
     body: String,
     root: bool,
+
+    has_var: bool,
+    has_choice: bool,
+
     /// Registers which are sourced externally to this block and unmodified
     inputs: BTreeSet<RegIndex>,
     /// Registers which are sourced externally to this block and modified
@@ -58,7 +62,7 @@ impl Mode {
     fn choice_type(&self) -> &str {
         match self {
             Mode::Pixel => "const constant uint32_t*",
-            Mode::Interval => "device uint32_t*",
+            Mode::Interval => "thread uint32_t*",
         }
     }
 }
@@ -67,49 +71,54 @@ impl Function {
     fn declaration(&self, mode: Mode) -> String {
         let mut out = String::new();
         out += &formatdoc!(
-            "
-            inline {} t_shape_{}(
-                {} vars, {} choices",
+            "inline {} t_shape_{}(",
             if self.root { mode.local_type() } else { "void" },
-            self.index,
-            mode.vars_type(),
-            mode.choice_type(),
+            self.index
         );
-        let mut first = true;
+        let mut args = vec![];
+        if self.has_var {
+            args.push(format!("{} vars", mode.vars_type()));
+        }
+        if self.has_choice {
+            args.push(format!("{} choices", mode.choice_type()));
+        }
         for i in &self.inputs {
-            if first {
-                out += ",\n    ";
-            } else {
-                out += ", ";
-            }
-            first = false;
-            out += &format!("const {} v{}", mode.local_type(), usize::from(*i));
+            args.push(format!(
+                "const {} v{}",
+                mode.local_type(),
+                usize::from(*i)
+            ));
         }
-        let mut first = true;
         for i in &self.outputs {
-            if first {
-                out += ",\n    ";
-            } else {
-                out += ", ";
-            }
-            first = false;
-            out +=
-                &format!("thread {}& v{}", mode.local_type(), usize::from(*i));
+            args.push(format!(
+                "thread {}& v{}",
+                mode.local_type(),
+                usize::from(*i)
+            ));
         }
+        out += &args.join(", ");
         out += "\n)";
         out
     }
     /// Generates text to call a function
     fn call(&self) -> String {
         let mut out = String::new();
-        out += &format!("t_shape_{}(vars, choices", self.index);
+        out += &format!("t_shape_{}(", self.index);
+        let mut args = vec![];
+        if self.has_var {
+            args.push("vars".to_owned());
+        }
+        if self.has_choice {
+            args.push("choices".to_owned());
+        }
 
         for i in &self.inputs {
-            out += &format!(", v{}", usize::from(*i));
+            args.push(format!("v{}", usize::from(*i)));
         }
         for i in &self.outputs {
-            out += &format!(", v{}", usize::from(*i));
+            args.push(format!("v{}", usize::from(*i)));
         }
+        out += &args.join(", ");
         out += ");";
         out
     }
@@ -343,6 +352,8 @@ impl Program {
                 index: i,
                 body: out,
                 root: is_root,
+                has_var: block.has_var,
+                has_choice: block.has_choice,
                 inputs: block.inputs.clone(),
                 outputs: block.outputs.clone(),
             },

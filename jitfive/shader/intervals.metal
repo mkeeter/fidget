@@ -35,8 +35,19 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
         vars[cfg.var_index_y] = float2(lower_f.y, upper_f.y);
     }
 
+    // Copy to local choices array
+    uint32_t local_choices[CHOICE_BUF_SIZE];
+    for (uint i=0; i < CHOICE_BUF_SIZE; ++i) {
+        local_choices[i] = choices[index * CHOICE_BUF_SIZE + i];
+    }
+
     // Perform interval evaluation
-    const float2 result = t_eval(vars, &choices[index * CHOICE_BUF_SIZE]);
+    const float2 result = t_eval(vars, local_choices);
+
+    // Copy back to global choices array
+    for (uint i=0; i < CHOICE_BUF_SIZE; ++i) {
+        choices[index * CHOICE_BUF_SIZE + i] = local_choices[i];
+    }
 
     // Accumulate the number of active tiles
     const bool active = (result[0] <= 0.0 && result[1] >= 0.0);
