@@ -33,7 +33,7 @@ struct Function {
 }
 
 /// Shader mode
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Mode {
     Pixel,
     Interval,
@@ -59,10 +59,29 @@ impl Mode {
             Mode::Interval => "float2",
         }
     }
-    fn choice_type(&self) -> &str {
+    fn t_eval_signature(&self, index: usize) -> String {
         match self {
-            Mode::Pixel => "const constant uint32_t*",
-            Mode::Interval => "thread uint32_t*",
+            Mode::Pixel => formatdoc!(
+                "
+                inline float t_eval(const thread float* vars,
+                                    const constant uint32_t* choices_in)
+                {{
+                    return t_shape_{}(vars, choices_in);
+                }}
+                ",
+                index
+            ),
+            Mode::Interval => formatdoc!(
+                "
+                inline float2 t_eval(const thread float2* vars,
+                                     const constant uint32_t* choices_in,
+                                     thread uint32_t* choices_out)
+                {{
+                    return t_shape_{}(vars, choices_in, choices_out);
+                }}
+                ",
+                index
+            ),
         }
     }
 }
@@ -80,7 +99,15 @@ impl Function {
             args.push(format!("{} vars", mode.vars_type()));
         }
         if self.has_choice {
-            args.push(format!("{} choices", mode.choice_type()));
+            match mode {
+                Mode::Pixel => {
+                    args.push("const constant uint32_t* choices_in".to_owned());
+                }
+                Mode::Interval => {
+                    args.push("const constant uint32_t* choices_in".to_owned());
+                    args.push("thread uint32_t* choices_out".to_owned());
+                }
+            }
         }
         for i in &self.inputs {
             args.push(format!(
@@ -101,7 +128,7 @@ impl Function {
         out
     }
     /// Generates text to call a function
-    fn call(&self) -> String {
+    fn call(&self, mode: Mode) -> String {
         let mut out = String::new();
         out += &format!("t_shape_{}(", self.index);
         let mut args = vec![];
@@ -109,7 +136,10 @@ impl Function {
             args.push("vars".to_owned());
         }
         if self.has_choice {
-            args.push("choices".to_owned());
+            args.push("choices_in".to_owned());
+            if mode == Mode::Interval {
+                args.push("choices_out".to_owned());
+            }
         }
 
         for i in &self.inputs {
@@ -154,7 +184,7 @@ impl Instruction {
                 let c_slot = choice_u / 16;
                 let c_shift = (choice_u % 16) * 2;
                 let mut switch = formatdoc!(
-                    "switch ((choices[{c_slot}] >> {c_shift}) & 3) {{
+                    "switch ((choices_in[{c_slot}] >> {c_shift}) & 3) {{
                         case LHS: v{out} = v{}; break;
                         case RHS: v{out} = v{}; break;
                         default: ",
@@ -175,10 +205,12 @@ impl Instruction {
                             Self::Max { .. } => formatdoc!(
                                 "
                             if (v{a}[0] > v{b}[1]) {{
-                                choices[{c_slot}] &= ~(RHS << {c_shift});
+                                choices_out[{c_slot}] &= ~(RHS << {c_shift});
+                                choices_out[{c_slot}] |= (LHS << {c_shift});
                                 v{out} = v{a};
                             }} else if (v{b}[0] > v{a}[1]) {{
-                                choices[{c_slot}] &= ~(LHS << {c_shift});
+                                choices_out[{c_slot}] &= ~(LHS << {c_shift});
+                                choices_out[{c_slot}] |=  (RHS << {c_shift});
                                 v{out} = v{b};
                             }} else {{
                                 v{out} = i_max(v{a}, v{b});
@@ -188,10 +220,12 @@ impl Instruction {
                             Self::Min { .. } => formatdoc!(
                                 "
                             if (v{a}[1] < v{b}[0]) {{
-                                choices[{c_slot}] &= ~(RHS << {c_shift});
+                                choices_out[{c_slot}] &= ~(RHS << {c_shift});
+                                choices_out[{c_slot}] |=  (LHS << {c_shift});
                                 v{out} = v{a};
                             }} else if (v{b}[1] < v{a}[0]) {{
-                                choices[{c_slot}] &= ~(LHS << {c_shift});
+                                choices_out[{c_slot}] &= ~(LHS << {c_shift});
+                                choices_out[{c_slot}] |=  (RHS << {c_shift});
                                 v{out} = v{b};
                             }} else {{
                                 v{out} = i_min(v{a}, v{b});
@@ -243,18 +277,8 @@ impl Program {
         }
         out += "\n";
         out += &formatdoc!(
-            "
-        // Root function
-        inline {} t_eval({} vars,
-                         {} choices)
-        {{
-            return t_shape_{}(vars, choices);
-        }}
-        ",
-            mode.local_type(),
-            mode.vars_type(),
-            mode.choice_type(),
-            functions.get(&vec![]).unwrap().index
+            "// Root function\n{}",
+            mode.t_eval_signature(functions.get(&vec![]).unwrap().index),
         );
         out += &formatdoc!(
             "
@@ -327,7 +351,7 @@ impl Program {
                         } else {
                             out += " ||\n        ";
                         }
-                        out += &format!("(choices[{c_slot}] & (");
+                        out += &format!("(choices_in[{c_slot}] & (");
                         let mut inner_first = true;
                         for (c_shift, mask) in v {
                             if inner_first {
@@ -344,7 +368,7 @@ impl Program {
                 } else {
                     out += "    ";
                 }
-                out += &f.call();
+                out += &f.call(mode);
                 if use_if {
                     out += "\n    }\n";
                 } else {
@@ -385,12 +409,54 @@ const METAL_KERNEL_PIXELS: &str = include_str!("../shader/pixels.metal");
 use piet_gpu_hal::{BindType, BufferUsage, ComputePassDescriptor, ShaderCode};
 
 pub struct IntervalRenderBuffers {
+    /// Number of tiles allocated in `tiles_in` and `tiles_out`.
     tile_count: u32,
+
+    /// Number of choices.  Note that this is different from
+    /// [RenderConfig::choice_buf_size], which is the number of `u32` words
+    /// needed to store `choice_count` with each choice packed into 2 bits.
+    ///
+    /// This value is constant for the life of an [`IntervalRenderBuffers`],
+    /// because it is dependent on the underlying shape program (and doesn't
+    /// change with render angle)
     choice_count: u32,
 
-    tiles: piet_gpu_hal::Buffer,
-    choices: piet_gpu_hal::Buffer,
-    out: piet_gpu_hal::Buffer, // RenderOut
+    /// Tiles read by this render stage.
+    ///
+    /// This buffer represents a `struct RenderOut`, i.e.
+    /// ```
+    ///     tile_count: u32,
+    ///     tile_size: u32,
+    ///     tiles: [u32; tile_count]
+    /// ```
+    ///
+    /// `tile_count` in this buffer is initialized to `tile_count`.
+    tiles_in: piet_gpu_hal::Buffer,
+
+    /// Tiles written by this render stage.
+    ///
+    /// This buffer represents a `struct RenderOut`, i.e.
+    /// ```
+    ///     tile_count: u32,
+    ///     tile_size: u32,
+    ///     tiles: [u32; tile_count]
+    /// ```
+    ///
+    /// `tile_count` should be initialized to 0, and will be atomically
+    /// incremented during interval evaluation as tiles are pushed into
+    /// the `tiles` array.  The resulting `tiles` array will hopefully be
+    /// less than 100% full, as some tiles are skipped.
+    tiles_out: piet_gpu_hal::Buffer,
+
+    /// Buffer allocated for choice data written by interval evaluation.
+    ///
+    /// This is effectively an array of the size
+    ///     `[u32; tile_count * (choice_count + 15) / 16]`
+    /// since each choice is packed into 2 bits in a `u32`.
+    ///
+    /// The buffer may not be 100% full after interval evaluation, as some
+    /// tiles won't be pushed for future rendering.
+    choices_out: piet_gpu_hal::Buffer,
 }
 
 impl IntervalRenderBuffers {
@@ -399,18 +465,27 @@ impl IntervalRenderBuffers {
         choice_count: u32,
         session: &piet_gpu_hal::Session,
     ) -> Self {
-        let tiles = session
+        let tile_buf_size = u64::try_from(
+            (tile_count as usize + 2) * std::mem::size_of::<u32>(),
+        )
+        .unwrap();
+        let tiles_in = session
+            .create_buffer(tile_buf_size, BufferUsage::STORAGE)
+            .unwrap();
+
+        // We need this to be readable because we load the number of active
+        // tiles from the first item in the buffer, in order to run the
+        // correct number of threads in the next pass.
+        let tiles_out = session
             .create_buffer(
-                (tile_count as usize * std::mem::size_of::<u32>())
-                    .try_into()
-                    .unwrap(),
-                BufferUsage::STORAGE,
+                tile_buf_size,
+                BufferUsage::STORAGE | BufferUsage::MAP_READ,
             )
             .unwrap();
 
         // We tightly pack 2-bit choices into a buffer of uint32_t
         let choice_buf_size = (choice_count + 15) / 16;
-        let choices = session
+        let choices_out = session
             .create_buffer(
                 ((tile_count * choice_buf_size) as usize
                     * std::mem::size_of::<u32>())
@@ -420,24 +495,12 @@ impl IntervalRenderBuffers {
             )
             .unwrap();
 
-        // We need this to be readable because we load the number of active
-        // tiles from the first item in the buffer, in order to run the
-        // correct number of threads in the next pass.
-        let out = session
-            .create_buffer(
-                ((tile_count as usize + 1) * std::mem::size_of::<u32>())
-                    .try_into()
-                    .unwrap(),
-                BufferUsage::STORAGE | BufferUsage::MAP_READ,
-            )
-            .unwrap();
-
         Self {
             tile_count,
             choice_count,
-            tiles,
-            choices,
-            out,
+            tiles_in,
+            tiles_out,
+            choices_out,
         }
     }
 
@@ -531,6 +594,7 @@ pub struct Render {
     /// Compute pipeline to clear multiple mipmap levels
     clear: piet_gpu_hal::Pipeline,
 
+    initial_choices: Option<piet_gpu_hal::Buffer>,
     image_buf: Option<ImageBuffers>,
     stage0: Option<IntervalRenderBuffers>,
     stage1: Option<IntervalRenderBuffers>,
@@ -545,15 +609,6 @@ pub struct Render {
 pub struct RenderConfig {
     /// Total image size, in pixels.  This will be a multiple of `tile_size`.
     pub image_size: u32,
-
-    /// Size of a render tile, in pixels
-    pub tile_size: u32,
-
-    /// Number of tiles being rendered in this pass.
-    ///
-    /// In interval evaluation, each tile corresponds to a single GPU thread;
-    /// in pixels evaluation, each tile spawns `tile_size**2` threads.
-    pub tile_count: u32,
 
     /// Index of the X variable in `vars`, or `u32::MAX` if not present
     pub var_index_x: u32,
@@ -673,6 +728,7 @@ impl Render {
                 merge,
                 clear,
 
+                initial_choices: None,
                 image_buf: None,
                 stage0: None,
                 stage1: None,
@@ -704,11 +760,38 @@ impl Render {
         const STAGE0_TILE_SIZE: u32 = SPLIT_RATIO.pow(2);
 
         let tile_count = (image_size / STAGE0_TILE_SIZE).pow(2);
+
+        // Build or resize the initial choice buffer
+        let choice_buf_size: u32 =
+            u32::try_from((self.config.choice_count + 15) / 16).unwrap();
+        let initial_choice_size = choice_buf_size
+            * ((tile_count + SPLIT_RATIO.pow(2) - 1) / SPLIT_RATIO.pow(2))
+            * u32::try_from(std::mem::size_of::<u32>()).unwrap();
+        let initial_choices = if let Some(s) = self.initial_choices.as_mut() {
+            if s.size() < initial_choice_size as u64 {
+                *s = session
+                    .create_buffer(
+                        initial_choice_size.into(),
+                        BufferUsage::STORAGE,
+                    )
+                    .unwrap();
+            }
+            s
+        } else {
+            self.initial_choices = Some(
+                session
+                    .create_buffer(
+                        initial_choice_size.into(),
+                        BufferUsage::STORAGE,
+                    )
+                    .unwrap(),
+            );
+            self.initial_choices.as_ref().unwrap()
+        };
+
         println!("Got tile count {:?}", tile_count);
         let stage0_cfg = RenderConfig {
-            tile_size: STAGE0_TILE_SIZE,
             image_size,
-            tile_count,
             choice_buf_size: ((self.config.choice_count + 15) / 16)
                 .try_into()
                 .unwrap(),
@@ -726,11 +809,11 @@ impl Render {
 
         // Build Stage0 renderer, or resize an existing renderer to fit
         let stage0 = if let Some(s) = self.stage0.as_mut() {
-            s.resize_to_fit(stage0_cfg.tile_count, session);
+            s.resize_to_fit(tile_count, session);
             s
         } else {
             self.stage0 = Some(IntervalRenderBuffers::new(
-                stage0_cfg.tile_count,
+                tile_count,
                 self.config.choice_count.try_into().unwrap(),
                 session,
             ));
@@ -753,9 +836,9 @@ impl Render {
                 &self.init,
                 &[
                     &self.config_buf,
-                    &stage0.tiles,
-                    &stage0.choices,
-                    &stage0.out,
+                    initial_choices,
+                    &stage0.tiles_in,
+                    &stage0.tiles_out,
                 ],
             )
             .unwrap();
@@ -764,10 +847,11 @@ impl Render {
                 &self.interval,
                 &[
                     &self.config_buf,
-                    &stage0.tiles,
-                    &stage0.choices,
+                    &stage0.tiles_in,
+                    initial_choices,
+                    &stage0.tiles_out,
+                    &stage0.choices_out,
                     &image_buf.image_64x64,
-                    &stage0.out,
                 ],
             )
             .unwrap();
@@ -812,30 +896,20 @@ impl Render {
         println!("stage 0: {:?}", timestamps);
 
         let active_tile_count =
-            stage0.out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
-        println!(
-            "active tiles: {} / {}",
-            active_tile_count, stage0_cfg.tile_count
-        );
+            stage0.tiles_out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
+        println!("active tiles: {} / {}", active_tile_count, tile_count);
 
         ///////////////////////////////////////////////////////////////////////
         // Stage 1: evaluation of 8x8 tiles using interval arithmetic
-        let stage1_cfg = RenderConfig {
-            tile_size: stage0_cfg.tile_size / SPLIT_RATIO,
-            tile_count: active_tile_count * SPLIT_RATIO.pow(2),
-            ..stage0_cfg
-        };
-        self.config_buf
-            .write(std::slice::from_ref(&stage1_cfg))
-            .unwrap();
 
         // Build stage1 renderer, or resize an existing renderer to fit
+        let subtile_count = active_tile_count * SPLIT_RATIO.pow(2);
         let stage1 = if let Some(s) = self.stage1.as_mut() {
-            s.resize_to_fit(stage1_cfg.tile_count, session);
+            s.resize_to_fit(subtile_count, session);
             s
         } else {
             self.stage1 = Some(IntervalRenderBuffers::new(
-                stage1_cfg.tile_count,
+                subtile_count,
                 self.config.choice_count.try_into().unwrap(),
                 session,
             ));
@@ -844,14 +918,12 @@ impl Render {
 
         let subdiv_descriptor_set = session
             .create_simple_descriptor_set(
-                &self.init,
+                &self.subdivide,
                 &[
                     &self.config_buf,
-                    &stage0.out,
-                    &stage0.choices,
-                    &stage1.tiles,
-                    &stage1.choices,
-                    &stage1.out,
+                    &stage0.tiles_out,
+                    &stage1.tiles_in,
+                    &stage1.tiles_out,
                 ],
             )
             .unwrap();
@@ -860,10 +932,11 @@ impl Render {
                 &self.interval,
                 &[
                     &self.config_buf,
-                    &stage1.tiles,
-                    &stage1.choices,
+                    &stage1.tiles_in,
+                    &stage0.choices_out,
+                    &stage1.tiles_out,
+                    &stage1.choices_out,
                     &image_buf.image_8x8,
-                    &stage1.out,
                 ],
             )
             .unwrap();
@@ -901,11 +974,8 @@ impl Render {
         println!("stage 1: {:?}", timestamps);
 
         let active_subtile_count =
-            stage1.out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
-        println!(
-            "active tiles: {} / {}",
-            active_subtile_count, stage1_cfg.tile_count
-        );
+            stage1.tiles_out.map_read(0..4).unwrap().cast_slice::<u32>()[0];
+        println!("active tiles: {} / {}", active_subtile_count, subtile_count,);
 
         ///////////////////////////////////////////////////////////////////////
         // Stage 2: Per-pixel evaluation of remaining subtiles
@@ -917,8 +987,8 @@ impl Render {
                 &self.pixels,
                 &[
                     &self.config_buf,
-                    &stage1.out,
-                    &stage1.choices,
+                    &stage1.tiles_out,
+                    &stage1.choices_out,
                     &image_buf.image_1x1,
                 ],
             )

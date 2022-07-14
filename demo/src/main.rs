@@ -98,7 +98,9 @@ mod gpu {
             let device = instance.device(None).unwrap();
             let session = Session::new(device);
             let mut metal = Render::new(prog, &session);
-            metal.do_render(size, &session);
+            for _i in 0..20 {
+                metal.do_render(size, &session);
+            }
             metal.load_image()
         }
     }

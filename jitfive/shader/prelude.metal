@@ -11,12 +11,11 @@
 
 // Amount tiles are subdivided.  This must be kept in sync with Rust code!
 #define SPLIT_RATIO 8
+#define INITIAL_TILE_SIZE 64
 
 // This must be kept in sync with the Rust `struct RenderConfig`!
 struct RenderConfig {
     uint32_t image_size;
-    uint32_t tile_size;
-    uint32_t tile_count;
     uint32_t var_index_x;
     uint32_t var_index_y;
     uint32_t var_index_z;
@@ -33,23 +32,18 @@ struct RenderConfig {
     }
 };
 
-struct TileIndex {
-    uint32_t prev_index;    // Index within the current evaluation
-    uint32_t tile;          // Tile to render in the next stage
-};
-
 // Rust treats this as a Vec<u32>, so there's no equivalent struct to update
-struct RenderOut {
-    metal::atomic_uint active_tile_count;
-    uint32_t pad; // Ensure alignment
-    TileIndex tiles[1]; // flexible array member
+struct RenderOutAtomic {
+    metal::atomic_uint tile_count;
+    uint32_t tile_size;
+    uint32_t tiles[1]; // flexible array member
 };
 // You can't use atomic_load on a device in the `constant` address space, so
-// we pun the buffer into a RenderOutConst when it's a constant input.
-struct RenderOutConst {
-    uint32_t active_tile_count;
-    uint32_t pad; // Ensure alignment
-    TileIndex tiles[1]; // flexible array member
+// we pun the buffer into a plain RenderOut when it's a constant input.
+struct RenderOut {
+    uint32_t tile_count;
+    uint32_t tile_size;
+    uint32_t tiles[1]; // flexible array member
 };
 
 // Floating-point math

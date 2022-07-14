@@ -1,31 +1,30 @@
 // This should be called with a 1D grid of size
 //      (active_tiles, 1, 1)
 // and with a threadgroup size of
-//      (cfg.tile_size ** 2, 1, 1).
+//      (prev.tile_size ** 2, 1, 1).
 kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
-                  const constant RenderOutConst& prev [[buffer(1)]],
+                  const constant RenderOut& prev [[buffer(1)]],
                   const constant uint32_t* choices [[buffer(2)]],
                   device uint8_t* image [[buffer(3)]],
                   uint index [[thread_position_in_grid]])
 {
     // We use this tile count instead of the one in the RenderConfig, which
     // is left over from the last pass of interval evaluation
-    const uint tile_count = prev.active_tile_count;
+    const uint tile_count = prev.tile_count;
 
-    const uint32_t pixels_per_tile = cfg.tile_size * cfg.tile_size;
+    const uint32_t pixels_per_tile = prev.tile_size * prev.tile_size;
     if (index >= tile_count * pixels_per_tile) {
         return;
     }
 
     // Calculate the corner position of this tile, in pixels
     const uint32_t tile_index = index / pixels_per_tile;
-    const TileIndex tile = prev.tiles[tile_index];
-    const uint2 tile_corner =
-        cfg.tile_size * uint2(tile.tile & 0xFFFF, tile.tile >> 16);
+    const uint32_t tile = prev.tiles[tile_index];
+    const uint2 tile_corner = prev.tile_size * uint2(tile & 0xFFFF, tile >> 16);
 
     // Calculate the offset within the tile, again in pixels
     const uint32_t offset = index % pixels_per_tile;
-    const uint2 tile_offset(offset % cfg.tile_size, offset / cfg.tile_size);
+    const uint2 tile_offset(offset % prev.tile_size, offset / prev.tile_size);
 
     // Absolute pixel position
     const uint2 pixel = tile_corner + tile_offset;
@@ -43,7 +42,7 @@ kernel void main0(const constant RenderConfig& cfg [[buffer(0)]],
     }
 
     const float result =
-        t_eval(vars, &choices[tile.prev_index * CHOICE_BUF_SIZE]);
+        t_eval(vars, &choices[index / pixels_per_tile * CHOICE_BUF_SIZE]);
 
     const uint8_t v = result < 0.0 ? FULL : EMPTY;
 
