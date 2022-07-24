@@ -7,7 +7,8 @@ use std::collections::HashMap;
 /// Implemented using a `Vec<Value>` and a `HashMap<Value, Index>`.
 ///
 /// The `Index` type should be a wrapper around a `usize` and be convertible
-/// in both directions; it is typically passed around using `Copy`.
+/// in both directions; it is typically passed around using `Copy`.  A suitable
+/// index type can be constructed with [define_index].
 ///
 /// The `Value` type may be larger and is passed around by reference. However,
 /// it must be `Clone`, because it is stored twice in the data structure (once
@@ -45,8 +46,7 @@ where
     /// Insert the given value into the map, returning a handle.
     ///
     /// If the value is already in the map, the handle will be to the existing
-    /// instance (so it will not be inserted twice). Note that this will
-    /// interact badly with `pop()`;
+    /// instance (so it will not be inserted twice).
     pub fn insert(&mut self, v: Value) -> Index {
         *self.map.entry(v.clone()).or_insert_with(|| {
             let out = Index::from(self.data.len());
@@ -54,6 +54,10 @@ where
             out
         })
     }
+    /// Removes the last value stored in the container.
+    ///
+    /// This is _usually_ the most recently inserted value, except when
+    /// `insert` is called on a duplicate.
     pub fn pop(&mut self) -> Result<Value, Error> {
         match self.data.pop() {
             Some(v) => {
@@ -70,6 +74,12 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// A `Vec<Value>` with strongly-typed indexes, used to improve the type-safety
+/// of data storage.
+///
+/// The `Index` type should be a wrapper around a `usize` and be convertible
+/// in both directions; it is typically passed around using `Copy`.  A suitable
+/// index type can be constructed with [define_index].
 #[derive(Debug)]
 pub struct IndexVec<Value, Index> {
     data: Vec<Value>,
@@ -106,6 +116,7 @@ impl<Value, Index> From<Vec<Value>> for IndexVec<Value, Index> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Defines an index type suitable for use in an [`IndexMap`] or [`IndexVec`].
 macro_rules! define_index {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
