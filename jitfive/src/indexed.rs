@@ -121,6 +121,12 @@ where
         self.data.push(v);
         Index::from(i)
     }
+    pub fn resize_with<F>(&mut self, new_len: usize, f: F)
+    where
+        F: FnMut() -> Value,
+    {
+        self.data.resize_with(new_len, f)
+    }
 }
 
 impl<Value, Index> std::ops::Index<Index> for IndexVec<Value, Index>

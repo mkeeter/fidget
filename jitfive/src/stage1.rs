@@ -66,10 +66,10 @@ fn recurse(
     t: &Stage0,
     node: NodeIndex,
     source: Source,
-    out: &mut [BTreeSet<Source>],
+    out: &mut IndexVec<BTreeSet<Source>, NodeIndex>,
 ) {
     // Update the source value
-    out[usize::from(node)].insert(source); // TODO: use IndexVec
+    out[node].insert(source);
     match &t.ops[node] {
         // If this node is a min/max node, then it becomes the source of
         // child nodes.
@@ -112,10 +112,10 @@ fn flatten(input: &BTreeSet<Source>) -> Vec<Source> {
 
 impl From<&Stage0> for Stage1 {
     fn from(t: &Stage0) -> Self {
-        let mut sources: Vec<BTreeSet<Source>> = vec![]; // TODO: use IndexVec
+        let mut sources: IndexVec<BTreeSet<Source>, NodeIndex> = vec![].into();
         sources.resize_with(t.ops.len(), BTreeSet::new);
 
-        recurse(t, t.root, Source::Root, sources.as_mut_slice());
+        recurse(t, t.root, Source::Root, &mut sources);
 
         let sources: Vec<Vec<Source>> = sources.iter().map(flatten).collect();
 
