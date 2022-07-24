@@ -387,7 +387,7 @@ impl Program {
         let var_names = vars
             .iter()
             .map(|(vn, vi)| {
-                (c.ctx.get_var_by_index(*vn).unwrap().to_string(), *vi)
+                (c.ctx.get_var_by_index(*vn).unwrap().to_string(), vi)
             })
             .collect();
 

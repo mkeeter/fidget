@@ -334,7 +334,7 @@ impl<'a> Compiler<'a> {
         match op {
             // If this node is a min/max node, then it becomes the source of
             // child nodes.
-            Op::Min(a, b) | Op::Max(a, b) => {
+            Op::Min(a, b, _) | Op::Max(a, b, _) => {
                 self.find_groups(*a, Source::Left(node));
                 self.find_groups(*b, Source::Right(node));
             }

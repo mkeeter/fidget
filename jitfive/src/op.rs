@@ -14,6 +14,113 @@ impl Node {
     }
 }
 
+/// Represents an generic operation
+///
+/// Parameterized by four types:
+/// - `V` is an index type associated with `Var` nodes
+/// - `F` is the type used to store floating-point values
+/// - `N` is the index type for inter-op references
+/// - `C` is a choice index type attached to each min/max node (which can be
+///   empty at certain points in the pipeline)
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum GenericOp<V, F, N, C = ()> {
+    Var(V),
+    Const(F),
+
+    // Commutative ops
+    Add(N, N),
+    Mul(N, N),
+    Min(N, N, C),
+    Max(N, N, C),
+
+    // Unary operations
+    Neg(N),
+    Abs(N),
+    Recip(N),
+
+    // Transcendental functions
+    Sqrt(N),
+    Sin(N),
+    Cos(N),
+    Tan(N),
+    Asin(N),
+    Acos(N),
+    Atan(N),
+    Exp(N),
+    Ln(N),
+}
+
+impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
+    pub fn dot_node_color(&self) -> &str {
+        match self {
+            GenericOp::Const(..) => "green",
+            GenericOp::Var(..) => "red",
+            GenericOp::Min(..) | GenericOp::Max(..) => "dodgerblue",
+            GenericOp::Add(..)
+            | GenericOp::Mul(..)
+            | GenericOp::Neg(..)
+            | GenericOp::Abs(..)
+            | GenericOp::Recip(..)
+            | GenericOp::Sqrt(..)
+            | GenericOp::Sin(..)
+            | GenericOp::Cos(..)
+            | GenericOp::Tan(..)
+            | GenericOp::Asin(..)
+            | GenericOp::Acos(..)
+            | GenericOp::Atan(..)
+            | GenericOp::Exp(..)
+            | GenericOp::Ln(..) => "goldenrod",
+        }
+    }
+    pub fn dot_node_shape(&self) -> &str {
+        match self {
+            GenericOp::Const(..) => "oval",
+            GenericOp::Var(..) => "circle",
+            GenericOp::Min(..) | GenericOp::Max(..) => "box",
+            GenericOp::Add(..)
+            | GenericOp::Mul(..)
+            | GenericOp::Neg(..)
+            | GenericOp::Abs(..)
+            | GenericOp::Recip(..)
+            | GenericOp::Sqrt(..)
+            | GenericOp::Sin(..)
+            | GenericOp::Cos(..)
+            | GenericOp::Tan(..)
+            | GenericOp::Asin(..)
+            | GenericOp::Acos(..)
+            | GenericOp::Atan(..)
+            | GenericOp::Exp(..)
+            | GenericOp::Ln(..) => "box",
+        }
+    }
+
+    pub fn iter_children(&self) -> impl Iterator<Item = N> {
+        use GenericOp as Op;
+        let out = match self {
+            Op::Min(a, b, _)
+            | GenericOp::Max(a, b, _)
+            | GenericOp::Add(a, b)
+            | GenericOp::Mul(a, b) => [Some(*a), Some(*b)],
+
+            GenericOp::Neg(a)
+            | GenericOp::Abs(a)
+            | GenericOp::Recip(a)
+            | GenericOp::Sqrt(a)
+            | GenericOp::Sin(a)
+            | GenericOp::Cos(a)
+            | GenericOp::Tan(a)
+            | GenericOp::Asin(a)
+            | GenericOp::Acos(a)
+            | GenericOp::Atan(a)
+            | GenericOp::Exp(a)
+            | GenericOp::Ln(a) => [Some(*a), None],
+
+            GenericOp::Var(..) | GenericOp::Const(..) => [None, None],
+        };
+        out.into_iter().flatten()
+    }
+}
+
 /// Represents an operation in a math expression.
 ///
 /// `Op`s should be constructed by calling functions on
@@ -23,102 +130,9 @@ impl Node {
 ///
 /// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Op {
-    Var(VarNode),
-    Const(OrderedFloat<f64>),
-
-    // Commutative ops
-    Add(Node, Node),
-    Mul(Node, Node),
-    Min(Node, Node),
-    Max(Node, Node),
-
-    // Unary operations
-    Neg(Node),
-    Abs(Node),
-    Recip(Node),
-
-    // Transcendental functions
-    Sqrt(Node),
-    Sin(Node),
-    Cos(Node),
-    Tan(Node),
-    Asin(Node),
-    Acos(Node),
-    Atan(Node),
-    Exp(Node),
-    Ln(Node),
-}
+pub type Op = GenericOp<VarNode, OrderedFloat<f64>, Node>;
 
 impl Op {
-    pub fn dot_node_color(&self) -> &str {
-        match self {
-            Op::Const(..) => "green",
-            Op::Var(..) => "red",
-            Op::Min(..) | Op::Max(..) => "dodgerblue",
-            Op::Add(..)
-            | Op::Mul(..)
-            | Op::Neg(..)
-            | Op::Abs(..)
-            | Op::Recip(..)
-            | Op::Sqrt(..)
-            | Op::Sin(..)
-            | Op::Cos(..)
-            | Op::Tan(..)
-            | Op::Asin(..)
-            | Op::Acos(..)
-            | Op::Atan(..)
-            | Op::Exp(..)
-            | Op::Ln(..) => "goldenrod",
-        }
-    }
-    pub fn dot_node_shape(&self) -> &str {
-        match self {
-            Op::Const(..) => "oval",
-            Op::Var(..) => "circle",
-            Op::Min(..) | Op::Max(..) => "box",
-            Op::Add(..)
-            | Op::Mul(..)
-            | Op::Neg(..)
-            | Op::Abs(..)
-            | Op::Recip(..)
-            | Op::Sqrt(..)
-            | Op::Sin(..)
-            | Op::Cos(..)
-            | Op::Tan(..)
-            | Op::Asin(..)
-            | Op::Acos(..)
-            | Op::Atan(..)
-            | Op::Exp(..)
-            | Op::Ln(..) => "box",
-        }
-    }
-
-    pub fn iter_children(&self) -> impl Iterator<Item = Node> {
-        let out = match self {
-            Op::Min(a, b) | Op::Max(a, b) | Op::Add(a, b) | Op::Mul(a, b) => {
-                [Some(*a), Some(*b)]
-            }
-
-            Op::Neg(a)
-            | Op::Abs(a)
-            | Op::Recip(a)
-            | Op::Sqrt(a)
-            | Op::Sin(a)
-            | Op::Cos(a)
-            | Op::Tan(a)
-            | Op::Asin(a)
-            | Op::Acos(a)
-            | Op::Atan(a)
-            | Op::Exp(a)
-            | Op::Ln(a) => [Some(*a), None],
-
-            Op::Var(..) | Op::Const(..) => [None, None],
-        };
-        out.into_iter().flatten()
-    }
-
     /// Converts the given `Op` into an `Instruction`, freeing it from its
     /// parent context.
     ///
@@ -144,7 +158,10 @@ impl Op {
             Op::Const(f) => Instruction::Const { value: f.0, out },
 
             // Two-argument operations
-            Op::Add(a, b) | Op::Mul(a, b) | Op::Min(a, b) | Op::Max(a, b) => {
+            Op::Add(a, b)
+            | Op::Mul(a, b)
+            | Op::Min(a, b, _)
+            | Op::Max(a, b, _) => {
                 let lhs = regs.insert(*a);
                 let rhs = regs.insert(*b);
                 match self {

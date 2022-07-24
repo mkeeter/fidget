@@ -32,9 +32,17 @@ impl Context {
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }
-    /// Erases the most recently added node from the tree. This should only
-    /// be called to delete a temporary operation node, as it will invalidate
-    /// any existing handles to the node; therefore, it's private.
+
+    /// Erases the most recently added node from the tree.
+    ///
+    /// A few caveats apply, so this must be used with caution:
+    /// - Existing handles to the node will be invalidated
+    /// - The most recently added node must be unique
+    ///
+    /// In practice, this is only used to delete temporary operation nodes
+    /// during constant folding.  Such nodes which have no handles (because
+    /// they are never returned) and are guaranteed to be unique (because we
+    /// never store them persistently).
     fn pop(&mut self) -> Result<(), Error> {
         self.ops.pop().map(|_| ())
     }
@@ -60,6 +68,7 @@ impl Context {
             _ => Err(Error::BadNode),
         }
     }
+
     /// Looks up the variable name associated with the given `VarNode`
     pub fn get_var_by_index(&self, n: VarNode) -> Result<&str, Error> {
         match self.vars.get_by_index(n) {
@@ -82,16 +91,19 @@ impl Context {
         let v = self.vars.insert(String::from("X"));
         self.ops.insert(Op::Var(v))
     }
+
     /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
         let v = self.vars.insert(String::from("Y"));
         self.ops.insert(Op::Var(v))
     }
+
     /// Constructs or finds a variable node named "Z"
     pub fn z(&mut self) -> Node {
         let v = self.vars.insert(String::from("Z"));
         self.ops.insert(Op::Var(v))
     }
+
     /// Returns a node representing the given constant value.
     /// ```
     /// # let mut ctx = jitfive::context::Context::new();
@@ -202,7 +214,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_commutative(a, b, Op::Min)
+            self.op_binary_commutative(a, b, |lhs, rhs| Op::Min(lhs, rhs, ()))
         }
     }
     /// Builds an `max` node
@@ -218,7 +230,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_commutative(a, b, Op::Max)
+            self.op_binary_commutative(a, b, |lhs, rhs| Op::Max(lhs, rhs, ()))
         }
     }
 
@@ -377,6 +389,7 @@ impl Context {
     pub fn square(&mut self, a: Node) -> Result<Node, Error> {
         self.mul(a, a)
     }
+
     /// Builds a node which performs subtraction. Under the hood, `a - b` is
     /// converted to `a + (-b)`
     /// ```
@@ -391,6 +404,7 @@ impl Context {
         let b = self.neg(b)?;
         self.add(a, b)
     }
+
     /// Builds a node which performs division. Under the hood, `a / b` is
     /// converted into `a * (1 / b)`.
     /// ```
@@ -432,6 +446,7 @@ impl Context {
             .collect();
         self.eval(root, &vars)
     }
+
     /// Evaluates the given node with a generic set of variables
     pub fn eval(
         &self,
@@ -441,6 +456,7 @@ impl Context {
         let mut cache = vec![None; self.ops.len()].into();
         self.eval_inner(root, vars, &mut cache)
     }
+
     fn eval_inner(
         &self,
         node: Node,
@@ -460,8 +476,8 @@ impl Context {
 
             Op::Add(a, b) => get(*a)? + get(*b)?,
             Op::Mul(a, b) => get(*a)? * get(*b)?,
-            Op::Min(a, b) => get(*a)?.min(get(*b)?),
-            Op::Max(a, b) => get(*a)?.max(get(*b)?),
+            Op::Min(a, b, _) => get(*a)?.min(get(*b)?),
+            Op::Max(a, b, _) => get(*a)?.max(get(*b)?),
 
             // Unary operations
             Op::Neg(a) => -get(*a)?,
@@ -556,10 +572,9 @@ impl Context {
         w: &mut W,
     ) -> Result<(), Error> {
         writeln!(w, "digraph mygraph {{")?;
-        for (_op, node) in self.ops.iter() {
-            // TODO: don't use _op
-            self.write_node_dot(w, *node)?;
-            self.write_edges_dot(w, *node)?;
+        for node in self.ops.keys() {
+            self.write_node_dot(w, node)?;
+            self.write_edges_dot(w, node)?;
         }
         writeln!(w, "}}")?;
         Ok(())
@@ -635,7 +650,10 @@ impl Context {
         let op = self.ops.get_by_index(node).unwrap();
         let edge_color = format!("{}4", op.dot_node_color());
         match op {
-            Op::Add(a, b) | Op::Mul(a, b) | Op::Min(a, b) | Op::Max(a, b) => {
+            Op::Add(a, b)
+            | Op::Mul(a, b)
+            | Op::Min(a, b, _)
+            | Op::Max(a, b, _) => {
                 writeln!(
                     w,
                     "n{0} -> n{1} [color=\"{3}\"];\

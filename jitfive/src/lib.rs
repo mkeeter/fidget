@@ -5,6 +5,8 @@ pub mod indexed;
 pub mod metal;
 pub mod op;
 pub mod program;
+pub mod stage0;
+pub mod stage1;
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,4 @@
-//! Utilities for working with containers with strongly-typed indexes.
+//! Container types with strongly-typed indexes.
 use crate::error::Error;
 use std::collections::HashMap;
 
@@ -67,8 +67,17 @@ where
             None => Err(Error::EmptyMap),
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&Value, &Index)> {
-        self.map.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (&Value, Index)> {
+        self.data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v, Index::from(i)))
+    }
+    pub fn values(&self) -> impl Iterator<Item = &Value> {
+        self.data.iter()
+    }
+    pub fn keys(&self) -> impl Iterator<Item = Index> {
+        (0..self.data.len()).map(Index::from)
     }
 }
 
@@ -84,6 +93,18 @@ where
 pub struct IndexVec<Value, Index> {
     data: Vec<Value>,
     _phantom: std::marker::PhantomData<*const Index>,
+}
+
+impl<Value, Index> IndexVec<Value, Index> {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Value> {
+        self.data.iter()
+    }
 }
 
 impl<Value, Index> std::ops::Index<Index> for IndexVec<Value, Index>
