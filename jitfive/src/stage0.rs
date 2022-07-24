@@ -25,22 +25,23 @@ pub type Op = GenericOp<VarIndex, f64, NodeIndex, ChoiceIndex>;
 /// Operations are tightly packed and assigned a globally unique index.
 pub struct Stage0 {
     /// Unordered list of operations.
-    ops: IndexVec<Op, NodeIndex>,
+    pub ops: IndexVec<Op, NodeIndex>,
 
     /// Root operation in the tree
-    root: NodeIndex,
+    pub root: NodeIndex,
 
     /// Number of nodes in the tree which make LHS/RHS choices
-    num_choices: usize,
+    pub num_choices: usize,
 
     /// Bi-directional map of variable names to indexes
-    vars: IndexMap<String, VarIndex>,
+    pub vars: IndexMap<String, VarIndex>,
 }
 
 impl Stage0 {
     pub fn self_check(&self) {
         assert!(usize::from(self.root) < self.ops.len());
         let mut used = BTreeSet::new();
+        let mut choices = BTreeSet::new();
         // TODO: implement IntoIter on IndexVec?
         for o in self.ops.iter() {
             for a in o.iter_children() {
@@ -62,19 +63,25 @@ impl Stage0 {
                         usize::from(*c) < self.num_choices,
                         "Invalid choice index"
                     );
+                    assert!(choices.insert(*c), "Duplicate choice");
                 }
                 _ => (),
             }
         }
-        assert!(
-            used.len() == self.ops.len() - 1,
+        assert_eq!(
+            used.len(),
+            self.ops.len() - 1,
             "All nodes must be used at least once"
         );
-
-        used.insert(self.root);
         assert!(
-            used.len() == self.ops.len(),
+            used.insert(self.root),
             "The root cannot be used in the graph"
+        );
+
+        assert_eq!(
+            choices.len(),
+            self.num_choices,
+            "Choice array is not densely packet"
         );
     }
 }

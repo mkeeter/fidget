@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// The `Value` type may be larger and is passed around by reference. However,
 /// it must be `Clone`, because it is stored twice in the data structure (once
 /// in the `Vec` and once in the `HashMap`).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IndexMap<Value, Index> {
     data: Vec<Value>,
     map: HashMap<Value, Index>,
@@ -95,7 +95,18 @@ pub struct IndexVec<Value, Index> {
     _phantom: std::marker::PhantomData<*const Index>,
 }
 
-impl<Value, Index> IndexVec<Value, Index> {
+impl<Value, Index> Default for IndexVec<Value, Index> {
+    fn default() -> Self {
+        Self {
+            data: vec![],
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+impl<Value, Index> IndexVec<Value, Index>
+where
+    Index: From<usize>,
+{
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -104,6 +115,11 @@ impl<Value, Index> IndexVec<Value, Index> {
     }
     pub fn iter(&self) -> impl Iterator<Item = &Value> {
         self.data.iter()
+    }
+    pub fn push(&mut self, v: Value) -> Index {
+        let i = self.len();
+        self.data.push(v);
+        Index::from(i)
     }
 }
 

@@ -7,6 +7,7 @@ pub mod op;
 pub mod program;
 pub mod stage0;
 pub mod stage1;
+pub mod stage2;
 
 #[cfg(test)]
 mod tests {
