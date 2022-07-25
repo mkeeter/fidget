@@ -89,7 +89,7 @@ where
 /// The `Index` type should be a wrapper around a `usize` and be convertible
 /// in both directions; it is typically passed around using `Copy`.  A suitable
 /// index type can be constructed with [define_index].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct IndexVec<Value, Index> {
     data: Vec<Value>,
     _phantom: std::marker::PhantomData<*const Index>,
@@ -116,6 +116,12 @@ where
     pub fn iter(&self) -> impl Iterator<Item = &Value> {
         self.data.iter()
     }
+    pub fn enumerate(&self) -> impl Iterator<Item = (Index, &Value)> {
+        self.data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (Index::from(i), v))
+    }
     pub fn push(&mut self, v: Value) -> Index {
         let i = self.len();
         self.data.push(v);
@@ -126,6 +132,20 @@ where
         F: FnMut() -> Value,
     {
         self.data.resize_with(new_len, f)
+    }
+}
+
+impl<Value, Index> std::iter::IntoIterator for IndexVec<Value, Index> {
+    type Item = Value;
+    type IntoIter = std::vec::IntoIter<Value>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
+
+impl<Value, Index> FromIterator<Value> for IndexVec<Value, Index> {
+    fn from_iter<I: IntoIterator<Item = Value>>(iter: I) -> Self {
+        Vec::from_iter(iter).into()
     }
 }
 
@@ -163,7 +183,9 @@ impl<Value, Index> From<Vec<Value>> for IndexVec<Value, Index> {
 macro_rules! define_index {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+        #[derive(
+            Copy, Clone, Default, Debug, Eq, PartialEq, Hash, Ord, PartialOrd,
+        )]
         pub struct $name(usize);
         impl From<usize> for $name {
             fn from(v: usize) -> Self {

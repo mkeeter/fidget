@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     indexed::{IndexMap, IndexVec},
-    op::{Node, Op, VarNode},
+    op::{BinaryChoiceOpcode, BinaryOpcode, Node, Op, UnaryOpcode, VarNode},
 };
 
 use std::collections::BTreeMap;
@@ -118,12 +118,9 @@ impl Context {
     // Helper functions to create nodes with constant folding
     /// Find or create a [Node] for the given unary operation, with constant
     /// folding.
-    fn op_unary<F>(&mut self, a: Node, op: F) -> Result<Node, Error>
-    where
-        F: Fn(Node) -> Op,
-    {
+    fn op_unary(&mut self, a: Node, op: UnaryOpcode) -> Result<Node, Error> {
         let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
-        let n = self.ops.insert(op(a));
+        let n = self.ops.insert(Op::Unary(op, a));
         let out = if matches!(op_a, Op::Const(_)) {
             let v = self.eval(n, &BTreeMap::new())?;
             self.pop().unwrap(); // removes `n`
@@ -135,7 +132,29 @@ impl Context {
     }
     /// Find or create a [Node] for the given binary operation, with constant
     /// folding.
-    fn op_binary<F>(&mut self, a: Node, b: Node, op: F) -> Result<Node, Error>
+    fn op_binary(
+        &mut self,
+        a: Node,
+        b: Node,
+        op: BinaryOpcode,
+    ) -> Result<Node, Error> {
+        self.op_binary_f(a, b, |lhs, rhs| Op::Binary(op, lhs, rhs))
+    }
+
+    /// Find or create a [Node] for the given binary choice operation, with
+    /// constant folding.
+    fn op_binary_choice(
+        &mut self,
+        a: Node,
+        b: Node,
+        op: BinaryChoiceOpcode,
+    ) -> Result<Node, Error> {
+        self.op_binary_f(a, b, |lhs, rhs| Op::BinaryChoice(op, lhs, rhs, ()))
+    }
+
+    /// Find or create a [Node] for a generic binary operation (represented by a
+    /// thunk), with constant folding.
+    fn op_binary_f<F>(&mut self, a: Node, b: Node, f: F) -> Result<Node, Error>
     where
         F: Fn(Node, Node) -> Op,
     {
@@ -145,7 +164,7 @@ impl Context {
         // This call to `insert` should always insert the node, because we
         // don't permanently store operations in the tree that could be
         // constant-folded (indeed, we pop the node right afterwards)
-        let n = self.ops.insert(op(a, b));
+        let n = self.ops.insert(f(a, b));
         let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
             let v = self.eval(n, &BTreeMap::new())?;
             self.pop().unwrap(); // removes `n`
@@ -155,18 +174,27 @@ impl Context {
         };
         Ok(out)
     }
+
     /// Find or create a [Node] for the given commutative operation, with
     /// constant folding; deduplication is encouraged by sorting `a` and `b`.
-    fn op_binary_commutative<F>(
+    fn op_binary_commutative(
         &mut self,
         a: Node,
         b: Node,
-        op: F,
-    ) -> Result<Node, Error>
-    where
-        F: Fn(Node, Node) -> Op,
-    {
+        op: BinaryOpcode,
+    ) -> Result<Node, Error> {
         self.op_binary(a.min(b), a.max(b), op)
+    }
+
+    /// Find or create a [Node] for the given commutative choice operation, with
+    /// constant folding; deduplication is encouraged by sorting `a` and `b`.
+    fn op_binary_choice_commutative(
+        &mut self,
+        a: Node,
+        b: Node,
+        op: BinaryChoiceOpcode,
+    ) -> Result<Node, Error> {
+        self.op_binary_choice(a.min(b), a.max(b), op)
     }
 
     /// Builds an addition node
@@ -182,9 +210,10 @@ impl Context {
         match (self.const_value(a)?, self.const_value(b)?) {
             (Some(zero), _) if zero == 0.0 => Ok(b),
             (_, Some(zero)) if zero == 0.0 => Ok(a),
-            _ => self.op_binary_commutative(a, b, Op::Add),
+            _ => self.op_binary_commutative(a, b, BinaryOpcode::Add),
         }
     }
+
     /// Builds an multiplication node
     /// ```
     /// # let mut ctx = jitfive::context::Context::new();
@@ -198,9 +227,10 @@ impl Context {
         match (self.const_value(a)?, self.const_value(b)?) {
             (Some(one), _) if one == 1.0 => Ok(b),
             (_, Some(one)) if one == 1.0 => Ok(a),
-            _ => self.op_binary_commutative(a, b, Op::Mul),
+            _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
         }
     }
+
     /// Builds an `min` node
     /// ```
     /// # let mut ctx = jitfive::context::Context::new();
@@ -214,7 +244,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_commutative(a, b, |lhs, rhs| Op::Min(lhs, rhs, ()))
+            self.op_binary_choice_commutative(a, b, BinaryChoiceOpcode::Min)
         }
     }
     /// Builds an `max` node
@@ -230,7 +260,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_commutative(a, b, |lhs, rhs| Op::Max(lhs, rhs, ()))
+            self.op_binary_choice_commutative(a, b, BinaryChoiceOpcode::Max)
         }
     }
 
@@ -243,7 +273,7 @@ impl Context {
     /// assert_eq!(v, -2.0);
     /// ```
     pub fn neg(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Neg)
+        self.op_unary(a, UnaryOpcode::Neg)
     }
 
     /// Builds a reciprocal node
@@ -255,7 +285,7 @@ impl Context {
     /// assert_eq!(v, 0.5);
     /// ```
     pub fn recip(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Recip)
+        self.op_unary(a, UnaryOpcode::Recip)
     }
 
     /// Builds a node which calculates the absolute value of its input
@@ -269,7 +299,7 @@ impl Context {
     /// assert_eq!(v, 2.0);
     /// ```
     pub fn abs(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Abs)
+        self.op_unary(a, UnaryOpcode::Abs)
     }
 
     /// Builds a node which calculates the square root of its input
@@ -281,7 +311,7 @@ impl Context {
     /// assert_eq!(v, 2.0);
     /// ```
     pub fn sqrt(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Sqrt)
+        self.op_unary(a, UnaryOpcode::Sqrt)
     }
 
     /// Builds a node which calculates the sine of its input (in radians)
@@ -293,7 +323,7 @@ impl Context {
     /// assert!(v.abs() < 1e-8); // approximately 0
     /// ```
     pub fn sin(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Sin)
+        self.op_unary(a, UnaryOpcode::Sin)
     }
     /// Builds a node which calculates the cosine of its input (in radians)
     /// ```
@@ -304,7 +334,7 @@ impl Context {
     /// assert!((v - 1.0).abs() < 1e-8); // approximately 1.0
     /// ```
     pub fn cos(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Cos)
+        self.op_unary(a, UnaryOpcode::Cos)
     }
     /// Builds a node which calculates the tangent of its input (in radians)
     /// ```
@@ -315,7 +345,7 @@ impl Context {
     /// assert!((v - 1.0).abs() < 1e-8); // approximately 1.0
     /// ```
     pub fn tan(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Tan)
+        self.op_unary(a, UnaryOpcode::Tan)
     }
     /// Builds a node which calculates the inverse sine of its input, returning
     /// a value in radians.
@@ -327,7 +357,7 @@ impl Context {
     /// assert!((v - std::f64::consts::PI / 2.0).abs() < 1e-8);
     /// ```
     pub fn asin(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Asin)
+        self.op_unary(a, UnaryOpcode::Asin)
     }
     /// Builds a node which calculates the inverse cosine of its input, returning
     /// a value in radians.
@@ -339,7 +369,7 @@ impl Context {
     /// assert!((v - std::f64::consts::PI / 2.0).abs() < 1e-8);
     /// ```
     pub fn acos(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Acos)
+        self.op_unary(a, UnaryOpcode::Acos)
     }
     /// Builds a node which calculates the inverse cosine of its input, returning
     /// a value in radians.
@@ -351,7 +381,7 @@ impl Context {
     /// assert!((v - std::f64::consts::PI / 4.0).abs() < 1e-8);
     /// ```
     pub fn atan(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Atan)
+        self.op_unary(a, UnaryOpcode::Atan)
     }
     /// Builds a node which calculates the exponent (e^x) of the input
     /// ```
@@ -362,7 +392,7 @@ impl Context {
     /// assert!((v - std::f64::consts::E).abs() < 1e-8);
     /// ```
     pub fn exp(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Exp)
+        self.op_unary(a, UnaryOpcode::Exp)
     }
     /// Builds a node which calculates the natural logaritm of its input
     /// ```
@@ -373,7 +403,7 @@ impl Context {
     /// assert!((v - 1.0).abs() < 1e-8);
     /// ```
     pub fn ln(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, Op::Ln)
+        self.op_unary(a, UnaryOpcode::Ln)
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -474,26 +504,41 @@ impl Context {
             }
             Op::Const(c) => c.0,
 
-            Op::Add(a, b) => get(*a)? + get(*b)?,
-            Op::Mul(a, b) => get(*a)? * get(*b)?,
-            Op::Min(a, b, _) => get(*a)?.min(get(*b)?),
-            Op::Max(a, b, _) => get(*a)?.max(get(*b)?),
+            Op::Binary(op, a, b) => {
+                let a = get(*a)?;
+                let b = get(*b)?;
+                match op {
+                    BinaryOpcode::Add => a + b,
+                    BinaryOpcode::Mul => a * b,
+                }
+            }
+            Op::BinaryChoice(op, a, b, _) => {
+                let a = get(*a)?;
+                let b = get(*b)?;
+                match op {
+                    BinaryChoiceOpcode::Min => a.min(b),
+                    BinaryChoiceOpcode::Max => a.max(b),
+                }
+            }
 
             // Unary operations
-            Op::Neg(a) => -get(*a)?,
-            Op::Abs(a) => get(*a)?.abs(),
-            Op::Recip(a) => 1.0 / get(*a)?,
-
-            // Transcendental functions
-            Op::Sqrt(a) => get(*a)?.sqrt(),
-            Op::Sin(a) => get(*a)?.sin(),
-            Op::Cos(a) => get(*a)?.cos(),
-            Op::Tan(a) => get(*a)?.tan(),
-            Op::Asin(a) => get(*a)?.asin(),
-            Op::Acos(a) => get(*a)?.acos(),
-            Op::Atan(a) => get(*a)?.atan(),
-            Op::Exp(a) => get(*a)?.exp(),
-            Op::Ln(a) => get(*a)?.ln(),
+            Op::Unary(op, a) => {
+                let a = get(*a)?;
+                match op {
+                    UnaryOpcode::Neg => -a,
+                    UnaryOpcode::Abs => a.abs(),
+                    UnaryOpcode::Recip => 1.0 / a,
+                    UnaryOpcode::Sqrt => a.sqrt(),
+                    UnaryOpcode::Sin => a.sin(),
+                    UnaryOpcode::Cos => a.cos(),
+                    UnaryOpcode::Tan => a.tan(),
+                    UnaryOpcode::Asin => a.asin(),
+                    UnaryOpcode::Acos => a.acos(),
+                    UnaryOpcode::Atan => a.atan(),
+                    UnaryOpcode::Exp => a.exp(),
+                    UnaryOpcode::Ln => a.ln(),
+                }
+            }
         };
 
         cache[node] = Some(v);
@@ -616,22 +661,28 @@ impl Context {
                 let v = self.vars.get_by_index(*v).ok_or(Error::BadVar)?;
                 write!(w, "{}", v)
             }
-            Op::Add(..) => write!(w, "add"),
-            Op::Mul(..) => write!(w, "mul"),
-            Op::Min(..) => write!(w, "min"),
-            Op::Max(..) => write!(w, "max"),
-            Op::Neg(..) => write!(w, "neg"),
-            Op::Abs(..) => write!(w, "abs"),
-            Op::Recip(..) => write!(w, "recip"),
-            Op::Sqrt(..) => write!(w, "sqrt"),
-            Op::Sin(..) => write!(w, "sin"),
-            Op::Cos(..) => write!(w, "cos"),
-            Op::Tan(..) => write!(w, "tan"),
-            Op::Asin(..) => write!(w, "asin"),
-            Op::Acos(..) => write!(w, "acos"),
-            Op::Atan(..) => write!(w, "atan"),
-            Op::Exp(..) => write!(w, "exp"),
-            Op::Ln(..) => write!(w, "ln"),
+            Op::Binary(op, ..) => match op {
+                BinaryOpcode::Add => write!(w, "add"),
+                BinaryOpcode::Mul => write!(w, "mul"),
+            },
+            Op::BinaryChoice(op, ..) => match op {
+                BinaryChoiceOpcode::Min => write!(w, "min"),
+                BinaryChoiceOpcode::Max => write!(w, "max"),
+            },
+            Op::Unary(op, ..) => match op {
+                UnaryOpcode::Neg => write!(w, "neg"),
+                UnaryOpcode::Abs => write!(w, "abs"),
+                UnaryOpcode::Recip => write!(w, "recip"),
+                UnaryOpcode::Sqrt => write!(w, "sqrt"),
+                UnaryOpcode::Sin => write!(w, "sin"),
+                UnaryOpcode::Cos => write!(w, "cos"),
+                UnaryOpcode::Tan => write!(w, "tan"),
+                UnaryOpcode::Asin => write!(w, "asin"),
+                UnaryOpcode::Acos => write!(w, "acos"),
+                UnaryOpcode::Atan => write!(w, "atan"),
+                UnaryOpcode::Exp => write!(w, "exp"),
+                UnaryOpcode::Ln => write!(w, "ln"),
+            },
         }?;
         writeln!(
             w,
@@ -650,10 +701,7 @@ impl Context {
         let op = self.ops.get_by_index(node).unwrap();
         let edge_color = format!("{}4", op.dot_node_color());
         match op {
-            Op::Add(a, b)
-            | Op::Mul(a, b)
-            | Op::Min(a, b, _)
-            | Op::Max(a, b, _) => {
+            Op::Binary(_, a, b) | Op::BinaryChoice(_, a, b, _) => {
                 writeln!(
                     w,
                     "n{0} -> n{1} [color=\"{3}\"];\
@@ -665,18 +713,7 @@ impl Context {
                 )
             }
 
-            Op::Neg(a)
-            | Op::Abs(a)
-            | Op::Recip(a)
-            | Op::Sqrt(a)
-            | Op::Sin(a)
-            | Op::Cos(a)
-            | Op::Tan(a)
-            | Op::Asin(a)
-            | Op::Acos(a)
-            | Op::Atan(a)
-            | Op::Exp(a)
-            | Op::Ln(a) => writeln!(
+            Op::Unary(_, a) => writeln!(
                 w,
                 r#"n{0} -> n{1} [color="{2}"]"#,
                 node.dot_name(),

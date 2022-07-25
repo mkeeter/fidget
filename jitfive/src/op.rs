@@ -14,6 +14,34 @@ impl Node {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum UnaryOpcode {
+    Neg,
+    Abs,
+    Recip,
+    Sqrt,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Exp,
+    Ln,
+}
+
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum BinaryOpcode {
+    Add,
+    Mul,
+}
+
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum BinaryChoiceOpcode {
+    Min,
+    Max,
+}
+
 /// Represents an generic operation
 ///
 /// Parameterized by four types:
@@ -26,28 +54,9 @@ impl Node {
 pub enum GenericOp<V, F, N, C = ()> {
     Var(V),
     Const(F),
-
-    // Commutative ops
-    Add(N, N),
-    Mul(N, N),
-    Min(N, N, C),
-    Max(N, N, C),
-
-    // Unary operations
-    Neg(N),
-    Abs(N),
-    Recip(N),
-
-    // Transcendental functions
-    Sqrt(N),
-    Sin(N),
-    Cos(N),
-    Tan(N),
-    Asin(N),
-    Acos(N),
-    Atan(N),
-    Exp(N),
-    Ln(N),
+    Binary(BinaryOpcode, N, N),
+    BinaryChoice(BinaryChoiceOpcode, N, N, C),
+    Unary(UnaryOpcode, N),
 }
 
 impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
@@ -55,66 +64,25 @@ impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
         match self {
             GenericOp::Const(..) => "green",
             GenericOp::Var(..) => "red",
-            GenericOp::Min(..) | GenericOp::Max(..) => "dodgerblue",
-            GenericOp::Add(..)
-            | GenericOp::Mul(..)
-            | GenericOp::Neg(..)
-            | GenericOp::Abs(..)
-            | GenericOp::Recip(..)
-            | GenericOp::Sqrt(..)
-            | GenericOp::Sin(..)
-            | GenericOp::Cos(..)
-            | GenericOp::Tan(..)
-            | GenericOp::Asin(..)
-            | GenericOp::Acos(..)
-            | GenericOp::Atan(..)
-            | GenericOp::Exp(..)
-            | GenericOp::Ln(..) => "goldenrod",
+            GenericOp::BinaryChoice(..) => "dodgerblue",
+            GenericOp::Binary(..) | GenericOp::Unary(..) => "goldenrod",
         }
     }
     pub fn dot_node_shape(&self) -> &str {
         match self {
             GenericOp::Const(..) => "oval",
             GenericOp::Var(..) => "circle",
-            GenericOp::Min(..) | GenericOp::Max(..) => "box",
-            GenericOp::Add(..)
-            | GenericOp::Mul(..)
-            | GenericOp::Neg(..)
-            | GenericOp::Abs(..)
-            | GenericOp::Recip(..)
-            | GenericOp::Sqrt(..)
-            | GenericOp::Sin(..)
-            | GenericOp::Cos(..)
-            | GenericOp::Tan(..)
-            | GenericOp::Asin(..)
-            | GenericOp::Acos(..)
-            | GenericOp::Atan(..)
-            | GenericOp::Exp(..)
-            | GenericOp::Ln(..) => "box",
+            GenericOp::Binary(..)
+            | GenericOp::Unary(..)
+            | GenericOp::BinaryChoice(..) => "box",
         }
     }
 
     pub fn iter_children(&self) -> impl Iterator<Item = N> {
-        use GenericOp as Op;
         let out = match self {
-            Op::Min(a, b, _)
-            | GenericOp::Max(a, b, _)
-            | GenericOp::Add(a, b)
-            | GenericOp::Mul(a, b) => [Some(*a), Some(*b)],
-
-            GenericOp::Neg(a)
-            | GenericOp::Abs(a)
-            | GenericOp::Recip(a)
-            | GenericOp::Sqrt(a)
-            | GenericOp::Sin(a)
-            | GenericOp::Cos(a)
-            | GenericOp::Tan(a)
-            | GenericOp::Asin(a)
-            | GenericOp::Acos(a)
-            | GenericOp::Atan(a)
-            | GenericOp::Exp(a)
-            | GenericOp::Ln(a) => [Some(*a), None],
-
+            GenericOp::Binary(_, a, b)
+            | GenericOp::BinaryChoice(_, a, b, _) => [Some(*a), Some(*b)],
+            GenericOp::Unary(_, a) => [Some(*a), None],
             GenericOp::Var(..) | GenericOp::Const(..) => [None, None],
         };
         out.into_iter().flatten()
@@ -158,64 +126,49 @@ impl Op {
             Op::Const(f) => Instruction::Const { value: f.0, out },
 
             // Two-argument operations
-            Op::Add(a, b)
-            | Op::Mul(a, b)
-            | Op::Min(a, b, _)
-            | Op::Max(a, b, _) => {
+            Op::Binary(op, a, b) => {
                 let lhs = regs.insert(*a);
                 let rhs = regs.insert(*b);
-                match self {
-                    Op::Add(..) => Instruction::Add { lhs, rhs, out },
-                    Op::Mul(..) => Instruction::Mul { lhs, rhs, out },
-                    Op::Min(..) | Op::Max(..) => {
-                        let choice = choices.insert(id);
-                        match self {
-                            Op::Min(..) => Instruction::Min {
-                                lhs,
-                                rhs,
-                                choice,
-                                out,
-                            },
-                            Op::Max(..) => Instruction::Max {
-                                lhs,
-                                rhs,
-                                choice,
-                                out,
-                            },
-                            _ => unreachable!(),
-                        }
-                    }
-                    _ => unreachable!(),
+                match op {
+                    BinaryOpcode::Add => Instruction::Add { lhs, rhs, out },
+                    BinaryOpcode::Mul => Instruction::Mul { lhs, rhs, out },
+                }
+            }
+            Op::BinaryChoice(op, a, b, _) => {
+                let lhs = regs.insert(*a);
+                let rhs = regs.insert(*b);
+                let choice = choices.insert(id);
+                match op {
+                    BinaryChoiceOpcode::Min => Instruction::Min {
+                        lhs,
+                        rhs,
+                        choice,
+                        out,
+                    },
+                    BinaryChoiceOpcode::Max => Instruction::Max {
+                        lhs,
+                        rhs,
+                        choice,
+                        out,
+                    },
                 }
             }
 
-            Op::Neg(a)
-            | Op::Abs(a)
-            | Op::Recip(a)
-            | Op::Sqrt(a)
-            | Op::Sin(a)
-            | Op::Cos(a)
-            | Op::Tan(a)
-            | Op::Asin(a)
-            | Op::Acos(a)
-            | Op::Atan(a)
-            | Op::Exp(a)
-            | Op::Ln(a) => {
+            Op::Unary(op, a) => {
                 let reg = regs.insert(*a);
-                match self {
-                    Op::Neg(..) => Instruction::Neg { reg, out },
-                    Op::Abs(..) => Instruction::Abs { reg, out },
-                    Op::Recip(..) => Instruction::Recip { reg, out },
-                    Op::Sqrt(..) => Instruction::Sqrt { reg, out },
-                    Op::Sin(..) => Instruction::Sin { reg, out },
-                    Op::Cos(..) => Instruction::Cos { reg, out },
-                    Op::Tan(..) => Instruction::Tan { reg, out },
-                    Op::Asin(..) => Instruction::Asin { reg, out },
-                    Op::Acos(..) => Instruction::Acos { reg, out },
-                    Op::Atan(..) => Instruction::Atan { reg, out },
-                    Op::Exp(..) => Instruction::Exp { reg, out },
-                    Op::Ln(..) => Instruction::Ln { reg, out },
-                    _ => unreachable!(),
+                match op {
+                    UnaryOpcode::Neg => Instruction::Neg { reg, out },
+                    UnaryOpcode::Abs => Instruction::Abs { reg, out },
+                    UnaryOpcode::Recip => Instruction::Recip { reg, out },
+                    UnaryOpcode::Sqrt => Instruction::Sqrt { reg, out },
+                    UnaryOpcode::Sin => Instruction::Sin { reg, out },
+                    UnaryOpcode::Cos => Instruction::Cos { reg, out },
+                    UnaryOpcode::Tan => Instruction::Tan { reg, out },
+                    UnaryOpcode::Asin => Instruction::Asin { reg, out },
+                    UnaryOpcode::Acos => Instruction::Acos { reg, out },
+                    UnaryOpcode::Atan => Instruction::Atan { reg, out },
+                    UnaryOpcode::Exp => Instruction::Exp { reg, out },
+                    UnaryOpcode::Ln => Instruction::Ln { reg, out },
                 }
             }
         }

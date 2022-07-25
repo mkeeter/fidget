@@ -73,7 +73,7 @@ fn recurse(
     match &t.ops[node] {
         // If this node is a min/max node, then it becomes the source of
         // child nodes.
-        Op::Min(a, b, c) | Op::Max(a, b, c) => {
+        Op::BinaryChoice(_, a, b, c) => {
             recurse(t, *a, Source::Left(*c), out);
             recurse(t, *b, Source::Right(*c), out);
         }
@@ -112,27 +112,27 @@ fn flatten(input: &BTreeSet<Source>) -> Vec<Source> {
 
 impl From<&Stage0> for Stage1 {
     fn from(t: &Stage0) -> Self {
-        let mut sources: IndexVec<BTreeSet<Source>, NodeIndex> = vec![].into();
+        let mut sources = IndexVec::default();
         sources.resize_with(t.ops.len(), BTreeSet::new);
 
         recurse(t, t.root, Source::Root, &mut sources);
 
-        let sources: Vec<Vec<Source>> = sources.iter().map(flatten).collect();
-
+        // Collect node assignments into a per-group map
         let mut groups: BTreeMap<Vec<Source>, Vec<NodeIndex>> =
             Default::default();
-        for (node_index, group_key) in sources.iter().enumerate() {
+        for (node_index, group_set) in sources.enumerate() {
             groups
-                .entry(group_key.to_owned())
+                .entry(flatten(group_set))
                 .or_default()
-                .push(NodeIndex::from(node_index));
+                .push(node_index);
         }
 
-        // Per-node group data
-        let mut gs = vec![None; t.ops.len()];
+        // Scatter group assignments into a per-node array
+        let mut gs: IndexVec<Option<GroupIndex>, NodeIndex> =
+            vec![None; t.ops.len()].into();
         for (group_index, group) in groups.values().enumerate() {
             for node in group {
-                let v = &mut gs[usize::from(*node)];
+                let v = &mut gs[*node];
                 assert_eq!(*v, None);
                 *v = Some(GroupIndex::from(group_index));
             }
@@ -142,16 +142,16 @@ impl From<&Stage0> for Stage1 {
             .iter()
             .cloned()
             .zip(gs.into_iter().map(Option::unwrap))
-            .collect::<Vec<(Op, GroupIndex)>>();
+            .collect::<IndexVec<(Op, GroupIndex), NodeIndex>>();
 
         let groups = groups
             .into_iter()
             .map(|(choices, nodes)| Group { choices, nodes })
-            .collect::<Vec<Group>>();
+            .collect::<IndexVec<Group, GroupIndex>>();
 
         Stage1 {
-            ops: ops.into(),
-            groups: groups.into(),
+            ops,
+            groups,
             root: t.root,
             num_choices: t.num_choices,
             vars: t.vars.clone(),
