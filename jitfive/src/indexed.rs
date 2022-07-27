@@ -107,15 +107,6 @@ impl<Value, Index> IndexVec<Value, Index>
 where
     Index: From<usize>,
 {
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-    pub fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.data.iter()
-    }
     pub fn enumerate(&self) -> impl Iterator<Item = (Index, &Value)> {
         self.data
             .iter()
@@ -127,11 +118,32 @@ where
         self.data.push(v);
         Index::from(i)
     }
+}
+
+impl<Value, Index> IndexVec<Value, Index> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Value> {
+        self.data.iter()
+    }
     pub fn resize_with<F>(&mut self, new_len: usize, f: F)
     where
         F: FnMut() -> Value,
     {
         self.data.resize_with(new_len, f)
+    }
+}
+
+impl<Value: Clone, Index> IndexVec<Value, Index> {
+    pub fn resize(&mut self, new_len: usize, v: Value) {
+        self.data.resize(new_len, v)
     }
 }
 

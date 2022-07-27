@@ -25,7 +25,7 @@ pub type Op = GenericOp<VarIndex, f64, NodeIndex, ChoiceIndex>;
 /// Stage 0 of the shape compiler pipeline.
 ///
 /// Operations are tightly packed and assigned a globally unique index.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Stage0 {
     /// Unordered list of operations.
     pub ops: IndexVec<Op, NodeIndex>,

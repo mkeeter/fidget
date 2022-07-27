@@ -23,9 +23,9 @@ pub enum Source {
     Both(ChoiceIndex),
 }
 
-/// A group represents a set of nodes which are enabled by the *same* set
-/// of choices at `min` or `max` nodes.
-#[derive(Default)]
+/// A group represents a set of nodes which are enabled by the same set of
+/// choices at `min` or `max` nodes.
+#[derive(Default, Debug)]
 pub struct Group {
     /// Choices which enable this group of nodes.
     ///
@@ -44,6 +44,7 @@ pub struct Group {
 }
 
 /// Stores a graph of math expressions and node groups
+#[derive(Debug)]
 pub struct Stage1 {
     /// Math operations, stored in arbitrary order and associated with a group
     pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,
@@ -112,7 +113,7 @@ fn flatten(input: &BTreeSet<Source>) -> Vec<Source> {
 
 impl From<&Stage0> for Stage1 {
     fn from(t: &Stage0) -> Self {
-        let mut sources = IndexVec::default();
+        let mut sources = IndexVec::new();
         sources.resize_with(t.ops.len(), BTreeSet::new);
 
         recurse(t, t.root, Source::Root, &mut sources);

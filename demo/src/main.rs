@@ -40,6 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ctx, node) = Context::from_text(&mut file)?;
     println!("Loaded file in {:?}", now.elapsed());
 
+    let s0 = jitfive::stage0::Stage0::from_context(&ctx, node);
+    println!("{:?}", s0);
+    let s1: jitfive::stage1::Stage1 = (&s0).into();
+    println!("{:?}", s1);
+
     let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);
     println!("Build Compiler in {:?}", now.elapsed());

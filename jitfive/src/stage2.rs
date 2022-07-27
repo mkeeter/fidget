@@ -4,8 +4,11 @@ use crate::indexed::{IndexMap, IndexVec};
 use crate::stage0::{NodeIndex, Op, VarIndex};
 use crate::stage1::{GroupIndex, Source, Stage1};
 
-/// A group represents a set of nodes which are enabled by the *same* set
+/// A group represents a set of nodes which are enabled by the same set
 /// of choices at `min` or `max` nodes.
+///
+/// This `Group` (unlike [`crate::stage1::Group`]) includes graph connections to
+/// upstream and downstream groups.
 #[derive(Default)]
 pub struct Group {
     /// Choices which enable this group of nodes.
@@ -30,7 +33,7 @@ pub struct Group {
     pub upstream: Vec<GroupIndex>,
 }
 
-/// Stores a graph of math expressions and a *graph* of node groups
+/// Stores a graph of math expressions and a graph of node groups
 pub struct Stage2 {
     /// Math operations, stored in arbitrary order and associated with a group
     pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,
@@ -51,11 +54,11 @@ pub struct Stage2 {
 impl From<&Stage1> for Stage2 {
     fn from(t: &Stage1) -> Self {
         let mut downstream: IndexVec<BTreeSet<GroupIndex>, GroupIndex> =
-            IndexVec::default();
+            IndexVec::new();
         downstream.resize_with(t.groups.len(), BTreeSet::new);
 
         let mut upstream: IndexVec<BTreeSet<GroupIndex>, GroupIndex> =
-            IndexVec::default();
+            IndexVec::new();
         upstream.resize_with(t.groups.len(), BTreeSet::new);
 
         // Find group inputs and outputs by noticing cases where a child node
