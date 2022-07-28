@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
+use crate::error::Error;
 use crate::indexed::{define_index, IndexMap, IndexVec};
 use crate::stage0::{ChoiceIndex, NodeIndex, Op, Stage0, VarIndex};
 
@@ -157,5 +159,27 @@ impl From<&Stage0> for Stage1 {
             num_choices: t.num_choices,
             vars: t.vars.clone(),
         }
+    }
+}
+
+impl Stage1 {
+    pub fn write_dot<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w, "digraph mygraph {{")?;
+        writeln!(w, "compound=true")?;
+
+        for (i, group) in self.groups.enumerate() {
+            writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
+            for n in &group.nodes {
+                let op = self.ops[*n].0;
+                op.write_dot(w, *n, &self.vars)?;
+            }
+            writeln!(w, "}}")?;
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, (op, _)) in self.ops.enumerate() {
+            op.write_dot_edges(w, i)?;
+        }
+        writeln!(w, "}}")?;
+        Ok(())
     }
 }
