@@ -9,6 +9,7 @@ pub mod stage0;
 pub mod stage1;
 pub mod stage2;
 pub mod stage3;
+pub mod stage4;
 
 #[cfg(test)]
 mod tests {

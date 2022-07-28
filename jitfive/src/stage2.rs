@@ -9,7 +9,7 @@ use crate::stage1::{GroupIndex, Source, Stage1};
 ///
 /// This `Group` (unlike [`crate::stage1::Group`]) includes graph connections to
 /// upstream and downstream groups.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Group {
     /// Choices which enable this group of nodes.
     ///
@@ -34,6 +34,7 @@ pub struct Group {
 }
 
 /// Stores a graph of math expressions and a graph of node groups
+#[derive(Debug)]
 pub struct Stage2 {
     /// Math operations, stored in arbitrary order and associated with a group
     pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,

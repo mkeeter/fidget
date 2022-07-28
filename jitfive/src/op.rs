@@ -1,4 +1,7 @@
+use std::io::Write;
+
 use crate::{
+    error::Error,
     indexed::{define_index, IndexMap},
     program::{ChoiceIndex, Instruction, RegIndex, VarIndex},
 };
@@ -86,6 +89,77 @@ impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
             GenericOp::Var(..) | GenericOp::Const(..) => [None, None],
         };
         out.into_iter().flatten()
+    }
+}
+
+impl<V, F, N: Copy, C> GenericOp<V, F, N, C>
+where
+    usize: From<N> + From<V>,
+    V: Eq + std::hash::Hash + Copy + From<usize>,
+    F: std::fmt::Display,
+{
+    pub fn write_dot<W: Write>(
+        &self,
+        w: &mut W,
+        i: N,
+        vars: &IndexMap<String, V>,
+    ) -> Result<(), Error> {
+        write!(w, r#"n{} [label = ""#, usize::from(i))?;
+        match self {
+            GenericOp::Const(c) => {
+                write!(w, "{}", c)
+            }
+            GenericOp::Var(v) => {
+                let v = vars.get_by_index(*v).ok_or(Error::BadVar)?;
+                write!(w, "{}", v)
+            }
+            GenericOp::Binary(op, ..) => match op {
+                BinaryOpcode::Add => write!(w, "add"),
+                BinaryOpcode::Mul => write!(w, "mul"),
+            },
+            GenericOp::BinaryChoice(op, ..) => match op {
+                BinaryChoiceOpcode::Min => write!(w, "min"),
+                BinaryChoiceOpcode::Max => write!(w, "max"),
+            },
+            GenericOp::Unary(op, ..) => match op {
+                UnaryOpcode::Neg => write!(w, "neg"),
+                UnaryOpcode::Abs => write!(w, "abs"),
+                UnaryOpcode::Recip => write!(w, "recip"),
+                UnaryOpcode::Sqrt => write!(w, "sqrt"),
+                UnaryOpcode::Sin => write!(w, "sin"),
+                UnaryOpcode::Cos => write!(w, "cos"),
+                UnaryOpcode::Tan => write!(w, "tan"),
+                UnaryOpcode::Asin => write!(w, "asin"),
+                UnaryOpcode::Acos => write!(w, "acos"),
+                UnaryOpcode::Atan => write!(w, "atan"),
+                UnaryOpcode::Exp => write!(w, "exp"),
+                UnaryOpcode::Ln => write!(w, "ln"),
+            },
+        }?;
+        writeln!(
+            w,
+            r#"" color="{0}1" shape="{1}" fontcolor="{0}4"]"#,
+            self.dot_node_color(),
+            self.dot_node_shape()
+        )?;
+        Ok(())
+    }
+
+    pub fn write_dot_edges<W: Write>(
+        &self,
+        w: &mut W,
+        i: N,
+    ) -> Result<(), Error> {
+        for c in self.iter_children() {
+            writeln!(
+                w,
+                "n{} -> n{} [color = \"{}\"]",
+                usize::from(i),
+                usize::from(c),
+                self.dot_node_color()
+            )?;
+        }
+        Ok(())
     }
 }
 

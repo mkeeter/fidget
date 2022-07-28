@@ -14,7 +14,7 @@ use crate::stage2::Stage2;
 /// In addition, unlike [`crate::stage2::Group`], it includes **tree**
 /// connections to parent and child groups.  The tree parent is based on the
 /// least common ancestor of all upstream groups.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Group {
     /// Choices which enable this group of nodes.
     ///
@@ -47,6 +47,7 @@ pub struct Group {
 
 /// Stores a graph of math expressions, a graph of node groups, and a tree of
 /// node groups (based on lowest common ancestors in the graph).
+#[derive(Debug)]
 pub struct Stage3 {
     /// Math operations, stored in arbitrary order and associated with a group
     pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,

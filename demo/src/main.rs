@@ -44,6 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", s0);
     let s1: jitfive::stage1::Stage1 = (&s0).into();
     println!("{:?}", s1);
+    let s2: jitfive::stage2::Stage2 = (&s1).into();
+    println!("{:?}", s2);
+    let s3: jitfive::stage3::Stage3 = (&s2).into();
+    println!("{:?}", s3);
 
     let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);
@@ -56,6 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dot) = args.dot {
         let mut out = std::fs::File::create(dot)?;
         compiler.write_dot_grouped(&mut out)?;
+
+        let mut out = std::fs::File::create("stage0.dot")?;
+        s0.write_dot(&mut out)?;
     }
 
     if let Some(m) = args.metal {

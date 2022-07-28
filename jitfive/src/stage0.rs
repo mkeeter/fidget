@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
 use crate::{
     context::Context,
+    error::Error,
     indexed::{define_index, IndexMap, IndexVec},
     op::GenericOp,
     op::{Node, VarNode},
@@ -140,5 +142,18 @@ impl Stage0 {
         let idx = self.ops.push(op);
         seen.insert(node, idx);
         idx
+    }
+
+    pub fn write_dot<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w, "digraph mygraph {{")?;
+        for (i, op) in self.ops.enumerate() {
+            op.write_dot(w, i, &self.vars)?;
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, op) in self.ops.enumerate() {
+            op.write_dot_edges(w, i)?;
+        }
+        writeln!(w, "}}")?;
+        Ok(())
     }
 }
