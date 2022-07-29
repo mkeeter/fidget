@@ -72,10 +72,14 @@ impl From<&Stage2> for Stage3 {
         let mut ranks = IndexVec::new();
         ranks.resize(t.groups.len(), None);
 
-        let mut ancestors = IndexVec::new();
-        ancestors.resize(t.groups.len(), None);
+        let mut common_ancestors = IndexVec::new();
+        common_ancestors.resize(t.groups.len(), None);
         for g in 0..t.groups.len() {
-            populate_ancestors(t, GroupIndex::from(g), &mut ancestors);
+            populate_common_ancestors(
+                t,
+                GroupIndex::from(g),
+                &mut common_ancestors,
+            );
         }
 
         let root_group_index = t.ops[t.root].group;
@@ -83,27 +87,24 @@ impl From<&Stage2> for Stage3 {
 
         let parents: IndexVec<Option<GroupIndex>, GroupIndex> = t
             .groups
-            .iter()
-            .map(|g| {
+            .enumerate()
+            .map(|(i, group)| {
                 // Special case for the root of the tree
-                if g.upstream.is_empty() {
+                if group.upstream.is_empty() {
                     return None;
                 }
-                // The lowest common ancestor is reachable from every upstream
-                // group of the target, which we check by counting how many
-                // upstream groups can reach each potential common ancestor.
-                let mut common_count: BTreeMap<_, usize> = BTreeMap::new();
-                for upstream in &g.upstream {
-                    for a in ancestors[*upstream].as_ref().unwrap() {
-                        *common_count.entry(*a).or_default() += 1;
-                    }
-                }
-                let out = common_count
+                let out = common_ancestors[i]
+                    .as_ref()
+                    .unwrap()
                     .iter()
-                    .filter(|(_g, c)| **c == g.upstream.len())
-                    .map(|(g, _c)| g)
+                    .filter(|g| **g != i)
                     .max_by_key(|g| ranks[**g]);
                 assert!(out.is_some());
+                println!(
+                    "Picked common ancestor {:?} for {}",
+                    out,
+                    usize::from(i)
+                );
                 out.cloned()
             })
             .collect();
@@ -192,9 +193,11 @@ impl Stage3 {
         i: GroupIndex,
     ) -> Result<(), Error> {
         writeln!(w, "subgraph cluster_{}_g {{", usize::from(i))?;
+        writeln!(w, r#"color="grey""#)?;
 
         // This group's nodes live in their own cluster
         writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
+        writeln!(w, r#"color="black""#)?;
         let group = &self.groups[i];
         for n in &group.nodes {
             let op = self.ops[*n].op;
@@ -218,24 +221,37 @@ impl Stage3 {
     }
 }
 
-fn populate_ancestors(
+fn populate_common_ancestors(
     t: &Stage2,
     g: GroupIndex,
     out: &mut IndexVec<Option<BTreeSet<GroupIndex>>, GroupIndex>,
 ) {
+    // Skip if we've already handled this node
     if out[g].is_some() {
         return;
     }
-    let mut s = BTreeSet::new();
-    s.insert(g); // Groups are in their own ancestor list
-    for upstream_group in &t.groups[g].upstream {
+    let group = &t.groups[g];
+    let mut common_count: BTreeMap<_, usize> = BTreeMap::new();
+    for upstream_group in &group.upstream {
         // Recurse upwards towards the root
-        populate_ancestors(t, *upstream_group, out);
-
-        // XXX this is O(N^2) in memory, because nodes deeper in the tree
-        // accumulate all of the ancestors of their parents
-        s.extend(out[*upstream_group].as_ref().unwrap().iter().cloned());
+        populate_common_ancestors(t, *upstream_group, out);
+        for a in out[*upstream_group].as_ref().unwrap() {
+            *common_count.entry(*a).or_default() += 1;
+        }
     }
+
+    // Common ancestors are reachable from every upstream group of the target,
+    // which we check by counting how many upstream groups can reach each
+    // potential common ancestor.
+    let mut s: BTreeSet<GroupIndex> = common_count
+        .iter()
+        .filter(|(_g, c)| **c == group.upstream.len())
+        .map(|(g, _c)| *g)
+        .collect();
+
+    // Every node is its own common ancestor
+    s.insert(g);
+
     out[g] = Some(s);
 }
 

@@ -21,6 +21,7 @@ fn populate_ranks(
     // multiple different ranks simultaneously
     *ranks[g].as_mut().unwrap() += 1;
     for g in &t.groups[g].downstream {
+        // Before entering a child group, set its rank to 0
         assert!(ranks[*g].is_none());
         ranks[*g] = Some(0);
         populate_ranks(t, *g, ranks, out);
