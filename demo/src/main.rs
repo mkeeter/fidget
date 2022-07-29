@@ -69,6 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut out = std::fs::File::create("stage2.dot")?;
         s2.write_dot(&mut out)?;
+
+        let mut out = std::fs::File::create("stage3.dot")?;
+        s3.write_dot(&mut out)?;
     }
 
     if let Some(m) = args.metal {

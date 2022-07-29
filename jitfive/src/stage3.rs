@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::io::Write;
 
+use crate::error::Error;
 use crate::indexed::{IndexMap, IndexVec};
-use crate::stage0::{NodeIndex, Op, VarIndex};
-use crate::stage1::{GroupIndex, Source};
+use crate::stage0::{NodeIndex, VarIndex};
+use crate::stage1::{GroupIndex, Source, TaggedOp};
 use crate::stage2::Stage2;
 
 /// A group represents a set of nodes which are enabled by the same set
@@ -50,7 +52,7 @@ pub struct Group {
 #[derive(Debug)]
 pub struct Stage3 {
     /// Math operations, stored in arbitrary order and associated with a group
-    pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,
+    pub ops: IndexVec<TaggedOp, NodeIndex>,
 
     /// Root of the tree
     pub root: NodeIndex,
@@ -76,7 +78,7 @@ impl From<&Stage2> for Stage3 {
             populate_ancestors(t, GroupIndex::from(g), &mut ancestors);
         }
 
-        let root_group_index = t.ops[t.root].1;
+        let root_group_index = t.ops[t.root].group;
         populate_ranks(t, root_group_index, 0, &mut ranks);
 
         let parents: IndexVec<Option<GroupIndex>, GroupIndex> = t
@@ -137,6 +139,82 @@ impl From<&Stage2> for Stage3 {
             num_choices: t.num_choices,
             vars: t.vars.clone(),
         }
+    }
+}
+
+impl Stage3 {
+    pub fn write_dot<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w, "digraph mygraph {{")?;
+        writeln!(w, "compound=true")?;
+
+        let root_group_index = self.ops[self.root].group;
+        self.write_dot_recursive(w, root_group_index)?;
+
+        // Write node edges afterwards
+        for (i, op) in self.ops.enumerate() {
+            for c in op.op.iter_children() {
+                let alpha = if self.ops[c].group == op.group {
+                    "FF"
+                } else {
+                    "40"
+                };
+                op.op.write_dot_edge(w, i, c, alpha)?;
+            }
+        }
+        // Write group edges
+        for (i, group) in self.groups.enumerate() {
+            for c in &group.downstream {
+                writeln!(
+                    w,
+                    "{} -> {} [ltail=cluster_{}, lhead=cluster_{}];",
+                    if group.nodes.len() > 1 {
+                        format!("SOURCE_{}", usize::from(i))
+                    } else {
+                        format!("n{}", usize::from(group.nodes[0]))
+                    },
+                    if self.groups[*c].nodes.len() > 1 {
+                        format!("SINK_{}", usize::from(*c))
+                    } else {
+                        format!("n{}", usize::from(self.groups[*c].nodes[0]))
+                    },
+                    usize::from(i),
+                    usize::from(*c)
+                )?;
+            }
+        }
+        writeln!(w, "}}")?;
+        Ok(())
+    }
+
+    fn write_dot_recursive<W: Write>(
+        &self,
+        w: &mut W,
+        i: GroupIndex,
+    ) -> Result<(), Error> {
+        writeln!(w, "subgraph cluster_{}_g {{", usize::from(i))?;
+
+        // This group's nodes live in their own cluster
+        writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
+        let group = &self.groups[i];
+        for n in &group.nodes {
+            let op = self.ops[*n].op;
+            op.write_dot(w, *n, &self.vars)?;
+        }
+        // Invisible nodes to be used as group handles
+        let i = usize::from(i);
+        if group.nodes.len() > 1 {
+            writeln!(w, "SINK_{} [shape=point style=invis]", i)?;
+            writeln!(w, "SOURCE_{} [shape=point style=invis]", i)?;
+            writeln!(w, "{{ rank = max; SOURCE_{} }}", i)?;
+            writeln!(w, "{{ rank = min; SINK_{} }}", i)?;
+        }
+        writeln!(w, "}}")?;
+
+        for child in &group.children {
+            self.write_dot_recursive(w, *child)?;
+        }
+        writeln!(w, "}}")?;
+        Ok(())
     }
 }
 

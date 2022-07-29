@@ -45,11 +45,18 @@ pub struct Group {
     pub nodes: Vec<NodeIndex>,
 }
 
+/// Represents an `Op` that has been tagged with its associated group
+#[derive(Debug, Copy, Clone)]
+pub struct TaggedOp {
+    pub op: Op,
+    pub group: GroupIndex,
+}
+
 /// Stores a graph of math expressions and node groups
 #[derive(Debug)]
 pub struct Stage1 {
     /// Math operations, stored in arbitrary order and associated with a group
-    pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,
+    pub ops: IndexVec<TaggedOp, NodeIndex>,
 
     /// Root of the tree
     pub root: NodeIndex,
@@ -145,7 +152,8 @@ impl From<&Stage0> for Stage1 {
             .iter()
             .cloned()
             .zip(gs.into_iter().map(Option::unwrap))
-            .collect::<IndexVec<(Op, GroupIndex), NodeIndex>>();
+            .map(|(op, group)| TaggedOp { op, group })
+            .collect::<IndexVec<TaggedOp, NodeIndex>>();
 
         let groups = groups
             .into_iter()
@@ -170,14 +178,14 @@ impl Stage1 {
         for (i, group) in self.groups.enumerate() {
             writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
             for n in &group.nodes {
-                let op = self.ops[*n].0;
+                let op = self.ops[*n].op;
                 op.write_dot(w, *n, &self.vars)?;
             }
             writeln!(w, "}}")?;
         }
         // Write edges afterwards, after all nodes have been defined
-        for (i, (op, _)) in self.ops.enumerate() {
-            op.write_dot_edges(w, i)?;
+        for (i, op) in self.ops.enumerate() {
+            op.op.write_dot_edges(w, i)?;
         }
         writeln!(w, "}}")?;
         Ok(())

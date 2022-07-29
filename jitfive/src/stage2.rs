@@ -3,8 +3,8 @@ use std::io::Write;
 
 use crate::error::Error;
 use crate::indexed::{IndexMap, IndexVec};
-use crate::stage0::{NodeIndex, Op, VarIndex};
-use crate::stage1::{GroupIndex, Source, Stage1};
+use crate::stage0::{NodeIndex, VarIndex};
+use crate::stage1::{GroupIndex, Source, Stage1, TaggedOp};
 
 /// A group represents a set of nodes which are enabled by the same set
 /// of choices at `min` or `max` nodes.
@@ -39,7 +39,7 @@ pub struct Group {
 #[derive(Debug)]
 pub struct Stage2 {
     /// Math operations, stored in arbitrary order and associated with a group
-    pub ops: IndexVec<(Op, GroupIndex), NodeIndex>,
+    pub ops: IndexVec<TaggedOp, NodeIndex>,
 
     /// Root of the tree
     pub root: NodeIndex,
@@ -68,8 +68,8 @@ impl From<&Stage1> for Stage2 {
         // is stored in a different group than its caller.
         for (group_index, group) in t.groups.enumerate() {
             for n in group.nodes.iter() {
-                for c in t.ops[*n].0.iter_children() {
-                    let child_group = t.ops[c].1;
+                for c in t.ops[*n].op.iter_children() {
+                    let child_group = t.ops[c].group;
                     if child_group != group_index {
                         downstream[group_index].insert(child_group);
                         upstream[child_group].insert(group_index);
@@ -107,7 +107,7 @@ impl Stage2 {
         for (i, group) in self.groups.enumerate() {
             writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
             for n in &group.nodes {
-                let op = self.ops[*n].0;
+                let op = self.ops[*n].op;
                 op.write_dot(w, *n, &self.vars)?;
             }
             // Invisible nodes to be used as group handles
@@ -121,10 +121,14 @@ impl Stage2 {
             writeln!(w, "}}")?;
         }
         // Write edges afterwards, after all nodes have been defined
-        for (i, (op, g)) in self.ops.enumerate() {
-            for c in op.iter_children() {
-                let alpha = if self.ops[c].1 == *g { "FF" } else { "40" };
-                op.write_dot_edge(w, i, c, alpha)?;
+        for (i, op) in self.ops.enumerate() {
+            for c in op.op.iter_children() {
+                let alpha = if self.ops[c].group == op.group {
+                    "FF"
+                } else {
+                    "40"
+                };
+                op.op.write_dot_edge(w, i, c, alpha)?;
             }
         }
         for (i, group) in self.groups.enumerate() {
