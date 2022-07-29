@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
+use std::io::Write;
 
+use crate::error::Error;
 use crate::indexed::{IndexMap, IndexVec};
 use crate::stage0::{NodeIndex, Op, VarIndex};
 use crate::stage1::{GroupIndex, Source, Stage1};
@@ -94,5 +96,41 @@ impl From<&Stage1> for Stage2 {
             num_choices: t.num_choices,
             vars: t.vars.clone(),
         }
+    }
+}
+
+impl Stage2 {
+    pub fn write_dot<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w, "digraph mygraph {{")?;
+        writeln!(w, "compound=true")?;
+
+        for (i, group) in self.groups.enumerate() {
+            writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
+            for n in &group.nodes {
+                let op = self.ops[*n].0;
+                op.write_dot(w, *n, &self.vars)?;
+            }
+            writeln!(w, "SINK_{} [shape=point style=invis]", usize::from(i))?;
+            writeln!(w, "SOURCE_{} [shape=point style=invis]", usize::from(i))?;
+            writeln!(w, "{{ rank = min; SINK_{} }}", usize::from(i))?;
+            writeln!(w, "{{ rank = max; SOURCE_{} }}", usize::from(i))?;
+            writeln!(w, "}}")?;
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, (op, g)) in self.ops.enumerate() {
+            for c in op.iter_children() {
+                let alpha = if self.ops[c].1 == *g { "FF" } else { "40" };
+                op.write_dot_edge(w, i, c, alpha)?;
+            }
+        }
+        for (i, group) in self.groups.enumerate() {
+            for c in &group.downstream {
+                writeln!(w, "SOURCE_{0} -> SINK_{1} [ltail=cluster_{0}, lhead=cluster_{1}];",
+                    usize::from(i),
+                    usize::from(*c))?;
+            }
+        }
+        writeln!(w, "}}")?;
+        Ok(())
     }
 }

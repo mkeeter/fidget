@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::indexed::{IndexMap, IndexVec};
 use crate::stage0::{NodeIndex, Op, VarIndex};
@@ -167,13 +167,19 @@ fn populate_ranks(
     rank: usize,
     out: &mut IndexVec<Option<usize>, GroupIndex>,
 ) {
-    if let Some(r) = out[g] {
-        // Nothing to do here, other than a sanity-check
-        assert!(r <= rank);
-    } else {
-        for downstream_group in &t.groups[g].downstream {
-            populate_ranks(t, *downstream_group, rank + 1, out);
+    // Breadth-first search!
+    let mut todo = VecDeque::new();
+    todo.push_back((g, rank));
+    while let Some((g, rank)) = todo.pop_front() {
+        if let Some(r) = out[g] {
+            // Nothing to do here, other than a sanity-check
+            println!("{}, {}", r, rank);
+            assert!(r <= rank);
+        } else {
+            for downstream_group in &t.groups[g].downstream {
+                todo.push_back((*downstream_group, rank + 1));
+            }
+            out[g] = Some(rank);
         }
-        out[g] = Some(rank);
     }
 }

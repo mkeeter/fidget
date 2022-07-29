@@ -62,6 +62,16 @@ pub enum GenericOp<V, F, N, C = ()> {
     Unary(UnaryOpcode, N),
 }
 
+fn dot_color_to_rgb(s: &str) -> &'static str {
+    match s {
+        "red" => "#FF0000",
+        "green" => "#00FF00",
+        "goldenrod" => "#DAA520",
+        "dodgerblue" => "#1E90FF",
+        s => panic!("Unknown X11 color '{}'", s),
+    }
+}
+
 impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
     pub fn dot_node_color(&self) -> &str {
         match self {
@@ -145,7 +155,33 @@ where
         Ok(())
     }
 
+    pub fn write_dot_edge<W: Write>(
+        &self,
+        w: &mut W,
+        a: N,
+        b: N,
+        alpha: &str,
+    ) -> Result<(), Error> {
+        let color = dot_color_to_rgb(self.dot_node_color()).to_owned() + alpha;
+        writeln!(
+            w,
+            "n{} -> n{} [color = \"{color}\"]",
+            usize::from(a),
+            usize::from(b),
+        )?;
+        Ok(())
+    }
     pub fn write_dot_edges<W: Write>(
+        &self,
+        w: &mut W,
+        i: N,
+    ) -> Result<(), Error> {
+        for c in self.iter_children() {
+            self.write_dot_edge(w, i, c, "FF")?;
+        }
+        Ok(())
+    }
+    pub fn write_dot_edges_invis<W: Write>(
         &self,
         w: &mut W,
         i: N,
@@ -153,10 +189,9 @@ where
         for c in self.iter_children() {
             writeln!(
                 w,
-                "n{} -> n{} [color = \"{}\"]",
+                "n{} -> n{} [style=invis]",
                 usize::from(i),
                 usize::from(c),
-                self.dot_node_color()
             )?;
         }
         Ok(())
