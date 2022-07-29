@@ -110,10 +110,14 @@ impl Stage2 {
                 let op = self.ops[*n].0;
                 op.write_dot(w, *n, &self.vars)?;
             }
-            writeln!(w, "SINK_{} [shape=point style=invis]", usize::from(i))?;
-            writeln!(w, "SOURCE_{} [shape=point style=invis]", usize::from(i))?;
-            writeln!(w, "{{ rank = min; SINK_{} }}", usize::from(i))?;
-            writeln!(w, "{{ rank = max; SOURCE_{} }}", usize::from(i))?;
+            // Invisible nodes to be used as group handles
+            let i = usize::from(i);
+            if group.nodes.len() > 1 {
+                writeln!(w, "SINK_{} [shape=point style=invis]", i)?;
+                writeln!(w, "SOURCE_{} [shape=point style=invis]", i)?;
+                writeln!(w, "{{ rank = max; SOURCE_{} }}", i)?;
+                writeln!(w, "{{ rank = min; SINK_{} }}", i)?;
+            }
             writeln!(w, "}}")?;
         }
         // Write edges afterwards, after all nodes have been defined
@@ -125,9 +129,22 @@ impl Stage2 {
         }
         for (i, group) in self.groups.enumerate() {
             for c in &group.downstream {
-                writeln!(w, "SOURCE_{0} -> SINK_{1} [ltail=cluster_{0}, lhead=cluster_{1}];",
+                writeln!(
+                    w,
+                    "{} -> {} [ltail=cluster_{}, lhead=cluster_{}];",
+                    if group.nodes.len() > 1 {
+                        format!("SOURCE_{}", usize::from(i))
+                    } else {
+                        format!("n{}", usize::from(group.nodes[0]))
+                    },
+                    if self.groups[*c].nodes.len() > 1 {
+                        format!("SINK_{}", usize::from(*c))
+                    } else {
+                        format!("n{}", usize::from(self.groups[*c].nodes[0]))
+                    },
                     usize::from(i),
-                    usize::from(*c))?;
+                    usize::from(*c)
+                )?;
             }
         }
         writeln!(w, "}}")?;
