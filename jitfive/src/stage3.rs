@@ -69,21 +69,26 @@ pub struct Stage3 {
 
 impl From<&Stage2> for Stage3 {
     fn from(t: &Stage2) -> Self {
-        let mut ranks = IndexVec::new();
-        ranks.resize(t.groups.len(), None);
+        let common_ancestors: IndexVec<BTreeSet<GroupIndex>, GroupIndex> = {
+            let mut common_ancestors = IndexVec::new();
+            common_ancestors.resize(t.groups.len(), None);
+            for g in 0..t.groups.len() {
+                populate_common_ancestors(
+                    t,
+                    GroupIndex::from(g),
+                    &mut common_ancestors,
+                );
+            }
+            common_ancestors.into_iter().map(Option::unwrap).collect()
+        };
 
-        let mut common_ancestors = IndexVec::new();
-        common_ancestors.resize(t.groups.len(), None);
-        for g in 0..t.groups.len() {
-            populate_common_ancestors(
-                t,
-                GroupIndex::from(g),
-                &mut common_ancestors,
-            );
-        }
-
-        let root_group_index = t.ops[t.root].group;
-        populate_ranks(t, root_group_index, 0, &mut ranks);
+        let ranks: IndexVec<usize, GroupIndex> = {
+            let mut ranks = IndexVec::new();
+            ranks.resize(t.groups.len(), None);
+            let root_group_index = t.ops[t.root].group;
+            populate_ranks(t, root_group_index, 0, &mut ranks);
+            ranks.into_iter().map(Option::unwrap).collect()
+        };
 
         let parents: IndexVec<Option<GroupIndex>, GroupIndex> = t
             .groups
@@ -94,17 +99,10 @@ impl From<&Stage2> for Stage3 {
                     return None;
                 }
                 let out = common_ancestors[i]
-                    .as_ref()
-                    .unwrap()
                     .iter()
                     .filter(|g| **g != i)
                     .max_by_key(|g| ranks[**g]);
                 assert!(out.is_some());
-                println!(
-                    "Picked common ancestor {:?} for {}",
-                    out,
-                    usize::from(i)
-                );
                 out.cloned()
             })
             .collect();
