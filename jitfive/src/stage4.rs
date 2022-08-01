@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
 
-use crate::indexed::{IndexMap, IndexVec};
-use crate::op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode};
-use crate::stage0::{NodeIndex, Op, VarIndex};
-use crate::stage1::{GroupIndex, Source, TaggedOp};
-use crate::stage3::Stage3;
+use crate::{
+    indexed::{IndexMap, IndexVec},
+    op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+    stage0::{NodeIndex, Op, VarIndex},
+    stage1::{GroupIndex, Source, TaggedOp},
+    stage3::Stage3,
+};
 
 #[derive(Default, Debug)]
 pub struct Group {

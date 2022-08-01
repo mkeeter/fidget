@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
 
-use crate::error::Error;
-use crate::indexed::{IndexMap, IndexVec};
-use crate::stage0::{NodeIndex, VarIndex};
-use crate::stage1::{GroupIndex, Source, TaggedOp};
-use crate::stage2::Stage2;
+use crate::{
+    error::Error,
+    indexed::{IndexMap, IndexVec},
+    stage0::{NodeIndex, VarIndex},
+    stage1::{GroupIndex, Source, TaggedOp},
+    stage2::Stage2,
+};
 
 /// A group represents a set of nodes which are enabled by the same set
 /// of choices at `min` or `max` nodes.

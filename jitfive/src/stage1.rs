@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use crate::error::Error;
-use crate::indexed::{define_index, IndexMap, IndexVec};
-use crate::stage0::{ChoiceIndex, NodeIndex, Op, Stage0, VarIndex};
+use crate::{
+    error::Error,
+    indexed::{define_index, IndexMap, IndexVec},
+    stage0::{ChoiceIndex, NodeIndex, Op, Stage0, VarIndex},
+};
 
 define_index!(
     GroupIndex,
