@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::indexed::{IndexMap, IndexVec};
 use crate::op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode};
 use crate::stage0::{NodeIndex, Op, VarIndex};
@@ -166,6 +168,26 @@ impl Stage4 {
             out += "\n";
         }
         out
+    }
+    pub fn self_check(&self) {
+        let mut seen = BTreeSet::new();
+        self.recurse_self_check(self.ops[self.root].group, &mut seen)
+    }
+    fn recurse_self_check(
+        &self,
+        g: GroupIndex,
+        seen: &mut BTreeSet<NodeIndex>,
+    ) {
+        for g in &self.groups[g].children {
+            self.recurse_self_check(*g, seen);
+        }
+        for n in self.groups[g].nodes.iter() {
+            let op = self.ops[*n];
+            for c in op.op.iter_children() {
+                assert!(seen.contains(&c));
+            }
+            seen.insert(*n);
+        }
     }
 }
 

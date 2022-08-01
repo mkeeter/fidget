@@ -55,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let s4: jitfive::stage4::Stage4 = (&s3).into();
     //println!("{:?}", s4);
+    s4.self_check();
     println!("Built up to stage 4 in {:?}", now.elapsed());
     println!("{}", s4.to_string());
 
