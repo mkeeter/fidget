@@ -41,13 +41,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded file in {:?}", now.elapsed());
 
     let s0 = jitfive::stage0::Stage0::from_context(&ctx, node);
-    println!("{:?}", s0);
+    s0.self_check();
+    //println!("{:?}", s0);
+
     let s1: jitfive::stage1::Stage1 = (&s0).into();
-    println!("{:?}", s1);
+    //println!("{:?}", s1);
+
     let s2: jitfive::stage2::Stage2 = (&s1).into();
-    println!("{:?}", s2);
+    //println!("{:?}", s2);
+
     let s3: jitfive::stage3::Stage3 = (&s2).into();
-    println!("{:?}", s3);
+    //println!("{:?}", s3);
+
+    let s4: jitfive::stage4::Stage4 = (&s3).into();
+    //println!("{:?}", s4);
+    println!("Built up to stage 4 in {:?}", now.elapsed());
+    println!("{}", s4.to_string());
 
     let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);

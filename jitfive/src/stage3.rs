@@ -265,7 +265,6 @@ fn populate_ranks(
     while let Some((g, rank)) = todo.pop_front() {
         if let Some(r) = out[g] {
             // Nothing to do here, other than a sanity-check
-            println!("{}, {}", r, rank);
             assert!(r <= rank);
         } else {
             for downstream_group in &t.groups[g].downstream {
