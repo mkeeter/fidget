@@ -115,7 +115,7 @@ impl Stage4 {
                 if multi {
                     out += ")";
                 }
-                out += ")\n";
+                out += "\n";
             }
             out += &self.recurse_to_string(*g);
             if !has_both {
