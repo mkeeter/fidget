@@ -18,8 +18,12 @@ struct Args {
     image: Option<String>,
 
     /// Render using the GPU
-    #[clap(short, long, requires = "image")]
+    #[clap(short, long, requires = "image", conflicts_with = "jit")]
     gpu: bool,
+
+    /// Render using the JIT-compiled function
+    #[clap(short, long, requires = "image", conflicts_with = "gpu")]
+    jit: bool,
 
     /// Name of a `.metal` file to write
     #[clap(short, long)]
@@ -56,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s4: jitfive::stage4::Stage4 = (&s3).into();
     //println!("{:?}", s4);
     s4.self_check();
+
     println!("Built up to stage 4 in {:?}", now.elapsed());
     println!("{}", s4.to_string());
 
@@ -84,6 +89,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3.write_dot(&mut out)?;
     }
 
+    let llvm_ctx = inkwell::context::Context::create();
+    let jit_fn = jitfive::backend::llvm::to_jit_fn(&s4, &llvm_ctx)?;
+
     if let Some(m) = args.metal {
         std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Interval))?
     }
@@ -94,9 +102,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Done with GPU render in {:?}", now.elapsed());
             out
         } else {
-            let out = ctx.render_2d(node, args.size)?;
+            let out = if args.jit {
+                // Copied from `Context::render_2d`
+                let now = Instant::now();
+                let scale = args.size;
+                let mut out = Vec::with_capacity((scale * scale) as usize);
+                let div = (scale - 1) as f32;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f32) / div);
+                    for j in 0..scale {
+                        let x = -1.0 + 2.0 * (j as f32) / div;
+                        let v = unsafe {
+                            jit_fn.call(x, y, std::ptr::null::<i32>())
+                        };
+                        out.push(v <= 0.0);
+                    }
+                }
+                println!("Done with JIT render in {:?}", now.elapsed());
+                out
+            } else {
+                ctx.render_2d(node, args.size)?
+            };
             out.into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0; 4] })
+                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
                 .collect()
         };
 
