@@ -16,6 +16,9 @@ use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
 use inkwell::{builder::Builder, values::FloatValue};
 
+const LHS: u32 = 1;
+const RHS: u32 = 2;
+
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const i32) -> f32;
 
 fn recurse<'a, 'ctx>(
@@ -27,17 +30,120 @@ fn recurse<'a, 'ctx>(
     builder: &'ctx Builder<'ctx>,
     values: &mut BTreeMap<NodeIndex, FloatValue<'ctx>>,
 ) {
+    let i32_type = context.i32_type();
     let group = &t.groups[g];
-    let unconditional =
-        group.choices.iter().any(|c| matches!(c, Source::Both(..)));
-
-    if !unconditional {}
-
     for &g in &group.children {
+        let group = &t.groups[g];
+        let unconditional = group
+            .choices
+            .iter()
+            .any(|c| matches!(c, Source::Both(..) | Source::Root));
+
+        let last_cond_block = if unconditional {
+            // Nothing to do here, proceed straight into child
+            None
+        } else {
+            // Collect choices into array of u32 masks
+            let mut choice_u32s = BTreeMap::new();
+            for c in group.choices.iter() {
+                let (c, v) = match c {
+                    Source::Left(c) => (c, LHS),
+                    Source::Right(c) => (c, RHS),
+                    _ => unreachable!(),
+                };
+                let e = choice_u32s.entry(usize::from(*c) / 16).or_insert(0);
+                *e |= v << ((usize::from(*c) % 16) * 2);
+            }
+
+            let cond_blocks = (0..choice_u32s.len())
+                .map(|i| {
+                    context.append_basic_block(
+                        *function,
+                        &format!("g{}_{}", usize::from(g), i),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let recurse_block = context.append_basic_block(
+                *function,
+                &format!("g{}_recurse", usize::from(g)),
+            );
+
+            /*
+             * We unpack choices into roughly the following pseudocode:
+             *  load choices[$c] => $choice
+             *  and $choice $mask => $out
+             *  cmp $out 0
+             *  branch recurse next
+             *  ...etc
+             *  branch recurse done
+             *  recurse:
+             *      Do recursion here
+             *      branch done
+             *  done:
+             *  Start the next thing
+             */
+            for (i, (c, v)) in choice_u32s.iter().enumerate() {
+                let label = format!("g{}_{}", usize::from(g), i);
+                let choice_base_ptr =
+                    function.get_nth_param(2).unwrap().into_pointer_value();
+                let choice_ptr = unsafe {
+                    builder.build_gep(
+                        choice_base_ptr,
+                        &[i32_type.const_int(*c as u64 / 16, true)],
+                        &format!("choice_ptr_{}", label),
+                    )
+                };
+                let choice_value = builder
+                    .build_load(choice_ptr, &format!("choice_{}", label))
+                    .into_int_value();
+
+                let choice_value_masked = builder.build_and(
+                    choice_value,
+                    i32_type.const_int(*v as u64, false),
+                    &format!("choice_masked_{}", label),
+                );
+                let choice_cmp = builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    choice_value_masked,
+                    i32_type.const_int(0, true),
+                    &format!("choice_cmp_{}", label),
+                );
+                let next_block = cond_blocks[i];
+                builder.build_conditional_branch(
+                    choice_cmp,
+                    recurse_block,
+                    next_block,
+                );
+                builder.position_at_end(next_block);
+            }
+            // At this point, we begin constructing the recursive call.
+            // We'll need to patch up the last cond_block later, after
+            // we've constructed the done block.
+            builder.position_at_end(recurse_block);
+
+            cond_blocks.last().map(|i| *i)
+        };
+
+        // Prepare for recursion
         recurse(t, g, intrinsics, context, function, builder, values);
+
+        let done_block = context.append_basic_block(
+            *function,
+            &format!("g{}_done", usize::from(g)),
+        );
+        builder.build_unconditional_branch(done_block);
+
+        // Stitch the final conditional into the done block
+        if let Some(c) = last_cond_block {
+            builder.position_at_end(c);
+            builder.build_unconditional_branch(done_block);
+        }
+
+        builder.position_at_end(done_block);
     }
+
     for &n in &group.nodes {
-        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
+        let node_name = format!("n{}", usize::from(n));
         let op = t.ops[n];
         let value = match op.op {
             Op::Var(v) => match t.vars.get_by_index(v).unwrap().as_str() {
@@ -71,7 +177,6 @@ fn recurse<'a, 'ctx>(
                     *function,
                     &format!("minmax_end_{}", usize::from(n)),
                 );
-                let i32_type = context.i32_type();
 
                 let choice_base_ptr =
                     function.get_nth_param(2).unwrap().into_pointer_value();
@@ -108,7 +213,7 @@ fn recurse<'a, 'ctx>(
                 let left_cmp = builder.build_int_compare(
                     inkwell::IntPredicate::EQ,
                     choice_value_masked,
-                    i32_type.const_int(1, true),
+                    i32_type.const_int(LHS as u64, true),
                     &format!("left_cmp_{}", usize::from(n)),
                 );
                 builder.build_conditional_branch(
@@ -121,7 +226,7 @@ fn recurse<'a, 'ctx>(
                 let right_cmp = builder.build_int_compare(
                     inkwell::IntPredicate::EQ,
                     choice_value_masked,
-                    i32_type.const_int(2, true),
+                    i32_type.const_int(RHS as u64, true),
                     &format!("right_cmp_{}", usize::from(n)),
                 );
                 builder
@@ -212,7 +317,7 @@ pub fn to_jit_fn<'a, 'b>(
     t: &'a Stage4,
     context: &'b Context,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
-    let module = context.create_module("sum");
+    let module = context.create_module("shape");
     let builder = context.create_builder();
     let execution_engine =
         module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
@@ -252,7 +357,7 @@ pub fn to_jit_fn<'a, 'b>(
         &[f32_type.into(), f32_type.into(), i32_ptr_type.into()],
         false,
     );
-    let function = module.add_function("sum", fn_type, None);
+    let function = module.add_function("shape", fn_type, None);
 
     let basic_block = context.append_basic_block(function, "entry");
 
@@ -271,6 +376,6 @@ pub fn to_jit_fn<'a, 'b>(
     builder.build_return(Some(&values[&t.root]));
     module.print_to_stderr();
 
-    let out = unsafe { execution_engine.get_function("sum")? };
+    let out = unsafe { execution_engine.get_function("shape")? };
     Ok(out)
 }
