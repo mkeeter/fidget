@@ -103,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out
         } else {
             let out = if args.jit {
+                let choices = vec![-1i32; (s4.num_choices + 15) / 16];
                 // Copied from `Context::render_2d`
                 let now = Instant::now();
                 let scale = args.size;
@@ -112,9 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let y = -(-1.0 + 2.0 * (i as f32) / div);
                     for j in 0..scale {
                         let x = -1.0 + 2.0 * (j as f32) / div;
-                        let v = unsafe {
-                            jit_fn.call(x, y, std::ptr::null::<i32>())
-                        };
+                        let v = unsafe { jit_fn.call(x, y, choices.as_ptr()) };
                         out.push(v <= 0.0);
                     }
                 }

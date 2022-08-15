@@ -58,21 +58,107 @@ fn recurse<'a, 'ctx>(
                 )
             }
 
-            Op::BinaryChoice(op, a, b, _) => {
+            Op::BinaryChoice(op, a, b, c) => {
+                let left_block = context.append_basic_block(
+                    *function,
+                    &format!("minmax_left_{}", usize::from(n)),
+                );
+                let right_block = context.append_basic_block(
+                    *function,
+                    &format!("minmax_right_{}", usize::from(n)),
+                );
+                let both_block = context.append_basic_block(
+                    *function,
+                    &format!("minmax_both_{}", usize::from(n)),
+                );
+                let end_block = context.append_basic_block(
+                    *function,
+                    &format!("minmax_end_{}", usize::from(n)),
+                );
+                let i32_type = context.i32_type();
+
+                let choice_base_ptr =
+                    function.get_nth_param(2).unwrap().into_pointer_value();
+                let c = usize::from(c);
+                let choice_ptr = unsafe {
+                    builder.build_gep(
+                        choice_base_ptr,
+                        &[i32_type.const_int(c as u64 / 16, true)],
+                        &format!("choice_ptr_{}", usize::from(n)),
+                    )
+                };
+
+                let choice_value = builder
+                    .build_load(
+                        choice_ptr,
+                        &format!("choice_{}", usize::from(n)),
+                    )
+                    .into_int_value();
+                let choice_value_shr = builder.build_right_shift(
+                    choice_value,
+                    i32_type.const_int((c as u64 % 16) * 2, true),
+                    true,
+                    &format!("choice_shr_{}", usize::from(n)),
+                );
+                let choice_value_masked = builder.build_and(
+                    choice_value_shr,
+                    i32_type.const_int(3, false),
+                    &format!("choice_masked_{}", usize::from(n)),
+                );
+
+                builder.build_unconditional_branch(left_block);
+                builder.position_at_end(left_block);
+
+                let left_cmp = builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    choice_value_masked,
+                    i32_type.const_int(1, true),
+                    &format!("left_cmp_{}", usize::from(n)),
+                );
+                builder.build_conditional_branch(
+                    left_cmp,
+                    end_block,
+                    right_block,
+                );
+
+                builder.position_at_end(right_block);
+                let right_cmp = builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    choice_value_masked,
+                    i32_type.const_int(2, true),
+                    &format!("right_cmp_{}", usize::from(n)),
+                );
+                builder
+                    .build_conditional_branch(right_cmp, end_block, both_block);
+
+                builder.position_at_end(both_block);
                 let i = match op {
                     BinaryChoiceOpcode::Min => intrinsics.min,
                     BinaryChoiceOpcode::Max => intrinsics.max,
                 };
-                builder
+                let fmax_result = builder
                     .build_call(
                         i,
                         &[values[&a].into(), values[&b].into()],
-                        &format!("n{}", usize::from(n)),
+                        &format!("n{}_both", usize::from(n)),
                     )
                     .try_as_basic_value()
                     .left()
                     .unwrap()
-                    .into_float_value()
+                    .into_float_value();
+                builder.build_unconditional_branch(end_block);
+
+                builder.position_at_end(end_block);
+                let out = builder.build_phi(
+                    context.f32_type(),
+                    &format!("n{}", usize::from(n)),
+                );
+                out.add_incoming(&[
+                    (&fmax_result, both_block),
+                    (&values[&a], left_block),
+                    (&values[&b], right_block),
+                ]);
+                out.as_basic_value().into_float_value()
             }
             Op::Unary(op, a) => {
                 let call_intrinsic = |i| {
