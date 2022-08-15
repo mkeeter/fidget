@@ -37,6 +37,7 @@ fn recurse<'a, 'ctx>(
         recurse(t, g, intrinsics, context, function, builder, values);
     }
     for &n in &group.nodes {
+        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
         let op = t.ops[n];
         let value = match op.op {
             Op::Var(v) => match t.vars.get_by_index(v).unwrap().as_str() {
@@ -50,12 +51,7 @@ fn recurse<'a, 'ctx>(
                     BinaryOpcode::Add => Builder::build_float_add,
                     BinaryOpcode::Mul => Builder::build_float_mul,
                 };
-                f(
-                    builder,
-                    values[&a],
-                    values[&b],
-                    &format!("n{}", usize::from(n)),
-                )
+                f(builder, values[&a], values[&b], &node_name)
             }
 
             Op::BinaryChoice(op, a, b, c) => {
@@ -140,7 +136,7 @@ fn recurse<'a, 'ctx>(
                     .build_call(
                         i,
                         &[values[&a].into(), values[&b].into()],
-                        &format!("n{}_both", usize::from(n)),
+                        &format!("{}_both", node_name),
                     )
                     .try_as_basic_value()
                     .left()
@@ -149,10 +145,7 @@ fn recurse<'a, 'ctx>(
                 builder.build_unconditional_branch(end_block);
 
                 builder.position_at_end(end_block);
-                let out = builder.build_phi(
-                    context.f32_type(),
-                    &format!("n{}", usize::from(n)),
-                );
+                let out = builder.build_phi(context.f32_type(), &node_name);
                 out.add_incoming(&[
                     (&fmax_result, both_block),
                     (&values[&a], left_block),
@@ -174,10 +167,9 @@ fn recurse<'a, 'ctx>(
                         .into_float_value()
                 };
                 match op {
-                    UnaryOpcode::Neg => builder.build_float_neg(
-                        values[&a],
-                        &format!("n{}", usize::from(n)),
-                    ),
+                    UnaryOpcode::Neg => {
+                        builder.build_float_neg(values[&a], &node_name)
+                    }
                     UnaryOpcode::Abs => call_intrinsic(intrinsics.abs),
                     UnaryOpcode::Sqrt => call_intrinsic(intrinsics.sqrt),
                     UnaryOpcode::Cos => call_intrinsic(intrinsics.cos),
@@ -187,7 +179,7 @@ fn recurse<'a, 'ctx>(
                     UnaryOpcode::Recip => builder.build_float_div(
                         context.f32_type().const_float(1.0),
                         values[&a],
-                        &format!("n{}", usize::from(n)),
+                        &node_name,
                     ),
                     /*
                     UnaryOpcode::Tan => Builder::build_float_tan,
