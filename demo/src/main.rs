@@ -58,8 +58,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //println!("{:?}", s3);
 
     let s4: jitfive::stage4::Stage4 = (&s3).into();
-    //println!("{:?}", s4);
     s4.self_check();
+
+    let s5: jitfive::stage5::Stage5 = (&s4).into();
+    //println!("{:?}", s4);
 
     println!("Built up to stage 4 in {:?}", now.elapsed());
     println!("{}", s4.to_string());
@@ -90,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let llvm_ctx = inkwell::context::Context::create();
-    let jit_fn = jitfive::backend::llvm::to_jit_fn(&s4, &llvm_ctx)?;
+    let jit_fn = jitfive::backend::llvm::to_jit_fn(&s5, &llvm_ctx)?;
 
     if let Some(m) = args.metal {
         std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Interval))?

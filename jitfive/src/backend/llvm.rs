@@ -5,24 +5,93 @@ use crate::{
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     stage0::{NodeIndex, Op},
     stage1::{GroupIndex, Source},
-    stage4::Stage4,
+    stage5::Stage5,
 };
 
-use inkwell::context::Context;
-use inkwell::execution_engine::JitFunction;
-use inkwell::intrinsics::Intrinsic;
-use inkwell::values::FunctionValue;
-use inkwell::AddressSpace;
-use inkwell::OptimizationLevel;
-use inkwell::{builder::Builder, values::FloatValue};
+use inkwell::{
+    builder::Builder,
+    context::Context,
+    execution_engine::JitFunction,
+    intrinsics::Intrinsic,
+    module::Module,
+    types::{FloatType, IntType},
+    values::FloatValue,
+    values::FunctionValue,
+    AddressSpace, OptimizationLevel,
+};
 
 const LHS: u32 = 1;
 const RHS: u32 = 2;
 
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const i32) -> f32;
 
+struct Jit<'a, 'ctx> {
+    t: &'a Stage5,
+    context: &'ctx Context,
+    intrinsics: Intrinsics<'ctx>,
+    module: Module<'ctx>,
+    builder: Builder<'ctx>,
+    function: FunctionValue<'ctx>,
+    values: BTreeMap<NodeIndex, FloatValue<'ctx>>,
+    f32_type: FloatType<'ctx>,
+    i32_type: IntType<'ctx>,
+}
+
+impl<'a, 'ctx> Jit<'a, 'ctx> {
+    fn new(t: &'a Stage5, context: &'ctx Context) -> Self {
+        let i32_type = context.i32_type();
+        let f32_type = context.f32_type();
+
+        let module = context.create_module("shape");
+        let builder = context.create_builder();
+
+        // Create intrinsics for special functions
+        let get_unary_intrinsic = |name| {
+            let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
+            intrinsic
+                .get_declaration(&module, &[f32_type.into()])
+                .unwrap()
+        };
+        // Create intrinsics for special functions
+        let get_binary_intrinsic = |name| {
+            let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
+            intrinsic
+                .get_declaration(&module, &[f32_type.into(), f32_type.into()])
+                .unwrap()
+        };
+
+        let intrinsics = Intrinsics {
+            abs: get_unary_intrinsic("abs"),
+            sqrt: get_unary_intrinsic("sqrt"),
+            sin: get_unary_intrinsic("sin"),
+            cos: get_unary_intrinsic("cos"),
+            exp: get_unary_intrinsic("exp"),
+            ln: get_unary_intrinsic("log"),
+            max: get_binary_intrinsic("maxnum"),
+            min: get_binary_intrinsic("minnum"),
+        };
+
+        // Build our main function
+        let i32_type = context.i32_type();
+        let i32_ptr_type = i32_type.ptr_type(AddressSpace::Const);
+        let fn_type = f32_type.fn_type(
+            &[f32_type.into(), f32_type.into(), i32_ptr_type.into()],
+            false,
+        );
+        let function = module.add_function("shape", fn_type, None);
+    }
+
+    fn build(&mut self) {
+        let basic_block = context.append_basic_block(function, "entry");
+        builder.position_at_end(basic_block);
+        let root = self.t.root;
+        self.recurse(self.t.ops[root].group);
+        builder.build_return(Some(&self.values[root]));
+    }
+}
+
 fn recurse<'a, 'ctx>(
-    t: &'a Stage4,
+    t: &'a Stage5,
     g: GroupIndex,
     intrinsics: &'ctx Intrinsics,
     context: &'ctx Context,
@@ -32,20 +101,20 @@ fn recurse<'a, 'ctx>(
 ) {
     let i32_type = context.i32_type();
     let group = &t.groups[g];
-    for &g in &group.children {
-        let group = &t.groups[g];
-        let unconditional = group
+    for &cg in &group.children {
+        let child_group = &t.groups[cg];
+        let unconditional = child_group
             .choices
             .iter()
             .any(|c| matches!(c, Source::Both(..) | Source::Root));
 
-        let last_cond_block = if unconditional {
+        let cond_blocks = if unconditional {
             // Nothing to do here, proceed straight into child
             None
         } else {
             // Collect choices into array of u32 masks
             let mut choice_u32s = BTreeMap::new();
-            for c in group.choices.iter() {
+            for c in child_group.choices.iter() {
                 let (c, v) = match c {
                     Source::Left(c) => (c, LHS),
                     Source::Right(c) => (c, RHS),
@@ -54,18 +123,19 @@ fn recurse<'a, 'ctx>(
                 let e = choice_u32s.entry(usize::from(*c) / 16).or_insert(0);
                 *e |= v << ((usize::from(*c) % 16) * 2);
             }
+            assert!(!choice_u32s.is_empty());
 
             let cond_blocks = (0..choice_u32s.len())
                 .map(|i| {
                     context.append_basic_block(
                         *function,
-                        &format!("g{}_{}", usize::from(g), i),
+                        &format!("g{}_{}", usize::from(cg), i),
                     )
                 })
                 .collect::<Vec<_>>();
             let recurse_block = context.append_basic_block(
                 *function,
-                &format!("g{}_recurse", usize::from(g)),
+                &format!("g{}_recurse", usize::from(cg)),
             );
 
             /*
@@ -83,7 +153,7 @@ fn recurse<'a, 'ctx>(
              *  Start the next thing
              */
             for (i, (c, v)) in choice_u32s.iter().enumerate() {
-                let label = format!("g{}_{}", usize::from(g), i);
+                let label = format!("g{}_{}", usize::from(cg), i);
                 let choice_base_ptr =
                     function.get_nth_param(2).unwrap().into_pointer_value();
                 let choice_ptr = unsafe {
@@ -121,29 +191,43 @@ fn recurse<'a, 'ctx>(
             // we've constructed the done block.
             builder.position_at_end(recurse_block);
 
-            cond_blocks.last().map(|i| *i)
+            Some((cond_blocks.last().unwrap(), recurse_block))
         };
 
         // Prepare for recursion
-        recurse(t, g, intrinsics, context, function, builder, values);
+        recurse(t, cg, intrinsics, context, function, builder, values);
 
         let done_block = context.append_basic_block(
             *function,
-            &format!("g{}_done", usize::from(g)),
+            &format!("g{}_done", usize::from(cg)),
         );
         builder.build_unconditional_branch(done_block);
 
         // Stitch the final conditional into the done block
-        if let Some(c) = last_cond_block {
-            builder.position_at_end(c);
+        if let Some((last_block, recurse_block)) = cond_blocks {
+            builder.position_at_end(*last_block);
             builder.build_unconditional_branch(done_block);
+
+            // Construct phi nodes which extract outputs from the recursive
+            // block into the parent block's context.
+            for i in child_group.outputs.iter() {
+                let out = builder.build_phi(
+                    context.f32_type(),
+                    &format!("g{}n{}", usize::from(g), usize::from(i)),
+                );
+                out.add_incoming(&[
+                    (&values[&i], recurse_block),
+                    (&context.f32_type().const_float(f64::NAN), *last_block),
+                ]);
+                values.insert(i, out.as_basic_value().into_float_value());
+            }
         }
 
         builder.position_at_end(done_block);
     }
 
     for &n in &group.nodes {
-        let node_name = format!("n{}", usize::from(n));
+        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
         let op = t.ops[n];
         let value = match op.op {
             Op::Var(v) => match t.vars.get_by_index(v).unwrap().as_str() {
@@ -292,7 +376,7 @@ fn recurse<'a, 'ctx>(
                     UnaryOpcode::Acos => Builder::build_float_acos,
                     UnaryOpcode::Atan => Builder::build_float_atan,
                     */
-                    op => panic!("No such opcode {:?}", op),
+                    op => panic!("Unimplemented opcode {:?}", op),
                 }
             }
         };
@@ -314,13 +398,11 @@ struct Intrinsics<'ctx> {
 }
 
 pub fn to_jit_fn<'a, 'b>(
-    t: &'a Stage4,
+    t: &'a Stage5,
     context: &'b Context,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
     let module = context.create_module("shape");
     let builder = context.create_builder();
-    let execution_engine =
-        module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
 
     let f32_type = context.f32_type();
 
@@ -376,6 +458,8 @@ pub fn to_jit_fn<'a, 'b>(
     builder.build_return(Some(&values[&t.root]));
     module.print_to_stderr();
 
+    let execution_engine =
+        module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
     let out = unsafe { execution_engine.get_function("shape")? };
     Ok(out)
 }
