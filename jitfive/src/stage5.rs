@@ -72,11 +72,11 @@ impl From<&Stage4> for Stage5 {
         recurse(t.ops[t.root].group, t, &mut i, &mut last_use);
 
         Self {
-            ops: t.ops,
+            ops: t.ops.clone(),
             root: t.root,
-            groups: t.groups,
+            groups: t.groups.clone(),
             num_choices: t.num_choices,
-            vars: t.vars,
+            vars: t.vars.clone(),
             last_use,
         }
     }

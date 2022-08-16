@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use clap::Parser;
+use env_logger::Env;
 use jitfive::{
     compiler::Compiler, context::Context, metal::Render, program::Program,
 };
@@ -38,6 +39,9 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .init();
+
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(args.filename)?;

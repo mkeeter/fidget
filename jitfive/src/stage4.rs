@@ -8,7 +8,7 @@ use crate::{
     stage3::Stage3,
 };
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Group {
     /// Choices which enable this group of nodes.
     ///

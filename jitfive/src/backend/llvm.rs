@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     error::Error,
@@ -19,6 +19,7 @@ use inkwell::{
     values::FunctionValue,
     AddressSpace, OptimizationLevel,
 };
+use log::info;
 
 const LHS: u32 = 1;
 const RHS: u32 = 2;
@@ -35,6 +36,15 @@ struct Jit<'a, 'ctx> {
     values: BTreeMap<NodeIndex, FloatValue<'ctx>>,
     f32_type: FloatType<'ctx>,
     i32_type: IntType<'ctx>,
+
+    /// Index in the opcode tape
+    i: usize,
+
+    /// Active nodes in the tape
+    ///
+    /// An active node has been written to, but has not yet been used for the
+    /// last time.  Active nodes must be forwarded out of recursive blocks.
+    active: BTreeSet<(usize, NodeIndex)>,
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
@@ -72,43 +82,245 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         };
 
         // Build our main function
-        let i32_type = context.i32_type();
         let i32_ptr_type = i32_type.ptr_type(AddressSpace::Const);
         let fn_type = f32_type.fn_type(
             &[f32_type.into(), f32_type.into(), i32_ptr_type.into()],
             false,
         );
         let function = module.add_function("shape", fn_type, None);
+
+        Self {
+            t,
+            context,
+            intrinsics,
+            module,
+            builder,
+            function,
+            values: BTreeMap::new(),
+            f32_type,
+            i32_type,
+
+            i: 0,
+            active: BTreeSet::new(),
+        }
     }
 
     fn build(&mut self) {
-        let basic_block = context.append_basic_block(function, "entry");
-        builder.position_at_end(basic_block);
+        let basic_block =
+            self.context.append_basic_block(self.function, "entry");
+        self.builder.position_at_end(basic_block);
         let root = self.t.root;
         self.recurse(self.t.ops[root].group);
-        builder.build_return(Some(&self.values[root]));
-    }
-}
+        self.builder.build_return(Some(&self.values[&root]));
 
-fn recurse<'a, 'ctx>(
-    t: &'a Stage5,
-    g: GroupIndex,
-    intrinsics: &'ctx Intrinsics,
-    context: &'ctx Context,
-    function: &'ctx FunctionValue<'ctx>,
-    builder: &'ctx Builder<'ctx>,
-    values: &mut BTreeMap<NodeIndex, FloatValue<'ctx>>,
-) {
-    let i32_type = context.i32_type();
-    let group = &t.groups[g];
-    for &cg in &group.children {
-        let child_group = &t.groups[cg];
+        //self.module.print_to_stderr();
+        //self.module.print_to_file("jit.ll");
+    }
+
+    fn recurse(&mut self, g: GroupIndex) {
+        let group = &self.t.groups[g];
+        for &c in &group.children {
+            self.build_child_group(g, c);
+        }
+
+        for &n in &group.nodes {
+            self.build_op(g, n);
+        }
+    }
+
+    /// Builds a single node's operation
+    fn build_op(&mut self, g: GroupIndex, n: NodeIndex) {
+        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
+        let op = self.t.ops[n];
+        let value = match op.op {
+            Op::Var(v) => {
+                let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
+                    "X" => 0,
+                    "Y" => 1,
+                    v => panic!("Unexpected var {:?}", v),
+                };
+                self.function.get_nth_param(i).unwrap().into_float_value()
+            }
+            Op::Const(f) => self.f32_type.const_float(f),
+            Op::Binary(op, a, b) => {
+                let f = match op {
+                    BinaryOpcode::Add => Builder::build_float_add,
+                    BinaryOpcode::Mul => Builder::build_float_mul,
+                };
+                f(&self.builder, self.values[&a], self.values[&b], &node_name)
+            }
+
+            Op::BinaryChoice(op, a, b, c) => {
+                let left_block = self.context.append_basic_block(
+                    self.function,
+                    &format!("minmax_left_{}", usize::from(n)),
+                );
+                let right_block = self.context.append_basic_block(
+                    self.function,
+                    &format!("minmax_right_{}", usize::from(n)),
+                );
+                let both_block = self.context.append_basic_block(
+                    self.function,
+                    &format!("minmax_both_{}", usize::from(n)),
+                );
+                let end_block = self.context.append_basic_block(
+                    self.function,
+                    &format!("minmax_end_{}", usize::from(n)),
+                );
+
+                let choice_base_ptr = self
+                    .function
+                    .get_nth_param(2)
+                    .unwrap()
+                    .into_pointer_value();
+                let c = usize::from(c);
+                let choice_ptr = unsafe {
+                    self.builder.build_gep(
+                        choice_base_ptr,
+                        &[self.i32_type.const_int(c as u64 / 16, true)],
+                        &format!("choice_ptr_{}", usize::from(n)),
+                    )
+                };
+
+                let choice_value = self
+                    .builder
+                    .build_load(
+                        choice_ptr,
+                        &format!("choice_{}", usize::from(n)),
+                    )
+                    .into_int_value();
+                let choice_value_shr = self.builder.build_right_shift(
+                    choice_value,
+                    self.i32_type.const_int((c as u64 % 16) * 2, true),
+                    true,
+                    &format!("choice_shr_{}", usize::from(n)),
+                );
+                let choice_value_masked = self.builder.build_and(
+                    choice_value_shr,
+                    self.i32_type.const_int(3, false),
+                    &format!("choice_masked_{}", usize::from(n)),
+                );
+
+                self.builder.build_unconditional_branch(left_block);
+                self.builder.position_at_end(left_block);
+
+                let left_cmp = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    choice_value_masked,
+                    self.i32_type.const_int(LHS as u64, true),
+                    &format!("left_cmp_{}", usize::from(n)),
+                );
+                self.builder.build_conditional_branch(
+                    left_cmp,
+                    end_block,
+                    right_block,
+                );
+
+                self.builder.position_at_end(right_block);
+                let right_cmp = self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    choice_value_masked,
+                    self.i32_type.const_int(RHS as u64, true),
+                    &format!("right_cmp_{}", usize::from(n)),
+                );
+                self.builder
+                    .build_conditional_branch(right_cmp, end_block, both_block);
+
+                self.builder.position_at_end(both_block);
+                let i = match op {
+                    BinaryChoiceOpcode::Min => self.intrinsics.min,
+                    BinaryChoiceOpcode::Max => self.intrinsics.max,
+                };
+                let fmax_result = self
+                    .builder
+                    .build_call(
+                        i,
+                        &[self.values[&a].into(), self.values[&b].into()],
+                        &format!("{}_both", node_name),
+                    )
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_float_value();
+                self.builder.build_unconditional_branch(end_block);
+
+                self.builder.position_at_end(end_block);
+                let out = self.builder.build_phi(self.f32_type, &node_name);
+                out.add_incoming(&[
+                    (&fmax_result, both_block),
+                    (&self.values[&a], left_block),
+                    (&self.values[&b], right_block),
+                ]);
+                out.as_basic_value().into_float_value()
+            }
+            Op::Unary(op, a) => {
+                let call_intrinsic = |i| {
+                    self.builder
+                        .build_call(
+                            i,
+                            &[self.values[&a].into()],
+                            &format!("call_n{}", usize::from(n)),
+                        )
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap()
+                        .into_float_value()
+                };
+                match op {
+                    UnaryOpcode::Neg => self
+                        .builder
+                        .build_float_neg(self.values[&a], &node_name),
+                    UnaryOpcode::Abs => call_intrinsic(self.intrinsics.abs),
+                    UnaryOpcode::Sqrt => call_intrinsic(self.intrinsics.sqrt),
+                    UnaryOpcode::Cos => call_intrinsic(self.intrinsics.cos),
+                    UnaryOpcode::Sin => call_intrinsic(self.intrinsics.sin),
+                    UnaryOpcode::Exp => call_intrinsic(self.intrinsics.exp),
+                    UnaryOpcode::Ln => call_intrinsic(self.intrinsics.ln),
+                    UnaryOpcode::Recip => self.builder.build_float_div(
+                        self.f32_type.const_float(1.0),
+                        self.values[&a],
+                        &node_name,
+                    ),
+                    /*
+                    UnaryOpcode::Tan => Builder::build_float_tan,
+                    UnaryOpcode::Asin => Builder::build_float_asin,
+                    UnaryOpcode::Acos => Builder::build_float_acos,
+                    UnaryOpcode::Atan => Builder::build_float_atan,
+                    */
+                    op => panic!("Unimplemented opcode {:?}", op),
+                }
+            }
+        };
+        self.values.insert(n, value);
+
+        // This node is now active!
+        self.active.insert((self.t.last_use[n], n));
+
+        // Drop any nodes which are no longer active
+        // This could be cleaner once #62924 map_first_last is stabilized
+        while let Some((index, node)) = self.active.iter().next().cloned() {
+            if index >= self.i {
+                break;
+            }
+            self.active.remove(&(index, node));
+        }
+
+        self.i += 1;
+    }
+
+    /// Builds the conditional chain and recursion into a child group
+    fn build_child_group(
+        &mut self,
+        group_index: GroupIndex,
+        child_index: GroupIndex,
+    ) {
+        let child_group = &self.t.groups[child_index];
         let unconditional = child_group
             .choices
             .iter()
             .any(|c| matches!(c, Source::Both(..) | Source::Root));
 
-        let cond_blocks = if unconditional {
+        let last_cond = if unconditional {
             // Nothing to do here, proceed straight into child
             None
         } else {
@@ -127,15 +339,15 @@ fn recurse<'a, 'ctx>(
 
             let cond_blocks = (0..choice_u32s.len())
                 .map(|i| {
-                    context.append_basic_block(
-                        *function,
-                        &format!("g{}_{}", usize::from(cg), i),
+                    self.context.append_basic_block(
+                        self.function,
+                        &format!("g{}_{}", usize::from(child_index), i),
                     )
                 })
                 .collect::<Vec<_>>();
-            let recurse_block = context.append_basic_block(
-                *function,
-                &format!("g{}_recurse", usize::from(cg)),
+            let recurse_block = self.context.append_basic_block(
+                self.function,
+                &format!("g{}_recurse", usize::from(child_index)),
             );
 
             /*
@@ -153,234 +365,88 @@ fn recurse<'a, 'ctx>(
              *  Start the next thing
              */
             for (i, (c, v)) in choice_u32s.iter().enumerate() {
-                let label = format!("g{}_{}", usize::from(cg), i);
-                let choice_base_ptr =
-                    function.get_nth_param(2).unwrap().into_pointer_value();
+                let label = format!("g{}_{}", usize::from(child_index), i);
+                let choice_base_ptr = self
+                    .function
+                    .get_nth_param(2)
+                    .unwrap()
+                    .into_pointer_value();
                 let choice_ptr = unsafe {
-                    builder.build_gep(
+                    self.builder.build_gep(
                         choice_base_ptr,
-                        &[i32_type.const_int(*c as u64 / 16, true)],
+                        &[self.i32_type.const_int(*c as u64 / 16, true)],
                         &format!("choice_ptr_{}", label),
                     )
                 };
-                let choice_value = builder
+                let choice_value = self
+                    .builder
                     .build_load(choice_ptr, &format!("choice_{}", label))
                     .into_int_value();
 
-                let choice_value_masked = builder.build_and(
+                let choice_value_masked = self.builder.build_and(
                     choice_value,
-                    i32_type.const_int(*v as u64, false),
+                    self.i32_type.const_int(*v as u64, false),
                     &format!("choice_masked_{}", label),
                 );
-                let choice_cmp = builder.build_int_compare(
+                let choice_cmp = self.builder.build_int_compare(
                     inkwell::IntPredicate::NE,
                     choice_value_masked,
-                    i32_type.const_int(0, true),
+                    self.i32_type.const_int(0, true),
                     &format!("choice_cmp_{}", label),
                 );
                 let next_block = cond_blocks[i];
-                builder.build_conditional_branch(
+                self.builder.build_conditional_branch(
                     choice_cmp,
                     recurse_block,
                     next_block,
                 );
-                builder.position_at_end(next_block);
+                self.builder.position_at_end(next_block);
             }
             // At this point, we begin constructing the recursive call.
             // We'll need to patch up the last cond_block later, after
             // we've constructed the done block.
-            builder.position_at_end(recurse_block);
+            self.builder.position_at_end(recurse_block);
 
-            Some((cond_blocks.last().unwrap(), recurse_block))
+            Some(*cond_blocks.last().unwrap())
         };
 
-        // Prepare for recursion
-        recurse(t, cg, intrinsics, context, function, builder, values);
+        // Do the recursion
+        self.recurse(child_index);
+        let recurse_block = self.function.get_last_basic_block().unwrap();
 
-        let done_block = context.append_basic_block(
-            *function,
-            &format!("g{}_done", usize::from(cg)),
+        let done_block = self.context.append_basic_block(
+            self.function,
+            &format!("g{}_done", usize::from(child_index)),
         );
-        builder.build_unconditional_branch(done_block);
+        self.builder.build_unconditional_branch(done_block);
 
         // Stitch the final conditional into the done block
-        if let Some((last_block, recurse_block)) = cond_blocks {
-            builder.position_at_end(*last_block);
-            builder.build_unconditional_branch(done_block);
+        if let Some(last_block) = last_cond {
+            self.builder.position_at_end(last_block);
+            self.builder.build_unconditional_branch(done_block);
 
+            self.builder.position_at_end(done_block);
             // Construct phi nodes which extract outputs from the recursive
-            // block into the parent block's context.
-            for i in child_group.outputs.iter() {
-                let out = builder.build_phi(
-                    context.f32_type(),
-                    &format!("g{}n{}", usize::from(g), usize::from(i)),
-                );
-                out.add_incoming(&[
-                    (&values[&i], recurse_block),
-                    (&context.f32_type().const_float(f64::NAN), *last_block),
-                ]);
-                values.insert(i, out.as_basic_value().into_float_value());
-            }
-        }
-
-        builder.position_at_end(done_block);
-    }
-
-    for &n in &group.nodes {
-        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
-        let op = t.ops[n];
-        let value = match op.op {
-            Op::Var(v) => match t.vars.get_by_index(v).unwrap().as_str() {
-                "X" => function.get_nth_param(0).unwrap().into_float_value(),
-                "Y" => function.get_nth_param(1).unwrap().into_float_value(),
-                v => panic!("Unexpected var {:?}", v),
-            },
-            Op::Const(f) => context.f32_type().const_float(f),
-            Op::Binary(op, a, b) => {
-                let f = match op {
-                    BinaryOpcode::Add => Builder::build_float_add,
-                    BinaryOpcode::Mul => Builder::build_float_mul,
-                };
-                f(builder, values[&a], values[&b], &node_name)
-            }
-
-            Op::BinaryChoice(op, a, b, c) => {
-                let left_block = context.append_basic_block(
-                    *function,
-                    &format!("minmax_left_{}", usize::from(n)),
-                );
-                let right_block = context.append_basic_block(
-                    *function,
-                    &format!("minmax_right_{}", usize::from(n)),
-                );
-                let both_block = context.append_basic_block(
-                    *function,
-                    &format!("minmax_both_{}", usize::from(n)),
-                );
-                let end_block = context.append_basic_block(
-                    *function,
-                    &format!("minmax_end_{}", usize::from(n)),
-                );
-
-                let choice_base_ptr =
-                    function.get_nth_param(2).unwrap().into_pointer_value();
-                let c = usize::from(c);
-                let choice_ptr = unsafe {
-                    builder.build_gep(
-                        choice_base_ptr,
-                        &[i32_type.const_int(c as u64 / 16, true)],
-                        &format!("choice_ptr_{}", usize::from(n)),
-                    )
-                };
-
-                let choice_value = builder
-                    .build_load(
-                        choice_ptr,
-                        &format!("choice_{}", usize::from(n)),
-                    )
-                    .into_int_value();
-                let choice_value_shr = builder.build_right_shift(
-                    choice_value,
-                    i32_type.const_int((c as u64 % 16) * 2, true),
-                    true,
-                    &format!("choice_shr_{}", usize::from(n)),
-                );
-                let choice_value_masked = builder.build_and(
-                    choice_value_shr,
-                    i32_type.const_int(3, false),
-                    &format!("choice_masked_{}", usize::from(n)),
-                );
-
-                builder.build_unconditional_branch(left_block);
-                builder.position_at_end(left_block);
-
-                let left_cmp = builder.build_int_compare(
-                    inkwell::IntPredicate::EQ,
-                    choice_value_masked,
-                    i32_type.const_int(LHS as u64, true),
-                    &format!("left_cmp_{}", usize::from(n)),
-                );
-                builder.build_conditional_branch(
-                    left_cmp,
-                    end_block,
-                    right_block,
-                );
-
-                builder.position_at_end(right_block);
-                let right_cmp = builder.build_int_compare(
-                    inkwell::IntPredicate::EQ,
-                    choice_value_masked,
-                    i32_type.const_int(RHS as u64, true),
-                    &format!("right_cmp_{}", usize::from(n)),
-                );
-                builder
-                    .build_conditional_branch(right_cmp, end_block, both_block);
-
-                builder.position_at_end(both_block);
-                let i = match op {
-                    BinaryChoiceOpcode::Min => intrinsics.min,
-                    BinaryChoiceOpcode::Max => intrinsics.max,
-                };
-                let fmax_result = builder
-                    .build_call(
-                        i,
-                        &[values[&a].into(), values[&b].into()],
-                        &format!("{}_both", node_name),
-                    )
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-                    .into_float_value();
-                builder.build_unconditional_branch(end_block);
-
-                builder.position_at_end(end_block);
-                let out = builder.build_phi(context.f32_type(), &node_name);
-                out.add_incoming(&[
-                    (&fmax_result, both_block),
-                    (&values[&a], left_block),
-                    (&values[&b], right_block),
-                ]);
-                out.as_basic_value().into_float_value()
-            }
-            Op::Unary(op, a) => {
-                let call_intrinsic = |i| {
-                    builder
-                        .build_call(
-                            i,
-                            &[values[&a].into()],
-                            &format!("call_n{}", usize::from(n)),
-                        )
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap()
-                        .into_float_value()
-                };
-                match op {
-                    UnaryOpcode::Neg => {
-                        builder.build_float_neg(values[&a], &node_name)
-                    }
-                    UnaryOpcode::Abs => call_intrinsic(intrinsics.abs),
-                    UnaryOpcode::Sqrt => call_intrinsic(intrinsics.sqrt),
-                    UnaryOpcode::Cos => call_intrinsic(intrinsics.cos),
-                    UnaryOpcode::Sin => call_intrinsic(intrinsics.sin),
-                    UnaryOpcode::Exp => call_intrinsic(intrinsics.exp),
-                    UnaryOpcode::Ln => call_intrinsic(intrinsics.ln),
-                    UnaryOpcode::Recip => builder.build_float_div(
-                        context.f32_type().const_float(1.0),
-                        values[&a],
-                        &node_name,
+            // block into the parent block's context for active nodes
+            for n in self.active.iter().map(|(_, n)| *n) {
+                let out = self.builder.build_phi(
+                    self.f32_type,
+                    &format!(
+                        "g{}n{}",
+                        usize::from(group_index),
+                        usize::from(n)
                     ),
-                    /*
-                    UnaryOpcode::Tan => Builder::build_float_tan,
-                    UnaryOpcode::Asin => Builder::build_float_asin,
-                    UnaryOpcode::Acos => Builder::build_float_acos,
-                    UnaryOpcode::Atan => Builder::build_float_atan,
-                    */
-                    op => panic!("Unimplemented opcode {:?}", op),
-                }
+                );
+                out.add_incoming(&[
+                    (&self.values[&n], recurse_block),
+                    (&self.f32_type.const_float(f64::NAN), last_block),
+                ]);
+                self.values
+                    .insert(n, out.as_basic_value().into_float_value());
             }
-        };
-        values.insert(n, value);
+        } else {
+            self.builder.position_at_end(done_block);
+        }
     }
 }
 
@@ -401,65 +467,14 @@ pub fn to_jit_fn<'a, 'b>(
     t: &'a Stage5,
     context: &'b Context,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
-    let module = context.create_module("shape");
-    let builder = context.create_builder();
-
-    let f32_type = context.f32_type();
-
-    // Create intrinsics for special functions
-    let get_unary_intrinsic = |name| {
-        let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
-        intrinsic
-            .get_declaration(&module, &[f32_type.into()])
-            .unwrap()
-    };
-    // Create intrinsics for special functions
-    let get_binary_intrinsic = |name| {
-        let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
-        intrinsic
-            .get_declaration(&module, &[f32_type.into(), f32_type.into()])
-            .unwrap()
-    };
-
-    let intrinsics = Intrinsics {
-        abs: get_unary_intrinsic("abs"),
-        sqrt: get_unary_intrinsic("sqrt"),
-        sin: get_unary_intrinsic("sin"),
-        cos: get_unary_intrinsic("cos"),
-        exp: get_unary_intrinsic("exp"),
-        ln: get_unary_intrinsic("log"),
-        max: get_binary_intrinsic("maxnum"),
-        min: get_binary_intrinsic("minnum"),
-    };
-
-    // Build our main function
-    let i32_type = context.i32_type();
-    let i32_ptr_type = i32_type.ptr_type(AddressSpace::Const);
-    let fn_type = f32_type.fn_type(
-        &[f32_type.into(), f32_type.into(), i32_ptr_type.into()],
-        false,
-    );
-    let function = module.add_function("shape", fn_type, None);
-
-    let basic_block = context.append_basic_block(function, "entry");
-
-    builder.position_at_end(basic_block);
-    let mut values = BTreeMap::new();
-    recurse(
-        t,
-        t.ops[t.root].group,
-        &intrinsics,
-        context,
-        &function,
-        &builder,
-        &mut values,
-    );
-
-    builder.build_return(Some(&values[&t.root]));
-    module.print_to_stderr();
-
-    let execution_engine =
-        module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
+    let mut jit = Jit::new(t, context);
+    jit.build();
+    info!("Finished building JIT function; compiling");
+    let execution_engine = jit
+        .module
+        .create_jit_execution_engine(OptimizationLevel::Aggressive)?;
+    info!("Created execution engine");
     let out = unsafe { execution_engine.get_function("shape")? };
+    info!("Extracted JIT function");
     Ok(out)
 }
