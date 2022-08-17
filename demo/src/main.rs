@@ -47,37 +47,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, node) = Context::from_text(&mut file)?;
-    println!("Loaded file in {:?}", now.elapsed());
+    info!("Loaded file in {:?}", now.elapsed());
 
+    let now = Instant::now();
     let s0 = jitfive::stage0::Stage0::from_context(&ctx, node);
     s0.self_check();
-    //println!("{:?}", s0);
-
     let s1: jitfive::stage1::Stage1 = (&s0).into();
-    //println!("{:?}", s1);
-
     let s2: jitfive::stage2::Stage2 = (&s1).into();
-    //println!("{:?}", s2);
-
     let s3: jitfive::stage3::Stage3 = (&s2).into();
-    //println!("{:?}", s3);
-
     let s4: jitfive::stage4::Stage4 = (&s3).into();
     s4.self_check();
-
     let s5: jitfive::stage5::Stage5 = (&s4).into();
-    //println!("{:?}", s4);
-
-    println!("Built up to stage 4 in {:?}", now.elapsed());
-    println!("{}", s4.to_string());
+    info!("Built up to stage 5 in {:?}", now.elapsed());
 
     let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);
-    println!("Build Compiler in {:?}", now.elapsed());
+    info!("Built Compiler in {:?}", now.elapsed());
 
     let now = Instant::now();
     let prog = Program::from_compiler(&compiler);
-    println!("Built Program in {:?}", now.elapsed());
+    info!("Built Program in {:?}", now.elapsed());
 
     if let Some(dot) = args.dot {
         let mut out = std::fs::File::create(dot)?;
