@@ -5,6 +5,7 @@ use env_logger::Env;
 use jitfive::{
     compiler::Compiler, context::Context, metal::Render, program::Program,
 };
+use log::info;
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -123,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         out.push(v <= 0.0);
                     }
                 }
-                println!("Done with JIT render in {:?}", now.elapsed());
+                info!("Finished rendering");
                 out
             } else {
                 ctx.render_2d(node, args.size)?

@@ -194,9 +194,11 @@ impl Stage3 {
     ) -> Result<(), Error> {
         writeln!(w, "subgraph cluster_{}_g {{", usize::from(i))?;
         writeln!(w, r#"color="grey""#)?;
+        writeln!(w, r#"label="{}""#, usize::from(i))?;
 
         // This group's nodes live in their own cluster
         writeln!(w, "subgraph cluster_{} {{", usize::from(i))?;
+        writeln!(w, r#"label="""#)?;
         writeln!(w, r#"color="black""#)?;
         let group = &self.groups[i];
         for n in &group.nodes {

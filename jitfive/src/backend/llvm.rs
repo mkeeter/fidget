@@ -114,7 +114,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         self.builder.build_return(Some(&self.values[&root]));
 
         //self.module.print_to_stderr();
-        //self.module.print_to_file("jit.ll");
+        self.module.print_to_file("jit.ll");
     }
 
     fn recurse(&mut self, g: GroupIndex) {
@@ -299,7 +299,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         // Drop any nodes which are no longer active
         // This could be cleaner once #62924 map_first_last is stabilized
         while let Some((index, node)) = self.active.iter().next().cloned() {
-            if index >= self.i {
+            if index > self.i {
                 break;
             }
             self.active.remove(&(index, node));

@@ -7,9 +7,10 @@ edition = "2021"
 
 [dependencies]
 jitfive = { path = "../jitfive" }
-env_logger = "0.9"
 
 clap = { version = "3.2.6", features = ["derive"] }
+env_logger = "0.9"
 image = { version = "0.24", default-features = false, features = ["png"] }
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm14-0"] }
+log = "0.4"
 piet-gpu-hal = { git = "https://github.com/linebender/piet-gpu" }
