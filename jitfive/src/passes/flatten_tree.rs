@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     compiler::{ChoiceIndex, Compiler, NodeIndex, Op, VarIndex},
-    context::Context,
-    op::{Node, VarNode},
+    context::{Context, Node, VarNode},
 };
 
 pub(crate) fn run(ctx: &Context, root: Node, out: &mut Compiler) {
@@ -22,7 +21,7 @@ fn recurse(
     if let Some(i) = seen.get(&node) {
         return *i;
     }
-    use crate::op::Op as CtxOp;
+    use crate::context::Op as CtxOp;
 
     let op = match ctx.get_op(node).unwrap() {
         CtxOp::Binary(op, a, b) => Op::Binary(

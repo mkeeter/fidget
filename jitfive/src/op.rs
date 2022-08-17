@@ -1,20 +1,4 @@
-use std::io::Write;
-
-use crate::{
-    error::Error,
-    indexed::{define_index, IndexMap},
-};
-
-use ordered_float::OrderedFloat;
-
-define_index!(Node, "An index in the `Context::ops` map");
-define_index!(VarNode, "An index in the `Context::vars` map");
-
-impl Node {
-    pub fn dot_name(&self) -> String {
-        format!("n{}", self.0)
-    }
-}
+use crate::indexed::IndexMap;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {
@@ -107,103 +91,59 @@ where
     V: Eq + std::hash::Hash + Copy + From<usize>,
     F: std::fmt::Display,
 {
-    pub fn write_dot<W: Write>(
-        &self,
-        w: &mut W,
-        i: N,
-        vars: &IndexMap<String, V>,
-    ) -> Result<(), Error> {
-        write!(w, r#"n{} [label = ""#, usize::from(i))?;
+    pub fn dot_node(&self, i: N, vars: &IndexMap<String, V>) -> String {
+        let mut out = format!(r#"n{} [label = ""#, usize::from(i));
         match self {
-            GenericOp::Const(c) => {
-                write!(w, "{}", c)
-            }
+            GenericOp::Const(c) => out += &format!("{}", c),
             GenericOp::Var(v) => {
-                let v = vars.get_by_index(*v).ok_or(Error::BadVar)?;
-                write!(w, "{}", v)
+                let v = vars.get_by_index(*v).unwrap();
+                out += &format!("{}", v)
             }
             GenericOp::Binary(op, ..) => match op {
-                BinaryOpcode::Add => write!(w, "add"),
-                BinaryOpcode::Mul => write!(w, "mul"),
+                BinaryOpcode::Add => out += "add",
+                BinaryOpcode::Mul => out += "mul",
             },
             GenericOp::BinaryChoice(op, ..) => match op {
-                BinaryChoiceOpcode::Min => write!(w, "min"),
-                BinaryChoiceOpcode::Max => write!(w, "max"),
+                BinaryChoiceOpcode::Min => out += "min",
+                BinaryChoiceOpcode::Max => out += "max",
             },
             GenericOp::Unary(op, ..) => match op {
-                UnaryOpcode::Neg => write!(w, "neg"),
-                UnaryOpcode::Abs => write!(w, "abs"),
-                UnaryOpcode::Recip => write!(w, "recip"),
-                UnaryOpcode::Sqrt => write!(w, "sqrt"),
-                UnaryOpcode::Sin => write!(w, "sin"),
-                UnaryOpcode::Cos => write!(w, "cos"),
-                UnaryOpcode::Tan => write!(w, "tan"),
-                UnaryOpcode::Asin => write!(w, "asin"),
-                UnaryOpcode::Acos => write!(w, "acos"),
-                UnaryOpcode::Atan => write!(w, "atan"),
-                UnaryOpcode::Exp => write!(w, "exp"),
-                UnaryOpcode::Ln => write!(w, "ln"),
+                UnaryOpcode::Neg => out += "neg",
+                UnaryOpcode::Abs => out += "abs",
+                UnaryOpcode::Recip => out += "recip",
+                UnaryOpcode::Sqrt => out += "sqrt",
+                UnaryOpcode::Sin => out += "sin",
+                UnaryOpcode::Cos => out += "cos",
+                UnaryOpcode::Tan => out += "tan",
+                UnaryOpcode::Asin => out += "asin",
+                UnaryOpcode::Acos => out += "acos",
+                UnaryOpcode::Atan => out += "atan",
+                UnaryOpcode::Exp => out += "exp",
+                UnaryOpcode::Ln => out += "ln",
             },
-        }?;
-        writeln!(
-            w,
+        };
+        out += &format!(
             r#"" color="{0}1" shape="{1}" fontcolor="{0}4"]"#,
             self.dot_node_color(),
             self.dot_node_shape()
-        )?;
-        Ok(())
+        );
+        out
     }
 
-    pub fn write_dot_edge<W: Write>(
-        &self,
-        w: &mut W,
-        a: N,
-        b: N,
-        alpha: &str,
-    ) -> Result<(), Error> {
+    pub fn dot_edges(&self, i: N) -> String {
+        let mut out = String::new();
+        for c in self.iter_children() {
+            out += &self.dot_edge(i, c, "FF");
+        }
+        out
+    }
+
+    pub fn dot_edge(&self, a: N, b: N, alpha: &str) -> String {
         let color = dot_color_to_rgb(self.dot_node_color()).to_owned() + alpha;
-        writeln!(
-            w,
-            "n{} -> n{} [color = \"{color}\"]",
+        format!(
+            "n{} -> n{} [color = \"{color}\"]\n",
             usize::from(a),
             usize::from(b),
-        )?;
-        Ok(())
-    }
-    pub fn write_dot_edges<W: Write>(
-        &self,
-        w: &mut W,
-        i: N,
-    ) -> Result<(), Error> {
-        for c in self.iter_children() {
-            self.write_dot_edge(w, i, c, "FF")?;
-        }
-        Ok(())
-    }
-    pub fn write_dot_edges_invis<W: Write>(
-        &self,
-        w: &mut W,
-        i: N,
-    ) -> Result<(), Error> {
-        for c in self.iter_children() {
-            writeln!(
-                w,
-                "n{} -> n{} [style=invis]",
-                usize::from(i),
-                usize::from(c),
-            )?;
-        }
-        Ok(())
+        )
     }
 }
-
-/// Represents an operation in a math expression.
-///
-/// `Op`s should be constructed by calling functions on
-/// [`Context`](crate::context::Context), e.g.
-/// [`Context::add`](crate::context::Context::add) will generate an `Op::Add`
-/// node and return an opaque handle.
-///
-/// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
-/// which generated it, and will not be valid for a different `Context`.
-pub type Op = GenericOp<VarNode, OrderedFloat<f64>, Node>;

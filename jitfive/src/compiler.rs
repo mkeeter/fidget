@@ -1,8 +1,7 @@
 use crate::{
-    context::Context,
+    context::{Context, Node},
     indexed::{define_index, IndexMap, IndexVec},
     op::GenericOp,
-    op::Node,
 };
 
 define_index!(
@@ -139,6 +138,19 @@ impl Compiler {
         crate::passes::sort_nodes::run(&mut out);
         crate::passes::sort_groups::run(&mut out);
         crate::passes::node_lifetime::run(&mut out);
+        out
+    }
+
+    pub fn stage0_dot(&self) -> String {
+        let mut out = "digraph mygraph {{\n".to_owned();
+        for (i, op) in self.ops.enumerate() {
+            out += &op.dot_node(i, &self.vars);
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, op) in self.ops.enumerate() {
+            out += &op.dot_edges(i);
+        }
+        out += "}}\n";
         out
     }
 }
