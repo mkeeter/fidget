@@ -39,12 +39,6 @@ struct Jit<'a, 'ctx> {
 
     /// Index in the opcode tape
     i: usize,
-
-    /// Active nodes in the tape
-    ///
-    /// An active node has been written to, but has not yet been used for the
-    /// last time.  Active nodes must be forwarded out of recursive blocks.
-    active: BTreeSet<(usize, NodeIndex)>,
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
@@ -101,7 +95,6 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             i32_type,
 
             i: 0,
-            active: BTreeSet::new(),
         }
     }
 
@@ -117,15 +110,35 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         self.module.print_to_file("jit.ll");
     }
 
-    fn recurse(&mut self, g: GroupIndex) {
+    /// Recurses into the given group, building its children then its nodes
+    ///
+    /// Returns a set of active nodes
+    fn recurse(&mut self, g: GroupIndex) -> BTreeSet<(usize, NodeIndex)> {
+        let mut active = BTreeSet::new();
         let group = &self.t.groups[g];
         for &c in &group.children {
-            self.build_child_group(g, c);
+            let child_active = self.build_child_group(g, c);
+            for c in child_active.into_iter() {
+                active.insert(c);
+            }
         }
 
         for &n in &group.nodes {
             self.build_op(g, n);
+
+            // This node is now active!
+            active.insert((self.t.last_use[n], n));
         }
+
+        // Drop any nodes which are no longer active
+        // This could be cleaner once #62924 map_first_last is stabilized
+        while let Some((index, node)) = active.iter().next().cloned() {
+            if index >= self.i {
+                break;
+            }
+            active.remove(&(index, node));
+        }
+        active
     }
 
     /// Builds a single node's operation
@@ -293,27 +306,18 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         };
         self.values.insert(n, value);
 
-        // This node is now active!
-        self.active.insert((self.t.last_use[n], n));
-
-        // Drop any nodes which are no longer active
-        // This could be cleaner once #62924 map_first_last is stabilized
-        while let Some((index, node)) = self.active.iter().next().cloned() {
-            if index > self.i {
-                break;
-            }
-            self.active.remove(&(index, node));
-        }
-
         self.i += 1;
     }
 
     /// Builds the conditional chain and recursion into a child group
+    ///
+    /// Returns the set of active nodes, which have been written but not used
+    /// for the last time.
     fn build_child_group(
         &mut self,
         group_index: GroupIndex,
         child_index: GroupIndex,
-    ) {
+    ) -> BTreeSet<(usize, NodeIndex)> {
         let child_group = &self.t.groups[child_index];
         let unconditional = child_group
             .choices
@@ -411,7 +415,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         };
 
         // Do the recursion
-        self.recurse(child_index);
+        let active = self.recurse(child_index);
         let recurse_block = self.function.get_last_basic_block().unwrap();
 
         let done_block = self.context.append_basic_block(
@@ -428,7 +432,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             self.builder.position_at_end(done_block);
             // Construct phi nodes which extract outputs from the recursive
             // block into the parent block's context for active nodes
-            for n in self.active.iter().map(|(_, n)| *n) {
+            for n in active.iter().map(|(_, n)| *n) {
                 let out = self.builder.build_phi(
                     self.f32_type,
                     &format!(
@@ -447,6 +451,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         } else {
             self.builder.position_at_end(done_block);
         }
+        active
     }
 }
 
