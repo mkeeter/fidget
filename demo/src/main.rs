@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         out.push(v <= 0.0);
                     }
                 }
-                info!("Finished rendering");
+                info!("Finished rendering in {:?}", now.elapsed());
                 out
             } else {
                 ctx.render_2d(node, args.size)?

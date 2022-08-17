@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Instant,
+};
 
 use crate::{
     error::Error,
@@ -472,14 +475,18 @@ pub fn to_jit_fn<'a, 'b>(
     t: &'a Stage5,
     context: &'b Context,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
+    let now = Instant::now();
+    info!("Building JIT function");
     let mut jit = Jit::new(t, context);
     jit.build();
-    info!("Finished building JIT function; compiling");
+    info!("Finished building JIT function in {:?}", now.elapsed());
+
+    let now = Instant::now();
+    info!("Compiling...");
     let execution_engine = jit
         .module
-        .create_jit_execution_engine(OptimizationLevel::Aggressive)?;
-    info!("Created execution engine");
+        .create_jit_execution_engine(OptimizationLevel::Default)?;
     let out = unsafe { execution_engine.get_function("shape")? };
-    info!("Extracted JIT function");
+    info!("Extracted JIT function in {:?}", now.elapsed());
     Ok(out)
 }
