@@ -1,4 +1,4 @@
-//pub mod backend; // TODO: re-enable
+pub mod backend;
 pub mod compiler;
 pub mod context;
 pub mod error;

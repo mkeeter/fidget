@@ -4,11 +4,9 @@ use std::{
 };
 
 use crate::{
+    compiler::{Compiler, GroupIndex, NodeIndex, Op, Source},
     error::Error,
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
-    stage0::{NodeIndex, Op},
-    stage1::{GroupIndex, Source},
-    stage5::Stage5,
 };
 
 use inkwell::{
@@ -30,7 +28,7 @@ const RHS: u32 = 2;
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const i32) -> f32;
 
 struct Jit<'a, 'ctx> {
-    t: &'a Stage5,
+    t: &'a Compiler,
     context: &'ctx Context,
     intrinsics: Intrinsics<'ctx>,
     module: Module<'ctx>,
@@ -45,7 +43,7 @@ struct Jit<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
-    fn new(t: &'a Stage5, context: &'ctx Context) -> Self {
+    fn new(t: &'a Compiler, context: &'ctx Context) -> Self {
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
 
@@ -106,7 +104,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             self.context.append_basic_block(self.function, "entry");
         self.builder.position_at_end(basic_block);
         let root = self.t.root;
-        self.recurse(self.t.ops[root].group);
+        self.recurse(self.t.op_group[root]);
         self.builder.build_return(Some(&self.values[&root]));
 
         //self.module.print_to_stderr();
@@ -148,7 +146,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     fn build_op(&mut self, g: GroupIndex, n: NodeIndex) {
         let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
         let op = self.t.ops[n];
-        let value = match op.op {
+        let value = match op {
             Op::Var(v) => {
                 let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
                     "X" => 0,
@@ -472,7 +470,7 @@ struct Intrinsics<'ctx> {
 }
 
 pub fn to_jit_fn<'a, 'b>(
-    t: &'a Stage5,
+    t: &'a Compiler,
     context: &'b Context,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
     let now = Instant::now();
