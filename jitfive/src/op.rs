@@ -3,7 +3,6 @@ use std::io::Write;
 use crate::{
     error::Error,
     indexed::{define_index, IndexMap},
-    program::{ChoiceIndex, Instruction, RegIndex, VarIndex},
 };
 
 use ordered_float::OrderedFloat;
@@ -208,78 +207,3 @@ where
 /// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.
 pub type Op = GenericOp<VarNode, OrderedFloat<f64>, Node>;
-
-impl Op {
-    /// Converts the given `Op` into an `Instruction`, freeing it from its
-    /// parent context.
-    ///
-    /// `id` is the `Node` handle for this `Op`.
-    ///
-    /// This will _always_ assign a register in `regs`. If the node is
-    /// `Op::Var` or `Op::Min/Max`, it will assign an index in `vars` or
-    /// `choices` respectively.
-    pub fn to_instruction(
-        &self,
-        id: Node,
-        regs: &mut IndexMap<Node, RegIndex>,
-        vars: &mut IndexMap<VarNode, VarIndex>,
-        choices: &mut IndexMap<Node, ChoiceIndex>,
-    ) -> Instruction {
-        let out = regs.insert(id);
-
-        match self {
-            Op::Var(v) => {
-                let var = vars.insert(*v);
-                Instruction::Var { var, out }
-            }
-            Op::Const(f) => Instruction::Const { value: f.0, out },
-
-            // Two-argument operations
-            Op::Binary(op, a, b) => {
-                let lhs = regs.insert(*a);
-                let rhs = regs.insert(*b);
-                match op {
-                    BinaryOpcode::Add => Instruction::Add { lhs, rhs, out },
-                    BinaryOpcode::Mul => Instruction::Mul { lhs, rhs, out },
-                }
-            }
-            Op::BinaryChoice(op, a, b, _) => {
-                let lhs = regs.insert(*a);
-                let rhs = regs.insert(*b);
-                let choice = choices.insert(id);
-                match op {
-                    BinaryChoiceOpcode::Min => Instruction::Min {
-                        lhs,
-                        rhs,
-                        choice,
-                        out,
-                    },
-                    BinaryChoiceOpcode::Max => Instruction::Max {
-                        lhs,
-                        rhs,
-                        choice,
-                        out,
-                    },
-                }
-            }
-
-            Op::Unary(op, a) => {
-                let reg = regs.insert(*a);
-                match op {
-                    UnaryOpcode::Neg => Instruction::Neg { reg, out },
-                    UnaryOpcode::Abs => Instruction::Abs { reg, out },
-                    UnaryOpcode::Recip => Instruction::Recip { reg, out },
-                    UnaryOpcode::Sqrt => Instruction::Sqrt { reg, out },
-                    UnaryOpcode::Sin => Instruction::Sin { reg, out },
-                    UnaryOpcode::Cos => Instruction::Cos { reg, out },
-                    UnaryOpcode::Tan => Instruction::Tan { reg, out },
-                    UnaryOpcode::Asin => Instruction::Asin { reg, out },
-                    UnaryOpcode::Acos => Instruction::Acos { reg, out },
-                    UnaryOpcode::Atan => Instruction::Atan { reg, out },
-                    UnaryOpcode::Exp => Instruction::Exp { reg, out },
-                    UnaryOpcode::Ln => Instruction::Ln { reg, out },
-                }
-            }
-        }
-    }
-}

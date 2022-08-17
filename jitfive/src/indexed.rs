@@ -133,6 +133,9 @@ impl<Value, Index> IndexVec<Value, Index> {
     pub fn iter(&self) -> impl Iterator<Item = &Value> {
         self.data.iter()
     }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+        self.data.iter_mut()
+    }
     pub fn resize_with<F>(&mut self, new_len: usize, f: F)
     where
         F: FnMut() -> Value,
