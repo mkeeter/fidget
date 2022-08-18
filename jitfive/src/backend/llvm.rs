@@ -60,7 +60,7 @@ struct Jit<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
-    fn new(t: &'a Compiler, jit_context: &'ctx JitContext) -> Self {
+    fn build(t: &'a Compiler, jit_context: &'ctx JitContext) -> Self {
         let context = &jit_context.0;
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
@@ -102,7 +102,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         );
         let function = module.add_function("shape", fn_type, None);
 
-        Self {
+        let mut out = Self {
             t,
             context,
             intrinsics,
@@ -116,10 +116,12 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             choices: vec![],
 
             i: 0,
-        }
+        };
+        out.build_inner();
+        out
     }
 
-    fn build(&mut self) {
+    fn build_inner(&mut self) {
         let basic_block =
             self.context.append_basic_block(self.function, "entry");
         self.builder.position_at_end(basic_block);
@@ -482,8 +484,7 @@ pub fn to_jit_fn<'a, 'b>(
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
     let now = Instant::now();
     info!("Building JIT function");
-    let mut jit = Jit::new(t, context);
-    jit.build();
+    let jit = Jit::build(t, context);
     info!("Finished building JIT function in {:?}", now.elapsed());
 
     let now = Instant::now();
