@@ -5,7 +5,7 @@ use crate::{
 };
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
 
 use ordered_float::OrderedFloat;
 
@@ -631,119 +631,15 @@ impl Context {
     }
 
     /// Converts the given tree into a GraphViz drawing
-    pub fn to_dot<W: Write>(
-        &self,
-        _root: Node,
-        w: &mut W,
-    ) -> Result<(), Error> {
-        writeln!(w, "digraph mygraph {{")?;
+    pub fn dot(&self) -> String {
+        let mut out = "digraph mygraph{\n".to_owned();
         for node in self.ops.keys() {
-            self.write_node_dot(w, node)?;
-            self.write_edges_dot(w, node)?;
+            let op = self.ops.get_by_index(node).unwrap();
+            out += &op.dot_node(node, &self.vars);
+            out += &op.dot_edges(node);
         }
-        writeln!(w, "}}")?;
-        Ok(())
-    }
-
-    /// Does as-simple-as-possible 2D rendering, drawing the square region
-    /// between [-1, +1] on both axes. Returns a `Vec<bool>` of size
-    /// `scale * scale`, with pixels set based on sign.
-    pub fn render_2d(
-        &self,
-        root: Node,
-        scale: u32,
-    ) -> Result<Vec<bool>, Error> {
-        let mut out = Vec::with_capacity((scale * scale) as usize);
-        let div = (scale - 1) as f64;
-        for i in 0..scale {
-            let y = -(-1.0 + 2.0 * (i as f64) / div);
-            for j in 0..scale {
-                let x = -1.0 + 2.0 * (j as f64) / div;
-                let v = self.eval_xyz(root, x, y, 0.0)?;
-                out.push(v <= 0.0);
-            }
-        }
-        Ok(out)
-    }
-    pub(crate) fn write_node_dot<W: Write>(
-        &self,
-        w: &mut W,
-        node: Node,
-    ) -> Result<(), Error> {
-        let op = self.ops.get_by_index(node).unwrap();
-        // Write node label
-        write!(w, r#"n{} [label = ""#, node.dot_name())?;
-        match op {
-            Op::Const(c) => {
-                write!(w, "{}", c)
-            }
-            Op::Var(v) => {
-                let v = self.vars.get_by_index(*v).ok_or(Error::BadVar)?;
-                write!(w, "{}", v)
-            }
-            Op::Binary(op, ..) => match op {
-                BinaryOpcode::Add => write!(w, "add"),
-                BinaryOpcode::Mul => write!(w, "mul"),
-            },
-            Op::BinaryChoice(op, ..) => match op {
-                BinaryChoiceOpcode::Min => write!(w, "min"),
-                BinaryChoiceOpcode::Max => write!(w, "max"),
-            },
-            Op::Unary(op, ..) => match op {
-                UnaryOpcode::Neg => write!(w, "neg"),
-                UnaryOpcode::Abs => write!(w, "abs"),
-                UnaryOpcode::Recip => write!(w, "recip"),
-                UnaryOpcode::Sqrt => write!(w, "sqrt"),
-                UnaryOpcode::Sin => write!(w, "sin"),
-                UnaryOpcode::Cos => write!(w, "cos"),
-                UnaryOpcode::Tan => write!(w, "tan"),
-                UnaryOpcode::Asin => write!(w, "asin"),
-                UnaryOpcode::Acos => write!(w, "acos"),
-                UnaryOpcode::Atan => write!(w, "atan"),
-                UnaryOpcode::Exp => write!(w, "exp"),
-                UnaryOpcode::Ln => write!(w, "ln"),
-            },
-        }?;
-        writeln!(
-            w,
-            r#"" color="{0}1" shape="{1}" fontcolor="{0}4"]"#,
-            op.dot_node_color(),
-            op.dot_node_shape()
-        )?;
-        Ok(())
-    }
-
-    pub(crate) fn write_edges_dot<W: Write>(
-        &self,
-        w: &mut W,
-        node: Node,
-    ) -> Result<(), Error> {
-        let op = self.ops.get_by_index(node).unwrap();
-        let edge_color = format!("{}4", op.dot_node_color());
-        match op {
-            Op::Binary(_, a, b) | Op::BinaryChoice(_, a, b, _) => {
-                writeln!(
-                    w,
-                    "n{0} -> n{1} [color=\"{3}\"];\
-                         n{0} -> n{2} [color=\"{3}\"]",
-                    node.dot_name(),
-                    a.dot_name(),
-                    b.dot_name(),
-                    edge_color,
-                )
-            }
-
-            Op::Unary(_, a) => writeln!(
-                w,
-                r#"n{0} -> n{1} [color="{2}"]"#,
-                node.dot_name(),
-                a.dot_name(),
-                edge_color
-            ),
-
-            Op::Var(..) | Op::Const(..) => Ok(()),
-        }?;
-        Ok(())
+        out += "}\n";
+        out
     }
 
     /// Looks up an operation by `Node` handle

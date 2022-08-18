@@ -36,11 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(args.filename)?;
-    let (ctx, node) = Context::from_text(&mut file)?;
+    let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
     let now = Instant::now();
-    let compiler = Compiler::new(&ctx, node);
+    let compiler = Compiler::new(&ctx, root);
     info!("Built Compiler in {:?}", now.elapsed());
 
     if args.dot {
@@ -95,36 +95,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     */
     if let Some(img) = args.image {
-        let buffer: Vec<[u8; 4]> = /*if args.gpu {
-            let now = Instant::now();
-            let out = gpu::render(&prog, args.size);
-            println!("Done with GPU render in {:?}", now.elapsed());
-            out
-        } else*/ {
-            let out = if args.jit {
-                let choices = vec![-1i32; (compiler.num_choices + 15) / 16];
-                // Copied from `Context::render_2d`
-                let now = Instant::now();
-                let scale = args.size;
-                let mut out = Vec::with_capacity((scale * scale) as usize);
-                let div = (scale - 1) as f32;
-                for i in 0..scale {
-                    let y = -(-1.0 + 2.0 * (i as f32) / div);
-                    for j in 0..scale {
-                        let x = -1.0 + 2.0 * (j as f32) / div;
-                        let v = unsafe { jit_fn.call(x, y, choices.as_ptr()) };
-                        out.push(v <= 0.0);
-                    }
-                }
-                info!("Finished rendering in {:?}", now.elapsed());
-                out
-            } else {
-                ctx.render_2d(node, args.size)?
-            };
-            out.into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                .collect()
-        };
+        let choices = vec![-1i32; (compiler.num_choices + 15) / 16];
+        let now = Instant::now();
+        let scale = args.size;
+        let mut out = Vec::with_capacity((scale * scale) as usize);
+        let div = (scale - 1) as f64;
+        for i in 0..scale {
+            let y = -(-1.0 + 2.0 * (i as f64) / div);
+            for j in 0..scale {
+                let x = -1.0 + 2.0 * (j as f64) / div;
+                let v = if args.jit {
+                    unsafe { jit_fn.call(x as f32, y as f32, choices.as_ptr()) }
+                } else {
+                    ctx.eval_xyz(root, x, y, 0.0)? as f32
+                };
+                out.push(v <= 0.0);
+            }
+        }
+        info!("Finished rendering in {:?}", now.elapsed());
+
+        // Convert from Vec<bool> to an image
+        let buffer: Vec<[u8; 4]> = out
+            .into_iter()
+            .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+            .collect();
 
         // Flatten into a single array
         let buffer: Vec<u8> =
