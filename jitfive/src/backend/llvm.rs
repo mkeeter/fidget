@@ -342,10 +342,12 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         child_index: GroupIndex,
     ) -> BTreeSet<(usize, NodeIndex)> {
         let child_group = &self.t.groups[child_index];
-        let unconditional = child_group
+        let has_both_or_root = child_group
             .choices
             .iter()
             .any(|c| matches!(c, Source::Both(..) | Source::Root));
+        let unconditional = has_both_or_root
+            || (child_group.child_weight < child_group.choices.len());
 
         let last_cond = if unconditional {
             // Nothing to do here, proceed straight into child
