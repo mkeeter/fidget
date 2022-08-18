@@ -4,11 +4,11 @@
 //! - `flatten_tree`
 //! - `find_groups`
 //! - `group_graph`
-//! - `group_tree`
-//! - `group_weight`
-//! - `sort_groups`
-//! - `sort_nodes`
-//! - `node_lifetime`
+//! - `group_tree` (any time after `group_graph`)
+//! - `sort_groups` (any time after `group_tree`)
+//! - `sort_nodes` (any time after `group_tree`)
+//! - `node_lifetime` (any time after `sort_nodes` and `sort_groups`)
+//! - `group_weight` (any time after `group_tree`)
 
 pub(crate) mod find_groups;
 pub(crate) mod flatten_tree;

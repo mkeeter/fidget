@@ -27,6 +27,14 @@ const RHS: u32 = 2;
 
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32) -> f32;
 
+/// Wrapper for an LLVM context
+pub struct JitContext(Context);
+impl JitContext {
+    pub fn new() -> Self {
+        Self(Context::create())
+    }
+}
+
 struct Jit<'a, 'ctx> {
     t: &'a Compiler,
     context: &'ctx Context,
@@ -52,7 +60,8 @@ struct Jit<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
-    fn new(t: &'a Compiler, context: &'ctx Context) -> Self {
+    fn new(t: &'a Compiler, jit_context: &'ctx JitContext) -> Self {
+        let context = &jit_context.0;
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
 
@@ -467,7 +476,7 @@ struct Intrinsics<'ctx> {
 
 pub fn to_jit_fn<'a, 'b>(
     t: &'a Compiler,
-    context: &'b Context,
+    context: &'b JitContext,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
     let now = Instant::now();
     info!("Building JIT function");

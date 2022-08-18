@@ -2,7 +2,11 @@ use std::time::Instant;
 
 use clap::Parser;
 use env_logger::Env;
-use jitfive::{compiler::Compiler, context::Context};
+use jitfive::{
+    backend::llvm::{to_jit_fn, JitContext},
+    compiler::Compiler,
+    context::Context,
+};
 use log::{error, info, warn};
 
 /// Simple test program
@@ -86,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let llvm_ctx = inkwell::context::Context::create();
-    let jit_fn = jitfive::backend::llvm::to_jit_fn(&compiler, &llvm_ctx)?;
+    let jit_ctx = JitContext::new();
+    let jit_fn = to_jit_fn(&compiler, &jit_ctx)?;
 
     /*
     if let Some(m) = args.metal {

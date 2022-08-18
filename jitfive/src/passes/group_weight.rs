@@ -19,4 +19,7 @@ pub(crate) fn run(out: &mut Compiler) {
     let mut child_weights = IndexVec::new();
     child_weights.resize(out.groups.len(), None);
     recurse(out, root_group_index, &mut child_weights);
+    for (g, w) in out.groups.iter_mut().zip(child_weights.into_iter()) {
+        g.child_weight = w.unwrap();
+    }
 }
