@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     */
     if let Some(img) = args.image {
-        let choices = vec![-1i32; (compiler.num_choices + 15) / 16];
+        let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
         let now = Instant::now();
         let scale = args.size;
         let mut out = Vec::with_capacity((scale * scale) as usize);

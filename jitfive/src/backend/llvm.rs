@@ -25,7 +25,7 @@ use log::info;
 const LHS: u32 = 1;
 const RHS: u32 = 2;
 
-type FloatFunc = unsafe extern "C" fn(f32, f32, *const i32) -> f32;
+type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32) -> f32;
 
 struct Jit<'a, 'ctx> {
     t: &'a Compiler,
