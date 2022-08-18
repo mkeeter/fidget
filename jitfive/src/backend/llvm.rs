@@ -16,8 +16,8 @@ use inkwell::{
     intrinsics::Intrinsic,
     module::Module,
     types::{FloatType, IntType},
-    values::FloatValue,
     values::FunctionValue,
+    values::{FloatValue, IntValue},
     AddressSpace, OptimizationLevel,
 };
 use log::info;
@@ -34,15 +34,19 @@ struct Jit<'a, 'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     function: FunctionValue<'ctx>,
-    values: BTreeMap<NodeIndex, FloatValue<'ctx>>,
     f32_type: FloatType<'ctx>,
     i32_type: IntType<'ctx>,
 
-    /*
+    /// Last known use of a particular node
+    ///
+    /// A `NodeIndex` may be stored in multiple `FloatValue` locations if it
+    /// needs to escape from recursive blocks via phi nodes.
+    values: BTreeMap<NodeIndex, FloatValue<'ctx>>,
+
     /// Values in the `choices` array, loaded in at the `entry` point to
     /// reduce code size.
     choices: Vec<IntValue<'ctx>>,
-    */
+
     /// Index in the opcode tape
     i: usize,
 }
@@ -96,9 +100,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             module,
             builder,
             function,
-            values: BTreeMap::new(),
             f32_type,
             i32_type,
+
+            values: BTreeMap::new(),
+            choices: vec![],
 
             i: 0,
         }
@@ -108,6 +114,29 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         let basic_block =
             self.context.append_basic_block(self.function, "entry");
         self.builder.position_at_end(basic_block);
+
+        let choice_array_size = (self.t.num_choices + 15) / 16;
+        let choice_base_ptr =
+            self.function.get_nth_param(2).unwrap().into_pointer_value();
+
+        self.choices = (0..choice_array_size)
+            .map(|i| {
+                let choice_ptr = unsafe {
+                    self.builder.build_gep(
+                        choice_base_ptr,
+                        &[self.i32_type.const_int(i.try_into().unwrap(), true)],
+                        &format!("choice_ptr_{}", usize::from(i)),
+                    )
+                };
+                self.builder
+                    .build_load(
+                        choice_ptr,
+                        &format!("choice_{}", usize::from(i)),
+                    )
+                    .into_int_value()
+            })
+            .collect();
+
         let root = self.t.root;
         self.recurse(self.t.op_group[root]);
         self.builder.build_return(Some(&self.values[&root]));
@@ -191,30 +220,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     &format!("minmax_end_{}", usize::from(n)),
                 );
 
-                let choice_base_ptr = self
-                    .function
-                    .get_nth_param(2)
-                    .unwrap()
-                    .into_pointer_value();
                 let c = usize::from(c);
-                let choice_ptr = unsafe {
-                    self.builder.build_gep(
-                        choice_base_ptr,
-                        &[self.i32_type.const_int(c as u64 / 16, true)],
-                        &format!("choice_ptr_{}", usize::from(n)),
-                    )
-                };
-
-                let choice_value = self
-                    .builder
-                    .build_load(
-                        choice_ptr,
-                        &format!("choice_{}", usize::from(n)),
-                    )
-                    .into_int_value();
                 let shift = (c % 16) * 2;
                 let choice_value_masked = self.builder.build_and(
-                    choice_value,
+                    self.choices[c / 16],
                     self.i32_type.const_int(3 << shift, false),
                     &format!("choice_masked_{}", usize::from(n)),
                 );
@@ -375,25 +384,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
              */
             for (i, (c, v)) in choice_u32s.iter().enumerate() {
                 let label = format!("g{}_{}", usize::from(child_index), i);
-                let choice_base_ptr = self
-                    .function
-                    .get_nth_param(2)
-                    .unwrap()
-                    .into_pointer_value();
-                let choice_ptr = unsafe {
-                    self.builder.build_gep(
-                        choice_base_ptr,
-                        &[self.i32_type.const_int(*c as u64 / 16, true)],
-                        &format!("choice_ptr_{}", label),
-                    )
-                };
-                let choice_value = self
-                    .builder
-                    .build_load(choice_ptr, &format!("choice_{}", label))
-                    .into_int_value();
-
                 let choice_value_masked = self.builder.build_and(
-                    choice_value,
+                    self.choices[*c],
                     self.i32_type.const_int(*v as u64, false),
                     &format!("choice_masked_{}", label),
                 );
