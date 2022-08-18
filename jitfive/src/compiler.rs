@@ -126,6 +126,11 @@ pub struct Group {
     // --------------- Stage 4 ----------------
     // Sorts `nodes` and `children` but adds no new data
     // These are the `sort_groups` and `sort_nodes` passes
+
+    // --------------- Stage 6 ----------------
+    /// The (recursive) sum of child weights (which include their node count,
+    /// plus their child and choice weights)
+    pub child_weight: usize,
 }
 
 impl Compiler {
@@ -135,6 +140,7 @@ impl Compiler {
         crate::passes::find_groups::run(&mut out);
         crate::passes::group_graph::run(&mut out);
         crate::passes::group_tree::run(&mut out);
+        crate::passes::group_weight::run(&mut out);
         crate::passes::sort_nodes::run(&mut out);
         crate::passes::sort_groups::run(&mut out);
         crate::passes::node_lifetime::run(&mut out);
