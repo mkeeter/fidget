@@ -153,4 +153,24 @@ impl Compiler {
         out += "}}\n";
         out
     }
+
+    pub fn stage1_dot(&self) -> String {
+        let mut out = "digraph mygraph {{\ncompound=true\n".to_owned();
+        for (i, group) in self.groups.enumerate() {
+            out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+            for n in &group.nodes {
+                let op = self.ops[*n];
+                out += &op.dot_node(*n, &self.vars);
+                out += "\n";
+            }
+            out += "}}\n";
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, op) in self.ops.enumerate() {
+            out += &op.dot_edges(i);
+            out += "\n";
+        }
+        out += "}}\n";
+        out
+    }
 }

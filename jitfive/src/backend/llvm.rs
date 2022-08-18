@@ -108,7 +108,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         self.builder.build_return(Some(&self.values[&root]));
 
         //self.module.print_to_stderr();
-        self.module.print_to_file("jit.ll");
+        self.module.print_to_file("jit.ll").unwrap();
+        info!(
+            "LLVM module is {} characters",
+            self.module.to_string().len()
+        );
     }
 
     /// Recurses into the given group, building its children then its nodes

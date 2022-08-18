@@ -2,34 +2,24 @@ use std::time::Instant;
 
 use clap::Parser;
 use env_logger::Env;
-use jitfive::{
-    compiler::Compiler, context::Context, metal::Render, program::Program,
-};
+use jitfive::{compiler::Compiler, context::Context};
 use log::info;
 
 /// Simple test program
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Name of a `.dot` file to write
+    /// Render `.dot` files representing compilation
     #[clap(short, long)]
-    dot: Option<String>,
+    dot: bool,
 
     /// Name of a `.png` file to write
     #[clap(short, long)]
     image: Option<String>,
 
-    /// Render using the GPU
-    #[clap(short, long, requires = "image", conflicts_with = "jit")]
-    gpu: bool,
-
     /// Render using the JIT-compiled function
     #[clap(short, long, requires = "image", conflicts_with = "gpu")]
     jit: bool,
-
-    /// Name of a `.metal` file to write
-    #[clap(short, long)]
-    metal: Option<String>,
 
     /// Image size
     #[clap(short, long, requires = "image", default_value = "128")]
@@ -50,56 +40,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Loaded file in {:?}", now.elapsed());
 
     let now = Instant::now();
-    let s0 = jitfive::stage0::Stage0::from_context(&ctx, node);
-    s0.self_check();
-    let s1: jitfive::stage1::Stage1 = (&s0).into();
-    let s2: jitfive::stage2::Stage2 = (&s1).into();
-    let s3: jitfive::stage3::Stage3 = (&s2).into();
-    let s4: jitfive::stage4::Stage4 = (&s3).into();
-    s4.self_check();
-    let s5: jitfive::stage5::Stage5 = (&s4).into();
-    info!("Built up to stage 5 in {:?}", now.elapsed());
-
-    let now = Instant::now();
     let compiler = Compiler::new(&ctx, node);
     info!("Built Compiler in {:?}", now.elapsed());
 
-    let now = Instant::now();
-    let prog = Program::from_compiler(&compiler);
-    info!("Built Program in {:?}", now.elapsed());
-
-    if let Some(dot) = args.dot {
-        let mut out = std::fs::File::create(dot)?;
-        compiler.write_dot_grouped(&mut out)?;
-
-        let mut out = std::fs::File::create("stage0.dot")?;
-        s0.write_dot(&mut out)?;
-
-        let mut out = std::fs::File::create("stage1.dot")?;
-        s1.write_dot(&mut out)?;
-
-        let mut out = std::fs::File::create("stage2.dot")?;
-        s2.write_dot(&mut out)?;
-
-        let mut out = std::fs::File::create("stage3.dot")?;
-        s3.write_dot(&mut out)?;
+    if args.dot {
+        std::fs::write("stage0.dot", compiler.stage0_dot())?;
+        std::fs::write("stage1.dot", compiler.stage1_dot())?;
     }
 
     let llvm_ctx = inkwell::context::Context::create();
-    let jit_fn = jitfive::backend::llvm::to_jit_fn(&s5, &llvm_ctx)?;
+    let jit_fn = jitfive::backend::llvm::to_jit_fn(&compiler, &llvm_ctx)?;
 
+    /*
     if let Some(m) = args.metal {
         std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Interval))?
     }
+    */
     if let Some(img) = args.image {
-        let buffer: Vec<[u8; 4]> = if args.gpu {
+        let buffer: Vec<[u8; 4]> = /*if args.gpu {
             let now = Instant::now();
             let out = gpu::render(&prog, args.size);
             println!("Done with GPU render in {:?}", now.elapsed());
             out
-        } else {
+        } else*/ {
             let out = if args.jit {
-                let choices = vec![-1i32; (s4.num_choices + 15) / 16];
+                let choices = vec![-1i32; (compiler.num_choices + 15) / 16];
                 // Copied from `Context::render_2d`
                 let now = Instant::now();
                 let scale = args.size;
@@ -140,6 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/*
 mod gpu {
     use super::*;
     use piet_gpu_hal::{Instance, InstanceFlags, Session};
@@ -159,3 +125,4 @@ mod gpu {
         }
     }
 }
+*/
