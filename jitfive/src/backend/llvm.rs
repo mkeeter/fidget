@@ -38,6 +38,11 @@ struct Jit<'a, 'ctx> {
     f32_type: FloatType<'ctx>,
     i32_type: IntType<'ctx>,
 
+    /*
+    /// Values in the `choices` array, loaded in at the `entry` point to
+    /// reduce code size.
+    choices: Vec<IntValue<'ctx>>,
+    */
     /// Index in the opcode tape
     i: usize,
 }
@@ -207,15 +212,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                         &format!("choice_{}", usize::from(n)),
                     )
                     .into_int_value();
-                let choice_value_shr = self.builder.build_right_shift(
-                    choice_value,
-                    self.i32_type.const_int((c as u64 % 16) * 2, true),
-                    true,
-                    &format!("choice_shr_{}", usize::from(n)),
-                );
+                let shift = (c % 16) * 2;
                 let choice_value_masked = self.builder.build_and(
-                    choice_value_shr,
-                    self.i32_type.const_int(3, false),
+                    choice_value,
+                    self.i32_type.const_int(3 << shift, false),
                     &format!("choice_masked_{}", usize::from(n)),
                 );
 
@@ -225,7 +225,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let left_cmp = self.builder.build_int_compare(
                     inkwell::IntPredicate::EQ,
                     choice_value_masked,
-                    self.i32_type.const_int(LHS as u64, true),
+                    self.i32_type.const_int((LHS as u64) << shift, true),
                     &format!("left_cmp_{}", usize::from(n)),
                 );
                 self.builder.build_conditional_branch(
@@ -238,7 +238,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let right_cmp = self.builder.build_int_compare(
                     inkwell::IntPredicate::EQ,
                     choice_value_masked,
-                    self.i32_type.const_int(RHS as u64, true),
+                    self.i32_type.const_int((RHS as u64) << shift, true),
                     &format!("right_cmp_{}", usize::from(n)),
                 );
                 self.builder
