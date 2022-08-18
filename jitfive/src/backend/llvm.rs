@@ -451,7 +451,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 );
                 out.add_incoming(&[
                     (&self.values[&n], recurse_block),
-                    (&self.f32_type.const_float(f64::NAN), last_block),
+                    (&self.f32_type.get_undef(), last_block),
                 ]);
                 self.values
                     .insert(n, out.as_basic_value().into_float_value());
