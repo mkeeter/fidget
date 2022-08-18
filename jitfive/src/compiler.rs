@@ -142,7 +142,7 @@ impl Compiler {
     }
 
     pub fn stage0_dot(&self) -> String {
-        let mut out = "digraph mygraph {{\n".to_owned();
+        let mut out = "digraph mygraph {\n".to_owned();
         for (i, op) in self.ops.enumerate() {
             out += &op.dot_node(i, &self.vars);
         }
@@ -150,12 +150,12 @@ impl Compiler {
         for (i, op) in self.ops.enumerate() {
             out += &op.dot_edges(i);
         }
-        out += "}}\n";
+        out += "}\n";
         out
     }
 
     pub fn stage1_dot(&self) -> String {
-        let mut out = "digraph mygraph {{\ncompound=true\n".to_owned();
+        let mut out = "digraph mygraph {\ncompound=true\n".to_owned();
         for (i, group) in self.groups.enumerate() {
             out += &format!("subgraph cluster_{} {{\n", usize::from(i));
             for n in &group.nodes {
@@ -163,14 +163,116 @@ impl Compiler {
                 out += &op.dot_node(*n, &self.vars);
                 out += "\n";
             }
-            out += "}}\n";
+            out += "}\n";
         }
         // Write edges afterwards, after all nodes have been defined
         for (i, op) in self.ops.enumerate() {
             out += &op.dot_edges(i);
             out += "\n";
         }
-        out += "}}\n";
+        out += "}\n";
+        out
+    }
+
+    pub fn stage2_dot(&self) -> String {
+        let mut out = "digraph mygraph {\ncompound=true\n".to_owned();
+
+        for (i, group) in self.groups.enumerate() {
+            out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+            for n in &group.nodes {
+                let op = self.ops[*n];
+                out += &op.dot_node(*n, &self.vars);
+            }
+            // Invisible nodes to be used as group handles
+            let i = usize::from(i);
+            if group.nodes.len() > 1 {
+                out += &format!(
+                    "SINK_{0} [shape=point style=invis]\n\
+                    SOURCE_{0} [shape=point style=invis]\n\
+                    {{ rank = max; SOURCE_{0} }}\n\
+                    {{ rank = min; SINK_{0} }}\n",
+                    i
+                );
+            }
+            out += "}\n";
+        }
+        // Write edges afterwards, after all nodes have been defined
+        for (i, op) in self.ops.enumerate() {
+            for c in op.iter_children() {
+                let alpha = if self.op_group[c] == self.op_group[i] {
+                    "FF"
+                } else {
+                    "40"
+                };
+                out += &op.dot_edge(i, c, alpha);
+            }
+        }
+        for (i, group) in self.groups.enumerate() {
+            for c in &group.downstream {
+                out += &format!(
+                    "{} -> {} [ltail=cluster_{}, lhead=cluster_{}];\n",
+                    if group.nodes.len() > 1 {
+                        format!("SOURCE_{}", usize::from(i))
+                    } else {
+                        format!("n{}", usize::from(group.nodes[0]))
+                    },
+                    if self.groups[*c].nodes.len() > 1 {
+                        format!("SINK_{}", usize::from(*c))
+                    } else {
+                        format!("n{}", usize::from(self.groups[*c].nodes[0]))
+                    },
+                    usize::from(i),
+                    usize::from(*c)
+                );
+            }
+        }
+        out += "}\n";
+        out
+    }
+
+    pub fn stage3_dot(&self) -> String {
+        let mut out = "digraph mygraph {\ncompound=true\n".to_owned();
+
+        let root_group_index = self.op_group[self.root];
+        out += &self.stage3_dot_recurse(root_group_index);
+
+        // Write node edges afterwards
+        for (i, op) in self.ops.enumerate() {
+            out += &op.dot_edges(i);
+        }
+        out += "}\n";
+        out
+    }
+
+    fn stage3_dot_recurse(&self, i: GroupIndex) -> String {
+        let mut out = String::new();
+        out += &format!("subgraph cluster_{}_g {{\n", usize::from(i));
+        out += &format!("color=\"grey\"\n");
+        out += &format!("label=\"{}\"\n", usize::from(i));
+
+        // This group's nodes live in their own cluster
+        out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+        out += &format!("label=\"\"\n");
+        out += &format!("color=\"black\"\n");
+        let group = &self.groups[i];
+        for n in &group.nodes {
+            let op = self.ops[*n];
+            out += &op.dot_node(*n, &self.vars);
+        }
+        // Invisible nodes to be used as group handles
+        let i = usize::from(i);
+        if group.nodes.len() > 1 {
+            out += &format!("SINK_{} [shape=point style=invis]\n", i);
+            out += &format!("SOURCE_{} [shape=point style=invis]\n", i);
+            out += &format!("{{ rank = max; SOURCE_{} }}\n", i);
+            out += &format!("{{ rank = min; SINK_{} }}\n", i);
+        }
+        out += "}\n";
+
+        for child in &group.children {
+            out += &self.stage3_dot_recurse(*child);
+        }
+        out += "}\n";
         out
     }
 }

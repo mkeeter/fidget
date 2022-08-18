@@ -3,7 +3,7 @@ use std::time::Instant;
 use clap::Parser;
 use env_logger::Env;
 use jitfive::{compiler::Compiler, context::Context};
-use log::info;
+use log::{error, info, warn};
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -18,7 +18,7 @@ struct Args {
     image: Option<String>,
 
     /// Render using the JIT-compiled function
-    #[clap(short, long, requires = "image", conflicts_with = "gpu")]
+    #[clap(short, long, requires = "image")]
     jit: bool,
 
     /// Image size
@@ -44,8 +44,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Built Compiler in {:?}", now.elapsed());
 
     if args.dot {
+        info!("Saving .dot files");
         std::fs::write("stage0.dot", compiler.stage0_dot())?;
         std::fs::write("stage1.dot", compiler.stage1_dot())?;
+        std::fs::write("stage2.dot", compiler.stage2_dot())?;
+        std::fs::write("stage3.dot", compiler.stage3_dot())?;
+        for i in 0..4 {
+            info!("Converting stage{}.dot to PDF", i);
+            let r = std::process::Command::new("dot")
+                .arg("-T")
+                .arg("pdf")
+                .arg("-o")
+                .arg(format!("stage{}.pdf", i))
+                .arg(format!("stage{}.dot", i))
+                .output();
+            match r {
+                Ok(v) => {
+                    if !v.status.success() {
+                        error!("dot exited with error code {:?}", v.status);
+                    }
+                    let stdout = std::str::from_utf8(&v.stdout).unwrap();
+                    let stderr = std::str::from_utf8(&v.stderr).unwrap();
+                    if !stdout.is_empty() {
+                        info!("`dot` stdout:");
+                        for line in stdout.lines() {
+                            info!("    {}", line);
+                        }
+                    }
+                    if !stderr.is_empty() {
+                        warn!("`dot` stderr:");
+                        for line in stderr.lines() {
+                            warn!("    {}", line);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not execute `dot`: {:?}", e);
+                    break;
+                }
+            }
+        }
     }
 
     let llvm_ctx = inkwell::context::Context::create();
