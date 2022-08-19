@@ -40,6 +40,7 @@ struct JitIntrinsics<'ctx> {
     f_sqrt: FunctionValue<'ctx>,
     f_max: FunctionValue<'ctx>,
     f_min: FunctionValue<'ctx>,
+    fc_min: FunctionValue<'ctx>,
     i_add: FunctionValue<'ctx>,
 }
 
@@ -51,6 +52,7 @@ struct JitCore<'ctx> {
     i32_type: IntType<'ctx>,
     interval_type: ArrayType<'ctx>,
     binary_fn_type_i: FunctionType<'ctx>,
+    binary_choice_fn_type_f: FunctionType<'ctx>,
     shape_fn_type: FunctionType<'ctx>,
 }
 
@@ -66,6 +68,16 @@ impl<'ctx> JitCore<'ctx> {
         let binary_fn_type_i = interval_type
             .fn_type(&[interval_type.into(), interval_type.into()], false);
 
+        let binary_choice_fn_type_f = f32_type.fn_type(
+            &[
+                f32_type.into(), // lhs
+                f32_type.into(), // rhs
+                i32_type.into(), // choice
+                i32_type.into(), // shift
+            ],
+            false,
+        );
+
         let i32_const_ptr_type = i32_type.ptr_type(AddressSpace::Const);
         let shape_fn_type = f32_type.fn_type(
             &[f32_type.into(), f32_type.into(), i32_const_ptr_type.into()],
@@ -80,6 +92,7 @@ impl<'ctx> JitCore<'ctx> {
             i32_type,
             interval_type,
             binary_fn_type_i,
+            binary_choice_fn_type_f,
             shape_fn_type,
         }
     }
@@ -106,6 +119,7 @@ impl<'ctx> JitCore<'ctx> {
         let f_sqrt = self.get_unary_intrinsic_f("sqrt");
         let f_max = self.get_binary_intrinsic_f("maxnum");
         let f_min = self.get_binary_intrinsic_f("minnum");
+        let fc_min = self.build_min_max("f_min", f_min);
 
         let i_add = self.build_i_add();
 
@@ -115,7 +129,90 @@ impl<'ctx> JitCore<'ctx> {
             f_max,
             f_min,
             i_add,
+            fc_min,
         }
+    }
+
+    fn build_min_max(
+        &self,
+        name: &str,
+        f: FunctionValue<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        let function =
+            self.module
+                .add_function(name, self.binary_choice_fn_type_f, None);
+        let entry_block = self.context.append_basic_block(function, "entry");
+
+        let lhs = function.get_nth_param(0).unwrap().into_float_value();
+        let rhs = function.get_nth_param(1).unwrap().into_float_value();
+        let choice = function.get_nth_param(2).unwrap().into_int_value();
+        let shift = function.get_nth_param(3).unwrap().into_int_value();
+
+        self.builder.position_at_end(entry_block);
+        let left_block = self
+            .context
+            .append_basic_block(function, &format!("minmax_left"));
+        let right_block = self
+            .context
+            .append_basic_block(function, &format!("minmax_right"));
+        let both_block = self
+            .context
+            .append_basic_block(function, &format!("minmax_both"));
+        let end_block = self
+            .context
+            .append_basic_block(function, &format!("minmax_end"));
+
+        let choice_value_shr = self.builder.build_right_shift(
+            choice,
+            shift,
+            false,
+            &format!("choice_shr"),
+        );
+        let choice_value_masked = self.builder.build_and(
+            choice_value_shr,
+            self.i32_type.const_int(3, false),
+            &format!("choice_masked"),
+        );
+
+        self.builder.build_unconditional_branch(left_block);
+        self.builder.position_at_end(left_block);
+
+        let left_cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            choice_value_masked,
+            self.i32_type.const_int(LHS as u64, true),
+            &format!("left_cmp"),
+        );
+        self.builder
+            .build_conditional_branch(left_cmp, end_block, right_block);
+
+        self.builder.position_at_end(right_block);
+        let right_cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            choice_value_masked,
+            self.i32_type.const_int(RHS as u64, true),
+            &format!("right_cmp"),
+        );
+        self.builder
+            .build_conditional_branch(right_cmp, end_block, both_block);
+
+        self.builder.position_at_end(both_block);
+        let fmax_result = self
+            .builder
+            .build_call(f, &[lhs.into(), rhs.into()], &format!("both"))
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.builder.build_return(Some(&fmax_result));
+
+        self.builder.position_at_end(end_block);
+        let out = self.builder.build_phi(self.f32_type, "out");
+        out.add_incoming(&[(&lhs, left_block), (&rhs, right_block)]);
+
+        let out = out.as_basic_value().into_float_value();
+        self.builder.build_return(Some(&out));
+        function
     }
 
     fn build_i_add(&self) -> FunctionValue<'ctx> {
@@ -218,10 +315,11 @@ struct Jit<'a, 'ctx> {
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
     fn build(t: &'a Compiler, core: JitCore<'ctx>) -> Self {
+        let intrinsics = core.get_intrinsics();
+
         // Build our main function
         let function =
             core.module.add_function("shape", core.shape_fn_type, None);
-
         let entry_block = core.context.append_basic_block(function, "entry");
         core.builder.position_at_end(entry_block);
 
@@ -247,7 +345,6 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             })
             .collect();
 
-        let intrinsics = core.get_intrinsics();
         let root = t.root;
         let mut worker = Self {
             t,
