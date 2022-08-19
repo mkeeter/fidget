@@ -10,11 +10,16 @@ use crate::{
 };
 
 use inkwell::{
+    attributes::{Attribute, AttributeLoc},
     builder::Builder,
     context::Context,
     execution_engine::JitFunction,
     intrinsics::Intrinsic,
-    module::Module,
+    module::{Linkage, Module},
+    passes::PassBuilderOptions,
+    targets::{
+        CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
+    },
     types::{ArrayType, FloatType, FunctionType, IntType},
     values::FunctionValue,
     values::{FloatValue, IntValue},
@@ -41,6 +46,7 @@ struct JitIntrinsics<'ctx> {
     f_max: FunctionValue<'ctx>,
     f_min: FunctionValue<'ctx>,
     fc_min: FunctionValue<'ctx>,
+    fc_max: FunctionValue<'ctx>,
     i_add: FunctionValue<'ctx>,
 }
 
@@ -120,6 +126,7 @@ impl<'ctx> JitCore<'ctx> {
         let f_max = self.get_binary_intrinsic_f("maxnum");
         let f_min = self.get_binary_intrinsic_f("minnum");
         let fc_min = self.build_min_max("f_min", f_min);
+        let fc_max = self.build_min_max("f_max", f_max);
 
         let i_add = self.build_i_add();
 
@@ -130,6 +137,7 @@ impl<'ctx> JitCore<'ctx> {
             f_min,
             i_add,
             fc_min,
+            fc_max,
         }
     }
 
@@ -138,9 +146,14 @@ impl<'ctx> JitCore<'ctx> {
         name: &str,
         f: FunctionValue<'ctx>,
     ) -> FunctionValue<'ctx> {
-        let function =
-            self.module
-                .add_function(name, self.binary_choice_fn_type_f, None);
+        let function = self.module.add_function(
+            name,
+            self.binary_choice_fn_type_f,
+            Some(Linkage::Private),
+        );
+        let kind_id = Attribute::get_named_enum_kind_id("alwaysinline");
+        let attr = self.context.create_enum_attribute(kind_id, 0);
+        function.add_attribute(AttributeLoc::Function, attr);
         let entry_block = self.context.append_basic_block(function, "entry");
 
         let lhs = function.get_nth_param(0).unwrap().into_float_value();
@@ -361,10 +374,39 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             .builder
             .build_return(Some(&worker.values[&root]));
 
-        //self.module.print_to_stderr();
-        worker.core.module.print_to_file("jit.ll").unwrap();
         info!(
-            "LLVM module is {} characters",
+            "LLVM module is {} characters (pre-optimization)",
+            worker.core.module.to_string().len()
+        );
+        worker.core.module.print_to_file("jit.ll").unwrap();
+
+        // Run an optimization pass on the IR, which is mostly helpful to inline
+        // function calls.
+        Target::initialize_native(&InitializationConfig::default()).unwrap();
+        let target = Target::from_name("arm64").unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &TargetMachine::get_default_triple(),
+                TargetMachine::get_host_cpu_name().to_str().unwrap(),
+                TargetMachine::get_host_cpu_features().to_str().unwrap(),
+                OptimizationLevel::Default,
+                RelocMode::Default,
+                CodeModel::JITDefault,
+            )
+            .unwrap();
+        worker
+            .core
+            .module
+            .run_passes(
+                "default<O1>",
+                &target_machine,
+                PassBuilderOptions::create(),
+            )
+            .unwrap();
+
+        worker.core.module.print_to_file("jit.opt.ll").unwrap();
+        info!(
+            "LLVM module is {} characters (post-optimization)",
             worker.core.module.to_string().len()
         );
 
@@ -430,85 +472,29 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
 
             Op::BinaryChoice(op, a, b, c) => {
-                let left_block = self.core.context.append_basic_block(
-                    self.function,
-                    &format!("minmax_left_{}", usize::from(n)),
-                );
-                let right_block = self.core.context.append_basic_block(
-                    self.function,
-                    &format!("minmax_right_{}", usize::from(n)),
-                );
-                let both_block = self.core.context.append_basic_block(
-                    self.function,
-                    &format!("minmax_both_{}", usize::from(n)),
-                );
-                let end_block = self.core.context.append_basic_block(
-                    self.function,
-                    &format!("minmax_end_{}", usize::from(n)),
-                );
-
                 let c = usize::from(c);
+
+                let f = match op {
+                    BinaryChoiceOpcode::Min => self.intrinsics.fc_min,
+                    BinaryChoiceOpcode::Max => self.intrinsics.fc_max,
+                };
+                let lhs = self.values[&a];
+                let rhs = self.values[&b];
+                let choice = self.choices[c / 16];
                 let shift = (c % 16) * 2;
-                let choice_value_masked = self.core.builder.build_and(
-                    self.choices[c / 16],
-                    self.core.i32_type.const_int(3 << shift, false),
-                    &format!("choice_masked_{}", usize::from(n)),
-                );
+                let shift = self.core.i32_type.const_int(shift as u64, false);
 
-                self.core.builder.build_unconditional_branch(left_block);
-                self.core.builder.position_at_end(left_block);
-
-                let left_cmp = self.core.builder.build_int_compare(
-                    inkwell::IntPredicate::EQ,
-                    choice_value_masked,
-                    self.core.i32_type.const_int((LHS as u64) << shift, true),
-                    &format!("left_cmp_{}", usize::from(n)),
-                );
-                self.core.builder.build_conditional_branch(
-                    left_cmp,
-                    end_block,
-                    right_block,
-                );
-
-                self.core.builder.position_at_end(right_block);
-                let right_cmp = self.core.builder.build_int_compare(
-                    inkwell::IntPredicate::EQ,
-                    choice_value_masked,
-                    self.core.i32_type.const_int((RHS as u64) << shift, true),
-                    &format!("right_cmp_{}", usize::from(n)),
-                );
                 self.core
                     .builder
-                    .build_conditional_branch(right_cmp, end_block, both_block);
-
-                self.core.builder.position_at_end(both_block);
-                let i = match op {
-                    BinaryChoiceOpcode::Min => self.intrinsics.f_min,
-                    BinaryChoiceOpcode::Max => self.intrinsics.f_max,
-                };
-                let fmax_result = self
-                    .core
-                    .builder
                     .build_call(
-                        i,
-                        &[self.values[&a].into(), self.values[&b].into()],
-                        &format!("{}_both", node_name),
+                        f,
+                        &[lhs.into(), rhs.into(), choice.into(), shift.into()],
+                        &format!("call_n{}", usize::from(n)),
                     )
                     .try_as_basic_value()
                     .left()
                     .unwrap()
-                    .into_float_value();
-                self.core.builder.build_unconditional_branch(end_block);
-
-                self.core.builder.position_at_end(end_block);
-                let out =
-                    self.core.builder.build_phi(self.core.f32_type, &node_name);
-                out.add_incoming(&[
-                    (&fmax_result, both_block),
-                    (&self.values[&a], left_block),
-                    (&self.values[&b], right_block),
-                ]);
-                out.as_basic_value().into_float_value()
+                    .into_float_value()
             }
             Op::Unary(op, a) => {
                 let call_intrinsic = |i| {
