@@ -15,8 +15,8 @@ use inkwell::{
     execution_engine::JitFunction,
     intrinsics::Intrinsic,
     module::Module,
-    types::{FloatType, IntType},
-    values::FunctionValue,
+    types::{ArrayType, FloatType, IntType},
+    values::{AggregateValue, ArrayValue, FunctionValue},
     values::{FloatValue, IntValue},
     AddressSpace, OptimizationLevel,
 };
@@ -39,6 +39,7 @@ struct Jit<'a, 'ctx> {
     t: &'a Compiler,
     context: &'ctx Context,
     intrinsics: Intrinsics<'ctx>,
+    imath: IntervalMath<'ctx>,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     function: FunctionValue<'ctx>,
@@ -60,8 +61,7 @@ struct Jit<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Jit<'a, 'ctx> {
-    fn build(t: &'a Compiler, jit_context: &'ctx JitContext) -> Self {
-        let context = &jit_context.0;
+    fn build(t: &'a Compiler, context: &'ctx Context) -> Self {
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
 
@@ -94,6 +94,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             min: get_binary_intrinsic("minnum"),
         };
 
+        let imath = IntervalMath::new(context, &module);
+
         // Build our main function
         let i32_ptr_type = i32_type.ptr_type(AddressSpace::Const);
         let fn_type = f32_type.fn_type(
@@ -106,6 +108,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             t,
             context,
             intrinsics,
+            imath,
             module,
             builder,
             function,
@@ -122,9 +125,9 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     }
 
     fn build_inner(&mut self) {
-        let basic_block =
+        let entry_block =
             self.context.append_basic_block(self.function, "entry");
-        self.builder.position_at_end(basic_block);
+        self.builder.position_at_end(entry_block);
 
         let choice_array_size = (self.t.num_choices + 15) / 16;
         let choice_base_ptr =
@@ -478,13 +481,86 @@ struct Intrinsics<'ctx> {
     min: FunctionValue<'ctx>,
 }
 
+struct Interval<'ctx> {
+    lower: FloatValue<'ctx>,
+    upper: FloatValue<'ctx>,
+}
+struct IntervalMath<'ctx> {
+    add: FunctionValue<'ctx>,
+}
+impl<'ctx> IntervalMath<'ctx> {
+    fn new<'a>(context: &'ctx Context, module: &'a Module<'ctx>) -> Self {
+        let interval_type = context.f32_type().array_type(2);
+        let binary_fn_type = interval_type
+            .fn_type(&[interval_type.into(), interval_type.into()], false);
+        let builder = context.create_builder();
+
+        let add = module.add_function("i_add", binary_fn_type, None);
+        let (lhs, rhs) = Self::binary_op_prelude(context, add, &builder);
+        let out_lo = builder.build_float_add(lhs.lower, rhs.lower, "out_lo");
+        let out_hi = builder.build_float_add(lhs.upper, rhs.upper, "out_hi");
+        Self::binary_op_ret(context, &builder, interval_type, out_lo, out_hi);
+
+        Self { add }
+    }
+
+    fn binary_op_prelude<'a>(
+        context: &'ctx Context,
+        function: FunctionValue<'ctx>,
+        builder: &'a Builder<'ctx>,
+    ) -> (Interval<'ctx>, Interval<'ctx>) {
+        let entry_block = context.append_basic_block(function, "entry");
+        builder.position_at_end(entry_block);
+        let lhs = function.get_nth_param(0).unwrap().into_array_value();
+        let rhs = function.get_nth_param(1).unwrap().into_array_value();
+        let lhs_lo = builder
+            .build_extract_value(lhs, 0, "lhs_lo")
+            .unwrap()
+            .into_float_value();
+        let lhs_hi = builder
+            .build_extract_value(lhs, 1, "lhs_hi")
+            .unwrap()
+            .into_float_value();
+        let rhs_lo = builder
+            .build_extract_value(rhs, 0, "rhs_lo")
+            .unwrap()
+            .into_float_value();
+        let rhs_hi = builder
+            .build_extract_value(rhs, 1, "rhs_hi")
+            .unwrap()
+            .into_float_value();
+        (
+            Interval {
+                lower: lhs_lo,
+                upper: lhs_hi,
+            },
+            Interval {
+                lower: rhs_lo,
+                upper: rhs_hi,
+            },
+        )
+    }
+    fn binary_op_ret<'a>(
+        context: &'ctx Context,
+        builder: &'a Builder<'ctx>,
+        interval_type: ArrayType<'ctx>,
+        lower: FloatValue<'ctx>,
+        upper: FloatValue<'ctx>,
+    ) {
+        let out0 = interval_type.const_zero();
+        let out1 = builder.build_insert_value(out0, lower, 0, "out1").unwrap();
+        let out2 = builder.build_insert_value(out1, upper, 1, "out2").unwrap();
+        builder.build_return(Some(&out2));
+    }
+}
+
 pub fn to_jit_fn<'a, 'b>(
     t: &'a Compiler,
     context: &'b JitContext,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
     let now = Instant::now();
     info!("Building JIT function");
-    let jit = Jit::build(t, context);
+    let jit = Jit::build(t, &context.0);
     info!("Finished building JIT function in {:?}", now.elapsed());
 
     let now = Instant::now();
