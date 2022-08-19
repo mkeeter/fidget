@@ -23,7 +23,7 @@ use inkwell::{
     types::{ArrayType, FloatType, FunctionType, IntType},
     values::FunctionValue,
     values::{FloatValue, IntValue},
-    AddressSpace, OptimizationLevel,
+    AddressSpace, FloatPredicate, OptimizationLevel,
 };
 use log::info;
 
@@ -48,6 +48,7 @@ struct JitIntrinsics<'ctx> {
     fc_min: FunctionValue<'ctx>,
     fc_max: FunctionValue<'ctx>,
     i_add: FunctionValue<'ctx>,
+    i_mul: FunctionValue<'ctx>,
 }
 
 struct JitCore<'ctx> {
@@ -60,6 +61,7 @@ struct JitCore<'ctx> {
     binary_fn_type_i: FunctionType<'ctx>,
     binary_choice_fn_type_f: FunctionType<'ctx>,
     shape_fn_type: FunctionType<'ctx>,
+    always_inline: Attribute,
 }
 
 impl<'ctx> JitCore<'ctx> {
@@ -90,6 +92,9 @@ impl<'ctx> JitCore<'ctx> {
             false,
         );
 
+        let kind_id = Attribute::get_named_enum_kind_id("alwaysinline");
+        let always_inline = context.create_enum_attribute(kind_id, 0);
+
         Self {
             context,
             module,
@@ -100,6 +105,7 @@ impl<'ctx> JitCore<'ctx> {
             binary_fn_type_i,
             binary_choice_fn_type_f,
             shape_fn_type,
+            always_inline,
         }
     }
 
@@ -129,6 +135,7 @@ impl<'ctx> JitCore<'ctx> {
         let fc_max = self.build_min_max("f_max", f_max);
 
         let i_add = self.build_i_add();
+        let i_mul = self.build_i_mul(f_min, f_max);
 
         JitIntrinsics {
             f_abs,
@@ -136,6 +143,7 @@ impl<'ctx> JitCore<'ctx> {
             f_max,
             f_min,
             i_add,
+            i_mul,
             fc_min,
             fc_max,
         }
@@ -151,9 +159,7 @@ impl<'ctx> JitCore<'ctx> {
             self.binary_choice_fn_type_f,
             Some(Linkage::Private),
         );
-        let kind_id = Attribute::get_named_enum_kind_id("alwaysinline");
-        let attr = self.context.create_enum_attribute(kind_id, 0);
-        function.add_attribute(AttributeLoc::Function, attr);
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
 
         let lhs = function.get_nth_param(0).unwrap().into_float_value();
@@ -241,12 +247,332 @@ impl<'ctx> JitCore<'ctx> {
         f
     }
 
+    fn build_i_mul(
+        &self,
+        fmin: FunctionValue,
+        fmax: FunctionValue,
+    ) -> FunctionValue<'ctx> {
+        // It ain't pretty, but it works: this is a manual port of
+        // boost::interval's multiplication code into LLVM IR.
+        let (f, lhs, rhs) = self.binary_op_prelude("i_mul");
+        let zero = self.f32_type.const_float(0.0);
+
+        let a0_lt_0 = || {
+            self.builder.build_float_compare(
+                FloatPredicate::OLT,
+                lhs.lower,
+                zero,
+                "a0_lt_0",
+            )
+        };
+        let a1_gt_0 = || {
+            self.builder.build_float_compare(
+                FloatPredicate::OGT,
+                lhs.upper,
+                zero,
+                "a1_gt_0",
+            )
+        };
+        let b1_gt_0 = || {
+            self.builder.build_float_compare(
+                FloatPredicate::OGT,
+                rhs.upper,
+                zero,
+                "b1_gt_0",
+            )
+        };
+        let b0_lt_0 = || {
+            self.builder.build_float_compare(
+                FloatPredicate::OLT,
+                rhs.lower,
+                zero,
+                "b0_lt_0",
+            )
+        };
+        let a0b1 =
+            || self.builder.build_float_mul(lhs.lower, rhs.upper, "a0b1");
+        let a1b0 =
+            || self.builder.build_float_mul(lhs.upper, rhs.lower, "a1b0");
+        let a0b0 =
+            || self.builder.build_float_mul(lhs.lower, rhs.lower, "a0b0");
+        let a1b1 =
+            || self.builder.build_float_mul(lhs.upper, rhs.upper, "a1b1");
+
+        let a0_lt_0_block = self.context.append_basic_block(f, "a0_lt_0_block");
+        let a0_ge_0_block = self.context.append_basic_block(f, "a0_ge_0_block");
+        self.builder.build_conditional_branch(
+            a0_lt_0(),
+            a0_lt_0_block,
+            a0_ge_0_block,
+        );
+        {
+            self.builder.position_at_end(a0_lt_0_block);
+            let a1_gt_0_block =
+                self.context.append_basic_block(f, "a1_gt_0_block");
+            let a1_le_0_block =
+                self.context.append_basic_block(f, "a1_le_0_block");
+            self.builder.build_conditional_branch(
+                a1_gt_0(),
+                a1_gt_0_block,
+                a1_le_0_block,
+            );
+            {
+                self.builder.position_at_end(a1_gt_0_block);
+                let b0_lt_0_block =
+                    self.context.append_basic_block(f, "b0_lt_0_block");
+                let b0_ge_0_block =
+                    self.context.append_basic_block(f, "b0_ge_0_block");
+                self.builder.build_conditional_branch(
+                    b0_lt_0(),
+                    b0_lt_0_block,
+                    b0_ge_0_block,
+                );
+                {
+                    self.builder.position_at_end(b0_lt_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // M * M
+                        self.builder.position_at_end(b1_gt_0_block);
+
+                        let lower = self
+                            .builder
+                            .build_call(
+                                fmin,
+                                &[a0b1().into(), a1b0().into()],
+                                &format!("min_result"),
+                            )
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_float_value();
+                        let upper = self
+                            .builder
+                            .build_call(
+                                fmax,
+                                &[a0b0().into(), a1b1().into()],
+                                &format!("max_result"),
+                            )
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_float_value();
+
+                        self.binary_op_ret(Interval { lower, upper });
+                    }
+                    {
+                        // M * N
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a1b0(),
+                            upper: a0b0(),
+                        });
+                    }
+                }
+                {
+                    self.builder.position_at_end(b0_ge_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // M * P
+                        self.builder.position_at_end(b1_gt_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a0b1(),
+                            upper: a1b1(),
+                        });
+                    }
+                    {
+                        // M * Z
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: zero,
+                            upper: zero,
+                        });
+                    }
+                }
+            }
+            {
+                self.builder.position_at_end(a1_le_0_block);
+                let b0_lt_0_block =
+                    self.context.append_basic_block(f, "b0_lt_0_block");
+                let b0_ge_0_block =
+                    self.context.append_basic_block(f, "b0_ge_0_block");
+                self.builder.build_conditional_branch(
+                    b0_lt_0(),
+                    b0_lt_0_block,
+                    b0_ge_0_block,
+                );
+                {
+                    self.builder.position_at_end(b0_lt_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // N * M
+                        self.builder.position_at_end(b1_gt_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a0b1(),
+                            upper: a0b0(),
+                        });
+                    }
+                    {
+                        // N * N
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a1b1(),
+                            upper: a0b0(),
+                        });
+                    }
+                }
+                {
+                    self.builder.position_at_end(b0_ge_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // N * P
+                        self.builder.position_at_end(b1_gt_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a0b1(),
+                            upper: a1b0(),
+                        });
+                    }
+                    {
+                        // N * Z
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: zero,
+                            upper: zero,
+                        });
+                    }
+                }
+            }
+        }
+        {
+            self.builder.position_at_end(a0_ge_0_block);
+            let a1_gt_0_block =
+                self.context.append_basic_block(f, "a1_gt_0_block");
+            let a1_le_0_block =
+                self.context.append_basic_block(f, "a1_le_0_block");
+            self.builder.build_conditional_branch(
+                a1_gt_0(),
+                a1_gt_0_block,
+                a1_le_0_block,
+            );
+            {
+                self.builder.position_at_end(a1_gt_0_block);
+                let b0_lt_0_block =
+                    self.context.append_basic_block(f, "b0_lt_0_block");
+                let b0_ge_0_block =
+                    self.context.append_basic_block(f, "b0_ge_0_block");
+                self.builder.build_conditional_branch(
+                    b0_lt_0(),
+                    b0_lt_0_block,
+                    b0_ge_0_block,
+                );
+                {
+                    self.builder.position_at_end(b0_lt_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // P * M
+                        self.builder.position_at_end(b1_gt_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a1b0(),
+                            upper: a1b1(),
+                        });
+                    }
+                    {
+                        // P * N
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a1b0(),
+                            upper: a0b1(),
+                        });
+                    }
+                }
+                {
+                    self.builder.position_at_end(b0_ge_0_block);
+                    let b1_gt_0_block =
+                        self.context.append_basic_block(f, "b1_gt_0_block");
+                    let b1_le_0_block =
+                        self.context.append_basic_block(f, "b1_le_0_block");
+                    self.builder.build_conditional_branch(
+                        b1_gt_0(),
+                        b1_gt_0_block,
+                        b1_le_0_block,
+                    );
+                    {
+                        // P * P
+                        self.builder.position_at_end(b1_gt_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: a0b0(),
+                            upper: a1b1(),
+                        });
+                    }
+                    {
+                        // P * Z
+                        self.builder.position_at_end(b1_le_0_block);
+                        self.binary_op_ret(Interval {
+                            lower: zero,
+                            upper: zero,
+                        });
+                    }
+                }
+            }
+            {
+                // Z * ?
+                self.builder.position_at_end(a1_le_0_block);
+                self.binary_op_ret(Interval {
+                    lower: zero,
+                    upper: zero,
+                });
+            }
+        }
+
+        f
+    }
+
     fn binary_op_prelude<'a>(
         &self,
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>, Interval<'ctx>) {
         let function =
             self.module.add_function(name, self.binary_fn_type_i, None);
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
         let lhs = function.get_nth_param(0).unwrap().into_array_value();
