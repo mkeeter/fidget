@@ -6,14 +6,6 @@ pub enum UnaryOpcode {
     Abs,
     Recip,
     Sqrt,
-    Sin,
-    Cos,
-    Tan,
-    Asin,
-    Acos,
-    Atan,
-    Exp,
-    Ln,
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -112,14 +104,6 @@ where
                 UnaryOpcode::Abs => out += "abs",
                 UnaryOpcode::Recip => out += "recip",
                 UnaryOpcode::Sqrt => out += "sqrt",
-                UnaryOpcode::Sin => out += "sin",
-                UnaryOpcode::Cos => out += "cos",
-                UnaryOpcode::Tan => out += "tan",
-                UnaryOpcode::Asin => out += "asin",
-                UnaryOpcode::Acos => out += "acos",
-                UnaryOpcode::Atan => out += "atan",
-                UnaryOpcode::Exp => out += "exp",
-                UnaryOpcode::Ln => out += "ln",
             },
         };
         out += &format!(

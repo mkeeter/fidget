@@ -334,98 +334,6 @@ impl Context {
         self.op_unary(a, UnaryOpcode::Sqrt)
     }
 
-    /// Builds a node which calculates the sine of its input (in radians)
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.sin(x).unwrap();
-    /// let v = ctx.eval_xyz(op, std::f64::consts::PI, 0.0, 0.0).unwrap();
-    /// assert!(v.abs() < 1e-8); // approximately 0
-    /// ```
-    pub fn sin(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Sin)
-    }
-    /// Builds a node which calculates the cosine of its input (in radians)
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.cos(x).unwrap();
-    /// let v = ctx.eval_xyz(op, std::f64::consts::PI * 2.0, 0.0, 0.0).unwrap();
-    /// assert!((v - 1.0).abs() < 1e-8); // approximately 1.0
-    /// ```
-    pub fn cos(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Cos)
-    }
-    /// Builds a node which calculates the tangent of its input (in radians)
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.tan(x).unwrap();
-    /// let v = ctx.eval_xyz(op, std::f64::consts::PI / 4.0, 0.0, 0.0).unwrap();
-    /// assert!((v - 1.0).abs() < 1e-8); // approximately 1.0
-    /// ```
-    pub fn tan(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Tan)
-    }
-    /// Builds a node which calculates the inverse sine of its input, returning
-    /// a value in radians.
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.asin(x).unwrap();
-    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
-    /// assert!((v - std::f64::consts::PI / 2.0).abs() < 1e-8);
-    /// ```
-    pub fn asin(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Asin)
-    }
-    /// Builds a node which calculates the inverse cosine of its input, returning
-    /// a value in radians.
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.acos(x).unwrap();
-    /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
-    /// assert!((v - std::f64::consts::PI / 2.0).abs() < 1e-8);
-    /// ```
-    pub fn acos(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Acos)
-    }
-    /// Builds a node which calculates the inverse cosine of its input, returning
-    /// a value in radians.
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.atan(x).unwrap();
-    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
-    /// assert!((v - std::f64::consts::PI / 4.0).abs() < 1e-8);
-    /// ```
-    pub fn atan(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Atan)
-    }
-    /// Builds a node which calculates the exponent (e^x) of the input
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.exp(x).unwrap();
-    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
-    /// assert!((v - std::f64::consts::E).abs() < 1e-8);
-    /// ```
-    pub fn exp(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Exp)
-    }
-    /// Builds a node which calculates the natural logaritm of its input
-    /// ```
-    /// # let mut ctx = jitfive::context::Context::new();
-    /// let x = ctx.x();
-    /// let op = ctx.ln(x).unwrap();
-    /// let v = ctx.eval_xyz(op, std::f64::consts::E, 0.0, 0.0).unwrap();
-    /// assert!((v - 1.0).abs() < 1e-8);
-    /// ```
-    pub fn ln(&mut self, a: Node) -> Result<Node, Error> {
-        self.op_unary(a, UnaryOpcode::Ln)
-    }
-
     ////////////////////////////////////////////////////////////////////////////
     // Derived functions
     /// Builds a node which squares its input
@@ -549,14 +457,6 @@ impl Context {
                     UnaryOpcode::Abs => a.abs(),
                     UnaryOpcode::Recip => 1.0 / a,
                     UnaryOpcode::Sqrt => a.sqrt(),
-                    UnaryOpcode::Sin => a.sin(),
-                    UnaryOpcode::Cos => a.cos(),
-                    UnaryOpcode::Tan => a.tan(),
-                    UnaryOpcode::Asin => a.asin(),
-                    UnaryOpcode::Acos => a.acos(),
-                    UnaryOpcode::Atan => a.atan(),
-                    UnaryOpcode::Exp => a.exp(),
-                    UnaryOpcode::Ln => a.ln(),
                 }
             }
         };
