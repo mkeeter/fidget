@@ -89,7 +89,7 @@ where
             GenericOp::Const(c) => out += &format!("{}", c),
             GenericOp::Var(v) => {
                 let v = vars.get_by_index(*v).unwrap();
-                out += &format!("{}", v)
+                out += v;
             }
             GenericOp::Binary(op, ..) => match op {
                 BinaryOpcode::Add => out += "add",

@@ -21,8 +21,7 @@ use inkwell::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
     types::{ArrayType, FloatType, FunctionType, IntType},
-    values::FunctionValue,
-    values::{FloatValue, IntValue},
+    values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
     AddressSpace, FloatPredicate, OptimizationLevel,
 };
 use log::info;
@@ -37,6 +36,11 @@ pub struct JitContext(Context);
 impl JitContext {
     pub fn new() -> Self {
         Self(Context::create())
+    }
+}
+impl Default for JitContext {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -209,29 +213,21 @@ impl<'ctx> JitCore<'ctx> {
         let shift = function.get_nth_param(3).unwrap().into_int_value();
 
         self.builder.position_at_end(entry_block);
-        let left_block = self
-            .context
-            .append_basic_block(function, &format!("minmax_left"));
-        let right_block = self
-            .context
-            .append_basic_block(function, &format!("minmax_right"));
-        let both_block = self
-            .context
-            .append_basic_block(function, &format!("minmax_both"));
-        let end_block = self
-            .context
-            .append_basic_block(function, &format!("minmax_end"));
+        let left_block =
+            self.context.append_basic_block(function, "minmax_left");
+        let right_block =
+            self.context.append_basic_block(function, "minmax_right");
+        let both_block =
+            self.context.append_basic_block(function, "minmax_both");
+        let end_block = self.context.append_basic_block(function, "minmax_end");
 
-        let choice_value_shr = self.builder.build_right_shift(
-            choice,
-            shift,
-            false,
-            &format!("choice_shr"),
-        );
+        let choice_value_shr =
+            self.builder
+                .build_right_shift(choice, shift, false, "choice_shr");
         let choice_value_masked = self.builder.build_and(
             choice_value_shr,
             self.i32_type.const_int(3, false),
-            &format!("choice_masked"),
+            "choice_masked",
         );
 
         self.builder.build_unconditional_branch(left_block);
@@ -241,7 +237,7 @@ impl<'ctx> JitCore<'ctx> {
             inkwell::IntPredicate::EQ,
             choice_value_masked,
             self.i32_type.const_int(LHS as u64, true),
-            &format!("left_cmp"),
+            "left_cmp",
         );
         self.builder
             .build_conditional_branch(left_cmp, end_block, right_block);
@@ -251,7 +247,7 @@ impl<'ctx> JitCore<'ctx> {
             inkwell::IntPredicate::EQ,
             choice_value_masked,
             self.i32_type.const_int(RHS as u64, true),
-            &format!("right_cmp"),
+            "right_cmp",
         );
         self.builder
             .build_conditional_branch(right_cmp, end_block, both_block);
@@ -259,7 +255,7 @@ impl<'ctx> JitCore<'ctx> {
         self.builder.position_at_end(both_block);
         let fmax_result = self
             .builder
-            .build_call(f, &[lhs.into(), rhs.into()], &format!("both"))
+            .build_call(f, &[lhs.into(), rhs.into()], "both")
             .try_as_basic_value()
             .left()
             .unwrap()
@@ -388,7 +384,7 @@ impl<'ctx> JitCore<'ctx> {
                             .build_call(
                                 fmin,
                                 &[a0b1().into(), a1b0().into()],
-                                &format!("min_result"),
+                                "min_result",
                             )
                             .try_as_basic_value()
                             .left()
@@ -399,7 +395,7 @@ impl<'ctx> JitCore<'ctx> {
                             .build_call(
                                 fmax,
                                 &[a0b0().into(), a1b1().into()],
-                                &format!("max_result"),
+                                "max_result",
                             )
                             .try_as_basic_value()
                             .left()
@@ -812,6 +808,12 @@ impl<'ctx> JitCore<'ctx> {
     }
 }
 
+#[derive(Copy, Clone)]
+enum EvalType {
+    Interval,
+    Float,
+}
+
 struct Jit<'a, 'ctx> {
     /// Compiled math expression to be JIT'ed
     t: &'a Compiler,
@@ -829,9 +831,12 @@ struct Jit<'a, 'ctx> {
 
     /// Last known use of a particular node
     ///
-    /// A `NodeIndex` may be stored in multiple `FloatValue` locations if it
-    /// needs to escape from recursive blocks via phi nodes.
-    values: BTreeMap<NodeIndex, FloatValue<'ctx>>,
+    /// Stores `FloatValues` when building a floating-point evaluator, and
+    /// `ArrayValue` when building an interval evaluator.
+    ///
+    /// A `NodeIndex` may be stored in multiple locations if it needs to escape
+    /// from recursive blocks via phi nodes.
+    values: BTreeMap<NodeIndex, BasicValueEnum<'ctx>>,
 
     /// Values in the `choices` array, loaded in at the `entry` point to
     /// reduce code size.
@@ -861,14 +866,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     core.builder.build_gep(
                         choice_base_ptr,
                         &[core.i32_type.const_int(i.try_into().unwrap(), true)],
-                        &format!("choice_ptr_{}", usize::from(i)),
+                        &format!("choice_ptr_{}", i),
                     )
                 };
                 core.builder
-                    .build_load(
-                        choice_ptr,
-                        &format!("choice_{}", usize::from(i)),
-                    )
+                    .build_load(choice_ptr, &format!("choice_{}", i))
                     .into_int_value()
             })
             .collect();
@@ -883,7 +885,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             choices,
             i: 0,
         };
-        worker.recurse(t.op_group[root]);
+        worker.recurse(t.op_group[root], EvalType::Float);
         worker
             .core
             .builder
@@ -931,18 +933,29 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     /// Recurses into the given group, building its children then its nodes
     ///
     /// Returns a set of active nodes
-    fn recurse(&mut self, g: GroupIndex) -> BTreeSet<(usize, NodeIndex)> {
+    fn recurse(
+        &mut self,
+        g: GroupIndex,
+        mode: EvalType,
+    ) -> BTreeSet<(usize, NodeIndex)> {
         let mut active = BTreeSet::new();
         let group = &self.t.groups[g];
         for &c in &group.children {
-            let child_active = self.build_child_group(g, c);
+            let child_active = self.build_child_group(g, c, mode);
             for c in child_active.into_iter() {
                 active.insert(c);
             }
         }
 
         for &n in &group.nodes {
-            self.build_op(g, n);
+            let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
+            let op = self.t.ops[n];
+            let v = match mode {
+                EvalType::Float => self.build_op_f(&node_name, op),
+                EvalType::Interval => self.build_op_i(&node_name, op),
+            };
+            self.values.insert(n, v);
+            self.i += 1;
 
             // This node is now active!
             active.insert((self.t.last_use[n], n));
@@ -960,19 +973,19 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     }
 
     /// Builds a single node's operation
-    fn build_op(&mut self, g: GroupIndex, n: NodeIndex) {
-        let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
-        let op = self.t.ops[n];
-        let value = match op {
+    fn build_op_f(&mut self, node_name: &str, op: Op) -> BasicValueEnum<'ctx> {
+        match op {
             Op::Var(v) => {
                 let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
                     "X" => 0,
                     "Y" => 1,
                     v => panic!("Unexpected var {:?}", v),
                 };
-                self.function.get_nth_param(i).unwrap().into_float_value()
+                self.function.get_nth_param(i).unwrap()
             }
-            Op::Const(f) => self.core.f32_type.const_float(f),
+            Op::Const(f) => {
+                self.core.f32_type.const_float(f).as_basic_value_enum()
+            }
             Op::Binary(op, a, b) => {
                 let f = match op {
                     BinaryOpcode::Add => Builder::build_float_add,
@@ -980,10 +993,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 };
                 f(
                     &self.core.builder,
-                    self.values[&a],
-                    self.values[&b],
-                    &node_name,
+                    self.values[&a].into_float_value(),
+                    self.values[&b].into_float_value(),
+                    node_name,
                 )
+                .as_basic_value_enum()
             }
 
             Op::BinaryChoice(op, a, b, c) => {
@@ -1004,45 +1018,119 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     .build_call(
                         f,
                         &[lhs.into(), rhs.into(), choice.into(), shift.into()],
-                        &format!("call_n{}", usize::from(n)),
+                        node_name,
                     )
                     .try_as_basic_value()
                     .left()
                     .unwrap()
-                    .into_float_value()
             }
             Op::Unary(op, a) => {
                 let call_intrinsic = |i| {
                     self.core
                         .builder
-                        .build_call(
-                            i,
-                            &[self.values[&a].into()],
-                            &format!("call_n{}", usize::from(n)),
-                        )
+                        .build_call(i, &[self.values[&a].into()], node_name)
                         .try_as_basic_value()
                         .left()
                         .unwrap()
-                        .into_float_value()
                 };
                 match op {
                     UnaryOpcode::Neg => self
                         .core
                         .builder
-                        .build_float_neg(self.values[&a], &node_name),
+                        .build_float_neg(
+                            self.values[&a].into_float_value(),
+                            node_name,
+                        )
+                        .as_basic_value_enum(),
                     UnaryOpcode::Abs => call_intrinsic(self.intrinsics.f_abs),
                     UnaryOpcode::Sqrt => call_intrinsic(self.intrinsics.f_sqrt),
-                    UnaryOpcode::Recip => self.core.builder.build_float_div(
-                        self.core.f32_type.const_float(1.0),
-                        self.values[&a],
-                        &node_name,
-                    ),
+                    UnaryOpcode::Recip => self
+                        .core
+                        .builder
+                        .build_float_div(
+                            self.core.f32_type.const_float(1.0),
+                            self.values[&a].into_float_value(),
+                            node_name,
+                        )
+                        .as_basic_value_enum(),
                 }
             }
-        };
-        self.values.insert(n, value);
+        }
+    }
 
-        self.i += 1;
+    /// Builds a single node's operation
+    fn build_op_i(&mut self, node_name: &str, op: Op) -> BasicValueEnum<'ctx> {
+        match op {
+            Op::Var(v) => {
+                let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
+                    "X" => 0,
+                    "Y" => 1,
+                    v => panic!("Unexpected var {:?}", v),
+                };
+                self.function.get_nth_param(i).unwrap()
+            }
+            Op::Const(f) => {
+                let v = self.core.f32_type.const_float(f);
+                self.core
+                    .f32_type
+                    .const_array(&[v, v])
+                    .as_basic_value_enum()
+            }
+            Op::Binary(op, a, b) => {
+                let f = match op {
+                    BinaryOpcode::Add => self.intrinsics.i_add,
+                    BinaryOpcode::Mul => self.intrinsics.i_mul,
+                };
+                let lhs = self.values[&a];
+                let rhs = self.values[&b];
+                self.core
+                    .builder
+                    .build_call(f, &[lhs.into(), rhs.into()], node_name)
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+            }
+
+            Op::BinaryChoice(op, a, b, c) => {
+                let c = usize::from(c);
+
+                let f = match op {
+                    // TODO
+                    BinaryChoiceOpcode::Min => self.intrinsics.f_min,
+                    BinaryChoiceOpcode::Max => self.intrinsics.f_max,
+                };
+                let lhs = self.values[&a];
+                let rhs = self.values[&b];
+                let choice = self.choices[c / 16];
+                let shift = (c % 16) * 2;
+                let shift = self.core.i32_type.const_int(shift as u64, false);
+
+                self.core
+                    .builder
+                    .build_call(
+                        f,
+                        &[lhs.into(), rhs.into(), choice.into(), shift.into()],
+                        node_name,
+                    )
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+            }
+            Op::Unary(op, a) => {
+                let f = match op {
+                    UnaryOpcode::Neg => self.intrinsics.i_neg,
+                    UnaryOpcode::Abs => self.intrinsics.i_abs,
+                    UnaryOpcode::Sqrt => self.intrinsics.i_sqrt,
+                    UnaryOpcode::Recip => unimplemented!(),
+                };
+                self.core
+                    .builder
+                    .build_call(f, &[self.values[&a].into()], node_name)
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+            }
+        }
     }
 
     /// Builds the conditional chain and recursion into a child group
@@ -1053,6 +1141,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         &mut self,
         group_index: GroupIndex,
         child_index: GroupIndex,
+        mode: EvalType,
     ) -> BTreeSet<(usize, NodeIndex)> {
         let child_group = &self.t.groups[child_index];
         let has_both_or_root = child_group
@@ -1136,7 +1225,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         };
 
         // Do the recursion
-        let active = self.recurse(child_index);
+        let active = self.recurse(child_index, mode);
         let recurse_block = self.function.get_last_basic_block().unwrap();
 
         let done_block = self.core.context.append_basic_block(
@@ -1166,8 +1255,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     (&self.values[&n], recurse_block),
                     (&self.core.f32_type.get_undef(), last_block),
                 ]);
-                self.values
-                    .insert(n, out.as_basic_value().into_float_value());
+                self.values.insert(n, out.as_basic_value());
             }
         } else {
             self.core.builder.position_at_end(done_block);

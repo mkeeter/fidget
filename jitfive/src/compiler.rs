@@ -256,13 +256,13 @@ impl Compiler {
     fn stage3_dot_recurse(&self, i: GroupIndex) -> String {
         let mut out = String::new();
         out += &format!("subgraph cluster_{}_g {{\n", usize::from(i));
-        out += &format!("color=\"grey\"\n");
+        out += "color=\"grey\"\n";
         out += &format!("label=\"{}\"\n", usize::from(i));
 
         // This group's nodes live in their own cluster
         out += &format!("subgraph cluster_{} {{\n", usize::from(i));
-        out += &format!("label=\"\"\n");
-        out += &format!("color=\"black\"\n");
+        out += "label=\"\"\n";
+        out += "color=\"black\"\n";
         let group = &self.groups[i];
         for n in &group.nodes {
             let op = self.ops[*n];

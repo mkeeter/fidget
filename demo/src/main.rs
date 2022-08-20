@@ -119,14 +119,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Finished rendering in {:?}", now.elapsed());
 
         // Convert from Vec<bool> to an image
-        let buffer: Vec<[u8; 4]> = out
+        let buffer: Vec<u8> = out
             .into_iter()
             .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+            .flat_map(|i| i.into_iter())
             .collect();
-
-        // Flatten into a single array
-        let buffer: Vec<u8> =
-            buffer.into_iter().flat_map(|i| i.into_iter()).collect();
 
         image::save_buffer(
             img,
