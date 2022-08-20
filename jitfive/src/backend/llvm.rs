@@ -32,7 +32,9 @@ use log::info;
 const LHS: u32 = 1;
 const RHS: u32 = 2;
 
-type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32) -> f32;
+type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32, *mut u32) -> f32;
+type IntervalFunc =
+    unsafe extern "C" fn([f32; 2], [f32; 2], *const u32, *mut u32) -> [f32; 2];
 
 /// Wrapper for an LLVM context
 pub struct JitContext(Context);
@@ -871,7 +873,7 @@ impl<'ctx> JitCore<'ctx> {
 
         // Handle the early exits, which both jump to the choice_end block
         self.builder.position_at_end(end_block);
-        let out = self.builder.build_phi(self.f32_type(), "out");
+        let out = self.builder.build_phi(T::ty(self), "out");
         out.add_incoming(&[(&a, left_block), (&b, right_block)]);
 
         let out = out.as_basic_value();
@@ -930,13 +932,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 }
 
-#[derive(Copy, Clone)]
-enum EvalType {
-    Interval,
-    Float,
-}
-
-struct Jit<'a, 'ctx> {
+struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
     /// Compiled math expression to be JIT'ed
     t: &'a Compiler,
 
@@ -947,8 +943,7 @@ struct Jit<'a, 'ctx> {
     function: FunctionValue<'ctx>,
 
     /// Functions to use when rendering
-    math_f: JitMath<'ctx, Float<'ctx>>,
-    math_i: JitMath<'ctx, Interval<'ctx>>,
+    math: JitMath<'ctx, T>,
 
     /// Last known use of a particular node
     ///
@@ -965,15 +960,16 @@ struct Jit<'a, 'ctx> {
 
     /// Index in the opcode tape
     i: usize,
+
+    _p: std::marker::PhantomData<&'ctx T>,
 }
 
-impl<'a, 'ctx> Jit<'a, 'ctx> {
-    fn build(t: &'a Compiler, core: JitCore<'ctx>) -> Self {
+impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
+    fn build(name: &str, t: &'a Compiler, core: JitCore<'ctx>) -> Self {
         let intrinsics = core.get_intrinsics();
-        let math_i = core.get_math_i(&intrinsics);
-        let math_f = core.get_math_f(&intrinsics);
+        let math = T::get_math(&core, &intrinsics);
 
-        let function = core.shape_prelude::<Float>("shape_f");
+        let function = core.shape_prelude::<T>(name);
 
         let choice_array_size = (t.num_choices + 15) / 16;
         let choice_base_ptr =
@@ -999,13 +995,13 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             t,
             core,
             function,
-            math_i,
-            math_f,
+            math,
             values: BTreeMap::new(),
             choices,
             i: 0,
+            _p: std::marker::PhantomData,
         };
-        worker.recurse(t.op_group[root], EvalType::Float);
+        worker.recurse(t.op_group[root]);
         worker
             .core
             .builder
@@ -1017,6 +1013,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         );
         worker.core.module.print_to_file("jit.ll").unwrap();
 
+        /*
         // Run an optimization pass on the IR, which is mostly helpful to inline
         // function calls.
         Target::initialize_native(&InitializationConfig::default()).unwrap();
@@ -1046,6 +1043,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             "LLVM module is {} characters (post-optimization)",
             worker.core.module.to_string().len()
         );
+        */
 
         worker
     }
@@ -1053,15 +1051,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     /// Recurses into the given group, building its children then its nodes
     ///
     /// Returns a set of active nodes
-    fn recurse(
-        &mut self,
-        g: GroupIndex,
-        mode: EvalType,
-    ) -> BTreeSet<(usize, NodeIndex)> {
+    fn recurse(&mut self, g: GroupIndex) -> BTreeSet<(usize, NodeIndex)> {
         let mut active = BTreeSet::new();
         let group = &self.t.groups[g];
         for &c in &group.children {
-            let child_active = self.build_child_group(g, c, mode);
+            let child_active = self.build_child_group(g, c);
             for c in child_active.into_iter() {
                 active.insert(c);
             }
@@ -1070,12 +1064,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         for &n in &group.nodes {
             let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
             let op = self.t.ops[n];
-            let v = match mode {
-                EvalType::Float => self.build_op(&node_name, op, &self.math_f),
-                EvalType::Interval => {
-                    self.build_op(&node_name, op, &self.math_i)
-                }
-            };
+            let v = self.build_op(&node_name, op);
             self.values.insert(n, v);
             self.i += 1;
 
@@ -1095,12 +1084,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     }
 
     /// Builds a single node's operation
-    fn build_op<T: JitValue<'ctx>>(
-        &self,
-        node_name: &str,
-        op: Op,
-        math: &JitMath<'ctx, T>,
-    ) -> BasicValueEnum<'ctx> {
+    fn build_op(&self, node_name: &str, op: Op) -> BasicValueEnum<'ctx> {
         match op {
             Op::Var(v) => {
                 let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
@@ -1113,8 +1097,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             Op::Const(f) => T::const_value(&self.core, f),
             Op::Binary(op, a, b) => {
                 let f = match op {
-                    BinaryOpcode::Add => math.add,
-                    BinaryOpcode::Mul => math.mul,
+                    BinaryOpcode::Add => self.math.add,
+                    BinaryOpcode::Mul => self.math.mul,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1130,8 +1114,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let c = usize::from(c);
 
                 let f = match op {
-                    BinaryChoiceOpcode::Min => math.min,
-                    BinaryChoiceOpcode::Max => math.max,
+                    BinaryChoiceOpcode::Min => self.math.min,
+                    BinaryChoiceOpcode::Max => self.math.max,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1162,10 +1146,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
             Op::Unary(op, a) => {
                 let f = match op {
-                    UnaryOpcode::Neg => math.neg,
-                    UnaryOpcode::Abs => math.abs,
-                    UnaryOpcode::Sqrt => math.sqrt,
-                    UnaryOpcode::Recip => math.recip,
+                    UnaryOpcode::Neg => self.math.neg,
+                    UnaryOpcode::Abs => self.math.abs,
+                    UnaryOpcode::Sqrt => self.math.sqrt,
+                    UnaryOpcode::Recip => self.math.recip,
                 };
                 self.core
                     .builder
@@ -1185,7 +1169,6 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         &mut self,
         group_index: GroupIndex,
         child_index: GroupIndex,
-        mode: EvalType,
     ) -> BTreeSet<(usize, NodeIndex)> {
         let child_group = &self.t.groups[child_index];
         let has_both_or_root = child_group
@@ -1269,7 +1252,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         };
 
         // Do the recursion
-        let active = self.recurse(child_index, mode);
+        let active = self.recurse(child_index);
         let recurse_block = self.function.get_last_basic_block().unwrap();
 
         let done_block = self.core.context.append_basic_block(
@@ -1288,7 +1271,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             // block into the parent block's context for active nodes
             for n in active.iter().map(|(_, n)| *n) {
                 let out = self.core.builder.build_phi(
-                    self.core.f32_type(),
+                    T::ty(&self.core),
                     &format!(
                         "g{}n{}",
                         usize::from(group_index),
@@ -1331,6 +1314,12 @@ trait JitValue<'ctx> {
         core: &'a JitCore<'ctx>,
     ) -> BasicValueEnum<'ctx>;
     fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx>;
+    fn get_math(
+        core: &JitCore<'ctx>,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, Self>
+    where
+        Self: Sized;
 }
 
 impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
@@ -1376,6 +1365,12 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
             .unwrap();
         out2.as_basic_value_enum()
     }
+    fn get_math(
+        core: &JitCore<'ctx>,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, Interval<'ctx>> {
+        core.get_math_i(&intrinsics)
+    }
 }
 
 impl<'ctx> JitValue<'ctx> for Float<'ctx> {
@@ -1401,25 +1396,49 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     ) -> BasicValueEnum<'ctx> {
         self.value.as_basic_value_enum()
     }
+    fn get_math(
+        core: &JitCore<'ctx>,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, Float<'ctx>> {
+        core.get_math_f(&intrinsics)
+    }
 }
 
 pub fn to_jit_fn<'a, 'b>(
     t: &'a Compiler,
     context: &'b JitContext,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
+    info!("Building float JIT function");
     let now = Instant::now();
-    info!("Building JIT function");
-    let jit_core = JitCore::new(&context.0);
-    let jit = Jit::build(t, jit_core);
-    info!("Finished building JIT function in {:?}", now.elapsed());
+    let jit_core_f = JitCore::new(&context.0);
+    let jit_f: Jit<Float> = Jit::build("shape_f", t, jit_core_f);
+    info!("Built float JIT function in {:?}", now.elapsed());
 
+    info!("Building interval JIT function");
     let now = Instant::now();
-    info!("Compiling...");
-    let execution_engine = jit
+    let jit_core_i = JitCore::new(&context.0);
+    let jit_i: Jit<Interval> = Jit::build("shape_i", t, jit_core_i);
+    info!("Built interval JIT function in {:?}", now.elapsed());
+
+    info!("Compiling float function...");
+    let now = Instant::now();
+    let execution_engine = jit_f
         .core
         .module
         .create_jit_execution_engine(OptimizationLevel::Default)?;
-    let out = unsafe { execution_engine.get_function("shape_f")? };
-    info!("Extracted JIT function in {:?}", now.elapsed());
-    Ok(out)
+    let out_f: JitFunction<FloatFunc> =
+        unsafe { execution_engine.get_function("shape_f")? };
+    info!("Extracted float JIT function in {:?}", now.elapsed());
+
+    info!("Compiling interval function...");
+    let now = Instant::now();
+    let execution_engine = jit_i
+        .core
+        .module
+        .create_jit_execution_engine(OptimizationLevel::Default)?;
+    let out_i: JitFunction<IntervalFunc> =
+        unsafe { execution_engine.get_function("shape_i")? };
+    info!("Extracted interval JIT function in {:?}", now.elapsed());
+
+    Ok(out_f)
 }
