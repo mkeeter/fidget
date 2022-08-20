@@ -111,7 +111,6 @@ struct JitCore<'ctx> {
 /// Derived types associated with a particular evaluation mode
 struct JitType<'ctx> {
     ty: BasicTypeEnum<'ctx>,
-    binary_choice_fn: FunctionType<'ctx>,
     shape_fn: FunctionType<'ctx>,
 }
 
@@ -126,20 +125,10 @@ impl<'ctx> JitType<'ctx> {
         BasicMetadataTypeEnum<'ctx>: From<T>,
         BasicTypeEnum<'ctx>: From<T>,
     {
-        let binary_choice_fn = ty.fn_type(
-            &[
-                ty.into(),       // lhs
-                ty.into(),       // rhs
-                i32_type.into(), // choice
-                i32_type.into(), // shift
-            ],
-            false,
-        );
         let shape_fn = ty
             .fn_type(&[ty.into(), ty.into(), i32_const_ptr_type.into()], false);
         Self {
             ty: ty.into(),
-            binary_choice_fn,
             shape_fn,
         }
     }
@@ -284,14 +273,16 @@ impl<'ctx> JitCore<'ctx> {
         let i_add = self.build_i_add();
         let i_mul = self.build_i_mul(intrinsics.minnum, intrinsics.maxnum);
         let i_neg = self.build_i_neg();
+        let i_max = self.build_i_max(intrinsics.maxnum);
+        let i_min = self.build_i_min(intrinsics.minnum);
         let i_abs = self.build_i_abs(intrinsics.maxnum);
         let i_sqrt = self.build_i_sqrt(intrinsics.sqrt);
 
         JitMath {
             add: i_add,
             mul: i_mul,
-            max: i_mul, // TODO
-            min: i_mul, // TODO
+            max: i_max,
+            min: i_min,
             neg: i_neg,
             abs: i_abs,
             sqrt: i_sqrt,
@@ -324,6 +315,48 @@ impl<'ctx> JitCore<'ctx> {
             lower: out_lo,
             upper: out_hi,
         });
+        f
+    }
+
+    fn build_i_max(&self, maxnum: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
+        let (f, lhs, rhs, _shift, _out) =
+            self.binary_choice_op_prelude::<Interval>("i_max");
+        let lower = self
+            .builder
+            .build_call(maxnum, &[lhs.lower.into(), rhs.lower.into()], "lower")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        let upper = self
+            .builder
+            .build_call(maxnum, &[lhs.upper.into(), rhs.upper.into()], "upper")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.build_return_i(Interval { lower, upper });
+        f
+    }
+
+    fn build_i_min(&self, minnum: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
+        let (f, lhs, rhs, _shift, _out) =
+            self.binary_choice_op_prelude::<Interval>("i_min");
+        let lower = self
+            .builder
+            .build_call(minnum, &[lhs.lower.into(), rhs.lower.into()], "lower")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        let upper = self
+            .builder
+            .build_call(minnum, &[lhs.upper.into(), rhs.upper.into()], "upper")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.build_return_i(Interval { lower, upper });
         f
     }
 
@@ -799,7 +832,7 @@ impl<'ctx> JitCore<'ctx> {
     ///     }
     /// ```
     ///
-    /// Returns `(f, lhs, rhs, shift, out)`
+    /// Returns `(op, lhs, rhs, shift, out)`
     fn binary_choice_op_prelude<T: JitValue<'ctx>>(
         &self,
         name: &str,
