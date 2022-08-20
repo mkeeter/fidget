@@ -41,14 +41,47 @@ impl JitContext {
 }
 
 struct JitIntrinsics<'ctx> {
+    /// `fn abs(f: f32) -> f32`
     f_abs: FunctionValue<'ctx>,
+
+    /// `fn sqrt(f: f32) -> f32`
     f_sqrt: FunctionValue<'ctx>,
-    f_max: FunctionValue<'ctx>,
+
+    /// `fn min(lhs: f32, rhs: f32, choice: u32, shift: u32) -> f32`
+    ///
+    /// Right-shifts `choice` by `shift`, then checks its lowest two bits:
+    /// - `0b01 => lhs`
+    /// - `0b10 => rhs`
+    /// - `0b11 => fmin(lhs, rhs)`
+    /// (`0b00` is invalid, but will end up calling `fmin`)
     f_min: FunctionValue<'ctx>,
-    fc_min: FunctionValue<'ctx>,
-    fc_max: FunctionValue<'ctx>,
+
+    /// `fn max(lhs: f32, rhs: f32, choice: u32, shift: u32) -> f32`
+    ///
+    /// Right-shifts `choice` by `shift`, then checks its lowest two bits:
+    /// - `0b01 => lhs`
+    /// - `0b10 => rhs`
+    /// - `0b11 => fmax(lhs, rhs)`
+    /// (`0b00` is invalid, but will end up calling `fmax`)
+    f_max: FunctionValue<'ctx>,
+
+    /// `fn i_add(lhs: [f32; 2], rhs: [f32; 2]) -> [f32; 2]`
     i_add: FunctionValue<'ctx>,
+
+    /// `fn i_mul(lhs: [f32; 2], rhs: [f32; 2]) -> [f32; 2]`
     i_mul: FunctionValue<'ctx>,
+
+    /// `fn i_neg(a: [f32; 2]) -> [f32; 2]`
+    i_neg: FunctionValue<'ctx>,
+
+    /// `fn i_abs(a: [f32; 2]) -> [f32; 2]`
+    i_abs: FunctionValue<'ctx>,
+
+    /// `fn i_recip(a: [f32; 2]) -> [f32; 2]`
+    //i_recip: FunctionValue<'ctx>,
+
+    /// `fn i_sqrt(a: [f32; 2]) -> [f32; 2]`
+    i_sqrt: FunctionValue<'ctx>,
 }
 
 struct JitCore<'ctx> {
@@ -59,6 +92,7 @@ struct JitCore<'ctx> {
     i32_type: IntType<'ctx>,
     interval_type: ArrayType<'ctx>,
     binary_fn_type_i: FunctionType<'ctx>,
+    unary_fn_type_i: FunctionType<'ctx>,
     binary_choice_fn_type_f: FunctionType<'ctx>,
     shape_fn_type: FunctionType<'ctx>,
     always_inline: Attribute,
@@ -75,6 +109,8 @@ impl<'ctx> JitCore<'ctx> {
 
         let binary_fn_type_i = interval_type
             .fn_type(&[interval_type.into(), interval_type.into()], false);
+        let unary_fn_type_i =
+            interval_type.fn_type(&[interval_type.into()], false);
 
         let binary_choice_fn_type_f = f32_type.fn_type(
             &[
@@ -103,6 +139,7 @@ impl<'ctx> JitCore<'ctx> {
             i32_type,
             interval_type,
             binary_fn_type_i,
+            unary_fn_type_i,
             binary_choice_fn_type_f,
             shape_fn_type,
             always_inline,
@@ -129,13 +166,16 @@ impl<'ctx> JitCore<'ctx> {
     fn get_intrinsics(&self) -> JitIntrinsics<'ctx> {
         let f_abs = self.get_unary_intrinsic_f("abs");
         let f_sqrt = self.get_unary_intrinsic_f("sqrt");
-        let f_max = self.get_binary_intrinsic_f("maxnum");
-        let f_min = self.get_binary_intrinsic_f("minnum");
-        let fc_min = self.build_min_max("f_min", f_min);
-        let fc_max = self.build_min_max("f_max", f_max);
+        let maxnum = self.get_binary_intrinsic_f("maxnum");
+        let minnum = self.get_binary_intrinsic_f("minnum");
+        let f_min = self.build_min_max("f_min", minnum);
+        let f_max = self.build_min_max("f_max", maxnum);
 
         let i_add = self.build_i_add();
-        let i_mul = self.build_i_mul(f_min, f_max);
+        let i_mul = self.build_i_mul(minnum, maxnum);
+        let i_neg = self.build_i_neg();
+        let i_abs = self.build_i_abs(maxnum);
+        let i_sqrt = self.build_i_sqrt(f_sqrt);
 
         JitIntrinsics {
             f_abs,
@@ -144,8 +184,9 @@ impl<'ctx> JitCore<'ctx> {
             f_min,
             i_add,
             i_mul,
-            fc_min,
-            fc_max,
+            i_neg,
+            i_abs,
+            i_sqrt,
         }
     }
 
@@ -240,7 +281,7 @@ impl<'ctx> JitCore<'ctx> {
             self.builder.build_float_add(lhs.lower, rhs.lower, "out_lo");
         let out_hi =
             self.builder.build_float_add(lhs.upper, rhs.upper, "out_hi");
-        self.binary_op_ret(Interval {
+        self.build_return(Interval {
             lower: out_lo,
             upper: out_hi,
         });
@@ -365,12 +406,12 @@ impl<'ctx> JitCore<'ctx> {
                             .unwrap()
                             .into_float_value();
 
-                        self.binary_op_ret(Interval { lower, upper });
+                        self.build_return(Interval { lower, upper });
                     }
                     {
                         // M * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a1b0(),
                             upper: a0b0(),
                         });
@@ -390,7 +431,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // M * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a0b1(),
                             upper: a1b1(),
                         });
@@ -398,7 +439,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // M * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -430,7 +471,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * M
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a0b1(),
                             upper: a0b0(),
                         });
@@ -438,7 +479,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a1b1(),
                             upper: a0b0(),
                         });
@@ -458,7 +499,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a0b1(),
                             upper: a1b0(),
                         });
@@ -466,7 +507,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -510,7 +551,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * M
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a1b0(),
                             upper: a1b1(),
                         });
@@ -518,7 +559,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a1b0(),
                             upper: a0b1(),
                         });
@@ -538,7 +579,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: a0b0(),
                             upper: a1b1(),
                         });
@@ -546,7 +587,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.binary_op_ret(Interval {
+                        self.build_return(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -556,17 +597,165 @@ impl<'ctx> JitCore<'ctx> {
             {
                 // Z * ?
                 self.builder.position_at_end(a1_le_0_block);
-                self.binary_op_ret(Interval {
+                self.build_return(Interval {
                     lower: zero,
                     upper: zero,
                 });
             }
         }
+        f
+    }
+
+    fn build_i_neg(&self) -> FunctionValue<'ctx> {
+        let (f, a) = self.unary_op_prelude("i_neg");
+        let upper = self.builder.build_float_neg(a.lower, "upper");
+        let lower = self.builder.build_float_neg(a.upper, "lower");
+        self.build_return(Interval { lower, upper });
+        f
+    }
+
+    fn build_i_abs(&self, fmax: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
+        let (f, a) = self.unary_op_prelude("i_abs");
+        let zero = self.f32_type.const_float(0.0);
+        let lower_ge_0 = self.builder.build_float_compare(
+            FloatPredicate::OGE,
+            a.lower,
+            zero,
+            "lower_ge_0",
+        );
+        let lower_ge_0_block = self.context.append_basic_block(f, "lower_ge_0");
+        let lower_lt_0_block = self.context.append_basic_block(f, "lower_lt_0");
+        self.builder.build_conditional_branch(
+            lower_ge_0,
+            lower_ge_0_block,
+            lower_lt_0_block,
+        );
+        self.builder.position_at_end(lower_ge_0_block);
+        self.build_return(a);
+        self.builder.position_at_end(lower_lt_0_block);
+        let upper_le_0 = self.builder.build_float_compare(
+            FloatPredicate::OLE,
+            a.upper,
+            zero,
+            "upper_le_0",
+        );
+        let upper_le_0_block = self.context.append_basic_block(f, "upper_le_0");
+        let upper_gt_0_block = self.context.append_basic_block(f, "upper_gt_0");
+        self.builder.build_conditional_branch(
+            upper_le_0,
+            upper_le_0_block,
+            upper_gt_0_block,
+        );
+        self.builder.position_at_end(upper_le_0_block);
+        let upper = self.builder.build_float_neg(a.lower, "upper");
+        let lower = self.builder.build_float_neg(a.upper, "lower");
+        self.build_return(Interval { lower, upper });
+
+        self.builder.position_at_end(upper_gt_0_block);
+        let neg_lower = self.builder.build_float_neg(a.lower, "neg_lower");
+        let upper = self
+            .builder
+            .build_call(fmax, &[neg_lower.into(), a.upper.into()], "max")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.build_return(Interval { lower: zero, upper });
+        f
+    }
+
+    fn build_i_sqrt(&self, fsqrt: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
+        let (f, a) = self.unary_op_prelude("i_sqrt");
+        let zero = self.f32_type.const_float(0.0);
+        let upper_lt_0 = self.builder.build_float_compare(
+            FloatPredicate::OLT,
+            a.upper,
+            zero,
+            "upper_lt_0",
+        );
+        let upper_lt_0_block = self.context.append_basic_block(f, "upper_lt_0");
+        let upper_ge_0_block = self.context.append_basic_block(f, "upper_ge_0");
+        self.builder.build_conditional_branch(
+            upper_lt_0,
+            upper_lt_0_block,
+            upper_ge_0_block,
+        );
+        self.builder.position_at_end(upper_lt_0_block);
+        let nan = self.f32_type.const_float(f64::NAN);
+        self.build_return(Interval {
+            lower: nan,
+            upper: nan,
+        });
+
+        self.builder.position_at_end(upper_ge_0_block);
+        let lower_le_0 = self.builder.build_float_compare(
+            FloatPredicate::OLE,
+            a.lower,
+            zero,
+            "lower_le_0",
+        );
+        let lower_le_0_block = self.context.append_basic_block(f, "lower_le_0");
+        let lower_gt_0_block = self.context.append_basic_block(f, "lower_gt_0");
+        self.builder.build_conditional_branch(
+            lower_le_0,
+            lower_le_0_block,
+            lower_gt_0_block,
+        );
+
+        self.builder.position_at_end(lower_le_0_block);
+        let upper = self
+            .builder
+            .build_call(fsqrt, &[a.upper.into()], "sqrt_upper")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.build_return(Interval { lower: zero, upper });
+
+        self.builder.position_at_end(lower_gt_0_block);
+        let lower = self
+            .builder
+            .build_call(fsqrt, &[a.lower.into()], "sqrt_lower")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        let upper = self
+            .builder
+            .build_call(fsqrt, &[a.upper.into()], "sqrt_upper")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.build_return(Interval { lower, upper });
 
         f
     }
 
-    fn binary_op_prelude<'a>(
+    fn unary_op_prelude(
+        &self,
+        name: &str,
+    ) -> (FunctionValue<'ctx>, Interval<'ctx>) {
+        let function =
+            self.module.add_function(name, self.unary_fn_type_i, None);
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        let a = function.get_nth_param(0).unwrap().into_array_value();
+        let lower = self
+            .builder
+            .build_extract_value(a, 0, "in_lo")
+            .unwrap()
+            .into_float_value();
+        let upper = self
+            .builder
+            .build_extract_value(a, 1, "in_hi")
+            .unwrap()
+            .into_float_value();
+        (function, Interval { lower, upper })
+    }
+
+    fn binary_op_prelude(
         &self,
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>, Interval<'ctx>) {
@@ -609,7 +798,7 @@ impl<'ctx> JitCore<'ctx> {
             },
         )
     }
-    fn binary_op_ret(&self, out: Interval) {
+    fn build_return(&self, out: Interval) {
         let out0 = self.interval_type.const_zero();
         let out1 = self
             .builder
@@ -801,8 +990,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let c = usize::from(c);
 
                 let f = match op {
-                    BinaryChoiceOpcode::Min => self.intrinsics.fc_min,
-                    BinaryChoiceOpcode::Max => self.intrinsics.fc_max,
+                    BinaryChoiceOpcode::Min => self.intrinsics.f_min,
+                    BinaryChoiceOpcode::Max => self.intrinsics.f_max,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -987,6 +1176,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     }
 }
 
+#[derive(Copy, Clone)]
 struct Interval<'ctx> {
     lower: FloatValue<'ctx>,
     upper: FloatValue<'ctx>,
