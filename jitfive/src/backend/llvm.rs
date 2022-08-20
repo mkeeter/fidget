@@ -21,7 +21,7 @@ use inkwell::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
     types::{
-        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, FloatType,
+        ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
         FunctionType, IntType, PointerType,
     },
     values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
@@ -47,6 +47,7 @@ impl Default for JitContext {
     }
 }
 
+/// Common LLVM intrinsics
 struct JitIntrinsics<'ctx> {
     abs: FunctionValue<'ctx>,
     sqrt: FunctionValue<'ctx>,
@@ -54,23 +55,24 @@ struct JitIntrinsics<'ctx> {
     maxnum: FunctionValue<'ctx>,
 }
 
+/// Library of math functions, specialized to a given type
 struct JitMath<'ctx, T> {
-    /// `fn i_add(lhs: T, rhs: T) -> T`
+    /// `fn add(lhs: T, rhs: T) -> T`
     add: FunctionValue<'ctx>,
 
-    /// `fn i_mul(lhs: T, rhs: T) -> T`
+    /// `fn mul(lhs: T, rhs: T) -> T`
     mul: FunctionValue<'ctx>,
 
-    /// `fn i_neg(a: T) -> T`
+    /// `fn neg(a: T) -> T`
     neg: FunctionValue<'ctx>,
 
-    /// `fn i_abs(a: T) -> T`
+    /// `fn abs(a: T) -> T`
     abs: FunctionValue<'ctx>,
 
-    /// `fn i_recip(a: T) -> T`
+    /// `fn recip(a: T) -> T`
     recip: FunctionValue<'ctx>,
 
-    /// `fn i_sqrt(a: T) -> T`
+    /// `fn sqrt(a: T) -> T`
     sqrt: FunctionValue<'ctx>,
 
     /// `fn min(lhs: T, rhs: T, choice: u32, shift: u32) -> T`
@@ -106,10 +108,8 @@ struct JitCore<'ctx> {
 
 /// Derived types associated with a particular evaluation mode
 struct JitType<'ctx> {
-    ty: AnyTypeEnum<'ctx>,
-    binary_fn: FunctionType<'ctx>,
+    ty: BasicTypeEnum<'ctx>,
     binary_choice_fn: FunctionType<'ctx>,
-    unary_fn: FunctionType<'ctx>,
     shape_fn: FunctionType<'ctx>,
 }
 
@@ -122,16 +122,8 @@ impl<'ctx> JitType<'ctx> {
     where
         T: BasicType<'ctx> + Copy + Clone,
         BasicMetadataTypeEnum<'ctx>: From<T>,
-        AnyTypeEnum<'ctx>: From<T>,
+        BasicTypeEnum<'ctx>: From<T>,
     {
-        let unary_fn = ty.fn_type(&[ty.into()], false);
-        let binary_fn = ty.fn_type(
-            &[
-                ty.into(), // lhs
-                ty.into(), // rhs
-            ],
-            false,
-        );
         let binary_choice_fn = ty.fn_type(
             &[
                 ty.into(),       // lhs
@@ -145,9 +137,7 @@ impl<'ctx> JitType<'ctx> {
             .fn_type(&[ty.into(), ty.into(), i32_const_ptr_type.into()], false);
         Self {
             ty: ty.into(),
-            binary_fn,
             binary_choice_fn,
-            unary_fn,
             shape_fn,
         }
     }
@@ -212,42 +202,42 @@ impl<'ctx> JitCore<'ctx> {
         let f_min = self.build_min_max("f_min", intrinsics.minnum);
         let f_max = self.build_min_max("f_max", intrinsics.maxnum);
 
-        let (f_add, lhs, rhs) = self.binary_op_prelude_f("f_add");
-        let sum = self.builder.build_float_add(lhs, rhs, "sum");
+        let (f_add, lhs, rhs) = self.binary_op_prelude::<Float>("f_add");
+        let sum = self.builder.build_float_add(lhs.value, rhs.value, "sum");
         self.builder.build_return(Some(&sum));
 
-        let (f_mul, lhs, rhs) = self.binary_op_prelude_f("f_mul");
-        let prod = self.builder.build_float_mul(lhs, rhs, "prod");
+        let (f_mul, lhs, rhs) = self.binary_op_prelude::<Float>("f_mul");
+        let prod = self.builder.build_float_mul(lhs.value, rhs.value, "prod");
         self.builder.build_return(Some(&prod));
 
-        let (f_neg, lhs) = self.unary_op_prelude_f("f_neg");
-        let neg = self.builder.build_float_neg(lhs, "neg");
+        let (f_neg, lhs) = self.unary_op_prelude::<Float>("f_neg");
+        let neg = self.builder.build_float_neg(lhs.value, "neg");
         self.builder.build_return(Some(&neg));
 
-        let (f_abs, lhs) = self.unary_op_prelude_f("f_abs");
+        let (f_abs, lhs) = self.unary_op_prelude::<Float>("f_abs");
         let abs = self
             .builder
-            .build_call(intrinsics.abs, &[lhs.into()], "abs")
+            .build_call(intrinsics.abs, &[lhs.value.into()], "abs")
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_float_value();
         self.builder.build_return(Some(&abs));
 
-        let (f_sqrt, lhs) = self.unary_op_prelude_f("f_sqrt");
+        let (f_sqrt, lhs) = self.unary_op_prelude::<Float>("f_sqrt");
         let sqrt = self
             .builder
-            .build_call(intrinsics.sqrt, &[lhs.into()], "sqrt")
+            .build_call(intrinsics.sqrt, &[lhs.value.into()], "sqrt")
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_float_value();
         self.builder.build_return(Some(&sqrt));
 
-        let (f_recip, lhs) = self.unary_op_prelude_f("f_recip");
+        let (f_recip, lhs) = self.unary_op_prelude::<Float>("f_recip");
         let recip = self.builder.build_float_div(
             self.f32_type().const_float(1.0),
-            lhs,
+            lhs.value,
             "recip",
         );
         self.builder.build_return(Some(&recip));
@@ -294,12 +284,12 @@ impl<'ctx> JitCore<'ctx> {
         let maxnum = self.get_binary_intrinsic_f("maxnum");
         let minnum = self.get_binary_intrinsic_f("minnum");
 
-        return JitIntrinsics {
+        JitIntrinsics {
             abs,
             sqrt,
             maxnum,
             minnum,
-        };
+        }
     }
 
     fn build_min_max(
@@ -380,7 +370,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_add(&self) -> FunctionValue<'ctx> {
-        let (f, lhs, rhs) = self.binary_op_prelude_i("i_add");
+        let (f, lhs, rhs) = self.binary_op_prelude::<Interval>("i_add");
         let out_lo =
             self.builder.build_float_add(lhs.lower, rhs.lower, "out_lo");
         let out_hi =
@@ -394,12 +384,12 @@ impl<'ctx> JitCore<'ctx> {
 
     fn build_i_mul(
         &self,
-        fmin: FunctionValue,
-        fmax: FunctionValue,
+        fmin: FunctionValue<'ctx>,
+        fmax: FunctionValue<'ctx>,
     ) -> FunctionValue<'ctx> {
         // It ain't pretty, but it works: this is a manual port of
         // boost::interval's multiplication code into LLVM IR.
-        let (f, lhs, rhs) = self.binary_op_prelude_i("i_mul");
+        let (f, lhs, rhs) = self.binary_op_prelude::<Interval>("i_mul");
         let zero = self.f32_type().const_float(0.0);
 
         let a0_lt_0 = || {
@@ -711,7 +701,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_neg(&self) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude_i("i_neg");
+        let (f, a) = self.unary_op_prelude::<Interval>("i_neg");
         let upper = self.builder.build_float_neg(a.lower, "upper");
         let lower = self.builder.build_float_neg(a.upper, "lower");
         self.build_return_i(Interval { lower, upper });
@@ -719,7 +709,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_abs(&self, fmax: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude_i("i_abs");
+        let (f, a) = self.unary_op_prelude::<Interval>("i_abs");
         let zero = self.f32_type().const_float(0.0);
         let lower_ge_0 = self.builder.build_float_compare(
             FloatPredicate::OGE,
@@ -769,7 +759,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_sqrt(&self, fsqrt: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude_i("i_sqrt");
+        let (f, a) = self.unary_op_prelude::<Interval>("i_sqrt");
         let zero = self.f32_type().const_float(0.0);
         let upper_lt_0 = self.builder.build_float_compare(
             FloatPredicate::OLT,
@@ -836,111 +826,41 @@ impl<'ctx> JitCore<'ctx> {
         f
     }
 
-    fn unary_op_prelude_f(
+    fn unary_op_prelude<T: JitValue<'ctx>>(
         &self,
         name: &str,
-    ) -> (FunctionValue<'ctx>, FloatValue<'ctx>) {
-        let function =
-            self.module.add_function(name, self.float.unary_fn, None);
+    ) -> (FunctionValue<'ctx>, T) {
+        let ty = T::ty(self);
+        let fn_ty = ty.fn_type(&[ty.into()], false);
+        let function = self.module.add_function(name, fn_ty, None);
         function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
-        let lhs = function.get_nth_param(0).unwrap().into_float_value();
-        (function, lhs)
+        let a = function.get_nth_param(0).unwrap();
+        let i = T::from_basic_value_enum(self, a);
+        (function, i)
     }
 
-    fn unary_op_prelude_i(
+    fn binary_op_prelude<T: JitValue<'ctx>>(
         &self,
         name: &str,
-    ) -> (FunctionValue<'ctx>, Interval<'ctx>) {
-        let function =
-            self.module.add_function(name, self.interval.unary_fn, None);
+    ) -> (FunctionValue<'ctx>, T, T) {
+        let ty = T::ty(self);
+        let fn_ty = ty.fn_type(&[ty.into(), ty.into()], false);
+        let function = self.module.add_function(name, fn_ty, None);
         function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
-        let a = function.get_nth_param(0).unwrap().into_array_value();
-        let lower = self
-            .builder
-            .build_extract_value(a, 0, "in_lo")
-            .unwrap()
-            .into_float_value();
-        let upper = self
-            .builder
-            .build_extract_value(a, 1, "in_hi")
-            .unwrap()
-            .into_float_value();
-        (function, Interval { lower, upper })
-    }
-
-    fn binary_op_prelude_f(
-        &self,
-        name: &str,
-    ) -> (FunctionValue<'ctx>, FloatValue<'ctx>, FloatValue<'ctx>) {
-        let function =
-            self.module.add_function(name, self.float.binary_fn, None);
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
-        let entry_block = self.context.append_basic_block(function, "entry");
-        self.builder.position_at_end(entry_block);
-        let lhs = function.get_nth_param(0).unwrap().into_float_value();
-        let rhs = function.get_nth_param(1).unwrap().into_float_value();
+        let a = function.get_nth_param(0).unwrap();
+        let lhs = T::from_basic_value_enum(self, a);
+        let b = function.get_nth_param(1).unwrap();
+        let rhs = T::from_basic_value_enum(self, b);
         (function, lhs, rhs)
     }
 
-    fn binary_op_prelude_i(
-        &self,
-        name: &str,
-    ) -> (FunctionValue<'ctx>, Interval<'ctx>, Interval<'ctx>) {
-        let function =
-            self.module
-                .add_function(name, self.interval.binary_fn, None);
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
-        let entry_block = self.context.append_basic_block(function, "entry");
-        self.builder.position_at_end(entry_block);
-        let lhs = function.get_nth_param(0).unwrap().into_array_value();
-        let rhs = function.get_nth_param(1).unwrap().into_array_value();
-        let lhs_lo = self
-            .builder
-            .build_extract_value(lhs, 0, "lhs_lo")
-            .unwrap()
-            .into_float_value();
-        let lhs_hi = self
-            .builder
-            .build_extract_value(lhs, 1, "lhs_hi")
-            .unwrap()
-            .into_float_value();
-        let rhs_lo = self
-            .builder
-            .build_extract_value(rhs, 0, "rhs_lo")
-            .unwrap()
-            .into_float_value();
-        let rhs_hi = self
-            .builder
-            .build_extract_value(rhs, 1, "rhs_hi")
-            .unwrap()
-            .into_float_value();
-        (
-            function,
-            Interval {
-                lower: lhs_lo,
-                upper: lhs_hi,
-            },
-            Interval {
-                lower: rhs_lo,
-                upper: rhs_hi,
-            },
-        )
-    }
-    fn build_return_i(&self, out: Interval) {
-        let out0 = self.interval_type().const_zero();
-        let out1 = self
-            .builder
-            .build_insert_value(out0, out.lower, 0, "out1")
-            .unwrap();
-        let out2 = self
-            .builder
-            .build_insert_value(out1, out.upper, 1, "out2")
-            .unwrap();
-        self.builder.build_return(Some(&out2));
+    fn build_return_i(&self, out: Interval<'ctx>) {
+        let out = out.to_basic_value_enum(self);
+        self.builder.build_return(Some(&out));
     }
 }
 
@@ -1330,6 +1250,15 @@ struct Float<'ctx> {
 trait JitValue<'ctx> {
     fn const_value<'a>(core: &'a JitCore<'ctx>, f: f64)
         -> BasicValueEnum<'ctx>;
+    fn from_basic_value_enum<'a>(
+        core: &'a JitCore<'ctx>,
+        v: BasicValueEnum<'ctx>,
+    ) -> Self;
+    fn to_basic_value_enum<'a>(
+        &self,
+        core: &'a JitCore<'ctx>,
+    ) -> BasicValueEnum<'ctx>;
+    fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx>;
 }
 
 impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
@@ -1340,6 +1269,41 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
         let v = core.f32_type().const_float(f);
         core.f32_type().const_array(&[v, v]).as_basic_value_enum()
     }
+    fn from_basic_value_enum<'a>(
+        core: &'a JitCore<'ctx>,
+        v: BasicValueEnum<'ctx>,
+    ) -> Self {
+        let v = v.into_array_value();
+        let lower = core
+            .builder
+            .build_extract_value(v, 0, "lower")
+            .unwrap()
+            .into_float_value();
+        let upper = core
+            .builder
+            .build_extract_value(v, 1, "upper")
+            .unwrap()
+            .into_float_value();
+        Self { lower, upper }
+    }
+    fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx> {
+        core.f32_type().array_type(2).into()
+    }
+    fn to_basic_value_enum(
+        &self,
+        core: &JitCore<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        let out0 = core.f32_type().array_type(2).const_zero();
+        let out1 = core
+            .builder
+            .build_insert_value(out0, self.lower, 0, "lower")
+            .unwrap();
+        let out2 = core
+            .builder
+            .build_insert_value(out1, self.upper, 1, "upper")
+            .unwrap();
+        out2.as_basic_value_enum()
+    }
 }
 
 impl<'ctx> JitValue<'ctx> for Float<'ctx> {
@@ -1348,6 +1312,22 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
         f: f64,
     ) -> BasicValueEnum<'ctx> {
         core.f32_type().const_float(f).as_basic_value_enum()
+    }
+    fn from_basic_value_enum<'a>(
+        core: &'a JitCore<'ctx>,
+        v: BasicValueEnum<'ctx>,
+    ) -> Self {
+        let value = v.into_float_value();
+        Self { value }
+    }
+    fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx> {
+        core.f32_type().into()
+    }
+    fn to_basic_value_enum(
+        &self,
+        core: &JitCore<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        self.value.as_basic_value_enum()
     }
 }
 
