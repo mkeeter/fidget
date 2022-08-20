@@ -24,7 +24,10 @@ use inkwell::{
         BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
         FunctionType, IntType, PointerType,
     },
-    values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
+    values::{
+        BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
+        PointerValue,
+    },
     AddressSpace, FloatPredicate, OptimizationLevel,
 };
 use log::info;
@@ -191,8 +194,35 @@ impl<'ctx> JitCore<'ctx> {
         &self,
         intrinsics: &JitIntrinsics<'ctx>,
     ) -> JitMath<'ctx, Float<'ctx>> {
-        let f_min = self.build_min_max("f_min", intrinsics.minnum);
-        let f_max = self.build_min_max("f_max", intrinsics.maxnum);
+        let (f_min, lhs, rhs, _choice, _out) =
+            self.binary_choice_op_prelude::<Float>("f_min");
+        let fmin_result = self
+            .builder
+            .build_call(
+                intrinsics.minnum,
+                &[lhs.value.into(), rhs.value.into()],
+                "both",
+            )
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.builder.build_return(Some(&fmin_result));
+
+        let (f_max, lhs, rhs, _choice, _out) =
+            self.binary_choice_op_prelude::<Float>("f_max");
+        let fmax_result = self
+            .builder
+            .build_call(
+                intrinsics.maxnum,
+                &[lhs.value.into(), rhs.value.into()],
+                "both",
+            )
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.builder.build_return(Some(&fmax_result));
 
         let (f_add, lhs, rhs) = self.binary_op_prelude::<Float>("f_add");
         let sum = self.builder.build_float_add(lhs.value, rhs.value, "sum");
@@ -282,83 +312,6 @@ impl<'ctx> JitCore<'ctx> {
             maxnum,
             minnum,
         }
-    }
-
-    fn build_min_max(
-        &self,
-        name: &str,
-        f: FunctionValue<'ctx>,
-    ) -> FunctionValue<'ctx> {
-        let function = self.module.add_function(
-            name,
-            self.float.binary_choice_fn,
-            Some(Linkage::Private),
-        );
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
-        let entry_block = self.context.append_basic_block(function, "entry");
-
-        let lhs = function.get_nth_param(0).unwrap().into_float_value();
-        let rhs = function.get_nth_param(1).unwrap().into_float_value();
-        let choice = function.get_nth_param(2).unwrap().into_int_value();
-        let shift = function.get_nth_param(3).unwrap().into_int_value();
-
-        self.builder.position_at_end(entry_block);
-        let left_block =
-            self.context.append_basic_block(function, "minmax_left");
-        let right_block =
-            self.context.append_basic_block(function, "minmax_right");
-        let both_block =
-            self.context.append_basic_block(function, "minmax_both");
-        let end_block = self.context.append_basic_block(function, "minmax_end");
-
-        let choice_value_shr =
-            self.builder
-                .build_right_shift(choice, shift, false, "choice_shr");
-        let choice_value_masked = self.builder.build_and(
-            choice_value_shr,
-            self.i32_type.const_int(3, false),
-            "choice_masked",
-        );
-
-        self.builder.build_unconditional_branch(left_block);
-        self.builder.position_at_end(left_block);
-
-        let left_cmp = self.builder.build_int_compare(
-            inkwell::IntPredicate::EQ,
-            choice_value_masked,
-            self.i32_type.const_int(LHS as u64, true),
-            "left_cmp",
-        );
-        self.builder
-            .build_conditional_branch(left_cmp, end_block, right_block);
-
-        self.builder.position_at_end(right_block);
-        let right_cmp = self.builder.build_int_compare(
-            inkwell::IntPredicate::EQ,
-            choice_value_masked,
-            self.i32_type.const_int(RHS as u64, true),
-            "right_cmp",
-        );
-        self.builder
-            .build_conditional_branch(right_cmp, end_block, both_block);
-
-        self.builder.position_at_end(both_block);
-        let fmax_result = self
-            .builder
-            .build_call(f, &[lhs.into(), rhs.into()], "both")
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_float_value();
-        self.builder.build_return(Some(&fmax_result));
-
-        self.builder.position_at_end(end_block);
-        let out = self.builder.build_phi(self.f32_type(), "out");
-        out.add_incoming(&[(&lhs, left_block), (&rhs, right_block)]);
-
-        let out = out.as_basic_value().into_float_value();
-        self.builder.build_return(Some(&out));
-        function
     }
 
     fn build_i_add(&self) -> FunctionValue<'ctx> {
@@ -833,6 +786,105 @@ impl<'ctx> JitCore<'ctx> {
         (function, i)
     }
 
+    /// Builds a prelude for a function of the form
+    /// ```
+    /// T op(lhs: T, rhs: T, choice: u32, shift: u32, out: *u32) {
+    ///     let c = (choice >> shift) & 3;
+    ///     if c == LHS {
+    ///         return lhs;
+    ///     } else if c == RHS {
+    ///         return rhs;
+    ///     } else {
+    ///         // builder is positioned here
+    ///     }
+    /// ```
+    ///
+    /// Returns `(f, lhs, rhs, shift, out)`
+    fn binary_choice_op_prelude<T: JitValue<'ctx>>(
+        &self,
+        name: &str,
+    ) -> (FunctionValue<'ctx>, T, T, IntValue, PointerValue) {
+        let ty = T::ty(self);
+        let i32_type = self.context.i32_type();
+        let i32_ptr_type = i32_type.ptr_type(AddressSpace::Local); // XXX ?
+        let fn_ty = ty.fn_type(
+            &[
+                ty.into(),
+                ty.into(),
+                i32_type.into(),
+                i32_type.into(),
+                i32_ptr_type.into(),
+            ],
+            false,
+        );
+        let function =
+            self.module
+                .add_function(name, fn_ty, Some(Linkage::Private));
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+
+        let a = function.get_nth_param(0).unwrap();
+        let lhs = T::from_basic_value_enum(self, a);
+        let b = function.get_nth_param(1).unwrap();
+        let rhs = T::from_basic_value_enum(self, b);
+        let choice = function.get_nth_param(2).unwrap().into_int_value();
+        let shift = function.get_nth_param(3).unwrap().into_int_value();
+        let out_ptr = function.get_nth_param(4).unwrap().into_pointer_value();
+
+        let left_block =
+            self.context.append_basic_block(function, "choice_left");
+        let right_block =
+            self.context.append_basic_block(function, "choice_right");
+        let both_block =
+            self.context.append_basic_block(function, "choice_both");
+        let end_block = self.context.append_basic_block(function, "choice_end");
+
+        let choice_value_shr =
+            self.builder
+                .build_right_shift(choice, shift, false, "choice_shr");
+        let choice_value_masked = self.builder.build_and(
+            choice_value_shr,
+            self.i32_type.const_int(3, false),
+            "choice_masked",
+        );
+
+        self.builder.build_unconditional_branch(left_block);
+        self.builder.position_at_end(left_block);
+
+        let left_cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            choice_value_masked,
+            self.i32_type.const_int(LHS as u64, true),
+            "left_cmp",
+        );
+        self.builder
+            .build_conditional_branch(left_cmp, end_block, right_block);
+
+        self.builder.position_at_end(right_block);
+        let right_cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            choice_value_masked,
+            self.i32_type.const_int(RHS as u64, true),
+            "right_cmp",
+        );
+        self.builder
+            .build_conditional_branch(right_cmp, end_block, both_block);
+
+        // Handle the early exits, which both jump to the choice_end block
+        self.builder.position_at_end(end_block);
+        let out = self.builder.build_phi(self.f32_type(), "out");
+        out.add_incoming(&[(&a, left_block), (&b, right_block)]);
+
+        let out = out.as_basic_value();
+        self.builder.build_return(Some(&out));
+
+        // Allow the caller to write code in the choice_both block
+        self.builder.position_at_end(both_block);
+
+        (function, lhs, rhs, shift, out_ptr)
+    }
+
     fn binary_op_prelude<T: JitValue<'ctx>>(
         &self,
         name: &str,
@@ -1073,7 +1125,17 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     .builder
                     .build_call(
                         f,
-                        &[lhs.into(), rhs.into(), choice.into(), shift.into()],
+                        &[
+                            lhs.into(),
+                            rhs.into(),
+                            choice.into(),
+                            shift.into(),
+                            self.core
+                                .i32_type
+                                .ptr_type(AddressSpace::Local)
+                                .const_null()
+                                .into(),
+                        ],
                         node_name,
                     )
                     .try_as_basic_value()
