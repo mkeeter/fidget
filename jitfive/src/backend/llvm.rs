@@ -20,7 +20,10 @@ use inkwell::{
     targets::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
-    types::{ArrayType, FloatType, FunctionType, IntType},
+    types::{
+        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, FloatType,
+        FunctionType, IntType, PointerType,
+    },
     values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
     AddressSpace, FloatPredicate, OptimizationLevel,
 };
@@ -100,6 +103,67 @@ struct JitCore<'ctx> {
     binary_choice_fn_type_f: FunctionType<'ctx>,
     shape_fn_type: FunctionType<'ctx>,
     always_inline: Attribute,
+}
+
+struct JitType<'ctx> {
+    ty: AnyTypeEnum<'ctx>,
+    binary_fn: FunctionType<'ctx>,
+    binary_choice_fn: FunctionType<'ctx>,
+    unary_fn: FunctionType<'ctx>,
+    shape_fn: FunctionType<'ctx>,
+}
+
+impl<'ctx> JitType<'ctx> {
+    fn new<T>(
+        ty: T,
+        i32_type: IntType<'ctx>,
+        i32_const_ptr_type: PointerType<'ctx>,
+    ) -> Self
+    where
+        T: BasicType<'ctx> + Copy + Clone,
+        BasicMetadataTypeEnum<'ctx>: From<T>,
+        AnyTypeEnum<'ctx>: From<T>,
+    {
+        let unary_fn = ty.fn_type(
+            &[
+                ty.into(), // lhs
+                ty.into(), // rhs
+            ],
+            false,
+        );
+        let binary_fn = ty.fn_type(
+            &[
+                ty.into(), // lhs
+                ty.into(), // rhs
+            ],
+            false,
+        );
+        let binary_choice_fn = ty.fn_type(
+            &[
+                ty.into(),       // lhs
+                ty.into(),       // rhs
+                i32_type.into(), // choice
+                i32_type.into(), // shift
+            ],
+            false,
+        );
+        let shape_fn = ty.fn_type(
+            &[
+                ty.into(),
+                ty.into(),
+                i32_type.into(),
+                i32_const_ptr_type.into(),
+            ],
+            false,
+        );
+        Self {
+            ty: ty.into(),
+            binary_fn,
+            binary_choice_fn,
+            unary_fn,
+            shape_fn,
+        }
+    }
 }
 
 impl<'ctx> JitCore<'ctx> {
