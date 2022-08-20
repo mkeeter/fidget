@@ -21,8 +21,8 @@ use inkwell::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
     types::{
-        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType,
-        BasicTypeEnum, FloatType, FunctionType, IntType, PointerType,
+        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, FloatType,
+        FunctionType, IntType, PointerType,
     },
     values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
     AddressSpace, FloatPredicate, OptimizationLevel,
@@ -54,7 +54,7 @@ struct JitIntrinsics<'ctx> {
     maxnum: FunctionValue<'ctx>,
 }
 
-struct JitMath<'ctx> {
+struct JitMath<'ctx, T> {
     /// `fn i_add(lhs: T, rhs: T) -> T`
     add: FunctionValue<'ctx>,
 
@@ -90,6 +90,8 @@ struct JitMath<'ctx> {
     /// - `0b11 => max(lhs, rhs)`
     /// (`0b00` is invalid, but will end up calling `fmax`)
     max: FunctionValue<'ctx>,
+
+    _p: std::marker::PhantomData<&'ctx T>,
 }
 
 struct JitCore<'ctx> {
@@ -203,7 +205,10 @@ impl<'ctx> JitCore<'ctx> {
             .unwrap()
     }
 
-    fn get_math_f(&self, intrinsics: &JitIntrinsics<'ctx>) -> JitMath<'ctx> {
+    fn get_math_f(
+        &self,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, Float<'ctx>> {
         let f_min = self.build_min_max("f_min", intrinsics.minnum);
         let f_max = self.build_min_max("f_max", intrinsics.maxnum);
 
@@ -256,10 +261,14 @@ impl<'ctx> JitCore<'ctx> {
             abs: f_abs,
             sqrt: f_sqrt,
             recip: f_recip,
+            _p: std::marker::PhantomData,
         }
     }
 
-    fn get_math_i(&self, intrinsics: &JitIntrinsics<'ctx>) -> JitMath<'ctx> {
+    fn get_math_i(
+        &self,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, Interval<'ctx>> {
         let i_add = self.build_i_add();
         let i_mul = self.build_i_mul(intrinsics.minnum, intrinsics.maxnum);
         let i_neg = self.build_i_neg();
@@ -275,6 +284,7 @@ impl<'ctx> JitCore<'ctx> {
             abs: i_abs,
             sqrt: i_sqrt,
             recip: i_mul, // TODO
+            _p: std::marker::PhantomData,
         }
     }
 
@@ -951,8 +961,8 @@ struct Jit<'a, 'ctx> {
     function: FunctionValue<'ctx>,
 
     /// Functions to use when rendering
-    math_f: JitMath<'ctx>,
-    math_i: JitMath<'ctx>,
+    math_f: JitMath<'ctx, Float<'ctx>>,
+    math_i: JitMath<'ctx, Interval<'ctx>>,
 
     /// Last known use of a particular node
     ///
@@ -1079,8 +1089,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             let node_name = format!("g{}n{}", usize::from(g), usize::from(n));
             let op = self.t.ops[n];
             let v = match mode {
-                EvalType::Float => self.build_op_f(&node_name, op),
-                EvalType::Interval => self.build_op_i(&node_name, op),
+                EvalType::Float => self.build_op(&node_name, op, &self.math_f),
+                EvalType::Interval => {
+                    self.build_op(&node_name, op, &self.math_i)
+                }
             };
             self.values.insert(n, v);
             self.i += 1;
@@ -1101,7 +1113,12 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
     }
 
     /// Builds a single node's operation
-    fn build_op_f(&mut self, node_name: &str, op: Op) -> BasicValueEnum<'ctx> {
+    fn build_op<T: JitValue<'ctx>>(
+        &self,
+        node_name: &str,
+        op: Op,
+        math: &JitMath<'ctx, T>,
+    ) -> BasicValueEnum<'ctx> {
         match op {
             Op::Var(v) => {
                 let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
@@ -1111,13 +1128,11 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 };
                 self.function.get_nth_param(i).unwrap()
             }
-            Op::Const(f) => {
-                self.core.f32_type().const_float(f).as_basic_value_enum()
-            }
+            Op::Const(f) => T::const_value(&self.core, f),
             Op::Binary(op, a, b) => {
                 let f = match op {
-                    BinaryOpcode::Add => self.math_f.add,
-                    BinaryOpcode::Mul => self.math_f.mul,
+                    BinaryOpcode::Add => math.add,
+                    BinaryOpcode::Mul => math.mul,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1133,8 +1148,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let c = usize::from(c);
 
                 let f = match op {
-                    BinaryChoiceOpcode::Min => self.math_f.min,
-                    BinaryChoiceOpcode::Max => self.math_f.max,
+                    BinaryChoiceOpcode::Min => math.min,
+                    BinaryChoiceOpcode::Max => math.max,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1155,84 +1170,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
             Op::Unary(op, a) => {
                 let f = match op {
-                    UnaryOpcode::Neg => self.math_f.neg,
-                    UnaryOpcode::Abs => self.math_f.abs,
-                    UnaryOpcode::Sqrt => self.math_f.sqrt,
-                    UnaryOpcode::Recip => self.math_f.sqrt,
-                };
-                self.core
-                    .builder
-                    .build_call(f, &[self.values[&a].into()], node_name)
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-            }
-        }
-    }
-
-    /// Builds a single node's operation
-    fn build_op_i(&mut self, node_name: &str, op: Op) -> BasicValueEnum<'ctx> {
-        match op {
-            Op::Var(v) => {
-                let i = match self.t.vars.get_by_index(v).unwrap().as_str() {
-                    "X" => 0,
-                    "Y" => 1,
-                    v => panic!("Unexpected var {:?}", v),
-                };
-                self.function.get_nth_param(i).unwrap()
-            }
-            Op::Const(f) => {
-                let v = self.core.f32_type().const_float(f);
-                self.core
-                    .f32_type()
-                    .const_array(&[v, v])
-                    .as_basic_value_enum()
-            }
-            Op::Binary(op, a, b) => {
-                let f = match op {
-                    BinaryOpcode::Add => self.math_i.add,
-                    BinaryOpcode::Mul => self.math_i.mul,
-                };
-                let lhs = self.values[&a];
-                let rhs = self.values[&b];
-                self.core
-                    .builder
-                    .build_call(f, &[lhs.into(), rhs.into()], node_name)
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-            }
-
-            Op::BinaryChoice(op, a, b, c) => {
-                let c = usize::from(c);
-
-                let f = match op {
-                    BinaryChoiceOpcode::Min => self.math_i.min,
-                    BinaryChoiceOpcode::Max => self.math_i.max,
-                };
-                let lhs = self.values[&a];
-                let rhs = self.values[&b];
-                let choice = self.choices[c / 16];
-                let shift = (c % 16) * 2;
-                let shift = self.core.i32_type.const_int(shift as u64, false);
-
-                self.core
-                    .builder
-                    .build_call(
-                        f,
-                        &[lhs.into(), rhs.into(), choice.into(), shift.into()],
-                        node_name,
-                    )
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-            }
-            Op::Unary(op, a) => {
-                let f = match op {
-                    UnaryOpcode::Neg => self.math_i.neg,
-                    UnaryOpcode::Abs => self.math_i.abs,
-                    UnaryOpcode::Sqrt => self.math_i.sqrt,
-                    UnaryOpcode::Recip => self.math_i.recip,
+                    UnaryOpcode::Neg => math.neg,
+                    UnaryOpcode::Abs => math.abs,
+                    UnaryOpcode::Sqrt => math.sqrt,
+                    UnaryOpcode::Recip => math.sqrt,
                 };
                 self.core
                     .builder
@@ -1379,6 +1320,35 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
 struct Interval<'ctx> {
     lower: FloatValue<'ctx>,
     upper: FloatValue<'ctx>,
+}
+
+#[derive(Copy, Clone)]
+struct Float<'ctx> {
+    value: FloatValue<'ctx>,
+}
+
+trait JitValue<'ctx> {
+    fn const_value<'a>(core: &'a JitCore<'ctx>, f: f64)
+        -> BasicValueEnum<'ctx>;
+}
+
+impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
+    fn const_value<'a>(
+        core: &'a JitCore<'ctx>,
+        f: f64,
+    ) -> BasicValueEnum<'ctx> {
+        let v = core.f32_type().const_float(f);
+        core.f32_type().const_array(&[v, v]).as_basic_value_enum()
+    }
+}
+
+impl<'ctx> JitValue<'ctx> for Float<'ctx> {
+    fn const_value<'a>(
+        core: &'a JitCore<'ctx>,
+        f: f64,
+    ) -> BasicValueEnum<'ctx> {
+        core.f32_type().const_float(f).as_basic_value_enum()
+    }
 }
 
 pub fn to_jit_fn<'a, 'b>(
