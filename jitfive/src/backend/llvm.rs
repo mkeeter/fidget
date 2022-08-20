@@ -95,7 +95,7 @@ struct JitMath<'ctx, T> {
     /// (`0b00` is invalid, but will end up calling `fmax`)
     max: FunctionValue<'ctx>,
 
-    _p: std::marker::PhantomData<&'ctx T>,
+    _p: std::marker::PhantomData<*const T>,
 }
 
 struct JitCore<'ctx> {
@@ -930,6 +930,41 @@ impl<'ctx> JitCore<'ctx> {
         self.builder.position_at_end(entry_block);
         function
     }
+    fn optimize(&self) {
+        info!(
+            "LLVM module is {} characters (pre-optimization)",
+            self.module.to_string().len()
+        );
+        self.module.print_to_file("jit.ll").unwrap();
+
+        // Run an optimization pass on the IR, which is mostly helpful to inline
+        // function calls.
+        Target::initialize_native(&InitializationConfig::default()).unwrap();
+        let target = Target::from_name("arm64").unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &TargetMachine::get_default_triple(),
+                TargetMachine::get_host_cpu_name().to_str().unwrap(),
+                TargetMachine::get_host_cpu_features().to_str().unwrap(),
+                OptimizationLevel::Default,
+                RelocMode::Default,
+                CodeModel::JITDefault,
+            )
+            .unwrap();
+        self.module
+            .run_passes(
+                "default<O1>",
+                &target_machine,
+                PassBuilderOptions::create(),
+            )
+            .unwrap();
+
+        self.module.print_to_file("jit.opt.ll").unwrap();
+        info!(
+            "LLVM module is {} characters (post-optimization)",
+            self.module.to_string().len()
+        );
+    }
 }
 
 struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
@@ -937,7 +972,7 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
     t: &'a Compiler,
 
     /// Basic LLVM structs and types
-    core: JitCore<'ctx>,
+    core: &'a JitCore<'ctx>,
 
     /// shape function
     function: FunctionValue<'ctx>,
@@ -961,11 +996,11 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
     /// Index in the opcode tape
     i: usize,
 
-    _p: std::marker::PhantomData<&'ctx T>,
+    _p: std::marker::PhantomData<*const T>,
 }
 
 impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
-    fn build(name: &str, t: &'a Compiler, core: JitCore<'ctx>) -> Self {
+    fn build(name: &str, t: &'a Compiler, core: &'a JitCore<'ctx>) {
         let intrinsics = core.get_intrinsics();
         let math = T::get_math(&core, &intrinsics);
 
@@ -1006,46 +1041,6 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             .core
             .builder
             .build_return(Some(&worker.values[&root]));
-
-        info!(
-            "LLVM module is {} characters (pre-optimization)",
-            worker.core.module.to_string().len()
-        );
-        worker.core.module.print_to_file("jit.ll").unwrap();
-
-        /*
-        // Run an optimization pass on the IR, which is mostly helpful to inline
-        // function calls.
-        Target::initialize_native(&InitializationConfig::default()).unwrap();
-        let target = Target::from_name("arm64").unwrap();
-        let target_machine = target
-            .create_target_machine(
-                &TargetMachine::get_default_triple(),
-                TargetMachine::get_host_cpu_name().to_str().unwrap(),
-                TargetMachine::get_host_cpu_features().to_str().unwrap(),
-                OptimizationLevel::Default,
-                RelocMode::Default,
-                CodeModel::JITDefault,
-            )
-            .unwrap();
-        worker
-            .core
-            .module
-            .run_passes(
-                "default<O1>",
-                &target_machine,
-                PassBuilderOptions::create(),
-            )
-            .unwrap();
-
-        worker.core.module.print_to_file("jit.opt.ll").unwrap();
-        info!(
-            "LLVM module is {} characters (post-optimization)",
-            worker.core.module.to_string().len()
-        );
-        */
-
-        worker
     }
 
     /// Recurses into the given group, building its children then its nodes
@@ -1280,7 +1275,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                 );
                 out.add_incoming(&[
                     (&self.values[&n], recurse_block),
-                    (&self.core.f32_type().get_undef(), last_block),
+                    (&T::undef(self.core), last_block),
                 ]);
                 self.values.insert(n, out.as_basic_value());
             }
@@ -1314,6 +1309,7 @@ trait JitValue<'ctx> {
         core: &'a JitCore<'ctx>,
     ) -> BasicValueEnum<'ctx>;
     fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx>;
+    fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx>;
     fn get_math(
         core: &JitCore<'ctx>,
         intrinsics: &JitIntrinsics<'ctx>,
@@ -1349,6 +1345,9 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
     }
     fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx> {
         core.f32_type().array_type(2).into()
+    }
+    fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
+        core.f32_type().array_type(2).get_undef().into()
     }
     fn to_basic_value_enum(
         &self,
@@ -1402,40 +1401,44 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     ) -> JitMath<'ctx, Float<'ctx>> {
         core.get_math_f(&intrinsics)
     }
+    fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
+        core.f32_type().get_undef().into()
+    }
 }
 
 pub fn to_jit_fn<'a, 'b>(
     t: &'a Compiler,
     context: &'b JitContext,
 ) -> Result<JitFunction<'b, FloatFunc>, Error> {
+    let jit_core = JitCore::new(&context.0);
+
     info!("Building float JIT function");
     let now = Instant::now();
-    let jit_core_f = JitCore::new(&context.0);
-    let jit_f: Jit<Float> = Jit::build("shape_f", t, jit_core_f);
+    Jit::<Float>::build("shape_f", t, &jit_core);
     info!("Built float JIT function in {:?}", now.elapsed());
 
     info!("Building interval JIT function");
     let now = Instant::now();
-    let jit_core_i = JitCore::new(&context.0);
-    let jit_i: Jit<Interval> = Jit::build("shape_i", t, jit_core_i);
+    Jit::<Interval>::build("shape_i", t, &jit_core);
     info!("Built interval JIT function in {:?}", now.elapsed());
+
+    info!("Optimizing IR");
+    let now = Instant::now();
+    jit_core.optimize();
+    info!("Optimized IR in {:?}", now.elapsed());
+
+    let execution_engine = jit_core
+        .module
+        .create_jit_execution_engine(OptimizationLevel::Default)?;
 
     info!("Compiling float function...");
     let now = Instant::now();
-    let execution_engine = jit_f
-        .core
-        .module
-        .create_jit_execution_engine(OptimizationLevel::Default)?;
     let out_f: JitFunction<FloatFunc> =
         unsafe { execution_engine.get_function("shape_f")? };
     info!("Extracted float JIT function in {:?}", now.elapsed());
 
     info!("Compiling interval function...");
     let now = Instant::now();
-    let execution_engine = jit_i
-        .core
-        .module
-        .create_jit_execution_engine(OptimizationLevel::Default)?;
     let out_i: JitFunction<IntervalFunc> =
         unsafe { execution_engine.get_function("shape_i")? };
     info!("Extracted interval JIT function in {:?}", now.elapsed());
