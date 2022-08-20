@@ -48,47 +48,48 @@ impl Default for JitContext {
 }
 
 struct JitIntrinsics<'ctx> {
-    /// `fn abs(f: f32) -> f32`
-    f_abs: FunctionValue<'ctx>,
+    abs: FunctionValue<'ctx>,
+    sqrt: FunctionValue<'ctx>,
+    minnum: FunctionValue<'ctx>,
+    maxnum: FunctionValue<'ctx>,
+}
 
-    /// `fn sqrt(f: f32) -> f32`
-    f_sqrt: FunctionValue<'ctx>,
+struct JitMath<'ctx> {
+    /// `fn i_add(lhs: T, rhs: T) -> T`
+    add: FunctionValue<'ctx>,
 
-    /// `fn min(lhs: f32, rhs: f32, choice: u32, shift: u32) -> f32`
+    /// `fn i_mul(lhs: T, rhs: T) -> T`
+    mul: FunctionValue<'ctx>,
+
+    /// `fn i_neg(a: T) -> T`
+    neg: FunctionValue<'ctx>,
+
+    /// `fn i_abs(a: T) -> T`
+    abs: FunctionValue<'ctx>,
+
+    /// `fn i_recip(a: T) -> T`
+    recip: FunctionValue<'ctx>,
+
+    /// `fn i_sqrt(a: T) -> T`
+    sqrt: FunctionValue<'ctx>,
+
+    /// `fn min(lhs: T, rhs: T, choice: u32, shift: u32) -> T`
     ///
     /// Right-shifts `choice` by `shift`, then checks its lowest two bits:
     /// - `0b01 => lhs`
     /// - `0b10 => rhs`
-    /// - `0b11 => fmin(lhs, rhs)`
+    /// - `0b11 => min(lhs, rhs)`
     /// (`0b00` is invalid, but will end up calling `fmin`)
-    f_min: FunctionValue<'ctx>,
+    min: FunctionValue<'ctx>,
 
-    /// `fn max(lhs: f32, rhs: f32, choice: u32, shift: u32) -> f32`
+    /// `fn max(lhs: T, rhs: T, choice: u32, shift: u32) -> T`
     ///
     /// Right-shifts `choice` by `shift`, then checks its lowest two bits:
     /// - `0b01 => lhs`
     /// - `0b10 => rhs`
-    /// - `0b11 => fmax(lhs, rhs)`
+    /// - `0b11 => max(lhs, rhs)`
     /// (`0b00` is invalid, but will end up calling `fmax`)
-    f_max: FunctionValue<'ctx>,
-
-    /// `fn i_add(lhs: [f32; 2], rhs: [f32; 2]) -> [f32; 2]`
-    i_add: FunctionValue<'ctx>,
-
-    /// `fn i_mul(lhs: [f32; 2], rhs: [f32; 2]) -> [f32; 2]`
-    i_mul: FunctionValue<'ctx>,
-
-    /// `fn i_neg(a: [f32; 2]) -> [f32; 2]`
-    i_neg: FunctionValue<'ctx>,
-
-    /// `fn i_abs(a: [f32; 2]) -> [f32; 2]`
-    i_abs: FunctionValue<'ctx>,
-
-    /// `fn i_recip(a: [f32; 2]) -> [f32; 2]`
-    //i_recip: FunctionValue<'ctx>,
-
-    /// `fn i_sqrt(a: [f32; 2]) -> [f32; 2]`
-    i_sqrt: FunctionValue<'ctx>,
+    max: FunctionValue<'ctx>,
 }
 
 struct JitCore<'ctx> {
@@ -121,13 +122,7 @@ impl<'ctx> JitType<'ctx> {
         BasicMetadataTypeEnum<'ctx>: From<T>,
         AnyTypeEnum<'ctx>: From<T>,
     {
-        let unary_fn = ty.fn_type(
-            &[
-                ty.into(), // lhs
-                ty.into(), // rhs
-            ],
-            false,
-        );
+        let unary_fn = ty.fn_type(&[ty.into()], false);
         let binary_fn = ty.fn_type(
             &[
                 ty.into(), // lhs
@@ -208,31 +203,93 @@ impl<'ctx> JitCore<'ctx> {
             .unwrap()
     }
 
+    fn get_math_f(&self, intrinsics: &JitIntrinsics<'ctx>) -> JitMath<'ctx> {
+        let f_min = self.build_min_max("f_min", intrinsics.minnum);
+        let f_max = self.build_min_max("f_max", intrinsics.maxnum);
+
+        let (f_add, lhs, rhs) = self.binary_op_prelude_f("f_add");
+        let sum = self.builder.build_float_add(lhs, rhs, "sum");
+        self.builder.build_return(Some(&sum));
+
+        let (f_mul, lhs, rhs) = self.binary_op_prelude_f("f_mul");
+        let prod = self.builder.build_float_mul(lhs, rhs, "prod");
+        self.builder.build_return(Some(&prod));
+
+        let (f_neg, lhs) = self.unary_op_prelude_f("f_neg");
+        let neg = self.builder.build_float_neg(lhs, "neg");
+        self.builder.build_return(Some(&neg));
+
+        let (f_abs, lhs) = self.unary_op_prelude_f("f_abs");
+        let abs = self
+            .builder
+            .build_call(intrinsics.abs, &[lhs.into()], "abs")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.builder.build_return(Some(&abs));
+
+        let (f_sqrt, lhs) = self.unary_op_prelude_f("f_sqrt");
+        let sqrt = self
+            .builder
+            .build_call(intrinsics.sqrt, &[lhs.into()], "sqrt")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_float_value();
+        self.builder.build_return(Some(&sqrt));
+
+        let (f_recip, lhs) = self.unary_op_prelude_f("f_recip");
+        let recip = self.builder.build_float_div(
+            self.f32_type().const_float(1.0),
+            lhs,
+            "recip",
+        );
+        self.builder.build_return(Some(&recip));
+
+        JitMath {
+            add: f_add,
+            min: f_min,
+            max: f_max,
+            mul: f_mul,
+            neg: f_neg,
+            abs: f_abs,
+            sqrt: f_sqrt,
+            recip: f_recip,
+        }
+    }
+
+    fn get_math_i(&self, intrinsics: &JitIntrinsics<'ctx>) -> JitMath<'ctx> {
+        let i_add = self.build_i_add();
+        let i_mul = self.build_i_mul(intrinsics.minnum, intrinsics.maxnum);
+        let i_neg = self.build_i_neg();
+        let i_abs = self.build_i_abs(intrinsics.maxnum);
+        let i_sqrt = self.build_i_sqrt(intrinsics.sqrt);
+
+        JitMath {
+            add: i_add,
+            mul: i_mul,
+            max: i_mul, // TODO
+            min: i_mul, // TODO
+            neg: i_neg,
+            abs: i_abs,
+            sqrt: i_sqrt,
+            recip: i_mul, // TODO
+        }
+    }
+
     fn get_intrinsics(&self) -> JitIntrinsics<'ctx> {
-        let f_abs = self.get_unary_intrinsic_f("abs");
-        let f_sqrt = self.get_unary_intrinsic_f("sqrt");
+        let abs = self.get_unary_intrinsic_f("fabs");
+        let sqrt = self.get_unary_intrinsic_f("sqrt");
         let maxnum = self.get_binary_intrinsic_f("maxnum");
         let minnum = self.get_binary_intrinsic_f("minnum");
-        let f_min = self.build_min_max("f_min", minnum);
-        let f_max = self.build_min_max("f_max", maxnum);
 
-        let i_add = self.build_i_add();
-        let i_mul = self.build_i_mul(minnum, maxnum);
-        let i_neg = self.build_i_neg();
-        let i_abs = self.build_i_abs(maxnum);
-        let i_sqrt = self.build_i_sqrt(f_sqrt);
-
-        JitIntrinsics {
-            f_abs,
-            f_sqrt,
-            f_max,
-            f_min,
-            i_add,
-            i_mul,
-            i_neg,
-            i_abs,
-            i_sqrt,
-        }
+        return JitIntrinsics {
+            abs,
+            sqrt,
+            maxnum,
+            minnum,
+        };
     }
 
     fn build_min_max(
@@ -313,12 +370,12 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_add(&self) -> FunctionValue<'ctx> {
-        let (f, lhs, rhs) = self.binary_op_prelude("i_add");
+        let (f, lhs, rhs) = self.binary_op_prelude_i("i_add");
         let out_lo =
             self.builder.build_float_add(lhs.lower, rhs.lower, "out_lo");
         let out_hi =
             self.builder.build_float_add(lhs.upper, rhs.upper, "out_hi");
-        self.build_return(Interval {
+        self.build_return_i(Interval {
             lower: out_lo,
             upper: out_hi,
         });
@@ -332,7 +389,7 @@ impl<'ctx> JitCore<'ctx> {
     ) -> FunctionValue<'ctx> {
         // It ain't pretty, but it works: this is a manual port of
         // boost::interval's multiplication code into LLVM IR.
-        let (f, lhs, rhs) = self.binary_op_prelude("i_mul");
+        let (f, lhs, rhs) = self.binary_op_prelude_i("i_mul");
         let zero = self.f32_type().const_float(0.0);
 
         let a0_lt_0 = || {
@@ -443,12 +500,12 @@ impl<'ctx> JitCore<'ctx> {
                             .unwrap()
                             .into_float_value();
 
-                        self.build_return(Interval { lower, upper });
+                        self.build_return_i(Interval { lower, upper });
                     }
                     {
                         // M * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a1b0(),
                             upper: a0b0(),
                         });
@@ -468,7 +525,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // M * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a0b1(),
                             upper: a1b1(),
                         });
@@ -476,7 +533,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // M * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -508,7 +565,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * M
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a0b1(),
                             upper: a0b0(),
                         });
@@ -516,7 +573,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a1b1(),
                             upper: a0b0(),
                         });
@@ -536,7 +593,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a0b1(),
                             upper: a1b0(),
                         });
@@ -544,7 +601,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // N * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -588,7 +645,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * M
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a1b0(),
                             upper: a1b1(),
                         });
@@ -596,7 +653,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * N
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a1b0(),
                             upper: a0b1(),
                         });
@@ -616,7 +673,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * P
                         self.builder.position_at_end(b1_gt_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: a0b0(),
                             upper: a1b1(),
                         });
@@ -624,7 +681,7 @@ impl<'ctx> JitCore<'ctx> {
                     {
                         // P * Z
                         self.builder.position_at_end(b1_le_0_block);
-                        self.build_return(Interval {
+                        self.build_return_i(Interval {
                             lower: zero,
                             upper: zero,
                         });
@@ -634,7 +691,7 @@ impl<'ctx> JitCore<'ctx> {
             {
                 // Z * ?
                 self.builder.position_at_end(a1_le_0_block);
-                self.build_return(Interval {
+                self.build_return_i(Interval {
                     lower: zero,
                     upper: zero,
                 });
@@ -644,15 +701,15 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_neg(&self) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude("i_neg");
+        let (f, a) = self.unary_op_prelude_i("i_neg");
         let upper = self.builder.build_float_neg(a.lower, "upper");
         let lower = self.builder.build_float_neg(a.upper, "lower");
-        self.build_return(Interval { lower, upper });
+        self.build_return_i(Interval { lower, upper });
         f
     }
 
     fn build_i_abs(&self, fmax: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude("i_abs");
+        let (f, a) = self.unary_op_prelude_i("i_abs");
         let zero = self.f32_type().const_float(0.0);
         let lower_ge_0 = self.builder.build_float_compare(
             FloatPredicate::OGE,
@@ -668,7 +725,7 @@ impl<'ctx> JitCore<'ctx> {
             lower_lt_0_block,
         );
         self.builder.position_at_end(lower_ge_0_block);
-        self.build_return(a);
+        self.build_return_i(a);
         self.builder.position_at_end(lower_lt_0_block);
         let upper_le_0 = self.builder.build_float_compare(
             FloatPredicate::OLE,
@@ -686,7 +743,7 @@ impl<'ctx> JitCore<'ctx> {
         self.builder.position_at_end(upper_le_0_block);
         let upper = self.builder.build_float_neg(a.lower, "upper");
         let lower = self.builder.build_float_neg(a.upper, "lower");
-        self.build_return(Interval { lower, upper });
+        self.build_return_i(Interval { lower, upper });
 
         self.builder.position_at_end(upper_gt_0_block);
         let neg_lower = self.builder.build_float_neg(a.lower, "neg_lower");
@@ -697,12 +754,12 @@ impl<'ctx> JitCore<'ctx> {
             .left()
             .unwrap()
             .into_float_value();
-        self.build_return(Interval { lower: zero, upper });
+        self.build_return_i(Interval { lower: zero, upper });
         f
     }
 
     fn build_i_sqrt(&self, fsqrt: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, a) = self.unary_op_prelude("i_sqrt");
+        let (f, a) = self.unary_op_prelude_i("i_sqrt");
         let zero = self.f32_type().const_float(0.0);
         let upper_lt_0 = self.builder.build_float_compare(
             FloatPredicate::OLT,
@@ -719,7 +776,7 @@ impl<'ctx> JitCore<'ctx> {
         );
         self.builder.position_at_end(upper_lt_0_block);
         let nan = self.f32_type().const_float(f64::NAN);
-        self.build_return(Interval {
+        self.build_return_i(Interval {
             lower: nan,
             upper: nan,
         });
@@ -747,7 +804,7 @@ impl<'ctx> JitCore<'ctx> {
             .left()
             .unwrap()
             .into_float_value();
-        self.build_return(Interval { lower: zero, upper });
+        self.build_return_i(Interval { lower: zero, upper });
 
         self.builder.position_at_end(lower_gt_0_block);
         let lower = self
@@ -764,12 +821,25 @@ impl<'ctx> JitCore<'ctx> {
             .left()
             .unwrap()
             .into_float_value();
-        self.build_return(Interval { lower, upper });
+        self.build_return_i(Interval { lower, upper });
 
         f
     }
 
-    fn unary_op_prelude(
+    fn unary_op_prelude_f(
+        &self,
+        name: &str,
+    ) -> (FunctionValue<'ctx>, FloatValue<'ctx>) {
+        let function =
+            self.module.add_function(name, self.float.unary_fn, None);
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        let lhs = function.get_nth_param(0).unwrap().into_float_value();
+        (function, lhs)
+    }
+
+    fn unary_op_prelude_i(
         &self,
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>) {
@@ -792,7 +862,21 @@ impl<'ctx> JitCore<'ctx> {
         (function, Interval { lower, upper })
     }
 
-    fn binary_op_prelude(
+    fn binary_op_prelude_f(
+        &self,
+        name: &str,
+    ) -> (FunctionValue<'ctx>, FloatValue<'ctx>, FloatValue<'ctx>) {
+        let function =
+            self.module.add_function(name, self.float.binary_fn, None);
+        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        let lhs = function.get_nth_param(0).unwrap().into_float_value();
+        let rhs = function.get_nth_param(1).unwrap().into_float_value();
+        (function, lhs, rhs)
+    }
+
+    fn binary_op_prelude_i(
         &self,
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>, Interval<'ctx>) {
@@ -836,7 +920,7 @@ impl<'ctx> JitCore<'ctx> {
             },
         )
     }
-    fn build_return(&self, out: Interval) {
+    fn build_return_i(&self, out: Interval) {
         let out0 = self.interval_type().const_zero();
         let out1 = self
             .builder
@@ -866,10 +950,9 @@ struct Jit<'a, 'ctx> {
     /// shape function
     function: FunctionValue<'ctx>,
 
-    /// Functions used when rendering
-    ///
-    /// This includes LLVM intrinsics and our own interval math library
-    intrinsics: JitIntrinsics<'ctx>,
+    /// Functions to use when rendering
+    math_f: JitMath<'ctx>,
+    math_i: JitMath<'ctx>,
 
     /// Last known use of a particular node
     ///
@@ -891,6 +974,8 @@ struct Jit<'a, 'ctx> {
 impl<'a, 'ctx> Jit<'a, 'ctx> {
     fn build(t: &'a Compiler, core: JitCore<'ctx>) -> Self {
         let intrinsics = core.get_intrinsics();
+        let math_i = core.get_math_i(&intrinsics);
+        let math_f = core.get_math_f(&intrinsics);
 
         // Build our main function
         let function =
@@ -922,7 +1007,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             t,
             core,
             function,
-            intrinsics,
+            math_i,
+            math_f,
             values: BTreeMap::new(),
             choices,
             i: 0,
@@ -1030,24 +1116,25 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
             Op::Binary(op, a, b) => {
                 let f = match op {
-                    BinaryOpcode::Add => Builder::build_float_add,
-                    BinaryOpcode::Mul => Builder::build_float_mul,
+                    BinaryOpcode::Add => self.math_f.add,
+                    BinaryOpcode::Mul => self.math_f.mul,
                 };
-                f(
-                    &self.core.builder,
-                    self.values[&a].into_float_value(),
-                    self.values[&b].into_float_value(),
-                    node_name,
-                )
-                .as_basic_value_enum()
+                let lhs = self.values[&a];
+                let rhs = self.values[&b];
+                self.core
+                    .builder
+                    .build_call(f, &[lhs.into(), rhs.into()], node_name)
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
             }
 
             Op::BinaryChoice(op, a, b, c) => {
                 let c = usize::from(c);
 
                 let f = match op {
-                    BinaryChoiceOpcode::Min => self.intrinsics.f_min,
-                    BinaryChoiceOpcode::Max => self.intrinsics.f_max,
+                    BinaryChoiceOpcode::Min => self.math_f.min,
+                    BinaryChoiceOpcode::Max => self.math_f.max,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1067,35 +1154,18 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     .unwrap()
             }
             Op::Unary(op, a) => {
-                let call_intrinsic = |i| {
-                    self.core
-                        .builder
-                        .build_call(i, &[self.values[&a].into()], node_name)
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap()
+                let f = match op {
+                    UnaryOpcode::Neg => self.math_f.neg,
+                    UnaryOpcode::Abs => self.math_f.abs,
+                    UnaryOpcode::Sqrt => self.math_f.sqrt,
+                    UnaryOpcode::Recip => self.math_f.sqrt,
                 };
-                match op {
-                    UnaryOpcode::Neg => self
-                        .core
-                        .builder
-                        .build_float_neg(
-                            self.values[&a].into_float_value(),
-                            node_name,
-                        )
-                        .as_basic_value_enum(),
-                    UnaryOpcode::Abs => call_intrinsic(self.intrinsics.f_abs),
-                    UnaryOpcode::Sqrt => call_intrinsic(self.intrinsics.f_sqrt),
-                    UnaryOpcode::Recip => self
-                        .core
-                        .builder
-                        .build_float_div(
-                            self.core.f32_type().const_float(1.0),
-                            self.values[&a].into_float_value(),
-                            node_name,
-                        )
-                        .as_basic_value_enum(),
-                }
+                self.core
+                    .builder
+                    .build_call(f, &[self.values[&a].into()], node_name)
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
             }
         }
     }
@@ -1120,8 +1190,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
             Op::Binary(op, a, b) => {
                 let f = match op {
-                    BinaryOpcode::Add => self.intrinsics.i_add,
-                    BinaryOpcode::Mul => self.intrinsics.i_mul,
+                    BinaryOpcode::Add => self.math_i.add,
+                    BinaryOpcode::Mul => self.math_i.mul,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1137,9 +1207,8 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 let c = usize::from(c);
 
                 let f = match op {
-                    // TODO
-                    BinaryChoiceOpcode::Min => self.intrinsics.f_min,
-                    BinaryChoiceOpcode::Max => self.intrinsics.f_max,
+                    BinaryChoiceOpcode::Min => self.math_i.min,
+                    BinaryChoiceOpcode::Max => self.math_i.max,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1160,10 +1229,10 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             }
             Op::Unary(op, a) => {
                 let f = match op {
-                    UnaryOpcode::Neg => self.intrinsics.i_neg,
-                    UnaryOpcode::Abs => self.intrinsics.i_abs,
-                    UnaryOpcode::Sqrt => self.intrinsics.i_sqrt,
-                    UnaryOpcode::Recip => unimplemented!(),
+                    UnaryOpcode::Neg => self.math_i.neg,
+                    UnaryOpcode::Abs => self.math_i.abs,
+                    UnaryOpcode::Sqrt => self.math_i.sqrt,
+                    UnaryOpcode::Recip => self.math_i.recip,
                 };
                 self.core
                     .builder
