@@ -21,8 +21,8 @@ use inkwell::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
     types::{
-        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType, FloatType,
-        FunctionType, IntType, PointerType,
+        AnyTypeEnum, ArrayType, BasicMetadataTypeEnum, BasicType,
+        BasicTypeEnum, FloatType, FunctionType, IntType, PointerType,
     },
     values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
     AddressSpace, FloatPredicate, OptimizationLevel,
@@ -95,16 +95,13 @@ struct JitCore<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
-    f32_type: FloatType<'ctx>,
-    i32_type: IntType<'ctx>,
-    interval_type: ArrayType<'ctx>,
-    binary_fn_type_i: FunctionType<'ctx>,
-    unary_fn_type_i: FunctionType<'ctx>,
-    binary_choice_fn_type_f: FunctionType<'ctx>,
-    shape_fn_type: FunctionType<'ctx>,
+    float: JitType<'ctx>,
+    interval: JitType<'ctx>,
     always_inline: Attribute,
+    i32_type: IntType<'ctx>,
 }
 
+/// Derived types associated with a particular evaluation mode
 struct JitType<'ctx> {
     ty: AnyTypeEnum<'ctx>,
     binary_fn: FunctionType<'ctx>,
@@ -147,15 +144,8 @@ impl<'ctx> JitType<'ctx> {
             ],
             false,
         );
-        let shape_fn = ty.fn_type(
-            &[
-                ty.into(),
-                ty.into(),
-                i32_type.into(),
-                i32_const_ptr_type.into(),
-            ],
-            false,
-        );
+        let shape_fn = ty
+            .fn_type(&[ty.into(), ty.into(), i32_const_ptr_type.into()], false);
         Self {
             ty: ty.into(),
             binary_fn,
@@ -171,30 +161,14 @@ impl<'ctx> JitCore<'ctx> {
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
         let interval_type = f32_type.array_type(2);
+        let i32_const_ptr_type = i32_type.ptr_type(AddressSpace::Const);
+
+        let float = JitType::new(f32_type, i32_type, i32_const_ptr_type);
+        let interval =
+            JitType::new(interval_type, i32_type, i32_const_ptr_type);
 
         let module = context.create_module("shape");
         let builder = context.create_builder();
-
-        let binary_fn_type_i = interval_type
-            .fn_type(&[interval_type.into(), interval_type.into()], false);
-        let unary_fn_type_i =
-            interval_type.fn_type(&[interval_type.into()], false);
-
-        let binary_choice_fn_type_f = f32_type.fn_type(
-            &[
-                f32_type.into(), // lhs
-                f32_type.into(), // rhs
-                i32_type.into(), // choice
-                i32_type.into(), // shift
-            ],
-            false,
-        );
-
-        let i32_const_ptr_type = i32_type.ptr_type(AddressSpace::Const);
-        let shape_fn_type = f32_type.fn_type(
-            &[f32_type.into(), f32_type.into(), i32_const_ptr_type.into()],
-            false,
-        );
 
         let kind_id = Attribute::get_named_enum_kind_id("alwaysinline");
         let always_inline = context.create_enum_attribute(kind_id, 0);
@@ -203,21 +177,24 @@ impl<'ctx> JitCore<'ctx> {
             context,
             module,
             builder,
-            f32_type,
-            i32_type,
-            interval_type,
-            binary_fn_type_i,
-            unary_fn_type_i,
-            binary_choice_fn_type_f,
-            shape_fn_type,
+            float,
+            interval,
             always_inline,
+            i32_type,
         }
+    }
+
+    fn f32_type(&self) -> FloatType<'ctx> {
+        self.float.ty.into_float_type()
+    }
+    fn interval_type(&self) -> ArrayType<'ctx> {
+        self.interval.ty.into_array_type()
     }
 
     fn get_unary_intrinsic_f(&self, name: &str) -> FunctionValue<'ctx> {
         let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
         intrinsic
-            .get_declaration(&self.module, &[self.f32_type.into()])
+            .get_declaration(&self.module, &[self.f32_type().into()])
             .unwrap()
     }
 
@@ -226,7 +203,7 @@ impl<'ctx> JitCore<'ctx> {
         intrinsic
             .get_declaration(
                 &self.module,
-                &[self.f32_type.into(), self.f32_type.into()],
+                &[self.f32_type().into(), self.f32_type().into()],
             )
             .unwrap()
     }
@@ -265,7 +242,7 @@ impl<'ctx> JitCore<'ctx> {
     ) -> FunctionValue<'ctx> {
         let function = self.module.add_function(
             name,
-            self.binary_choice_fn_type_f,
+            self.float.binary_choice_fn,
             Some(Linkage::Private),
         );
         function.add_attribute(AttributeLoc::Function, self.always_inline);
@@ -327,7 +304,7 @@ impl<'ctx> JitCore<'ctx> {
         self.builder.build_return(Some(&fmax_result));
 
         self.builder.position_at_end(end_block);
-        let out = self.builder.build_phi(self.f32_type, "out");
+        let out = self.builder.build_phi(self.f32_type(), "out");
         out.add_incoming(&[(&lhs, left_block), (&rhs, right_block)]);
 
         let out = out.as_basic_value().into_float_value();
@@ -356,7 +333,7 @@ impl<'ctx> JitCore<'ctx> {
         // It ain't pretty, but it works: this is a manual port of
         // boost::interval's multiplication code into LLVM IR.
         let (f, lhs, rhs) = self.binary_op_prelude("i_mul");
-        let zero = self.f32_type.const_float(0.0);
+        let zero = self.f32_type().const_float(0.0);
 
         let a0_lt_0 = || {
             self.builder.build_float_compare(
@@ -676,7 +653,7 @@ impl<'ctx> JitCore<'ctx> {
 
     fn build_i_abs(&self, fmax: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
         let (f, a) = self.unary_op_prelude("i_abs");
-        let zero = self.f32_type.const_float(0.0);
+        let zero = self.f32_type().const_float(0.0);
         let lower_ge_0 = self.builder.build_float_compare(
             FloatPredicate::OGE,
             a.lower,
@@ -726,7 +703,7 @@ impl<'ctx> JitCore<'ctx> {
 
     fn build_i_sqrt(&self, fsqrt: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
         let (f, a) = self.unary_op_prelude("i_sqrt");
-        let zero = self.f32_type.const_float(0.0);
+        let zero = self.f32_type().const_float(0.0);
         let upper_lt_0 = self.builder.build_float_compare(
             FloatPredicate::OLT,
             a.upper,
@@ -741,7 +718,7 @@ impl<'ctx> JitCore<'ctx> {
             upper_ge_0_block,
         );
         self.builder.position_at_end(upper_lt_0_block);
-        let nan = self.f32_type.const_float(f64::NAN);
+        let nan = self.f32_type().const_float(f64::NAN);
         self.build_return(Interval {
             lower: nan,
             upper: nan,
@@ -797,7 +774,7 @@ impl<'ctx> JitCore<'ctx> {
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>) {
         let function =
-            self.module.add_function(name, self.unary_fn_type_i, None);
+            self.module.add_function(name, self.interval.unary_fn, None);
         function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
@@ -820,7 +797,8 @@ impl<'ctx> JitCore<'ctx> {
         name: &str,
     ) -> (FunctionValue<'ctx>, Interval<'ctx>, Interval<'ctx>) {
         let function =
-            self.module.add_function(name, self.binary_fn_type_i, None);
+            self.module
+                .add_function(name, self.interval.binary_fn, None);
         function.add_attribute(AttributeLoc::Function, self.always_inline);
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
@@ -859,7 +837,7 @@ impl<'ctx> JitCore<'ctx> {
         )
     }
     fn build_return(&self, out: Interval) {
-        let out0 = self.interval_type.const_zero();
+        let out0 = self.interval_type().const_zero();
         let out1 = self
             .builder
             .build_insert_value(out0, out.lower, 0, "out1")
@@ -916,7 +894,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
 
         // Build our main function
         let function =
-            core.module.add_function("shape", core.shape_fn_type, None);
+            core.module.add_function("shape", core.float.shape_fn, None);
         let entry_block = core.context.append_basic_block(function, "entry");
         core.builder.position_at_end(entry_block);
 
@@ -1048,7 +1026,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 self.function.get_nth_param(i).unwrap()
             }
             Op::Const(f) => {
-                self.core.f32_type.const_float(f).as_basic_value_enum()
+                self.core.f32_type().const_float(f).as_basic_value_enum()
             }
             Op::Binary(op, a, b) => {
                 let f = match op {
@@ -1112,7 +1090,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                         .core
                         .builder
                         .build_float_div(
-                            self.core.f32_type.const_float(1.0),
+                            self.core.f32_type().const_float(1.0),
                             self.values[&a].into_float_value(),
                             node_name,
                         )
@@ -1134,9 +1112,9 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 self.function.get_nth_param(i).unwrap()
             }
             Op::Const(f) => {
-                let v = self.core.f32_type.const_float(f);
+                let v = self.core.f32_type().const_float(f);
                 self.core
-                    .f32_type
+                    .f32_type()
                     .const_array(&[v, v])
                     .as_basic_value_enum()
             }
@@ -1308,7 +1286,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
             // block into the parent block's context for active nodes
             for n in active.iter().map(|(_, n)| *n) {
                 let out = self.core.builder.build_phi(
-                    self.core.f32_type,
+                    self.core.f32_type(),
                     &format!(
                         "g{}n{}",
                         usize::from(group_index),
@@ -1317,7 +1295,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                 );
                 out.add_incoming(&[
                     (&self.values[&n], recurse_block),
-                    (&self.core.f32_type.get_undef(), last_block),
+                    (&self.core.f32_type().get_undef(), last_block),
                 ]);
                 self.values.insert(n, out.as_basic_value());
             }
