@@ -20,10 +20,7 @@ use inkwell::{
     targets::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
-    types::{
-        BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
-        FunctionType, IntType, PointerType,
-    },
+    types::{BasicType, BasicTypeEnum, FloatType, IntType},
     values::{
         BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
         PointerValue,
@@ -103,44 +100,13 @@ struct JitCore<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
-    float: JitType<'ctx>,
     always_inline: Attribute,
     i32_type: IntType<'ctx>,
-}
-
-/// Derived types associated with a particular evaluation mode
-struct JitType<'ctx> {
-    ty: BasicTypeEnum<'ctx>,
-    shape_fn: FunctionType<'ctx>,
-}
-
-impl<'ctx> JitType<'ctx> {
-    fn new<T>(
-        ty: T,
-        i32_type: IntType<'ctx>,
-        i32_const_ptr_type: PointerType<'ctx>,
-    ) -> Self
-    where
-        T: BasicType<'ctx> + Copy + Clone,
-        BasicMetadataTypeEnum<'ctx>: From<T>,
-        BasicTypeEnum<'ctx>: From<T>,
-    {
-        let shape_fn = ty
-            .fn_type(&[ty.into(), ty.into(), i32_const_ptr_type.into()], false);
-        Self {
-            ty: ty.into(),
-            shape_fn,
-        }
-    }
 }
 
 impl<'ctx> JitCore<'ctx> {
     fn new(context: &'ctx Context) -> Self {
         let i32_type = context.i32_type();
-        let f32_type = context.f32_type();
-        let i32_const_ptr_type = i32_type.ptr_type(AddressSpace::Const);
-
-        let float = JitType::new(f32_type, i32_type, i32_const_ptr_type);
 
         let module = context.create_module("shape");
         let builder = context.create_builder();
@@ -152,14 +118,13 @@ impl<'ctx> JitCore<'ctx> {
             context,
             module,
             builder,
-            float,
             always_inline,
             i32_type,
         }
     }
 
     fn f32_type(&self) -> FloatType<'ctx> {
-        self.float.ty.into_float_type()
+        self.context.f32_type()
     }
 
     fn get_unary_intrinsic_f(&self, name: &str) -> FunctionValue<'ctx> {
@@ -939,6 +904,30 @@ impl<'ctx> JitCore<'ctx> {
         let out = out.to_basic_value_enum(self);
         self.builder.build_return(Some(&out));
     }
+
+    fn shape_prelude<T: JitValue<'ctx>>(
+        &self,
+        name: &str,
+    ) -> FunctionValue<'ctx> {
+        let ty = T::ty(self);
+
+        let i32_const_ptr_type = self.i32_type.ptr_type(AddressSpace::Const);
+        let fn_ty = ty.fn_type(
+            &[
+                ty.into(),
+                ty.into(),
+                i32_const_ptr_type.into(),
+                self.i32_type.ptr_type(AddressSpace::Local).into(),
+            ],
+            false,
+        );
+
+        // Build our main function
+        let function = self.module.add_function(name, fn_ty, None);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        function
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -984,11 +973,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
         let math_i = core.get_math_i(&intrinsics);
         let math_f = core.get_math_f(&intrinsics);
 
-        // Build our main function
-        let function =
-            core.module.add_function("shape", core.float.shape_fn, None);
-        let entry_block = core.context.append_basic_block(function, "entry");
-        core.builder.position_at_end(entry_block);
+        let function = core.shape_prelude::<Float>("shape_f");
 
         let choice_array_size = (t.num_choices + 15) / 16;
         let choice_base_ptr =
@@ -1434,7 +1419,7 @@ pub fn to_jit_fn<'a, 'b>(
         .core
         .module
         .create_jit_execution_engine(OptimizationLevel::Default)?;
-    let out = unsafe { execution_engine.get_function("shape")? };
+    let out = unsafe { execution_engine.get_function("shape_f")? };
     info!("Extracted JIT function in {:?}", now.elapsed());
     Ok(out)
 }
