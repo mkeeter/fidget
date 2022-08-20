@@ -21,7 +21,7 @@ use inkwell::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
     types::{
-        ArrayType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
+        BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
         FunctionType, IntType, PointerType,
     },
     values::{BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue},
@@ -101,7 +101,6 @@ struct JitCore<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     float: JitType<'ctx>,
-    interval: JitType<'ctx>,
     always_inline: Attribute,
     i32_type: IntType<'ctx>,
 }
@@ -147,12 +146,9 @@ impl<'ctx> JitCore<'ctx> {
     fn new(context: &'ctx Context) -> Self {
         let i32_type = context.i32_type();
         let f32_type = context.f32_type();
-        let interval_type = f32_type.array_type(2);
         let i32_const_ptr_type = i32_type.ptr_type(AddressSpace::Const);
 
         let float = JitType::new(f32_type, i32_type, i32_const_ptr_type);
-        let interval =
-            JitType::new(interval_type, i32_type, i32_const_ptr_type);
 
         let module = context.create_module("shape");
         let builder = context.create_builder();
@@ -165,7 +161,6 @@ impl<'ctx> JitCore<'ctx> {
             module,
             builder,
             float,
-            interval,
             always_inline,
             i32_type,
         }
@@ -173,9 +168,6 @@ impl<'ctx> JitCore<'ctx> {
 
     fn f32_type(&self) -> FloatType<'ctx> {
         self.float.ty.into_float_type()
-    }
-    fn interval_type(&self) -> ArrayType<'ctx> {
-        self.interval.ty.into_array_type()
     }
 
     fn get_unary_intrinsic_f(&self, name: &str) -> FunctionValue<'ctx> {
@@ -1093,7 +1085,7 @@ impl<'a, 'ctx> Jit<'a, 'ctx> {
                     UnaryOpcode::Neg => math.neg,
                     UnaryOpcode::Abs => math.abs,
                     UnaryOpcode::Sqrt => math.sqrt,
-                    UnaryOpcode::Recip => math.sqrt,
+                    UnaryOpcode::Recip => math.recip,
                 };
                 self.core
                     .builder
@@ -1314,7 +1306,7 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
         core.f32_type().const_float(f).as_basic_value_enum()
     }
     fn from_basic_value_enum<'a>(
-        core: &'a JitCore<'ctx>,
+        _core: &'a JitCore<'ctx>,
         v: BasicValueEnum<'ctx>,
     ) -> Self {
         let value = v.into_float_value();
@@ -1325,7 +1317,7 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     }
     fn to_basic_value_enum(
         &self,
-        core: &JitCore<'ctx>,
+        _core: &JitCore<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         self.value.as_basic_value_enum()
     }
