@@ -286,8 +286,69 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_max(&self, maxnum: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, lhs, rhs, _shift, _out) =
+        let (f, lhs, rhs, shift, out) =
             self.binary_choice_op_prelude::<Interval>("i_max");
+
+        let lhs_gt_block = self.context.append_basic_block(f, "lhs_gt_block");
+        let lhs_ambig_block = self.context.append_basic_block(f, "lhs_ambig");
+        let rhs_gt_block = self.context.append_basic_block(f, "rhs_gt_block");
+        let rhs_ambig_block = self.context.append_basic_block(f, "rhs_ambig");
+        let lhs_gt = self.builder.build_float_compare(
+            FloatPredicate::OGT,
+            lhs.lower,
+            rhs.upper,
+            "lhs_gt",
+        );
+        self.builder.build_conditional_branch(
+            lhs_gt,
+            lhs_gt_block,
+            lhs_ambig_block,
+        );
+
+        // If LHS > RHS, then mask out the RHS in the output u32
+        {
+            self.builder.position_at_end(lhs_gt_block);
+            let c = self.builder.build_load(out, "choice_out").into_int_value();
+            let mask = self.builder.build_left_shift(
+                self.i32_type.const_int(RHS as u64, false),
+                shift,
+                "rhs_mask",
+            );
+            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            self.builder.build_store(out, c);
+            self.build_return_i(lhs);
+        }
+
+        {
+            self.builder.position_at_end(lhs_ambig_block);
+            let rhs_gt = self.builder.build_float_compare(
+                FloatPredicate::OGT,
+                rhs.lower,
+                lhs.upper,
+                "rhs_gt",
+            );
+            self.builder.build_conditional_branch(
+                rhs_gt,
+                rhs_gt_block,
+                rhs_ambig_block,
+            );
+        }
+
+        // If RHS > LHS, then mask LHS in the output u32
+        {
+            self.builder.position_at_end(rhs_gt_block);
+            let c = self.builder.build_load(out, "choice_out").into_int_value();
+            let mask = self.builder.build_left_shift(
+                self.i32_type.const_int(LHS as u64, false),
+                shift,
+                "lhs_mask",
+            );
+            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            self.builder.build_store(out, c);
+            self.build_return_i(rhs);
+        }
+
+        self.builder.position_at_end(rhs_ambig_block);
         let lower = self
             .builder
             .build_call(maxnum, &[lhs.lower.into(), rhs.lower.into()], "lower")
@@ -307,8 +368,69 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     fn build_i_min(&self, minnum: FunctionValue<'ctx>) -> FunctionValue<'ctx> {
-        let (f, lhs, rhs, _shift, _out) =
+        let (f, lhs, rhs, shift, out) =
             self.binary_choice_op_prelude::<Interval>("i_min");
+
+        let lhs_lt_block = self.context.append_basic_block(f, "lhs_lt_block");
+        let lhs_ambig_block = self.context.append_basic_block(f, "lhs_ambig");
+        let rhs_lt_block = self.context.append_basic_block(f, "rhs_lt_block");
+        let rhs_ambig_block = self.context.append_basic_block(f, "rhs_ambig");
+        let lhs_lt = self.builder.build_float_compare(
+            FloatPredicate::OLT,
+            lhs.upper,
+            rhs.lower,
+            "lhs_lt",
+        );
+        self.builder.build_conditional_branch(
+            lhs_lt,
+            lhs_lt_block,
+            lhs_ambig_block,
+        );
+
+        // If LHS < RHS, then mask out the RHS in the output u32
+        {
+            self.builder.position_at_end(lhs_lt_block);
+            let c = self.builder.build_load(out, "choice_out").into_int_value();
+            let mask = self.builder.build_left_shift(
+                self.i32_type.const_int(RHS as u64, false),
+                shift,
+                "rhs_mask",
+            );
+            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            self.builder.build_store(out, c);
+            self.build_return_i(lhs);
+        }
+
+        {
+            self.builder.position_at_end(lhs_ambig_block);
+            let rhs_lt = self.builder.build_float_compare(
+                FloatPredicate::OLT,
+                rhs.upper,
+                lhs.lower,
+                "rhs_lt",
+            );
+            self.builder.build_conditional_branch(
+                rhs_lt,
+                rhs_lt_block,
+                rhs_ambig_block,
+            );
+        }
+
+        // If RHS < LHS, then mask LHS in the output u32
+        {
+            self.builder.position_at_end(rhs_lt_block);
+            let c = self.builder.build_load(out, "choice_out").into_int_value();
+            let mask = self.builder.build_left_shift(
+                self.i32_type.const_int(LHS as u64, false),
+                shift,
+                "lhs_mask",
+            );
+            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            self.builder.build_store(out, c);
+            self.build_return_i(rhs);
+        }
+
+        self.builder.position_at_end(rhs_ambig_block);
         let lower = self
             .builder
             .build_call(minnum, &[lhs.lower.into(), rhs.lower.into()], "lower")
@@ -1409,7 +1531,7 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
 pub fn to_jit_fn<'t, 'ctx>(
     t: &'t Compiler,
     context: &'ctx JitContext,
-) -> Result<JitEval<'ctx>, Error> {
+) -> Result<JitEvalHandle<'ctx>, Error> {
     let jit_core = JitCore::new(&context.0);
 
     info!("Building float JIT function");
@@ -1443,7 +1565,7 @@ pub fn to_jit_fn<'t, 'ctx>(
     let fn_interval_addr = execution_engine.get_function_address("shape_i")?;
     info!("Extracted interval JIT function in {:?}", now.elapsed());
 
-    Ok(JitEval {
+    Ok(JitEvalHandle {
         fn_float,
         fn_float_addr,
         fn_interval,
@@ -1451,7 +1573,8 @@ pub fn to_jit_fn<'t, 'ctx>(
     })
 }
 
-pub struct JitEval<'ctx> {
+/// Handle which owns JIT'd functions
+pub struct JitEvalHandle<'ctx> {
     fn_float: JitFunction<'ctx, FloatFunc>,
     fn_float_addr: usize,
     fn_interval: JitFunction<'ctx, IntervalFunc>,
@@ -1465,16 +1588,17 @@ pub struct JitEval<'ctx> {
 /// remain valid.
 ///
 /// (_hopefully_)
-pub struct JitThreadEval<'jit> {
+#[derive(Copy, Clone)]
+pub struct JitEval<'jit> {
     fn_float: FloatFunc,
     fn_interval: IntervalFunc,
     _p: std::marker::PhantomData<&'jit ()>,
 }
 
-impl<'ctx> JitEval<'ctx> {
-    pub fn to_thread_eval(&self) -> JitThreadEval<'_> {
+impl<'ctx> JitEvalHandle<'ctx> {
+    pub fn to_thread_eval(&self) -> JitEval<'_> {
         unsafe {
-            JitThreadEval {
+            JitEval {
                 fn_float: std::mem::transmute_copy(&self.fn_float_addr),
                 fn_interval: std::mem::transmute_copy(&self.fn_interval_addr),
                 _p: std::marker::PhantomData,
@@ -1484,7 +1608,7 @@ impl<'ctx> JitEval<'ctx> {
 }
 
 use crate::eval::Eval;
-impl<'ctx> Eval for JitEval<'ctx> {
+impl<'ctx> Eval for JitEvalHandle<'ctx> {
     fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
         unsafe {
             self.fn_float
@@ -1509,7 +1633,7 @@ impl<'ctx> Eval for JitEval<'ctx> {
     }
 }
 
-impl<'ctx> Eval for JitThreadEval<'ctx> {
+impl<'ctx> Eval for JitEval<'ctx> {
     fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
         unsafe {
             (self.fn_float)(x, y, choices_in.as_ptr(), std::ptr::null_mut())
