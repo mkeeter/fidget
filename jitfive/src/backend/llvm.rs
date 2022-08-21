@@ -1426,6 +1426,8 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Copy, Clone)]
 struct Interval<'ctx> {
     lower: FloatValue<'ctx>,
@@ -1546,6 +1548,8 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub fn to_jit_fn<'t, 'ctx>(
     t: &'t Compiler,
     context: &'ctx JitContext,
@@ -1592,6 +1596,9 @@ pub fn to_jit_fn<'t, 'ctx>(
 }
 
 /// Handle which owns JIT'd functions
+///
+/// Under the hood, the owned `JitFunction` will keep the execution engine and
+/// module alive (through LLVM references).
 pub struct JitEvalHandle<'ctx> {
     fn_float: JitFunction<'ctx, FloatFunc>,
     fn_float_addr: usize,
