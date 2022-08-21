@@ -7,6 +7,7 @@ use jitfive::{
     compiler::Compiler,
     context::Context,
     eval::Eval,
+    render::render,
 };
 use log::{error, info, warn};
 
@@ -25,6 +26,10 @@ struct Args {
     /// Render using the JIT-compiled function
     #[clap(short, long, requires = "image")]
     jit: bool,
+
+    /// Use per-pixel, brute-force rendering
+    #[clap(short, long, requires_all = &["image", "jit"])]
+    brute: bool,
 
     /// Image size
     #[clap(short, long, requires = "image", default_value = "128")]
@@ -100,31 +105,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     */
     if let Some(img) = args.image {
-        let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
-        let now = Instant::now();
-        let scale = args.size;
-        let mut out = Vec::with_capacity((scale * scale) as usize);
-        let div = (scale - 1) as f64;
-        for i in 0..scale {
-            let y = -(-1.0 + 2.0 * (i as f64) / div);
-            for j in 0..scale {
-                let x = -1.0 + 2.0 * (j as f64) / div;
-                let v = if args.jit {
-                    jit_fn.float(x as f32, y as f32, &choices)
-                } else {
-                    ctx.eval_xyz(root, x, y, 0.0)? as f32
-                };
-                out.push(v <= 0.0);
+        let buffer: Vec<u8> = if args.jit && !args.brute {
+            let now = Instant::now();
+            let image = render(args.size as usize, &jit_fn);
+            info!("Finished rendering in {:?}", now.elapsed());
+            image
+                .into_iter()
+                .flat_map(|p| p.as_color().into_iter())
+                .collect()
+        } else {
+            let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
+            let now = Instant::now();
+            let scale = args.size;
+            let mut out = Vec::with_capacity((scale * scale) as usize);
+            let div = (scale - 1) as f64;
+            for i in 0..scale {
+                let y = -(-1.0 + 2.0 * (i as f64) / div);
+                for j in 0..scale {
+                    let x = -1.0 + 2.0 * (j as f64) / div;
+                    let v = if args.jit {
+                        jit_fn.float(x as f32, y as f32, &choices)
+                    } else {
+                        ctx.eval_xyz(root, x, y, 0.0)? as f32
+                    };
+                    out.push(v <= 0.0);
+                }
             }
-        }
-        info!("Finished rendering in {:?}", now.elapsed());
+            info!("Finished rendering in {:?}", now.elapsed());
 
-        // Convert from Vec<bool> to an image
-        let buffer: Vec<u8> = out
-            .into_iter()
-            .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-            .flat_map(|i| i.into_iter())
-            .collect();
+            // Convert from Vec<bool> to an image
+            out.into_iter()
+                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+                .flat_map(|i| i.into_iter())
+                .collect()
+        };
 
         image::save_buffer(
             img,

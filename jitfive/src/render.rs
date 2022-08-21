@@ -1,19 +1,42 @@
 use crate::eval::Eval;
 
+#[derive(Copy, Clone, Debug)]
+pub enum Pixel {
+    EmptyTile,
+    FilledTile,
+    EmptySubtile,
+    FilledSubtile,
+    Empty,
+    Filled,
+}
+
+impl Pixel {
+    pub fn as_color(&self) -> [u8; 4] {
+        match self {
+            Pixel::EmptyTile => [50, 0, 0, 255],
+            Pixel::FilledTile => [255, 0, 0, 255],
+            Pixel::EmptySubtile => [0, 50, 0, 255],
+            Pixel::FilledSubtile => [0, 255, 0, 255],
+            Pixel::Empty => [0, 0, 0, 255],
+            Pixel::Filled => [255, 255, 255, 255],
+        }
+    }
+}
+
 struct Renderer<'a, E> {
     eval: &'a E,
     size: usize,
     choices_root: Vec<u32>,
     choices_tile: Vec<u32>,
     choices_subtile: Vec<u32>,
-    image: Vec<u8>,
+    image: Vec<Option<Pixel>>,
 }
 
 /// Renders in three passes:
 /// - 64x64 intervals
 /// - 8x8 intervals
 /// - 8x8 pixels
-pub fn render<E: Eval>(size: usize, eval: &E) -> Vec<u8> {
+pub fn render<E: Eval>(size: usize, eval: &E) -> Vec<Pixel> {
     assert_eq!(size % 64, 0);
     let mut r = Renderer {
         eval,
@@ -21,10 +44,10 @@ pub fn render<E: Eval>(size: usize, eval: &E) -> Vec<u8> {
         choices_root: vec![u32::MAX; eval.choice_array_size()],
         choices_tile: vec![u32::MAX; eval.choice_array_size()],
         choices_subtile: vec![u32::MAX; eval.choice_array_size()],
-        image: vec![0u8; size * size],
+        image: vec![None; size * size],
     };
     r.run();
-    r.image
+    r.image.into_iter().map(Option::unwrap).collect()
 }
 
 impl<'a, E: Eval> Renderer<'a, E> {
@@ -50,14 +73,18 @@ impl<'a, E: Eval> Renderer<'a, E> {
             &mut self.choices_tile,
         );
         if i[1] < 0.0 {
-            // If the region is completely inside, then color it in and return
-            for j in 0..64 {
-                for i in 0..64 {
-                    self.image[x + i + (y + j) * self.size] = 3;
+            for x in x..(x + 64) {
+                for y in y..(y + 64) {
+                    self.image[x + y * self.size] = Some(Pixel::FilledTile);
                 }
             }
-        } else if i[0] < 0.0 {
-            // Ambiguous case: recurse down to subtiles
+        } else if i[0] > 0.0 {
+            for x in x..(x + 64) {
+                for y in y..(y + 64) {
+                    self.image[x + y * self.size] = Some(Pixel::EmptyTile);
+                }
+            }
+        } else {
             for j in 0..8 {
                 for i in 0..8 {
                     self.render_subtile(x + i * 8, y + j * 8);
@@ -77,17 +104,21 @@ impl<'a, E: Eval> Renderer<'a, E> {
         );
 
         if i[1] < 0.0 {
-            // If the region is completely inside, then color it in and return
-            for j in 0..8 {
-                for i in 0..8 {
-                    self.image[x + i + (y + j) * self.size] = 2;
+            for x in x..(x + 8) {
+                for y in y..(y + 8) {
+                    self.image[x + y * self.size] = Some(Pixel::FilledSubtile);
                 }
             }
-        } else if i[0] < 0.0 {
-            // Ambiguous case: render individual pixels
-            for j in 0..8 {
-                for i in 0..8 {
-                    self.render_pixel(x + i, y + j);
+        } else if i[0] > 0.0 {
+            for x in x..(x + 8) {
+                for y in y..(y + 8) {
+                    self.image[x + y * self.size] = Some(Pixel::EmptySubtile);
+                }
+            }
+        } else {
+            for x in x..(x + 8) {
+                for y in y..(y + 8) {
+                    self.render_pixel(x, y);
                 }
             }
         }
@@ -98,7 +129,9 @@ impl<'a, E: Eval> Renderer<'a, E> {
 
         let i = self.eval.float(x_pos, y_pos, &self.choices_subtile);
         if i < 0.0 {
-            self.image[x + y * self.size] = 1;
+            self.image[x + y * self.size] = Some(Pixel::Filled);
+        } else {
+            self.image[x + y * self.size] = Some(Pixel::Empty);
         }
     }
 }
