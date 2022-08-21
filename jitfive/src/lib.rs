@@ -5,6 +5,7 @@ pub mod error;
 pub mod eval;
 pub mod indexed;
 pub mod passes;
+pub mod render;
 //pub mod metal;
 pub mod op;
 

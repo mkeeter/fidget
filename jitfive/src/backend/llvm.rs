@@ -1631,6 +1631,7 @@ pub fn to_jit_fn<'t, 'ctx>(
         fn_float_addr,
         fn_interval,
         fn_interval_addr,
+        choice_array_size: (t.num_choices + 15) / 16,
     })
 }
 
@@ -1643,6 +1644,7 @@ pub struct JitEvalHandle<'ctx> {
     fn_float_addr: usize,
     fn_interval: JitFunction<'ctx, IntervalFunc>,
     fn_interval_addr: usize,
+    choice_array_size: usize,
 }
 
 /// Thread-safe (hah!) version of `JitEval`.
@@ -1654,6 +1656,7 @@ pub struct JitEvalHandle<'ctx> {
 /// (_hopefully_)
 #[derive(Copy, Clone)]
 pub struct JitEval<'jit> {
+    choice_array_size: usize,
     fn_float: FloatFunc,
     fn_interval: IntervalFunc,
     _p: std::marker::PhantomData<&'jit ()>,
@@ -1665,6 +1668,7 @@ impl<'ctx> JitEvalHandle<'ctx> {
             JitEval {
                 fn_float: std::mem::transmute_copy(&self.fn_float_addr),
                 fn_interval: std::mem::transmute_copy(&self.fn_interval_addr),
+                choice_array_size: self.choice_array_size,
                 _p: std::marker::PhantomData,
             }
         }
@@ -1695,6 +1699,9 @@ impl<'ctx> Eval for JitEvalHandle<'ctx> {
             )
         }
     }
+    fn choice_array_size(&self) -> usize {
+        self.choice_array_size
+    }
 }
 
 impl<'ctx> Eval for JitEval<'ctx> {
@@ -1718,6 +1725,9 @@ impl<'ctx> Eval for JitEval<'ctx> {
                 choices_out.as_mut_ptr(),
             )
         }
+    }
+    fn choice_array_size(&self) -> usize {
+        self.choice_array_size
     }
 }
 
