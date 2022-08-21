@@ -1090,6 +1090,10 @@ impl<'ctx> JitCore<'ctx> {
 
         // Build our main function
         let function = self.module.add_function(name, fn_ty, None);
+        for a in &self.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
+
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
         function
