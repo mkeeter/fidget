@@ -55,6 +55,7 @@ struct JitIntrinsics<'ctx> {
     sqrt: FunctionValue<'ctx>,
     minnum: FunctionValue<'ctx>,
     maxnum: FunctionValue<'ctx>,
+    memcpy: FunctionValue<'ctx>,
 }
 
 /// Library of math functions, specialized to a given type
@@ -276,11 +277,25 @@ impl<'ctx> JitCore<'ctx> {
         let maxnum = self.get_binary_intrinsic_f("maxnum");
         let minnum = self.get_binary_intrinsic_f("minnum");
 
+        let memcpy = Intrinsic::find("llvm.memcpy").unwrap();
+        let memcpy = memcpy
+            .get_declaration(
+                &self.module,
+                &[
+                    self.i32_type.ptr_type(AddressSpace::Local).into(),
+                    self.i32_type.ptr_type(AddressSpace::Const).into(),
+                    self.i32_type.into(),
+                    self.context.bool_type().into(),
+                ],
+            )
+            .unwrap();
+
         JitIntrinsics {
             abs,
             sqrt,
             maxnum,
             minnum,
+            memcpy,
         }
     }
 
@@ -326,7 +341,8 @@ impl<'ctx> JitCore<'ctx> {
                 shift,
                 "rhs_mask",
             );
-            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            let not_mask = self.builder.build_not(mask, "rhs_not_mask");
+            let c = self.builder.build_and(c, not_mask, "choice_out_masked");
             self.builder.build_store(out, c);
             self.build_return_i(lhs);
         }
@@ -355,7 +371,8 @@ impl<'ctx> JitCore<'ctx> {
                 shift,
                 "lhs_mask",
             );
-            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            let not_mask = self.builder.build_not(mask, "rhs_not_mask");
+            let c = self.builder.build_and(c, not_mask, "choice_out_masked");
             self.builder.build_store(out, c);
             self.build_return_i(rhs);
         }
@@ -408,7 +425,8 @@ impl<'ctx> JitCore<'ctx> {
                 shift,
                 "rhs_mask",
             );
-            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            let not_mask = self.builder.build_not(mask, "rhs_not_mask");
+            let c = self.builder.build_and(c, not_mask, "choice_out_masked");
             self.builder.build_store(out, c);
             self.build_return_i(lhs);
         }
@@ -437,7 +455,8 @@ impl<'ctx> JitCore<'ctx> {
                 shift,
                 "lhs_mask",
             );
-            let c = self.builder.build_or(c, mask, "choice_out_masked");
+            let not_mask = self.builder.build_not(mask, "lhs_not_mask");
+            let c = self.builder.build_and(c, not_mask, "choice_out_masked");
             self.builder.build_store(out, c);
             self.build_return_i(rhs);
         }
@@ -1175,9 +1194,25 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             })
             .collect();
 
+        // If this function writes choices, then we
+        // 1) memcpy from the input choice array to the output at the start of
+        //    the function, and
+        // 2) record output choice pointers, to reduce code later on
         let choices_out = if T::writes_choices() {
             let choice_out_base_ptr =
                 function.get_nth_param(3).unwrap().into_pointer_value();
+            core.builder.build_call(
+                intrinsics.memcpy,
+                &[
+                    choice_out_base_ptr.into(),
+                    choice_base_ptr.into(),
+                    core.i32_type
+                        .const_int(choice_array_size as u64 * 4, false)
+                        .into(),
+                    core.context.bool_type().const_int(0, false).into(),
+                ],
+                "choice_memcpy",
+            );
             (0..choice_array_size)
                 .map(|i| unsafe {
                     core.builder.build_gep(
@@ -1751,17 +1786,34 @@ mod tests {
         let v =
             f.interval([0.0, 1.0], [-1.0, 1.0], &choices_in, &mut choices_out);
         assert_eq!(v, [-1.0, 1.0]);
-        assert_eq!(choices_out, vec![0; 1]);
+        assert_eq!(choices_out, vec![u32::MAX]);
 
         let v =
             f.interval([0.0, 1.0], [2.0, 3.0], &choices_in, &mut choices_out);
         assert_eq!(v, [0.0, 1.0]);
-        assert_eq!(choices_out, vec![RHS]);
+        assert_eq!(choices_out, vec![u32::MAX & !RHS]);
 
         let choices_in = vec![LHS];
         assert_eq!(1.0, f.float(1.0, 0.0, &choices_in));
 
         let choices_in = vec![RHS];
         assert_eq!(3.0, f.float(1.0, 3.0, &choices_in));
+    }
+
+    #[test]
+    fn test_memcpy() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let jit_ctx = JitContext::new();
+        let compiled = Compiler::new(&ctx, min);
+        let f = to_jit_fn(&compiled, &jit_ctx).unwrap();
+
+        let choices_in = vec![0x12345678];
+        let mut choices_out = vec![0];
+        f.interval([0.0, 1.0], [0.0, 1.0], &choices_in, &mut choices_out);
+        assert_eq!(choices_out, vec![0x12345678]);
     }
 }
