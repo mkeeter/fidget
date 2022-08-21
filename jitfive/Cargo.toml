@@ -4,10 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bytemuck = { version = "1", features = ["derive"] }
-indoc = "1.0"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm14-0"] }
 log = "0.4"
 ordered-float = "3"
-piet-gpu-hal = { git = "https://github.com/linebender/piet-gpu" }
 thiserror = "1"
