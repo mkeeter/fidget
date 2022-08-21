@@ -102,7 +102,7 @@ struct JitCore<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
-    always_inline: Attribute,
+    attrs: Vec<Attribute>,
     i32_type: IntType<'ctx>,
 }
 
@@ -113,14 +113,26 @@ impl<'ctx> JitCore<'ctx> {
         let module = context.create_module("shape");
         let builder = context.create_builder();
 
-        let kind_id = Attribute::get_named_enum_kind_id("alwaysinline");
-        let always_inline = context.create_enum_attribute(kind_id, 0);
+        let attrs = [
+            "nofree",
+            "norecurse",
+            "willreturn",
+            "nosync",
+            "nounwind",
+            "argmemonly",
+        ]
+        .iter()
+        .map(|a| {
+            let kind_id = Attribute::get_named_enum_kind_id(a);
+            context.create_enum_attribute(kind_id, 0)
+        })
+        .collect();
 
         Self {
             context,
             module,
             builder,
-            always_inline,
+            attrs,
             i32_type,
         }
     }
@@ -900,7 +912,9 @@ impl<'ctx> JitCore<'ctx> {
         let ty = T::ty(self);
         let fn_ty = ty.fn_type(&[ty.into()], false);
         let function = self.module.add_function(name, fn_ty, None);
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        for a in &self.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
         let a = function.get_nth_param(0).unwrap();
@@ -942,7 +956,9 @@ impl<'ctx> JitCore<'ctx> {
         let function =
             self.module
                 .add_function(name, fn_ty, Some(Linkage::Private));
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        for a in &self.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
 
@@ -1014,7 +1030,9 @@ impl<'ctx> JitCore<'ctx> {
         let ty = T::ty(self);
         let fn_ty = ty.fn_type(&[ty.into(), ty.into()], false);
         let function = self.module.add_function(name, fn_ty, None);
-        function.add_attribute(AttributeLoc::Function, self.always_inline);
+        for a in &self.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
         let entry_block = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_block);
         let a = function.get_nth_param(0).unwrap();
