@@ -37,9 +37,7 @@ mod tests {
         let mut ctx = Context::new();
         let a = ctx.constant(1.0);
         assert_eq!(ctx.len(), 1);
-        println!("{:?}", ctx);
         let b = ctx.constant(-1.0);
-        println!("{:?}", ctx);
         assert_eq!(ctx.len(), 2);
         let _ = ctx.add(a, b);
         assert_eq!(ctx.len(), 3);

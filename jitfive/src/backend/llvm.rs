@@ -923,7 +923,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     /// Builds a prelude for a function of the form
-    /// ```
+    /// ```ignore
     /// T op(lhs: T, rhs: T, choice: u32, shift: u32, out: *u32) {
     ///     let c = (choice >> shift) & 3;
     ///     if c == LHS {
@@ -1133,6 +1133,11 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
     /// reduce code size.
     choices: Vec<IntValue<'ctx>>,
 
+    /// Pointers to the `choices_out` array, loaded in at the `entry` point to
+    /// reduce code size.  This is only populated if `T::writes_choices()` is
+    /// `true`.
+    choices_out: Vec<PointerValue<'ctx>>,
+
     /// Index in the opcode tape
     i: usize,
 
@@ -1165,6 +1170,22 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             })
             .collect();
 
+        let choices_out = if T::writes_choices() {
+            let choice_out_base_ptr =
+                function.get_nth_param(2).unwrap().into_pointer_value();
+            (0..choice_array_size)
+                .map(|i| unsafe {
+                    core.builder.build_gep(
+                        choice_out_base_ptr,
+                        &[core.i32_type.const_int(i.try_into().unwrap(), true)],
+                        &format!("choice_ptr_{}", i),
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
         let root = t.root;
         let mut worker = Self {
             t,
@@ -1173,6 +1194,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             math,
             values: BTreeMap::new(),
             choices,
+            choices_out,
             i: 0,
             _p: std::marker::PhantomData,
         };
@@ -1257,6 +1279,15 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                 let choice = self.choices[c / 16];
                 let shift = (c % 16) * 2;
                 let shift = self.core.i32_type.const_int(shift as u64, false);
+                let choice_out =
+                    self.choices_out.get(c / 16).cloned().unwrap_or_else(
+                        || {
+                            self.core
+                                .i32_type
+                                .ptr_type(AddressSpace::Local)
+                                .const_null()
+                        },
+                    );
 
                 self.core
                     .builder
@@ -1267,11 +1298,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                             rhs.into(),
                             choice.into(),
                             shift.into(),
-                            self.core
-                                .i32_type
-                                .ptr_type(AddressSpace::Local)
-                                .const_null()
-                                .into(),
+                            choice_out.into(),
                         ],
                         node_name,
                     )
@@ -1458,6 +1485,7 @@ trait JitValue<'ctx> {
     ) -> JitMath<'ctx, Self>
     where
         Self: Sized;
+    fn writes_choices() -> bool;
 }
 
 impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
@@ -1512,6 +1540,9 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
     ) -> JitMath<'ctx, Interval<'ctx>> {
         core.get_math_i(intrinsics)
     }
+    fn writes_choices() -> bool {
+        true
+    }
 }
 
 impl<'ctx> JitValue<'ctx> for Float<'ctx> {
@@ -1545,6 +1576,9 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     }
     fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
         core.f32_type().get_undef().into()
+    }
+    fn writes_choices() -> bool {
+        false
     }
 }
 
@@ -1679,5 +1713,34 @@ impl<'ctx> Eval for JitEval<'ctx> {
                 choices_out.as_mut_ptr(),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_jit() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let jit_ctx = JitContext::new();
+        let compiled = Compiler::new(&ctx, min);
+        let f = to_jit_fn(&compiled, &jit_ctx).unwrap();
+
+        let choices_in = vec![u32::MAX];
+        let mut choices_out = vec![0];
+        let v =
+            f.interval([0.0, 1.0], [-1.0, 1.0], &choices_in, &mut choices_out);
+        assert_eq!(v, [-1.0, 1.0]);
+        assert_eq!(choices_out, vec![0; 1]);
+
+        let v =
+            f.interval([0.0, 1.0], [2.0, 3.0], &choices_in, &mut choices_out);
+        assert_eq!(v, [0.0, 1.0]);
+        assert_eq!(choices_out, vec![RHS]);
     }
 }
