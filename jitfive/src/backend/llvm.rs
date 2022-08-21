@@ -20,10 +20,10 @@ use inkwell::{
     targets::{
         CodeModel, InitializationConfig, RelocMode, Target, TargetMachine,
     },
-    types::{BasicType, BasicTypeEnum, FloatType, IntType},
+    types::{BasicType, BasicTypeEnum, FloatType, IntType, VectorType},
     values::{
         BasicValue, BasicValueEnum, FloatValue, FunctionValue, IntValue,
-        PointerValue,
+        PointerValue, VectorValue,
     },
     AddressSpace, FloatPredicate, OptimizationLevel,
 };
@@ -31,10 +31,17 @@ use log::info;
 
 const LHS: u32 = 1;
 const RHS: u32 = 2;
+const FLOAT_VEC_SIZE: usize = 64;
 
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32, *mut u32) -> f32;
 type IntervalFunc =
     unsafe extern "C" fn([f32; 2], [f32; 2], *const u32, *mut u32) -> [f32; 2];
+type FloatVecFunc = unsafe extern "C" fn(
+    [f32; FLOAT_VEC_SIZE],
+    [f32; FLOAT_VEC_SIZE],
+    *const u32,
+    *mut u32,
+) -> [f32; FLOAT_VEC_SIZE];
 
 /// Wrapper for an LLVM context
 pub struct JitContext(Context);
@@ -56,6 +63,11 @@ struct JitIntrinsics<'ctx> {
     minnum: FunctionValue<'ctx>,
     maxnum: FunctionValue<'ctx>,
     memcpy: FunctionValue<'ctx>,
+
+    abs_v: FunctionValue<'ctx>,
+    sqrt_v: FunctionValue<'ctx>,
+    minnum_v: FunctionValue<'ctx>,
+    maxnum_v: FunctionValue<'ctx>,
 }
 
 /// Library of math functions, specialized to a given type
@@ -149,12 +161,35 @@ impl<'ctx> JitCore<'ctx> {
             .unwrap()
     }
 
+    fn get_unary_intrinsic_v(&self, name: &str) -> FunctionValue<'ctx> {
+        let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
+        intrinsic
+            .get_declaration(
+                &self.module,
+                &[self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into()],
+            )
+            .unwrap()
+    }
+
     fn get_binary_intrinsic_f(&self, name: &str) -> FunctionValue<'ctx> {
         let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
         intrinsic
             .get_declaration(
                 &self.module,
                 &[self.f32_type().into(), self.f32_type().into()],
+            )
+            .unwrap()
+    }
+
+    fn get_binary_intrinsic_v(&self, name: &str) -> FunctionValue<'ctx> {
+        let intrinsic = Intrinsic::find(&format!("llvm.{}", name)).unwrap();
+        intrinsic
+            .get_declaration(
+                &self.module,
+                &[
+                    self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into(),
+                    self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into(),
+                ],
             )
             .unwrap()
     }
@@ -246,6 +281,93 @@ impl<'ctx> JitCore<'ctx> {
         }
     }
 
+    fn get_math_v(
+        &self,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, FloatVec<'ctx>> {
+        let (v_min, lhs, rhs, _choice, _out) =
+            self.binary_choice_op_prelude::<FloatVec>("v_min");
+        let fmin_result = self
+            .builder
+            .build_call(
+                intrinsics.minnum_v,
+                &[lhs.value.into(), rhs.value.into()],
+                "both",
+            )
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_vector_value();
+        self.builder.build_return(Some(&fmin_result));
+
+        let (v_max, lhs, rhs, _choice, _out) =
+            self.binary_choice_op_prelude::<FloatVec>("v_max");
+        let fmax_result = self
+            .builder
+            .build_call(
+                intrinsics.maxnum_v,
+                &[lhs.value.into(), rhs.value.into()],
+                "both",
+            )
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_vector_value();
+        self.builder.build_return(Some(&fmax_result));
+
+        let (v_add, lhs, rhs) = self.binary_op_prelude::<FloatVec>("v_add");
+        let sum = self.builder.build_float_add(lhs.value, rhs.value, "sum");
+        self.builder.build_return(Some(&sum));
+
+        let (v_mul, lhs, rhs) = self.binary_op_prelude::<FloatVec>("v_mul");
+        let prod = self.builder.build_float_mul(lhs.value, rhs.value, "prod");
+        self.builder.build_return(Some(&prod));
+
+        let (v_neg, lhs) = self.unary_op_prelude::<FloatVec>("v_neg");
+        let neg = self.builder.build_float_neg(lhs.value, "neg");
+        self.builder.build_return(Some(&neg));
+
+        let (v_abs, lhs) = self.unary_op_prelude::<FloatVec>("v_abs");
+        let abs = self
+            .builder
+            .build_call(intrinsics.abs_v, &[lhs.value.into()], "abs")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_vector_value();
+        self.builder.build_return(Some(&abs));
+
+        let (v_sqrt, lhs) = self.unary_op_prelude::<FloatVec>("v_sqrt");
+        let sqrt = self
+            .builder
+            .build_call(intrinsics.sqrt_v, &[lhs.value.into()], "sqrt")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_vector_value();
+        self.builder.build_return(Some(&sqrt));
+
+        let (v_recip, lhs) = self.unary_op_prelude::<FloatVec>("v_recip");
+        let recip = self.builder.build_float_div(
+            FloatVec::const_value(self, 1.0).into_vector_value(),
+            lhs.value,
+            "recip",
+        );
+        self.builder.build_return(Some(&recip));
+
+        JitMath {
+            add: v_add,
+            min: v_min,
+            max: v_max,
+            mul: v_mul,
+            neg: v_neg,
+            abs: v_abs,
+            sqrt: v_sqrt,
+            recip: v_recip,
+            _p: std::marker::PhantomData,
+        }
+    }
+
     fn get_math_i(
         &self,
         intrinsics: &JitIntrinsics<'ctx>,
@@ -277,6 +399,11 @@ impl<'ctx> JitCore<'ctx> {
         let maxnum = self.get_binary_intrinsic_f("maxnum");
         let minnum = self.get_binary_intrinsic_f("minnum");
 
+        let abs_v = self.get_unary_intrinsic_v("fabs");
+        let sqrt_v = self.get_unary_intrinsic_v("sqrt");
+        let maxnum_v = self.get_binary_intrinsic_v("maxnum");
+        let minnum_v = self.get_binary_intrinsic_v("minnum");
+
         let memcpy = Intrinsic::find("llvm.memcpy").unwrap();
         let memcpy = memcpy
             .get_declaration(
@@ -296,6 +423,11 @@ impl<'ctx> JitCore<'ctx> {
             maxnum,
             minnum,
             memcpy,
+
+            abs_v,
+            sqrt_v,
+            minnum_v,
+            maxnum_v,
         }
     }
 
@@ -1510,6 +1642,11 @@ struct Float<'ctx> {
     value: FloatValue<'ctx>,
 }
 
+#[derive(Copy, Clone)]
+struct FloatVec<'ctx> {
+    value: VectorValue<'ctx>,
+}
+
 trait JitValue<'ctx> {
     fn const_value<'a>(core: &'a JitCore<'ctx>, f: f64)
         -> BasicValueEnum<'ctx>;
@@ -1589,6 +1726,48 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
     }
 }
 
+impl<'ctx> JitValue<'ctx> for FloatVec<'ctx> {
+    fn const_value<'a>(
+        core: &'a JitCore<'ctx>,
+        f: f64,
+    ) -> BasicValueEnum<'ctx> {
+        let v = core.f32_type().const_float(f);
+        VectorType::const_vector(&[v; FLOAT_VEC_SIZE]).as_basic_value_enum()
+    }
+    fn from_basic_value_enum<'a>(
+        _core: &'a JitCore<'ctx>,
+        v: BasicValueEnum<'ctx>,
+    ) -> Self {
+        Self {
+            value: v.into_vector_value(),
+        }
+    }
+    fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx> {
+        core.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into()
+    }
+    fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
+        core.f32_type()
+            .vec_type(FLOAT_VEC_SIZE as u32)
+            .get_undef()
+            .into()
+    }
+    fn to_basic_value_enum(
+        &self,
+        _core: &JitCore<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        self.value.as_basic_value_enum()
+    }
+    fn get_math(
+        core: &JitCore<'ctx>,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, FloatVec<'ctx>> {
+        core.get_math_v(intrinsics)
+    }
+    fn writes_choices() -> bool {
+        true
+    }
+}
+
 impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     fn const_value<'a>(
         core: &'a JitCore<'ctx>,
@@ -1639,6 +1818,11 @@ pub fn to_jit_fn<'t, 'ctx>(
     Jit::<Float>::build("shape_f", t, &jit_core);
     info!("Built float JIT function in {:?}", now.elapsed());
 
+    info!("Building float x 64 JIT function");
+    let now = Instant::now();
+    Jit::<FloatVec>::build("shape_v", t, &jit_core);
+    info!("Built float x 64 JIT function in {:?}", now.elapsed());
+
     info!("Building interval JIT function");
     let now = Instant::now();
     Jit::<Interval>::build("shape_i", t, &jit_core);
@@ -1659,6 +1843,15 @@ pub fn to_jit_fn<'t, 'ctx>(
     let fn_float_addr = execution_engine.get_function_address("shape_f")?;
     info!("Extracted float JIT function in {:?}", now.elapsed());
 
+    info!("Compiling vectorized float function...");
+    let now = Instant::now();
+    let fn_float_vec = unsafe { execution_engine.get_function("shape_v")? };
+    let fn_float_vec_addr = execution_engine.get_function_address("shape_v")?;
+    info!(
+        "Extracted vectorized float JIT function in {:?}",
+        now.elapsed()
+    );
+
     info!("Compiling interval function...");
     let now = Instant::now();
     let fn_interval = unsafe { execution_engine.get_function("shape_i")? };
@@ -1668,6 +1861,8 @@ pub fn to_jit_fn<'t, 'ctx>(
     Ok(JitEvalHandle {
         fn_float,
         fn_float_addr,
+        fn_float_vec,
+        fn_float_vec_addr,
         fn_interval,
         fn_interval_addr,
         choice_array_size: (t.num_choices + 15) / 16,
@@ -1683,6 +1878,8 @@ pub struct JitEvalHandle<'ctx> {
     fn_float_addr: usize,
     fn_interval: JitFunction<'ctx, IntervalFunc>,
     fn_interval_addr: usize,
+    fn_float_vec: JitFunction<'ctx, FloatVecFunc>,
+    fn_float_vec_addr: usize,
     choice_array_size: usize,
 }
 
