@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::{
     context::{Context, Node},
     indexed::{define_index, IndexMap, IndexVec},
@@ -166,7 +168,7 @@ impl Compiler {
     pub fn stage1_dot(&self) -> String {
         let mut out = "digraph mygraph {\ncompound=true\n".to_owned();
         for (i, group) in self.groups.enumerate() {
-            out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+            writeln!(out, "subgraph cluster_{} {{", usize::from(i)).unwrap();
             for n in &group.nodes {
                 let op = self.ops[*n];
                 out += &op.dot_node(*n, &self.vars);
@@ -187,7 +189,7 @@ impl Compiler {
         let mut out = "digraph mygraph {\ncompound=true\n".to_owned();
 
         for (i, group) in self.groups.enumerate() {
-            out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+            writeln!(out, "subgraph cluster_{} {{", usize::from(i)).unwrap();
             for n in &group.nodes {
                 let op = self.ops[*n];
                 out += &op.dot_node(*n, &self.vars);
@@ -195,13 +197,15 @@ impl Compiler {
             // Invisible nodes to be used as group handles
             let i = usize::from(i);
             if group.nodes.len() > 1 {
-                out += &format!(
+                write!(
+                    out,
                     "SINK_{0} [shape=point style=invis]\n\
                     SOURCE_{0} [shape=point style=invis]\n\
                     {{ rank = max; SOURCE_{0} }}\n\
                     {{ rank = min; SINK_{0} }}\n",
                     i
-                );
+                )
+                .unwrap();
             }
             out += "}\n";
         }
@@ -218,8 +222,9 @@ impl Compiler {
         }
         for (i, group) in self.groups.enumerate() {
             for c in &group.downstream {
-                out += &format!(
-                    "{} -> {} [ltail=cluster_{}, lhead=cluster_{}];\n",
+                writeln!(
+                    out,
+                    "{} -> {} [ltail=cluster_{}, lhead=cluster_{}];",
                     if group.nodes.len() > 1 {
                         format!("SOURCE_{}", usize::from(i))
                     } else {
@@ -232,7 +237,8 @@ impl Compiler {
                     },
                     usize::from(i),
                     usize::from(*c)
-                );
+                )
+                .unwrap();
             }
         }
         out += "}\n";
@@ -255,12 +261,12 @@ impl Compiler {
 
     fn stage3_dot_recurse(&self, i: GroupIndex) -> String {
         let mut out = String::new();
-        out += &format!("subgraph cluster_{}_g {{\n", usize::from(i));
+        writeln!(out, "subgraph cluster_{}_g {{", usize::from(i)).unwrap();
         out += "color=\"grey\"\n";
-        out += &format!("label=\"{}\"\n", usize::from(i));
+        writeln!(out, "label=\"{}\"", usize::from(i)).unwrap();
 
         // This group's nodes live in their own cluster
-        out += &format!("subgraph cluster_{} {{\n", usize::from(i));
+        writeln!(out, "subgraph cluster_{} {{", usize::from(i)).unwrap();
         out += "label=\"\"\n";
         out += "color=\"black\"\n";
         let group = &self.groups[i];
@@ -271,10 +277,10 @@ impl Compiler {
         // Invisible nodes to be used as group handles
         let i = usize::from(i);
         if group.nodes.len() > 1 {
-            out += &format!("SINK_{} [shape=point style=invis]\n", i);
-            out += &format!("SOURCE_{} [shape=point style=invis]\n", i);
-            out += &format!("{{ rank = max; SOURCE_{} }}\n", i);
-            out += &format!("{{ rank = min; SINK_{} }}\n", i);
+            writeln!(out, "SINK_{} [shape=point style=invis]", i).unwrap();
+            writeln!(out, "SOURCE_{} [shape=point style=invis]", i).unwrap();
+            writeln!(out, "{{ rank = max; SOURCE_{} }}", i).unwrap();
+            writeln!(out, "{{ rank = min; SINK_{} }}", i).unwrap();
         }
         out += "}\n";
 

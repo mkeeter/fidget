@@ -1002,7 +1002,7 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
 impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
     fn build(name: &str, t: &'a Compiler, core: &'a JitCore<'ctx>) {
         let intrinsics = core.get_intrinsics();
-        let math = T::get_math(&core, &intrinsics);
+        let math = T::get_math(core, &intrinsics);
 
         let function = core.shape_prelude::<T>(name);
 
@@ -1089,7 +1089,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                 };
                 self.function.get_nth_param(i).unwrap()
             }
-            Op::Const(f) => T::const_value(&self.core, f),
+            Op::Const(f) => T::const_value(self.core, f),
             Op::Binary(op, a, b) => {
                 let f = match op {
                     BinaryOpcode::Add => self.math.add,
@@ -1266,7 +1266,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             // block into the parent block's context for active nodes
             for n in active.iter().map(|(_, n)| *n) {
                 let out = self.core.builder.build_phi(
-                    T::ty(&self.core),
+                    T::ty(self.core),
                     &format!(
                         "g{}n{}",
                         usize::from(group_index),
@@ -1368,7 +1368,7 @@ impl<'ctx> JitValue<'ctx> for Interval<'ctx> {
         core: &JitCore<'ctx>,
         intrinsics: &JitIntrinsics<'ctx>,
     ) -> JitMath<'ctx, Interval<'ctx>> {
-        core.get_math_i(&intrinsics)
+        core.get_math_i(intrinsics)
     }
 }
 
@@ -1399,7 +1399,7 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
         core: &JitCore<'ctx>,
         intrinsics: &JitIntrinsics<'ctx>,
     ) -> JitMath<'ctx, Float<'ctx>> {
-        core.get_math_f(&intrinsics)
+        core.get_math_f(intrinsics)
     }
     fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
         core.f32_type().get_undef().into()

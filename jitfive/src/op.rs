@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::indexed::IndexMap;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -86,7 +88,7 @@ where
     pub fn dot_node(&self, i: N, vars: &IndexMap<String, V>) -> String {
         let mut out = format!(r#"n{} [label = ""#, usize::from(i));
         match self {
-            GenericOp::Const(c) => out += &format!("{}", c),
+            GenericOp::Const(c) => write!(out, "{}", c).unwrap(),
             GenericOp::Var(v) => {
                 let v = vars.get_by_index(*v).unwrap();
                 out += v;
@@ -106,11 +108,13 @@ where
                 UnaryOpcode::Sqrt => out += "sqrt",
             },
         };
-        out += &format!(
+        write!(
+            out,
             r#"" color="{0}1" shape="{1}" fontcolor="{0}4"]"#,
             self.dot_node_color(),
             self.dot_node_shape()
-        );
+        )
+        .unwrap();
         out
     }
 
