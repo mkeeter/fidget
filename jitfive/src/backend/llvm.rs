@@ -1445,3 +1445,34 @@ pub fn to_jit_fn<'a, 'b>(
 
     Ok(out_f)
 }
+
+struct JitEval<'ctx> {
+    fn_float: JitFunction<'ctx, FloatFunc>,
+    fn_interval: JitFunction<'ctx, IntervalFunc>,
+}
+
+use crate::eval::Eval;
+impl<'ctx> Eval for JitEval<'ctx> {
+    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
+        unsafe {
+            self.fn_float
+                .call(x, y, choices_in.as_ptr(), std::ptr::null_mut())
+        }
+    }
+    fn interval(
+        &self,
+        x: [f32; 2],
+        y: [f32; 2],
+        choices_in: &[u32],
+        choices_out: &mut [u32],
+    ) -> [f32; 2] {
+        unsafe {
+            self.fn_interval.call(
+                x,
+                y,
+                choices_in.as_ptr(),
+                choices_out.as_mut_ptr(),
+            )
+        }
+    }
+}
