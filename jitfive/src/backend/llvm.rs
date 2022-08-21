@@ -1406,10 +1406,10 @@ impl<'ctx> JitValue<'ctx> for Float<'ctx> {
     }
 }
 
-pub fn to_jit_fn<'a, 'b>(
-    t: &'a Compiler,
-    context: &'b JitContext,
-) -> Result<JitFunction<'b, FloatFunc>, Error> {
+pub fn to_jit_fn<'t, 'ctx>(
+    t: &'t Compiler,
+    context: &'ctx JitContext,
+) -> Result<JitEval<'ctx>, Error> {
     let jit_core = JitCore::new(&context.0);
 
     info!("Building float JIT function");
@@ -1433,22 +1433,54 @@ pub fn to_jit_fn<'a, 'b>(
 
     info!("Compiling float function...");
     let now = Instant::now();
-    let out_f: JitFunction<FloatFunc> =
-        unsafe { execution_engine.get_function("shape_f")? };
+    let fn_float = unsafe { execution_engine.get_function("shape_f")? };
+    let fn_float_addr = execution_engine.get_function_address("shape_f")?;
     info!("Extracted float JIT function in {:?}", now.elapsed());
 
     info!("Compiling interval function...");
     let now = Instant::now();
-    let out_i: JitFunction<IntervalFunc> =
-        unsafe { execution_engine.get_function("shape_i")? };
+    let fn_interval = unsafe { execution_engine.get_function("shape_i")? };
+    let fn_interval_addr = execution_engine.get_function_address("shape_i")?;
     info!("Extracted interval JIT function in {:?}", now.elapsed());
 
-    Ok(out_f)
+    Ok(JitEval {
+        fn_float,
+        fn_float_addr,
+        fn_interval,
+        fn_interval_addr,
+    })
 }
 
-struct JitEval<'ctx> {
+pub struct JitEval<'ctx> {
     fn_float: JitFunction<'ctx, FloatFunc>,
+    fn_float_addr: usize,
     fn_interval: JitFunction<'ctx, IntervalFunc>,
+    fn_interval_addr: usize,
+}
+
+/// Thread-safe (hah!) version of `JitEval`.
+///
+/// This inherits a lifetime from its parent in [`JitEval::to_thread_eval`],
+/// which in turn ensures that the context, module, executor engine, etc,
+/// remain valid.
+///
+/// (_hopefully_)
+pub struct JitThreadEval<'jit> {
+    fn_float: FloatFunc,
+    fn_interval: IntervalFunc,
+    _p: std::marker::PhantomData<&'jit ()>,
+}
+
+impl<'ctx> JitEval<'ctx> {
+    pub fn to_thread_eval(&self) -> JitThreadEval<'_> {
+        unsafe {
+            JitThreadEval {
+                fn_float: std::mem::transmute_copy(&self.fn_float_addr),
+                fn_interval: std::mem::transmute_copy(&self.fn_interval_addr),
+                _p: std::marker::PhantomData,
+            }
+        }
+    }
 }
 
 use crate::eval::Eval;
@@ -1468,6 +1500,30 @@ impl<'ctx> Eval for JitEval<'ctx> {
     ) -> [f32; 2] {
         unsafe {
             self.fn_interval.call(
+                x,
+                y,
+                choices_in.as_ptr(),
+                choices_out.as_mut_ptr(),
+            )
+        }
+    }
+}
+
+impl<'ctx> Eval for JitThreadEval<'ctx> {
+    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
+        unsafe {
+            (self.fn_float)(x, y, choices_in.as_ptr(), std::ptr::null_mut())
+        }
+    }
+    fn interval(
+        &self,
+        x: [f32; 2],
+        y: [f32; 2],
+        choices_in: &[u32],
+        choices_out: &mut [u32],
+    ) -> [f32; 2] {
+        unsafe {
+            (self.fn_interval)(
                 x,
                 y,
                 choices_in.as_ptr(),

@@ -6,6 +6,7 @@ use jitfive::{
     backend::llvm::{to_jit_fn, JitContext},
     compiler::Compiler,
     context::Context,
+    eval::Eval,
 };
 use log::{error, info, warn};
 
@@ -109,14 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for j in 0..scale {
                 let x = -1.0 + 2.0 * (j as f64) / div;
                 let v = if args.jit {
-                    unsafe {
-                        jit_fn.call(
-                            x as f32,
-                            y as f32,
-                            choices.as_ptr(),
-                            std::ptr::null_mut(),
-                        )
-                    }
+                    jit_fn.float(x as f32, y as f32, &choices)
                 } else {
                     ctx.eval_xyz(root, x, y, 0.0)? as f32
                 };
