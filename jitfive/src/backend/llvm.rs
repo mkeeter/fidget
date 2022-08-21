@@ -1747,5 +1747,11 @@ mod tests {
             f.interval([0.0, 1.0], [2.0, 3.0], &choices_in, &mut choices_out);
         assert_eq!(v, [0.0, 1.0]);
         assert_eq!(choices_out, vec![RHS]);
+
+        let choices_in = vec![LHS];
+        assert_eq!(1.0, f.float(1.0, 0.0, &choices_in));
+
+        let choices_in = vec![RHS];
+        assert_eq!(3.0, f.float(1.0, 3.0, &choices_in));
     }
 }
