@@ -923,8 +923,11 @@ impl<'ctx> JitCore<'ctx> {
     }
 
     /// Builds a prelude for a function of the form
-    /// ```ignore
-    /// T op(lhs: T, rhs: T, choice: u32, shift: u32, out: *u32) {
+    /// ```
+    /// # type T = u32;
+    /// # const LHS: u32 = 1;
+    /// # const RHS: u32 = 2;
+    /// fn op(lhs: T, rhs: T, choice: u32, shift: u32, out: *mut u32) -> T {
     ///     let c = (choice >> shift) & 3;
     ///     if c == LHS {
     ///         return lhs;
@@ -932,7 +935,9 @@ impl<'ctx> JitCore<'ctx> {
     ///         return rhs;
     ///     } else {
     ///         // builder is positioned here
+    ///         # 0
     ///     }
+    /// }
     /// ```
     ///
     /// Returns `(op, lhs, rhs, shift, out)`
@@ -1172,7 +1177,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
 
         let choices_out = if T::writes_choices() {
             let choice_out_base_ptr =
-                function.get_nth_param(2).unwrap().into_pointer_value();
+                function.get_nth_param(3).unwrap().into_pointer_value();
             (0..choice_array_size)
                 .map(|i| unsafe {
                     core.builder.build_gep(
