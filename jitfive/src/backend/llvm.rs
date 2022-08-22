@@ -6,6 +6,7 @@ use std::{
 use crate::{
     compiler::{Compiler, GroupIndex, NodeIndex, Op, Source},
     error::Error,
+    eval::EVAL_ARRAY_SIZE,
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
 };
 
@@ -31,7 +32,6 @@ use log::info;
 
 const LHS: u32 = 1;
 const RHS: u32 = 2;
-const FLOAT_VEC_SIZE: usize = 64;
 
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32, *mut u32) -> f32;
 type IntervalFunc =
@@ -166,7 +166,7 @@ impl<'ctx> JitCore<'ctx> {
         intrinsic
             .get_declaration(
                 &self.module,
-                &[self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into()],
+                &[self.f32_type().vec_type(EVAL_ARRAY_SIZE as u32).into()],
             )
             .unwrap()
     }
@@ -187,8 +187,8 @@ impl<'ctx> JitCore<'ctx> {
             .get_declaration(
                 &self.module,
                 &[
-                    self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into(),
-                    self.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into(),
+                    self.f32_type().vec_type(EVAL_ARRAY_SIZE as u32).into(),
+                    self.f32_type().vec_type(EVAL_ARRAY_SIZE as u32).into(),
                 ],
             )
             .unwrap()
@@ -1271,7 +1271,7 @@ impl<'ctx> JitCore<'ctx> {
         let i32_const_ptr_type = self.i32_type.ptr_type(AddressSpace::Const);
         let ptr_in_type = self.f32_type().ptr_type(AddressSpace::Local);
         let ptr_out_type = self.f32_type().ptr_type(AddressSpace::Local);
-        let vec_type = self.f32_type().vec_type(FLOAT_VEC_SIZE as u32);
+        let vec_type = self.f32_type().vec_type(EVAL_ARRAY_SIZE as u32);
         let fn_ty = self.context.void_type().fn_type(
             &[
                 ptr_in_type.into(),
@@ -1296,7 +1296,7 @@ impl<'ctx> JitCore<'ctx> {
         let out_ptr = function.get_nth_param(2).unwrap().into_pointer_value();
         let mut x_vec = vec_type.const_zero();
         let mut y_vec = vec_type.const_zero();
-        for i in 0..FLOAT_VEC_SIZE {
+        for i in 0..EVAL_ARRAY_SIZE {
             let i = self.i32_type.const_int(i as u64, false);
             let x_ptr = unsafe {
                 self.builder.build_gep(x_ptr, &[i], &format!("x_in_{}", i))
@@ -1330,7 +1330,7 @@ impl<'ctx> JitCore<'ctx> {
             .unwrap()
             .into_vector_value();
 
-        for i in 0..FLOAT_VEC_SIZE {
+        for i in 0..EVAL_ARRAY_SIZE {
             let i = self.i32_type.const_int(i as u64, false);
             let v = self.builder.build_extract_element(out_vec, i, "v");
             let out_ptr = unsafe {
@@ -1813,7 +1813,7 @@ impl<'ctx> JitValue<'ctx> for FloatVec<'ctx> {
         f: f64,
     ) -> BasicValueEnum<'ctx> {
         let v = core.f32_type().const_float(f);
-        VectorType::const_vector(&[v; FLOAT_VEC_SIZE]).as_basic_value_enum()
+        VectorType::const_vector(&[v; EVAL_ARRAY_SIZE]).as_basic_value_enum()
     }
     fn from_basic_value_enum<'a>(
         _core: &'a JitCore<'ctx>,
@@ -1824,11 +1824,11 @@ impl<'ctx> JitValue<'ctx> for FloatVec<'ctx> {
         }
     }
     fn ty(core: &JitCore<'ctx>) -> BasicTypeEnum<'ctx> {
-        core.f32_type().vec_type(FLOAT_VEC_SIZE as u32).into()
+        core.f32_type().vec_type(EVAL_ARRAY_SIZE as u32).into()
     }
     fn undef(core: &JitCore<'ctx>) -> BasicValueEnum<'ctx> {
         core.f32_type()
-            .vec_type(FLOAT_VEC_SIZE as u32)
+            .vec_type(EVAL_ARRAY_SIZE as u32)
             .get_undef()
             .into()
     }
@@ -1997,20 +1997,6 @@ impl<'ctx> JitEvalHandle<'ctx> {
 
 use crate::eval::Eval;
 impl<'ctx> Eval for JitEvalHandle<'ctx> {
-    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
-        let x = [x; FLOAT_VEC_SIZE];
-        let y = [y; FLOAT_VEC_SIZE];
-        let mut out = [0.0; FLOAT_VEC_SIZE];
-        unsafe {
-            self.fn_float_vec.call(
-                x.as_ptr(),
-                y.as_ptr(),
-                out.as_mut_ptr(),
-                choices_in.as_ptr(),
-            );
-        }
-        out[0]
-    }
     fn interval(
         &self,
         x: [f32; 2],
@@ -2018,25 +2004,30 @@ impl<'ctx> Eval for JitEvalHandle<'ctx> {
         choices_in: &[u32],
         choices_out: &mut [u32],
     ) -> [f32; 2] {
-        unsafe {
-            self.fn_interval.call(
-                x,
-                y,
-                choices_in.as_ptr(),
-                choices_out.as_mut_ptr(),
-            )
-        }
+        self.to_thread_eval()
+            .interval(x, y, choices_in, choices_out)
     }
     fn choice_array_size(&self) -> usize {
         self.choice_array_size
     }
+    fn array(
+        &self,
+        x: [f32; EVAL_ARRAY_SIZE],
+        y: [f32; EVAL_ARRAY_SIZE],
+        choices_in: &[u32],
+    ) -> [f32; EVAL_ARRAY_SIZE] {
+        self.to_thread_eval().array(x, y, choices_in)
+    }
 }
 
 impl<'ctx> Eval for JitEval<'ctx> {
-    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
-        let x = [x; FLOAT_VEC_SIZE];
-        let y = [y; FLOAT_VEC_SIZE];
-        let mut out = [0.0; FLOAT_VEC_SIZE];
+    fn array(
+        &self,
+        x: [f32; EVAL_ARRAY_SIZE],
+        y: [f32; EVAL_ARRAY_SIZE],
+        choices_in: &[u32],
+    ) -> [f32; EVAL_ARRAY_SIZE] {
+        let mut out = [0.0; EVAL_ARRAY_SIZE];
         unsafe {
             (self.fn_float_vec)(
                 x.as_ptr(),
@@ -2045,7 +2036,7 @@ impl<'ctx> Eval for JitEval<'ctx> {
                 choices_in.as_ptr(),
             );
         }
-        out[0]
+        out
     }
     fn interval(
         &self,

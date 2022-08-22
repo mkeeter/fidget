@@ -1,6 +1,20 @@
+pub const EVAL_ARRAY_SIZE: usize = 8;
+
 pub trait Eval {
     /// Performs single-point evaluation, reading from `choices_in`
-    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32;
+    fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
+        let x = [x; EVAL_ARRAY_SIZE];
+        let y = [y; EVAL_ARRAY_SIZE];
+        self.array(x, y, choices_in)[0]
+    }
+
+    /// Array evaluation
+    fn array(
+        &self,
+        x: [f32; EVAL_ARRAY_SIZE],
+        y: [f32; EVAL_ARRAY_SIZE],
+        choices_in: &[u32],
+    ) -> [f32; EVAL_ARRAY_SIZE];
 
     /// Performs interval evaluation, reading from `choices_in` and writing to
     /// `choices_out`
