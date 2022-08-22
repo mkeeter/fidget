@@ -31,7 +31,7 @@ use log::info;
 
 const LHS: u32 = 1;
 const RHS: u32 = 2;
-const FLOAT_VEC_SIZE: usize = 64;
+const FLOAT_VEC_SIZE: usize = 4;
 
 type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32, *mut u32) -> f32;
 type IntervalFunc =
@@ -1230,6 +1230,7 @@ impl<'ctx> JitCore<'ctx> {
         self.builder.position_at_end(entry_block);
         function
     }
+
     fn optimize(&self) {
         info!(
             "LLVM module is {} characters (pre-optimization)",
@@ -1264,6 +1265,76 @@ impl<'ctx> JitCore<'ctx> {
             "LLVM module is {} characters (post-optimization)",
             self.module.to_string().len()
         );
+    }
+
+    fn build_f_to_v_shim(&self, name: &str, f: FunctionValue<'ctx>) {
+        let i32_const_ptr_type = self.i32_type.ptr_type(AddressSpace::Const);
+        let io_type = self.f32_type().array_type(FLOAT_VEC_SIZE as u32);
+        let vec_type = self.f32_type().vec_type(FLOAT_VEC_SIZE as u32);
+        let fn_ty = io_type.fn_type(
+            &[
+                io_type.into(),
+                io_type.into(),
+                i32_const_ptr_type.into(),
+                self.i32_type.ptr_type(AddressSpace::Local).into(),
+            ],
+            false,
+        );
+
+        // Build our main function
+        let function = self.module.add_function(name, fn_ty, None);
+        for a in &self.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
+
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+
+        let x_array = function.get_nth_param(0).unwrap().into_array_value();
+        let y_array = function.get_nth_param(1).unwrap().into_array_value();
+        let mut x_vec = vec_type.const_zero();
+        let mut y_vec = vec_type.const_zero();
+        for i in 0..FLOAT_VEC_SIZE {
+            let j = self.i32_type.const_int(i as u64, false);
+            let x = self
+                .builder
+                .build_extract_value(x_array, i as u32, "x")
+                .unwrap();
+            x_vec = self.builder.build_insert_element(x_vec, x, j, "xvec");
+            let y = self
+                .builder
+                .build_extract_value(y_array, i as u32, "y")
+                .unwrap();
+            y_vec = self.builder.build_insert_element(y_vec, y, j, "yvec");
+        }
+        let out_vec = self
+            .builder
+            .build_call(
+                f,
+                &[
+                    x_vec.into(),
+                    y_vec.into(),
+                    function.get_nth_param(2).unwrap().into(),
+                    function.get_nth_param(3).unwrap().into(),
+                ],
+                "shape_i",
+            )
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_vector_value();
+
+        let mut out_array = io_type.const_zero();
+        for i in 0..FLOAT_VEC_SIZE {
+            let j = self.i32_type.const_int(i as u64, false);
+            let v = self.builder.build_extract_element(out_vec, j, "v");
+            out_array = self
+                .builder
+                .build_insert_value(out_array, v, i as u32, "out_array")
+                .unwrap()
+                .into_array_value();
+        }
+        self.builder.build_return(Some(&out_array));
     }
 }
 
@@ -1305,7 +1376,11 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
 }
 
 impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
-    fn build(name: &str, t: &'a Compiler, core: &'a JitCore<'ctx>) {
+    fn build(
+        name: &str,
+        t: &'a Compiler,
+        core: &'a JitCore<'ctx>,
+    ) -> FunctionValue<'ctx> {
         let intrinsics = core.get_intrinsics();
         let math = T::get_math(core, &intrinsics);
 
@@ -1379,6 +1454,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             .core
             .builder
             .build_return(Some(&worker.values[&root]));
+        function
     }
 
     /// Recurses into the given group, building its children then its nodes
@@ -1764,7 +1840,7 @@ impl<'ctx> JitValue<'ctx> for FloatVec<'ctx> {
         core.get_math_v(intrinsics)
     }
     fn writes_choices() -> bool {
-        true
+        false
     }
 }
 
@@ -1813,15 +1889,18 @@ pub fn to_jit_fn<'t, 'ctx>(
 ) -> Result<JitEvalHandle<'ctx>, Error> {
     let jit_core = JitCore::new(&context.0);
 
+    /*
     info!("Building float JIT function");
     let now = Instant::now();
     Jit::<Float>::build("shape_f", t, &jit_core);
     info!("Built float JIT function in {:?}", now.elapsed());
+    */
 
     info!("Building float x 64 JIT function");
     let now = Instant::now();
-    Jit::<FloatVec>::build("shape_v", t, &jit_core);
+    let shape_v = Jit::<FloatVec>::build("shape_v", t, &jit_core);
     info!("Built float x 64 JIT function in {:?}", now.elapsed());
+    jit_core.build_f_to_v_shim("shape_v_shim", shape_v);
 
     info!("Building interval JIT function");
     let now = Instant::now();
@@ -1837,16 +1916,20 @@ pub fn to_jit_fn<'t, 'ctx>(
         .module
         .create_jit_execution_engine(OptimizationLevel::Default)?;
 
+    /*
     info!("Compiling float function...");
     let now = Instant::now();
     let fn_float = unsafe { execution_engine.get_function("shape_f")? };
     let fn_float_addr = execution_engine.get_function_address("shape_f")?;
     info!("Extracted float JIT function in {:?}", now.elapsed());
+    */
 
     info!("Compiling vectorized float function...");
     let now = Instant::now();
-    let fn_float_vec = unsafe { execution_engine.get_function("shape_v")? };
-    let fn_float_vec_addr = execution_engine.get_function_address("shape_v")?;
+    let fn_float_vec =
+        unsafe { execution_engine.get_function("shape_v_shim")? };
+    let fn_float_vec_addr =
+        execution_engine.get_function_address("shape_v_shim")?;
     info!(
         "Extracted vectorized float JIT function in {:?}",
         now.elapsed()
@@ -1859,8 +1942,6 @@ pub fn to_jit_fn<'t, 'ctx>(
     info!("Extracted interval JIT function in {:?}", now.elapsed());
 
     Ok(JitEvalHandle {
-        fn_float,
-        fn_float_addr,
         fn_float_vec,
         fn_float_vec_addr,
         fn_interval,
@@ -1874,12 +1955,10 @@ pub fn to_jit_fn<'t, 'ctx>(
 /// Under the hood, the owned `JitFunction` will keep the execution engine and
 /// module alive (through LLVM references).
 pub struct JitEvalHandle<'ctx> {
-    fn_float: JitFunction<'ctx, FloatFunc>,
-    fn_float_addr: usize,
-    fn_interval: JitFunction<'ctx, IntervalFunc>,
-    fn_interval_addr: usize,
     fn_float_vec: JitFunction<'ctx, FloatVecFunc>,
     fn_float_vec_addr: usize,
+    fn_interval: JitFunction<'ctx, IntervalFunc>,
+    fn_interval_addr: usize,
     choice_array_size: usize,
 }
 
@@ -1893,7 +1972,7 @@ pub struct JitEvalHandle<'ctx> {
 #[derive(Copy, Clone)]
 pub struct JitEval<'jit> {
     choice_array_size: usize,
-    fn_float: FloatFunc,
+    fn_float_vec: FloatVecFunc,
     fn_interval: IntervalFunc,
     _p: std::marker::PhantomData<&'jit ()>,
 }
@@ -1902,7 +1981,7 @@ impl<'ctx> JitEvalHandle<'ctx> {
     pub fn to_thread_eval(&self) -> JitEval<'_> {
         unsafe {
             JitEval {
-                fn_float: std::mem::transmute_copy(&self.fn_float_addr),
+                fn_float_vec: std::mem::transmute_copy(&self.fn_float_vec_addr),
                 fn_interval: std::mem::transmute_copy(&self.fn_interval_addr),
                 choice_array_size: self.choice_array_size,
                 _p: std::marker::PhantomData,
@@ -1915,8 +1994,14 @@ use crate::eval::Eval;
 impl<'ctx> Eval for JitEvalHandle<'ctx> {
     fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
         unsafe {
-            self.fn_float
-                .call(x, y, choices_in.as_ptr(), std::ptr::null_mut())
+            let v = self.fn_float_vec.call(
+                [x; FLOAT_VEC_SIZE],
+                [y; FLOAT_VEC_SIZE],
+                choices_in.as_ptr(),
+                std::ptr::null_mut(),
+            );
+            println!("{} {} => {:?}", x, y, v);
+            v[0]
         }
     }
     fn interval(
@@ -1943,7 +2028,14 @@ impl<'ctx> Eval for JitEvalHandle<'ctx> {
 impl<'ctx> Eval for JitEval<'ctx> {
     fn float(&self, x: f32, y: f32, choices_in: &[u32]) -> f32 {
         unsafe {
-            (self.fn_float)(x, y, choices_in.as_ptr(), std::ptr::null_mut())
+            let v = (self.fn_float_vec)(
+                [x; FLOAT_VEC_SIZE],
+                [y; FLOAT_VEC_SIZE],
+                choices_in.as_ptr(),
+                std::ptr::null_mut(),
+            );
+            println!("{} {} => {:?}", x, y, v);
+            v[0]
         }
     }
     fn interval(
