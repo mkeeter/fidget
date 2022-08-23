@@ -33,7 +33,6 @@ use log::info;
 const LHS: u32 = 1;
 const RHS: u32 = 2;
 
-type FloatFunc = unsafe extern "C" fn(f32, f32, *const u32, *mut u32) -> f32;
 type IntervalFunc =
     unsafe extern "C" fn([f32; 2], [f32; 2], *const u32, *mut u32) -> [f32; 2];
 type FloatVecFunc = unsafe extern "C" fn(
@@ -2016,17 +2015,13 @@ pub fn to_jit_fn<'t, 'ctx>(
 ) -> Result<JitEvalHandle<'ctx>, Error> {
     let jit_core = JitCore::new(&context.0);
 
-    /*
-    info!("Building float JIT function");
-    let now = Instant::now();
-    Jit::<Float>::build("shape_f", t, &jit_core);
-    info!("Built float JIT function in {:?}", now.elapsed());
-    */
-
-    info!("Building float x 64 JIT function");
+    info!("Building float x {EVAL_ARRAY_SIZE} JIT function");
     let now = Instant::now();
     let shape_v = Jit::<FloatVec>::build("shape_v", t, &jit_core);
-    info!("Built float x 64 JIT function in {:?}", now.elapsed());
+    info!(
+        "Built float x {EVAL_ARRAY_SIZE} JIT function in {:?}",
+        now.elapsed()
+    );
     jit_core.build_f_to_v_shim("shape_v_shim", shape_v);
 
     info!("Building interval JIT function");
@@ -2069,9 +2064,10 @@ pub fn to_jit_fn<'t, 'ctx>(
     info!("Extracted interval JIT function in {:?}", now.elapsed());
 
     Ok(JitEvalHandle {
-        fn_float_vec,
+        _fn_float_vec: fn_float_vec,
+        _fn_interval: fn_interval,
+
         fn_float_vec_addr,
-        fn_interval,
         fn_interval_addr,
         choice_array_size: (t.num_choices + 15) / 16,
     })
@@ -2082,9 +2078,10 @@ pub fn to_jit_fn<'t, 'ctx>(
 /// Under the hood, the owned `JitFunction` will keep the execution engine and
 /// module alive (through LLVM references).
 pub struct JitEvalHandle<'ctx> {
-    fn_float_vec: JitFunction<'ctx, FloatVecFunc>,
+    _fn_float_vec: JitFunction<'ctx, FloatVecFunc>,
+    _fn_interval: JitFunction<'ctx, IntervalFunc>,
+
     fn_float_vec_addr: usize,
-    fn_interval: JitFunction<'ctx, IntervalFunc>,
     fn_interval_addr: usize,
     choice_array_size: usize,
 }

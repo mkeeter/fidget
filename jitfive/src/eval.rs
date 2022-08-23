@@ -1,4 +1,4 @@
-pub const EVAL_ARRAY_SIZE: usize = 8;
+pub const EVAL_ARRAY_SIZE: usize = 4;
 
 pub trait Eval {
     /// Performs single-point evaluation, reading from `choices_in`
