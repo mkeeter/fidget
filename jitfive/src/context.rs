@@ -345,7 +345,7 @@ impl Context {
     /// assert_eq!(v, 4.0);
     /// ```
     pub fn square(&mut self, a: Node) -> Result<Node, Error> {
-        self.mul(a, a)
+        self.op_unary(a, UnaryOpcode::Square)
     }
 
     /// Builds a node which performs subtraction. Under the hood, `a - b` is
@@ -359,8 +359,7 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn sub(&mut self, a: Node, b: Node) -> Result<Node, Error> {
-        let b = self.neg(b)?;
-        self.add(a, b)
+        self.op_binary(a, b, BinaryOpcode::Sub)
     }
 
     /// Builds a node which performs division. Under the hood, `a / b` is
@@ -438,6 +437,7 @@ impl Context {
                 match op {
                     BinaryOpcode::Add => a + b,
                     BinaryOpcode::Mul => a * b,
+                    BinaryOpcode::Sub => a - b,
                 }
             }
             Op::BinaryChoice(op, a, b, _) => {
@@ -457,6 +457,7 @@ impl Context {
                     UnaryOpcode::Abs => a.abs(),
                     UnaryOpcode::Recip => 1.0 / a,
                     UnaryOpcode::Sqrt => a.sqrt(),
+                    UnaryOpcode::Square => a * a,
                 }
             }
         };

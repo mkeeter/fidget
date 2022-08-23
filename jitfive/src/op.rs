@@ -8,12 +8,14 @@ pub enum UnaryOpcode {
     Abs,
     Recip,
     Sqrt,
+    Square,
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BinaryOpcode {
     Add,
     Mul,
+    Sub,
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -96,6 +98,7 @@ where
             GenericOp::Binary(op, ..) => match op {
                 BinaryOpcode::Add => out += "add",
                 BinaryOpcode::Mul => out += "mul",
+                BinaryOpcode::Sub => out += "sub",
             },
             GenericOp::BinaryChoice(op, ..) => match op {
                 BinaryChoiceOpcode::Min => out += "min",
@@ -106,6 +109,7 @@ where
                 UnaryOpcode::Abs => out += "abs",
                 UnaryOpcode::Recip => out += "recip",
                 UnaryOpcode::Sqrt => out += "sqrt",
+                UnaryOpcode::Square => out += "square",
             },
         };
         write!(

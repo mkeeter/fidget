@@ -75,6 +75,9 @@ struct JitMath<'ctx, T> {
     /// `fn add(lhs: T, rhs: T) -> T`
     add: FunctionValue<'ctx>,
 
+    /// `fn sub(lhs: T, rhs: T) -> T`
+    sub: FunctionValue<'ctx>,
+
     /// `fn mul(lhs: T, rhs: T) -> T`
     mul: FunctionValue<'ctx>,
 
@@ -90,7 +93,10 @@ struct JitMath<'ctx, T> {
     /// `fn sqrt(a: T) -> T`
     sqrt: FunctionValue<'ctx>,
 
-    /// `fn min(lhs: T, rhs: T, choice: u32, shift: u32) -> T`
+    /// `fn square(a: T) -> T`
+    square: FunctionValue<'ctx>,
+
+    /// `fn min(lhs: T, rhs: T, choice: ChoiceMask, shift: ChoiceMask) -> T`
     ///
     /// Right-shifts `choice` by `shift`, then checks its lowest two bits:
     /// - `0b01 => lhs`
@@ -232,6 +238,10 @@ impl<'ctx> JitCore<'ctx> {
         let sum = self.builder.build_float_add(lhs.value, rhs.value, "sum");
         self.builder.build_return(Some(&sum));
 
+        let (f_sub, lhs, rhs) = self.binary_op_prelude::<Float>("f_sub");
+        let diff = self.builder.build_float_sub(lhs.value, rhs.value, "diff");
+        self.builder.build_return(Some(&diff));
+
         let (f_mul, lhs, rhs) = self.binary_op_prelude::<Float>("f_mul");
         let prod = self.builder.build_float_mul(lhs.value, rhs.value, "prod");
         self.builder.build_return(Some(&prod));
@@ -268,14 +278,21 @@ impl<'ctx> JitCore<'ctx> {
         );
         self.builder.build_return(Some(&recip));
 
+        let (f_square, lhs) = self.unary_op_prelude::<Float>("f_square");
+        let square =
+            self.builder.build_float_mul(lhs.value, lhs.value, "square");
+        self.builder.build_return(Some(&square));
+
         JitMath {
             add: f_add,
+            sub: f_sub,
             min: f_min,
             max: f_max,
             mul: f_mul,
             neg: f_neg,
             abs: f_abs,
             sqrt: f_sqrt,
+            square: f_square,
             recip: f_recip,
             _p: std::marker::PhantomData,
         }
@@ -319,6 +336,10 @@ impl<'ctx> JitCore<'ctx> {
         let sum = self.builder.build_float_add(lhs.value, rhs.value, "sum");
         self.builder.build_return(Some(&sum));
 
+        let (v_sub, lhs, rhs) = self.binary_op_prelude::<FloatVec>("v_sub");
+        let sum = self.builder.build_float_sub(lhs.value, rhs.value, "dif");
+        self.builder.build_return(Some(&sum));
+
         let (v_mul, lhs, rhs) = self.binary_op_prelude::<FloatVec>("v_mul");
         let prod = self.builder.build_float_mul(lhs.value, rhs.value, "prod");
         self.builder.build_return(Some(&prod));
@@ -355,14 +376,21 @@ impl<'ctx> JitCore<'ctx> {
         );
         self.builder.build_return(Some(&recip));
 
+        let (v_square, lhs) = self.unary_op_prelude::<FloatVec>("v_square");
+        let square =
+            self.builder.build_float_mul(lhs.value, lhs.value, "square");
+        self.builder.build_return(Some(&square));
+
         JitMath {
             add: v_add,
+            sub: v_sub,
             min: v_min,
             max: v_max,
             mul: v_mul,
             neg: v_neg,
             abs: v_abs,
             sqrt: v_sqrt,
+            square: v_square,
             recip: v_recip,
             _p: std::marker::PhantomData,
         }
@@ -373,21 +401,25 @@ impl<'ctx> JitCore<'ctx> {
         intrinsics: &JitIntrinsics<'ctx>,
     ) -> JitMath<'ctx, Interval<'ctx>> {
         let i_add = self.build_i_add();
+        let i_sub = self.build_i_sub();
         let i_mul = self.build_i_mul(intrinsics.minnum, intrinsics.maxnum);
         let i_neg = self.build_i_neg();
         let i_max = self.build_i_max(intrinsics.maxnum);
         let i_min = self.build_i_min(intrinsics.minnum);
         let i_abs = self.build_i_abs(intrinsics.maxnum);
         let i_sqrt = self.build_i_sqrt(intrinsics.sqrt);
+        let i_square = self.build_i_square(intrinsics.maxnum);
 
         JitMath {
             add: i_add,
+            sub: i_sub,
             mul: i_mul,
             max: i_max,
             min: i_min,
             neg: i_neg,
             abs: i_abs,
             sqrt: i_sqrt,
+            square: i_square,
             recip: i_mul, // TODO
             _p: std::marker::PhantomData,
         }
@@ -441,6 +473,94 @@ impl<'ctx> JitCore<'ctx> {
             lower: out_lo,
             upper: out_hi,
         });
+        f
+    }
+
+    fn build_i_sub(&self) -> FunctionValue<'ctx> {
+        let (f, lhs, rhs) = self.binary_op_prelude::<Interval>("i_sub");
+        let out_lo =
+            self.builder.build_float_sub(lhs.lower, rhs.upper, "out_lo");
+        let out_hi =
+            self.builder.build_float_sub(lhs.upper, rhs.lower, "out_hi");
+        self.build_return_i(Interval {
+            lower: out_lo,
+            upper: out_hi,
+        });
+        f
+    }
+
+    fn build_i_square(
+        &self,
+        maxnum: FunctionValue<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        let (f, lhs) = self.unary_op_prelude::<Interval>("i_square");
+        let zero = self.f32_type().const_float(0.0);
+        let ge_0 = self.builder.build_float_compare(
+            FloatPredicate::OGE,
+            lhs.lower,
+            zero,
+            "ge_0",
+        );
+        let ge_0_block = self.context.append_basic_block(f, "ge_0_block");
+        let not_ge_0_block =
+            self.context.append_basic_block(f, "not_ge_0_block");
+        self.builder
+            .build_conditional_branch(ge_0, ge_0_block, not_ge_0_block);
+
+        {
+            // if a.lower >= 0, return [a.lower**2, a.upper**2]
+            self.builder.position_at_end(ge_0_block);
+            let lower =
+                self.builder.build_float_mul(lhs.lower, lhs.lower, "lower2");
+            let upper =
+                self.builder.build_float_mul(lhs.upper, lhs.upper, "upper2");
+            self.build_return_i(Interval { lower, upper });
+        }
+
+        self.builder.position_at_end(not_ge_0_block);
+        let le_0 = self.builder.build_float_compare(
+            FloatPredicate::OLE,
+            lhs.upper,
+            zero,
+            "le_0",
+        );
+        let le_0_block = self.context.append_basic_block(f, "le_0_block");
+        let ambig_block = self.context.append_basic_block(f, "ambig_block");
+        self.builder
+            .build_conditional_branch(le_0, le_0_block, ambig_block);
+        {
+            // if a.upper <= 0, return [a.upper**2, a.lower**2]
+            self.builder.position_at_end(le_0_block);
+            let lower =
+                self.builder.build_float_mul(lhs.upper, lhs.upper, "upper2");
+            let upper =
+                self.builder.build_float_mul(lhs.lower, lhs.lower, "lower2");
+            self.build_return_i(Interval { lower, upper });
+        }
+
+        {
+            // Interval spans 0, so return [0, max(lower**2, upper**2)]
+            self.builder.position_at_end(ambig_block);
+            let neg_lower =
+                self.builder.build_float_neg(lhs.lower, "neg_lower");
+            let max = self
+                .builder
+                .build_call(
+                    maxnum,
+                    &[neg_lower.into(), lhs.upper.into()],
+                    "max",
+                )
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_float_value();
+            let max2 = self.builder.build_float_mul(max, max, "max2");
+            self.build_return_i(Interval {
+                lower: zero,
+                upper: max2,
+            });
+        }
+
         f
     }
 
@@ -1513,6 +1633,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                 let f = match op {
                     BinaryOpcode::Add => self.math.add,
                     BinaryOpcode::Mul => self.math.mul,
+                    BinaryOpcode::Sub => self.math.sub,
                 };
                 let lhs = self.values[&a];
                 let rhs = self.values[&b];
@@ -1569,6 +1690,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                     UnaryOpcode::Abs => self.math.abs,
                     UnaryOpcode::Sqrt => self.math.sqrt,
                     UnaryOpcode::Recip => self.math.recip,
+                    UnaryOpcode::Square => self.math.square,
                 };
                 self.core
                     .builder
