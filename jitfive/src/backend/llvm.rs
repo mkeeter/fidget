@@ -61,7 +61,7 @@ struct JitIntrinsics<'ctx> {
     sqrt: FunctionValue<'ctx>,
     minnum: FunctionValue<'ctx>,
     maxnum: FunctionValue<'ctx>,
-    memcpy: FunctionValue<'ctx>,
+    memset: FunctionValue<'ctx>,
 
     abs_v: FunctionValue<'ctx>,
     sqrt_v: FunctionValue<'ctx>,
@@ -435,15 +435,13 @@ impl<'ctx> JitCore<'ctx> {
         let maxnum_v = self.get_binary_intrinsic_v("maxnum");
         let minnum_v = self.get_binary_intrinsic_v("minnum");
 
-        let memcpy = Intrinsic::find("llvm.memcpy").unwrap();
-        let memcpy = memcpy
+        let memset = Intrinsic::find("llvm.memset").unwrap();
+        let memset = memset
             .get_declaration(
                 &self.module,
                 &[
                     self.i32_type.ptr_type(AddressSpace::Local).into(),
-                    self.i32_type.ptr_type(AddressSpace::Const).into(),
                     self.i32_type.into(),
-                    self.context.bool_type().into(),
                 ],
             )
             .unwrap();
@@ -453,7 +451,7 @@ impl<'ctx> JitCore<'ctx> {
             sqrt,
             maxnum,
             minnum,
-            memcpy,
+            memset,
 
             abs_v,
             sqrt_v,
@@ -577,6 +575,14 @@ impl<'ctx> JitCore<'ctx> {
             rhs.upper,
             "lhs_gt",
         );
+
+        let c = self.builder.build_load(out, "choice_out").into_int_value();
+        let b11 = self.builder.build_left_shift(
+            self.i32_type.const_int(3, false),
+            shift,
+            "b11",
+        );
+        let c = self.builder.build_or(c, b11, "choice_out_b11");
         self.builder.build_conditional_branch(
             lhs_gt,
             lhs_gt_block,
@@ -586,7 +592,6 @@ impl<'ctx> JitCore<'ctx> {
         // If LHS > RHS, then mask out the RHS in the output u32
         {
             self.builder.position_at_end(lhs_gt_block);
-            let c = self.builder.build_load(out, "choice_out").into_int_value();
             let mask = self.builder.build_left_shift(
                 self.i32_type.const_int(RHS as u64, false),
                 shift,
@@ -616,7 +621,6 @@ impl<'ctx> JitCore<'ctx> {
         // If RHS > LHS, then mask LHS in the output u32
         {
             self.builder.position_at_end(rhs_gt_block);
-            let c = self.builder.build_load(out, "choice_out").into_int_value();
             let mask = self.builder.build_left_shift(
                 self.i32_type.const_int(LHS as u64, false),
                 shift,
@@ -643,6 +647,7 @@ impl<'ctx> JitCore<'ctx> {
             .left()
             .unwrap()
             .into_float_value();
+        self.builder.build_store(out, c);
         self.build_return_i(Interval { lower, upper });
         f
     }
@@ -661,6 +666,14 @@ impl<'ctx> JitCore<'ctx> {
             rhs.lower,
             "lhs_lt",
         );
+
+        let c = self.builder.build_load(out, "choice_out").into_int_value();
+        let b11 = self.builder.build_left_shift(
+            self.i32_type.const_int(3, false),
+            shift,
+            "b11",
+        );
+        let c = self.builder.build_or(c, b11, "choice_out_b11");
         self.builder.build_conditional_branch(
             lhs_lt,
             lhs_lt_block,
@@ -670,7 +683,6 @@ impl<'ctx> JitCore<'ctx> {
         // If LHS < RHS, then mask out the RHS in the output u32
         {
             self.builder.position_at_end(lhs_lt_block);
-            let c = self.builder.build_load(out, "choice_out").into_int_value();
             let mask = self.builder.build_left_shift(
                 self.i32_type.const_int(RHS as u64, false),
                 shift,
@@ -700,7 +712,6 @@ impl<'ctx> JitCore<'ctx> {
         // If RHS < LHS, then mask LHS in the output u32
         {
             self.builder.position_at_end(rhs_lt_block);
-            let c = self.builder.build_load(out, "choice_out").into_int_value();
             let mask = self.builder.build_left_shift(
                 self.i32_type.const_int(LHS as u64, false),
                 shift,
@@ -727,6 +738,7 @@ impl<'ctx> JitCore<'ctx> {
             .left()
             .unwrap()
             .into_float_value();
+        self.builder.build_store(out, c);
         self.build_return_i(Interval { lower, upper });
         f
     }
@@ -1249,6 +1261,8 @@ impl<'ctx> JitCore<'ctx> {
             self.context.append_basic_block(function, "choice_left");
         let right_block =
             self.context.append_basic_block(function, "choice_right");
+        let zero_block =
+            self.context.append_basic_block(function, "choice_zero");
         let both_block =
             self.context.append_basic_block(function, "choice_both");
         let end_block = self.context.append_basic_block(function, "choice_end");
@@ -1282,14 +1296,46 @@ impl<'ctx> JitCore<'ctx> {
             "right_cmp",
         );
         self.builder
-            .build_conditional_branch(right_cmp, end_block, both_block);
+            .build_conditional_branch(right_cmp, end_block, zero_block);
+
+        self.builder.position_at_end(zero_block);
+        let zero_cmp = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            choice_value_masked,
+            self.i32_type.const_zero(),
+            "zero_cmp",
+        );
+        self.builder
+            .build_conditional_branch(zero_cmp, end_block, both_block);
 
         // Handle the early exits, which both jump to the choice_end block
         self.builder.position_at_end(end_block);
         let out = self.builder.build_phi(T::ty(self), "out");
-        out.add_incoming(&[(&a, left_block), (&b, right_block)]);
-
+        out.add_incoming(&[
+            (&a, left_block),
+            (&b, right_block),
+            (&T::undef(self), zero_block),
+        ]);
         let out = out.as_basic_value();
+        if T::writes_choices() {
+            // Copy the choice mask (either 0b01 or 0b10) into the output choice
+            // array by shifting and or'ing it
+            let choice_out = self
+                .builder
+                .build_load(out_ptr, "choice_out")
+                .into_int_value();
+            let choice_value_shl = self.builder.build_left_shift(
+                choice_value_masked,
+                shift,
+                "choice_masked_shl",
+            );
+            let choice_out_or = self.builder.build_or(
+                choice_out,
+                choice_value_shl,
+                "choice_out_or",
+            );
+            self.builder.build_store(out_ptr, choice_out_or);
+        }
         self.builder.build_return(Some(&out));
 
         // Allow the caller to write code in the choice_both block
@@ -1530,23 +1576,22 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
             .collect();
 
         // If this function writes choices, then we
-        // 1) memcpy from the input choice array to the output at the start of
-        //    the function, and
+        // 1) memset the output array to 0
         // 2) record output choice pointers, to reduce code later on
         let choices_out = if T::writes_choices() && t.num_choices > 0 {
             let choice_out_base_ptr =
                 function.get_nth_param(3).unwrap().into_pointer_value();
             core.builder.build_call(
-                intrinsics.memcpy,
+                intrinsics.memset,
                 &[
                     choice_out_base_ptr.into(),
-                    choice_base_ptr.into(),
+                    core.context.i8_type().const_int(0, false).into(),
                     core.i32_type
                         .const_int(choice_array_size as u64 * 4, false)
                         .into(),
                     core.context.bool_type().const_int(0, false).into(),
                 ],
-                "choice_memcpy",
+                "choice_memset",
             );
             (0..choice_array_size)
                 .map(|i| unsafe {
@@ -1711,12 +1756,12 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
         child_index: GroupIndex,
     ) -> BTreeSet<(usize, NodeIndex)> {
         let child_group = &self.t.groups[child_index];
-        let has_both_or_root = child_group
+        let has_root = child_group
             .choices
             .iter()
-            .any(|c| matches!(c, Source::Both(..) | Source::Root));
-        let unconditional = has_both_or_root
-            || (child_group.child_weight < child_group.choices.len());
+            .any(|c| matches!(c, Source::Root));
+        let unconditional =
+            has_root || (child_group.child_weight < child_group.choices.len());
 
         let last_cond = if unconditional {
             // Nothing to do here, proceed straight into child
@@ -1728,6 +1773,7 @@ impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
                 let (c, v) = match c {
                     Source::Left(c) => (c, LHS),
                     Source::Right(c) => (c, RHS),
+                    Source::Both(c) => (c, LHS | RHS),
                     _ => unreachable!(),
                 };
                 let e = choice_u32s.entry(usize::from(*c) / 16).or_insert(0);
