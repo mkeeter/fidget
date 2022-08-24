@@ -6,6 +6,7 @@ use std::{
 use crate::{
     compiler::{Compiler, GroupIndex, NodeIndex, Op, Source},
     error::Error,
+    eval::Eval,
     eval::EVAL_ARRAY_SIZE,
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
 };
@@ -2160,7 +2161,6 @@ impl<'ctx> JitEvalHandle<'ctx> {
     }
 }
 
-use crate::eval::Eval;
 impl<'ctx> Eval for JitEvalHandle<'ctx> {
     fn interval(
         &self,
