@@ -39,6 +39,7 @@ struct Renderer<'a, E> {
     image: Vec<Option<Pixel>>,
 
     interval_time: Duration,
+    push_time: Duration,
     pixel_time: Duration,
 }
 
@@ -58,10 +59,12 @@ pub fn render<E: Eval>(size: usize, eval: &E) -> Vec<Pixel> {
         image: vec![None; size * size],
         interval_time: Duration::ZERO,
         pixel_time: Duration::ZERO,
+        push_time: Duration::ZERO,
     };
     r.run();
     info!("Interval time: {:?}", r.interval_time);
     info!("Pixel time:    {:?}", r.pixel_time);
+    info!("Push time:     {:?}", r.push_time);
     r.image.into_iter().map(Option::unwrap).collect()
 }
 
@@ -114,8 +117,11 @@ impl<'a, E: Eval> Renderer<'a, E> {
                 }
             }
         } else {
+            let start = Instant::now();
             self.eval
                 .push(&self.choices_scratch, &mut self.choices_tile);
+            self.push_time += start.elapsed();
+
             let n = TILE_SIZE / SUBTILE_SIZE;
             for j in 0..n {
                 for i in 0..n {
@@ -155,8 +161,11 @@ impl<'a, E: Eval> Renderer<'a, E> {
                 }
             }
         } else {
+            let start = Instant::now();
             self.eval
                 .push(&self.choices_scratch, &mut self.choices_subtile);
+            self.push_time += start.elapsed();
+
             for x in x..(x + SUBTILE_SIZE) {
                 assert!(SUBTILE_SIZE >= EVAL_ARRAY_SIZE);
                 assert!(SUBTILE_SIZE % EVAL_ARRAY_SIZE == 0);
