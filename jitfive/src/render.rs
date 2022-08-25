@@ -33,6 +33,7 @@ struct Renderer<'a, E> {
     eval: &'a E,
     size: usize,
     choices_root: Vec<u32>,
+    choices_scratch: Vec<u32>,
     choices_tile: Vec<u32>,
     choices_subtile: Vec<u32>,
     image: Vec<Option<Pixel>>,
@@ -51,6 +52,7 @@ pub fn render<E: Eval>(size: usize, eval: &E) -> Vec<Pixel> {
         eval,
         size,
         choices_root: vec![u32::MAX; eval.choice_array_size()],
+        choices_scratch: vec![u32::MAX; eval.choice_array_size()],
         choices_tile: vec![u32::MAX; eval.choice_array_size()],
         choices_subtile: vec![u32::MAX; eval.choice_array_size()],
         image: vec![None; size * size],
@@ -96,7 +98,7 @@ impl<'a, E: Eval> Renderer<'a, E> {
             x_interval,
             y_interval,
             &self.choices_root,
-            &mut self.choices_tile,
+            &mut self.choices_scratch,
         );
         self.interval_time += start.elapsed();
         if i[1] < 0.0 {
@@ -112,6 +114,8 @@ impl<'a, E: Eval> Renderer<'a, E> {
                 }
             }
         } else {
+            self.eval
+                .push(&self.choices_scratch, &mut self.choices_tile);
             let n = TILE_SIZE / SUBTILE_SIZE;
             for j in 0..n {
                 for i in 0..n {
@@ -134,7 +138,7 @@ impl<'a, E: Eval> Renderer<'a, E> {
             x_interval,
             y_interval,
             &self.choices_tile,
-            &mut self.choices_subtile,
+            &mut self.choices_scratch,
         );
         self.interval_time += start.elapsed();
 
@@ -151,6 +155,8 @@ impl<'a, E: Eval> Renderer<'a, E> {
                 }
             }
         } else {
+            self.eval
+                .push(&self.choices_scratch, &mut self.choices_subtile);
             for x in x..(x + SUBTILE_SIZE) {
                 assert!(SUBTILE_SIZE >= EVAL_ARRAY_SIZE);
                 assert!(SUBTILE_SIZE % EVAL_ARRAY_SIZE == 0);
