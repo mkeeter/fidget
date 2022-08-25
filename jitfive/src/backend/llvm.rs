@@ -42,6 +42,10 @@ type FloatVecFunc = unsafe extern "C" fn(
     *mut f32,   // out
     *const u32, // choices in
 );
+type PushFunc = unsafe extern "C" fn(
+    *const u32, // choices in
+    *mut u32,   // choices out
+);
 
 /// Wrapper for an LLVM context
 pub struct JitContext(Context);
@@ -68,6 +72,8 @@ struct JitIntrinsics<'ctx> {
     sqrt_v: FunctionValue<'ctx>,
     minnum_v: FunctionValue<'ctx>,
     maxnum_v: FunctionValue<'ctx>,
+
+    trap: FunctionValue<'ctx>,
 }
 
 /// Library of math functions, specialized to a given type
@@ -396,6 +402,37 @@ impl<'ctx> JitCore<'ctx> {
         }
     }
 
+    /// Returns a dummy array of math functions, which should never be called.
+    ///
+    /// Calling them should (a) fail at the compile phase, because they all take
+    /// no arguments, and (b) fail at runtime, because they all simply call
+    /// `llvm.trap`.
+    fn get_math_dummy<T>(
+        &self,
+        intrinsics: &JitIntrinsics<'ctx>,
+    ) -> JitMath<'ctx, T> {
+        let fn_ty = self.context.void_type().fn_type(&[], false);
+        let function = self.module.add_function("math_dummy", fn_ty, None);
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        self.builder.build_call(intrinsics.trap, &[], "trap");
+        self.builder.build_return(None);
+
+        JitMath {
+            add: function,
+            sub: function,
+            mul: function,
+            max: function,
+            min: function,
+            neg: function,
+            abs: function,
+            sqrt: function,
+            square: function,
+            recip: function,
+            _p: std::marker::PhantomData,
+        }
+    }
+
     fn get_math_i(
         &self,
         intrinsics: &JitIntrinsics<'ctx>,
@@ -447,12 +484,16 @@ impl<'ctx> JitCore<'ctx> {
             )
             .unwrap();
 
+        let trap = Intrinsic::find("llvm.trap").unwrap();
+        let trap = trap.get_declaration(&self.module, &[]).unwrap();
+
         JitIntrinsics {
             abs,
             sqrt,
             maxnum,
             minnum,
             memset,
+            trap,
 
             abs_v,
             sqrt_v,
@@ -1210,11 +1251,13 @@ impl<'ctx> JitCore<'ctx> {
     /// # type T = u32;
     /// # const LHS: u32 = 1;
     /// # const RHS: u32 = 2;
-    /// fn op(lhs: T, rhs: T, choice: u32, shift: u32, out: *mut u32) -> T {
+    /// fn op(lhs: T, rhs: T, choice: u32, shift: u32, out: &mut u32) -> T {
     ///     let c = (choice >> shift) & 3;
     ///     if c == LHS {
+    ///         *out |= (LHS << shift);
     ///         return lhs;
     ///     } else if c == RHS {
+    ///         *out |= (RHS << shift);
     ///         return rhs;
     ///     } else {
     ///         // builder is positioned here
@@ -1509,7 +1552,7 @@ impl<'ctx> JitCore<'ctx> {
     }
 }
 
-struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
+struct Jit<'a, 'ctx, T> {
     /// Compiled math expression to be JIT'ed
     t: &'a Compiler,
 
@@ -1544,6 +1587,225 @@ struct Jit<'a, 'ctx, T: JitValue<'ctx>> {
     i: usize,
 
     _p: std::marker::PhantomData<*const T>,
+}
+
+impl<'a, 'ctx, T> Jit<'a, 'ctx, T> {
+    fn build_push(
+        name: &str,
+        t: &'a Compiler,
+        core: &'a JitCore<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        let intrinsics = core.get_intrinsics();
+        let math = core.get_math_dummy(&intrinsics);
+
+        // Build the function call
+        let i32_const_ptr_type = core.i32_type.ptr_type(AddressSpace::Const);
+        let fn_ty = core.context.void_type().fn_type(
+            &[
+                i32_const_ptr_type.into(),
+                core.i32_type.ptr_type(AddressSpace::Local).into(),
+            ],
+            false,
+        );
+        let function = core.module.add_function(name, fn_ty, None);
+        for a in &core.attrs {
+            function.add_attribute(AttributeLoc::Function, *a);
+        }
+        let entry_block = core.context.append_basic_block(function, "entry");
+        core.builder.position_at_end(entry_block);
+
+        let choice_array_size = (t.num_choices + 15) / 16;
+        let choice_base_ptr =
+            function.get_nth_param(0).unwrap().into_pointer_value();
+
+        let choices = (0..choice_array_size)
+            .map(|i| {
+                let choice_ptr = unsafe {
+                    core.builder.build_gep(
+                        choice_base_ptr,
+                        &[core.i32_type.const_int(i.try_into().unwrap(), true)],
+                        &format!("choice_ptr_{}", i),
+                    )
+                };
+                core.builder
+                    .build_load(choice_ptr, &format!("choice_{}", i))
+                    .into_int_value()
+            })
+            .collect();
+
+        // If this function writes choices, then we
+        // 1) memset the output array to 0
+        // 2) record output choice pointers, to reduce code later on
+        let choices_out = if t.num_choices > 0 {
+            let choice_out_base_ptr =
+                function.get_nth_param(1).unwrap().into_pointer_value();
+            core.builder.build_call(
+                intrinsics.memset,
+                &[
+                    choice_out_base_ptr.into(),
+                    core.context.i8_type().const_int(0, false).into(),
+                    core.i32_type
+                        .const_int(choice_array_size as u64 * 4, false)
+                        .into(),
+                    core.context.bool_type().const_int(0, false).into(),
+                ],
+                "choice_memset",
+            );
+            (0..choice_array_size)
+                .map(|i| unsafe {
+                    core.builder.build_gep(
+                        choice_out_base_ptr,
+                        &[core.i32_type.const_int(i.try_into().unwrap(), true)],
+                        &format!("choice_ptr_{}", i),
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let root = t.root;
+        let mut worker = Self {
+            t,
+            core,
+            function,
+            math,
+            values: BTreeMap::new(),
+            choices,
+            choices_out,
+            i: 0,
+            _p: std::marker::PhantomData,
+        };
+        worker.recurse_push(t.op_group[root]);
+        worker.core.builder.build_return(None);
+        function
+    }
+
+    /// Recurses into the given group, building its children then its nodes
+    fn recurse_push(&mut self, g: GroupIndex) {
+        let group = &self.t.groups[g];
+        for &c in &group.children {
+            self.build_child_group_push(c)
+        }
+
+        for &n in &group.nodes {
+            let op = self.t.ops[n];
+            if let Op::BinaryChoice(_op, _a, _b, c) = op {
+                let c = usize::from(c);
+                let choice = self.choices[c / 16];
+                let shift =
+                    self.core.i32_type.const_int((c as u64 % 16) * 2, false);
+
+                // Load the choice_out, then modify it by or'ing the relevant
+                // bits of the input choice.
+                let choice_out = self.choices_out[c / 16];
+                let c = self
+                    .core
+                    .builder
+                    .build_load(choice_out, "choice_out")
+                    .into_int_value();
+                let b11 = self.core.builder.build_left_shift(
+                    self.core.i32_type.const_int(3, false),
+                    shift,
+                    "b11",
+                );
+                let masked_choice =
+                    self.core.builder.build_and(choice, b11, "masked_choice");
+                let out = self.core.builder.build_or(c, masked_choice, "out");
+                self.core.builder.build_store(choice_out, out);
+            }
+        }
+    }
+    /// Builds the conditional chain and recursion into a child group
+    ///
+    /// Returns the set of active nodes, which have been written but not used
+    /// for the last time.
+    fn build_child_group_push(&mut self, child_index: GroupIndex) {
+        let child_group = &self.t.groups[child_index];
+        let has_root = child_group
+            .choices
+            .iter()
+            .any(|c| matches!(c, Source::Root));
+        let unconditional =
+            has_root || (child_group.child_weight < child_group.choices.len());
+
+        let last_cond = if unconditional {
+            // Nothing to do here, proceed straight into child
+            None
+        } else {
+            // Collect choices into array of u32 masks
+            let mut choice_u32s = BTreeMap::new();
+            for c in child_group.choices.iter() {
+                let (c, v) = match c {
+                    Source::Left(c) => (c, LHS),
+                    Source::Right(c) => (c, RHS),
+                    Source::Both(c) => (c, LHS | RHS),
+                    _ => unreachable!(),
+                };
+                let e = choice_u32s.entry(usize::from(*c) / 16).or_insert(0);
+                *e |= v << ((usize::from(*c) % 16) * 2);
+            }
+            assert!(!choice_u32s.is_empty());
+
+            let cond_blocks = (0..choice_u32s.len())
+                .map(|i| {
+                    self.core.context.append_basic_block(
+                        self.function,
+                        &format!("g{}_{}", usize::from(child_index), i),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let recurse_block = self.core.context.append_basic_block(
+                self.function,
+                &format!("g{}_recurse", usize::from(child_index)),
+            );
+
+            for (i, (c, v)) in choice_u32s.iter().enumerate() {
+                let label = format!("g{}_{}", usize::from(child_index), i);
+                let choice_value_masked = self.core.builder.build_and(
+                    self.choices[*c],
+                    self.core.i32_type.const_int(*v as u64, false),
+                    &format!("choice_masked_{}", label),
+                );
+                let choice_cmp = self.core.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    choice_value_masked,
+                    self.core.i32_type.const_int(0, true),
+                    &format!("choice_cmp_{}", label),
+                );
+                let next_block = cond_blocks[i];
+                self.core.builder.build_conditional_branch(
+                    choice_cmp,
+                    recurse_block,
+                    next_block,
+                );
+                self.core.builder.position_at_end(next_block);
+            }
+            // At this point, we begin constructing the recursive call.
+            // We'll need to patch up the last cond_block later, after
+            // we've constructed the done block.
+            self.core.builder.position_at_end(recurse_block);
+
+            Some(*cond_blocks.last().unwrap())
+        };
+
+        // Do the recursion
+        self.recurse_push(child_index);
+        let done_block = self.core.context.append_basic_block(
+            self.function,
+            &format!("g{}_done", usize::from(child_index)),
+        );
+        self.core.builder.build_unconditional_branch(done_block);
+
+        // Stitch the final conditional into the done block
+        if let Some(last_block) = last_cond {
+            self.core.builder.position_at_end(last_block);
+            self.core.builder.build_unconditional_branch(done_block);
+            self.core.builder.position_at_end(done_block);
+        } else {
+            self.core.builder.position_at_end(done_block);
+        }
+    }
 }
 
 impl<'a, 'ctx, T: JitValue<'ctx>> Jit<'a, 'ctx, T> {
@@ -2076,6 +2338,11 @@ pub fn to_jit_fn<'t, 'ctx>(
     Jit::<Interval>::build("shape_i", t, &jit_core);
     info!("Built interval JIT function in {:?}", now.elapsed());
 
+    info!("Building push JIT function");
+    let now = Instant::now();
+    Jit::<()>::build_push("shape_push", t, &jit_core);
+    info!("Built push JIT function in {:?}", now.elapsed());
+
     info!("Optimizing IR");
     let now = Instant::now();
     jit_core.optimize();
@@ -2110,12 +2377,21 @@ pub fn to_jit_fn<'t, 'ctx>(
     let fn_interval_addr = execution_engine.get_function_address("shape_i")?;
     info!("Extracted interval JIT function in {:?}", now.elapsed());
 
+    info!("Compiling push function...");
+    let now = Instant::now();
+    let fn_push = unsafe { execution_engine.get_function("shape_push")? };
+    let fn_push_addr = execution_engine.get_function_address("shape_push")?;
+    info!("Extracted push JIT function in {:?}", now.elapsed());
+
     Ok(JitEvalHandle {
         _fn_float_vec: fn_float_vec,
         _fn_interval: fn_interval,
+        _fn_push: fn_push,
 
         fn_float_vec_addr,
         fn_interval_addr,
+        fn_push_addr,
+
         choice_array_size: (t.num_choices + 15) / 16,
     })
 }
@@ -2127,9 +2403,12 @@ pub fn to_jit_fn<'t, 'ctx>(
 pub struct JitEvalHandle<'ctx> {
     _fn_float_vec: JitFunction<'ctx, FloatVecFunc>,
     _fn_interval: JitFunction<'ctx, IntervalFunc>,
+    _fn_push: JitFunction<'ctx, IntervalFunc>,
 
     fn_float_vec_addr: usize,
     fn_interval_addr: usize,
+    fn_push_addr: usize,
+
     choice_array_size: usize,
 }
 
@@ -2145,6 +2424,7 @@ pub struct JitEval<'jit> {
     choice_array_size: usize,
     fn_float_vec: FloatVecFunc,
     fn_interval: IntervalFunc,
+    fn_push: PushFunc,
     _p: std::marker::PhantomData<&'jit ()>,
 }
 
@@ -2154,6 +2434,7 @@ impl<'ctx> JitEvalHandle<'ctx> {
             JitEval {
                 fn_float_vec: std::mem::transmute_copy(&self.fn_float_vec_addr),
                 fn_interval: std::mem::transmute_copy(&self.fn_interval_addr),
+                fn_push: std::mem::transmute_copy(&self.fn_push_addr),
                 choice_array_size: self.choice_array_size,
                 _p: std::marker::PhantomData,
             }
@@ -2182,6 +2463,9 @@ impl<'ctx> Eval for JitEvalHandle<'ctx> {
         choices_in: &[u32],
     ) -> [f32; EVAL_ARRAY_SIZE] {
         self.to_thread_eval().array(x, y, choices_in)
+    }
+    fn push(&self, choices_in: &[u32], choices_out: &mut [u32]) {
+        self.to_thread_eval().push(choices_in, choices_out)
     }
 }
 
@@ -2221,6 +2505,9 @@ impl<'ctx> Eval for JitEval<'ctx> {
     }
     fn choice_array_size(&self) -> usize {
         self.choice_array_size
+    }
+    fn push(&self, choices_in: &[u32], choices_out: &mut [u32]) {
+        unsafe { (self.fn_push)(choices_in.as_ptr(), choices_out.as_mut_ptr()) }
     }
 }
 

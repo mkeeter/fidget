@@ -26,6 +26,9 @@ pub trait Eval {
         choices_out: &mut [u32],
     ) -> [f32; 2];
 
+    /// Reduces to a minimal choice mask
+    fn push(&self, choices_in: &[u32], choices_out: &mut [u32]);
+
     /// Returns the number of `u32` in the choice array.
     ///
     /// Note that this is different from [`Compiler::num_choices`], since 16
