@@ -11,8 +11,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 
 #[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
-pub enum ClauseOp {
-    // ------------ 32-bit opcodes --------------
+pub enum ClauseOp32 {
     /// `Done` marks the end of the tape.  It is only needed so that we can
     /// label a preceeding 64-bit operation (in the high bit).
     Done = 0,
@@ -41,8 +40,10 @@ pub enum ClauseOp {
     SubRegReg,
     MinRegReg,
     MaxRegReg,
+}
 
-    // ------------ 64-bit opcodes --------------
+#[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
+pub enum ClauseOp64 {
     /// Add a register and an immediate
     AddRegImm,
     /// Multiply a register and an immediate
@@ -56,79 +57,89 @@ pub enum ClauseOp {
     CopyImm,
 }
 
-impl ClauseOp {
+impl ClauseOp64 {
     fn name(&self) -> &'static str {
         match self {
-            ClauseOp::Done => "DONE",
-            ClauseOp::Load => "LOAD",
-            ClauseOp::Store => "STORE",
-            ClauseOp::Swap => "SWAP",
-            ClauseOp::Input => "INPUT",
-            ClauseOp::CopyReg | ClauseOp::CopyImm => "COPY",
-            ClauseOp::NegReg => "NEG",
-            ClauseOp::AbsReg => "ABS",
-            ClauseOp::RecipReg => "RECIP",
-            ClauseOp::SqrtReg => "SQRT",
-            ClauseOp::SquareReg => "SQUARE",
-
-            ClauseOp::AddRegReg | ClauseOp::AddRegImm => "ADD",
-            ClauseOp::MulRegReg | ClauseOp::MulRegImm => "MUL",
-            ClauseOp::SubRegReg | ClauseOp::SubImmReg | ClauseOp::SubRegImm => {
-                "SUB"
-            }
-            ClauseOp::MinRegReg | ClauseOp::MinRegImm => "MIN",
-            ClauseOp::MaxRegReg | ClauseOp::MaxRegImm => "MAX",
+            ClauseOp64::CopyImm => "COPY",
+            ClauseOp64::AddRegImm => "ADD",
+            ClauseOp64::MulRegImm => "MUL",
+            ClauseOp64::SubImmReg | ClauseOp64::SubRegImm => "SUB",
+            ClauseOp64::MinRegImm => "MIN",
+            ClauseOp64::MaxRegImm => "MAX",
         }
     }
-    fn as_reg_imm(&self) -> Self {
+}
+
+impl ClauseOp32 {
+    fn name(&self) -> &'static str {
         match self {
-            ClauseOp::AddRegReg => ClauseOp::AddRegImm,
-            ClauseOp::SubRegReg => ClauseOp::SubRegImm,
-            ClauseOp::MulRegReg => ClauseOp::MulRegImm,
-            ClauseOp::MinRegReg => ClauseOp::MinRegImm,
-            ClauseOp::MaxRegReg => ClauseOp::MaxRegImm,
+            ClauseOp32::Done => "DONE",
+            ClauseOp32::Load => "LOAD",
+            ClauseOp32::Store => "STORE",
+            ClauseOp32::Swap => "SWAP",
+            ClauseOp32::Input => "INPUT",
+            ClauseOp32::CopyReg => "COPY",
+            ClauseOp32::NegReg => "NEG",
+            ClauseOp32::AbsReg => "ABS",
+            ClauseOp32::RecipReg => "RECIP",
+            ClauseOp32::SqrtReg => "SQRT",
+            ClauseOp32::SquareReg => "SQUARE",
+            ClauseOp32::AddRegReg => "ADD",
+            ClauseOp32::MulRegReg => "MUL",
+            ClauseOp32::SubRegReg => "SUB",
+            ClauseOp32::MinRegReg => "MIN",
+            ClauseOp32::MaxRegReg => "MAX",
+        }
+    }
+    fn as_reg_imm(&self) -> ClauseOp64 {
+        match self {
+            ClauseOp32::AddRegReg => ClauseOp64::AddRegImm,
+            ClauseOp32::SubRegReg => ClauseOp64::SubRegImm,
+            ClauseOp32::MulRegReg => ClauseOp64::MulRegImm,
+            ClauseOp32::MinRegReg => ClauseOp64::MinRegImm,
+            ClauseOp32::MaxRegReg => ClauseOp64::MaxRegImm,
             _ => panic!(),
         }
     }
-    fn as_imm_reg(&self) -> Self {
+    fn as_imm_reg(&self) -> ClauseOp64 {
         match self {
-            ClauseOp::AddRegReg => ClauseOp::AddRegImm,
-            ClauseOp::SubRegReg => ClauseOp::SubImmReg,
-            ClauseOp::MulRegReg => ClauseOp::MulRegImm,
-            ClauseOp::MinRegReg => ClauseOp::MinRegImm,
-            ClauseOp::MaxRegReg => ClauseOp::MaxRegImm,
+            ClauseOp32::AddRegReg => ClauseOp64::AddRegImm,
+            ClauseOp32::SubRegReg => ClauseOp64::SubImmReg,
+            ClauseOp32::MulRegReg => ClauseOp64::MulRegImm,
+            ClauseOp32::MinRegReg => ClauseOp64::MinRegImm,
+            ClauseOp32::MaxRegReg => ClauseOp64::MaxRegImm,
             _ => panic!(),
         }
     }
 }
 
-impl From<BinaryOpcode> for ClauseOp {
+impl From<BinaryOpcode> for ClauseOp32 {
     fn from(b: BinaryOpcode) -> Self {
         match b {
-            BinaryOpcode::Sub => ClauseOp::SubRegReg,
-            BinaryOpcode::Add => ClauseOp::AddRegReg,
-            BinaryOpcode::Mul => ClauseOp::MulRegReg,
+            BinaryOpcode::Sub => ClauseOp32::SubRegReg,
+            BinaryOpcode::Add => ClauseOp32::AddRegReg,
+            BinaryOpcode::Mul => ClauseOp32::MulRegReg,
         }
     }
 }
 
-impl From<BinaryChoiceOpcode> for ClauseOp {
+impl From<BinaryChoiceOpcode> for ClauseOp32 {
     fn from(b: BinaryChoiceOpcode) -> Self {
         match b {
-            BinaryChoiceOpcode::Min => ClauseOp::MinRegReg,
-            BinaryChoiceOpcode::Max => ClauseOp::MaxRegReg,
+            BinaryChoiceOpcode::Min => ClauseOp32::MinRegReg,
+            BinaryChoiceOpcode::Max => ClauseOp32::MaxRegReg,
         }
     }
 }
 
-impl From<UnaryOpcode> for ClauseOp {
+impl From<UnaryOpcode> for ClauseOp32 {
     fn from(b: UnaryOpcode) -> Self {
         match b {
-            UnaryOpcode::Square => ClauseOp::SquareReg,
-            UnaryOpcode::Sqrt => ClauseOp::SqrtReg,
-            UnaryOpcode::Abs => ClauseOp::AbsReg,
-            UnaryOpcode::Recip => ClauseOp::RecipReg,
-            UnaryOpcode::Neg => ClauseOp::NegReg,
+            UnaryOpcode::Square => ClauseOp32::SquareReg,
+            UnaryOpcode::Sqrt => ClauseOp32::SqrtReg,
+            UnaryOpcode::Abs => ClauseOp32::AbsReg,
+            UnaryOpcode::Recip => ClauseOp32::RecipReg,
+            UnaryOpcode::Neg => ClauseOp32::NegReg,
         }
     }
 }
@@ -342,7 +353,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_32(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: ShortRegister,
         rhs: ShortRegister,
         out: ShortRegister,
@@ -362,7 +373,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_64(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp64,
         arg: ShortRegister,
         imm: f32,
         out: ShortRegister,
@@ -383,7 +394,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_reg_reg(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: ShortRegister,
         rhs: ShortRegister,
         out: ShortRegister,
@@ -393,7 +404,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_reg(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: ShortRegister,
         out: ShortRegister,
     ) {
@@ -402,7 +413,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_reg_imm(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: ShortRegister,
         rhs: f32,
         out: ShortRegister,
@@ -413,7 +424,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op_imm_reg(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: f32,
         rhs: ShortRegister,
         out: ShortRegister,
@@ -424,7 +435,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_op(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         lhs: Allocation,
         rhs: Allocation,
         out: ShortRegister,
@@ -445,7 +456,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     fn build_load_store_32(
         &mut self,
-        op: ClauseOp,
+        op: ClauseOp32,
         short: ShortRegister,
         ext: ExtendedRegister,
     ) {
@@ -456,15 +467,15 @@ impl<'a> InterpreterBuilder<'a> {
             .push(flag | (op << 24) | ((ext.0 as u32) << 8) | (short.0 as u32));
     }
     fn build_load_ext(&mut self, src: ExtendedRegister, dst: ShortRegister) {
-        self.build_load_store_32(ClauseOp::Load, dst, src);
+        self.build_load_store_32(ClauseOp32::Load, dst, src);
     }
 
     fn build_store_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
-        self.build_load_store_32(ClauseOp::Store, src, dst);
+        self.build_load_store_32(ClauseOp32::Store, src, dst);
     }
 
     fn build_swap_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
-        self.build_load_store_32(ClauseOp::Swap, src, dst);
+        self.build_load_store_32(ClauseOp32::Swap, src, dst);
     }
 
     /// Releases the given register
@@ -551,7 +562,7 @@ impl<'a> InterpreterBuilder<'a> {
                     let out = self.get_short_register();
                     // Slight misuse of the 32-bit unary form, but that's okay
                     self.build_op_reg(
-                        ClauseOp::Input,
+                        ClauseOp32::Input,
                         ShortRegister(index),
                         out,
                     );
@@ -630,13 +641,13 @@ impl Interpreter {
         builder.recurse(t.op_group[t.root]);
         match builder.get_allocated_value(t.root) {
             Allocation::Immediate(f) => builder.build_op_64(
-                ClauseOp::CopyImm,
+                ClauseOp64::CopyImm,
                 ShortRegister(0),
                 f,
                 ShortRegister(0),
             ),
             Allocation::Register(r) => {
-                builder.build_op_reg(ClauseOp::CopyReg, r, ShortRegister(0))
+                builder.build_op_reg(ClauseOp32::CopyReg, r, ShortRegister(0))
             }
         }
 
@@ -652,45 +663,45 @@ impl Interpreter {
             // 32-bit instruction
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp::from_u32(op).unwrap();
+                let op = ClauseOp32::from_u32(op).unwrap();
                 match op {
-                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap => {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
                         let short = v & 0xFF;
                         let ext = (v >> 8) & 0xFFFF;
                         match op {
-                            ClauseOp::Load => {
+                            ClauseOp32::Load => {
                                 println!("${} = LOAD ${}", short, ext)
                             }
-                            ClauseOp::Store => {
+                            ClauseOp32::Store => {
                                 println!("${} = STORE ${}", ext, short)
                             }
-                            ClauseOp::Swap => {
+                            ClauseOp32::Swap => {
                                 println!("SWAP ${} ${}", short, ext)
                             }
                             _ => unreachable!(),
                         }
                     }
-                    ClauseOp::Input => {
+                    ClauseOp32::Input => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let out_reg = v & 0xFF;
                         println!("${} = INPUT %{}", out_reg, lhs_reg);
                     }
-                    ClauseOp::CopyReg
-                    | ClauseOp::Done
-                    | ClauseOp::NegReg
-                    | ClauseOp::AbsReg
-                    | ClauseOp::RecipReg
-                    | ClauseOp::SqrtReg
-                    | ClauseOp::SquareReg => {
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::Done
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let out_reg = v & 0xFF;
                         println!("${} = {} ${}", out_reg, op.name(), lhs_reg);
                     }
-                    ClauseOp::MaxRegReg
-                    | ClauseOp::MinRegReg
-                    | ClauseOp::SubRegReg
-                    | ClauseOp::AddRegReg
-                    | ClauseOp::MulRegReg => {
+                    ClauseOp32::MaxRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let rhs_reg = (v >> 8) & 0xFF;
                         let out_reg = v & 0xFF;
@@ -702,21 +713,20 @@ impl Interpreter {
                             rhs_reg
                         );
                     }
-                    _ => panic!("Unknown 32-bit opcode"),
                 }
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp::from_u32(op).unwrap();
+                let op = ClauseOp64::from_u32(op).unwrap();
                 let next = iter.next().unwrap();
                 let imm = f32::from_bits(*next);
                 let arg_reg = (v >> 8) & 0xFF;
                 let out_reg = v & 0xFF;
                 match op {
-                    ClauseOp::MinRegImm
-                    | ClauseOp::MaxRegImm
-                    | ClauseOp::AddRegImm
-                    | ClauseOp::MulRegImm
-                    | ClauseOp::SubRegImm => {
+                    ClauseOp64::MinRegImm
+                    | ClauseOp64::MaxRegImm
+                    | ClauseOp64::AddRegImm
+                    | ClauseOp64::MulRegImm
+                    | ClauseOp64::SubRegImm => {
                         println!(
                             "${} = {} ${} {}",
                             out_reg,
@@ -725,7 +735,7 @@ impl Interpreter {
                             imm
                         );
                     }
-                    ClauseOp::SubImmReg => {
+                    ClauseOp64::SubImmReg => {
                         println!(
                             "${} = {} {} ${}",
                             out_reg,
@@ -751,27 +761,27 @@ impl Interpreter {
             // 32-bit instruction
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp::from_u32(op).unwrap();
+                let op = ClauseOp32::from_u32(op).unwrap();
                 match op {
-                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap => {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
                         let fast_reg = (v & 0xFF) as usize;
                         let extended_reg = ((v >> 8) & 0xFFFF) as usize;
                         match op {
-                            ClauseOp::Load => {
+                            ClauseOp32::Load => {
                                 self.registers[fast_reg] =
                                     self.registers[extended_reg]
                             }
-                            ClauseOp::Store => {
+                            ClauseOp32::Store => {
                                 self.registers[extended_reg] =
                                     self.registers[fast_reg]
                             }
-                            ClauseOp::Swap => {
+                            ClauseOp32::Swap => {
                                 self.registers.swap(fast_reg, extended_reg);
                             }
                             _ => unreachable!(),
                         }
                     }
-                    ClauseOp::Input => {
+                    ClauseOp32::Input => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let out_reg = v & 0xFF;
                         let out = match lhs_reg {
@@ -781,43 +791,45 @@ impl Interpreter {
                         };
                         self.registers[out_reg as usize] = out;
                     }
-                    ClauseOp::CopyReg
-                    | ClauseOp::NegReg
-                    | ClauseOp::AbsReg
-                    | ClauseOp::RecipReg
-                    | ClauseOp::SqrtReg
-                    | ClauseOp::SquareReg => {
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let lhs = self.registers[lhs_reg as usize];
                         let out_reg = v & 0xFF;
                         self.registers[out_reg as usize] = match op {
-                            ClauseOp::CopyReg => lhs,
-                            ClauseOp::NegReg => -lhs,
-                            ClauseOp::AbsReg => lhs.abs(),
-                            ClauseOp::RecipReg => 1.0 / lhs,
-                            ClauseOp::SqrtReg => lhs.sqrt(),
-                            ClauseOp::SquareReg => lhs * lhs,
+                            ClauseOp32::CopyReg => lhs,
+                            ClauseOp32::NegReg => -lhs,
+                            ClauseOp32::AbsReg => lhs.abs(),
+                            ClauseOp32::RecipReg => 1.0 / lhs,
+                            ClauseOp32::SqrtReg => lhs.sqrt(),
+                            ClauseOp32::SquareReg => lhs * lhs,
                             _ => unreachable!(),
                         };
                     }
 
-                    ClauseOp::AddRegReg
-                    | ClauseOp::MulRegReg
-                    | ClauseOp::SubRegReg
-                    | ClauseOp::MinRegReg
-                    | ClauseOp::MaxRegReg => {
+                    ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::MaxRegReg => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let rhs_reg = (v >> 8) & 0xFF;
                         let out_reg = v & 0xFF;
                         let lhs = self.registers[lhs_reg as usize];
                         let rhs = self.registers[rhs_reg as usize];
                         let out = match op {
-                            ClauseOp::AddRegReg => lhs + rhs,
-                            ClauseOp::MulRegReg => lhs * rhs,
-                            ClauseOp::SubRegReg => lhs - rhs,
-                            ClauseOp::MinRegReg => lhs.min(rhs),
-                            ClauseOp::MaxRegReg => lhs.max(rhs),
-                            ClauseOp::Load | ClauseOp::Store => unreachable!(),
+                            ClauseOp32::AddRegReg => lhs + rhs,
+                            ClauseOp32::MulRegReg => lhs * rhs,
+                            ClauseOp32::SubRegReg => lhs - rhs,
+                            ClauseOp32::MinRegReg => lhs.min(rhs),
+                            ClauseOp32::MaxRegReg => lhs.max(rhs),
+                            ClauseOp32::Load | ClauseOp32::Store => {
+                                unreachable!()
+                            }
                             _ => unreachable!(),
                         };
                         self.registers[out_reg as usize] = out;
@@ -826,21 +838,20 @@ impl Interpreter {
                 }
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp::from_u32(op).unwrap();
+                let op = ClauseOp64::from_u32(op).unwrap();
                 let (_j, next) = iter.next().unwrap();
                 let arg_reg = (v >> 8) & 0xFF;
                 let out_reg = v & 0xFF;
                 let arg = self.registers[arg_reg as usize];
                 let imm = f32::from_bits(*next);
                 let out = match op {
-                    ClauseOp::AddRegImm => arg + imm,
-                    ClauseOp::MulRegImm => arg * imm,
-                    ClauseOp::SubImmReg => imm - arg,
-                    ClauseOp::SubRegImm => arg - imm,
-                    ClauseOp::MinRegImm => arg.min(imm),
-                    ClauseOp::MaxRegImm => arg.max(imm),
-                    ClauseOp::CopyImm => imm,
-                    _ => panic!("Bad 64-bit opcode"),
+                    ClauseOp64::AddRegImm => arg + imm,
+                    ClauseOp64::MulRegImm => arg * imm,
+                    ClauseOp64::SubImmReg => imm - arg,
+                    ClauseOp64::SubRegImm => arg - imm,
+                    ClauseOp64::MinRegImm => arg.min(imm),
+                    ClauseOp64::MaxRegImm => arg.max(imm),
+                    ClauseOp64::CopyImm => imm,
                 };
                 self.registers[out_reg as usize] = out;
             }
