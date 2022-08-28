@@ -434,6 +434,29 @@ impl Interpreter {
         }
     }
 
+    pub fn pretty_print_tape(&self) {
+        let mut iter = self.tape.iter();
+        while let Some(v) = iter.next() {
+            // 32-bit instruction
+            if v & (1 << 30) == 0 {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp::from_u32(op).unwrap();
+                let lhs_reg = (v >> 16) & 0xFF;
+                let rhs_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                println!("${} = {:?} ${} ${}", out_reg, op, lhs_reg, rhs_reg);
+            } else {
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp::from_u32(op).unwrap();
+                let next = iter.next().unwrap();
+                let imm = f32::from_bits(*next);
+                let arg_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                println!("${} = {:?} ${} {}", out_reg, op, arg_reg, imm);
+            }
+        }
+    }
+
     pub fn run(&mut self, x: f32, y: f32) -> f32 {
         let mut iter = self.tape.iter().enumerate();
         while let Some((_i, v)) = iter.next() {
