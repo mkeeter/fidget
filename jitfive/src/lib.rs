@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod bimap;
 pub mod compiler;
 pub mod context;
 pub mod error;

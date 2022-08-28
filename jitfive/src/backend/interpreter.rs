@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
+    bimap::Bimap,
     compiler::{Compiler, GroupIndex, NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     queue::PriorityQueue,
@@ -238,10 +239,7 @@ struct InterpreterBuilder<'a> {
     short_register_lru: PriorityQueue<usize, ShortRegister>,
 
     /// Mapping from active nodes to available registers
-    allocations: BTreeMap<NodeIndex, Register>,
-
-    /// Mapping from allocated registers to active nodes
-    registers: BTreeMap<Register, NodeIndex>,
+    allocations: Bimap<NodeIndex, Register>,
 
     /// Constants declared in the compiled program
     constants: BTreeMap<NodeIndex, f32>,
@@ -268,8 +266,7 @@ impl<'a> InterpreterBuilder<'a> {
             spare_short_registers: vec![],
             spare_extended_registers: vec![],
             active: BTreeSet::new(),
-            allocations: BTreeMap::new(),
-            registers: BTreeMap::new(),
+            allocations: Bimap::new(),
             constants: BTreeMap::new(),
             i: 0,
             was_64: false,
@@ -277,8 +274,6 @@ impl<'a> InterpreterBuilder<'a> {
     }
 
     /// Claims an extended register for the given node
-    ///
-    /// The `NodeIndex -> Register` association is updated in `self.allocations`
     fn get_extended_register(&mut self) -> ExtendedRegister {
         if let Some(r) = self.spare_extended_registers.pop() {
             r
@@ -293,7 +288,7 @@ impl<'a> InterpreterBuilder<'a> {
     ///
     /// This may require evicting a short register
     fn get_short_register(&mut self) -> ShortRegister {
-        let out = if let Some(r) = self.spare_short_registers.pop() {
+        if let Some(r) = self.spare_short_registers.pop() {
             r
         } else if self.register_count <= u8::MAX as usize {
             let r = ShortRegister(self.register_count as u8);
@@ -302,17 +297,16 @@ impl<'a> InterpreterBuilder<'a> {
         } else {
             // Evict a short register
             let target = self.short_register_lru.pop().unwrap();
-            let node = self.registers.remove(&Register::Short(target)).unwrap();
+            let node = self
+                .allocations
+                .erase_right(&Register::Short(target))
+                .unwrap();
             let ext = self.get_extended_register();
             self.build_store_ext(target, ext);
-            self.registers.insert(Register::Extended(ext), node);
-            self.allocations
-                .entry(node)
-                .and_modify(|v| *v = Register::Extended(ext));
+            let b = self.allocations.insert(node, Register::Extended(ext));
+            assert!(b);
             target
-        };
-
-        out
+        }
     }
 
     /// Claims a short register and loads a value from `ext`
@@ -320,27 +314,32 @@ impl<'a> InterpreterBuilder<'a> {
     /// This may require evicting a short register, in which case it is swapped
     /// with `ext` (since we know `ext` is about to be available).
     fn swap_short_register(&mut self, ext: ExtendedRegister) -> ShortRegister {
-        let out = if let Some(r) = self.spare_short_registers.pop() {
+        if let Some(r) = self.spare_short_registers.pop() {
+            assert!(self.allocations.get_right(&Register::Short(r)).is_none());
+            println!("    loading into spare {:?}", r);
             self.build_load_ext(ext, r);
+            self.release_reg(Register::Extended(ext));
             r
         } else if self.register_count <= u8::MAX as usize {
             let r = ShortRegister(self.register_count as u8);
+            println!("    loading into {:?}", r);
             self.register_count += 1;
             self.build_load_ext(ext, r);
+            self.release_reg(Register::Extended(ext));
             r
         } else {
-            // Evict a short register
+            // Evict a short register, reassigning its allocation data
             let target = self.short_register_lru.pop().unwrap();
-            let node = self.registers.remove(&Register::Short(target)).unwrap();
+            let node = self
+                .allocations
+                .erase_right(&Register::Short(target))
+                .unwrap();
             self.build_swap_ext(target, ext);
-            self.registers.insert(Register::Extended(ext), node);
-            self.allocations
-                .entry(node)
-                .and_modify(|v| *v = Register::Extended(ext));
+            self.allocations.erase_right(&Register::Extended(ext));
+            let b = self.allocations.insert(node, Register::Extended(ext));
+            assert!(b);
             target
-        };
-
-        out
+        }
     }
 
     fn build_op_32(
@@ -477,7 +476,7 @@ impl<'a> InterpreterBuilder<'a> {
     ///
     /// Note that the caller should handle `self.allocations`
     fn release_reg(&mut self, reg: Register) {
-        self.registers.remove(&reg).unwrap();
+        self.allocations.erase_right(&reg).unwrap();
         match reg {
             Register::Short(r) => {
                 self.short_register_lru.remove(r).unwrap();
@@ -492,7 +491,7 @@ impl<'a> InterpreterBuilder<'a> {
     /// If the given node isn't already allocated to a short register, then we
     /// evict the oldest short register.
     fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
-        if let Some(r) = self.allocations.get(&node).cloned() {
+        if let Some(r) = self.allocations.get_left(&node).cloned() {
             let r = match r {
                 Register::Short(r) => r,
                 Register::Extended(ext) => {
@@ -500,8 +499,8 @@ impl<'a> InterpreterBuilder<'a> {
 
                     // Modify the allocations and bindings
                     let reg = Register::Short(out);
-                    self.registers.insert(reg, node);
-                    self.allocations.insert(node, reg);
+                    let b = self.allocations.insert(node, reg);
+                    assert!(b);
 
                     out
                 }
@@ -527,8 +526,8 @@ impl<'a> InterpreterBuilder<'a> {
             self.active.remove(&(index, node));
 
             // This node's register is now available!
-            let r = self.allocations.remove(&node).unwrap();
-            self.release_reg(r);
+            let r = self.allocations.get_left(&node).unwrap();
+            self.release_reg(*r);
         }
     }
 
@@ -612,12 +611,11 @@ impl<'a> InterpreterBuilder<'a> {
                 }
             };
             let reg = Register::Short(out);
-            self.allocations.insert(n, reg);
-            self.registers.insert(reg, n);
-            self.active.insert((self.t.last_use[n], n));
+            let b = self.allocations.insert(n, reg);
+            assert!(b);
 
+            self.active.insert((self.t.last_use[n], n));
             // Sanity checking
-            assert_eq!(self.registers.len(), self.allocations.len());
             assert_eq!(
                 self.register_count,
                 self.allocations.len()
