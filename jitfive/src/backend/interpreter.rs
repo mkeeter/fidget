@@ -44,7 +44,7 @@ pub enum ClauseOp {
 
     // ------------ 64-bit opcodes --------------
     /// Add a register and an immediate
-    AddRegImm = 64,
+    AddRegImm,
     /// Multiply a register and an immediate
     MulRegImm,
     /// Subtract a register from an immediate
