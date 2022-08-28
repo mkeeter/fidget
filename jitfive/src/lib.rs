@@ -4,10 +4,12 @@ pub mod context;
 pub mod error;
 pub mod eval;
 pub mod indexed;
-pub mod passes;
-pub mod render;
-//pub mod metal;
 pub mod op;
+pub mod passes;
+pub mod queue;
+pub mod render;
+
+//pub mod metal;
 
 #[cfg(test)]
 mod tests {
