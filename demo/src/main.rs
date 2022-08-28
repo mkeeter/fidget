@@ -23,6 +23,10 @@ struct Args {
     #[clap(short, long)]
     image: Option<String>,
 
+    /// Use the interpreter
+    #[clap(long, requires = "image", conflicts_with = "jit")]
+    interpreter: bool,
+
     /// Render using the JIT-compiled function
     #[clap(short, long, requires = "image")]
     jit: bool,
@@ -96,9 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let jit_ctx = JitContext::new();
-    let jit_fn = to_jit_fn(&compiler, &jit_ctx)?;
-
     /*
     if let Some(m) = args.metal {
         std::fs::write(m, prog.to_metal(jitfive::metal::Mode::Interval))?
@@ -106,43 +107,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     */
     if let Some(img) = args.image {
         let now = Instant::now();
-        let buffer: Vec<u8> = if args.jit && !args.brute {
-            let image = render(args.size as usize, &jit_fn);
-            image
-                .into_iter()
-                .flat_map(|p| p.as_color().into_iter())
-                .collect()
-        } else if args.jit && args.brute {
-            let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
-            let scale = args.size;
-            let mut out = Vec::with_capacity((scale * scale) as usize);
-            let div = (scale - 1) as f64;
-            for i in 0..scale {
-                let y = -(-1.0 + 2.0 * (i as f64) / div);
-                const N: u32 = EVAL_ARRAY_SIZE as u32;
-                for j in 0..((scale + N - 1) / N) {
-                    let y_array = [y as f32; N as usize];
-                    let mut x_array = [0.0; N as usize];
-                    for k in 0..N {
-                        let x = j * N + k;
-                        if x < scale {
-                            x_array[k as usize] =
-                                (-1.0 + 2.0 * (x as f64) / div) as f32;
+        let buffer: Vec<u8> = if args.jit {
+            let jit_ctx = JitContext::new();
+            let jit_fn = to_jit_fn(&compiler, &jit_ctx)?;
+            if args.brute {
+                let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
+                let scale = args.size;
+                let mut out = Vec::with_capacity((scale * scale) as usize);
+                let div = (scale - 1) as f64;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f64) / div);
+                    const N: u32 = EVAL_ARRAY_SIZE as u32;
+                    for j in 0..((scale + N - 1) / N) {
+                        let y_array = [y as f32; N as usize];
+                        let mut x_array = [0.0; N as usize];
+                        for k in 0..N {
+                            let x = j * N + k;
+                            if x < scale {
+                                x_array[k as usize] =
+                                    (-1.0 + 2.0 * (x as f64) / div) as f32;
+                            }
                         }
-                    }
-                    let v = jit_fn.array(x_array, y_array, &choices);
-                    for k in 0..N {
-                        if j * N + k < scale {
-                            out.push(if v[k as usize] <= 0.0 {
-                                [u8::MAX; 4]
-                            } else {
-                                [0, 0, 0, 255]
-                            });
+                        let v = jit_fn.array(x_array, y_array, &choices);
+                        for k in 0..N {
+                            if j * N + k < scale {
+                                out.push(if v[k as usize] <= 0.0 {
+                                    [u8::MAX; 4]
+                                } else {
+                                    [0, 0, 0, 255]
+                                });
+                            }
                         }
                     }
                 }
+                out.into_iter().flat_map(|i| i.into_iter()).collect()
+            } else {
+                let image = render(args.size as usize, &jit_fn);
+                image
+                    .into_iter()
+                    .flat_map(|p| p.as_color().into_iter())
+                    .collect()
             }
-            out.into_iter().flat_map(|i| i.into_iter()).collect()
+        } else if args.interpreter {
+            let scale = args.size;
+            let mut out = Vec::with_capacity((scale * scale) as usize);
+            let mut interpreter =
+                jitfive::backend::interpreter::Interpreter::new(&compiler);
+            interpreter.pretty_print_tape();
+            let div = (scale - 1) as f64;
+            for i in 0..scale {
+                let y = -(-1.0 + 2.0 * (i as f64) / div);
+                for j in 0..scale {
+                    let x = -1.0 + 2.0 * (j as f64) / div;
+                    let v = interpreter.run(x as f32, y as f32);
+                    out.push(v <= 0.0);
+                }
+            }
+
+            // Convert from Vec<bool> to an image
+            out.into_iter()
+                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+                .flat_map(|i| i.into_iter())
+                .collect()
         } else {
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
