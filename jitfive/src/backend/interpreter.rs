@@ -22,6 +22,9 @@ pub enum ClauseOp {
     /// Store from a main register to an extended register
     Store,
 
+    /// Swap from a main register to an extended register
+    Swap,
+
     /// Reads one of the inputs (i.e. X or Y)
     Input,
 
@@ -58,6 +61,7 @@ impl ClauseOp {
             ClauseOp::Done => "DONE",
             ClauseOp::Load => "LOAD",
             ClauseOp::Store => "STORE",
+            ClauseOp::Swap => "SWAP",
             ClauseOp::Input => "INPUT",
             ClauseOp::CopyReg | ClauseOp::CopyImm => "COPY",
             ClauseOp::NegReg => "NEG",
@@ -311,6 +315,34 @@ impl<'a> InterpreterBuilder<'a> {
         out
     }
 
+    /// Claims a short register and loads a value from `ext`
+    ///
+    /// This may require evicting a short register, in which case it is swapped
+    /// with `ext` (since we know `ext` is about to be available).
+    fn swap_short_register(&mut self, ext: ExtendedRegister) -> ShortRegister {
+        let out = if let Some(r) = self.spare_short_registers.pop() {
+            self.build_load_ext(ext, r);
+            r
+        } else if self.register_count <= u8::MAX as usize {
+            let r = ShortRegister(self.register_count as u8);
+            self.register_count += 1;
+            self.build_load_ext(ext, r);
+            r
+        } else {
+            // Evict a short register
+            let target = self.short_register_lru.pop().unwrap();
+            let node = self.registers.remove(&Register::Short(target)).unwrap();
+            self.build_swap_ext(target, ext);
+            self.registers.insert(Register::Extended(ext), node);
+            self.allocations
+                .entry(node)
+                .and_modify(|v| *v = Register::Extended(ext));
+            target
+        };
+
+        out
+    }
+
     fn build_op_32(
         &mut self,
         op: ClauseOp,
@@ -434,6 +466,10 @@ impl<'a> InterpreterBuilder<'a> {
         self.build_load_store_32(ClauseOp::Store, src, dst);
     }
 
+    fn build_swap_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
+        self.build_load_store_32(ClauseOp::Swap, src, dst);
+    }
+
     /// Releases the given register
     ///
     /// Erasing the register from `self.registers` and adds it to
@@ -460,9 +496,7 @@ impl<'a> InterpreterBuilder<'a> {
             let r = match r {
                 Register::Short(r) => r,
                 Register::Extended(ext) => {
-                    let out = self.get_short_register();
-                    self.release_reg(Register::Extended(ext));
-                    self.build_load_ext(ext, out);
+                    let out = self.swap_short_register(ext);
 
                     // Modify the allocations and bindings
                     let reg = Register::Short(out);
@@ -615,7 +649,7 @@ impl Interpreter {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp::from_u32(op).unwrap();
                 match op {
-                    ClauseOp::Load | ClauseOp::Store => {
+                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap => {
                         let short = v & 0xFF;
                         let ext = (v >> 8) & 0xFFFF;
                         match op {
@@ -624,6 +658,9 @@ impl Interpreter {
                             }
                             ClauseOp::Store => {
                                 println!("${} = STORE ${}", ext, short)
+                            }
+                            ClauseOp::Swap => {
+                                println!("SWAP ${} ${}", short, ext)
                             }
                             _ => unreachable!(),
                         }
@@ -710,7 +747,10 @@ impl Interpreter {
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp::from_u32(op).unwrap();
-                if matches!(op, ClauseOp::Load | ClauseOp::Store) {
+                if matches!(
+                    op,
+                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap
+                ) {
                     let fast_reg = (v & 0xFF) as usize;
                     let extended_reg = ((v >> 8) & 0xFFFF) as usize;
                     match op {
@@ -721,6 +761,9 @@ impl Interpreter {
                         ClauseOp::Store => {
                             self.registers[extended_reg] =
                                 self.registers[fast_reg]
+                        }
+                        ClauseOp::Swap => {
+                            self.registers.swap(fast_reg, extended_reg);
                         }
                         _ => unreachable!(),
                     }
