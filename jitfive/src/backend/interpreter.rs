@@ -754,53 +754,77 @@ impl Interpreter {
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp::from_u32(op).unwrap();
-                if matches!(
-                    op,
-                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap
-                ) {
-                    let fast_reg = (v & 0xFF) as usize;
-                    let extended_reg = ((v >> 8) & 0xFFFF) as usize;
-                    match op {
-                        ClauseOp::Load => {
-                            self.registers[fast_reg] =
-                                self.registers[extended_reg]
+                match op {
+                    ClauseOp::Load | ClauseOp::Store | ClauseOp::Swap => {
+                        let fast_reg = (v & 0xFF) as usize;
+                        let extended_reg = ((v >> 8) & 0xFFFF) as usize;
+                        match op {
+                            ClauseOp::Load => {
+                                self.registers[fast_reg] =
+                                    self.registers[extended_reg]
+                            }
+                            ClauseOp::Store => {
+                                self.registers[extended_reg] =
+                                    self.registers[fast_reg]
+                            }
+                            ClauseOp::Swap => {
+                                self.registers.swap(fast_reg, extended_reg);
+                            }
+                            _ => unreachable!(),
                         }
-                        ClauseOp::Store => {
-                            self.registers[extended_reg] =
-                                self.registers[fast_reg]
-                        }
-                        ClauseOp::Swap => {
-                            self.registers.swap(fast_reg, extended_reg);
-                        }
-                        _ => unreachable!(),
                     }
-                } else {
-                    let lhs_reg = (v >> 16) & 0xFF;
-                    let rhs_reg = (v >> 8) & 0xFF;
-                    let out_reg = v & 0xFF;
-                    let lhs = self.registers[lhs_reg as usize];
-                    let rhs = self.registers[rhs_reg as usize];
-                    let out = match op {
-                        ClauseOp::Input => match lhs_reg {
+                    ClauseOp::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let out = match lhs_reg {
                             0 => x,
                             1 => y,
                             _ => panic!(),
-                        },
-                        ClauseOp::CopyReg => lhs,
-                        ClauseOp::NegReg => -lhs,
-                        ClauseOp::AbsReg => lhs.abs(),
-                        ClauseOp::RecipReg => 1.0 / lhs,
-                        ClauseOp::SqrtReg => lhs.sqrt(),
-                        ClauseOp::SquareReg => lhs * lhs,
-                        ClauseOp::AddRegReg => lhs + rhs,
-                        ClauseOp::MulRegReg => lhs * rhs,
-                        ClauseOp::SubRegReg => lhs - rhs,
-                        ClauseOp::MinRegReg => lhs.min(rhs),
-                        ClauseOp::MaxRegReg => lhs.max(rhs),
-                        ClauseOp::Load | ClauseOp::Store => unreachable!(),
-                        _ => panic!(),
-                    };
-                    self.registers[out_reg as usize] = out;
+                        };
+                        self.registers[out_reg as usize] = out;
+                    }
+                    ClauseOp::CopyReg
+                    | ClauseOp::NegReg
+                    | ClauseOp::AbsReg
+                    | ClauseOp::RecipReg
+                    | ClauseOp::SqrtReg
+                    | ClauseOp::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let lhs = self.registers[lhs_reg as usize];
+                        let out_reg = v & 0xFF;
+                        self.registers[out_reg as usize] = match op {
+                            ClauseOp::CopyReg => lhs,
+                            ClauseOp::NegReg => -lhs,
+                            ClauseOp::AbsReg => lhs.abs(),
+                            ClauseOp::RecipReg => 1.0 / lhs,
+                            ClauseOp::SqrtReg => lhs.sqrt(),
+                            ClauseOp::SquareReg => lhs * lhs,
+                            _ => unreachable!(),
+                        };
+                    }
+
+                    ClauseOp::AddRegReg
+                    | ClauseOp::MulRegReg
+                    | ClauseOp::SubRegReg
+                    | ClauseOp::MinRegReg
+                    | ClauseOp::MaxRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let lhs = self.registers[lhs_reg as usize];
+                        let rhs = self.registers[rhs_reg as usize];
+                        let out = match op {
+                            ClauseOp::AddRegReg => lhs + rhs,
+                            ClauseOp::MulRegReg => lhs * rhs,
+                            ClauseOp::SubRegReg => lhs - rhs,
+                            ClauseOp::MinRegReg => lhs.min(rhs),
+                            ClauseOp::MaxRegReg => lhs.max(rhs),
+                            ClauseOp::Load | ClauseOp::Store => unreachable!(),
+                            _ => unreachable!(),
+                        };
+                        self.registers[out_reg as usize] = out;
+                    }
+                    _ => panic!("Bad 32-bit opcode"),
                 }
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
@@ -818,7 +842,7 @@ impl Interpreter {
                     ClauseOp::MinRegImm => arg.min(imm),
                     ClauseOp::MaxRegImm => arg.max(imm),
                     ClauseOp::CopyImm => imm,
-                    _ => panic!(),
+                    _ => panic!("Bad 64-bit opcode"),
                 };
                 self.registers[out_reg as usize] = out;
             }
