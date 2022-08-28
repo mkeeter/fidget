@@ -316,13 +316,11 @@ impl<'a> InterpreterBuilder<'a> {
     fn swap_short_register(&mut self, ext: ExtendedRegister) -> ShortRegister {
         if let Some(r) = self.spare_short_registers.pop() {
             assert!(self.allocations.get_right(&Register::Short(r)).is_none());
-            println!("    loading into spare {:?}", r);
             self.build_load_ext(ext, r);
             self.release_reg(Register::Extended(ext));
             r
         } else if self.register_count <= u8::MAX as usize {
             let r = ShortRegister(self.register_count as u8);
-            println!("    loading into {:?}", r);
             self.register_count += 1;
             self.build_load_ext(ext, r);
             self.release_reg(Register::Extended(ext));
