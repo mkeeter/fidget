@@ -615,6 +615,15 @@ impl<'a> InterpreterBuilder<'a> {
             self.allocations.insert(n, reg);
             self.registers.insert(reg, n);
             self.active.insert((self.t.last_use[n], n));
+
+            // Sanity checking
+            assert_eq!(self.registers.len(), self.allocations.len());
+            assert_eq!(
+                self.register_count,
+                self.allocations.len()
+                    + self.spare_short_registers.len()
+                    + self.spare_extended_registers.len()
+            );
         }
     }
 }
