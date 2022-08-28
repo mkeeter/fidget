@@ -344,7 +344,9 @@ impl<'a> InterpreterBuilder<'a> {
                 .erase_right(&Register::Short(target))
                 .unwrap();
             self.build_swap_ext(target, ext);
-            self.allocations.erase_right(&Register::Extended(ext));
+            self.allocations
+                .erase_right(&Register::Extended(ext))
+                .unwrap();
             let b = self.allocations.insert(node, Register::Extended(ext));
             assert!(b);
             target
