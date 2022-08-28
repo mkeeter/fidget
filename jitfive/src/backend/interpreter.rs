@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     compiler::{Compiler, GroupIndex, NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+    queue::PriorityQueue,
 };
 
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -52,6 +53,28 @@ pub enum ClauseOp {
 }
 
 impl ClauseOp {
+    fn name(&self) -> &'static str {
+        match self {
+            ClauseOp::Done => "DONE",
+            ClauseOp::Load => "LOAD",
+            ClauseOp::Store => "STORE",
+            ClauseOp::Input => "INPUT",
+            ClauseOp::CopyReg | ClauseOp::CopyImm => "COPY",
+            ClauseOp::NegReg => "NEG",
+            ClauseOp::AbsReg => "ABS",
+            ClauseOp::RecipReg => "RECIP",
+            ClauseOp::SqrtReg => "SQRT",
+            ClauseOp::SquareReg => "SQUARE",
+
+            ClauseOp::AddRegReg | ClauseOp::AddRegImm => "ADD",
+            ClauseOp::MulRegReg | ClauseOp::MulRegImm => "MUL",
+            ClauseOp::SubRegReg | ClauseOp::SubImmReg | ClauseOp::SubRegImm => {
+                "SUB"
+            }
+            ClauseOp::MinRegReg | ClauseOp::MinRegImm => "MIN",
+            ClauseOp::MaxRegReg | ClauseOp::MaxRegImm => "MAX",
+        }
+    }
     fn as_reg_imm(&self) -> Self {
         match self {
             ClauseOp::AddRegReg => ClauseOp::AddRegImm,
@@ -165,9 +188,19 @@ pub struct Interpreter {
     registers: Vec<f32>,
 }
 
-/// Type-safe container for an allocated register
-#[derive(Copy, Clone, Debug)]
-struct Register(u32);
+/// Type-safe container for an allocated (short) register
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+struct ShortRegister(u8);
+
+/// Type-safe container for an allocated (extended) register
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+struct ExtendedRegister(u16);
+
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+enum Register {
+    Short(ShortRegister),
+    Extended(ExtendedRegister),
+}
 
 /// Helper `struct` to hold spare state when building an `Interpreter`
 struct InterpreterBuilder<'a> {
@@ -178,17 +211,33 @@ struct InterpreterBuilder<'a> {
 
     /// Total number of registers
     ///
-    /// This should always equal the sum of `spare_registers` and `allocations`
-    register_count: u32,
+    /// This should always equal the sum of `spare_short_registers`,
+    /// `spare_extended_register`, and `allocations`
+    register_count: usize,
 
-    /// Available registers, with the most recently available at the back
-    spare_registers: Vec<Register>,
+    /// Available short registers (index < 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_short_registers: Vec<ShortRegister>,
+
+    /// Available extended registers (index >= 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_extended_registers: Vec<ExtendedRegister>,
 
     /// Active nodes, sorted by position in the input data
     active: BTreeSet<(usize, NodeIndex)>,
 
+    /// Priority queue of recently used short registers
+    ///
+    /// `pop()` will return the _oldest_ short register
+    short_register_lru: PriorityQueue<usize, ShortRegister>,
+
     /// Mapping from active nodes to available registers
     allocations: BTreeMap<NodeIndex, Register>,
+
+    /// Mapping from allocated registers to active nodes
+    registers: BTreeMap<Register, NodeIndex>,
 
     /// Constants declared in the compiled program
     constants: BTreeMap<NodeIndex, f32>,
@@ -201,7 +250,7 @@ struct InterpreterBuilder<'a> {
 }
 
 enum Allocation {
-    Register(Register),
+    Register(ShortRegister),
     Immediate(f32),
 }
 
@@ -211,133 +260,219 @@ impl<'a> InterpreterBuilder<'a> {
             t,
             out: vec![],
             register_count: 0,
-            spare_registers: vec![],
+            short_register_lru: PriorityQueue::new(),
+            spare_short_registers: vec![],
+            spare_extended_registers: vec![],
             active: BTreeSet::new(),
             allocations: BTreeMap::new(),
+            registers: BTreeMap::new(),
             constants: BTreeMap::new(),
             i: 0,
             was_64: false,
         }
     }
 
-    /// Claims a register for the given node
+    /// Claims an extended register for the given node
     ///
-    /// The `NodeIndex -> Register` association is saved in `self.allocations`,
-    /// and the node is marked as active in `self.active`
-    fn claim_short_register(&mut self, n: NodeIndex) -> Register {
-        let out = if let Some(r) = self.spare_registers.pop() {
+    /// The `NodeIndex -> Register` association is updated in `self.allocations`
+    fn get_extended_register(&mut self) -> ExtendedRegister {
+        if let Some(r) = self.spare_extended_registers.pop() {
             r
         } else {
-            let r = Register(self.register_count);
+            let r = ExtendedRegister(self.register_count.try_into().unwrap());
             self.register_count += 1;
             r
-        };
-        self.allocations.insert(n, out);
+        }
+    }
 
-        // This node is now active!
-        self.active.insert((self.t.last_use[n], n));
+    /// Claims a short register
+    ///
+    /// This may require evicting a short register
+    fn get_short_register(&mut self) -> ShortRegister {
+        let out = if let Some(r) = self.spare_short_registers.pop() {
+            r
+        } else if self.register_count <= u8::MAX as usize {
+            let r = ShortRegister(self.register_count as u8);
+            self.register_count += 1;
+            r
+        } else {
+            // Evict a short register
+            let target = self.short_register_lru.pop().unwrap();
+            let node = self.registers.remove(&Register::Short(target)).unwrap();
+            let ext = self.get_extended_register();
+            self.build_store_ext(target, ext);
+            self.registers.insert(Register::Extended(ext), node);
+            self.allocations
+                .entry(node)
+                .and_modify(|v| *v = Register::Extended(ext));
+            target
+        };
 
         out
     }
 
-    fn push_op_short(
+    fn build_op_32(
         &mut self,
         op: ClauseOp,
-        lhs: Register,
-        rhs: Register,
-        out: Register,
+        lhs: ShortRegister,
+        rhs: ShortRegister,
+        out: ShortRegister,
     ) {
         let flag = if self.was_64 { 1 << 31 } else { 0 };
         self.was_64 = false;
 
-        let op = op.to_u8().unwrap() as u32;
+        let op = op.to_u32().unwrap();
         assert!(op < 64);
-        assert!(lhs.0 < 256);
-        assert!(rhs.0 < 256);
-        assert!(out.0 < 256);
-        self.out
-            .push(flag | (op << 24) | (lhs.0 << 16) | (rhs.0 << 8) | out.0);
+        self.out.push(
+            flag | (op << 24)
+                | ((lhs.0 as u32) << 16)
+                | ((rhs.0 as u32) << 8)
+                | (out.0 as u32),
+        );
     }
 
-    fn push_op_long(
+    fn build_op_64(
         &mut self,
         op: ClauseOp,
-        arg: Register,
+        arg: ShortRegister,
         imm: f32,
-        out: Register,
+        out: ShortRegister,
     ) {
         let flag = if self.was_64 { 1 << 31 } else { 0 };
         self.was_64 = true;
 
-        let op = op.to_u8().unwrap() as u32;
+        let op = op.to_u32().unwrap();
         assert!(op < 16384);
-        assert!(arg.0 < 256);
-        assert!(out.0 < 256);
-        self.out
-            .push(flag | (1 << 30) | (op << 16) | (arg.0 << 8) | (out.0));
+        self.out.push(
+            flag | (1 << 30)
+                | (op << 16)
+                | ((arg.0 as u32) << 8)
+                | (out.0 as u32),
+        );
         self.out.push(imm.to_bits());
     }
 
-    fn push_op_reg_reg(
+    fn build_op_reg_reg(
         &mut self,
         op: ClauseOp,
-        lhs: Register,
-        rhs: Register,
-        out: Register,
+        lhs: ShortRegister,
+        rhs: ShortRegister,
+        out: ShortRegister,
     ) {
-        self.push_op_short(op, lhs, rhs, out)
+        self.build_op_32(op, lhs, rhs, out)
     }
 
-    fn push_op_reg(&mut self, op: ClauseOp, lhs: Register, out: Register) {
-        self.push_op_short(op, lhs, Register(0), out)
-    }
-
-    fn push_op_reg_imm(
+    fn build_op_reg(
         &mut self,
         op: ClauseOp,
-        lhs: Register,
+        lhs: ShortRegister,
+        out: ShortRegister,
+    ) {
+        self.build_op_32(op, lhs, ShortRegister(0), out)
+    }
+
+    fn build_op_reg_imm(
+        &mut self,
+        op: ClauseOp,
+        lhs: ShortRegister,
         rhs: f32,
-        out: Register,
+        out: ShortRegister,
     ) {
         let op = op.as_reg_imm();
-        self.push_op_long(op, lhs, rhs, out);
+        self.build_op_64(op, lhs, rhs, out);
     }
 
-    fn push_op_imm_reg(
+    fn build_op_imm_reg(
         &mut self,
         op: ClauseOp,
         lhs: f32,
-        rhs: Register,
-        out: Register,
+        rhs: ShortRegister,
+        out: ShortRegister,
     ) {
         let op = op.as_imm_reg();
-        self.push_op_long(op, rhs, lhs, out);
+        self.build_op_64(op, rhs, lhs, out);
     }
 
-    fn push_op(
+    fn build_op(
         &mut self,
         op: ClauseOp,
         lhs: Allocation,
         rhs: Allocation,
-        out: Register,
+        out: ShortRegister,
     ) {
         match (lhs, rhs) {
             (Allocation::Register(lhs), Allocation::Register(rhs)) => {
-                self.push_op_reg_reg(op, lhs, rhs, out)
+                self.build_op_reg_reg(op, lhs, rhs, out)
             }
             (Allocation::Register(lhs), Allocation::Immediate(rhs)) => {
-                self.push_op_reg_imm(op, lhs, rhs, out)
+                self.build_op_reg_imm(op, lhs, rhs, out)
             }
             (Allocation::Immediate(lhs), Allocation::Register(rhs)) => {
-                self.push_op_imm_reg(op, lhs, rhs, out)
+                self.build_op_imm_reg(op, lhs, rhs, out)
             }
             _ => panic!(),
         }
     }
 
-    fn get_allocated_value(&self, node: NodeIndex) -> Allocation {
-        if let Some(r) = self.allocations.get(&node) {
-            Allocation::Register(*r)
+    fn build_load_store_32(
+        &mut self,
+        op: ClauseOp,
+        short: ShortRegister,
+        ext: ExtendedRegister,
+    ) {
+        let flag = if self.was_64 { 1 << 31 } else { 0 };
+        self.was_64 = false;
+        let op = op.to_u32().unwrap();
+        self.out
+            .push(flag | (op << 24) | ((ext.0 as u32) << 8) | (short.0 as u32));
+    }
+    fn build_load_ext(&mut self, src: ExtendedRegister, dst: ShortRegister) {
+        self.build_load_store_32(ClauseOp::Load, dst, src);
+    }
+
+    fn build_store_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
+        self.build_load_store_32(ClauseOp::Store, src, dst);
+    }
+
+    /// Releases the given register
+    ///
+    /// Erasing the register from `self.registers` and adds it to
+    /// `self.spare_short/long_registers`.
+    ///
+    /// Note that the caller should handle `self.allocations`
+    fn release_reg(&mut self, reg: Register) {
+        self.registers.remove(&reg).unwrap();
+        match reg {
+            Register::Short(r) => {
+                self.short_register_lru.remove(r).unwrap();
+                self.spare_short_registers.push(r);
+            }
+            Register::Extended(r) => self.spare_extended_registers.push(r),
+        }
+    }
+
+    /// Returns a short register or immediate for the given node.
+    ///
+    /// If the given node isn't already allocated to a short register, then we
+    /// evict the oldest short register.
+    fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
+        if let Some(r) = self.allocations.get(&node).cloned() {
+            let r = match r {
+                Register::Short(r) => r,
+                Register::Extended(ext) => {
+                    self.release_reg(Register::Extended(ext));
+                    let out = self.get_short_register();
+                    self.build_load_ext(ext, out);
+
+                    // Modify the allocations and bindings
+                    let reg = Register::Short(out);
+                    self.registers.insert(reg, node);
+                    self.allocations.insert(node, reg);
+
+                    out
+                }
+            };
+            Allocation::Register(r)
         } else {
             let c = self.constants.get(&node).unwrap();
             Allocation::Immediate(*c)
@@ -358,9 +493,13 @@ impl<'a> InterpreterBuilder<'a> {
             self.active.remove(&(index, node));
 
             // This node's register is now available!
-            self.spare_registers
-                .push(self.allocations.remove(&node).unwrap());
+            let r = self.allocations.remove(&node).unwrap();
+            self.release_reg(r);
         }
+    }
+
+    fn update_lru(&mut self, r: ShortRegister) {
+        self.short_register_lru.insert_or_update(r, self.i);
     }
 
     fn recurse(&mut self, g: GroupIndex) {
@@ -369,7 +508,7 @@ impl<'a> InterpreterBuilder<'a> {
             self.recurse(c);
         }
         for &n in &group.nodes {
-            match self.t.ops[n] {
+            let out = match self.t.ops[n] {
                 Op::Var(v) => {
                     let index =
                         match self.t.vars.get_by_index(v).unwrap().as_str() {
@@ -378,36 +517,70 @@ impl<'a> InterpreterBuilder<'a> {
                             _ => panic!(),
                         };
                     self.drop_inactive_allocations();
-                    let out = self.claim_short_register(n);
+                    let out = self.get_short_register();
                     // Slight misuse of the 32-bit unary form, but that's okay
-                    self.push_op_reg(ClauseOp::Input, Register(index), out);
+                    self.build_op_reg(
+                        ClauseOp::Input,
+                        ShortRegister(index),
+                        out,
+                    );
+                    out
                 }
                 Op::Const(c) => {
                     self.drop_inactive_allocations();
                     self.constants.insert(n, c as f32);
+                    continue; // Skip the post-match logic!
                 }
                 Op::Binary(op, lhs, rhs) => {
                     let lhs = self.get_allocated_value(lhs);
+                    if let Allocation::Register(r) = lhs {
+                        self.update_lru(r);
+                    }
                     let rhs = self.get_allocated_value(rhs);
+                    if let Allocation::Register(r) = rhs {
+                        self.update_lru(r);
+                    }
                     self.drop_inactive_allocations();
-                    let out = self.claim_short_register(n);
-                    self.push_op(op.into(), lhs, rhs, out)
+                    let out = self.get_short_register();
+                    self.update_lru(out);
+                    self.build_op(op.into(), lhs, rhs, out);
+                    out
                 }
                 Op::BinaryChoice(op, lhs, rhs, _c) => {
                     let lhs = self.get_allocated_value(lhs);
+                    if let Allocation::Register(r) = lhs {
+                        self.update_lru(r);
+                    }
                     let rhs = self.get_allocated_value(rhs);
+                    if let Allocation::Register(r) = rhs {
+                        self.update_lru(r);
+                    }
                     self.drop_inactive_allocations();
-                    let out = self.claim_short_register(n);
-                    self.push_op(op.into(), lhs, rhs, out)
+                    let out = self.get_short_register();
+                    self.update_lru(out);
+                    self.build_op(op.into(), lhs, rhs, out);
+                    out
                 }
                 Op::Unary(op, lhs) => {
                     // Unary opcodes are only stored in short form
-                    let lhs = *self.allocations.get(&lhs).unwrap();
+                    let lhs = match self.get_allocated_value(lhs) {
+                        Allocation::Register(r) => r,
+                        Allocation::Immediate(_i) => panic!(
+                            "Unary operation on immediate should be collapsed"
+                        ),
+                    };
+                    self.update_lru(lhs);
                     self.drop_inactive_allocations();
-                    let out = self.claim_short_register(n);
-                    self.push_op_reg(op.into(), lhs, out)
+                    let out = self.get_short_register();
+                    self.update_lru(out);
+                    self.build_op_reg(op.into(), lhs, out);
+                    out
                 }
-            }
+            };
+            let reg = Register::Short(out);
+            self.allocations.insert(n, reg);
+            self.registers.insert(reg, n);
+            self.active.insert((self.t.last_use[n], n));
         }
     }
 }
@@ -417,14 +590,14 @@ impl Interpreter {
         let mut builder = InterpreterBuilder::new(t);
         builder.recurse(t.op_group[t.root]);
         match builder.get_allocated_value(t.root) {
-            Allocation::Immediate(f) => builder.push_op_long(
+            Allocation::Immediate(f) => builder.build_op_64(
                 ClauseOp::CopyImm,
-                Register(0),
+                ShortRegister(0),
                 f,
-                Register(0),
+                ShortRegister(0),
             ),
             Allocation::Register(r) => {
-                builder.push_op_reg(ClauseOp::CopyReg, r, Register(0))
+                builder.build_op_reg(ClauseOp::CopyReg, r, ShortRegister(0))
             }
         }
 
@@ -441,10 +614,54 @@ impl Interpreter {
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp::from_u32(op).unwrap();
-                let lhs_reg = (v >> 16) & 0xFF;
-                let rhs_reg = (v >> 8) & 0xFF;
-                let out_reg = v & 0xFF;
-                println!("${} = {:?} ${} ${}", out_reg, op, lhs_reg, rhs_reg);
+                match op {
+                    ClauseOp::Load | ClauseOp::Store => {
+                        let short = v & 0xFF;
+                        let ext = (v >> 8) & 0xFFFF;
+                        match op {
+                            ClauseOp::Load => {
+                                println!("${} = LOAD ${}", short, ext)
+                            }
+                            ClauseOp::Store => {
+                                println!("${} = STORE ${}", ext, short)
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!("${} = INPUT %{}", out_reg, lhs_reg);
+                    }
+                    ClauseOp::CopyReg
+                    | ClauseOp::Done
+                    | ClauseOp::NegReg
+                    | ClauseOp::AbsReg
+                    | ClauseOp::RecipReg
+                    | ClauseOp::SqrtReg
+                    | ClauseOp::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!("${} = {} ${}", out_reg, op.name(), lhs_reg);
+                    }
+                    ClauseOp::MaxRegReg
+                    | ClauseOp::MinRegReg
+                    | ClauseOp::SubRegReg
+                    | ClauseOp::AddRegReg
+                    | ClauseOp::MulRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!(
+                            "${} = {} ${} ${}",
+                            out_reg,
+                            op.name(),
+                            lhs_reg,
+                            rhs_reg
+                        );
+                    }
+                    _ => panic!("Unknown 32-bit opcode"),
+                }
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
                 let op = ClauseOp::from_u32(op).unwrap();
@@ -452,7 +669,31 @@ impl Interpreter {
                 let imm = f32::from_bits(*next);
                 let arg_reg = (v >> 8) & 0xFF;
                 let out_reg = v & 0xFF;
-                println!("${} = {:?} ${} {}", out_reg, op, arg_reg, imm);
+                match op {
+                    ClauseOp::MinRegImm
+                    | ClauseOp::MaxRegImm
+                    | ClauseOp::AddRegImm
+                    | ClauseOp::MulRegImm
+                    | ClauseOp::SubRegImm => {
+                        println!(
+                            "${} = {} ${} {}",
+                            out_reg,
+                            op.name(),
+                            arg_reg,
+                            imm
+                        );
+                    }
+                    ClauseOp::SubImmReg => {
+                        println!(
+                            "${} = {} {} ${}",
+                            out_reg,
+                            op.name(),
+                            imm,
+                            arg_reg,
+                        );
+                    }
+                    _ => panic!("Unknown 64-bit opcode"),
+                }
             }
         }
     }
