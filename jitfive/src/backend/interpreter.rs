@@ -460,8 +460,8 @@ impl<'a> InterpreterBuilder<'a> {
             let r = match r {
                 Register::Short(r) => r,
                 Register::Extended(ext) => {
-                    self.release_reg(Register::Extended(ext));
                     let out = self.get_short_register();
+                    self.release_reg(Register::Extended(ext));
                     self.build_load_ext(ext, out);
 
                     // Modify the allocations and bindings
@@ -696,6 +696,11 @@ impl Interpreter {
                 }
             }
         }
+        println!(
+            "{} registers, {} instructions",
+            self.registers.len(),
+            self.tape.len()
+        );
     }
 
     pub fn run(&mut self, x: f32, y: f32) -> f32 {
