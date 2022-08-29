@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     bimap::Bimap,
-    compiler::{Compiler, GroupIndex, NodeIndex, Op},
+    compiler::{NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     queue::PriorityQueue,
+    scheduled::Scheduled,
 };
 
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -220,7 +221,7 @@ enum Register {
 
 /// Helper `struct` to hold spare state when building an `Interpreter`
 struct InterpreterBuilder<'a> {
-    t: &'a Compiler,
+    t: &'a Scheduled,
 
     /// Output tape, in progress
     out: Vec<u32>,
@@ -268,7 +269,7 @@ enum Allocation {
 }
 
 impl<'a> InterpreterBuilder<'a> {
-    fn new(t: &'a Compiler) -> Self {
+    fn new(t: &'a Scheduled) -> Self {
         Self {
             t,
             out: vec![],
@@ -546,13 +547,9 @@ impl<'a> InterpreterBuilder<'a> {
         self.short_register_lru.insert_or_update(r, self.i);
     }
 
-    fn recurse(&mut self, g: GroupIndex) {
-        let group = &self.t.groups[g];
-        for &c in &group.children {
-            self.recurse(c);
-        }
-        for &n in &group.nodes {
-            let out = match self.t.ops[n] {
+    fn run(&mut self) {
+        for &(n, op) in &self.t.tape {
+            let out = match op {
                 Op::Var(v) => {
                     let index =
                         match self.t.vars.get_by_index(v).unwrap().as_str() {
@@ -638,9 +635,9 @@ impl<'a> InterpreterBuilder<'a> {
 }
 
 impl Interpreter {
-    pub fn new(t: &Compiler) -> Self {
+    pub fn new(t: &Scheduled) -> Self {
         let mut builder = InterpreterBuilder::new(t);
-        builder.recurse(t.op_group[t.root]);
+        builder.run();
         match builder.get_allocated_value(t.root) {
             Allocation::Immediate(f) => builder.build_op_64(
                 ClauseOp64::CopyImm,
@@ -865,6 +862,7 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::Compiler;
 
     #[test]
     fn basic_interpreter() {
@@ -875,13 +873,15 @@ mod tests {
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let compiled = Compiler::new(&ctx, min);
-        let mut interp = Interpreter::new(&compiled);
+        let scheduled = Scheduled::new_from_compiler(&compiled);
+        let mut interp = Interpreter::new(&scheduled);
         assert_eq!(interp.run(1.0, 2.0), 2.0);
         assert_eq!(interp.run(1.0, 3.0), 2.0);
         assert_eq!(interp.run(3.0, 3.5), 3.5);
 
         let compiled = Compiler::new(&ctx, one);
-        let mut interp = Interpreter::new(&compiled);
+        let scheduled = Scheduled::new_from_compiler(&compiled);
+        let mut interp = Interpreter::new(&scheduled);
         assert_eq!(interp.run(1.0, 2.0), 1.0);
         assert_eq!(interp.run(2.0, 3.0), 1.0);
     }

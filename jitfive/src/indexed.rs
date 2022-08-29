@@ -54,6 +54,12 @@ where
             out
         })
     }
+
+    /// Looks up an index by value, panicking if not available
+    pub fn get_by_value(&self, v: Value) -> Option<Index> {
+        self.map.get(&v).cloned()
+    }
+
     /// Removes the last value stored in the container.
     ///
     /// This is _usually_ the most recently inserted value, except when

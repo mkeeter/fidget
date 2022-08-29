@@ -106,10 +106,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     */
     if let Some(img) = args.image {
-        let now = Instant::now();
+        let mut now = None;
         let buffer: Vec<u8> = if args.jit {
             let jit_ctx = JitContext::new();
             let jit_fn = to_jit_fn(&compiler, &jit_ctx)?;
+            now = Some(Instant::now());
             if args.brute {
                 let choices = vec![u32::MAX; (compiler.num_choices + 15) / 16];
                 let scale = args.size;
@@ -151,9 +152,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if args.interpreter {
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
+            /*
+            let scheduled =
+                jitfive::scheduled::Scheduled::new_from_compiler(&compiler);
+            */
+            let scheduled = jitfive::scheduler::schedule(&ctx, root);
             let mut interpreter =
-                jitfive::backend::interpreter::Interpreter::new(&compiler);
+                jitfive::backend::interpreter::Interpreter::new(&scheduled);
             interpreter.pretty_print_tape();
+
+            now = Some(Instant::now());
             let div = (scale - 1) as f64;
             for i in 0..scale {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
@@ -170,6 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .flat_map(|i| i.into_iter())
                 .collect()
         } else {
+            now = Some(Instant::now());
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
             let div = (scale - 1) as f64;
@@ -188,7 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .flat_map(|i| i.into_iter())
                 .collect()
         };
-        info!("Finished rendering in {:?}", now.elapsed());
+        info!("Finished rendering in {:?}", now.unwrap().elapsed());
 
         image::save_buffer(
             img,

@@ -290,4 +290,21 @@ impl Compiler {
         out += "}\n";
         out
     }
+
+    pub fn flatten(&self) -> Vec<NodeIndex> {
+        let mut out = vec![];
+        let root_group_index = self.op_group[self.root];
+        self.flatten_recurse(root_group_index, &mut out);
+        out
+    }
+
+    fn flatten_recurse(&self, g: GroupIndex, out: &mut Vec<NodeIndex>) {
+        let group = &self.groups[g];
+        for &c in &group.children {
+            self.flatten_recurse(c, out);
+        }
+        for &n in &group.nodes {
+            out.push(n);
+        }
+    }
 }
