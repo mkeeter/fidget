@@ -56,10 +56,9 @@ impl<'a> Scheduler<'a> {
         }
     }
     fn run_simple(&mut self, root: Node) {
+        // Accumulate all parents
         let mut todo = vec![root];
         let mut seen = BTreeSet::new();
-
-        // Build the graph, converting from `Node` to `NodeIndex`
         while let Some(node) = todo.pop() {
             if !seen.insert(node) {
                 continue;
@@ -68,8 +67,31 @@ impl<'a> Scheduler<'a> {
             let op = self.ctx.get_op(node).unwrap();
             for child in op.iter_children() {
                 let child_index = self.nodes.insert(child);
+                self.parents.entry(child_index).or_default().insert(index);
                 todo.push(child);
             }
+        }
+
+        // Flatten the graph
+        let mut todo = vec![self.nodes.get_by_value(root).unwrap()];
+        while let Some(index) = todo.pop() {
+            if self.parents.get(&index).map(|b| b.len()).unwrap_or(0) > 0
+                || !self.scheduled.insert(index)
+            {
+                continue;
+            }
+
+            let node = *self.nodes.get_by_index(index).unwrap();
+            let op = self.ctx.get_op(node).unwrap();
+            println!("{:?}", op);
+            for child in op.iter_children() {
+                let child_index = self.nodes.get_by_value(child).unwrap();
+                todo.push(child_index);
+                let r =
+                    self.parents.get_mut(&child_index).unwrap().remove(&index);
+                assert!(r);
+            }
+
             use crate::context::Op as CtxOp;
             let out = match op {
                 CtxOp::Unary(op, lhs) => {
