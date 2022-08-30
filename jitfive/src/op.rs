@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::indexed::IndexMap;
+use crate::util::indexed::IndexMap;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {

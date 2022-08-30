@@ -1,4 +1,6 @@
-use crate::{compiler::Compiler, compiler::GroupIndex, indexed::IndexVec};
+use crate::{
+    compiler::Compiler, compiler::GroupIndex, util::indexed::IndexVec,
+};
 
 fn recurse(
     out: &Compiler,

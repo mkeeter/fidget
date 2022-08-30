@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
-    indexed::{define_index, IndexMap, IndexVec},
     op::{BinaryChoiceOpcode, BinaryOpcode, GenericOp, UnaryOpcode},
+    util::indexed::{define_index, IndexMap, IndexVec},
 };
 
 use std::collections::BTreeMap;

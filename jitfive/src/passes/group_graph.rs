@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     compiler::{Compiler, GroupIndex},
-    indexed::IndexVec,
+    util::indexed::IndexVec,
 };
 
 pub(crate) fn run(out: &mut Compiler) {

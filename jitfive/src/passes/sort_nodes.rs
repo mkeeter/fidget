@@ -1,7 +1,7 @@
 use crate::{
     compiler::GroupIndex,
     compiler::{Compiler, NodeIndex},
-    indexed::IndexVec,
+    util::indexed::IndexVec,
 };
 
 /// Populates `out[node]` with the leaf rank of the given node within its group.

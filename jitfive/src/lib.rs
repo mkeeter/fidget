@@ -1,17 +1,13 @@
 pub mod backend;
-pub mod bimap;
 pub mod compiler;
 pub mod context;
 pub mod error;
 pub mod eval;
-pub mod indexed;
 pub mod op;
 pub mod passes;
-pub mod queue;
 pub mod render;
 pub mod scheduled;
-
-//pub mod metal;
+pub mod util;
 
 #[cfg(test)]
 mod tests {

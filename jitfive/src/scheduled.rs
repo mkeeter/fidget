@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     compiler::{ChoiceIndex, Compiler, NodeIndex, Op, VarIndex},
     context::{Context, Node},
-    indexed::{IndexMap, IndexVec},
+    util::indexed::{IndexMap, IndexVec},
 };
 
 /// Represents a set of instructions that have been scheduled (somehow)

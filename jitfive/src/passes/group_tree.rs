@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::{compiler::Compiler, compiler::GroupIndex, indexed::IndexVec};
+use crate::{
+    compiler::Compiler, compiler::GroupIndex, util::indexed::IndexVec,
+};
 
 fn populate_common_ancestors(
     t: &Compiler,

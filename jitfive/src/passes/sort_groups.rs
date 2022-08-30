@@ -1,4 +1,6 @@
-use crate::{compiler::Compiler, compiler::GroupIndex, indexed::IndexVec};
+use crate::{
+    compiler::Compiler, compiler::GroupIndex, util::indexed::IndexVec,
+};
 
 pub(crate) fn run(out: &mut Compiler) {
     let group_ranks = populate_group_ranks(out);

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     compiler::{Compiler, Group, GroupIndex, NodeIndex, Op, Source},
-    indexed::IndexVec,
+    util::indexed::IndexVec,
 };
 
 /// Recursively collects per-node sources into the `node_sources` array

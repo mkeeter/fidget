@@ -2,8 +2,8 @@ use std::fmt::Write;
 
 use crate::{
     context::{Context, Node},
-    indexed::{define_index, IndexMap, IndexVec},
     op::GenericOp,
+    util::indexed::{define_index, IndexMap, IndexVec},
 };
 
 define_index!(

@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    bimap::Bimap,
     compiler::{NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
-    queue::PriorityQueue,
     scheduled::Scheduled,
+    util::{bimap::Bimap, queue::PriorityQueue},
 };
 
 use num_derive::{FromPrimitive, ToPrimitive};
