@@ -117,7 +117,6 @@ pub fn schedule(ctx: &Context, root: Node) -> Scheduled {
 
         let node = *nodes.get_by_index(index).unwrap();
         let op = ctx.get_op(node).unwrap();
-        println!("{:?}", op);
         for child in op.iter_children() {
             let child_index = nodes.get_by_value(child).unwrap();
             todo.push(child_index);

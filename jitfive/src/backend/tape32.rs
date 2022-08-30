@@ -198,15 +198,26 @@ impl ClauseOp64 {
 /// TBD
 #[derive(Debug)]
 pub struct Tape {
-    tape: Vec<u32>,
-    num_registers: usize,
+    pub tape: Vec<u32>,
+    pub num_registers: usize,
+    pub fast_reg_limit: usize,
 }
 
 impl Tape {
+    /// Build a new tape from a pre-scheduled set of instructions
     pub fn new(t: &Scheduled) -> Self {
-        let mut builder = TapeBuilder::new(t);
+        Self::from_builder(TapeBuilder::new(t))
+    }
+
+    /// Build a new tape from a pre-scheduled set of instructions, with a
+    /// limited number of fast registers (instead of 256).
+    pub fn new_with_reg_limit(t: &Scheduled, reg_limit: usize) -> Self {
+        Self::from_builder(TapeBuilder::new_with_reg_limit(t, reg_limit))
+    }
+
+    fn from_builder(mut builder: TapeBuilder) -> Self {
         builder.run();
-        match builder.get_allocated_value(t.root) {
+        match builder.get_allocated_value(builder.t.root) {
             Allocation::Immediate(f) => builder.build_op_64(
                 ClauseOp64::CopyImm,
                 ShortRegister(0),
@@ -221,6 +232,7 @@ impl Tape {
         Self {
             tape: builder.out,
             num_registers: builder.register_count as usize,
+            fast_reg_limit: builder.max_fast_reg,
         }
     }
 
@@ -229,8 +241,8 @@ impl Tape {
     }
 
     pub fn eval(&self, x: f32, y: f32, workspace: &mut [f32]) -> f32 {
-        let mut iter = self.tape.iter().enumerate();
-        while let Some((_i, v)) = iter.next() {
+        let mut iter = self.tape.iter();
+        while let Some(v) = iter.next() {
             // 32-bit instruction
             if v & (1 << 30) == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
@@ -310,7 +322,7 @@ impl Tape {
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
                 let op = ClauseOp64::from_u32(op).unwrap();
-                let (_j, next) = iter.next().unwrap();
+                let next = iter.next().unwrap();
                 let arg_reg = (v >> 8) & 0xFF;
                 let out_reg = v & 0xFF;
                 let arg = workspace[arg_reg as usize];
@@ -487,6 +499,13 @@ struct TapeBuilder<'a> {
 
     /// Marks that the previous clause was 64-bit
     was_64: bool,
+
+    /// The highest index of a fast register
+    ///
+    /// When used by the interpreter, this is 255 (since fast registers are
+    /// packed into 8 bits); however, it can be reduced if we're compiling down
+    /// to assembly.
+    max_fast_reg: usize,
 }
 
 enum Allocation {
@@ -496,6 +515,10 @@ enum Allocation {
 
 impl<'a> TapeBuilder<'a> {
     fn new(t: &'a Scheduled) -> Self {
+        Self::new_with_reg_limit(t, u8::MAX as usize)
+    }
+
+    fn new_with_reg_limit(t: &'a Scheduled, reg_limit: usize) -> Self {
         Self {
             t,
             out: vec![],
@@ -508,6 +531,7 @@ impl<'a> TapeBuilder<'a> {
             constants: BTreeMap::new(),
             i: 0,
             was_64: false,
+            max_fast_reg: reg_limit,
         }
     }
 
@@ -528,7 +552,7 @@ impl<'a> TapeBuilder<'a> {
     fn get_short_register(&mut self) -> ShortRegister {
         if let Some(r) = self.spare_short_registers.pop() {
             r
-        } else if self.register_count <= u8::MAX as usize {
+        } else if self.register_count <= self.max_fast_reg {
             let r = ShortRegister(self.register_count as u8);
             self.register_count += 1;
             r
@@ -557,7 +581,7 @@ impl<'a> TapeBuilder<'a> {
             self.build_load_ext(ext, r);
             self.release_reg(Register::Extended(ext));
             r
-        } else if self.register_count <= u8::MAX as usize {
+        } else if self.register_count <= self.max_fast_reg {
             let r = ShortRegister(self.register_count as u8);
             self.register_count += 1;
             self.build_load_ext(ext, r);
