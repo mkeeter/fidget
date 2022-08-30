@@ -157,9 +157,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 jitfive::scheduled::Scheduled::new_from_compiler(&compiler);
             */
             let scheduled = jitfive::scheduled::schedule(&ctx, root);
-            let mut interpreter =
-                jitfive::backend::interpreter::Interpreter::new(&scheduled);
-            interpreter.pretty_print_tape();
+            let tape = jitfive::backend::tape32::Tape::new(&scheduled);
+            tape.pretty_print_tape();
+            let mut workspace = tape.workspace();
 
             now = Some(Instant::now());
             let div = (scale - 1) as f64;
@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
                 for j in 0..scale {
                     let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = interpreter.run(x as f32, y as f32);
+                    let v = tape.eval(x as f32, y as f32, &mut workspace);
                     out.push(v <= 0.0);
                 }
             }

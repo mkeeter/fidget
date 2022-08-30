@@ -42,34 +42,6 @@ pub enum ClauseOp32 {
     MaxRegReg,
 }
 
-#[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
-pub enum ClauseOp64 {
-    /// Add a register and an immediate
-    AddRegImm,
-    /// Multiply a register and an immediate
-    MulRegImm,
-    /// Subtract a register from an immediate
-    SubImmReg,
-    SubRegImm,
-    MinRegImm,
-    MaxRegImm,
-
-    CopyImm,
-}
-
-impl ClauseOp64 {
-    fn name(&self) -> &'static str {
-        match self {
-            ClauseOp64::CopyImm => "COPY",
-            ClauseOp64::AddRegImm => "ADD",
-            ClauseOp64::MulRegImm => "MUL",
-            ClauseOp64::SubImmReg | ClauseOp64::SubRegImm => "SUB",
-            ClauseOp64::MinRegImm => "MIN",
-            ClauseOp64::MaxRegImm => "MAX",
-        }
-    }
-}
-
 impl ClauseOp32 {
     fn name(&self) -> &'static str {
         match self {
@@ -144,6 +116,34 @@ impl From<UnaryOpcode> for ClauseOp32 {
     }
 }
 
+#[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
+pub enum ClauseOp64 {
+    /// Add a register and an immediate
+    AddRegImm,
+    /// Multiply a register and an immediate
+    MulRegImm,
+    /// Subtract a register from an immediate
+    SubImmReg,
+    SubRegImm,
+    MinRegImm,
+    MaxRegImm,
+
+    CopyImm,
+}
+
+impl ClauseOp64 {
+    fn name(&self) -> &'static str {
+        match self {
+            ClauseOp64::CopyImm => "COPY",
+            ClauseOp64::AddRegImm => "ADD",
+            ClauseOp64::MulRegImm => "MUL",
+            ClauseOp64::SubImmReg | ClauseOp64::SubRegImm => "SUB",
+            ClauseOp64::MinRegImm => "MIN",
+            ClauseOp64::MaxRegImm => "MAX",
+        }
+    }
+}
+
 /// The instruction tape is given as a `Vec<u32>`.
 ///
 /// Decoding depends on the upper bits of a particular `u32`:
@@ -197,12 +197,239 @@ impl From<UnaryOpcode> for ClauseOp32 {
 /// ## Uncommon operation
 /// TBD
 #[derive(Debug)]
-pub struct Interpreter {
+pub struct Tape {
     tape: Vec<u32>,
-
-    /// Working memory for registers.
-    registers: Vec<f32>,
+    num_registers: usize,
 }
+
+impl Tape {
+    pub fn new(t: &Scheduled) -> Self {
+        let mut builder = TapeBuilder::new(t);
+        builder.run();
+        match builder.get_allocated_value(t.root) {
+            Allocation::Immediate(f) => builder.build_op_64(
+                ClauseOp64::CopyImm,
+                ShortRegister(0),
+                f,
+                ShortRegister(0),
+            ),
+            Allocation::Register(r) => {
+                builder.build_op_reg(ClauseOp32::CopyReg, r, ShortRegister(0))
+            }
+        }
+
+        Self {
+            tape: builder.out,
+            num_registers: builder.register_count as usize,
+        }
+    }
+
+    pub fn workspace(&self) -> Vec<f32> {
+        vec![0.0; self.num_registers]
+    }
+
+    pub fn eval(&self, x: f32, y: f32, workspace: &mut [f32]) -> f32 {
+        let mut iter = self.tape.iter().enumerate();
+        while let Some((_i, v)) = iter.next() {
+            // 32-bit instruction
+            if v & (1 << 30) == 0 {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
+                        let fast_reg = (v & 0xFF) as usize;
+                        let extended_reg = ((v >> 8) & 0xFFFF) as usize;
+                        match op {
+                            ClauseOp32::Load => {
+                                workspace[fast_reg] = workspace[extended_reg]
+                            }
+                            ClauseOp32::Store => {
+                                workspace[extended_reg] = workspace[fast_reg]
+                            }
+                            ClauseOp32::Swap => {
+                                workspace.swap(fast_reg, extended_reg);
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp32::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let out = match lhs_reg {
+                            0 => x,
+                            1 => y,
+                            _ => panic!(),
+                        };
+                        workspace[out_reg as usize] = out;
+                    }
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let lhs = workspace[lhs_reg as usize];
+                        let out_reg = v & 0xFF;
+                        workspace[out_reg as usize] = match op {
+                            ClauseOp32::CopyReg => lhs,
+                            ClauseOp32::NegReg => -lhs,
+                            ClauseOp32::AbsReg => lhs.abs(),
+                            ClauseOp32::RecipReg => 1.0 / lhs,
+                            ClauseOp32::SqrtReg => lhs.sqrt(),
+                            ClauseOp32::SquareReg => lhs * lhs,
+                            _ => unreachable!(),
+                        };
+                    }
+
+                    ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::MaxRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let lhs = workspace[lhs_reg as usize];
+                        let rhs = workspace[rhs_reg as usize];
+                        let out = match op {
+                            ClauseOp32::AddRegReg => lhs + rhs,
+                            ClauseOp32::MulRegReg => lhs * rhs,
+                            ClauseOp32::SubRegReg => lhs - rhs,
+                            ClauseOp32::MinRegReg => lhs.min(rhs),
+                            ClauseOp32::MaxRegReg => lhs.max(rhs),
+                            ClauseOp32::Load | ClauseOp32::Store => {
+                                unreachable!()
+                            }
+                            _ => unreachable!(),
+                        };
+                        workspace[out_reg as usize] = out;
+                    }
+                    _ => panic!("Bad 32-bit opcode"),
+                }
+            } else {
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp64::from_u32(op).unwrap();
+                let (_j, next) = iter.next().unwrap();
+                let arg_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                let arg = workspace[arg_reg as usize];
+                let imm = f32::from_bits(*next);
+                let out = match op {
+                    ClauseOp64::AddRegImm => arg + imm,
+                    ClauseOp64::MulRegImm => arg * imm,
+                    ClauseOp64::SubImmReg => imm - arg,
+                    ClauseOp64::SubRegImm => arg - imm,
+                    ClauseOp64::MinRegImm => arg.min(imm),
+                    ClauseOp64::MaxRegImm => arg.max(imm),
+                    ClauseOp64::CopyImm => imm,
+                };
+                workspace[out_reg as usize] = out;
+            }
+        }
+        workspace[0]
+    }
+
+    pub fn pretty_print_tape(&self) {
+        let mut iter = self.tape.iter();
+        while let Some(v) = iter.next() {
+            // 32-bit instruction
+            if v & (1 << 30) == 0 {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
+                        let short = v & 0xFF;
+                        let ext = (v >> 8) & 0xFFFF;
+                        match op {
+                            ClauseOp32::Load => {
+                                println!("${} = LOAD ${}", short, ext)
+                            }
+                            ClauseOp32::Store => {
+                                println!("${} = STORE ${}", ext, short)
+                            }
+                            ClauseOp32::Swap => {
+                                println!("SWAP ${} ${}", short, ext)
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp32::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!("${} = INPUT %{}", out_reg, lhs_reg);
+                    }
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::Done
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!("${} = {} ${}", out_reg, op.name(), lhs_reg);
+                    }
+                    ClauseOp32::MaxRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        println!(
+                            "${} = {} ${} ${}",
+                            out_reg,
+                            op.name(),
+                            lhs_reg,
+                            rhs_reg
+                        );
+                    }
+                }
+            } else {
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp64::from_u32(op).unwrap();
+                let next = iter.next().unwrap();
+                let imm = f32::from_bits(*next);
+                let arg_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                match op {
+                    ClauseOp64::MinRegImm
+                    | ClauseOp64::MaxRegImm
+                    | ClauseOp64::AddRegImm
+                    | ClauseOp64::MulRegImm
+                    | ClauseOp64::SubRegImm => {
+                        println!(
+                            "${} = {} ${} {}",
+                            out_reg,
+                            op.name(),
+                            arg_reg,
+                            imm
+                        );
+                    }
+                    ClauseOp64::SubImmReg => {
+                        println!(
+                            "${} = {} {} ${}",
+                            out_reg,
+                            op.name(),
+                            imm,
+                            arg_reg,
+                        );
+                    }
+                    _ => panic!("Unknown 64-bit opcode"),
+                }
+            }
+        }
+        println!(
+            "{} registers, {} instructions",
+            self.num_registers,
+            self.tape.len()
+        );
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// Type-safe container for an allocated (short) register
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -218,8 +445,8 @@ enum Register {
     Extended(ExtendedRegister),
 }
 
-/// Helper `struct` to hold spare state when building an `Interpreter`
-struct InterpreterBuilder<'a> {
+/// Helper `struct` to hold spare state when building an `Tape`
+struct TapeBuilder<'a> {
     t: &'a Scheduled,
 
     /// Output tape, in progress
@@ -267,7 +494,7 @@ enum Allocation {
     Immediate(f32),
 }
 
-impl<'a> InterpreterBuilder<'a> {
+impl<'a> TapeBuilder<'a> {
     fn new(t: &'a Scheduled) -> Self {
         Self {
             t,
@@ -633,235 +860,11 @@ impl<'a> InterpreterBuilder<'a> {
     }
 }
 
-impl Interpreter {
-    pub fn new(t: &Scheduled) -> Self {
-        let mut builder = InterpreterBuilder::new(t);
-        builder.run();
-        match builder.get_allocated_value(t.root) {
-            Allocation::Immediate(f) => builder.build_op_64(
-                ClauseOp64::CopyImm,
-                ShortRegister(0),
-                f,
-                ShortRegister(0),
-            ),
-            Allocation::Register(r) => {
-                builder.build_op_reg(ClauseOp32::CopyReg, r, ShortRegister(0))
-            }
-        }
-
-        Self {
-            tape: builder.out,
-            registers: vec![0.0; (builder.register_count as usize).max(1)],
-        }
-    }
-
-    pub fn pretty_print_tape(&self) {
-        let mut iter = self.tape.iter();
-        while let Some(v) = iter.next() {
-            // 32-bit instruction
-            if v & (1 << 30) == 0 {
-                let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp32::from_u32(op).unwrap();
-                match op {
-                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                        let short = v & 0xFF;
-                        let ext = (v >> 8) & 0xFFFF;
-                        match op {
-                            ClauseOp32::Load => {
-                                println!("${} = LOAD ${}", short, ext)
-                            }
-                            ClauseOp32::Store => {
-                                println!("${} = STORE ${}", ext, short)
-                            }
-                            ClauseOp32::Swap => {
-                                println!("SWAP ${} ${}", short, ext)
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                    ClauseOp32::Input => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        println!("${} = INPUT %{}", out_reg, lhs_reg);
-                    }
-                    ClauseOp32::CopyReg
-                    | ClauseOp32::Done
-                    | ClauseOp32::NegReg
-                    | ClauseOp32::AbsReg
-                    | ClauseOp32::RecipReg
-                    | ClauseOp32::SqrtReg
-                    | ClauseOp32::SquareReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        println!("${} = {} ${}", out_reg, op.name(), lhs_reg);
-                    }
-                    ClauseOp32::MaxRegReg
-                    | ClauseOp32::MinRegReg
-                    | ClauseOp32::SubRegReg
-                    | ClauseOp32::AddRegReg
-                    | ClauseOp32::MulRegReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let rhs_reg = (v >> 8) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        println!(
-                            "${} = {} ${} ${}",
-                            out_reg,
-                            op.name(),
-                            lhs_reg,
-                            rhs_reg
-                        );
-                    }
-                }
-            } else {
-                let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp64::from_u32(op).unwrap();
-                let next = iter.next().unwrap();
-                let imm = f32::from_bits(*next);
-                let arg_reg = (v >> 8) & 0xFF;
-                let out_reg = v & 0xFF;
-                match op {
-                    ClauseOp64::MinRegImm
-                    | ClauseOp64::MaxRegImm
-                    | ClauseOp64::AddRegImm
-                    | ClauseOp64::MulRegImm
-                    | ClauseOp64::SubRegImm => {
-                        println!(
-                            "${} = {} ${} {}",
-                            out_reg,
-                            op.name(),
-                            arg_reg,
-                            imm
-                        );
-                    }
-                    ClauseOp64::SubImmReg => {
-                        println!(
-                            "${} = {} {} ${}",
-                            out_reg,
-                            op.name(),
-                            imm,
-                            arg_reg,
-                        );
-                    }
-                    _ => panic!("Unknown 64-bit opcode"),
-                }
-            }
-        }
-        println!(
-            "{} registers, {} instructions",
-            self.registers.len(),
-            self.tape.len()
-        );
-    }
-
-    pub fn run(&mut self, x: f32, y: f32) -> f32 {
-        let mut iter = self.tape.iter().enumerate();
-        while let Some((_i, v)) = iter.next() {
-            // 32-bit instruction
-            if v & (1 << 30) == 0 {
-                let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp32::from_u32(op).unwrap();
-                match op {
-                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                        let fast_reg = (v & 0xFF) as usize;
-                        let extended_reg = ((v >> 8) & 0xFFFF) as usize;
-                        match op {
-                            ClauseOp32::Load => {
-                                self.registers[fast_reg] =
-                                    self.registers[extended_reg]
-                            }
-                            ClauseOp32::Store => {
-                                self.registers[extended_reg] =
-                                    self.registers[fast_reg]
-                            }
-                            ClauseOp32::Swap => {
-                                self.registers.swap(fast_reg, extended_reg);
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                    ClauseOp32::Input => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        let out = match lhs_reg {
-                            0 => x,
-                            1 => y,
-                            _ => panic!(),
-                        };
-                        self.registers[out_reg as usize] = out;
-                    }
-                    ClauseOp32::CopyReg
-                    | ClauseOp32::NegReg
-                    | ClauseOp32::AbsReg
-                    | ClauseOp32::RecipReg
-                    | ClauseOp32::SqrtReg
-                    | ClauseOp32::SquareReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let lhs = self.registers[lhs_reg as usize];
-                        let out_reg = v & 0xFF;
-                        self.registers[out_reg as usize] = match op {
-                            ClauseOp32::CopyReg => lhs,
-                            ClauseOp32::NegReg => -lhs,
-                            ClauseOp32::AbsReg => lhs.abs(),
-                            ClauseOp32::RecipReg => 1.0 / lhs,
-                            ClauseOp32::SqrtReg => lhs.sqrt(),
-                            ClauseOp32::SquareReg => lhs * lhs,
-                            _ => unreachable!(),
-                        };
-                    }
-
-                    ClauseOp32::AddRegReg
-                    | ClauseOp32::MulRegReg
-                    | ClauseOp32::SubRegReg
-                    | ClauseOp32::MinRegReg
-                    | ClauseOp32::MaxRegReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let rhs_reg = (v >> 8) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        let lhs = self.registers[lhs_reg as usize];
-                        let rhs = self.registers[rhs_reg as usize];
-                        let out = match op {
-                            ClauseOp32::AddRegReg => lhs + rhs,
-                            ClauseOp32::MulRegReg => lhs * rhs,
-                            ClauseOp32::SubRegReg => lhs - rhs,
-                            ClauseOp32::MinRegReg => lhs.min(rhs),
-                            ClauseOp32::MaxRegReg => lhs.max(rhs),
-                            ClauseOp32::Load | ClauseOp32::Store => {
-                                unreachable!()
-                            }
-                            _ => unreachable!(),
-                        };
-                        self.registers[out_reg as usize] = out;
-                    }
-                    _ => panic!("Bad 32-bit opcode"),
-                }
-            } else {
-                let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp64::from_u32(op).unwrap();
-                let (_j, next) = iter.next().unwrap();
-                let arg_reg = (v >> 8) & 0xFF;
-                let out_reg = v & 0xFF;
-                let arg = self.registers[arg_reg as usize];
-                let imm = f32::from_bits(*next);
-                let out = match op {
-                    ClauseOp64::AddRegImm => arg + imm,
-                    ClauseOp64::MulRegImm => arg * imm,
-                    ClauseOp64::SubImmReg => imm - arg,
-                    ClauseOp64::SubRegImm => arg - imm,
-                    ClauseOp64::MinRegImm => arg.min(imm),
-                    ClauseOp64::MaxRegImm => arg.max(imm),
-                    ClauseOp64::CopyImm => imm,
-                };
-                self.registers[out_reg as usize] = out;
-            }
-        }
-        self.registers[0]
-    }
-}
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::Compiler;
 
     #[test]
     fn basic_interpreter() {
@@ -871,17 +874,17 @@ mod tests {
         let one = ctx.constant(1.0);
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
-        let compiled = Compiler::new(&ctx, min);
-        let scheduled = Scheduled::new_from_compiler(&compiled);
-        let mut interp = Interpreter::new(&scheduled);
-        assert_eq!(interp.run(1.0, 2.0), 2.0);
-        assert_eq!(interp.run(1.0, 3.0), 2.0);
-        assert_eq!(interp.run(3.0, 3.5), 3.5);
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut workspace = tape.workspace();
+        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 2.0);
+        assert_eq!(tape.eval(1.0, 3.0, &mut workspace), 2.0);
+        assert_eq!(tape.eval(3.0, 3.5, &mut workspace), 3.5);
 
-        let compiled = Compiler::new(&ctx, one);
-        let scheduled = Scheduled::new_from_compiler(&compiled);
-        let mut interp = Interpreter::new(&scheduled);
-        assert_eq!(interp.run(1.0, 2.0), 1.0);
-        assert_eq!(interp.run(2.0, 3.0), 1.0);
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut workspace = tape.workspace();
+        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 1.0);
+        assert_eq!(tape.eval(2.0, 3.0, &mut workspace), 1.0);
     }
 }
