@@ -10,7 +10,6 @@ pub mod passes;
 pub mod queue;
 pub mod render;
 pub mod scheduled;
-pub mod scheduler;
 
 //pub mod metal;
 

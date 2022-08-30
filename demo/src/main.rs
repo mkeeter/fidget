@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scheduled =
                 jitfive::scheduled::Scheduled::new_from_compiler(&compiler);
             */
-            let scheduled = jitfive::scheduler::schedule(&ctx, root);
+            let scheduled = jitfive::scheduled::schedule(&ctx, root);
             let mut interpreter =
                 jitfive::backend::interpreter::Interpreter::new(&scheduled);
             interpreter.pretty_print_tape();
