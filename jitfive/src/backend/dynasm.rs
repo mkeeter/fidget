@@ -304,9 +304,10 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ; fmov x8, d3
 
                             // Check whether lhs.upper < 0
-                            ; ands x9, x8, #0x10000
+                            ; ands x9, x8, #0x1_0000_0000
                             ; b.pl >upper_lz
 
+                            // Check whether lhs.lower < 0
                             ; ands x9, x8, #0x1
                             ; b.pl >lower_lz
 
@@ -318,6 +319,7 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ;upper_lz:
                             ; ins V(out_reg).s[0], v4.s[1]
                             ; ins V(out_reg).s[1], v4.s[0]
+                            ; b >end
 
                             // if v3.s[0] < 0
                             //   return [0, max(abs(upper), abs(lower))]
@@ -539,5 +541,21 @@ mod tests {
         let eval = jit.to_interval();
         assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval.eval([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
+    }
+
+    #[test]
+    fn test_i_abs() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let abs = ctx.abs(x).unwrap();
+
+        let jit = to_jit(abs, &ctx);
+        let eval = jit.to_interval();
+        let y = [0.0, 1.0];
+        assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
+        assert_eq!(eval.eval([1.0, 5.0], y), [1.0, 5.0]);
+        assert_eq!(eval.eval([-2.0, 5.0], y), [0.0, 5.0]);
+        assert_eq!(eval.eval([-6.0, 5.0], y), [0.0, 6.0]);
+        assert_eq!(eval.eval([-6.0, -1.0], y), [1.0, 6.0]);
     }
 }
