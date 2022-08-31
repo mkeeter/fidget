@@ -2531,34 +2531,17 @@ mod tests {
         let v =
             f.interval([0.0, 1.0], [-1.0, 1.0], &choices_in, &mut choices_out);
         assert_eq!(v, [-1.0, 1.0]);
-        assert_eq!(choices_out, vec![u32::MAX]);
+        assert_eq!(choices_out, vec![3]);
 
         let v =
             f.interval([0.0, 1.0], [2.0, 3.0], &choices_in, &mut choices_out);
         assert_eq!(v, [0.0, 1.0]);
-        assert_eq!(choices_out, vec![u32::MAX & !RHS]);
+        assert_eq!(choices_out, vec![3 & !RHS]);
 
         let choices_in = vec![LHS];
         assert_eq!(1.0, f.float(1.0, 0.5, &choices_in));
 
         let choices_in = vec![RHS];
         assert_eq!(3.0, f.float(1.0, 3.0, &choices_in));
-    }
-
-    #[test]
-    fn test_memcpy() {
-        let mut ctx = crate::context::Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let min = ctx.min(x, y).unwrap();
-
-        let jit_ctx = JitContext::new();
-        let compiled = Compiler::new(&ctx, min);
-        let f = to_jit_fn(&compiled, &jit_ctx).unwrap();
-
-        let choices_in = vec![0x12345678];
-        let mut choices_out = vec![0];
-        f.interval([0.0, 1.0], [0.0, 1.0], &choices_in, &mut choices_out);
-        assert_eq!(choices_out, vec![0x12345678]);
     }
 }

@@ -904,11 +904,5 @@ mod tests {
         assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 2.0);
         assert_eq!(tape.eval(1.0, 3.0, &mut workspace), 2.0);
         assert_eq!(tape.eval(3.0, 3.5, &mut workspace), 3.5);
-
-        let scheduled = crate::scheduled::schedule(&ctx, min);
-        let tape = Tape::new(&scheduled);
-        let mut workspace = tape.workspace();
-        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 1.0);
-        assert_eq!(tape.eval(2.0, 3.0, &mut workspace), 1.0);
     }
 }
