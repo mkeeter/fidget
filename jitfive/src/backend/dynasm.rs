@@ -92,10 +92,9 @@ pub fn from_tape(t: &Tape) -> AsmHandle {
                         ClauseOp32::AbsReg => dynasm!(ops
                             ; fabs S(out_reg), S(lhs_reg)
                         ),
-                        // TODO: is reciprocal estimate okay, or should we do
-                        // division?
                         ClauseOp32::RecipReg => dynasm!(ops
-                            ; frecpe S(out_reg), S(lhs_reg)
+                            ; fmov s7, #1.0
+                            ; fdiv S(out_reg), s7, S(lhs_reg)
                         ),
                         ClauseOp32::SqrtReg => dynasm!(ops
                             ; fsqrt S(out_reg), S(lhs_reg)
@@ -229,9 +228,9 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
         ; sub   sp, sp, #(stack_space)
 
         // Arguments are passed in S0-3; collect them into V0-1
-        ; ins v0.s[1], v1.s[0]
-        ; ins v1.s[0], v2.s[0]
-        ; ins v1.s[1], v3.s[0]
+        ; mov v0.s[1], v1.s[0]
+        ; mov v1.s[0], v2.s[0]
+        ; mov v1.s[1], v3.s[0]
     );
 
     const FAST_REG_OFFSET: u32 = 8;
@@ -310,32 +309,55 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
 
                             // Check whether lhs.lower < 0
                             ; tst x8, #0x1
-                            ; b.ne >lower_lz
 
                             // otherwise, we're good; return the original
-                            ; b >end
+                            ; b.eq >end
+
+                            // if lhs.lower < 0, then the output is
+                            //  [0.0, max(abs(lower, upper))]
+                            ; movi d7, #0
+                            ; fmaxnmv s7, V(out_reg).s4
+                            ; fmov D(out_reg), d7
+                            // Fall through to do the swap
 
                             // if upper < 0
                             //   return [-upper, -lower]
                             ;upper_lz:
                             ; rev64 V(out_reg).s2, V(out_reg).s2
-                            ; b >end
-
-                            // if lower < 0
-                            //   return [0, max(abs(upper), abs(lower))]
-                            ;lower_lz:
-                            ; fmaxnmv s7, V(out_reg).s4
-                            ; movi D(out_reg), #0
-                            ; ins V(out_reg).s[1], v7.s[0]
 
                             ;end:
                         ),
                         ClauseOp32::RecipReg => dynasm!(ops
-                            // TODO
-                            ; frecpe S(out_reg), S(lhs_reg)
+                            // Check whether lhs.lower > 0.0
+                            ; fcmgt s7, S(lhs_reg), 0.0
+                            ; fmov w7, s7
+                            ; tst w7, #0x1
+                            ; b.ne >okay
+
+                            // Check whether lhs.upper < 0.0
+                            ; mov s7, V(lhs_reg).s[1]
+                            ; fcmlt s7, s7, 0.0
+                            ; fmov w7, s7
+                            ; tst w7, #0x1
+                            ; b.ne >okay // ne is Z == 0
+
+                            // Bad case: the division spans 0, so return NaN
+                            ; movz w9, #(nan_u32 >> 16), lsl 16
+                            ; movk w9, #(nan_u32)
+                            ; dup V(out_reg).s2, w9
+                            ; b >end
+
+                            ;okay:
+                            ; fmov s7, #1.0
+                            ; dup v7.s2, v7.s[0]
+                            ; fdiv V(out_reg).s2, v7.s2, V(lhs_reg).s2
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
+                            // Fallthrough to >end
+
+                            ;end:
                         ),
                         ClauseOp32::SqrtReg => dynasm!(ops
-                            // Store lhs < 0.0 in x8
+                            // Store lhs <= 0.0 in x8
                             ; fcmle v3.s2, V(lhs_reg).s2, #0.0
                             ; fmov x8, d3
 
@@ -351,10 +373,10 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ; b >end
 
                             ;lower_lz:
-                            ; ins v4.s[0], V(lhs_reg).s[1]
+                            ; mov v4.s[0], V(lhs_reg).s[1]
                             ; fsqrt s4, s4
                             ; movi D(out_reg), #0
-                            ; ins V(out_reg).s[1], v4.s[0]
+                            ; mov V(out_reg).s[1], v4.s[0]
                             ; b >end
 
                             ;upper_lz:
@@ -366,32 +388,28 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ;end:
                         ),
                         ClauseOp32::SquareReg => dynasm!(ops
-                            // Store lhs < 0.0 in x8
+                            // Store lhs <= 0.0 in x8
                             ; fcmle v3.s2, V(lhs_reg).s2, #0.0
                             ; fmov x8, d3
                             ; fmul V(out_reg).s2, V(lhs_reg).s2, V(lhs_reg).s2
 
-                            // Check whether lhs.upper < 0
+                            // Check whether lhs.upper <= 0.0
                             ; tst x8, #0x1_0000_0000
                             ; b.ne >swap // ne is Z == 0
 
+                            // Test whether lhs.lower <= 0.0
                             ; tst x8, #0x1
-                            ; b.ne >split // ne is Z == 0
+                            ; b.eq >end
 
-                            // Happy path
-                            ; b >end
-
-                            ;swap:
-                            ; rev64 V(out_reg).s2, V(out_reg).s2
-                            ; b >end
-
-                            ;split:
                             // If the input interval straddles 0, then the
                             // output is [0, max(lower**2, upper**2)]
                             ; fmaxnmv s4, V(out_reg).s4
                             ; movi D(out_reg), #0
-                            ; ins V(out_reg).s[1], v4.s[0]
+                            ; mov V(out_reg).s[1], v4.s[0]
                             ; b >end
+
+                            ;swap:
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
 
                             ;end:
                         ),
@@ -412,12 +430,26 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ; fadd V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
                         ),
                         ClauseOp32::MulRegReg => dynasm!(ops
-                            // TODO
-                            ; fmul S(out_reg), S(lhs_reg), S(rhs_reg)
+                            // Set up v4 to contain
+                            //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
+                            // and v5 to contain
+                            //  [rhs.upper, rhs.lower, rhs.upper, rhs.upper]
+                            //
+                            // Multiplying them out will hit all four possible
+                            // combinations; then we extract the min and max
+                            // with vector-reducing operations
+                            ; rev64 v4.s2, V(lhs_reg).s2
+                            ; mov v4.d[1], V(lhs_reg).d[0]
+                            ; dup v5.d2, V(rhs_reg).d[0]
+
+                            ; fmul v4.s4, v4.s4, v5.s4
+                            ; fminnmv S(out_reg), v4.s4
+                            ; fmaxnmv s5, v4.s4
+                            ; mov V(out_reg).s[1], v5.s[0]
                         ),
                         ClauseOp32::SubRegReg => dynasm!(ops
-                            // TODO
-                            ; fsub S(out_reg), S(lhs_reg), S(rhs_reg)
+                            ; rev64 v4.s2, V(rhs_reg).s2
+                            ; fsub V(out_reg).s2, V(lhs_reg).s2, v4.s2
                         ),
                         ClauseOp32::MinRegReg => dynasm!(ops
                             ; fmin V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
@@ -425,9 +457,6 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                         ClauseOp32::MaxRegReg => dynasm!(ops
                             ; fmax V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
                         ),
-                        ClauseOp32::Load | ClauseOp32::Store => {
-                            unreachable!()
-                        }
                         _ => unreachable!(),
                     };
                 }
@@ -440,6 +469,7 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
             let arg_reg = ((v >> 8) & 0xFF) + FAST_REG_OFFSET;
             let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
             let imm_u32 = *next;
+            let imm_f32 = f32::from_bits(imm_u32);
 
             // Unpack the immediate using two 16-bit writes
             dynasm!(ops
@@ -451,13 +481,19 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                 ClauseOp64::AddRegImm => dynasm!(ops
                     ; fadd V(out_reg).s2, V(arg_reg).s2, v3.s2
                 ),
-                ClauseOp64::MulRegImm => dynasm!(ops
-                    // TODO
-                    ; fmul S(out_reg), S(arg_reg), s3
-                ),
+                ClauseOp64::MulRegImm => {
+                    dynasm!(ops
+                        ; fmul V(out_reg).s2, V(arg_reg).s2, v3.s2
+                    );
+                    if imm_f32 < 0.0 {
+                        dynasm!(ops
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
+                        )
+                    }
+                }
                 ClauseOp64::SubImmReg => dynasm!(ops
-                    // TODO
-                    ; fsub S(out_reg), S(arg_reg), s3
+                    ; rev64 v4.s2, V(out_reg).s2
+                    ; fsub V(out_reg).s2, v3.s2, v4.s2
                 ),
                 ClauseOp64::SubRegImm => dynasm!(ops
                     ; fsub V(out_reg).s2, V(arg_reg).s2, v3.s2
@@ -671,5 +707,99 @@ mod tests {
         assert_eq!(eval.eval([-2.0, 4.0], y), [0.0, 16.0]);
         assert_eq!(eval.eval([-6.0, -2.0], y), [4.0, 36.0]);
         assert_eq!(eval.eval([-6.0, 1.0], y), [0.0, 36.0]);
+    }
+
+    #[test]
+    fn test_i_mul() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let mul = ctx.mul(x, y).unwrap();
+
+        let jit = to_interval_fn(mul, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
+        assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
+        assert_eq!(eval.eval([-2.0, -1.0], [-5.0, -4.0]), [4.0, 10.0]);
+        assert_eq!(eval.eval([-3.0, -1.0], [-2.0, 6.0]), [-18.0, 6.0]);
+    }
+
+    #[test]
+    fn test_i_mul_imm() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let two = ctx.constant(2.0);
+        let mul = ctx.mul(x, two).unwrap();
+        let jit = to_interval_fn(mul, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [0.0, 2.0]);
+        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [2.0, 4.0]);
+
+        let neg_three = ctx.constant(-3.0);
+        let mul = ctx.mul(x, neg_three).unwrap();
+        let jit = to_interval_fn(mul, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-3.0, 0.0]);
+        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-6.0, -3.0]);
+    }
+
+    #[test]
+    fn test_i_sub() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let sub = ctx.sub(x, y).unwrap();
+
+        let jit = to_interval_fn(sub, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
+        assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
+        assert_eq!(eval.eval([-2.0, -1.0], [-5.0, -4.0]), [2.0, 4.0]);
+        assert_eq!(eval.eval([-3.0, -1.0], [-2.0, 6.0]), [-9.0, 1.0]);
+    }
+
+    #[test]
+    fn test_i_sub_imm() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let two = ctx.constant(2.0);
+        let sub = ctx.sub(x, two).unwrap();
+        let jit = to_interval_fn(sub, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-2.0, -1.0]);
+        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-1.0, 0.0]);
+
+        let neg_three = ctx.constant(-3.0);
+        let sub = ctx.sub(neg_three, x).unwrap();
+        let jit = to_interval_fn(sub, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-4.0, -3.0]);
+        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-5.0, -4.0]);
+    }
+
+    #[test]
+    fn test_i_recip() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let recip = ctx.recip(x).unwrap();
+        let jit = to_interval_fn(recip, &ctx);
+        let eval = jit.to_interval();
+
+        let nanan = eval.eval([0.0, 1.0], [0.0, 0.0]);
+        assert!(nanan[0].is_nan());
+        assert!(nanan[1].is_nan());
+
+        let nanan = eval.eval([-1.0, 0.0], [0.0, 0.0]);
+        assert!(nanan[0].is_nan());
+        assert!(nanan[1].is_nan());
+
+        let nanan = eval.eval([-2.0, 3.0], [0.0, 0.0]);
+        assert!(nanan[0].is_nan());
+        assert!(nanan[1].is_nan());
+
+        assert_eq!(eval.eval([-2.0, -1.0], [0.0, 0.0]), [-1.0, -0.5]);
+        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [0.5, 1.0]);
     }
 }
