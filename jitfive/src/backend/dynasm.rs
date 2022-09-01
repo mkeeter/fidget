@@ -339,7 +339,6 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             // Store lhs < 0.0 in x8
                             ; fcmle v3.s2, V(lhs_reg).s2, #0.0
                             ; fmov x8, d3
-                            ; movi V(out_reg).s2, #0
 
                             // Check whether lhs.upper < 0
                             ; tst x8, #0x1_0000_0000
@@ -355,12 +354,14 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ;lower_lz:
                             ; ins v4.s[0], V(lhs_reg).s[1]
                             ; fsqrt s4, s4
+                            ; movi D(out_reg), #0
                             ; ins V(out_reg).s[1], v4.s[0]
                             ; b >end
 
                             ;upper_lz:
-                            // V(out_reg) is already 0.0, so make it NaN by
-                            // doing an illegal division
+                            // Make V(out_reg) NaN by doing an illegal division
+                            // (XXX optimize this)
+                            ; movi D(out_reg), #0
                             ; fdiv V(out_reg).s2, V(out_reg).s2, V(out_reg).s2
                             // Fallthrough
 
