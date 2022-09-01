@@ -305,11 +305,11 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
 
                             // Check whether lhs.upper < 0
                             ; ands x9, x8, #0x1_0000_0000
-                            ; b.pl >upper_lz
+                            ; b.ne >upper_lz // ne is !Z
 
                             // Check whether lhs.lower < 0
                             ; ands x9, x8, #0x1
-                            ; b.pl >lower_lz
+                            ; b.ne >lower_lz
 
                             // otherwise, we're good; return the original
                             ; mov V(out_reg).b8, V(lhs_reg).b8
@@ -512,10 +512,16 @@ mod tests {
         scheduled::schedule,
     };
 
-    fn to_jit(v: Node, ctx: &Context) -> AsmHandle {
-        let scheduled = schedule(&ctx, v);
+    fn to_float_fn(v: Node, ctx: &Context) -> AsmHandle {
+        let scheduled = schedule(ctx, v);
         let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
         from_tape(&tape)
+    }
+
+    fn to_interval_fn(v: Node, ctx: &Context) -> AsmHandle {
+        let scheduled = schedule(ctx, v);
+        let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
+        tape_to_interval(&tape)
     }
 
     #[test]
@@ -527,7 +533,7 @@ mod tests {
         let y2 = ctx.mul(y, two).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
-        let jit = to_jit(sum, &ctx);
+        let jit = to_float_fn(sum, &ctx);
         let eval = jit.to_eval();
         assert_eq!(eval.eval(1.0, 2.0), 6.0);
     }
@@ -536,11 +542,17 @@ mod tests {
     fn test_interval() {
         let mut ctx = Context::new();
         let x = ctx.x();
+        let y = ctx.y();
 
-        let jit = to_jit(x, &ctx);
+        let jit = to_interval_fn(x, &ctx);
         let eval = jit.to_interval();
         assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval.eval([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
+
+        let jit = to_interval_fn(y, &ctx);
+        let eval = jit.to_interval();
+        assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
+        assert_eq!(eval.eval([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
 
     #[test]
@@ -549,7 +561,7 @@ mod tests {
         let x = ctx.x();
         let abs = ctx.abs(x).unwrap();
 
-        let jit = to_jit(abs, &ctx);
+        let jit = to_interval_fn(abs, &ctx);
         let eval = jit.to_interval();
         let y = [0.0, 1.0];
         assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
