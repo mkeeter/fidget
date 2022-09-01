@@ -291,17 +291,15 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                         ),
                         ClauseOp32::NegReg => dynasm!(ops
                             ; fneg V(out_reg).s2, V(lhs_reg).s2
-                            ; ins v3.s[0], V(out_reg).s[1]
-                            ; ins V(out_reg).s[1], V(out_reg).s[0]
-                            ; ins V(out_reg).s[0], v3.s[0]
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
                         ),
                         ClauseOp32::AbsReg => dynasm!(ops
-                            // Store abs(lhs) in V4
-                            ; fabs v4.s2, V(lhs_reg).s2
-
                             // Store lhs < 0.0 in x8
                             ; fcmle v3.s2, V(lhs_reg).s2, #0.0
                             ; fmov x8, d3
+
+                            // Store abs(lhs) in V(out_reg)
+                            ; fabs V(out_reg).s2, V(lhs_reg).s2
 
                             // Check whether lhs.upper < 0
                             ; tst x8, #0x1_0000_0000
@@ -312,22 +310,20 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ; b.ne >lower_lz
 
                             // otherwise, we're good; return the original
-                            ; mov V(out_reg).b8, V(lhs_reg).b8
                             ; b >end
 
-                            // if v3.s[1] < 0
+                            // if upper < 0
                             //   return [-upper, -lower]
                             ;upper_lz:
-                            ; ins V(out_reg).s[0], v4.s[1]
-                            ; ins V(out_reg).s[1], v4.s[0]
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
                             ; b >end
 
-                            // if v3.s[0] < 0
+                            // if lower < 0
                             //   return [0, max(abs(upper), abs(lower))]
                             ;lower_lz:
-                            ; movi V(out_reg).s2, #0
-                            ; fmaxnmv s4, v4.s4
-                            ; ins V(out_reg).s[1], v4.s[0]
+                            ; fmaxnmv s7, V(out_reg).s4
+                            ; movi D(out_reg), #0
+                            ; ins V(out_reg).s[1], v7.s[0]
 
                             ;end:
                         ),
@@ -368,8 +364,34 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ;end:
                         ),
                         ClauseOp32::SquareReg => dynasm!(ops
-                            // TODO
-                            ; fmul S(out_reg), S(lhs_reg), S(lhs_reg)
+                            // Store lhs < 0.0 in x8
+                            ; fcmle v3.s2, V(lhs_reg).s2, #0.0
+                            ; fmov x8, d3
+                            ; fmul V(out_reg).s2, V(lhs_reg).s2, V(lhs_reg).s2
+
+                            // Check whether lhs.upper < 0
+                            ; tst x8, #0x1_0000_0000
+                            ; b.ne >swap // ne is Z == 0
+
+                            ; tst x8, #0x1
+                            ; b.ne >split // ne is Z == 0
+
+                            // Happy path
+                            ; b >end
+
+                            ;swap:
+                            ; rev64 V(out_reg).s2, V(out_reg).s2
+                            ; b >end
+
+                            ;split:
+                            // If the input interval straddles 0, then the
+                            // output is [0, max(lower**2, upper**2)]
+                            ; fmaxnmv s4, V(out_reg).s4
+                            ; movi D(out_reg), #0
+                            ; ins V(out_reg).s[1], v4.s[0]
+                            ; b >end
+
+                            ;end:
                         ),
                         _ => unreachable!(),
                     };
@@ -630,5 +652,22 @@ mod tests {
         let nanan = eval.eval([-2.0, -1.0], y);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
+    }
+
+    #[test]
+    fn test_i_square() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let sqrt_x = ctx.square(x).unwrap();
+
+        let jit = to_interval_fn(sqrt_x, &ctx);
+        let eval = jit.to_interval();
+        let y = [0.0, 1.0];
+        assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
+        assert_eq!(eval.eval([0.0, 4.0], y), [0.0, 16.0]);
+        assert_eq!(eval.eval([2.0, 4.0], y), [4.0, 16.0]);
+        assert_eq!(eval.eval([-2.0, 4.0], y), [0.0, 16.0]);
+        assert_eq!(eval.eval([-6.0, -2.0], y), [4.0, 36.0]);
+        assert_eq!(eval.eval([-6.0, 1.0], y), [0.0, 36.0]);
     }
 }
