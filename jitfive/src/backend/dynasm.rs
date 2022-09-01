@@ -236,6 +236,9 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
 
     const FAST_REG_OFFSET: u32 = 8;
 
+    // Helper constant for when we need to inject a NaN
+    let nan_u32 = f32::NAN.to_bits();
+
     let mut iter = t.tape.iter();
     while let Some(v) = iter.next() {
         if v & (1 << 30) == 0 {
@@ -355,10 +358,9 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
                             ; b >end
 
                             ;upper_lz:
-                            // Make V(out_reg) NaN by doing an illegal division
-                            // (XXX optimize this)
-                            ; movi D(out_reg), #0
-                            ; fdiv V(out_reg).s2, V(out_reg).s2, V(out_reg).s2
+                            ; movz w9, #(nan_u32 >> 16), lsl 16
+                            ; movk w9, #(nan_u32)
+                            ; dup V(out_reg).s2, w9
                             // Fallthrough
 
                             ;end:
