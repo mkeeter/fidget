@@ -23,10 +23,4 @@ pub enum Error {
 
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("LLVM error: {0}")]
-    LLVMError(#[from] inkwell::support::LLVMString),
-
-    #[error("JIT error: {0}")]
-    FunctionLookupError(#[from] inkwell::execution_engine::FunctionLookupError),
 }

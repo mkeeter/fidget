@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    compiler::{NodeIndex, Op},
+    backend::common::{NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
     util::{bimap::Bimap, queue::PriorityQueue},

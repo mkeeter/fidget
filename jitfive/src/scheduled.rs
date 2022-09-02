@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    compiler::{ChoiceIndex, Compiler, NodeIndex, Op, VarIndex},
+    backend::common::{ChoiceIndex, NodeIndex, Op, VarIndex},
     context::{Context, Node},
     util::indexed::{IndexMap, IndexVec},
 };
@@ -28,20 +28,6 @@ impl Scheduled {
             vars,
             root,
             last_use,
-        }
-    }
-    pub fn new_from_compiler(t: &Compiler) -> Self {
-        let tape = t
-            .flatten()
-            .into_iter()
-            .map(|n| (n, t.ops[n]))
-            .collect::<Vec<_>>();
-        let last_use = Self::find_lifetime(&tape);
-        Self {
-            tape,
-            last_use,
-            root: t.root,
-            vars: t.vars.clone(),
         }
     }
     fn find_lifetime(tape: &[(NodeIndex, Op)]) -> IndexVec<usize, NodeIndex> {
