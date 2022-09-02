@@ -7,7 +7,7 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 pub const REGISTER_LIMIT: usize = 24;
 
 pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
-    assert_eq!(t.fast_reg_limit, REGISTER_LIMIT);
+    assert!(t.reg_count <= REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
     dynasm!(ops
@@ -15,8 +15,7 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
     );
     let shape_fn = ops.offset();
 
-    let stack_space =
-        t.num_registers.saturating_sub(t.fast_reg_limit) as u32 * 4;
+    let stack_space = t.total_slots.saturating_sub(t.reg_count) as u32 * 4;
     // Ensure alignment
     let stack_space = ((stack_space + 15) / 16) * 16;
 
@@ -44,8 +43,7 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
                     let fast_reg = (v & 0xFF) + FAST_REG_OFFSET;
                     let extended_reg = (v >> 8) & 0xFFFF;
-                    let sp_offset =
-                        4 * (extended_reg - t.fast_reg_limit as u32);
+                    let sp_offset = 4 * (extended_reg - t.reg_count as u32);
                     match op {
                         ClauseOp32::Load => {
                             dynasm!(ops
@@ -220,7 +218,7 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
 /// `V8.2S` through `V32.2S` to store our "fast" registers, and put everything
 /// else on the stack.
 pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
-    assert_eq!(t.fast_reg_limit, REGISTER_LIMIT);
+    assert!(t.reg_count <= REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
     dynasm!(ops
@@ -228,8 +226,7 @@ pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
     );
     let shape_fn = ops.offset();
 
-    let stack_space =
-        t.num_registers.saturating_sub(t.fast_reg_limit) as u32 * 4 * 2;
+    let stack_space = t.total_slots.saturating_sub(t.reg_count) as u32 * 4 * 2;
     // Ensure alignment
     let stack_space = ((stack_space + 15) / 16) * 16;
 
@@ -265,8 +262,7 @@ pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
                     let fast_reg = (v & 0xFF) + FAST_REG_OFFSET;
                     let extended_reg = (v >> 8) & 0xFFFF;
-                    let sp_offset =
-                        2 * 4 * (extended_reg - t.fast_reg_limit as u32);
+                    let sp_offset = 2 * 4 * (extended_reg - t.reg_count as u32);
                     // We'll pretend we're reading and writing doubles (D), but
                     // are actually loading 2x floats (S).
                     match op {

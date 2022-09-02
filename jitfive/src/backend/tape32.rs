@@ -124,10 +124,14 @@ pub enum ClauseOp64 {
     MulRegImm,
     /// Subtract a register from an immediate
     SubImmReg,
+    /// Subtract an immediate from a register
     SubRegImm,
+    /// Compute the minimum of a register and an immediate
     MinRegImm,
+    /// Compute the maximum of a register and an immediate
     MaxRegImm,
 
+    /// Copy an immediate to a register
     CopyImm,
 }
 
@@ -144,7 +148,8 @@ impl ClauseOp64 {
     }
 }
 
-/// The instruction tape is given as a `Vec<u32>`.
+/// The instruction tape is given as a `Vec<u32>`, which can be thought of as
+/// bytecode or instructions for a very simple virtual machine.
 ///
 /// Decoding depends on the upper bits of a particular `u32`:
 ///
@@ -161,7 +166,7 @@ impl ClauseOp64 {
 /// # 32-bit instructions
 /// ## Common operations on fast registers
 /// For a 32-bit instruction (i.e. bit 30 is 0), there are two encodings.  The
-/// most common is a operation on fast registers:
+/// most common is a operation on **registers**:
 ///
 /// | Bits  | Meaning |
 /// |-------|---------|
@@ -173,24 +178,30 @@ impl ClauseOp64 {
 /// This allows us to encode the 64 most common opcodes into a single `u32`.
 ///
 /// ## Load and store
-/// The common operation encoding limits us to the lower 256 registers; if they
-/// need to use a different register, then they can use Load and Store
-/// instructions to shuffle data around.  This is an alternate form of a 32-bit
-/// operation:
+/// The common operation encoding limits us to 256 registers; if we need more
+/// storage space, then we can use `Load` and `Store` to shuffle data around
+/// into 16655 extra locations (referred to as `Memory`).  The lowest 256 slots
+/// of memory are unused, so that we can use a single array for both registers
+/// _and_ memory when appropriate.
+///
+/// If the `Tape` is constructed with a lower register limit, then `Memory`
+/// begins at that value (instead of at slot 256).
+///
+/// `Load` and `Store` are implemented as a modified 32-bit operation:
 ///
 /// | Bits  | Meaning           |
 /// |-------|-------------------|
 /// | 29-24 | `Load` or `Store` |
-/// | 23-8  | Extended register |
-/// | 7-0   | Fast register     |
+/// | 23-8  | Memory location   |
+/// | 7-0   | Register          |
 ///
 /// # 64-bit instructions
 /// ## Immediate form
-/// | Bits  | Meaning       |
-/// |-------|---------------|
-/// | 29-16 | Clause opcode |
-/// | 16-8  | Arg1          |
-/// | 7-0   | Out           |
+/// | Bits  | Meaning         |
+/// |-------|-----------------|
+/// | 29-16 | Clause opcode   |
+/// | 16-8  | Arg1 (register) |
+/// | 7-0   | Out (register)  |
 ///
 /// Followed by an immediate (as a `f32` as raw bits)
 ///
@@ -199,8 +210,15 @@ impl ClauseOp64 {
 #[derive(Debug)]
 pub struct Tape {
     pub tape: Vec<u32>,
-    pub num_registers: usize,
-    pub fast_reg_limit: usize,
+
+    /// Total number of slots required for evaluation, including both registers
+    /// and memory.
+    pub total_slots: usize,
+
+    /// Number of registers in use
+    ///
+    /// This is always `<= total_slots`
+    pub reg_count: usize,
 }
 
 impl Tape {
@@ -220,24 +238,24 @@ impl Tape {
         match builder.get_allocated_value(builder.t.root) {
             Allocation::Immediate(f) => builder.build_op_64(
                 ClauseOp64::CopyImm,
-                ShortRegister(0),
+                Register(0),
                 f,
-                ShortRegister(0),
+                Register(0),
             ),
             Allocation::Register(r) => {
-                builder.build_op_reg(ClauseOp32::CopyReg, r, ShortRegister(0))
+                builder.build_op_reg(ClauseOp32::CopyReg, r, Register(0))
             }
         }
 
         Self {
             tape: builder.out,
-            num_registers: builder.register_count as usize,
-            fast_reg_limit: builder.max_fast_reg,
+            reg_count: builder.reg_limit.min(builder.total_slots),
+            total_slots: builder.total_slots as usize,
         }
     }
 
     pub fn workspace(&self) -> Vec<f32> {
-        vec![0.0; self.num_registers]
+        vec![0.0; self.total_slots]
     }
 
     pub fn eval(&self, x: f32, y: f32, workspace: &mut [f32]) -> f32 {
@@ -434,8 +452,8 @@ impl Tape {
             }
         }
         println!(
-            "{} registers, {} instructions",
-            self.num_registers,
+            "{} slots, {} instructions",
+            self.total_slots,
             self.tape.len()
         );
     }
@@ -443,18 +461,18 @@ impl Tape {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Type-safe container for an allocated (short) register
+/// Type-safe container for an allocated register
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct ShortRegister(u8);
+struct Register(u8);
 
-/// Type-safe container for an allocated (extended) register
+/// Type-safe container for an allocated slot in memory
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct ExtendedRegister(u16);
+struct Memory(u16);
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-enum Register {
-    Short(ShortRegister),
-    Extended(ExtendedRegister),
+enum Slot {
+    Register(Register),
+    Memory(Memory),
 }
 
 /// Helper `struct` to hold spare state when building an `Tape`
@@ -464,21 +482,21 @@ struct TapeBuilder<'a> {
     /// Output tape, in progress
     out: Vec<u32>,
 
-    /// Total number of registers
+    /// Total number of memory slots
     ///
-    /// This should always equal the sum of `spare_short_registers`,
+    /// This should always equal the sum of `spare_registers`,
     /// `spare_extended_register`, and `allocations`
-    register_count: usize,
+    total_slots: usize,
 
     /// Available short registers (index < 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_short_registers: Vec<ShortRegister>,
+    spare_registers: Vec<Register>,
 
     /// Available extended registers (index >= 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_extended_registers: Vec<ExtendedRegister>,
+    spare_memory: Vec<Memory>,
 
     /// Active nodes, sorted by position in the input data
     active: BTreeSet<(usize, NodeIndex)>,
@@ -486,10 +504,10 @@ struct TapeBuilder<'a> {
     /// Priority queue of recently used short registers
     ///
     /// `pop()` will return the _oldest_ short register
-    short_register_lru: PriorityQueue<usize, ShortRegister>,
+    short_register_lru: PriorityQueue<usize, Register>,
 
-    /// Mapping from active nodes to available registers
-    allocations: Bimap<NodeIndex, Register>,
+    /// Mapping from active nodes to available slots
+    allocations: Bimap<NodeIndex, Slot>,
 
     /// Constants declared in the compiled program
     constants: BTreeMap<NodeIndex, f32>,
@@ -500,16 +518,16 @@ struct TapeBuilder<'a> {
     /// Marks that the previous clause was 64-bit
     was_64: bool,
 
-    /// The highest index of a fast register
+    /// The highest index of a register
     ///
     /// When used by the interpreter, this is 255 (since fast registers are
     /// packed into 8 bits); however, it can be reduced if we're compiling down
     /// to assembly.
-    max_fast_reg: usize,
+    reg_limit: usize,
 }
 
 enum Allocation {
-    Register(ShortRegister),
+    Register(Register),
     Immediate(f32),
 }
 
@@ -522,26 +540,26 @@ impl<'a> TapeBuilder<'a> {
         Self {
             t,
             out: vec![],
-            register_count: 0,
+            total_slots: 0,
             short_register_lru: PriorityQueue::new(),
-            spare_short_registers: vec![],
-            spare_extended_registers: vec![],
+            spare_registers: vec![],
+            spare_memory: vec![],
             active: BTreeSet::new(),
             allocations: Bimap::new(),
             constants: BTreeMap::new(),
             i: 0,
             was_64: false,
-            max_fast_reg: reg_limit,
+            reg_limit,
         }
     }
 
     /// Claims an extended register for the given node
-    fn get_extended_register(&mut self) -> ExtendedRegister {
-        if let Some(r) = self.spare_extended_registers.pop() {
+    fn get_extended_register(&mut self) -> Memory {
+        if let Some(r) = self.spare_memory.pop() {
             r
         } else {
-            let r = ExtendedRegister(self.register_count.try_into().unwrap());
-            self.register_count += 1;
+            let r = Memory(self.total_slots.try_into().unwrap());
+            self.total_slots += 1;
             r
         }
     }
@@ -549,23 +567,23 @@ impl<'a> TapeBuilder<'a> {
     /// Claims a short register
     ///
     /// This may require evicting a short register
-    fn get_short_register(&mut self) -> ShortRegister {
-        if let Some(r) = self.spare_short_registers.pop() {
+    fn get_short_register(&mut self) -> Register {
+        if let Some(r) = self.spare_registers.pop() {
             r
-        } else if self.register_count <= self.max_fast_reg {
-            let r = ShortRegister(self.register_count as u8);
-            self.register_count += 1;
+        } else if self.total_slots <= self.reg_limit {
+            let r = Register(self.total_slots as u8);
+            self.total_slots += 1;
             r
         } else {
             // Evict a short register
             let target = self.short_register_lru.pop().unwrap();
             let node = self
                 .allocations
-                .erase_right(&Register::Short(target))
+                .erase_right(&Slot::Register(target))
                 .unwrap();
             let ext = self.get_extended_register();
             self.build_store_ext(target, ext);
-            let b = self.allocations.insert(node, Register::Extended(ext));
+            let b = self.allocations.insert(node, Slot::Memory(ext));
             assert!(b);
             target
         }
@@ -575,30 +593,28 @@ impl<'a> TapeBuilder<'a> {
     ///
     /// This may require evicting a short register, in which case it is swapped
     /// with `ext` (since we know `ext` is about to be available).
-    fn swap_short_register(&mut self, ext: ExtendedRegister) -> ShortRegister {
-        if let Some(r) = self.spare_short_registers.pop() {
-            assert!(self.allocations.get_right(&Register::Short(r)).is_none());
+    fn swap_short_register(&mut self, ext: Memory) -> Register {
+        if let Some(r) = self.spare_registers.pop() {
+            assert!(self.allocations.get_right(&Slot::Register(r)).is_none());
             self.build_load_ext(ext, r);
-            self.release_reg(Register::Extended(ext));
+            self.release_reg(Slot::Memory(ext));
             r
-        } else if self.register_count <= self.max_fast_reg {
-            let r = ShortRegister(self.register_count as u8);
-            self.register_count += 1;
+        } else if self.total_slots <= self.reg_limit {
+            let r = Register(self.total_slots as u8);
+            self.total_slots += 1;
             self.build_load_ext(ext, r);
-            self.release_reg(Register::Extended(ext));
+            self.release_reg(Slot::Memory(ext));
             r
         } else {
             // Evict a short register, reassigning its allocation data
             let target = self.short_register_lru.pop().unwrap();
             let node = self
                 .allocations
-                .erase_right(&Register::Short(target))
+                .erase_right(&Slot::Register(target))
                 .unwrap();
             self.build_swap_ext(target, ext);
-            self.allocations
-                .erase_right(&Register::Extended(ext))
-                .unwrap();
-            let b = self.allocations.insert(node, Register::Extended(ext));
+            self.allocations.erase_right(&Slot::Memory(ext)).unwrap();
+            let b = self.allocations.insert(node, Slot::Memory(ext));
             assert!(b);
             target
         }
@@ -607,9 +623,9 @@ impl<'a> TapeBuilder<'a> {
     fn build_op_32(
         &mut self,
         op: ClauseOp32,
-        lhs: ShortRegister,
-        rhs: ShortRegister,
-        out: ShortRegister,
+        lhs: Register,
+        rhs: Register,
+        out: Register,
     ) {
         let flag = if self.was_64 { 1 << 31 } else { 0 };
         self.was_64 = false;
@@ -627,9 +643,9 @@ impl<'a> TapeBuilder<'a> {
     fn build_op_64(
         &mut self,
         op: ClauseOp64,
-        arg: ShortRegister,
+        arg: Register,
         imm: f32,
-        out: ShortRegister,
+        out: Register,
     ) {
         let flag = if self.was_64 { 1 << 31 } else { 0 };
         self.was_64 = true;
@@ -648,28 +664,23 @@ impl<'a> TapeBuilder<'a> {
     fn build_op_reg_reg(
         &mut self,
         op: ClauseOp32,
-        lhs: ShortRegister,
-        rhs: ShortRegister,
-        out: ShortRegister,
+        lhs: Register,
+        rhs: Register,
+        out: Register,
     ) {
         self.build_op_32(op, lhs, rhs, out)
     }
 
-    fn build_op_reg(
-        &mut self,
-        op: ClauseOp32,
-        lhs: ShortRegister,
-        out: ShortRegister,
-    ) {
-        self.build_op_32(op, lhs, ShortRegister(0), out)
+    fn build_op_reg(&mut self, op: ClauseOp32, lhs: Register, out: Register) {
+        self.build_op_32(op, lhs, Register(0), out)
     }
 
     fn build_op_reg_imm(
         &mut self,
         op: ClauseOp32,
-        lhs: ShortRegister,
+        lhs: Register,
         rhs: f32,
-        out: ShortRegister,
+        out: Register,
     ) {
         let op = op.as_reg_imm();
         self.build_op_64(op, lhs, rhs, out);
@@ -679,8 +690,8 @@ impl<'a> TapeBuilder<'a> {
         &mut self,
         op: ClauseOp32,
         lhs: f32,
-        rhs: ShortRegister,
-        out: ShortRegister,
+        rhs: Register,
+        out: Register,
     ) {
         let op = op.as_imm_reg();
         self.build_op_64(op, rhs, lhs, out);
@@ -691,7 +702,7 @@ impl<'a> TapeBuilder<'a> {
         op: ClauseOp32,
         lhs: Allocation,
         rhs: Allocation,
-        out: ShortRegister,
+        out: Register,
     ) {
         match (lhs, rhs) {
             (Allocation::Register(lhs), Allocation::Register(rhs)) => {
@@ -710,8 +721,8 @@ impl<'a> TapeBuilder<'a> {
     fn build_load_store_32(
         &mut self,
         op: ClauseOp32,
-        short: ShortRegister,
-        ext: ExtendedRegister,
+        short: Register,
+        ext: Memory,
     ) {
         let flag = if self.was_64 { 1 << 31 } else { 0 };
         self.was_64 = false;
@@ -719,15 +730,15 @@ impl<'a> TapeBuilder<'a> {
         self.out
             .push(flag | (op << 24) | ((ext.0 as u32) << 8) | (short.0 as u32));
     }
-    fn build_load_ext(&mut self, src: ExtendedRegister, dst: ShortRegister) {
+    fn build_load_ext(&mut self, src: Memory, dst: Register) {
         self.build_load_store_32(ClauseOp32::Load, dst, src);
     }
 
-    fn build_store_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
+    fn build_store_ext(&mut self, src: Register, dst: Memory) {
         self.build_load_store_32(ClauseOp32::Store, src, dst);
     }
 
-    fn build_swap_ext(&mut self, src: ShortRegister, dst: ExtendedRegister) {
+    fn build_swap_ext(&mut self, src: Register, dst: Memory) {
         self.build_load_store_32(ClauseOp32::Swap, src, dst);
     }
 
@@ -737,14 +748,14 @@ impl<'a> TapeBuilder<'a> {
     /// `self.spare_short/long_registers`.
     ///
     /// Note that the caller should handle `self.allocations`
-    fn release_reg(&mut self, reg: Register) {
+    fn release_reg(&mut self, reg: Slot) {
         self.allocations.erase_right(&reg).unwrap();
         match reg {
-            Register::Short(r) => {
+            Slot::Register(r) => {
                 self.short_register_lru.remove(r).unwrap();
-                self.spare_short_registers.push(r);
+                self.spare_registers.push(r);
             }
-            Register::Extended(r) => self.spare_extended_registers.push(r),
+            Slot::Memory(r) => self.spare_memory.push(r),
         }
     }
 
@@ -755,12 +766,12 @@ impl<'a> TapeBuilder<'a> {
     fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
         if let Some(r) = self.allocations.get_left(&node).cloned() {
             let r = match r {
-                Register::Short(r) => r,
-                Register::Extended(ext) => {
+                Slot::Register(r) => r,
+                Slot::Memory(ext) => {
                     let out = self.swap_short_register(ext);
 
                     // Modify the allocations and bindings
-                    let reg = Register::Short(out);
+                    let reg = Slot::Register(out);
                     let b = self.allocations.insert(node, reg);
                     assert!(b);
 
@@ -793,7 +804,7 @@ impl<'a> TapeBuilder<'a> {
         }
     }
 
-    fn update_lru(&mut self, r: ShortRegister) {
+    fn update_lru(&mut self, r: Register) {
         self.short_register_lru.insert_or_update(r, self.i);
     }
 
@@ -810,11 +821,7 @@ impl<'a> TapeBuilder<'a> {
                     self.drop_inactive_allocations();
                     let out = self.get_short_register();
                     // Slight misuse of the 32-bit unary form, but that's okay
-                    self.build_op_reg(
-                        ClauseOp32::Input,
-                        ShortRegister(index),
-                        out,
-                    );
+                    self.build_op_reg(ClauseOp32::Input, Register(index), out);
                     out
                 }
                 Op::Const(c) => {
@@ -868,17 +875,17 @@ impl<'a> TapeBuilder<'a> {
                     out
                 }
             };
-            let reg = Register::Short(out);
+            let reg = Slot::Register(out);
             let b = self.allocations.insert(n, reg);
             assert!(b);
 
             self.active.insert((self.t.last_use[n], n));
             // Sanity checking
             assert_eq!(
-                self.register_count,
+                self.total_slots,
                 self.allocations.len()
-                    + self.spare_short_registers.len()
-                    + self.spare_extended_registers.len()
+                    + self.spare_registers.len()
+                    + self.spare_memory.len()
             );
         }
     }
