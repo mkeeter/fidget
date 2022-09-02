@@ -148,6 +148,40 @@ impl ClauseOp64 {
     }
 }
 
+/// Top-level `enum` containing all possible operations in the tape.
+///
+/// This lets us built iterators that return friendly types, instead of having
+/// to decode bitfields in multiple places.
+pub enum Clause {
+    Done,
+    Load(Register, Memory),
+    Store(Register, Memory),
+    Swap(Register, Memory),
+    Input(u8),
+
+    CopyReg(Register, Register),
+    NegReg(Register, Register),
+    AbsReg(Register, Register),
+    RecipReg(Register, Register),
+    SqrtReg(Register, Register),
+    SquareReg(Register, Register),
+
+    AddRegReg(Register, Register, Register),
+    MulRegReg(Register, Register, Register),
+    SubRegReg(Register, Register, Register),
+    MinRegReg(Register, Register, Register),
+    MaxRegReg(Register, Register, Register),
+
+    AddRegImm(Register, Register, f32),
+    MulRegImm(Register, Register, f32),
+    SubImmReg(Register, f32, Register),
+    SubRegImm(Register, Register, f32),
+    MinRegImm(Register, Register, f32),
+    MaxRegImm(Register, Register, f32),
+
+    CopyImm(Register, f32),
+}
+
 /// The instruction tape is given as a `Vec<u32>`, which can be thought of as
 /// bytecode or instructions for a very simple virtual machine.
 ///
@@ -463,11 +497,11 @@ impl Tape {
 
 /// Type-safe container for an allocated register
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct Register(u8);
+pub struct Register(u8);
 
 /// Type-safe container for an allocated slot in memory
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct Memory(u16);
+pub struct Memory(u16);
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 enum Slot {
