@@ -6,7 +6,7 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
 
-pub fn from_tape(t: &Tape) -> AsmHandle {
+pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
     assert_eq!(t.fast_reg_limit, REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
@@ -197,11 +197,29 @@ pub fn from_tape(t: &Tape) -> AsmHandle {
     let shape_fn_pointer = buf.ptr(shape_fn);
     AsmHandle {
         _buf: buf,
+        _p: std::marker::PhantomData,
         shape_fn_pointer,
     }
 }
 
-pub fn tape_to_interval(t: &Tape) -> AsmHandle {
+/// Alright, here's the plan.
+///
+/// We're calling a function of the form
+/// ```
+/// # type IntervalFn =
+/// extern "C" fn([f32; 2], [f32; 2]) -> [f32; 2];
+/// ```
+///
+/// The two arguments are `x` and `y` intervals.  They come packed into `s0-4`,
+/// and we shuffle them into SIMD registers `V0.2S` and `V1.2S` respectively.
+///
+/// Each SIMD register stores an interval.  `s[0]` is the lower bound of the
+/// interval and `s[1]` is the upper bound.
+///
+/// The input tape should be planned with a 24 register limit.  We use hardware
+/// `V8.2S` through `V32.2S` to store our "fast" registers, and put everything
+/// else on the stack.
+pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
     assert_eq!(t.fast_reg_limit, REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
@@ -531,6 +549,7 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
     let shape_fn_pointer = buf.ptr(shape_fn);
     AsmHandle {
         _buf: buf,
+        _p: std::marker::PhantomData,
         shape_fn_pointer,
     }
 }
@@ -538,25 +557,15 @@ pub fn tape_to_interval(t: &Tape) -> AsmHandle {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle which owns JITed functions
-pub struct AsmHandle {
+pub struct AsmHandle<F> {
     _buf: dynasmrt::ExecutableBuffer,
     shape_fn_pointer: *const u8,
+    _p: std::marker::PhantomData<*const F>,
 }
 
-impl AsmHandle {
-    pub fn to_eval(&self) -> AsmEval<'_> {
-        let f = unsafe { std::mem::transmute(self.shape_fn_pointer) };
-        AsmEval {
-            fn_float: f,
-            _p: std::marker::PhantomData,
-        }
-    }
-    pub fn to_interval(&self) -> IntervalEval<'_> {
-        let f = unsafe { std::mem::transmute(self.shape_fn_pointer) };
-        IntervalEval {
-            fn_interval: f,
-            _p: std::marker::PhantomData,
-        }
+impl<'a, F: From<&'a AsmHandle<F>> + 'a> AsmHandle<F> {
+    pub fn into_eval(&'a self) -> F {
+        F::from(self)
     }
 }
 
@@ -574,20 +583,38 @@ type IntervalFunc = unsafe extern "C" fn(
 ///
 /// The lifetime of this `struct` is bound to an `AsmHandle`, which owns the
 /// underlying executable memory.
-pub struct AsmEval<'asm> {
+pub struct FloatEval<'asm> {
     fn_float: FloatFunc,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> AsmEval<'a> {
+impl<'a> FloatEval<'a> {
     pub fn eval(&self, x: f32, y: f32) -> f32 {
         unsafe { (self.fn_float)(x, y) }
+    }
+}
+
+impl From<&AsmHandle<FloatEval<'_>>> for FloatEval<'_> {
+    fn from(a: &AsmHandle<FloatEval>) -> Self {
+        Self {
+            fn_float: unsafe { std::mem::transmute(a.shape_fn_pointer) },
+            _p: std::marker::PhantomData,
+        }
     }
 }
 
 pub struct IntervalEval<'asm> {
     fn_interval: IntervalFunc,
     _p: std::marker::PhantomData<&'asm ()>,
+}
+
+impl From<&AsmHandle<IntervalEval<'_>>> for IntervalEval<'_> {
+    fn from(a: &AsmHandle<IntervalEval>) -> Self {
+        Self {
+            fn_interval: unsafe { std::mem::transmute(a.shape_fn_pointer) },
+            _p: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<'a> IntervalEval<'a> {
@@ -607,13 +634,13 @@ mod tests {
         scheduled::schedule,
     };
 
-    fn to_float_fn(v: Node, ctx: &Context) -> AsmHandle {
+    fn to_float_fn(v: Node, ctx: &Context) -> AsmHandle<FloatEval> {
         let scheduled = schedule(ctx, v);
         let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
-        from_tape(&tape)
+        tape_to_float(&tape)
     }
 
-    fn to_interval_fn(v: Node, ctx: &Context) -> AsmHandle {
+    fn to_interval_fn(v: Node, ctx: &Context) -> AsmHandle<IntervalEval> {
         let scheduled = schedule(ctx, v);
         let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
         tape_to_interval(&tape)
@@ -629,7 +656,7 @@ mod tests {
         let sum = ctx.add(x, y2).unwrap();
 
         let jit = to_float_fn(sum, &ctx);
-        let eval = jit.to_eval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval(1.0, 2.0), 6.0);
     }
 
@@ -640,12 +667,12 @@ mod tests {
         let y = ctx.y();
 
         let jit = to_interval_fn(x, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval.eval([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let jit = to_interval_fn(y, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
         assert_eq!(eval.eval([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
@@ -657,7 +684,7 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let jit = to_interval_fn(abs_x, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         let y = [0.0, 1.0];
         assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
         assert_eq!(eval.eval([1.0, 5.0], y), [1.0, 5.0]);
@@ -669,7 +696,7 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let jit = to_interval_fn(sum, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
         assert_eq!(eval.eval([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
         assert_eq!(eval.eval([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
@@ -682,7 +709,7 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         let y = [0.0, 1.0];
         assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
         assert_eq!(eval.eval([0.0, 4.0], y), [0.0, 2.0]);
@@ -699,7 +726,7 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         let y = [0.0, 1.0];
         assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
         assert_eq!(eval.eval([0.0, 4.0], y), [0.0, 16.0]);
@@ -717,7 +744,7 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
         assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
@@ -732,14 +759,14 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [0.0, 2.0]);
         assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [2.0, 4.0]);
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-3.0, 0.0]);
         assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-6.0, -3.0]);
     }
@@ -752,7 +779,7 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
         assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
@@ -767,14 +794,14 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-2.0, -1.0]);
         assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-1.0, 0.0]);
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-4.0, -3.0]);
         assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-5.0, -4.0]);
     }
@@ -785,7 +812,7 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let jit = to_interval_fn(recip, &ctx);
-        let eval = jit.to_interval();
+        let eval = jit.into_eval();
 
         let nanan = eval.eval([0.0, 1.0], [0.0, 0.0]);
         assert!(nanan[0].is_nan());

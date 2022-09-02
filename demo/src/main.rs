@@ -187,9 +187,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &scheduled,
                 jitfive::backend::dynasm::REGISTER_LIMIT,
             );
-            let jit = jitfive::backend::dynasm::from_tape(&tape);
-            let eval = jit.to_eval();
+            let jit = jitfive::backend::dynasm::tape_to_float(&tape);
+            let eval = jit.into_eval();
             info!("Built JIT function in {:?}", now.unwrap().elapsed());
+
+            now = Some(Instant::now());
+            let i_jit = jitfive::backend::dynasm::tape_to_interval(&tape);
+            let i_eval = i_jit.into_eval();
+            info!(
+                "Built interval JIT function in {:?}",
+                now.unwrap().elapsed()
+            );
+            now = Some(Instant::now());
+            println!("{:?}", i_eval.eval([-0.5, 0.0], [-0.5, 0.0]));
+            info!("Calculated in {:?}", now.unwrap().elapsed());
 
             now = Some(Instant::now());
             let div = (scale - 1) as f64;
