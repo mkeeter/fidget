@@ -5,6 +5,7 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
+const REG_OFFSET: u32 = 8;
 
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
@@ -32,8 +33,6 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
         ; sub   sp, sp, #(stack_space)
     );
 
-    const FAST_REG_OFFSET: u32 = 8;
-
     let mut iter = t.tape.iter().rev();
     while let Some(v) = iter.next() {
         if v & (1 << 30) == 0 {
@@ -41,7 +40,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
             let op = ClauseOp32::from_u32(op).unwrap();
             match op {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                    let fast_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let fast_reg = (v & 0xFF) + REG_OFFSET;
                     let extended_reg = (v >> 8) & 0xFFFF;
                     let sp_offset = 4 * (extended_reg - t.reg_count as u32);
                     match op {
@@ -68,7 +67,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 ClauseOp32::Input => {
                     let input = (v >> 16) & 0xFF;
                     assert!(input < 3);
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     dynasm!(ops
                         ; fmov S(out_reg), S(input)
                     );
@@ -79,8 +78,8 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 | ClauseOp32::RecipReg
                 | ClauseOp32::SqrtReg
                 | ClauseOp32::SquareReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + FAST_REG_OFFSET;
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     match op {
                         ClauseOp32::CopyReg => dynasm!(ops
                             ; fmov S(out_reg), S(lhs_reg)
@@ -110,9 +109,9 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 | ClauseOp32::SubRegReg
                 | ClauseOp32::MinRegReg
                 | ClauseOp32::MaxRegReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + FAST_REG_OFFSET;
-                    let rhs_reg = ((v >> 8) & 0xFF) + FAST_REG_OFFSET;
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let rhs_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     match op {
                         ClauseOp32::AddRegReg => dynasm!(ops
                             ; fadd S(out_reg), S(lhs_reg), S(rhs_reg)
@@ -140,8 +139,8 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
             let op = (v >> 16) & ((1 << 14) - 1);
             let op = ClauseOp64::from_u32(op).unwrap();
             let next = iter.next().unwrap();
-            let arg_reg = ((v >> 8) & 0xFF) + FAST_REG_OFFSET;
-            let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+            let arg_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
+            let out_reg = (v & 0xFF) + REG_OFFSET;
             let imm_u32 = *next;
 
             // Unpack the immediate using two 16-bit writes
@@ -178,7 +177,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 
     dynasm!(ops
         // Prepare our return value
-        ; fmov  s0, S(FAST_REG_OFFSET)
+        ; fmov  s0, S(REG_OFFSET)
         // Restore stack space used for spills
         ; add   sp, sp, #(stack_space)
         // Restore callee-saved floating-point registers
@@ -256,8 +255,6 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
         ; mov v2.s[1], v5.s[0]
     );
 
-    const FAST_REG_OFFSET: u32 = 8;
-
     // Helper constant for when we need to inject a NaN
     let nan_u32 = f32::NAN.to_bits();
 
@@ -268,7 +265,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
             let op = ClauseOp32::from_u32(op).unwrap();
             match op {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                    let fast_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let fast_reg = (v & 0xFF) + REG_OFFSET;
                     let extended_reg = (v >> 8) & 0xFFFF;
                     let sp_offset = 2 * 4 * (extended_reg - t.reg_count as u32);
                     // We'll pretend we're reading and writing doubles (D), but
@@ -297,7 +294,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                 ClauseOp32::Input => {
                     let input = (v >> 16) & 0xFF;
                     assert!(input < 3);
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     dynasm!(ops
                         ; fmov D(out_reg), D(input)
                     );
@@ -308,8 +305,8 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                 | ClauseOp32::RecipReg
                 | ClauseOp32::SqrtReg
                 | ClauseOp32::SquareReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + FAST_REG_OFFSET;
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     match op {
                         ClauseOp32::CopyReg => dynasm!(ops
                             ; fmov D(out_reg), D(lhs_reg)
@@ -445,9 +442,9 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                 | ClauseOp32::SubRegReg
                 | ClauseOp32::MinRegReg
                 | ClauseOp32::MaxRegReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + FAST_REG_OFFSET;
-                    let rhs_reg = ((v >> 8) & 0xFF) + FAST_REG_OFFSET;
-                    let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let rhs_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
+                    let out_reg = (v & 0xFF) + REG_OFFSET;
                     match op {
                         ClauseOp32::AddRegReg => dynasm!(ops
                             ; fadd V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
@@ -488,8 +485,8 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
             let op = (v >> 16) & ((1 << 14) - 1);
             let op = ClauseOp64::from_u32(op).unwrap();
             let next = iter.next().unwrap();
-            let arg_reg = ((v >> 8) & 0xFF) + FAST_REG_OFFSET;
-            let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
+            let arg_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
+            let out_reg = (v & 0xFF) + REG_OFFSET;
             let imm_u32 = *next;
             let imm_f32 = f32::from_bits(imm_u32);
 
@@ -535,8 +532,8 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
     dynasm!(ops
         // Prepare our return value
-        ; mov  s0, V(FAST_REG_OFFSET).s[0]
-        ; mov  s1, V(FAST_REG_OFFSET).s[1]
+        ; mov  s0, V(REG_OFFSET).s[0]
+        ; mov  s1, V(REG_OFFSET).s[1]
         // Restore stack space used for spills
         ; add   sp, sp, #(stack_space)
         // Restore callee-saved floating-point registers
