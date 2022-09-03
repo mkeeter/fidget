@@ -7,7 +7,6 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 pub const REGISTER_LIMIT: usize = 24;
 
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
-    t.pretty_print_tape();
     assert!(t.reg_count <= REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
@@ -58,9 +57,9 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                         }
                         ClauseOp32::Swap => {
                             dynasm!(ops
-                                ; fmov s3, S(fast_reg)
+                                ; fmov s4, S(fast_reg)
                                 ; ldr S(fast_reg), [sp, #(sp_offset)]
-                                ; str s3, [sp, #(sp_offset)]
+                                ; str s4, [sp, #(sp_offset)]
                             );
                         }
                         _ => unreachable!(),
@@ -68,6 +67,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 }
                 ClauseOp32::Input => {
                     let input = (v >> 16) & 0xFF;
+                    assert!(input < 3);
                     let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
                     dynasm!(ops
                         ; fmov S(out_reg), S(input)
@@ -148,26 +148,26 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
             dynasm!(ops
                 ; movz w9, #(imm_u32 >> 16), lsl 16
                 ; movk w9, #(imm_u32)
-                ; fmov s3, w9
+                ; fmov s4, w9
             );
             match op {
                 ClauseOp64::AddRegImm => dynasm!(ops
-                    ; fadd S(out_reg), S(arg_reg), s3
+                    ; fadd S(out_reg), S(arg_reg), s4
                 ),
                 ClauseOp64::MulRegImm => dynasm!(ops
-                    ; fmul S(out_reg), S(arg_reg), s3
+                    ; fmul S(out_reg), S(arg_reg), s4
                 ),
                 ClauseOp64::SubImmReg => dynasm!(ops
-                    ; fsub S(out_reg), s3, S(arg_reg)
+                    ; fsub S(out_reg), s4, S(arg_reg)
                 ),
                 ClauseOp64::SubRegImm => dynasm!(ops
-                    ; fsub S(out_reg), S(arg_reg), s3
+                    ; fsub S(out_reg), S(arg_reg), s4
                 ),
                 ClauseOp64::MinRegImm => dynasm!(ops
-                    ; fmin S(out_reg), S(arg_reg), s3
+                    ; fmin S(out_reg), S(arg_reg), s4
                 ),
                 ClauseOp64::MaxRegImm => dynasm!(ops
-                    ; fmax S(out_reg), S(arg_reg), s3
+                    ; fmax S(out_reg), S(arg_reg), s4
                 ),
                 ClauseOp64::CopyImm => dynasm!(ops
                     ; fmov S(out_reg), w9
@@ -204,11 +204,12 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 /// We're calling a function of the form
 /// ```
 /// # type IntervalFn =
-/// extern "C" fn([f32; 2], [f32; 2]) -> [f32; 2];
+/// extern "C" fn([f32; 2], [f32; 2], [f32; 2]) -> [f32; 2];
 /// ```
 ///
-/// The two arguments are `x` and `y` intervals.  They come packed into `s0-4`,
-/// and we shuffle them into SIMD registers `V0.2S` and `V1.2S` respectively.
+/// The three arguments are `x`, `y`, and `z` intervals.  They come packed into
+/// `s0-5`, and we shuffle them into SIMD registers `V0.2S`, `V1.2S`, and
+/// `V2.2s` respectively.
 ///
 /// Each SIMD register stores an interval.  `s[0]` is the lower bound of the
 /// interval and `s[1]` is the upper bound.
@@ -216,6 +217,12 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 /// The input tape should be planned with a 24 register limit.  We use hardware
 /// `V8.2S` through `V32.2S` to store our "fast" registers, and put everything
 /// else on the stack.
+///
+/// `V4.2S` through `V7.2S` are used for scratch values within a single opcode
+/// (e.g. storing intermediate values when calculating `min` or `max`).
+///
+/// In general, expect to use `v4` and `v5` for intermediate (float) values,
+/// and `[x,w]19` for intermediate integer values.
 pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
@@ -241,10 +248,12 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
         ; stp   d14, d15, [sp, #-16]!
         ; sub   sp, sp, #(stack_space)
 
-        // Arguments are passed in S0-3; collect them into V0-1
+        // Arguments are passed in S0-6; collect them into V0-1
         ; mov v0.s[1], v1.s[0]
         ; mov v1.s[0], v2.s[0]
         ; mov v1.s[1], v3.s[0]
+        ; mov v2.s[0], v4.s[0]
+        ; mov v2.s[1], v5.s[0]
     );
 
     const FAST_REG_OFFSET: u32 = 8;
@@ -277,9 +286,9 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                         }
                         ClauseOp32::Swap => {
                             dynasm!(ops
-                                ; fmov d3, D(fast_reg)
+                                ; fmov d4, D(fast_reg)
                                 ; ldr D(fast_reg), [sp, #(sp_offset)]
-                                ; str s3, [sp, #(sp_offset)]
+                                ; str d4, [sp, #(sp_offset)]
                             );
                         }
                         _ => unreachable!(),
@@ -287,6 +296,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                 }
                 ClauseOp32::Input => {
                     let input = (v >> 16) & 0xFF;
+                    assert!(input < 3);
                     let out_reg = (v & 0xFF) + FAST_REG_OFFSET;
                     dynasm!(ops
                         ; fmov D(out_reg), D(input)
@@ -309,28 +319,28 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; rev64 V(out_reg).s2, V(out_reg).s2
                         ),
                         ClauseOp32::AbsReg => dynasm!(ops
-                            // Store lhs < 0.0 in x8
-                            ; fcmle v3.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x8, d3
+                            // Store lhs < 0.0 in x19
+                            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+                            ; fmov x19, d4
 
                             // Store abs(lhs) in V(out_reg)
                             ; fabs V(out_reg).s2, V(lhs_reg).s2
 
                             // Check whether lhs.upper < 0
-                            ; tst x8, #0x1_0000_0000
+                            ; tst x19, #0x1_0000_0000
                             ; b.ne >upper_lz // ne is !Z
 
                             // Check whether lhs.lower < 0
-                            ; tst x8, #0x1
+                            ; tst x19, #0x1
 
                             // otherwise, we're good; return the original
                             ; b.eq >end
 
                             // if lhs.lower < 0, then the output is
                             //  [0.0, max(abs(lower, upper))]
-                            ; movi d7, #0
-                            ; fmaxnmv s7, V(out_reg).s4
-                            ; fmov D(out_reg), d7
+                            ; movi d4, #0
+                            ; fmaxnmv s4, V(out_reg).s4
+                            ; fmov D(out_reg), d4
                             // Fall through to do the swap
 
                             // if upper < 0
@@ -342,28 +352,28 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                         ),
                         ClauseOp32::RecipReg => dynasm!(ops
                             // Check whether lhs.lower > 0.0
-                            ; fcmgt s7, S(lhs_reg), 0.0
-                            ; fmov w7, s7
-                            ; tst w7, #0x1
+                            ; fcmgt s4, S(lhs_reg), 0.0
+                            ; fmov w19, s4
+                            ; tst w19, #0x1
                             ; b.ne >okay
 
                             // Check whether lhs.upper < 0.0
-                            ; mov s7, V(lhs_reg).s[1]
-                            ; fcmlt s7, s7, 0.0
-                            ; fmov w7, s7
-                            ; tst w7, #0x1
+                            ; mov s4, V(lhs_reg).s[1]
+                            ; fcmlt s4, s4, 0.0
+                            ; fmov w19, s4
+                            ; tst w19, #0x1
                             ; b.ne >okay // ne is Z == 0
 
                             // Bad case: the division spans 0, so return NaN
-                            ; movz w9, #(nan_u32 >> 16), lsl 16
-                            ; movk w9, #(nan_u32)
-                            ; dup V(out_reg).s2, w9
+                            ; movz w19, #(nan_u32 >> 16), lsl 16
+                            ; movk w19, #(nan_u32)
+                            ; dup V(out_reg).s2, w19
                             ; b >end
 
                             ;okay:
-                            ; fmov s7, #1.0
-                            ; dup v7.s2, v7.s[0]
-                            ; fdiv V(out_reg).s2, v7.s2, V(lhs_reg).s2
+                            ; fmov s4, #1.0
+                            ; dup v4.s2, v4.s[0]
+                            ; fdiv V(out_reg).s2, v4.s2, V(lhs_reg).s2
                             ; rev64 V(out_reg).s2, V(out_reg).s2
                             // Fallthrough to >end
 
@@ -371,14 +381,14 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                         ),
                         ClauseOp32::SqrtReg => dynasm!(ops
                             // Store lhs <= 0.0 in x8
-                            ; fcmle v3.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x8, d3
+                            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+                            ; fmov x19, d4
 
                             // Check whether lhs.upper < 0
-                            ; tst x8, #0x1_0000_0000
+                            ; tst x19, #0x1_0000_0000
                             ; b.ne >upper_lz // ne is Z == 0
 
-                            ; tst x8, #0x1
+                            ; tst x19, #0x1
                             ; b.ne >lower_lz // ne is Z == 0
 
                             // Happy path
@@ -401,17 +411,17 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ;end:
                         ),
                         ClauseOp32::SquareReg => dynasm!(ops
-                            // Store lhs <= 0.0 in x8
-                            ; fcmle v3.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x8, d3
+                            // Store lhs <= 0.0 in x18
+                            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+                            ; fmov x18, d4
                             ; fmul V(out_reg).s2, V(lhs_reg).s2, V(lhs_reg).s2
 
                             // Check whether lhs.upper <= 0.0
-                            ; tst x8, #0x1_0000_0000
+                            ; tst x18, #0x1_0000_0000
                             ; b.ne >swap // ne is Z == 0
 
                             // Test whether lhs.lower <= 0.0
-                            ; tst x8, #0x1
+                            ; tst x18, #0x1
                             ; b.eq >end
 
                             // If the input interval straddles 0, then the
@@ -485,17 +495,17 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
             // Unpack the immediate using two 16-bit writes
             dynasm!(ops
-                ; movz w9, #(imm_u32 >> 16), lsl 16
-                ; movk w9, #(imm_u32)
-                ; dup v3.s2, w9
+                ; movz w19, #(imm_u32 >> 16), lsl 16
+                ; movk w19, #(imm_u32)
+                ; dup v4.s2, w19
             );
             match op {
                 ClauseOp64::AddRegImm => dynasm!(ops
-                    ; fadd V(out_reg).s2, V(arg_reg).s2, v3.s2
+                    ; fadd V(out_reg).s2, V(arg_reg).s2, v4.s2
                 ),
                 ClauseOp64::MulRegImm => {
                     dynasm!(ops
-                        ; fmul V(out_reg).s2, V(arg_reg).s2, v3.s2
+                        ; fmul V(out_reg).s2, V(arg_reg).s2, v4.s2
                     );
                     if imm_f32 < 0.0 {
                         dynasm!(ops
@@ -504,17 +514,17 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                     }
                 }
                 ClauseOp64::SubImmReg => dynasm!(ops
-                    ; rev64 v4.s2, V(out_reg).s2
-                    ; fsub V(out_reg).s2, v3.s2, v4.s2
+                    ; rev64 v5.s2, V(arg_reg).s2
+                    ; fsub V(out_reg).s2, v4.s2, v5.s2
                 ),
                 ClauseOp64::SubRegImm => dynasm!(ops
-                    ; fsub V(out_reg).s2, V(arg_reg).s2, v3.s2
+                    ; fsub V(out_reg).s2, V(arg_reg).s2, v4.s2
                 ),
                 ClauseOp64::MinRegImm => dynasm!(ops
-                    ; fmin V(out_reg).s2, V(arg_reg).s2, v3.s2
+                    ; fmin V(out_reg).s2, V(arg_reg).s2, v4.s2
                 ),
                 ClauseOp64::MaxRegImm => dynasm!(ops
-                    ; fmax V(out_reg).s2, V(arg_reg).s2, v3.s2
+                    ; fmax V(out_reg).s2, V(arg_reg).s2, v4.s2
                 ),
                 ClauseOp64::CopyImm => dynasm!(ops
                     ; fmov D(out_reg), x9
@@ -602,13 +612,14 @@ pub struct IntervalEval<'asm> {
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
+        [f32; 2], // Z
     ) -> [f32; 2],
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
 impl<'a> IntervalEval<'a> {
-    pub fn i(&self, x: [f32; 2], y: [f32; 2]) -> [f32; 2] {
-        unsafe { (self.fn_interval)(x, y) }
+    pub fn i(&self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+        unsafe { (self.fn_interval)(x, y, z) }
     }
 }
 
@@ -657,13 +668,15 @@ mod tests {
 
         let jit = to_interval_fn(x, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
-        assert_eq!(eval.i([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
+        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
+        assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let jit = to_interval_fn(y, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
-        assert_eq!(eval.i([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
+        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
+        assert_eq!(eval_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
 
     #[test]
@@ -674,21 +687,22 @@ mod tests {
 
         let jit = to_interval_fn(abs_x, &ctx);
         let eval = jit.get_evaluator();
-        let y = [0.0, 1.0];
-        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.i([1.0, 5.0], y), [1.0, 5.0]);
-        assert_eq!(eval.i([-2.0, 5.0], y), [0.0, 5.0]);
-        assert_eq!(eval.i([-6.0, 5.0], y), [0.0, 6.0]);
-        assert_eq!(eval.i([-6.0, -1.0], y), [1.0, 6.0]);
+        let eval = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval([0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval([1.0, 5.0]), [1.0, 5.0]);
+        assert_eq!(eval([-2.0, 5.0]), [0.0, 5.0]);
+        assert_eq!(eval([-6.0, 5.0]), [0.0, 6.0]);
+        assert_eq!(eval([-6.0, -1.0]), [1.0, 6.0]);
 
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let jit = to_interval_fn(sum, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
-        assert_eq!(eval.i([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
-        assert_eq!(eval.i([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
+        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
+        assert_eq!(eval_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
+        assert_eq!(eval_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
     }
 
     #[test]
@@ -699,11 +713,11 @@ mod tests {
 
         let jit = to_interval_fn(sqrt_x, &ctx);
         let eval = jit.get_evaluator();
-        let y = [0.0, 1.0];
-        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.i([0.0, 4.0], y), [0.0, 2.0]);
-        assert_eq!(eval.i([-2.0, 4.0], y), [0.0, 2.0]);
-        let nanan = eval.i([-2.0, -1.0], y);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 4.0]), [0.0, 2.0]);
+        assert_eq!(eval_x([-2.0, 4.0]), [0.0, 2.0]);
+        let nanan = eval_x([-2.0, -1.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
     }
@@ -716,13 +730,13 @@ mod tests {
 
         let jit = to_interval_fn(sqrt_x, &ctx);
         let eval = jit.get_evaluator();
-        let y = [0.0, 1.0];
-        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.i([0.0, 4.0], y), [0.0, 16.0]);
-        assert_eq!(eval.i([2.0, 4.0], y), [4.0, 16.0]);
-        assert_eq!(eval.i([-2.0, 4.0], y), [0.0, 16.0]);
-        assert_eq!(eval.i([-6.0, -2.0], y), [4.0, 36.0]);
-        assert_eq!(eval.i([-6.0, 1.0], y), [0.0, 36.0]);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 4.0]), [0.0, 16.0]);
+        assert_eq!(eval_x([2.0, 4.0]), [4.0, 16.0]);
+        assert_eq!(eval_x([-2.0, 4.0]), [0.0, 16.0]);
+        assert_eq!(eval_x([-6.0, -2.0]), [4.0, 36.0]);
+        assert_eq!(eval_x([-6.0, 1.0]), [0.0, 36.0]);
     }
 
     #[test]
@@ -734,11 +748,12 @@ mod tests {
 
         let jit = to_interval_fn(mul, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
-        assert_eq!(eval.i([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
-        assert_eq!(eval.i([-2.0, -1.0], [-5.0, -4.0]), [4.0, 10.0]);
-        assert_eq!(eval.i([-3.0, -1.0], [-2.0, 6.0]), [-18.0, 6.0]);
+        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
+        assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
+        assert_eq!(eval_xy([-2.0, -1.0], [-5.0, -4.0]), [4.0, 10.0]);
+        assert_eq!(eval_xy([-3.0, -1.0], [-2.0, 6.0]), [-18.0, 6.0]);
     }
 
     #[test]
@@ -749,15 +764,17 @@ mod tests {
         let mul = ctx.mul(x, two).unwrap();
         let jit = to_interval_fn(mul, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [0.0, 2.0]);
-        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [2.0, 4.0]);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
+        assert_eq!(eval_x([1.0, 2.0]), [2.0, 4.0]);
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let jit = to_interval_fn(mul, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-3.0, 0.0]);
-        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-6.0, -3.0]);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
+        assert_eq!(eval_x([1.0, 2.0]), [-6.0, -3.0]);
     }
 
     #[test]
@@ -769,11 +786,12 @@ mod tests {
 
         let jit = to_interval_fn(sub, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
-        assert_eq!(eval.i([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
-        assert_eq!(eval.i([-2.0, -1.0], [-5.0, -4.0]), [2.0, 4.0]);
-        assert_eq!(eval.i([-3.0, -1.0], [-2.0, 6.0]), [-9.0, 1.0]);
+        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
+        assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
+        assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
+        assert_eq!(eval_xy([-2.0, -1.0], [-5.0, -4.0]), [2.0, 4.0]);
+        assert_eq!(eval_xy([-3.0, -1.0], [-2.0, 6.0]), [-9.0, 1.0]);
     }
 
     #[test]
@@ -784,15 +802,17 @@ mod tests {
         let sub = ctx.sub(x, two).unwrap();
         let jit = to_interval_fn(sub, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-2.0, -1.0]);
-        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-1.0, 0.0]);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
+        assert_eq!(eval_x([1.0, 2.0]), [-1.0, 0.0]);
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let jit = to_interval_fn(sub, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-4.0, -3.0]);
-        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-5.0, -4.0]);
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
+        assert_eq!(eval_x([1.0, 2.0]), [-5.0, -4.0]);
     }
 
     #[test]
@@ -802,20 +822,21 @@ mod tests {
         let recip = ctx.recip(x).unwrap();
         let jit = to_interval_fn(recip, &ctx);
         let eval = jit.get_evaluator();
+        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
 
-        let nanan = eval.i([0.0, 1.0], [0.0, 0.0]);
+        let nanan = eval_x([0.0, 1.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        let nanan = eval.i([-1.0, 0.0], [0.0, 0.0]);
+        let nanan = eval_x([-1.0, 0.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        let nanan = eval.i([-2.0, 3.0], [0.0, 0.0]);
+        let nanan = eval_x([-2.0, 3.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        assert_eq!(eval.i([-2.0, -1.0], [0.0, 0.0]), [-1.0, -0.5]);
-        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [0.5, 1.0]);
+        assert_eq!(eval_x([-2.0, -1.0]), [-1.0, -0.5]);
+        assert_eq!(eval_x([1.0, 2.0]), [0.5, 1.0]);
     }
 }

@@ -84,14 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Built JIT function in {:?}", start.elapsed());
 
             let start = Instant::now();
-            let i_jit = jitfive::backend::dynasm::build_interval_fn(&tape);
-            let i_eval = i_jit.get_evaluator();
-            info!("Built interval JIT function in {:?}", start.elapsed());
-            let start = Instant::now();
-            println!("{:?}", i_eval.i([-0.5, 0.0], [-0.5, 0.0]));
-            info!("Calculated in {:?}", start.elapsed());
-
-            let start = Instant::now();
             let div = (scale - 1) as f64;
             for i in 0..scale {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
