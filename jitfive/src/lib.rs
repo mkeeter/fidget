@@ -3,7 +3,7 @@ pub mod context;
 pub mod error;
 pub mod op;
 pub mod scheduled;
-pub(crate) mod util;
+pub mod util;
 
 #[cfg(test)]
 mod tests {

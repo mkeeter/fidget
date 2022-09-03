@@ -12,10 +12,6 @@ use num_traits::{FromPrimitive, ToPrimitive};
 
 #[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
 pub enum ClauseOp32 {
-    /// `Done` marks the end of the tape.  It is only needed so that we can
-    /// label a preceeding 64-bit operation (in the high bit).
-    Done = 0,
-
     /// Load from an extended register to a main register
     Load,
 
@@ -45,7 +41,6 @@ pub enum ClauseOp32 {
 impl ClauseOp32 {
     fn name(&self) -> &'static str {
         match self {
-            ClauseOp32::Done => "DONE",
             ClauseOp32::Load => "LOAD",
             ClauseOp32::Store => "STORE",
             ClauseOp32::Swap => "SWAP",
@@ -148,42 +143,11 @@ impl ClauseOp64 {
     }
 }
 
-/// Top-level `enum` containing all possible operations in the tape.
-///
-/// This lets us built iterators that return friendly types, instead of having
-/// to decode bitfields in multiple places.
-pub enum Clause {
-    Done,
-    Load(Register, Memory),
-    Store(Register, Memory),
-    Swap(Register, Memory),
-    Input(u8),
-
-    CopyReg(Register, Register),
-    NegReg(Register, Register),
-    AbsReg(Register, Register),
-    RecipReg(Register, Register),
-    SqrtReg(Register, Register),
-    SquareReg(Register, Register),
-
-    AddRegReg(Register, Register, Register),
-    MulRegReg(Register, Register, Register),
-    SubRegReg(Register, Register, Register),
-    MinRegReg(Register, Register, Register),
-    MaxRegReg(Register, Register, Register),
-
-    AddRegImm(Register, Register, f32),
-    MulRegImm(Register, Register, f32),
-    SubImmReg(Register, f32, Register),
-    SubRegImm(Register, Register, f32),
-    MinRegImm(Register, Register, f32),
-    MaxRegImm(Register, Register, f32),
-
-    CopyImm(Register, f32),
-}
-
 /// The instruction tape is given as a `Vec<u32>`, which can be thought of as
 /// bytecode or instructions for a very simple virtual machine.
+///
+/// It is written to be evaluated in order (forward), but can also be walked
+/// backwards to generate a reduced tape.
 ///
 /// Decoding depends on the upper bits of a particular `u32`:
 ///
@@ -238,9 +202,6 @@ pub enum Clause {
 /// | 7-0   | Out (register)  |
 ///
 /// Followed by an immediate (as a `f32` as raw bits)
-///
-/// ## Uncommon operation
-/// TBD
 #[derive(Debug)]
 pub struct Tape {
     pub tape: Vec<u32>,
@@ -253,6 +214,14 @@ pub struct Tape {
     ///
     /// This is always `<= total_slots`
     pub reg_count: usize,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(u8)]
+pub enum Choice {
+    Left,
+    Right,
+    Both,
 }
 
 impl Tape {
@@ -269,18 +238,7 @@ impl Tape {
 
     fn from_builder(mut builder: TapeBuilder) -> Self {
         builder.run();
-        match builder.get_allocated_value(builder.t.root) {
-            Allocation::Immediate(f) => builder.build_op_64(
-                ClauseOp64::CopyImm,
-                Register(0),
-                f,
-                Register(0),
-            ),
-            Allocation::Register(r) => {
-                builder.build_op_reg(ClauseOp32::CopyReg, r, Register(0))
-            }
-        }
-
+        builder.out.reverse();
         Self {
             tape: builder.out,
             reg_count: builder.reg_limit.min(builder.total_slots),
@@ -293,7 +251,7 @@ impl Tape {
     }
 
     pub fn eval(&self, x: f32, y: f32, workspace: &mut [f32]) -> f32 {
-        let mut iter = self.tape.iter();
+        let mut iter = self.tape.iter().rev();
         while let Some(v) = iter.next() {
             // 32-bit instruction
             if v & (1 << 30) == 0 {
@@ -301,17 +259,15 @@ impl Tape {
                 let op = ClauseOp32::from_u32(op).unwrap();
                 match op {
                     ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                        let fast_reg = (v & 0xFF) as usize;
-                        let extended_reg = ((v >> 8) & 0xFFFF) as usize;
+                        let reg = (v & 0xFF) as usize;
+                        let mem = ((v >> 8) & 0xFFFF) as usize;
                         match op {
-                            ClauseOp32::Load => {
-                                workspace[fast_reg] = workspace[extended_reg]
-                            }
+                            ClauseOp32::Load => workspace[reg] = workspace[mem],
                             ClauseOp32::Store => {
-                                workspace[extended_reg] = workspace[fast_reg]
+                                workspace[mem] = workspace[reg]
                             }
                             ClauseOp32::Swap => {
-                                workspace.swap(fast_reg, extended_reg);
+                                workspace.swap(reg, mem);
                             }
                             _ => unreachable!(),
                         }
@@ -369,7 +325,6 @@ impl Tape {
                         };
                         workspace[out_reg as usize] = out;
                     }
-                    _ => panic!("Bad 32-bit opcode"),
                 }
             } else {
                 let op = (v >> 16) & ((1 << 14) - 1);
@@ -424,7 +379,6 @@ impl Tape {
                         println!("${} = INPUT %{}", out_reg, lhs_reg);
                     }
                     ClauseOp32::CopyReg
-                    | ClauseOp32::Done
                     | ClauseOp32::NegReg
                     | ClauseOp32::AbsReg
                     | ClauseOp32::RecipReg
@@ -518,8 +472,8 @@ struct TapeBuilder<'a> {
 
     /// Total number of memory slots
     ///
-    /// This should always equal the sum of `spare_registers`,
-    /// `spare_extended_register`, and `allocations`
+    /// This should always equal the sum of `spare_registers`, `spare_memory`,
+    /// and `allocations`
     total_slots: usize,
 
     /// Available short registers (index < 256)
@@ -588,7 +542,7 @@ impl<'a> TapeBuilder<'a> {
     }
 
     /// Claims an extended register for the given node
-    fn get_extended_register(&mut self) -> Memory {
+    fn get_memory(&mut self) -> Memory {
         if let Some(r) = self.spare_memory.pop() {
             r
         } else {
@@ -601,7 +555,7 @@ impl<'a> TapeBuilder<'a> {
     /// Claims a short register
     ///
     /// This may require evicting a short register
-    fn get_short_register(&mut self) -> Register {
+    fn get_registers(&mut self) -> Register {
         if let Some(r) = self.spare_registers.pop() {
             r
         } else if self.total_slots <= self.reg_limit {
@@ -615,7 +569,7 @@ impl<'a> TapeBuilder<'a> {
                 .allocations
                 .erase_right(&Slot::Register(target))
                 .unwrap();
-            let ext = self.get_extended_register();
+            let ext = self.get_memory();
             self.build_store_ext(target, ext);
             let b = self.allocations.insert(node, Slot::Memory(ext));
             assert!(b);
@@ -853,7 +807,7 @@ impl<'a> TapeBuilder<'a> {
                             _ => panic!(),
                         };
                     self.drop_inactive_allocations();
-                    let out = self.get_short_register();
+                    let out = self.get_registers();
                     // Slight misuse of the 32-bit unary form, but that's okay
                     self.build_op_reg(ClauseOp32::Input, Register(index), out);
                     out
@@ -873,7 +827,7 @@ impl<'a> TapeBuilder<'a> {
                         self.update_lru(r);
                     }
                     self.drop_inactive_allocations();
-                    let out = self.get_short_register();
+                    let out = self.get_registers();
                     self.update_lru(out);
                     self.build_op(op.into(), lhs, rhs, out);
                     out
@@ -888,7 +842,7 @@ impl<'a> TapeBuilder<'a> {
                         self.update_lru(r);
                     }
                     self.drop_inactive_allocations();
-                    let out = self.get_short_register();
+                    let out = self.get_registers();
                     self.update_lru(out);
                     self.build_op(op.into(), lhs, rhs, out);
                     out
@@ -903,7 +857,7 @@ impl<'a> TapeBuilder<'a> {
                     };
                     self.update_lru(lhs);
                     self.drop_inactive_allocations();
-                    let out = self.get_short_register();
+                    let out = self.get_registers();
                     self.update_lru(out);
                     self.build_op_reg(op.into(), lhs, out);
                     out
@@ -920,6 +874,31 @@ impl<'a> TapeBuilder<'a> {
                 self.allocations.len()
                     + self.spare_registers.len()
                     + self.spare_memory.len()
+            );
+        }
+
+        // Copy from the last register to register 0
+        match self.get_allocated_value(self.t.root) {
+            Allocation::Immediate(f) => self.build_op_64(
+                ClauseOp64::CopyImm,
+                Register(0),
+                f,
+                Register(0),
+            ),
+            Allocation::Register(r) => {
+                self.build_op_reg(ClauseOp32::CopyReg, r, Register(0))
+            }
+        }
+
+        // Push a trailing 32-bit operation, so that we can unambiguously detect
+        // if the second-to-last operation was 64-bit when walking the tape
+        // backwards.
+        if self.was_64 {
+            self.build_op_32(
+                ClauseOp32::CopyReg,
+                Register(0),
+                Register(0),
+                Register(0),
             );
         }
     }

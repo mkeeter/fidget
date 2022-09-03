@@ -134,7 +134,6 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
                         _ => unreachable!(),
                     };
                 }
-                _ => panic!("Bad 32-bit opcode"),
             }
         } else {
             let op = (v >> 16) & ((1 << 14) - 1);
@@ -474,7 +473,6 @@ pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
                         _ => unreachable!(),
                     };
                 }
-                _ => panic!("Bad 32-bit opcode"),
             }
         } else {
             let op = (v >> 16) & ((1 << 14) - 1);
