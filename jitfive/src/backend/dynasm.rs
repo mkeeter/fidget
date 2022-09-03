@@ -7,6 +7,7 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 pub const REGISTER_LIMIT: usize = 24;
 
 pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
+    t.pretty_print_tape();
     assert!(t.reg_count <= REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();

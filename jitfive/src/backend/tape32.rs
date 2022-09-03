@@ -146,62 +146,94 @@ impl ClauseOp64 {
 /// The instruction tape is given as a `Vec<u32>`, which can be thought of as
 /// bytecode or instructions for a very simple virtual machine.
 ///
-/// It is written to be evaluated in order (forward), but can also be walked
-/// backwards to generate a reduced tape.
+/// Every `u32` in the tape is either an instruction or an `f32` immediate
+/// (passed as raw bits).
 ///
-/// Decoding depends on the upper bits of a particular `u32`:
+/// To disambiguate, we use two bits as flags:
 ///
-/// | Bits | Meaning                        |
-/// |------|--------------------------------|
-/// | 31   | Previous instruction is 64-bit |
-/// | 30   | This instruction is 64-bit     |
+/// | Bits | Name   | Meaning                        |
+/// |------|--------|--------------------------------|
+/// | 31   | `NEXT` | Next instruction is 64-bit     |
+/// | 30   | `LONG` | This instruction is 64-bit     |
 ///
-/// Bit 31 allows us to read the tape in either direction, as long as the final
-/// item in the tape is a 32-bit operation.
+/// We also guarantee that the item at index 0 is a 32-bit operation, which
+/// allows us to unambiguously read the tape in either direction.
 ///
-/// Lower bits depend on bit 30.
+/// Here is an example tape encoding the operation
+/// ```
+/// max(x**2 + y**2 - 0.5, 0.25 - (x**2 + y**2))
+/// ```
+///
+/// The tape is evaluated from back to front, i.e. starting at index 10 and
+/// moving down to index 0.
+///
+/// | Index | Operation |  Out   | LHS   | RHS   | Value | `LONG` | `NEXT` |
+/// |-------|-----------|--------|-------|-------|-------|--------|--------|
+/// | 0     | `COPY`    | `$0`   | `$1`  | -     | -     |        |        |
+/// | 1     | `MAX`     | `$1`   | `$0`  | `$1`  | -     |        | ✓      |
+/// | 2     | -         | -      | -     | -     | 0.25  |        |        |
+/// | 3     | `SUB`     | `$1`   | -     | `$1`  | -     | ✓      | ✓      |
+/// | 4     | -         | -      | -     | -     | 0.5   |        |        |
+/// | 5     | `SUB`     | `$0`   | `$1`  | -     | -     | ✓      |        |
+/// | 6     | `ADD`     | `$1`   | `$0`  | `$1`  |       |        |        |
+/// | 7     | `SQUARE`  | `$1`   | `$1`  | -     | -     |        |        |
+/// | 8     | `INPUT`   | `$1`   | `%1`  | -     | -     |        |        |
+/// | 9     | `SQUARE`  | `$0`   | `$0`  | -     | -     |        |        |
+/// | 10    | `INPUT`   | `$0`   | `%0`  | -     | -     |        |        |
+///
+/// Registers are shown with `$`; input arguments use `%`.
 ///
 /// # 32-bit instructions
-/// ## Common operations on fast registers
-/// For a 32-bit instruction (i.e. bit 30 is 0), there are two encodings.  The
+/// ## Common operations on registers
+/// For a 32-bit instruction (i.e. bit 30 is 0), there are three encodings.  The
 /// most common is a operation on **registers**:
 ///
-/// | Bits  | Meaning |
-/// |-------|---------|
-/// | 29-24 | Opcode  |
-/// | 23-16 | LHS     |
-/// | 16-8  | RHS     |
-/// | 7-0   | Out     |
+/// | 31     | 30         | 29-24  | 23-16 | 18-8 | 7-0  |
+/// |--------|------------|--------|-------|------|------|
+/// | `NEXT` | `LONG` (0) | Opcode | LHS   | RHS  | Out  |
 ///
-/// This allows us to encode the 64 most common opcodes into a single `u32`.
+/// This allows us to encode the 64 most common opcodes into a single `u32`,
+/// using up to 256 registers.
+///
+/// ## Input
+/// The encoding for `Input` operations uses bits 23-16 as an index into the
+/// function's argument list.  Right now, it must be 0 (for X) or 1 (for Y).
+///
+/// | 31     | 30         | 29-24            | 23-16 | 18-8 | 7-0  |
+/// |--------|------------|------------------|-------|------|------|
+/// | `NEXT` | `LONG` (0) | Opcode (`Input`) | Index | -    | Out  |
 ///
 /// ## Load and store
 /// The common operation encoding limits us to 256 registers; if we need more
-/// storage space, then we can use `Load` and `Store` to shuffle data around
-/// into 16655 extra locations (referred to as `Memory`).  The lowest 256 slots
-/// of memory are unused, so that we can use a single array for both registers
-/// _and_ memory when appropriate.
+/// storage space, then we can use `Load`, `Store`, and `Swap` to shuffle data
+/// around into 16384 extra locations (referred to as "memory").
 ///
-/// If the `Tape` is constructed with a lower register limit, then `Memory`
-/// begins at that value (instead of at slot 256).
+/// Registers and memory together are referred to as `slots`, e.g. in the
+/// `total_slots` member variable.
 ///
-/// `Load` and `Store` are implemented as a modified 32-bit operation:
+/// The lowest 256 memory locations are unused, so that we can use a single
+/// array for both registers _and_ memory when appropriate.
 ///
-/// | Bits  | Meaning           |
-/// |-------|-------------------|
-/// | 29-24 | `Load` or `Store` |
-/// | 23-8  | Memory location   |
-/// | 7-0   | Register          |
+/// (If the `Tape` is constructed with a lower register limit, then memory
+/// begins at that value instead of at slot 256)
+///
+/// `Load` and `Store` are implemented as a 32-bit operation with a slightly
+/// different encoding
+///
+/// | 31     | 30         | 29-24  | 23-8   |  7-0     |
+/// |--------|------------|--------|--------|----------|
+/// | `NEXT` | `LONG` (0) | Opcode | Memory | Register |
+///
+/// (where the opcode is limited to `Load`, `Store`, and `Swap`)
 ///
 /// # 64-bit instructions
 /// ## Immediate form
-/// | Bits  | Meaning         |
-/// |-------|-----------------|
-/// | 29-16 | Clause opcode   |
-/// | 16-8  | Arg1 (register) |
-/// | 7-0   | Out (register)  |
+/// | 31     | 30         | 29-17  | 16-8 |  7-0 |
+/// |--------|------------|--------|------|------|
+/// | `NEXT` | `LONG` (1) | Opcode | Arg  | Out  |
 ///
-/// Followed by an immediate (as a `f32` as raw bits)
+/// It is preceeded by an immediate (an `f32` as raw bits), as shown in the
+/// example tape above.
 #[derive(Debug)]
 pub struct Tape {
     pub tape: Vec<u32>,
@@ -350,7 +382,7 @@ impl Tape {
     }
 
     pub fn pretty_print_tape(&self) {
-        let mut iter = self.tape.iter();
+        let mut iter = self.tape.iter().rev();
         while let Some(v) = iter.next() {
             // 32-bit instruction
             if v & (1 << 30) == 0 {
