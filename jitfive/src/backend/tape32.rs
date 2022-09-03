@@ -236,7 +236,7 @@ const LONG: u32 = 1 << 30;
 ///
 /// # 64-bit instructions
 /// ## Immediate form
-/// | 31     | 30         | 29-17  | 16-8 |  7-0 |
+/// | 31     | 30         | 29-16  | 15-8 |  7-0 |
 /// |--------|------------|--------|------|------|
 /// | `NEXT` | `LONG` (1) | Opcode | Arg  | Out  |
 ///
@@ -398,7 +398,7 @@ impl Tape {
         let mut active = vec![false; self.total_slots];
         active[0] = true;
 
-        let mut iter = self.tape.iter().rev().cloned();
+        let mut iter = self.tape.iter().cloned();
         while let Some(next) = iter.next() {
             let (mut v, mut imm) = if next_was_set {
                 (iter.next().unwrap(), Some(next))
@@ -485,7 +485,7 @@ impl Tape {
                             Choice::Right => {
                                 // This becomes a CopyImm 32-bit operation
                                 v = LONG
-                                    | ((ClauseOp64::CopyImm as u32) << 17)
+                                    | ((ClauseOp64::CopyImm as u32) << 16)
                                     | (out_reg as u32);
                             }
                             Choice::Both => {
@@ -689,7 +689,9 @@ impl Tape {
                             arg_reg,
                         );
                     }
-                    _ => panic!("Unknown 64-bit opcode"),
+                    ClauseOp64::CopyImm => {
+                        println!("${} = COPY {}", out_reg, imm);
+                    }
                 }
             }
         }
@@ -1186,22 +1188,33 @@ mod tests {
 
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        tape.pretty_print_tape();
-        println!();
         let mut workspace = tape.workspace();
         assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 1.0);
         assert_eq!(tape.eval(3.0, 2.0, &mut workspace), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        t.pretty_print_tape();
-        println!();
         assert_eq!(t.eval(1.0, 2.0, &mut workspace), 1.0);
         assert_eq!(t.eval(3.0, 2.0, &mut workspace), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        t.pretty_print_tape();
-        println!();
         assert_eq!(t.eval(1.0, 2.0, &mut workspace), 2.0);
         assert_eq!(t.eval(3.0, 2.0, &mut workspace), 2.0);
+
+        let one = ctx.constant(1.0);
+        let min = ctx.min(x, one).unwrap();
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        tape.pretty_print_tape();
+        assert_eq!(tape.eval(0.5, 0.0, &mut workspace), 0.5);
+        assert_eq!(tape.eval(3.0, 0.0, &mut workspace), 1.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        assert_eq!(t.eval(0.5, 0.0, &mut workspace), 0.5);
+        assert_eq!(t.eval(3.0, 0.0, &mut workspace), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        t.pretty_print_tape();
+        assert_eq!(t.eval(0.5, 0.0, &mut workspace), 1.0);
+        assert_eq!(t.eval(3.0, 0.0, &mut workspace), 1.0);
     }
 }
