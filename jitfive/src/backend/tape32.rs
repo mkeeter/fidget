@@ -254,6 +254,16 @@ pub struct Tape {
     ///
     /// This is always `<= total_slots`
     pub reg_count: usize,
+
+    /// The number of nodes which push to a choice array
+    pub choice_count: usize,
+}
+
+/// Workspace to evaluate a tape
+pub struct TapeEval<'a> {
+    tape: &'a Tape,
+    slots: Vec<f32>,
+    choices: Vec<Choice>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -283,110 +293,22 @@ impl Tape {
             tape: builder.out,
             reg_count: builder.reg_limit.min(builder.total_slots),
             total_slots: builder.total_slots as usize,
+            choice_count: builder.choice_count,
         }
     }
 
-    pub fn workspace(&self) -> Vec<f32> {
-        vec![0.0; self.total_slots]
-    }
-
-    pub fn eval(&self, x: f32, y: f32, workspace: &mut [f32]) -> f32 {
-        let mut iter = self.tape.iter().rev();
-        while let Some(v) = iter.next() {
-            // 32-bit instruction
-            if v & LONG == 0 {
-                let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp32::from_u32(op).unwrap();
-                match op {
-                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                        let reg = (v & 0xFF) as usize;
-                        let mem = ((v >> 8) & 0xFFFF) as usize;
-                        match op {
-                            ClauseOp32::Load => workspace[reg] = workspace[mem],
-                            ClauseOp32::Store => {
-                                workspace[mem] = workspace[reg]
-                            }
-                            ClauseOp32::Swap => {
-                                workspace.swap(reg, mem);
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                    ClauseOp32::Input => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        let out = match lhs_reg {
-                            0 => x,
-                            1 => y,
-                            _ => panic!(),
-                        };
-                        workspace[out_reg as usize] = out;
-                    }
-                    ClauseOp32::CopyReg
-                    | ClauseOp32::NegReg
-                    | ClauseOp32::AbsReg
-                    | ClauseOp32::RecipReg
-                    | ClauseOp32::SqrtReg
-                    | ClauseOp32::SquareReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let lhs = workspace[lhs_reg as usize];
-                        let out_reg = v & 0xFF;
-                        workspace[out_reg as usize] = match op {
-                            ClauseOp32::CopyReg => lhs,
-                            ClauseOp32::NegReg => -lhs,
-                            ClauseOp32::AbsReg => lhs.abs(),
-                            ClauseOp32::RecipReg => 1.0 / lhs,
-                            ClauseOp32::SqrtReg => lhs.sqrt(),
-                            ClauseOp32::SquareReg => lhs * lhs,
-                            _ => unreachable!(),
-                        };
-                    }
-
-                    ClauseOp32::AddRegReg
-                    | ClauseOp32::MulRegReg
-                    | ClauseOp32::SubRegReg
-                    | ClauseOp32::MinRegReg
-                    | ClauseOp32::MaxRegReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let rhs_reg = (v >> 8) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        let lhs = workspace[lhs_reg as usize];
-                        let rhs = workspace[rhs_reg as usize];
-                        let out = match op {
-                            ClauseOp32::AddRegReg => lhs + rhs,
-                            ClauseOp32::MulRegReg => lhs * rhs,
-                            ClauseOp32::SubRegReg => lhs - rhs,
-                            ClauseOp32::MinRegReg => lhs.min(rhs),
-                            ClauseOp32::MaxRegReg => lhs.max(rhs),
-                            ClauseOp32::Load | ClauseOp32::Store => {
-                                unreachable!()
-                            }
-                            _ => unreachable!(),
-                        };
-                        workspace[out_reg as usize] = out;
-                    }
-                }
-            } else {
-                let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp64::from_u32(op).unwrap();
-                let next = iter.next().unwrap();
-                let arg_reg = (v >> 8) & 0xFF;
-                let out_reg = v & 0xFF;
-                let arg = workspace[arg_reg as usize];
-                let imm = f32::from_bits(*next);
-                let out = match op {
-                    ClauseOp64::AddRegImm => arg + imm,
-                    ClauseOp64::MulRegImm => arg * imm,
-                    ClauseOp64::SubImmReg => imm - arg,
-                    ClauseOp64::SubRegImm => arg - imm,
-                    ClauseOp64::MinRegImm => arg.min(imm),
-                    ClauseOp64::MaxRegImm => arg.max(imm),
-                    ClauseOp64::CopyImm => imm,
-                };
-                workspace[out_reg as usize] = out;
-            }
+    /// Builds an evaluator which takes a (read-only) reference to this tape
+    pub fn to_evaluator(&self) -> TapeEval {
+        // Bias towards 256-byte chunks of vector, to (maybe) ease pressure on
+        // the allocator and persuade it to reuse them!
+        let mut slots = Vec::with_capacity(self.total_slots.max(64));
+        slots.resize(self.total_slots, 0.0);
+        let choices = Vec::with_capacity(self.choice_count.max(256));
+        TapeEval {
+            tape: self,
+            slots,
+            choices,
         }
-        workspace[0]
     }
 
     // TODO: test MAX(X + 1, Y) => X + 1
@@ -397,6 +319,8 @@ impl Tape {
 
         let mut active = vec![false; self.total_slots];
         active[0] = true;
+
+        let mut choice_count = 0;
 
         let mut iter = self.tape.iter().cloned();
         while let Some(next) = iter.next() {
@@ -489,6 +413,7 @@ impl Tape {
                                     | (out_reg as u32);
                             }
                             Choice::Both => {
+                                choice_count += 1;
                                 active[arg_reg] = true;
                                 // Leave v unchanged
                             }
@@ -578,6 +503,7 @@ impl Tape {
                             Choice::Both => {
                                 active[lhs_reg] = true;
                                 active[rhs_reg] = true;
+                                choice_count += 1;
                                 // v remains unchanged
                             }
                         }
@@ -600,6 +526,7 @@ impl Tape {
             tape: out,
             total_slots: self.total_slots,
             reg_count: self.reg_count,
+            choice_count,
         }
     }
 
@@ -703,6 +630,117 @@ impl Tape {
     }
 }
 
+impl<'a> TapeEval<'a> {
+    pub fn f(&mut self, x: f32, y: f32) -> f32 {
+        let mut iter = self.tape.tape.iter().rev();
+        while let Some(v) = iter.next() {
+            // 32-bit instruction
+            if v & LONG == 0 {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
+                        let reg = (v & 0xFF) as usize;
+                        let mem = ((v >> 8) & 0xFFFF) as usize;
+                        match op {
+                            ClauseOp32::Load => {
+                                self.slots[reg] = self.slots[mem]
+                            }
+                            ClauseOp32::Store => {
+                                self.slots[mem] = self.slots[reg]
+                            }
+                            ClauseOp32::Swap => {
+                                self.slots.swap(reg, mem);
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp32::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let out = match lhs_reg {
+                            0 => x,
+                            1 => y,
+                            _ => panic!(),
+                        };
+                        self.slots[out_reg as usize] = out;
+                    }
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let lhs = self.slots[lhs_reg as usize];
+                        let out_reg = v & 0xFF;
+                        self.slots[out_reg as usize] = match op {
+                            ClauseOp32::CopyReg => lhs,
+                            ClauseOp32::NegReg => -lhs,
+                            ClauseOp32::AbsReg => lhs.abs(),
+                            ClauseOp32::RecipReg => 1.0 / lhs,
+                            ClauseOp32::SqrtReg => lhs.sqrt(),
+                            ClauseOp32::SquareReg => lhs * lhs,
+                            _ => unreachable!(),
+                        };
+                    }
+
+                    ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::MaxRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        let lhs = self.slots[lhs_reg as usize];
+                        let rhs = self.slots[rhs_reg as usize];
+                        let out = match op {
+                            ClauseOp32::AddRegReg => lhs + rhs,
+                            ClauseOp32::MulRegReg => lhs * rhs,
+                            ClauseOp32::SubRegReg => lhs - rhs,
+                            ClauseOp32::MinRegReg => lhs.min(rhs),
+                            ClauseOp32::MaxRegReg => lhs.max(rhs),
+                            ClauseOp32::Load | ClauseOp32::Store => {
+                                unreachable!()
+                            }
+                            _ => unreachable!(),
+                        };
+                        self.slots[out_reg as usize] = out;
+                    }
+                }
+            } else {
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp64::from_u32(op).unwrap();
+                let next = iter.next().unwrap();
+                let arg_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                let arg = self.slots[arg_reg as usize];
+                let imm = f32::from_bits(*next);
+                let out = match op {
+                    ClauseOp64::AddRegImm => arg + imm,
+                    ClauseOp64::MulRegImm => arg * imm,
+                    ClauseOp64::SubImmReg => imm - arg,
+                    ClauseOp64::SubRegImm => arg - imm,
+                    ClauseOp64::MinRegImm => arg.min(imm),
+                    ClauseOp64::MaxRegImm => arg.max(imm),
+                    ClauseOp64::CopyImm => imm,
+                };
+                self.slots[out_reg as usize] = out;
+            }
+        }
+        self.slots[0]
+    }
+
+    /// Returns a simplified tape based on `self.choices`
+    ///
+    /// The choices array should have been calculated during the last interval
+    /// evaluation.
+    pub fn push(&self) -> Tape {
+        self.tape.simplify(&self.choices)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Type-safe container for an allocated register
@@ -731,6 +769,10 @@ struct TapeBuilder<'a> {
     /// This should always equal the sum of `spare_registers`, `spare_memory`,
     /// and `allocations`
     total_slots: usize,
+
+    /// The total number of min and max clauses, which push a choice when
+    /// evaluated as intervals
+    choice_count: usize,
 
     /// Available short registers (index < 256)
     ///
@@ -785,6 +827,7 @@ impl<'a> TapeBuilder<'a> {
             t,
             out: vec![],
             total_slots: 0,
+            choice_count: 0,
             short_register_lru: PriorityQueue::new(),
             spare_registers: vec![],
             spare_memory: vec![],
@@ -874,6 +917,10 @@ impl<'a> TapeBuilder<'a> {
         let flag = if self.was_64 { NEXT } else { 0 };
         self.was_64 = false;
 
+        if matches!(op, ClauseOp32::MinRegReg | ClauseOp32::MaxRegReg) {
+            self.choice_count += 1;
+        }
+
         let op = op.to_u32().unwrap();
         assert!(op < 64);
         self.out.push(
@@ -893,6 +940,10 @@ impl<'a> TapeBuilder<'a> {
     ) {
         let flag = if self.was_64 { NEXT } else { 0 };
         self.was_64 = true;
+
+        if matches!(op, ClauseOp64::MinRegImm | ClauseOp64::MaxRegImm) {
+            self.choice_count += 1;
+        }
 
         let op = op.to_u32().unwrap();
         assert!(op < 16384);
@@ -1173,10 +1224,10 @@ mod tests {
         let min = ctx.min(sum, y).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut workspace = tape.workspace();
-        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 2.0);
-        assert_eq!(tape.eval(1.0, 3.0, &mut workspace), 2.0);
-        assert_eq!(tape.eval(3.0, 3.5, &mut workspace), 3.5);
+        let mut eval = tape.to_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 2.0);
+        assert_eq!(eval.f(1.0, 3.0), 2.0);
+        assert_eq!(eval.f(3.0, 3.5), 3.5);
     }
 
     #[test]
@@ -1188,33 +1239,36 @@ mod tests {
 
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut workspace = tape.workspace();
-        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 1.0);
-        assert_eq!(tape.eval(3.0, 2.0, &mut workspace), 2.0);
+        let mut eval = tape.to_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        assert_eq!(t.eval(1.0, 2.0, &mut workspace), 1.0);
-        assert_eq!(t.eval(3.0, 2.0, &mut workspace), 3.0);
+        let mut eval = t.to_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        assert_eq!(t.eval(1.0, 2.0, &mut workspace), 2.0);
-        assert_eq!(t.eval(3.0, 2.0, &mut workspace), 2.0);
+        let mut eval = t.to_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 2.0);
+        assert_eq!(eval.f(3.0, 2.0), 2.0);
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        tape.pretty_print_tape();
-        assert_eq!(tape.eval(0.5, 0.0, &mut workspace), 0.5);
-        assert_eq!(tape.eval(3.0, 0.0, &mut workspace), 1.0);
+        let mut eval = tape.to_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        assert_eq!(t.eval(0.5, 0.0, &mut workspace), 0.5);
-        assert_eq!(t.eval(3.0, 0.0, &mut workspace), 3.0);
+        let mut eval = t.to_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        t.pretty_print_tape();
-        assert_eq!(t.eval(0.5, 0.0, &mut workspace), 1.0);
-        assert_eq!(t.eval(3.0, 0.0, &mut workspace), 1.0);
+        let mut eval = t.to_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 0.0), 1.0);
     }
 }
