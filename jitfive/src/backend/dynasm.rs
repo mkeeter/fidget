@@ -34,7 +34,7 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
 
     const FAST_REG_OFFSET: u32 = 8;
 
-    let mut iter = t.tape.iter();
+    let mut iter = t.tape.iter().rev();
     while let Some(v) = iter.next() {
         if v & (1 << 30) == 0 {
             let op = (v >> 24) & ((1 << 6) - 1);
@@ -252,7 +252,7 @@ pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
     // Helper constant for when we need to inject a NaN
     let nan_u32 = f32::NAN.to_bits();
 
-    let mut iter = t.tape.iter();
+    let mut iter = t.tape.iter().rev();
     while let Some(v) = iter.next() {
         if v & (1 << 30) == 0 {
             let op = (v >> 24) & ((1 << 6) - 1);
