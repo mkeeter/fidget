@@ -248,7 +248,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
         ; stp   d14, d15, [sp, #-16]!
         ; sub   sp, sp, #(stack_space)
 
-        // Arguments are passed in S0-6; collect them into V0-1
+        // Arguments are passed in S0-5; collect them into V0-1
         ; mov v0.s[1], v1.s[0]
         ; mov v1.s[0], v2.s[0]
         ; mov v1.s[1], v3.s[0]
@@ -594,13 +594,13 @@ impl IntervalFuncHandle {
 /// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
 /// the underlying executable memory.
 pub struct FloatEval<'asm> {
-    fn_float: unsafe extern "C" fn(f32, f32) -> f32,
+    fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
 impl<'a> FloatEval<'a> {
-    pub fn f(&self, x: f32, y: f32) -> f32 {
-        unsafe { (self.fn_float)(x, y) }
+    pub fn f(&self, x: f32, y: f32, z: f32) -> f32 {
+        unsafe { (self.fn_float)(x, y, z) }
     }
 }
 
@@ -657,7 +657,7 @@ mod tests {
 
         let jit = to_float_fn(sum, &ctx);
         let eval = jit.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0), 6.0);
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 6.0);
     }
 
     #[test]

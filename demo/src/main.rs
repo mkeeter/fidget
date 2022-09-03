@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
                 for j in 0..scale {
                     let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.f(x as f32, y as f32);
+                    let v = eval.f(x as f32, y as f32, 0.0);
                     out.push(v <= 0.0);
                 }
             }
