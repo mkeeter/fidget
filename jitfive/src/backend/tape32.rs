@@ -143,6 +143,9 @@ impl ClauseOp64 {
     }
 }
 
+const NEXT: u32 = 1 << 31;
+const LONG: u32 = 1 << 30;
+
 /// The instruction tape is given as a `Vec<u32>`, which can be thought of as
 /// bytecode or instructions for a very simple virtual machine.
 ///
@@ -161,11 +164,16 @@ impl ClauseOp64 {
 ///
 /// Here is an example tape encoding the operation
 /// ```
-/// max(x**2 + y**2 - 0.5, 0.25 - (x**2 + y**2))
+/// # let x = 1.0;
+/// # let y = 1.0;
+/// # let max = |x: f32, y: f32| x.max(y);
+/// # let square = |x: f32| x * x;
+/// max(square(x) + square(y) - 0.5, 0.25 - (square(x) + square(y)))
+/// # ;
 /// ```
 ///
 /// The tape is evaluated from back to front, i.e. starting at index 10 and
-/// moving down to index 0.
+/// moving up through index 0.
 ///
 /// | Index | Operation |  Out   | LHS   | RHS   | Value | `LONG` | `NEXT` |
 /// |-------|-----------|--------|-------|-------|-------|--------|--------|
@@ -208,7 +216,7 @@ impl ClauseOp64 {
 /// storage space, then we can use `Load`, `Store`, and `Swap` to shuffle data
 /// around into 16384 extra locations (referred to as "memory").
 ///
-/// Registers and memory together are referred to as `slots`, e.g. in the
+/// Registers and memory together are referred to as "slots", e.g. in the
 /// `total_slots` member variable.
 ///
 /// The lowest 256 memory locations are unused, so that we can use a single
@@ -286,7 +294,7 @@ impl Tape {
         let mut iter = self.tape.iter().rev();
         while let Some(v) = iter.next() {
             // 32-bit instruction
-            if v & (1 << 30) == 0 {
+            if v & LONG == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp32::from_u32(op).unwrap();
                 match op {
@@ -381,11 +389,225 @@ impl Tape {
         workspace[0]
     }
 
+    // TODO: test MAX(X + 1, Y) => X + 1
+    // (since that requires injecting a copy)
+    pub fn simplify(&self, mut choices: &[Choice]) -> Self {
+        let mut out = vec![];
+        let mut next_was_set = false;
+
+        let mut active = vec![false; self.total_slots];
+        active[0] = true;
+
+        let mut iter = self.tape.iter().rev().cloned();
+        while let Some(next) = iter.next() {
+            let (mut v, mut imm) = if next_was_set {
+                (iter.next().unwrap(), Some(next))
+            } else {
+                (next, None)
+            };
+            next_was_set = (v & NEXT) != 0;
+
+            // In general, the output register is in the bottom 8 bits of the
+            // value.  There are a few exceptions for load/store/swap, which are
+            // special cases!
+            let is_64bit = (v & LONG) != 0;
+            let is_active = if is_64bit {
+                let out_reg = v & 0xFF;
+                active[out_reg as usize]
+            } else {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Store => {
+                        let out_mem = (v >> 8) & 0xFFFF;
+                        active[out_mem as usize]
+                    }
+                    ClauseOp32::Swap => {
+                        let out_mem = (v >> 8) & 0xFFFF;
+                        let out_reg = v & 0xFF;
+                        active[out_mem as usize] | active[out_reg as usize]
+                    }
+                    _ => {
+                        // Every other `ClauseOp32` opcode encodes the target
+                        // registers in the lowest byte.
+                        let out_reg = v & 0xFF;
+                        active[out_reg as usize]
+                    }
+                }
+            };
+
+            if !is_active {
+                continue;
+            }
+
+            // 64-bit opcode
+            if is_64bit {
+                assert!(imm.is_some());
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp64::from_u32(op).unwrap();
+                let out_reg = (v & 0xFF) as usize;
+                match op {
+                    ClauseOp64::AddRegImm
+                    | ClauseOp64::MulRegImm
+                    | ClauseOp64::SubImmReg
+                    | ClauseOp64::SubRegImm => {
+                        let arg_reg = ((v >> 8) & 0xFF) as usize;
+                        active[out_reg] = false;
+                        active[arg_reg] = true;
+                    }
+                    ClauseOp64::CopyImm => {
+                        active[out_reg] = false;
+                    }
+                    ClauseOp64::MinRegImm | ClauseOp64::MaxRegImm => {
+                        let arg_reg = ((v >> 8) & 0xFF) as usize;
+                        active[out_reg] = false;
+                        let (c, choices_) = choices.split_last().unwrap();
+                        choices = choices_;
+                        match c {
+                            // Left always refers to the register argument
+                            Choice::Left => {
+                                active[arg_reg] = true;
+                                // This becomes a CopyReg 32-bit operation
+                                if out_reg == arg_reg {
+                                    // Skip entirely, rather than a dummy copy
+                                    continue;
+                                } else {
+                                    // Switch over to a 32-bit CopyReg op,
+                                    // and drop the immediate (since it's now
+                                    // unused).
+                                    v = ((ClauseOp32::CopyReg as u32) << 24)
+                                        | ((arg_reg as u32) << 16)
+                                        | (out_reg as u32);
+                                    imm = None;
+                                }
+                            }
+                            // Left always refers to the immediate argument
+                            Choice::Right => {
+                                // This becomes a CopyImm 32-bit operation
+                                v = LONG
+                                    | ((ClauseOp64::CopyImm as u32) << 17)
+                                    | (out_reg as u32);
+                            }
+                            Choice::Both => {
+                                active[arg_reg] = true;
+                                // Leave v unchanged
+                            }
+                        }
+                    }
+                }
+            } else {
+                assert!(imm.is_none());
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
+                        let fast_reg = (v & 0xFF) as usize;
+                        let extended_reg = ((v >> 8) & 0xFFFF) as usize;
+
+                        match op {
+                            ClauseOp32::Load => {
+                                active[fast_reg] = false;
+                                active[extended_reg] = true;
+                            }
+                            ClauseOp32::Store => {
+                                active[extended_reg] = false;
+                                active[fast_reg] = true;
+                            }
+                            ClauseOp32::Swap => {
+                                active[fast_reg] = true;
+                                active[extended_reg] = true;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp32::Input => {
+                        let out_reg = (v & 0xFF) as usize;
+                        active[out_reg] = false;
+                    }
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
+                        let lhs_reg = ((v >> 16) & 0xFF) as usize;
+                        let out_reg = (v & 0xFF) as usize;
+                        active[out_reg] = false;
+                        active[lhs_reg] = true;
+                    }
+                    ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg
+                    | ClauseOp32::SubRegReg => {
+                        let lhs_reg = ((v >> 16) & 0xFF) as usize;
+                        let rhs_reg = ((v >> 8) & 0xFF) as usize;
+                        let out_reg = (v & 0xFF) as usize;
+                        active[out_reg] = false;
+                        active[lhs_reg] = true;
+                        active[rhs_reg] = true;
+                    }
+                    ClauseOp32::MinRegReg | ClauseOp32::MaxRegReg => {
+                        let lhs_reg = ((v >> 16) & 0xFF) as usize;
+                        let rhs_reg = ((v >> 8) & 0xFF) as usize;
+                        let out_reg = (v & 0xFF) as usize;
+                        active[out_reg] = false;
+                        let (c, choices_) = choices.split_last().unwrap();
+                        choices = choices_;
+                        match c {
+                            Choice::Left => {
+                                active[lhs_reg] = true;
+                                if lhs_reg == out_reg {
+                                    // Skip entirely, rather than a dummy copy
+                                    continue;
+                                } else {
+                                    v = ((ClauseOp32::CopyReg as u32) << 24)
+                                        | ((lhs_reg as u32) << 16)
+                                        | (out_reg as u32);
+                                }
+                            }
+                            Choice::Right => {
+                                active[rhs_reg] = true;
+                                if rhs_reg == out_reg {
+                                    // Skip entirely, rather than a dummy copy
+                                    continue;
+                                } else {
+                                    v = ((ClauseOp32::CopyReg as u32) << 24)
+                                        | ((rhs_reg as u32) << 16)
+                                        | (out_reg as u32);
+                                }
+                            }
+                            Choice::Both => {
+                                active[lhs_reg] = true;
+                                active[rhs_reg] = true;
+                                // v remains unchanged
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(imm) = imm {
+                // If the first operation in the new tape is an immediate, then
+                // push a dummy CopyReg 0 0 0 to make decoding unambiguous
+                if out.is_empty() {
+                    out.push((ClauseOp32::CopyReg as u32) << 24);
+                }
+                *out.last_mut().unwrap() |= NEXT;
+                out.push(imm);
+            }
+            out.push(v);
+        }
+
+        Self {
+            tape: out,
+            total_slots: self.total_slots,
+            reg_count: self.reg_count,
+        }
+    }
+
     pub fn pretty_print_tape(&self) {
         let mut iter = self.tape.iter().rev();
         while let Some(v) = iter.next() {
             // 32-bit instruction
-            if v & (1 << 30) == 0 {
+            if v & LONG == 0 {
                 let op = (v >> 24) & ((1 << 6) - 1);
                 let op = ClauseOp32::from_u32(op).unwrap();
                 match op {
@@ -647,7 +869,7 @@ impl<'a> TapeBuilder<'a> {
         rhs: Register,
         out: Register,
     ) {
-        let flag = if self.was_64 { 1 << 31 } else { 0 };
+        let flag = if self.was_64 { NEXT } else { 0 };
         self.was_64 = false;
 
         let op = op.to_u32().unwrap();
@@ -667,16 +889,13 @@ impl<'a> TapeBuilder<'a> {
         imm: f32,
         out: Register,
     ) {
-        let flag = if self.was_64 { 1 << 31 } else { 0 };
+        let flag = if self.was_64 { NEXT } else { 0 };
         self.was_64 = true;
 
         let op = op.to_u32().unwrap();
         assert!(op < 16384);
         self.out.push(
-            flag | (1 << 30)
-                | (op << 16)
-                | ((arg.0 as u32) << 8)
-                | (out.0 as u32),
+            flag | LONG | (op << 16) | ((arg.0 as u32) << 8) | (out.0 as u32),
         );
         self.out.push(imm.to_bits());
     }
@@ -744,7 +963,7 @@ impl<'a> TapeBuilder<'a> {
         short: Register,
         ext: Memory,
     ) {
-        let flag = if self.was_64 { 1 << 31 } else { 0 };
+        let flag = if self.was_64 { NEXT } else { 0 };
         self.was_64 = false;
         let op = op.to_u32().unwrap();
         self.out
@@ -956,5 +1175,33 @@ mod tests {
         assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 2.0);
         assert_eq!(tape.eval(1.0, 3.0, &mut workspace), 2.0);
         assert_eq!(tape.eval(3.0, 3.5, &mut workspace), 3.5);
+    }
+
+    #[test]
+    fn test_push() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        tape.pretty_print_tape();
+        println!();
+        let mut workspace = tape.workspace();
+        assert_eq!(tape.eval(1.0, 2.0, &mut workspace), 1.0);
+        assert_eq!(tape.eval(3.0, 2.0, &mut workspace), 2.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        t.pretty_print_tape();
+        println!();
+        assert_eq!(t.eval(1.0, 2.0, &mut workspace), 1.0);
+        assert_eq!(t.eval(3.0, 2.0, &mut workspace), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        t.pretty_print_tape();
+        println!();
+        assert_eq!(t.eval(1.0, 2.0, &mut workspace), 2.0);
+        assert_eq!(t.eval(3.0, 2.0, &mut workspace), 2.0);
     }
 }
