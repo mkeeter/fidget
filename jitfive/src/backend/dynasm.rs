@@ -6,7 +6,7 @@ use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
 
-pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
+pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     t.pretty_print_tape();
     assert!(t.reg_count <= REGISTER_LIMIT);
 
@@ -192,11 +192,10 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
     );
 
     let buf = ops.finalize().unwrap();
-    let shape_fn_pointer = buf.ptr(shape_fn);
-    AsmHandle {
+    let fn_pointer = buf.ptr(shape_fn);
+    FloatFuncHandle {
         _buf: buf,
-        _p: std::marker::PhantomData,
-        shape_fn_pointer,
+        fn_pointer,
     }
 }
 
@@ -217,7 +216,7 @@ pub fn tape_to_float<'a, 'b>(t: &'a Tape) -> AsmHandle<FloatEval<'b>> {
 /// The input tape should be planned with a 24 register limit.  We use hardware
 /// `V8.2S` through `V32.2S` to store our "fast" registers, and put everything
 /// else on the stack.
-pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
+pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
     let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
@@ -541,79 +540,74 @@ pub fn tape_to_interval<'a, 'b>(t: &'a Tape) -> AsmHandle<IntervalEval<'b>> {
     );
 
     let buf = ops.finalize().unwrap();
-    let shape_fn_pointer = buf.ptr(shape_fn);
-    AsmHandle {
+    let fn_pointer = buf.ptr(shape_fn);
+    IntervalFuncHandle {
         _buf: buf,
-        _p: std::marker::PhantomData,
-        shape_fn_pointer,
+        fn_pointer,
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle which owns JITed functions
-pub struct AsmHandle<F> {
+/// Handle which owns a JIT-compiled float function
+pub struct FloatFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
-    shape_fn_pointer: *const u8,
-    _p: std::marker::PhantomData<*const F>,
+    fn_pointer: *const u8,
 }
 
-impl<'a, F: From<&'a AsmHandle<F>> + 'a> AsmHandle<F> {
-    pub fn into_eval(&'a self) -> F {
-        F::from(self)
+impl FloatFuncHandle {
+    pub fn get_evaluator(&self) -> FloatEval {
+        FloatEval {
+            fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
+            _p: std::marker::PhantomData,
+        }
     }
 }
 
-type FloatFunc = unsafe extern "C" fn(
-    f32, // X
-    f32, // Y
-) -> f32;
+/// Handle which owns a JIT-compiled interval function
+pub struct IntervalFuncHandle {
+    _buf: dynasmrt::ExecutableBuffer,
+    fn_pointer: *const u8,
+}
 
-type IntervalFunc = unsafe extern "C" fn(
-    [f32; 2], // X
-    [f32; 2], // Y
-) -> [f32; 2];
+impl IntervalFuncHandle {
+    pub fn get_evaluator(&self) -> IntervalEval {
+        IntervalEval {
+            fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
+            _p: std::marker::PhantomData,
+        }
+    }
+}
 
-/// Handle for evaluation of JITed functions
+/// Handle for evaluation of a JIT-compiled function
 ///
-/// The lifetime of this `struct` is bound to an `AsmHandle`, which owns the
-/// underlying executable memory.
+/// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
+/// the underlying executable memory.
 pub struct FloatEval<'asm> {
-    fn_float: FloatFunc,
+    fn_float: unsafe extern "C" fn(f32, f32) -> f32,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
 impl<'a> FloatEval<'a> {
-    pub fn eval(&self, x: f32, y: f32) -> f32 {
+    pub fn f(&self, x: f32, y: f32) -> f32 {
         unsafe { (self.fn_float)(x, y) }
     }
 }
 
-impl From<&AsmHandle<FloatEval<'_>>> for FloatEval<'_> {
-    fn from(a: &AsmHandle<FloatEval>) -> Self {
-        Self {
-            fn_float: unsafe { std::mem::transmute(a.shape_fn_pointer) },
-            _p: std::marker::PhantomData,
-        }
-    }
-}
-
+/// Handle for evaluation of a JIT-compiled function
+///
+/// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
+/// owns the underlying executable memory.
 pub struct IntervalEval<'asm> {
-    fn_interval: IntervalFunc,
+    fn_interval: unsafe extern "C" fn(
+        [f32; 2], // X
+        [f32; 2], // Y
+    ) -> [f32; 2],
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl From<&AsmHandle<IntervalEval<'_>>> for IntervalEval<'_> {
-    fn from(a: &AsmHandle<IntervalEval>) -> Self {
-        Self {
-            fn_interval: unsafe { std::mem::transmute(a.shape_fn_pointer) },
-            _p: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<'a> IntervalEval<'a> {
-    pub fn eval(&self, x: [f32; 2], y: [f32; 2]) -> [f32; 2] {
+    pub fn i(&self, x: [f32; 2], y: [f32; 2]) -> [f32; 2] {
         unsafe { (self.fn_interval)(x, y) }
     }
 }
@@ -629,16 +623,16 @@ mod tests {
         scheduled::schedule,
     };
 
-    fn to_float_fn(v: Node, ctx: &Context) -> AsmHandle<FloatEval> {
+    fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {
         let scheduled = schedule(ctx, v);
         let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
-        tape_to_float(&tape)
+        build_float_fn(&tape)
     }
 
-    fn to_interval_fn(v: Node, ctx: &Context) -> AsmHandle<IntervalEval> {
+    fn to_interval_fn(v: Node, ctx: &Context) -> IntervalFuncHandle {
         let scheduled = schedule(ctx, v);
         let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
-        tape_to_interval(&tape)
+        build_interval_fn(&tape)
     }
 
     #[test]
@@ -651,8 +645,8 @@ mod tests {
         let sum = ctx.add(x, y2).unwrap();
 
         let jit = to_float_fn(sum, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval(1.0, 2.0), 6.0);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 6.0);
     }
 
     #[test]
@@ -662,14 +656,14 @@ mod tests {
         let y = ctx.y();
 
         let jit = to_interval_fn(x, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
-        assert_eq!(eval.eval([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
+        assert_eq!(eval.i([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let jit = to_interval_fn(y, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
-        assert_eq!(eval.eval([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
+        assert_eq!(eval.i([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
 
     #[test]
@@ -679,22 +673,22 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let jit = to_interval_fn(abs_x, &ctx);
-        let eval = jit.into_eval();
+        let eval = jit.get_evaluator();
         let y = [0.0, 1.0];
-        assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.eval([1.0, 5.0], y), [1.0, 5.0]);
-        assert_eq!(eval.eval([-2.0, 5.0], y), [0.0, 5.0]);
-        assert_eq!(eval.eval([-6.0, 5.0], y), [0.0, 6.0]);
-        assert_eq!(eval.eval([-6.0, -1.0], y), [1.0, 6.0]);
+        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
+        assert_eq!(eval.i([1.0, 5.0], y), [1.0, 5.0]);
+        assert_eq!(eval.i([-2.0, 5.0], y), [0.0, 5.0]);
+        assert_eq!(eval.i([-6.0, 5.0], y), [0.0, 6.0]);
+        assert_eq!(eval.i([-6.0, -1.0], y), [1.0, 6.0]);
 
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let jit = to_interval_fn(sum, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
-        assert_eq!(eval.eval([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
-        assert_eq!(eval.eval([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
+        assert_eq!(eval.i([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
+        assert_eq!(eval.i([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
     }
 
     #[test]
@@ -704,12 +698,12 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.into_eval();
+        let eval = jit.get_evaluator();
         let y = [0.0, 1.0];
-        assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.eval([0.0, 4.0], y), [0.0, 2.0]);
-        assert_eq!(eval.eval([-2.0, 4.0], y), [0.0, 2.0]);
-        let nanan = eval.eval([-2.0, -1.0], y);
+        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
+        assert_eq!(eval.i([0.0, 4.0], y), [0.0, 2.0]);
+        assert_eq!(eval.i([-2.0, 4.0], y), [0.0, 2.0]);
+        let nanan = eval.i([-2.0, -1.0], y);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
     }
@@ -721,14 +715,14 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.into_eval();
+        let eval = jit.get_evaluator();
         let y = [0.0, 1.0];
-        assert_eq!(eval.eval([0.0, 1.0], y), [0.0, 1.0]);
-        assert_eq!(eval.eval([0.0, 4.0], y), [0.0, 16.0]);
-        assert_eq!(eval.eval([2.0, 4.0], y), [4.0, 16.0]);
-        assert_eq!(eval.eval([-2.0, 4.0], y), [0.0, 16.0]);
-        assert_eq!(eval.eval([-6.0, -2.0], y), [4.0, 36.0]);
-        assert_eq!(eval.eval([-6.0, 1.0], y), [0.0, 36.0]);
+        assert_eq!(eval.i([0.0, 1.0], y), [0.0, 1.0]);
+        assert_eq!(eval.i([0.0, 4.0], y), [0.0, 16.0]);
+        assert_eq!(eval.i([2.0, 4.0], y), [4.0, 16.0]);
+        assert_eq!(eval.i([-2.0, 4.0], y), [0.0, 16.0]);
+        assert_eq!(eval.i([-6.0, -2.0], y), [4.0, 36.0]);
+        assert_eq!(eval.i([-6.0, 1.0], y), [0.0, 36.0]);
     }
 
     #[test]
@@ -739,12 +733,12 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
-        assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
-        assert_eq!(eval.eval([-2.0, -1.0], [-5.0, -4.0]), [4.0, 10.0]);
-        assert_eq!(eval.eval([-3.0, -1.0], [-2.0, 6.0]), [-18.0, 6.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
+        assert_eq!(eval.i([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
+        assert_eq!(eval.i([-2.0, -1.0], [-5.0, -4.0]), [4.0, 10.0]);
+        assert_eq!(eval.i([-3.0, -1.0], [-2.0, 6.0]), [-18.0, 6.0]);
     }
 
     #[test]
@@ -754,16 +748,16 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [0.0, 2.0]);
-        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [2.0, 4.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [0.0, 2.0]);
+        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [2.0, 4.0]);
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-3.0, 0.0]);
-        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-6.0, -3.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-3.0, 0.0]);
+        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-6.0, -3.0]);
     }
 
     #[test]
@@ -774,12 +768,12 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
-        assert_eq!(eval.eval([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
-        assert_eq!(eval.eval([-2.0, -1.0], [-5.0, -4.0]), [2.0, 4.0]);
-        assert_eq!(eval.eval([-3.0, -1.0], [-2.0, 6.0]), [-9.0, 1.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
+        assert_eq!(eval.i([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
+        assert_eq!(eval.i([-2.0, -1.0], [-5.0, -4.0]), [2.0, 4.0]);
+        assert_eq!(eval.i([-3.0, -1.0], [-2.0, 6.0]), [-9.0, 1.0]);
     }
 
     #[test]
@@ -789,16 +783,16 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-2.0, -1.0]);
-        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-1.0, 0.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-2.0, -1.0]);
+        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-1.0, 0.0]);
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.into_eval();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0]), [-4.0, -3.0]);
-        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [-5.0, -4.0]);
+        let eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0]), [-4.0, -3.0]);
+        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [-5.0, -4.0]);
     }
 
     #[test]
@@ -807,21 +801,21 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let jit = to_interval_fn(recip, &ctx);
-        let eval = jit.into_eval();
+        let eval = jit.get_evaluator();
 
-        let nanan = eval.eval([0.0, 1.0], [0.0, 0.0]);
+        let nanan = eval.i([0.0, 1.0], [0.0, 0.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        let nanan = eval.eval([-1.0, 0.0], [0.0, 0.0]);
+        let nanan = eval.i([-1.0, 0.0], [0.0, 0.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        let nanan = eval.eval([-2.0, 3.0], [0.0, 0.0]);
+        let nanan = eval.i([-2.0, 3.0], [0.0, 0.0]);
         assert!(nanan[0].is_nan());
         assert!(nanan[1].is_nan());
 
-        assert_eq!(eval.eval([-2.0, -1.0], [0.0, 0.0]), [-1.0, -0.5]);
-        assert_eq!(eval.eval([1.0, 2.0], [0.0, 0.0]), [0.5, 1.0]);
+        assert_eq!(eval.i([-2.0, -1.0], [0.0, 0.0]), [-1.0, -0.5]);
+        assert_eq!(eval.i([1.0, 2.0], [0.0, 0.0]), [0.5, 1.0]);
     }
 }

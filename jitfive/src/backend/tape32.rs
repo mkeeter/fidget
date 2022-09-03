@@ -298,7 +298,7 @@ impl Tape {
     }
 
     /// Builds an evaluator which takes a (read-only) reference to this tape
-    pub fn to_evaluator(&self) -> TapeEval {
+    pub fn get_evaluator(&self) -> TapeEval {
         // Bias towards 256-byte chunks of vector, to (maybe) ease pressure on
         // the allocator and persuade it to reuse them!
         let mut slots = Vec::with_capacity(self.total_slots.max(64));
@@ -1224,7 +1224,7 @@ mod tests {
         let min = ctx.min(sum, y).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.to_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0), 2.0);
         assert_eq!(eval.f(1.0, 3.0), 2.0);
         assert_eq!(eval.f(3.0, 3.5), 3.5);
@@ -1239,17 +1239,17 @@ mod tests {
 
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.to_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.to_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.to_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0), 2.0);
         assert_eq!(eval.f(3.0, 2.0), 2.0);
 
@@ -1257,17 +1257,17 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.to_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.to_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.to_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 0.0), 1.0);
     }

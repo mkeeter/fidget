@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut out = Vec::with_capacity((scale * scale) as usize);
             let scheduled = jitfive::scheduled::schedule(&ctx, root);
             let tape = jitfive::backend::tape32::Tape::new(&scheduled);
-            let mut eval = tape.to_evaluator();
+            let mut eval = tape.get_evaluator();
 
             let start = Instant::now();
             let div = (scale - 1) as f64;
@@ -79,16 +79,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &scheduled,
                 jitfive::backend::dynasm::REGISTER_LIMIT,
             );
-            let jit = jitfive::backend::dynasm::tape_to_float(&tape);
-            let eval = jit.into_eval();
+            let jit = jitfive::backend::dynasm::build_float_fn(&tape);
+            let eval = jit.get_evaluator();
             info!("Built JIT function in {:?}", start.elapsed());
 
             let start = Instant::now();
-            let i_jit = jitfive::backend::dynasm::tape_to_interval(&tape);
-            let i_eval = i_jit.into_eval();
+            let i_jit = jitfive::backend::dynasm::build_interval_fn(&tape);
+            let i_eval = i_jit.get_evaluator();
             info!("Built interval JIT function in {:?}", start.elapsed());
             let start = Instant::now();
-            println!("{:?}", i_eval.eval([-0.5, 0.0], [-0.5, 0.0]));
+            println!("{:?}", i_eval.i([-0.5, 0.0], [-0.5, 0.0]));
             info!("Calculated in {:?}", start.elapsed());
 
             let start = Instant::now();
@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
                 for j in 0..scale {
                     let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.eval(x as f32, y as f32);
+                    let v = eval.f(x as f32, y as f32);
                     out.push(v <= 0.0);
                 }
             }
