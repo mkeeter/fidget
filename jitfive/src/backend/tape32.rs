@@ -323,11 +323,12 @@ impl Tape {
         }
     }
 
-    pub fn simplify(&self, mut choices: &[Choice]) -> Self {
+    pub fn simplify(&self, choices: &[Choice]) -> Self {
         let mut out = vec![];
         let mut next_was_set = false;
 
         let mut active = vec![false; self.total_slots];
+        let mut choice_iter = choices.iter().rev();
         active[0] = true;
 
         let mut choice_count = 0;
@@ -385,7 +386,7 @@ impl Tape {
                     matches!(op, ClauseOp32::MinRegReg | ClauseOp32::MaxRegReg)
                 };
                 if pop_choice {
-                    choices = &choices[..choices.len() - 1];
+                    choice_iter.next().unwrap();
                 }
                 continue;
             }
@@ -411,9 +412,7 @@ impl Tape {
                     ClauseOp64::MinRegImm | ClauseOp64::MaxRegImm => {
                         let arg_reg = ((v >> 8) & 0xFF) as usize;
                         active[out_reg] = false;
-                        let (c, choices_) = choices.split_last().unwrap();
-                        choices = choices_;
-                        match c {
+                        match choice_iter.next().unwrap() {
                             // Left always refers to the register argument
                             Choice::Left => {
                                 active[arg_reg] = true;
@@ -501,9 +500,7 @@ impl Tape {
                         let rhs_reg = ((v >> 8) & 0xFF) as usize;
                         let out_reg = (v & 0xFF) as usize;
                         active[out_reg] = false;
-                        let (c, choices_) = choices.split_last().unwrap();
-                        choices = choices_;
-                        match c {
+                        match choice_iter.next().unwrap() {
                             Choice::Left => {
                                 active[lhs_reg] = true;
                                 if lhs_reg == out_reg {
