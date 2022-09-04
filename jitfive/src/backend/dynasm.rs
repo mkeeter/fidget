@@ -595,10 +595,78 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                     ; fsub V(out_reg).s2, V(arg_reg).s2, v4.s2
                 ),
                 ClauseOp64::MinRegImm => dynasm!(ops
+                    //  if arg.upper < imm
+                    //      *choices++ = CHOICE_LEFT
+                    //      out = arg
+                    //  elif imm < arg.lower
+                    //      *choices++ = CHOICE_RIGHT
+                    //      out = imm
+                    //  else
+                    //      *choices++ = CHOICE_BOTH
+                    //      out = fmin(arg, imm)
+
+                    // v4 = [imm, imm]
+                    // v5 = [arg.upper, imm]
+                    // v6 = [imm, arg.lower]
+                    // This lets us do two comparisons simultaneously
+                    ; zip2 v5.s2, V(arg_reg).s2, v4.s2
+                    ; zip1 v6.s2, v4.s2, V(arg_reg).s2
+                    ; fcmgt v6.s2, v6.s2, v5.s2
+                    ; fmov x15, d6
+
+                    ; tst x15, #0x1_0000_0000
+                    ; b.ne >imm
+
+                    ; tst x15, #0x1
+                    ; b.eq >both
+
+                    // arg < imm
+                    ; fmov D(out_reg), D(arg_reg)
+                    ; mov w16, #CHOICE_LEFT
+                    ; b >end
+
+                    // imm < arg
+                    ;imm:
+                    ; fmov D(out_reg), d4
+                    ; mov w16, #CHOICE_RIGHT
+                    ; b >end
+
+                    ;both:
                     ; fmin V(out_reg).s2, V(arg_reg).s2, v4.s2
+                    ; mov w16, #CHOICE_BOTH
+
+                    ;end:
+                    ; strb w16, [x0], #1 // post-increment
                 ),
                 ClauseOp64::MaxRegImm => dynasm!(ops
+                    ; zip2 v5.s2, V(arg_reg).s2, v4.s2
+                    ; zip1 v6.s2, v4.s2, V(arg_reg).s2
+                    ; fcmgt v6.s2, v6.s2, v5.s2
+                    ; fmov x15, d6
+
+                    ; tst x15, #0x1_0000_0000
+                    ; b.ne >arg
+
+                    ; tst x15, #0x1
+                    ; b.eq >both
+
+                    // arg < imm
+                    ; fmov D(out_reg), d4
+                    ; mov w16, #CHOICE_RIGHT
+                    ; b >end
+
+                    // imm < arg
+                    ;arg:
+                    ; fmov D(out_reg), D(arg_reg)
+                    ; mov w16, #CHOICE_LEFT
+                    ; b >end
+
+                    ;both:
                     ; fmax V(out_reg).s2, V(arg_reg).s2, v4.s2
+                    ; mov w16, #CHOICE_BOTH
+
+                    ;end:
+                    ; strb w16, [x0], #1 // post-increment
                 ),
                 ClauseOp64::CopyImm => dynasm!(ops
                     ; fmov D(out_reg), x9
@@ -989,5 +1057,24 @@ mod tests {
 
         assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]), [2.0, 3.0]);
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Left]);
+    }
+
+    #[test]
+    fn test_i_max_imm() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let one = ctx.constant(1.0);
+        let max = ctx.max(x, one).unwrap();
+
+        let jit = to_interval_fn(max, &ctx);
+        let mut eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 2.0]);
+        assert_eq!(eval.choices, vec![Choice::Both]);
+
+        assert_eq!(eval.i([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Right]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(eval.choices, vec![Choice::Left]);
     }
 }
