@@ -531,7 +531,9 @@ impl Tape {
                 *out.last_mut().unwrap() |= NEXT;
                 out.push(imm);
             }
-            out.push(v);
+            // Clear the `NEXT` flag, because it may not be applicable; it will
+            // be retrofitted onto this `u32` if the next operation is long.
+            out.push(v & !NEXT);
         }
 
         Self {
@@ -555,13 +557,13 @@ impl Tape {
                         let ext = (v >> 8) & 0xFFFF;
                         match op {
                             ClauseOp32::Load => {
-                                println!("${} = LOAD ${}", short, ext)
+                                print!("${} = LOAD ${}", short, ext)
                             }
                             ClauseOp32::Store => {
-                                println!("${} = STORE ${}", ext, short)
+                                print!("${} = STORE ${}", ext, short)
                             }
                             ClauseOp32::Swap => {
-                                println!("SWAP ${} ${}", short, ext)
+                                print!("SWAP ${} ${}", short, ext)
                             }
                             _ => unreachable!(),
                         }
@@ -569,7 +571,7 @@ impl Tape {
                     ClauseOp32::Input => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let out_reg = v & 0xFF;
-                        println!("${} = INPUT %{}", out_reg, lhs_reg);
+                        print!("${} = INPUT %{}", out_reg, lhs_reg);
                     }
                     ClauseOp32::CopyReg
                     | ClauseOp32::NegReg
@@ -579,7 +581,7 @@ impl Tape {
                     | ClauseOp32::SquareReg => {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let out_reg = v & 0xFF;
-                        println!("${} = {} ${}", out_reg, op.name(), lhs_reg);
+                        print!("${} = {} ${}", out_reg, op.name(), lhs_reg);
                     }
                     ClauseOp32::MaxRegReg
                     | ClauseOp32::MinRegReg
@@ -589,7 +591,7 @@ impl Tape {
                         let lhs_reg = (v >> 16) & 0xFF;
                         let rhs_reg = (v >> 8) & 0xFF;
                         let out_reg = v & 0xFF;
-                        println!(
+                        print!(
                             "${} = {} ${} ${}",
                             out_reg,
                             op.name(),
@@ -611,7 +613,7 @@ impl Tape {
                     | ClauseOp64::AddRegImm
                     | ClauseOp64::MulRegImm
                     | ClauseOp64::SubRegImm => {
-                        println!(
+                        print!(
                             "${} = {} ${} {}",
                             out_reg,
                             op.name(),
@@ -620,7 +622,7 @@ impl Tape {
                         );
                     }
                     ClauseOp64::SubImmReg => {
-                        println!(
+                        print!(
                             "${} = {} {} ${}",
                             out_reg,
                             op.name(),
@@ -629,9 +631,15 @@ impl Tape {
                         );
                     }
                     ClauseOp64::CopyImm => {
-                        println!("${} = COPY {}", out_reg, imm);
+                        print!("${} = COPY {}", out_reg, imm);
                     }
                 }
+            }
+            // Print a marker for the next instruction being long
+            if v & NEXT != 0 {
+                println!(" [*]");
+            } else {
+                println!();
             }
         }
         println!(

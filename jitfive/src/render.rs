@@ -166,7 +166,7 @@ impl Renderer {
     }
     fn render_pixel(&mut self, eval: &mut FloatEval, x: usize, y: usize) {
         let x_pos = self.pixel_to_pos(x);
-        let y_pos = self.pixel_to_pos(x);
+        let y_pos = self.pixel_to_pos(y);
 
         let start = Instant::now();
         let v = eval.f(x_pos, y_pos, 0.0);
