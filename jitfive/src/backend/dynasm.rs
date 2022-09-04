@@ -941,6 +941,25 @@ mod tests {
     }
 
     #[test]
+    fn test_i_min_imm() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let one = ctx.constant(1.0);
+        let min = ctx.min(x, one).unwrap();
+
+        let jit = to_interval_fn(min, &ctx);
+        let mut eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Both]);
+
+        assert_eq!(eval.i([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]), [-1.0, 0.0]);
+        assert_eq!(eval.choices, vec![Choice::Left]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Right]);
+    }
+
+    #[test]
     fn test_i_max() {
         let mut ctx = Context::new();
         let x = ctx.x();
