@@ -373,6 +373,21 @@ impl Tape {
             };
 
             if !is_active {
+                // Pop choices for min/max clauses, even if they're inactive.
+                let pop_choice = if is_64bit {
+                    assert!(imm.is_some());
+                    let op = (v >> 16) & ((1 << 14) - 1);
+                    let op = ClauseOp64::from_u32(op).unwrap();
+                    matches!(op, ClauseOp64::MinRegImm | ClauseOp64::MaxRegImm)
+                } else {
+                    assert!(imm.is_none());
+                    let op = (v >> 24) & ((1 << 6) - 1);
+                    let op = ClauseOp32::from_u32(op).unwrap();
+                    matches!(op, ClauseOp32::MinRegReg | ClauseOp32::MaxRegReg)
+                };
+                if pop_choice {
+                    choices = &choices[..choices.len() - 1];
+                }
                 continue;
             }
 

@@ -82,7 +82,7 @@ impl Renderer {
     }
 
     fn pixel_to_pos(&self, p: usize) -> f32 {
-        2.0 * (p as f32) / (self.size as f32) - 1.0
+        2.0 * (p as f32) / ((self.size - 1) as f32) - 1.0
     }
 
     fn render_tile(&mut self, eval: &mut IntervalEval, x: usize, y: usize) {
