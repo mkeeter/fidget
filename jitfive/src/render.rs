@@ -73,11 +73,10 @@ impl Renderer {
         // Flip the image vertically
         for y in 0..(self.size / 2) {
             for x in 0..self.size {
-                let a = self.image[x + y * self.size];
-                let b = self.image[x + (self.size - y - 1) * self.size];
-                self.image[x + y * self.size] = b;
-                self.image[x + y * self.size] = b;
-                self.image[x + (self.size - y - 1) * self.size] = a;
+                self.image.swap(
+                    x + y * self.size,
+                    x + (self.size - y - 1) * self.size,
+                );
             }
         }
     }

@@ -248,7 +248,7 @@ const LONG: u32 = 1 << 30;
 ///
 /// It is preceeded by an immediate (an `f32` as raw bits), as shown in the
 /// example tape above.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Tape {
     /// Raw instruction tape
     pub tape: Vec<u32>,
