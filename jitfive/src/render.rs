@@ -37,6 +37,7 @@ struct Renderer {
 
     interval_time: Duration,
     push_time: Duration,
+    jit_time: Duration,
     pixel_time: Duration,
 }
 
@@ -52,11 +53,13 @@ pub fn render(size: usize, tape: Tape) -> Vec<Pixel> {
         interval_time: Duration::ZERO,
         pixel_time: Duration::ZERO,
         push_time: Duration::ZERO,
+        jit_time: Duration::ZERO,
     };
     r.run(&tape);
     info!("Interval time: {:?}", r.interval_time);
     info!("Pixel time:    {:?}", r.pixel_time);
     info!("Push time:     {:?}", r.push_time);
+    info!("JIT time:      {:?}", r.jit_time);
     r.image.into_iter().map(Option::unwrap).collect()
 }
 
@@ -110,9 +113,12 @@ impl Renderer {
         } else {
             let start = Instant::now();
             let sub_tape = eval.push();
+            self.push_time += start.elapsed();
+
+            let start = Instant::now();
             let sub_jit = crate::backend::dynasm::build_interval_fn(&sub_tape);
             let mut sub_eval = sub_jit.get_evaluator();
-            self.push_time += start.elapsed();
+            self.jit_time += start.elapsed();
 
             let n = TILE_SIZE / SUBTILE_SIZE;
             for j in 0..n {
@@ -150,11 +156,13 @@ impl Renderer {
             }
         } else {
             let start = Instant::now();
-
             let sub_tape = eval.push();
+            self.push_time += start.elapsed();
+
+            let start = Instant::now();
             let sub_jit = crate::backend::dynasm::build_float_fn(&sub_tape);
             let mut sub_eval = sub_jit.get_evaluator();
-            self.push_time += start.elapsed();
+            self.jit_time += start.elapsed();
 
             for x in x..(x + SUBTILE_SIZE) {
                 for y in y..(y + SUBTILE_SIZE) {
