@@ -1,11 +1,15 @@
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use num_traits::FromPrimitive;
 
-use crate::backend::tape32::{ClauseOp32, ClauseOp64, Tape};
+use crate::backend::tape32::{Choice, ClauseOp32, ClauseOp64, Tape};
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
 const REG_OFFSET: u32 = 8;
+
+const CHOICE_LEFT: u8 = Choice::Left as u8;
+const CHOICE_RIGHT: u8 = Choice::Right as u8;
+const CHOICE_BOTH: u8 = Choice::Both as u8;
 
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
@@ -203,25 +207,30 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 /// We're calling a function of the form
 /// ```
 /// # type IntervalFn =
-/// extern "C" fn([f32; 2], [f32; 2], [f32; 2]) -> [f32; 2];
+/// extern "C" fn([f32; 2], [f32; 2], [f32; 2], *mut u8) -> [f32; 2];
 /// ```
 ///
-/// The three arguments are `x`, `y`, and `z` intervals.  They come packed into
-/// `s0-5`, and we shuffle them into SIMD registers `V0.2S`, `V1.2S`, and
+/// The first three arguments are `x`, `y`, and `z` intervals.  They come packed
+/// into `s0-5`, and we shuffle them into SIMD registers `V0.2S`, `V1.2S`, and
 /// `V2.2s` respectively.
 ///
-/// Each SIMD register stores an interval.  `s[0]` is the lower bound of the
-/// interval and `s[1]` is the upper bound.
+/// The last argument is a pointer to the `choices` array, which is populated
+/// by `min` and `max` opcodes.  It comes in the `x0` register, which is
+/// unchanged by our function.
 ///
-/// The input tape should be planned with a 24 register limit.  We use hardware
-/// `V8.2S` through `V32.2S` to store our "fast" registers, and put everything
+/// During evaluation, each SIMD register stores an interval.  `s[0]` is the
+/// lower bound of the interval and `s[1]` is the upper bound.
+///
+/// The input tape must be planned with a <= 24 register limit.  We use hardware
+/// `V8.2S` through `V32.2S` to store our tape registers, and put everything
 /// else on the stack.
 ///
 /// `V4.2S` through `V7.2S` are used for scratch values within a single opcode
 /// (e.g. storing intermediate values when calculating `min` or `max`).
 ///
 /// In general, expect to use `v4` and `v5` for intermediate (float) values,
-/// and `[x,w]15` for intermediate integer values.
+/// and `[x,w]15` for intermediate integer values.  These are all caller-saved,
+/// so we can trash them at will.
 pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
@@ -551,6 +560,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     IntervalFuncHandle {
         _buf: buf,
         fn_pointer,
+        choice_count: t.choice_count,
     }
 }
 
@@ -575,12 +585,14 @@ impl FloatFuncHandle {
 pub struct IntervalFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
+    choice_count: usize,
 }
 
 impl IntervalFuncHandle {
     pub fn get_evaluator(&self) -> IntervalEval {
         IntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
+            choices: vec![Choice::Both; self.choice_count],
             _p: std::marker::PhantomData,
         }
     }
@@ -610,13 +622,17 @@ pub struct IntervalEval<'asm> {
         [f32; 2], // X
         [f32; 2], // Y
         [f32; 2], // Z
+        *mut u8,  // choices
     ) -> [f32; 2],
+    choices: Vec<Choice>,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
 impl<'a> IntervalEval<'a> {
-    pub fn i(&self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
-        unsafe { (self.fn_interval)(x, y, z) }
+    pub fn i(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+        unsafe {
+            (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
+        }
     }
 }
 
