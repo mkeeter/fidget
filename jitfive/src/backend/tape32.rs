@@ -323,8 +323,6 @@ impl Tape {
         }
     }
 
-    // TODO: test MAX(X + 1, Y) => X + 1
-    // (since that requires injecting a copy)
     pub fn simplify(&self, mut choices: &[Choice]) -> Self {
         let mut out = vec![];
         let mut next_was_set = false;
@@ -335,6 +333,7 @@ impl Tape {
         let mut choice_count = 0;
 
         let mut iter = self.tape.iter().cloned();
+        let mut oops_all_copies = true;
         while let Some(next) = iter.next() {
             let (mut v, mut imm) = if next_was_set {
                 (iter.next().unwrap(), Some(next))
@@ -546,9 +545,43 @@ impl Tape {
                 *out.last_mut().unwrap() |= NEXT;
                 out.push(imm);
             }
+
             // Clear the `NEXT` flag, because it may not be applicable; it will
             // be retrofitted onto this `u32` if the next operation is long.
-            out.push(v & !NEXT);
+            v &= !NEXT;
+
+            // Special case to collapse copy chains: if this instruction is a
+            // copy to A->B, and the next instruction (out.last) is a copy from
+            // B->C, then skip pushing and instead modify the existing
+            // instruction to copy from A->C
+            let get_copy = |v: u32| {
+                if v & LONG == 0 {
+                    let op = ClauseOp32::from_u32((v >> 24) & ((1 << 6) - 1))
+                        .unwrap();
+                    if matches!(op, ClauseOp32::CopyReg) {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        return Some((out_reg, lhs_reg));
+                    }
+                }
+                None
+            };
+            if imm.is_none() && !out.is_empty() && oops_all_copies {
+                let next = get_copy(*out.last().unwrap());
+                let prev = get_copy(v);
+                if let (Some((b, a)), Some((_c, b_))) = (prev, next) {
+                    if b == b_ {
+                        *out.last_mut().unwrap() &= !(0xFF << 16); // Clear LHS
+                        *out.last_mut().unwrap() |= a << 16; // Reassign LHS
+                        continue;
+                    } else {
+                        oops_all_copies = false;
+                    }
+                }
+            }
+            oops_all_copies &= get_copy(v).is_some();
+
+            out.push(v);
         }
 
         Self {
