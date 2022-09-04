@@ -221,7 +221,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 /// (e.g. storing intermediate values when calculating `min` or `max`).
 ///
 /// In general, expect to use `v4` and `v5` for intermediate (float) values,
-/// and `[x,w]19` for intermediate integer values.
+/// and `[x,w]15` for intermediate integer values.
 pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
@@ -316,19 +316,19 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; rev64 V(out_reg).s2, V(out_reg).s2
                         ),
                         ClauseOp32::AbsReg => dynasm!(ops
-                            // Store lhs < 0.0 in x19
+                            // Store lhs < 0.0 in x15
                             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x19, d4
+                            ; fmov x15, d4
 
                             // Store abs(lhs) in V(out_reg)
                             ; fabs V(out_reg).s2, V(lhs_reg).s2
 
                             // Check whether lhs.upper < 0
-                            ; tst x19, #0x1_0000_0000
+                            ; tst x15, #0x1_0000_0000
                             ; b.ne >upper_lz // ne is !Z
 
                             // Check whether lhs.lower < 0
-                            ; tst x19, #0x1
+                            ; tst x15, #0x1
 
                             // otherwise, we're good; return the original
                             ; b.eq >end
@@ -350,21 +350,21 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                         ClauseOp32::RecipReg => dynasm!(ops
                             // Check whether lhs.lower > 0.0
                             ; fcmgt s4, S(lhs_reg), 0.0
-                            ; fmov w19, s4
-                            ; tst w19, #0x1
+                            ; fmov w15, s4
+                            ; tst w15, #0x1
                             ; b.ne >okay
 
                             // Check whether lhs.upper < 0.0
                             ; mov s4, V(lhs_reg).s[1]
                             ; fcmlt s4, s4, 0.0
-                            ; fmov w19, s4
-                            ; tst w19, #0x1
+                            ; fmov w15, s4
+                            ; tst w15, #0x1
                             ; b.ne >okay // ne is Z == 0
 
                             // Bad case: the division spans 0, so return NaN
-                            ; movz w19, #(nan_u32 >> 16), lsl 16
-                            ; movk w19, #(nan_u32)
-                            ; dup V(out_reg).s2, w19
+                            ; movz w15, #(nan_u32 >> 16), lsl 16
+                            ; movk w15, #(nan_u32)
+                            ; dup V(out_reg).s2, w15
                             ; b >end
 
                             ;okay:
@@ -379,13 +379,13 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                         ClauseOp32::SqrtReg => dynasm!(ops
                             // Store lhs <= 0.0 in x8
                             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x19, d4
+                            ; fmov x15, d4
 
                             // Check whether lhs.upper < 0
-                            ; tst x19, #0x1_0000_0000
+                            ; tst x15, #0x1_0000_0000
                             ; b.ne >upper_lz // ne is Z == 0
 
-                            ; tst x19, #0x1
+                            ; tst x15, #0x1
                             ; b.ne >lower_lz // ne is Z == 0
 
                             // Happy path
@@ -408,17 +408,17 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ;end:
                         ),
                         ClauseOp32::SquareReg => dynasm!(ops
-                            // Store lhs <= 0.0 in x18
+                            // Store lhs <= 0.0 in x15
                             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
-                            ; fmov x18, d4
+                            ; fmov x15, d4
                             ; fmul V(out_reg).s2, V(lhs_reg).s2, V(lhs_reg).s2
 
                             // Check whether lhs.upper <= 0.0
-                            ; tst x18, #0x1_0000_0000
+                            ; tst x15, #0x1_0000_0000
                             ; b.ne >swap // ne is Z == 0
 
                             // Test whether lhs.lower <= 0.0
-                            ; tst x18, #0x1
+                            ; tst x15, #0x1
                             ; b.eq >end
 
                             // If the input interval straddles 0, then the
@@ -492,9 +492,9 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
             // Unpack the immediate using two 16-bit writes
             dynasm!(ops
-                ; movz w19, #(imm_u32 >> 16), lsl 16
-                ; movk w19, #(imm_u32)
-                ; dup v4.s2, w19
+                ; movz w15, #(imm_u32 >> 16), lsl 16
+                ; movk w15, #(imm_u32)
+                ; dup v4.s2, w15
             );
             match op {
                 ClauseOp64::AddRegImm => dynasm!(ops
