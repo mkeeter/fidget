@@ -270,7 +270,7 @@ pub struct TapeEval<'a> {
 ///
 /// Explicitly stored in a `u8` so that this can be written by JIT functions,
 /// which have no notion of Rust enums.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Choice {
     Left,

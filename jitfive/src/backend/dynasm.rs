@@ -7,9 +7,9 @@ use crate::backend::tape32::{Choice, ClauseOp32, ClauseOp64, Tape};
 pub const REGISTER_LIMIT: usize = 24;
 const REG_OFFSET: u32 = 8;
 
-const CHOICE_LEFT: u8 = Choice::Left as u8;
-const CHOICE_RIGHT: u8 = Choice::Right as u8;
-const CHOICE_BOTH: u8 = Choice::Both as u8;
+const CHOICE_LEFT: u64 = Choice::Left as u64;
+const CHOICE_RIGHT: u64 = Choice::Right as u64;
+const CHOICE_BOTH: u64 = Choice::Both as u64;
 
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
@@ -481,10 +481,78 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; fsub V(out_reg).s2, V(lhs_reg).s2, v4.s2
                         ),
                         ClauseOp32::MinRegReg => dynasm!(ops
+                            //  if lhs.upper < rhs.lower
+                            //      *choices++ = CHOICE_LEFT
+                            //      out = lhs
+                            //  elif rhs.upper < lhs.lower
+                            //      *choices++ = CHOICE_RIGHT
+                            //      out = rhs
+                            //  else
+                            //      *choices++ = CHOICE_BOTH
+                            //      out = fmin(lhs, rhs)
+
+                            // v4 = [lhs.upper, rhs.upper]
+                            // v5 = [rhs.lower, lhs.lower]
+                            // This lets us do two comparisons simultaneously
+                            ; zip2 v4.s2, V(lhs_reg).s2, V(rhs_reg).s2
+                            ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
+                            ; fcmgt v5.s2, v5.s2, v4.s2
+                            ; fmov x15, d5
+
+                            ; tst x15, #0x1_0000_0000
+                            ; b.ne >rhs
+
+                            ; tst x15, #0x1
+                            ; b.eq >both
+
+                            // LHS < RHS
+                            ; fmov D(out_reg), D(lhs_reg)
+                            ; mov w16, #CHOICE_LEFT
+                            ; b >end
+
+                            // RHS < LHS
+                            ;rhs:
+                            ; fmov D(out_reg), D(rhs_reg)
+                            ; mov w16, #CHOICE_RIGHT
+                            ; b >end
+
+                            ;both:
                             ; fmin V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
+                            ; mov w16, #CHOICE_BOTH
+
+                            ;end:
+                            ; strb w16, [x0], #1 // post-increment
                         ),
                         ClauseOp32::MaxRegReg => dynasm!(ops
+                            // Basically the same as MinRegReg
+                            ; zip2 v4.s2, V(lhs_reg).s2, V(rhs_reg).s2
+                            ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
+                            ; fcmgt v5.s2, v5.s2, v4.s2
+                            ; fmov x15, d5
+
+                            ; tst x15, #0x1_0000_0000
+                            ; b.ne >lhs
+
+                            ; tst x15, #0x1
+                            ; b.eq >both
+
+                            // LHS < RHS
+                            ; fmov D(out_reg), D(rhs_reg)
+                            ; mov w16, #CHOICE_RIGHT
+                            ; b >end
+
+                            // RHS < LHS
+                            ;lhs:
+                            ; fmov D(out_reg), D(lhs_reg)
+                            ; mov w16, #CHOICE_LEFT
+                            ; b >end
+
+                            ;both:
                             ; fmax V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
+                            ; mov w16, #CHOICE_BOTH
+
+                            ;end:
+                            ; strb w16, [x0], #1 // post-increment
                         ),
                         _ => unreachable!(),
                     };
@@ -680,14 +748,14 @@ mod tests {
         let y = ctx.y();
 
         let jit = to_interval_fn(x, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let jit = to_interval_fn(y, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
         assert_eq!(eval_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
@@ -699,8 +767,8 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let jit = to_interval_fn(abs_x, &ctx);
-        let eval = jit.get_evaluator();
-        let eval = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval([0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval([1.0, 5.0]), [1.0, 5.0]);
         assert_eq!(eval([-2.0, 5.0]), [0.0, 5.0]);
@@ -711,8 +779,8 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let jit = to_interval_fn(sum, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
         assert_eq!(eval_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
         assert_eq!(eval_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
@@ -725,8 +793,8 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 4.0]), [0.0, 2.0]);
         assert_eq!(eval_x([-2.0, 4.0]), [0.0, 2.0]);
@@ -742,8 +810,8 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let jit = to_interval_fn(sqrt_x, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 4.0]), [0.0, 16.0]);
         assert_eq!(eval_x([2.0, 4.0]), [4.0, 16.0]);
@@ -760,8 +828,8 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
         assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
@@ -776,16 +844,16 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
         assert_eq!(eval_x([1.0, 2.0]), [2.0, 4.0]);
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let jit = to_interval_fn(mul, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-6.0, -3.0]);
     }
@@ -798,8 +866,8 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
         assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
@@ -814,16 +882,16 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-1.0, 0.0]);
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let jit = to_interval_fn(sub, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-5.0, -4.0]);
     }
@@ -834,8 +902,8 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let jit = to_interval_fn(recip, &ctx);
-        let eval = jit.get_evaluator();
-        let eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval = jit.get_evaluator();
+        let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
 
         let nanan = eval_x([0.0, 1.0]);
         assert!(nanan[0].is_nan());
@@ -851,5 +919,43 @@ mod tests {
 
         assert_eq!(eval_x([-2.0, -1.0]), [-1.0, -0.5]);
         assert_eq!(eval_x([1.0, 2.0]), [0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_i_min() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let jit = to_interval_fn(min, &ctx);
+        let mut eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Both]);
+
+        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Left]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(eval.choices, vec![Choice::Right]);
+    }
+
+    #[test]
+    fn test_i_max() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let max = ctx.max(x, y).unwrap();
+
+        let jit = to_interval_fn(max, &ctx);
+        let mut eval = jit.get_evaluator();
+        assert_eq!(eval.i([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.5, 1.5]);
+        assert_eq!(eval.choices, vec![Choice::Both]);
+
+        assert_eq!(eval.i([0.0, 1.0], [2.0, 3.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(eval.choices, vec![Choice::Right]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(eval.choices, vec![Choice::Left]);
     }
 }
