@@ -1112,6 +1112,7 @@ impl<'a> TapeBuilder<'a> {
                         match self.t.vars.get_by_index(v).unwrap().as_str() {
                             "X" => 0,
                             "Y" => 1,
+                            "Z" => 2,
                             _ => panic!(),
                         };
                     self.drop_inactive_allocations();

@@ -957,5 +957,18 @@ mod tests {
 
         assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [0.0, 0.0]), [2.0, 3.0]);
         assert_eq!(eval.choices, vec![Choice::Left]);
+
+        let z = ctx.z();
+        let max_xy_z = ctx.max(max, z).unwrap();
+        let jit = to_interval_fn(max_xy_z, &ctx);
+        let mut eval = jit.get_evaluator();
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]), [4.0, 5.0]);
+        assert_eq!(eval.choices, vec![Choice::Left, Choice::Right]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [1.0, 4.0]), [2.0, 4.0]);
+        assert_eq!(eval.choices, vec![Choice::Left, Choice::Both]);
+
+        assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]), [2.0, 3.0]);
+        assert_eq!(eval.choices, vec![Choice::Left, Choice::Left]);
     }
 }
