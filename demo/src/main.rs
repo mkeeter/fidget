@@ -25,6 +25,10 @@ struct Args {
     #[clap(short, long, requires = "image", conflicts_with = "interpreter")]
     asm: bool,
 
+    /// Use brute-force (pixel-by-pixel) evaluation
+    #[clap(short, long, requires = "asm")]
+    brute: bool,
+
     /// Image size
     #[clap(short, long, requires = "image", default_value = "128")]
     size: u32,
@@ -70,37 +74,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect();
             (out, start)
         } else if args.asm {
-            let scale = args.size;
-            let mut out = Vec::with_capacity((scale * scale) as usize);
+            if args.brute {
+                let scale = args.size;
+                let mut out = Vec::with_capacity((scale * scale) as usize);
 
-            let start = Instant::now();
-            let scheduled = jitfive::scheduled::schedule(&ctx, root);
-            let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
-                &scheduled,
-                jitfive::backend::dynasm::REGISTER_LIMIT,
-            );
-            let jit = jitfive::backend::dynasm::build_float_fn(&tape);
-            let eval = jit.get_evaluator();
-            info!("Built JIT function in {:?}", start.elapsed());
+                let start = Instant::now();
+                let scheduled = jitfive::scheduled::schedule(&ctx, root);
+                let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
+                    &scheduled,
+                    jitfive::backend::dynasm::REGISTER_LIMIT,
+                );
+                let jit = jitfive::backend::dynasm::build_float_fn(&tape);
+                let eval = jit.get_evaluator();
+                info!("Built JIT function in {:?}", start.elapsed());
 
-            let start = Instant::now();
-            let div = (scale - 1) as f64;
-            for i in 0..scale {
-                let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..scale {
-                    let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.f(x as f32, y as f32, 0.0);
-                    out.push(v <= 0.0);
+                let start = Instant::now();
+                let div = (scale - 1) as f64;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f64) / div);
+                    for j in 0..scale {
+                        let x = -1.0 + 2.0 * (j as f64) / div;
+                        let v = eval.f(x as f32, y as f32, 0.0);
+                        out.push(v <= 0.0);
+                    }
                 }
-            }
 
-            // Convert from Vec<bool> to an image
-            let out = out
-                .into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                .flat_map(|i| i.into_iter())
-                .collect();
-            (out, start)
+                // Convert from Vec<bool> to an image
+                let out = out
+                    .into_iter()
+                    .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+                    .flat_map(|i| i.into_iter())
+                    .collect();
+                (out, start)
+            } else {
+                let start = Instant::now();
+                let scheduled = jitfive::scheduled::schedule(&ctx, root);
+                let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
+                    &scheduled,
+                    jitfive::backend::dynasm::REGISTER_LIMIT,
+                );
+                let image = jitfive::render::render(args.size as usize, tape);
+                let out = image
+                    .into_iter()
+                    .flat_map(|p| p.as_color().into_iter())
+                    .collect();
+                (out, start)
+            }
         } else {
             let start = Instant::now();
             let scale = args.size;

@@ -2,6 +2,7 @@ pub mod backend;
 pub mod context;
 pub mod error;
 pub mod op;
+pub mod render;
 pub mod scheduled;
 pub mod util;
 

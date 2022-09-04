@@ -697,6 +697,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
         _buf: buf,
         fn_pointer,
         choice_count: t.choice_count,
+        tape: t,
     }
 }
 
@@ -718,17 +719,19 @@ impl FloatFuncHandle {
 }
 
 /// Handle which owns a JIT-compiled interval function
-pub struct IntervalFuncHandle {
+pub struct IntervalFuncHandle<'t> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
+    tape: &'t Tape,
 }
 
-impl IntervalFuncHandle {
+impl<'t> IntervalFuncHandle<'t> {
     pub fn get_evaluator(&self) -> IntervalEval {
         IntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
+            tape: self.tape,
             _p: std::marker::PhantomData,
         }
     }
@@ -761,6 +764,7 @@ pub struct IntervalEval<'asm> {
         *mut u8,  // choices
     ) -> [f32; 2],
     choices: Vec<Choice>,
+    tape: &'asm Tape,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
@@ -769,6 +773,14 @@ impl<'a> IntervalEval<'a> {
         unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
         }
+    }
+
+    /// Returns a simplified tape based on `self.choices`
+    ///
+    /// The choices array should have been calculated during the last interval
+    /// evaluation.
+    pub fn push(&self) -> Tape {
+        self.tape.simplify(&self.choices)
     }
 }
 
