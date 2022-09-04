@@ -21,7 +21,7 @@ pub enum ClauseOp32 {
     /// Swap from a main register to an extended register
     Swap,
 
-    /// Reads one of the inputs (i.e. X or Y)
+    /// Reads one of the inputs (X, Y, Z)
     Input,
 
     CopyReg,
@@ -154,7 +154,7 @@ const LONG: u32 = 1 << 30;
 ///
 /// To disambiguate, we use two bits as flags:
 ///
-/// | Bits | Name   | Meaning                        |
+/// | Bit  | Name   | Meaning                        |
 /// |------|--------|--------------------------------|
 /// | 31   | `NEXT` | Next instruction is 64-bit     |
 /// | 30   | `LONG` | This instruction is 64-bit     |
@@ -172,9 +172,6 @@ const LONG: u32 = 1 << 30;
 /// # ;
 /// ```
 ///
-/// The tape is evaluated from back to front, i.e. starting at index 10 and
-/// moving up through index 0.
-///
 /// | Index | Operation |  Out   | LHS   | RHS   | Value | `LONG` | `NEXT` |
 /// |-------|-----------|--------|-------|-------|-------|--------|--------|
 /// | 0     | `COPY`    | `$0`   | `$1`  | -     | -     |        |        |
@@ -191,25 +188,34 @@ const LONG: u32 = 1 << 30;
 ///
 /// Registers are shown with `$`; input arguments use `%`.
 ///
+/// The tape is evaluated from back to front, i.e. starting at index 10 and
+/// moving up through index 0.  The output of a tape is guaranteed to be stored
+/// in register `$0`.
+///
 /// # 32-bit instructions
 /// ## Common operations on registers
 /// For a 32-bit instruction (i.e. bit 30 is 0), there are three encodings.  The
 /// most common is a operation on **registers**:
 ///
-/// | 31     | 30         | 29-24  | 23-16 | 18-8 | 7-0  |
-/// |--------|------------|--------|-------|------|------|
-/// | `NEXT` | `LONG` (0) | Opcode | LHS   | RHS  | Out  |
+/// | 31     | 30         | 29-24          | 23-16 | 18-8 | 7-0  |
+/// |--------|------------|----------------|-------|------|------|
+/// | `NEXT` | `LONG` (0) | [`ClauseOp32`] | LHS   | RHS  | Out  |
 ///
 /// This allows us to encode the 64 most common opcodes into a single `u32`,
-/// using up to 256 registers.
+/// using up to 256 registers.  For unary (single-argument) functions, RHS is
+/// ignored during evaluation.
+///
+/// The opcode can be any of [`ClauseOp32`], _except_ the special cases detailed
+/// below.
 ///
 /// ## Input
 /// The encoding for `Input` operations uses bits 23-16 as an index into the
-/// function's argument list.  Right now, it must be 0 (for X) or 1 (for Y).
+/// function's argument list.  Right now, it must be 0, 1, or 2 for X, Y, and Z
+/// respectively.
 ///
-/// | 31     | 30         | 29-24            | 23-16 | 18-8 | 7-0  |
-/// |--------|------------|------------------|-------|------|------|
-/// | `NEXT` | `LONG` (0) | Opcode (`Input`) | Index | -    | Out  |
+/// | 31     | 30         | 29-24                 | 23-16 | 18-8 | 7-0  |
+/// |--------|------------|-----------------------|-------|------|------|
+/// | `NEXT` | `LONG` (0) | [`ClauseOp32::Input`] | Index | -    | Out  |
 ///
 /// ## Load and store
 /// The common operation encoding limits us to 256 registers; if we need more
@@ -228,9 +234,9 @@ const LONG: u32 = 1 << 30;
 /// `Load` and `Store` are implemented as a 32-bit operation with a slightly
 /// different encoding
 ///
-/// | 31     | 30         | 29-24  | 23-8   |  7-0     |
-/// |--------|------------|--------|--------|----------|
-/// | `NEXT` | `LONG` (0) | Opcode | Memory | Register |
+/// | 31     | 30         | 29-24          | 23-8   |  7-0     |
+/// |--------|------------|----------------|--------|----------|
+/// | `NEXT` | `LONG` (0) | [`ClauseOp32`] | Memory | Register |
 ///
 /// (where the opcode is limited to `Load`, `Store`, and `Swap`)
 ///
@@ -244,6 +250,7 @@ const LONG: u32 = 1 << 30;
 /// example tape above.
 #[derive(Debug)]
 pub struct Tape {
+    /// Raw instruction tape
     pub tape: Vec<u32>,
 
     /// Total number of slots required for evaluation, including both registers
@@ -255,7 +262,8 @@ pub struct Tape {
     /// This is always `<= total_slots`
     pub reg_count: usize,
 
-    /// The number of nodes which push to a choice array
+    /// The number of nodes which store values in the choice array during
+    /// interval evaluation.
     pub choice_count: usize,
 }
 
