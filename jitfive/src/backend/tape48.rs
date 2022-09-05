@@ -79,6 +79,33 @@ impl Tape {
             choice_count: builder.choice_count,
         }
     }
+
+    pub fn pretty_print(&self) {
+        for (i, op) in self.tape.iter().rev().enumerate() {
+            print!("${} = ", i);
+            use ClauseOp48::*;
+            match op {
+                Input(i) => println!("%{}", i),
+                NegReg(arg) => println!("NEG ${}", arg),
+                AbsReg(arg) => println!("ABS ${}", arg),
+                RecipReg(arg) => println!("RECIP ${}", arg),
+                SqrtReg(arg) => println!("SQRT ${}", arg),
+                SquareReg(arg) => println!("SQUARE ${}", arg),
+                AddRegReg(lhs, rhs) => println!("ADD ${} ${}", lhs, rhs),
+                MulRegReg(lhs, rhs) => println!("MUL ${} ${}", lhs, rhs),
+                SubRegReg(lhs, rhs) => println!("SUB ${} ${}", lhs, rhs),
+                MinRegReg(lhs, rhs) => println!("MIN ${} ${}", lhs, rhs),
+                MaxRegReg(lhs, rhs) => println!("MAX ${} ${}", lhs, rhs),
+                AddRegImm(arg, imm) => println!("ADD ${} {}", arg, imm),
+                MulRegImm(arg, imm) => println!("MUL ${} {}", arg, imm),
+                SubImmReg(arg, imm) => println!("SUB {} ${}", imm, arg),
+                SubRegImm(arg, imm) => println!("SUB ${} {}", arg, imm),
+                MinRegImm(arg, imm) => println!("MIN ${} {}", arg, imm),
+                MaxRegImm(arg, imm) => println!("MAX ${} {}", arg, imm),
+                CopyImm(imm) => println!("{}", imm),
+            }
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -94,7 +121,7 @@ impl<'a> TapeEval<'a> {
         self.slots[i as usize]
     }
     pub fn f(&mut self, x: f32, y: f32) -> f32 {
-        for (i, &op) in self.tape.tape.iter().enumerate() {
+        for (i, &op) in self.tape.tape.iter().rev().enumerate() {
             self.slots[i] = match op {
                 ClauseOp48::Input(i) => match i {
                     0 => x,
@@ -121,7 +148,7 @@ impl<'a> TapeEval<'a> {
                 ClauseOp48::CopyImm(imm) => imm,
             };
         }
-        self.slots[0]
+        self.slots[self.slots.len() - 1]
     }
 }
 
