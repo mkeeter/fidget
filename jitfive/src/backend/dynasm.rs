@@ -334,13 +334,13 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
                             // Check whether lhs.upper < 0
                             ; tst x15, #0x1_0000_0000
-                            ; b.ne >upper_lz // ne is !Z
+                            ; b.ne #24 // -> upper_lz
 
                             // Check whether lhs.lower < 0
                             ; tst x15, #0x1
 
                             // otherwise, we're good; return the original
-                            ; b.eq >end
+                            ; b.eq #20 // -> end
 
                             // if lhs.lower < 0, then the output is
                             //  [0.0, max(abs(lower, upper))]
@@ -349,41 +349,40 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; fmov D(out_reg), d4
                             // Fall through to do the swap
 
+                            // <- upper_lz
                             // if upper < 0
                             //   return [-upper, -lower]
-                            ;upper_lz:
                             ; rev64 V(out_reg).s2, V(out_reg).s2
 
-                            ;end:
+                            // <- end
                         ),
                         ClauseOp32::RecipReg => dynasm!(ops
                             // Check whether lhs.lower > 0.0
                             ; fcmgt s4, S(lhs_reg), 0.0
                             ; fmov w15, s4
                             ; tst w15, #0x1
-                            ; b.ne >okay
+                            ; b.ne #40 // -> okay
 
                             // Check whether lhs.upper < 0.0
                             ; mov s4, V(lhs_reg).s[1]
                             ; fcmlt s4, s4, 0.0
                             ; fmov w15, s4
                             ; tst w15, #0x1
-                            ; b.ne >okay // ne is Z == 0
+                            ; b.ne #20 // -> okay
 
                             // Bad case: the division spans 0, so return NaN
                             ; movz w15, #(nan_u32 >> 16), lsl 16
                             ; movk w15, #(nan_u32)
                             ; dup V(out_reg).s2, w15
-                            ; b >end
+                            ; b #20 // -> end
 
-                            ;okay:
+                            // <- okay
                             ; fmov s4, #1.0
                             ; dup v4.s2, v4.s[0]
                             ; fdiv V(out_reg).s2, v4.s2, V(lhs_reg).s2
                             ; rev64 V(out_reg).s2, V(out_reg).s2
-                            // Fallthrough to >end
 
-                            ;end:
+                            // <- end
                         ),
                         ClauseOp32::SqrtReg => dynasm!(ops
                             // Store lhs <= 0.0 in x8
@@ -392,29 +391,28 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
                             // Check whether lhs.upper < 0
                             ; tst x15, #0x1_0000_0000
-                            ; b.ne >upper_lz // ne is Z == 0
+                            ; b.ne #40 // -> upper_lz
 
                             ; tst x15, #0x1
-                            ; b.ne >lower_lz // ne is Z == 0
+                            ; b.ne #12 // -> lower_lz
 
                             // Happy path
                             ; fsqrt V(out_reg).s2, V(lhs_reg).s2
-                            ; b >end
+                            ; b #36 // -> end
 
-                            ;lower_lz:
+                            // <- lower_lz
                             ; mov v4.s[0], V(lhs_reg).s[1]
                             ; fsqrt s4, s4
                             ; movi D(out_reg), #0
                             ; mov V(out_reg).s[1], v4.s[0]
-                            ; b >end
+                            ; b #16
 
-                            ;upper_lz:
+                            // <- upper_lz
                             ; movz w9, #(nan_u32 >> 16), lsl 16
                             ; movk w9, #(nan_u32)
                             ; dup V(out_reg).s2, w9
-                            // Fallthrough
 
-                            ;end:
+                            // <- end
                         ),
                         ClauseOp32::SquareReg => dynasm!(ops
                             // Store lhs <= 0.0 in x15
@@ -424,23 +422,23 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 
                             // Check whether lhs.upper <= 0.0
                             ; tst x15, #0x1_0000_0000
-                            ; b.ne >swap // ne is Z == 0
+                            ; b.ne #28 // -> swap
 
                             // Test whether lhs.lower <= 0.0
                             ; tst x15, #0x1
-                            ; b.eq >end
+                            ; b.eq #24 // -> end
 
                             // If the input interval straddles 0, then the
                             // output is [0, max(lower**2, upper**2)]
                             ; fmaxnmv s4, V(out_reg).s4
                             ; movi D(out_reg), #0
                             ; mov V(out_reg).s[1], v4.s[0]
-                            ; b >end
+                            ; b #8 // -> end
 
-                            ;swap:
+                            // <- swap
                             ; rev64 V(out_reg).s2, V(out_reg).s2
 
-                            ;end:
+                            // <- end
                         ),
                         _ => unreachable!(),
                     };
@@ -500,27 +498,26 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; fmov x15, d5
 
                             ; tst x15, #0x1_0000_0000
-                            ; b.ne >rhs
+                            ; b.ne #24 // -> rhs
 
                             ; tst x15, #0x1
-                            ; b.eq >both
+                            ; b.eq #28 // -> both
 
                             // LHS < RHS
                             ; fmov D(out_reg), D(lhs_reg)
                             ; mov w16, #CHOICE_LEFT
-                            ; b >end
+                            ; b #24 // -> end
 
-                            // RHS < LHS
-                            ;rhs:
+                            // <- rhs (for when RHS < LHS)
                             ; fmov D(out_reg), D(rhs_reg)
                             ; mov w16, #CHOICE_RIGHT
-                            ; b >end
+                            ; b #12
 
-                            ;both:
+                            // <- both
                             ; fmin V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
                             ; mov w16, #CHOICE_BOTH
 
-                            ;end:
+                            // <- end
                             ; strb w16, [x0], #1 // post-increment
                         ),
                         ClauseOp32::MaxRegReg => dynasm!(ops
@@ -531,27 +528,26 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
                             ; fmov x15, d5
 
                             ; tst x15, #0x1_0000_0000
-                            ; b.ne >lhs
+                            ; b.ne #24 // -> lhs
 
                             ; tst x15, #0x1
-                            ; b.eq >both
+                            ; b.eq #28 // -> both
 
                             // LHS < RHS
                             ; fmov D(out_reg), D(rhs_reg)
                             ; mov w16, #CHOICE_RIGHT
-                            ; b >end
+                            ; b #24 // -> end
 
-                            // RHS < LHS
-                            ;lhs:
+                            // <- lhs (when RHS < LHS)
                             ; fmov D(out_reg), D(lhs_reg)
                             ; mov w16, #CHOICE_LEFT
-                            ; b >end
+                            ; b #12 // -> end
 
-                            ;both:
+                            // <- both
                             ; fmax V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
                             ; mov w16, #CHOICE_BOTH
 
-                            ;end:
+                            // <- end
                             ; strb w16, [x0], #1 // post-increment
                         ),
                         _ => unreachable!(),
