@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    backend::common::{NodeIndex, Op},
+    backend::common::{Choice, NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
     util::{bimap::Bimap, queue::PriorityQueue},
@@ -272,18 +272,6 @@ pub struct TapeEval<'a> {
     tape: &'a Tape,
     slots: Vec<f32>,
     choices: Vec<Choice>,
-}
-
-/// Represents a single choice made at a min/max node.
-///
-/// Explicitly stored in a `u8` so that this can be written by JIT functions,
-/// which have no notion of Rust enums.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum Choice {
-    Left,
-    Right,
-    Both,
 }
 
 impl Tape {

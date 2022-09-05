@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::scheduled::Scheduled;
 use crate::{
-    backend::common::{NodeIndex, Op},
+    backend::common::{Choice, NodeIndex, Op},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
 };
 
@@ -17,12 +17,6 @@ pub enum ClauseOp48 {
     SqrtReg(u32),
     SquareReg(u32),
 
-    AddRegReg(u32, u32),
-    MulRegReg(u32, u32),
-    SubRegReg(u32, u32),
-    MinRegReg(u32, u32),
-    MaxRegReg(u32, u32),
-
     /// Add a register and an immediate
     AddRegImm(u32, f32),
     /// Multiply a register and an immediate
@@ -35,6 +29,12 @@ pub enum ClauseOp48 {
     MinRegImm(u32, f32),
     /// Compute the maximum of a register and an immediate
     MaxRegImm(u32, f32),
+
+    AddRegReg(u32, u32),
+    MulRegReg(u32, u32),
+    SubRegReg(u32, u32),
+    MinRegReg(u32, u32),
+    MaxRegReg(u32, u32),
 
     /// Copy an immediate to a register
     CopyImm(f32),
@@ -104,6 +104,181 @@ impl Tape {
                 MaxRegImm(arg, imm) => println!("MAX ${} {}", arg, imm),
                 CopyImm(imm) => println!("{}", imm),
             }
+        }
+    }
+
+    pub fn simplify(&self, choices: &[Choice]) -> Self {
+        let mut active = vec![false; self.tape.len()];
+        let mut choice_iter = choices.iter().rev();
+        active[self.tape.len() - 1] = true;
+
+        // Reverse pass to track activity
+        let i = (0..self.tape.len()).rev();
+        for (index, op) in i.zip(self.tape.iter().cloned()) {
+            use ClauseOp48::*;
+            if !active[index] {
+                if matches!(
+                    op,
+                    MinRegReg(..)
+                        | MaxRegReg(..)
+                        | MinRegImm(..)
+                        | MaxRegImm(..)
+                ) {
+                    choice_iter.next().unwrap();
+                }
+                continue;
+            }
+
+            match op {
+                Input(..) | CopyImm(..) => (),
+                AddRegReg(lhs, rhs)
+                | MulRegReg(lhs, rhs)
+                | SubRegReg(lhs, rhs) => {
+                    active[lhs as usize] = true;
+                    active[rhs as usize] = true;
+                }
+
+                NegReg(arg)
+                | AbsReg(arg)
+                | RecipReg(arg)
+                | SqrtReg(arg)
+                | SquareReg(arg)
+                | AddRegImm(arg, ..)
+                | MulRegImm(arg, ..)
+                | SubImmReg(arg, ..)
+                | SubRegImm(arg, ..) => {
+                    active[arg as usize] = true;
+                }
+                MinRegImm(arg, ..) | MaxRegImm(arg, ..) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            active[arg as usize] = true;
+                        }
+                        Choice::Right => {
+                            // Nothing to do here (will become CopyImm)
+                        }
+                        Choice::Both => {
+                            active[arg as usize] = true;
+                        }
+                    }
+                }
+
+                MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            active[lhs as usize] = true;
+                        }
+                        Choice::Right => {
+                            active[rhs as usize] = true;
+                        }
+                        Choice::Both => {
+                            active[lhs as usize] = true;
+                            active[rhs as usize] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Forward pass to build new tape
+        let mut out = vec![];
+        let mut choice_count = 0;
+        let mut choice_iter = choices.iter();
+        let mut remap = Vec::with_capacity(self.tape.len());
+
+        for (index, op) in self.tape.iter().rev().cloned().enumerate() {
+            use ClauseOp48::*;
+            if !active[index] {
+                if matches!(
+                    op,
+                    MinRegReg(..)
+                        | MaxRegReg(..)
+                        | MinRegImm(..)
+                        | MaxRegImm(..)
+                ) {
+                    choice_iter.next().unwrap();
+                }
+                remap.push(u32::MAX);
+                continue;
+            }
+
+            let op = match op {
+                Input(..) | CopyImm(..) => op,
+                AddRegReg(lhs, rhs) => {
+                    AddRegReg(remap[lhs as usize], remap[rhs as usize])
+                }
+                MulRegReg(lhs, rhs) => {
+                    MulRegReg(remap[lhs as usize], remap[rhs as usize])
+                }
+                SubRegReg(lhs, rhs) => {
+                    SubRegReg(remap[lhs as usize], remap[rhs as usize])
+                }
+                NegReg(arg) => NegReg(remap[arg as usize]),
+                AbsReg(arg) => AbsReg(remap[arg as usize]),
+                RecipReg(arg) => RecipReg(remap[arg as usize]),
+                SqrtReg(arg) => SqrtReg(remap[arg as usize]),
+                SquareReg(arg) => SquareReg(remap[arg as usize]),
+
+                AddRegImm(arg, imm) => AddRegImm(remap[arg as usize], imm),
+                MulRegImm(arg, imm) => MulRegImm(remap[arg as usize], imm),
+                SubImmReg(arg, imm) => SubImmReg(remap[arg as usize], imm),
+                SubRegImm(arg, imm) => SubRegImm(remap[arg as usize], imm),
+
+                MinRegImm(arg, imm) | MaxRegImm(arg, imm) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            remap.push(remap[arg as usize]);
+                            continue;
+                        }
+                        Choice::Right => CopyImm(imm),
+                        Choice::Both => {
+                            choice_count += 1;
+                            match op {
+                                MinRegImm(arg, imm) => {
+                                    MinRegImm(remap[arg as usize], imm)
+                                }
+                                MaxRegImm(arg, imm) => {
+                                    MaxRegImm(remap[arg as usize], imm)
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
+                MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            remap.push(remap[lhs as usize]);
+                            continue;
+                        }
+                        Choice::Right => {
+                            remap.push(remap[rhs as usize]);
+                            continue;
+                        }
+                        Choice::Both => {
+                            choice_count += 1;
+                            match op {
+                                MinRegReg(lhs, rhs) => MinRegReg(
+                                    remap[lhs as usize],
+                                    remap[rhs as usize],
+                                ),
+                                MaxRegReg(lhs, rhs) => MaxRegReg(
+                                    remap[lhs as usize],
+                                    remap[rhs as usize],
+                                ),
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
+            };
+            remap.push(out.len() as u32);
+            out.push(op);
+        }
+
+        Self {
+            tape: out,
+            choice_count,
         }
     }
 }
@@ -302,5 +477,69 @@ impl<'a> TapeBuilder<'a> {
             };
             self.push(n, out);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::common::Choice;
+
+    #[test]
+    fn basic_interpreter() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let one = ctx.constant(1.0);
+        let sum = ctx.add(x, one).unwrap();
+        let min = ctx.min(sum, y).unwrap();
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 2.0);
+        assert_eq!(eval.f(1.0, 3.0), 2.0);
+        assert_eq!(eval.f(3.0, 3.5), 3.5);
+    }
+
+    #[test]
+    fn test_push() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0), 2.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        let mut eval = t.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        let mut eval = t.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0), 2.0);
+        assert_eq!(eval.f(3.0, 2.0), 2.0);
+
+        let one = ctx.constant(1.0);
+        let min = ctx.min(x, one).unwrap();
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0), 1.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        let mut eval = t.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        let mut eval = t.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 0.0), 1.0);
     }
 }

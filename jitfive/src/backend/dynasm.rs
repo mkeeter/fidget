@@ -1,7 +1,10 @@
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use num_traits::FromPrimitive;
 
-use crate::backend::tape32::{Choice, ClauseOp32, ClauseOp64, Tape};
+use crate::backend::{
+    common::Choice,
+    tape32::{ClauseOp32, ClauseOp64, Tape},
+};
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
