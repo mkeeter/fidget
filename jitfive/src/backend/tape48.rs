@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::scheduled::Scheduled;
 use crate::{
-    backend::common::{Choice, NodeIndex, Op},
+    backend::common::{Choice, NodeIndex, Op, VarIndex},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+    util::indexed::IndexMap,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -52,6 +53,9 @@ pub struct Tape {
     /// Raw instruction tape
     pub tape: Vec<ClauseOp48>,
 
+    /// `last_used[i]` is the last use of slot `i` during forward evaluation
+    last_used: Vec<usize>,
+
     /// The number of nodes which store values in the choice array during
     /// interval evaluation.
     pub choice_count: usize,
@@ -72,11 +76,12 @@ impl Tape {
     }
 
     fn from_builder(mut builder: TapeBuilder) -> Self {
-        builder.run();
-        builder.out.reverse();
+        let mut out = builder.run();
+        out.reverse();
         Self {
-            tape: builder.out,
+            tape: out,
             choice_count: builder.choice_count,
+            last_used: builder.last_used,
         }
     }
 
@@ -181,104 +186,149 @@ impl Tape {
         }
 
         // Forward pass to build new tape
-        let mut out = vec![];
-        let mut choice_count = 0;
-        let mut choice_iter = choices.iter();
-        let mut remap = Vec::with_capacity(self.tape.len());
+        let tape_iter = self.tape.iter().rev().cloned();
+        let choice_iter = choices.iter();
+        let active_iter = active.iter();
+        let mut simplify = TapeSimplify {
+            choice_count: 0,
+            tape_iter,
+            choice_iter,
+            active_iter,
+            remap: vec![],
+            last_used: vec![],
+        };
 
-        for (index, op) in self.tape.iter().rev().cloned().enumerate() {
-            use ClauseOp48::*;
-            if !active[index] {
-                if matches!(
-                    op,
-                    MinRegReg(..)
-                        | MaxRegReg(..)
-                        | MinRegImm(..)
-                        | MaxRegImm(..)
-                ) {
-                    choice_iter.next().unwrap();
-                }
-                remap.push(u32::MAX);
-                continue;
-            }
-
-            let op = match op {
-                Input(..) | CopyImm(..) => op,
-                AddRegReg(lhs, rhs) => {
-                    AddRegReg(remap[lhs as usize], remap[rhs as usize])
-                }
-                MulRegReg(lhs, rhs) => {
-                    MulRegReg(remap[lhs as usize], remap[rhs as usize])
-                }
-                SubRegReg(lhs, rhs) => {
-                    SubRegReg(remap[lhs as usize], remap[rhs as usize])
-                }
-                NegReg(arg) => NegReg(remap[arg as usize]),
-                AbsReg(arg) => AbsReg(remap[arg as usize]),
-                RecipReg(arg) => RecipReg(remap[arg as usize]),
-                SqrtReg(arg) => SqrtReg(remap[arg as usize]),
-                SquareReg(arg) => SquareReg(remap[arg as usize]),
-
-                AddRegImm(arg, imm) => AddRegImm(remap[arg as usize], imm),
-                MulRegImm(arg, imm) => MulRegImm(remap[arg as usize], imm),
-                SubImmReg(arg, imm) => SubImmReg(remap[arg as usize], imm),
-                SubRegImm(arg, imm) => SubRegImm(remap[arg as usize], imm),
-
-                MinRegImm(arg, imm) | MaxRegImm(arg, imm) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => {
-                            remap.push(remap[arg as usize]);
-                            continue;
-                        }
-                        Choice::Right => CopyImm(imm),
-                        Choice::Both => {
-                            choice_count += 1;
-                            match op {
-                                MinRegImm(arg, imm) => {
-                                    MinRegImm(remap[arg as usize], imm)
-                                }
-                                MaxRegImm(arg, imm) => {
-                                    MaxRegImm(remap[arg as usize], imm)
-                                }
-                                _ => unreachable!(),
-                            }
-                        }
-                    }
-                }
-                MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => {
-                            remap.push(remap[lhs as usize]);
-                            continue;
-                        }
-                        Choice::Right => {
-                            remap.push(remap[rhs as usize]);
-                            continue;
-                        }
-                        Choice::Both => {
-                            choice_count += 1;
-                            match op {
-                                MinRegReg(lhs, rhs) => MinRegReg(
-                                    remap[lhs as usize],
-                                    remap[rhs as usize],
-                                ),
-                                MaxRegReg(lhs, rhs) => MaxRegReg(
-                                    remap[lhs as usize],
-                                    remap[rhs as usize],
-                                ),
-                                _ => unreachable!(),
-                            }
-                        }
-                    }
-                }
-            };
-            remap.push(out.len() as u32);
-            out.push(op);
-        }
+        let out = (&mut simplify).collect();
 
         Self {
             tape: out,
-            choice_count,
+            choice_count: simplify.choice_count,
+            last_used: simplify.last_used,
+        }
+    }
+}
+
+struct TapeSimplify<'a, I> {
+    choice_count: usize,
+    tape_iter: I,
+    choice_iter: std::slice::Iter<'a, Choice>,
+    active_iter: std::slice::Iter<'a, bool>,
+    remap: Vec<u32>,
+    last_used: Vec<usize>,
+}
+
+impl<'a, I> TapeSimplify<'a, I>
+where
+    I: Iterator<Item = ClauseOp48>,
+{
+    fn get(&mut self, i: u32) -> u32 {
+        self.last_used[i as usize] = self.last_used.len();
+        self.remap[i as usize]
+    }
+
+    fn step(&mut self, op: ClauseOp48) -> Option<ClauseOp48> {
+        use ClauseOp48::*;
+
+        let active = self.active_iter.next().unwrap();
+        if !active {
+            if matches!(
+                op,
+                MinRegReg(..) | MaxRegReg(..) | MinRegImm(..) | MaxRegImm(..)
+            ) {
+                self.choice_iter.next().unwrap();
+            }
+            self.remap.push(u32::MAX);
+            return None;
+        }
+
+        let index = self.remap.len();
+        let op = match op {
+            Input(..) | CopyImm(..) => op,
+            AddRegReg(lhs, rhs) => AddRegReg(self.get(lhs), self.get(rhs)),
+            MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
+            SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
+            NegReg(arg) => NegReg(self.get(arg)),
+            AbsReg(arg) => AbsReg(self.get(arg)),
+            RecipReg(arg) => RecipReg(self.get(arg)),
+            SqrtReg(arg) => {
+                self.last_used[arg as usize] = index;
+                SqrtReg(self.get(arg))
+            }
+            SquareReg(arg) => {
+                self.last_used[arg as usize] = index;
+                SquareReg(self.get(arg))
+            }
+
+            AddRegImm(arg, imm) => AddRegImm(self.get(arg), imm),
+            MulRegImm(arg, imm) => MulRegImm(self.get(arg), imm),
+            SubImmReg(arg, imm) => SubImmReg(self.get(arg), imm),
+            SubRegImm(arg, imm) => SubRegImm(self.get(arg), imm),
+
+            MinRegImm(arg, imm) | MaxRegImm(arg, imm) => {
+                match self.choice_iter.next().unwrap() {
+                    Choice::Left => {
+                        self.remap.push(self.remap[arg as usize]);
+                        return None;
+                    }
+                    Choice::Right => CopyImm(imm),
+                    Choice::Both => {
+                        self.choice_count += 1;
+                        match op {
+                            MinRegImm(arg, imm) => {
+                                MinRegImm(self.get(arg), imm)
+                            }
+                            MaxRegImm(arg, imm) => {
+                                MaxRegImm(self.get(arg), imm)
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+            MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
+                match self.choice_iter.next().unwrap() {
+                    Choice::Left => {
+                        self.remap.push(self.remap[lhs as usize]);
+                        return None;
+                    }
+                    Choice::Right => {
+                        self.remap.push(self.remap[rhs as usize]);
+                        return None;
+                    }
+                    Choice::Both => {
+                        self.choice_count += 1;
+                        match op {
+                            MinRegReg(lhs, rhs) => {
+                                MinRegReg(self.get(lhs), self.get(rhs))
+                            }
+                            MaxRegReg(lhs, rhs) => {
+                                MaxRegReg(self.get(lhs), self.get(rhs))
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+        };
+        self.last_used.push(usize::MAX);
+        self.remap.push(index as u32);
+        Some(op)
+    }
+}
+
+impl<'a, I> Iterator for TapeSimplify<'a, I>
+where
+    I: Iterator<Item = ClauseOp48>,
+{
+    type Item = ClauseOp48;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let op = self.tape_iter.next()?;
+            let r = self.step(op);
+            if r.is_some() {
+                break r;
+            }
+            // TODO: handle immediate-only tree?
         }
     }
 }
@@ -330,11 +380,14 @@ impl<'a> TapeEval<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct TapeBuilder<'a> {
-    t: &'a Scheduled,
-    out: Vec<ClauseOp48>,
+    iter: std::slice::Iter<'a, (NodeIndex, Op)>,
+    vars: &'a IndexMap<String, VarIndex>,
     mapping: BTreeMap<NodeIndex, u32>,
     constants: BTreeMap<NodeIndex, f32>,
     choice_count: usize,
+
+    /// `last_used[i]` is the last use of slot `i` during forward evaluation
+    last_used: Vec<usize>,
 }
 
 enum Allocation {
@@ -345,20 +398,13 @@ enum Allocation {
 impl<'a> TapeBuilder<'a> {
     fn new(t: &'a Scheduled) -> Self {
         Self {
-            t,
-            out: vec![],
+            iter: t.tape.iter(),
+            vars: &t.vars,
             mapping: BTreeMap::new(),
             constants: BTreeMap::new(),
             choice_count: 0,
+            last_used: vec![],
         }
-    }
-
-    fn push(&mut self, node: NodeIndex, op: ClauseOp48) {
-        let r = self
-            .mapping
-            .insert(node, self.out.len().try_into().unwrap());
-        assert!(r.is_none());
-        self.out.push(op);
     }
 
     fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
@@ -370,115 +416,143 @@ impl<'a> TapeBuilder<'a> {
         }
     }
 
-    fn run(&mut self) {
+    fn run(&mut self) -> Vec<ClauseOp48> {
+        self.collect()
+    }
+
+    fn step(&mut self, node: NodeIndex, op: Op) -> Option<ClauseOp48> {
         type RegRegFn = fn(u32, u32) -> ClauseOp48;
         type RegImmFn = fn(u32, f32) -> ClauseOp48;
 
-        for &(n, op) in &self.t.tape {
-            let out = match op {
-                Op::Var(v) => {
-                    let index =
-                        match self.t.vars.get_by_index(v).unwrap().as_str() {
-                            "X" => 0,
-                            "Y" => 1,
-                            "Z" => 2,
-                            _ => panic!(),
-                        };
-                    ClauseOp48::Input(index)
-                }
-                Op::Const(c) => {
-                    self.constants.insert(n, c as f32);
-                    continue;
-                }
-                Op::Binary(op, lhs, rhs) => {
-                    let lhs = self.get_allocated_value(lhs);
-                    let rhs = self.get_allocated_value(rhs);
+        let index = self.mapping.len();
+        assert_eq!(index, self.last_used.len());
+        let out = match op {
+            Op::Var(v) => {
+                let arg = match self.vars.get_by_index(v).unwrap().as_str() {
+                    "X" => 0,
+                    "Y" => 1,
+                    "Z" => 2,
+                    _ => panic!(),
+                };
+                ClauseOp48::Input(arg)
+            }
+            Op::Const(c) => {
+                // Skip this (because it's not inserted into the tape)
+                // and recurse.  Hopefully, this is a tail call!
+                self.constants.insert(node, c as f32);
+                return None;
+            }
+            Op::Binary(op, lhs, rhs) => {
+                let lhs = self.get_allocated_value(lhs);
+                let rhs = self.get_allocated_value(rhs);
 
-                    let f: (RegRegFn, RegImmFn, RegImmFn) = match op {
-                        BinaryOpcode::Add => (
-                            ClauseOp48::AddRegReg,
-                            ClauseOp48::AddRegImm,
-                            ClauseOp48::AddRegImm,
-                        ),
-                        BinaryOpcode::Mul => (
-                            ClauseOp48::MulRegReg,
-                            ClauseOp48::MulRegImm,
-                            ClauseOp48::MulRegImm,
-                        ),
-                        BinaryOpcode::Sub => (
-                            ClauseOp48::SubRegReg,
-                            ClauseOp48::SubRegImm,
-                            ClauseOp48::SubImmReg,
-                        ),
-                    };
+                let f: (RegRegFn, RegImmFn, RegImmFn) = match op {
+                    BinaryOpcode::Add => (
+                        ClauseOp48::AddRegReg,
+                        ClauseOp48::AddRegImm,
+                        ClauseOp48::AddRegImm,
+                    ),
+                    BinaryOpcode::Mul => (
+                        ClauseOp48::MulRegReg,
+                        ClauseOp48::MulRegImm,
+                        ClauseOp48::MulRegImm,
+                    ),
+                    BinaryOpcode::Sub => (
+                        ClauseOp48::SubRegReg,
+                        ClauseOp48::SubRegImm,
+                        ClauseOp48::SubImmReg,
+                    ),
+                };
 
-                    match (lhs, rhs) {
-                        (
-                            Allocation::Register(lhs),
-                            Allocation::Register(rhs),
-                        ) => f.0(lhs, rhs),
-                        (
-                            Allocation::Register(arg),
-                            Allocation::Immediate(imm),
-                        ) => f.1(arg, imm),
-                        (
-                            Allocation::Immediate(imm),
-                            Allocation::Register(arg),
-                        ) => f.2(arg, imm),
-                        _ => panic!("Cannot handle f(imm, imm)"),
+                match (lhs, rhs) {
+                    (Allocation::Register(lhs), Allocation::Register(rhs)) => {
+                        self.last_used[lhs as usize] = index;
+                        self.last_used[rhs as usize] = index;
+                        f.0(lhs, rhs)
                     }
-                    // TODO
-                }
-                Op::BinaryChoice(op, lhs, rhs, ..) => {
-                    self.choice_count += 1;
-                    let lhs = self.get_allocated_value(lhs);
-                    let rhs = self.get_allocated_value(rhs);
-
-                    let f: (RegRegFn, RegImmFn) = match op {
-                        BinaryChoiceOpcode::Min => {
-                            (ClauseOp48::MinRegReg, ClauseOp48::MinRegImm)
-                        }
-                        BinaryChoiceOpcode::Max => {
-                            (ClauseOp48::MaxRegReg, ClauseOp48::MaxRegImm)
-                        }
-                    };
-
-                    match (lhs, rhs) {
-                        (
-                            Allocation::Register(lhs),
-                            Allocation::Register(rhs),
-                        ) => f.0(lhs, rhs),
-                        (
-                            Allocation::Register(arg),
-                            Allocation::Immediate(imm),
-                        ) => f.1(arg, imm),
-                        (
-                            Allocation::Immediate(imm),
-                            Allocation::Register(arg),
-                        ) => f.1(arg, imm),
-                        _ => panic!("Cannot handle f(imm, imm)"),
+                    (Allocation::Register(arg), Allocation::Immediate(imm)) => {
+                        self.last_used[arg as usize] = index;
+                        f.1(arg, imm)
+                    }
+                    (Allocation::Immediate(imm), Allocation::Register(arg)) => {
+                        self.last_used[arg as usize] = index;
+                        f.2(arg, imm)
+                    }
+                    (Allocation::Immediate(..), Allocation::Immediate(..)) => {
+                        panic!("Cannot handle f(imm, imm)")
                     }
                 }
-                Op::Unary(op, lhs) => {
-                    let lhs = match self.get_allocated_value(lhs) {
-                        Allocation::Register(r) => r,
-                        Allocation::Immediate(..) => {
-                            panic!("Cannot handle f(imm)")
-                        }
-                    };
-                    match op {
-                        UnaryOpcode::Neg => ClauseOp48::NegReg(lhs),
-                        UnaryOpcode::Abs => ClauseOp48::AbsReg(lhs),
-                        UnaryOpcode::Recip => ClauseOp48::RecipReg(lhs),
-                        UnaryOpcode::Sqrt => ClauseOp48::SqrtReg(lhs),
-                        UnaryOpcode::Square => ClauseOp48::SquareReg(lhs),
+            }
+            Op::BinaryChoice(op, lhs, rhs, ..) => {
+                self.choice_count += 1;
+                let lhs = self.get_allocated_value(lhs);
+                let rhs = self.get_allocated_value(rhs);
+
+                let f: (RegRegFn, RegImmFn) = match op {
+                    BinaryChoiceOpcode::Min => {
+                        (ClauseOp48::MinRegReg, ClauseOp48::MinRegImm)
+                    }
+                    BinaryChoiceOpcode::Max => {
+                        (ClauseOp48::MaxRegReg, ClauseOp48::MaxRegImm)
+                    }
+                };
+
+                match (lhs, rhs) {
+                    (Allocation::Register(lhs), Allocation::Register(rhs)) => {
+                        self.last_used[lhs as usize] = index;
+                        self.last_used[rhs as usize] = index;
+                        f.0(lhs, rhs)
+                    }
+                    (Allocation::Register(arg), Allocation::Immediate(imm)) => {
+                        f.1(arg, imm)
+                    }
+                    (Allocation::Immediate(imm), Allocation::Register(arg)) => {
+                        f.1(arg, imm)
+                    }
+                    (Allocation::Immediate(..), Allocation::Immediate(..)) => {
+                        panic!("Cannot handle f(imm, imm)")
                     }
                 }
-            };
-            self.push(n, out);
+            }
+            Op::Unary(op, lhs) => {
+                let lhs = match self.get_allocated_value(lhs) {
+                    Allocation::Register(r) => r,
+                    Allocation::Immediate(..) => {
+                        panic!("Cannot handle f(imm)")
+                    }
+                };
+                self.last_used[lhs as usize] = index;
+                match op {
+                    UnaryOpcode::Neg => ClauseOp48::NegReg(lhs),
+                    UnaryOpcode::Abs => ClauseOp48::AbsReg(lhs),
+                    UnaryOpcode::Recip => ClauseOp48::RecipReg(lhs),
+                    UnaryOpcode::Sqrt => ClauseOp48::SqrtReg(lhs),
+                    UnaryOpcode::Square => ClauseOp48::SquareReg(lhs),
+                }
+            }
+        };
+        let r = self.mapping.insert(node, index.try_into().unwrap());
+        assert!(r.is_none());
+        self.last_used.push(usize::MAX);
+        Some(out)
+    }
+}
+
+impl<'a> Iterator for TapeBuilder<'a> {
+    type Item = ClauseOp48;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (n, op) = *self.iter.next()?;
+            let r = self.step(n, op);
+            if r.is_some() {
+                break r;
+            }
+            // TODO: handle immediate-only tree
         }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
