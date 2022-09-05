@@ -919,7 +919,7 @@ impl<'a> TapeBuilder<'a> {
     /// Claims a short register
     ///
     /// This may require evicting a short register
-    fn get_registers(&mut self) -> Register {
+    fn get_register(&mut self) -> Register {
         if let Some(r) = self.spare_registers.pop() {
             r
         } else if self.total_slots <= self.reg_limit {
@@ -1177,7 +1177,7 @@ impl<'a> TapeBuilder<'a> {
                             _ => panic!(),
                         };
                     self.drop_inactive_allocations();
-                    let out = self.get_registers();
+                    let out = self.get_register();
                     // Slight misuse of the 32-bit unary form, but that's okay
                     self.build_op_reg(ClauseOp32::Input, Register(index), out);
                     out
@@ -1197,7 +1197,7 @@ impl<'a> TapeBuilder<'a> {
                         self.update_lru(r);
                     }
                     self.drop_inactive_allocations();
-                    let out = self.get_registers();
+                    let out = self.get_register();
                     self.update_lru(out);
                     self.build_op(op.into(), lhs, rhs, out);
                     out
@@ -1212,7 +1212,7 @@ impl<'a> TapeBuilder<'a> {
                         self.update_lru(r);
                     }
                     self.drop_inactive_allocations();
-                    let out = self.get_registers();
+                    let out = self.get_register();
                     self.update_lru(out);
                     self.build_op(op.into(), lhs, rhs, out);
                     out
@@ -1227,7 +1227,7 @@ impl<'a> TapeBuilder<'a> {
                     };
                     self.update_lru(lhs);
                     self.drop_inactive_allocations();
-                    let out = self.get_registers();
+                    let out = self.get_register();
                     self.update_lru(out);
                     self.build_op_reg(op.into(), lhs, out);
                     out
