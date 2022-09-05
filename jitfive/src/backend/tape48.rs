@@ -1,4 +1,10 @@
-use crate::backend::tape32::Choice;
+use std::collections::BTreeMap;
+
+use crate::scheduled::Scheduled;
+use crate::{
+    backend::common::{NodeIndex, Op},
+    op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+};
 
 #[derive(Copy, Clone, Debug)]
 pub enum ClauseOp48 {
@@ -51,22 +57,36 @@ pub struct Tape {
     pub choice_count: usize,
 }
 
-/// Workspace to evaluate a tape
-pub struct TapeEval<'a> {
-    tape: &'a Tape,
-    slots: Vec<f32>,
-    choices: Vec<Choice>,
-}
-
 impl Tape {
     /// Builds an evaluator which takes a (read-only) reference to this tape
     pub fn get_evaluator(&self) -> TapeEval {
         TapeEval {
             tape: self,
             slots: vec![0.0; self.tape.len()],
-            choices: vec![],
         }
     }
+
+    /// Build a new tape from a pre-scheduled set of instructions
+    pub fn new(t: &Scheduled) -> Self {
+        Self::from_builder(TapeBuilder::new(t))
+    }
+
+    fn from_builder(mut builder: TapeBuilder) -> Self {
+        builder.run();
+        builder.out.reverse();
+        Self {
+            tape: builder.out,
+            choice_count: builder.choice_count,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Workspace to evaluate a tape
+pub struct TapeEval<'a> {
+    tape: &'a Tape,
+    slots: Vec<f32>,
 }
 
 impl<'a> TapeEval<'a> {
@@ -102,5 +122,158 @@ impl<'a> TapeEval<'a> {
             };
         }
         self.slots[0]
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TapeBuilder<'a> {
+    t: &'a Scheduled,
+    out: Vec<ClauseOp48>,
+    mapping: BTreeMap<NodeIndex, u32>,
+    constants: BTreeMap<NodeIndex, f32>,
+    choice_count: usize,
+}
+
+enum Allocation {
+    Register(u32),
+    Immediate(f32),
+}
+
+impl<'a> TapeBuilder<'a> {
+    fn new(t: &'a Scheduled) -> Self {
+        Self {
+            t,
+            out: vec![],
+            mapping: BTreeMap::new(),
+            constants: BTreeMap::new(),
+            choice_count: 0,
+        }
+    }
+
+    fn push(&mut self, node: NodeIndex, op: ClauseOp48) {
+        let r = self
+            .mapping
+            .insert(node, self.out.len().try_into().unwrap());
+        assert!(r.is_none());
+        self.out.push(op);
+    }
+
+    fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
+        if let Some(r) = self.mapping.get(&node).cloned() {
+            Allocation::Register(r)
+        } else {
+            let c = self.constants.get(&node).unwrap();
+            Allocation::Immediate(*c)
+        }
+    }
+
+    fn run(&mut self) {
+        type RegRegFn = fn(u32, u32) -> ClauseOp48;
+        type RegImmFn = fn(u32, f32) -> ClauseOp48;
+
+        for &(n, op) in &self.t.tape {
+            let out = match op {
+                Op::Var(v) => {
+                    let index =
+                        match self.t.vars.get_by_index(v).unwrap().as_str() {
+                            "X" => 0,
+                            "Y" => 1,
+                            "Z" => 2,
+                            _ => panic!(),
+                        };
+                    ClauseOp48::Input(index)
+                }
+                Op::Const(c) => {
+                    self.constants.insert(n, c as f32);
+                    continue;
+                }
+                Op::Binary(op, lhs, rhs) => {
+                    let lhs = self.get_allocated_value(lhs);
+                    let rhs = self.get_allocated_value(rhs);
+
+                    let f: (RegRegFn, RegImmFn, RegImmFn) = match op {
+                        BinaryOpcode::Add => (
+                            ClauseOp48::AddRegReg,
+                            ClauseOp48::AddRegImm,
+                            ClauseOp48::AddRegImm,
+                        ),
+                        BinaryOpcode::Mul => (
+                            ClauseOp48::MulRegReg,
+                            ClauseOp48::MulRegImm,
+                            ClauseOp48::MulRegImm,
+                        ),
+                        BinaryOpcode::Sub => (
+                            ClauseOp48::SubRegReg,
+                            ClauseOp48::SubRegImm,
+                            ClauseOp48::SubImmReg,
+                        ),
+                    };
+
+                    match (lhs, rhs) {
+                        (
+                            Allocation::Register(lhs),
+                            Allocation::Register(rhs),
+                        ) => f.0(lhs, rhs),
+                        (
+                            Allocation::Register(arg),
+                            Allocation::Immediate(imm),
+                        ) => f.1(arg, imm),
+                        (
+                            Allocation::Immediate(imm),
+                            Allocation::Register(arg),
+                        ) => f.2(arg, imm),
+                        _ => panic!("Cannot handle f(imm, imm)"),
+                    }
+                    // TODO
+                }
+                Op::BinaryChoice(op, lhs, rhs, ..) => {
+                    self.choice_count += 1;
+                    let lhs = self.get_allocated_value(lhs);
+                    let rhs = self.get_allocated_value(rhs);
+
+                    let f: (RegRegFn, RegImmFn) = match op {
+                        BinaryChoiceOpcode::Min => {
+                            (ClauseOp48::MinRegReg, ClauseOp48::MinRegImm)
+                        }
+                        BinaryChoiceOpcode::Max => {
+                            (ClauseOp48::MaxRegReg, ClauseOp48::MaxRegImm)
+                        }
+                    };
+
+                    match (lhs, rhs) {
+                        (
+                            Allocation::Register(lhs),
+                            Allocation::Register(rhs),
+                        ) => f.0(lhs, rhs),
+                        (
+                            Allocation::Register(arg),
+                            Allocation::Immediate(imm),
+                        ) => f.1(arg, imm),
+                        (
+                            Allocation::Immediate(imm),
+                            Allocation::Register(arg),
+                        ) => f.1(arg, imm),
+                        _ => panic!("Cannot handle f(imm, imm)"),
+                    }
+                }
+                Op::Unary(op, lhs) => {
+                    let lhs = match self.get_allocated_value(lhs) {
+                        Allocation::Register(r) => r,
+                        Allocation::Immediate(..) => {
+                            panic!("Cannot handle f(imm)")
+                        }
+                    };
+                    match op {
+                        UnaryOpcode::Neg => ClauseOp48::NegReg(lhs),
+                        UnaryOpcode::Abs => ClauseOp48::AbsReg(lhs),
+                        UnaryOpcode::Recip => ClauseOp48::RecipReg(lhs),
+                        UnaryOpcode::Sqrt => ClauseOp48::SqrtReg(lhs),
+                        UnaryOpcode::Square => ClauseOp48::SquareReg(lhs),
+                    }
+                }
+            };
+            self.push(n, out);
+        }
     }
 }
