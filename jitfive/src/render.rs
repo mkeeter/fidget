@@ -99,14 +99,14 @@ impl Renderer {
         self.interval_time += start.elapsed();
 
         if i[1] < 0.0 {
-            for x in x..(x + TILE_SIZE) {
-                for y in y..(y + TILE_SIZE) {
+            for y in y..(y + TILE_SIZE) {
+                for x in x..(x + TILE_SIZE) {
                     self.image[x + y * self.size] = Some(Pixel::FilledTile);
                 }
             }
         } else if i[0] > 0.0 {
-            for x in x..(x + TILE_SIZE) {
-                for y in y..(y + TILE_SIZE) {
+            for y in y..(y + TILE_SIZE) {
+                for x in x..(x + TILE_SIZE) {
                     self.image[x + y * self.size] = Some(Pixel::EmptyTile);
                 }
             }
@@ -143,14 +143,14 @@ impl Renderer {
         self.interval_time += start.elapsed();
 
         if i[1] < 0.0 {
-            for x in x..(x + SUBTILE_SIZE) {
-                for y in y..(y + SUBTILE_SIZE) {
+            for y in y..(y + SUBTILE_SIZE) {
+                for x in x..(x + SUBTILE_SIZE) {
                     self.image[x + y * self.size] = Some(Pixel::FilledSubtile);
                 }
             }
         } else if i[0] > 0.0 {
-            for x in x..(x + SUBTILE_SIZE) {
-                for y in y..(y + SUBTILE_SIZE) {
+            for y in y..(y + SUBTILE_SIZE) {
+                for x in x..(x + SUBTILE_SIZE) {
                     self.image[x + y * self.size] = Some(Pixel::EmptySubtile);
                 }
             }
