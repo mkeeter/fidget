@@ -533,20 +533,6 @@ impl Tape {
                     }
                 }
             }
-            if let Some(imm) = imm {
-                // If the first operation in the new tape is an immediate, then
-                // push a dummy CopyReg 0 0 0 to make decoding unambiguous
-                if out.is_empty() {
-                    out.push((ClauseOp32::CopyReg as u32) << 24);
-                }
-                *out.last_mut().unwrap() |= NEXT;
-                out.push(imm);
-            }
-
-            // Clear the `NEXT` flag, because it may not be applicable; it will
-            // be retrofitted onto this `u32` if the next operation is long.
-            v &= !NEXT;
-
             // Special case to collapse copy chains: if this instruction is a
             // copy to A->B, and the next instruction (out.last) is a copy from
             // B->C, then skip pushing and instead modify the existing
@@ -577,6 +563,20 @@ impl Tape {
                 }
             }
             oops_all_copies &= get_copy(v).is_some();
+
+            if let Some(imm) = imm {
+                // If the first operation in the new tape is an immediate, then
+                // push a dummy CopyReg 0 0 0 to make decoding unambiguous
+                if out.is_empty() {
+                    out.push((ClauseOp32::CopyReg as u32) << 24);
+                }
+                *out.last_mut().unwrap() |= NEXT;
+                out.push(imm);
+            }
+
+            // Clear the `NEXT` flag, because it may not be applicable; it will
+            // be retrofitted onto this `u32` if the next operation is long.
+            v &= !NEXT;
 
             out.push(v);
         }
