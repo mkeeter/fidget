@@ -18,6 +18,11 @@ pub enum ClauseOp48 {
     SqrtReg(u32),
     SquareReg(u32),
 
+    /// Copies the given register
+    ///
+    /// (this is only useful in an `AllocatedTape`)
+    CopyReg(u32),
+
     /// Add a register and an immediate
     AddRegImm(u32, f32),
     /// Multiply a register and an immediate
@@ -50,7 +55,7 @@ pub enum ClauseOp48 {
 /// first item in the tape writes to slot 0.
 #[derive(Clone, Debug)]
 pub struct Tape {
-    /// Raw instruction tape
+    /// Raw instruction tape, stored in reverse evaluation order
     pub tape: Vec<ClauseOp48>,
 
     /// `last_used[i]` is the last use of slot `i` during forward evaluation
@@ -67,6 +72,17 @@ impl Tape {
         TapeEval {
             tape: self,
             slots: vec![0.0; self.tape.len()],
+        }
+    }
+
+    pub fn alloc(&self, reg_limit: usize) -> AllocatedTape {
+        let mut t = TapeAllocator::new(self, reg_limit);
+        let tape = (&mut t).collect();
+        AllocatedTape {
+            tape,
+            choice_count: self.choice_count,
+            total_slots: t.total_slots,
+            out_slot: t.allocations[self.tape.len() - 1],
         }
     }
 
@@ -95,6 +111,7 @@ impl Tape {
                 AbsReg(arg) => println!("ABS ${}", arg),
                 RecipReg(arg) => println!("RECIP ${}", arg),
                 SqrtReg(arg) => println!("SQRT ${}", arg),
+                CopyReg(arg) => println!("COPY ${}", arg),
                 SquareReg(arg) => println!("SQUARE ${}", arg),
                 AddRegReg(lhs, rhs) => println!("ADD ${} ${}", lhs, rhs),
                 MulRegReg(lhs, rhs) => println!("MUL ${} ${}", lhs, rhs),
@@ -144,6 +161,7 @@ impl Tape {
                 }
 
                 NegReg(arg)
+                | CopyReg(arg)
                 | AbsReg(arg)
                 | RecipReg(arg)
                 | SqrtReg(arg)
@@ -248,6 +266,7 @@ where
             MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
             SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
             NegReg(arg) => NegReg(self.get(arg)),
+            CopyReg(arg) => CopyReg(self.get(arg)),
             AbsReg(arg) => AbsReg(self.get(arg)),
             RecipReg(arg) => RecipReg(self.get(arg)),
             SqrtReg(arg) => SqrtReg(self.get(arg)),
@@ -339,12 +358,13 @@ impl<'a> TapeEval<'a> {
     fn v(&self, i: u32) -> f32 {
         self.slots[i as usize]
     }
-    pub fn f(&mut self, x: f32, y: f32) -> f32 {
+    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
         for (i, &op) in self.tape.tape.iter().rev().enumerate() {
             self.slots[i] = match op {
                 ClauseOp48::Input(i) => match i {
                     0 => x,
                     1 => y,
+                    2 => z,
                     _ => panic!(),
                 },
                 ClauseOp48::NegReg(i) => -self.v(i),
@@ -352,6 +372,7 @@ impl<'a> TapeEval<'a> {
                 ClauseOp48::RecipReg(i) => 1.0 / self.v(i),
                 ClauseOp48::SqrtReg(i) => self.v(i).sqrt(),
                 ClauseOp48::SquareReg(i) => self.v(i) * self.v(i),
+                ClauseOp48::CopyReg(i) => self.v(i),
 
                 ClauseOp48::AddRegReg(a, b) => self.v(a) + self.v(b),
                 ClauseOp48::MulRegReg(a, b) => self.v(a) * self.v(b),
@@ -384,7 +405,7 @@ struct TapeBuilder<'a> {
     last_used: Vec<usize>,
 }
 
-enum Allocation {
+enum Location {
     Register(u32),
     Immediate(f32),
 }
@@ -401,12 +422,12 @@ impl<'a> TapeBuilder<'a> {
         }
     }
 
-    fn get_allocated_value(&mut self, node: NodeIndex) -> Allocation {
+    fn get_allocated_value(&mut self, node: NodeIndex) -> Location {
         if let Some(r) = self.mapping.get(&node).cloned() {
-            Allocation::Register(r)
+            Location::Register(r)
         } else {
             let c = self.constants.get(&node).unwrap();
-            Allocation::Immediate(*c)
+            Location::Immediate(*c)
         }
     }
 
@@ -459,20 +480,20 @@ impl<'a> TapeBuilder<'a> {
                 };
 
                 match (lhs, rhs) {
-                    (Allocation::Register(lhs), Allocation::Register(rhs)) => {
+                    (Location::Register(lhs), Location::Register(rhs)) => {
                         self.last_used[lhs as usize] = index;
                         self.last_used[rhs as usize] = index;
                         f.0(lhs, rhs)
                     }
-                    (Allocation::Register(arg), Allocation::Immediate(imm)) => {
+                    (Location::Register(arg), Location::Immediate(imm)) => {
                         self.last_used[arg as usize] = index;
                         f.1(arg, imm)
                     }
-                    (Allocation::Immediate(imm), Allocation::Register(arg)) => {
+                    (Location::Immediate(imm), Location::Register(arg)) => {
                         self.last_used[arg as usize] = index;
                         f.2(arg, imm)
                     }
-                    (Allocation::Immediate(..), Allocation::Immediate(..)) => {
+                    (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
                     }
                 }
@@ -492,26 +513,26 @@ impl<'a> TapeBuilder<'a> {
                 };
 
                 match (lhs, rhs) {
-                    (Allocation::Register(lhs), Allocation::Register(rhs)) => {
+                    (Location::Register(lhs), Location::Register(rhs)) => {
                         self.last_used[lhs as usize] = index;
                         self.last_used[rhs as usize] = index;
                         f.0(lhs, rhs)
                     }
-                    (Allocation::Register(arg), Allocation::Immediate(imm)) => {
+                    (Location::Register(arg), Location::Immediate(imm)) => {
                         f.1(arg, imm)
                     }
-                    (Allocation::Immediate(imm), Allocation::Register(arg)) => {
+                    (Location::Immediate(imm), Location::Register(arg)) => {
                         f.1(arg, imm)
                     }
-                    (Allocation::Immediate(..), Allocation::Immediate(..)) => {
+                    (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
                     }
                 }
             }
             Op::Unary(op, lhs) => {
                 let lhs = match self.get_allocated_value(lhs) {
-                    Allocation::Register(r) => r,
-                    Allocation::Immediate(..) => {
+                    Location::Register(r) => r,
+                    Location::Immediate(..) => {
                         panic!("Cannot handle f(imm)")
                     }
                 };
@@ -570,7 +591,7 @@ pub struct TapeAllocator<'a> {
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
-    reg_limit: u8,
+    reg_limit: usize,
 
     /// Available short registers (index < 256)
     ///
@@ -594,21 +615,21 @@ pub struct TapeAllocator<'a> {
 }
 
 impl<'a> TapeAllocator<'a> {
-    pub fn new(tape: &'a Tape, len: usize, reg_limit: u8) -> Self {
+    pub fn new(tape: &'a Tape, reg_limit: usize) -> Self {
         Self {
             iter: tape.tape.iter().rev().enumerate(),
             last_use: &tape.last_used,
-            allocations: vec![usize::MAX; len],
+            allocations: vec![usize::MAX; tape.tape.len()],
 
-            registers: vec![usize::MAX; reg_limit as usize],
-            register_lru: vec![0; reg_limit as usize],
+            registers: vec![usize::MAX; reg_limit],
+            register_lru: vec![0; reg_limit],
             time: 0,
 
             reg_limit,
-            spare_registers: Vec::with_capacity(reg_limit as usize),
-            spare_memory: (0..reg_limit as usize).collect(),
+            spare_registers: Vec::with_capacity(reg_limit),
+            spare_memory: vec![],
             wip: None,
-            total_slots: reg_limit as usize,
+            total_slots: 0,
             active: BTreeSet::new(),
         }
     }
@@ -636,7 +657,7 @@ impl<'a> TapeAllocator<'a> {
     /// The node must already be in a register, otherwise this will panic
     fn get(&mut self, n: u32) -> u32 {
         let slot = self.allocations[n as usize];
-        assert!(slot < self.reg_limit as usize);
+        assert!(slot < self.reg_limit);
         slot as u32
     }
 
@@ -647,28 +668,44 @@ impl<'a> TapeAllocator<'a> {
     /// will be allocated to `usize::MAX`, which looks like a (very far away)
     /// slot in memory.
     ///
-    /// This may take multiple attempts, returning an `Err(LoadStoreOp::...)`
+    /// This may take multiple attempts, returning an `Err(CopyOp::...)`
     /// when intermediate memory movement needs to take place.
-    fn get_register(&mut self, n: usize) -> Result<usize, LoadStoreOp> {
+    fn get_register(&mut self, n: usize) -> Result<usize, CopyOp> {
         let slot = self.allocations[n];
-        if slot >= self.reg_limit as usize {
-            if let Some(reg) = self.spare_registers.pop() {
+        if slot >= self.reg_limit {
+            // Pick a register, prioritizing picking a spare register (if
+            // possible); if not, then introducing a new register (if we haven't
+            // allocated past our limit)
+            let reg = self.spare_registers.pop().or_else(|| {
+                if self.total_slots < self.reg_limit {
+                    let reg = self.total_slots;
+                    self.total_slots += 1;
+                    Some(reg)
+                } else {
+                    self.spare_registers.pop()
+                }
+            });
+
+            if let Some(reg) = reg {
                 // If we've got a spare register, then we can use it by adding a
                 // `Load` instruction to the stream.
                 assert_eq!(self.registers[reg], usize::MAX);
 
-                // Release the memory slot that we were previously using, if
-                // it's not the dummy slot indicating no assignment was made.
-                if slot != usize::MAX {
-                    self.spare_memory.push(slot);
-                }
-
                 self.registers[reg] = n;
                 self.allocations[n] = reg;
-                Err(LoadStoreOp::Load {
-                    src: slot,
-                    dst: reg,
-                })
+
+                // Release the memory slot that we were previously using, if
+                // it's not the dummy slot indicating no assignment was made.
+                if slot == usize::MAX {
+                    self.register_lru[reg] = self.time;
+                    Ok(reg)
+                } else {
+                    self.spare_memory.push(slot);
+                    Err(CopyOp {
+                        src: slot as u32,
+                        dst: reg as u32,
+                    })
+                }
             } else {
                 // Otherwise, we need to free up a register by pushing the
                 // oldest value to a slot in memory.
@@ -686,7 +723,10 @@ impl<'a> TapeAllocator<'a> {
                 // (next time we pass this way, the register will be available
                 //  in self.spare_registers!)
 
-                Err(LoadStoreOp::Store { src: reg, dst: mem })
+                Err(CopyOp {
+                    src: reg as u32,
+                    dst: mem as u32,
+                })
             }
         } else {
             // Update the use time of this register
@@ -696,15 +736,14 @@ impl<'a> TapeAllocator<'a> {
     }
 }
 
-pub enum LoadStoreOp {
-    Load { src: usize, dst: usize },
-    Store { src: usize, dst: usize },
+#[derive(Copy, Clone, Debug)]
+pub struct CopyOp {
+    src: u32,
+    dst: u32,
 }
 
-pub enum AllocOp {
-    LoadStore(LoadStoreOp),
-    Op(ClauseOp48, u32),
-}
+#[derive(Copy, Clone, Debug)]
+pub struct AllocOp(ClauseOp48, u32);
 
 impl<'a> Iterator for TapeAllocator<'a> {
     type Item = AllocOp;
@@ -722,6 +761,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             ClauseOp48::NegReg(arg)
             | ClauseOp48::AbsReg(arg)
             | ClauseOp48::RecipReg(arg)
+            | ClauseOp48::CopyReg(arg)
             | ClauseOp48::SqrtReg(arg)
             | ClauseOp48::SquareReg(arg)
             | ClauseOp48::AddRegImm(arg, ..)
@@ -732,9 +772,9 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::MaxRegImm(arg, ..) => {
                 match self.get_register(arg as usize) {
                     Ok(_reg) => (),
-                    Err(out) => {
+                    Err(CopyOp { src, dst }) => {
                         self.wip = Some((index, op));
-                        return Some(AllocOp::LoadStore(out));
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                     }
                 }
             }
@@ -746,16 +786,16 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::MaxRegReg(lhs, rhs) => {
                 match self.get_register(lhs as usize) {
                     Ok(_reg) => (),
-                    Err(out) => {
+                    Err(CopyOp { src, dst }) => {
                         self.wip = Some((index, op));
-                        return Some(AllocOp::LoadStore(out));
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                     }
                 }
                 match self.get_register(rhs as usize) {
                     Ok(_reg) => (),
-                    Err(out) => {
+                    Err(CopyOp { src, dst }) => {
                         self.wip = Some((index, op));
-                        return Some(AllocOp::LoadStore(out));
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                     }
                 }
             }
@@ -770,7 +810,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             }
             self.active.remove(&(index, node));
             let slot = self.allocations[node];
-            if slot >= self.reg_limit as usize {
+            if slot >= self.reg_limit {
                 self.spare_registers.push(slot);
                 self.registers[slot] = usize::MAX;
                 self.register_lru[slot] = usize::MAX;
@@ -784,7 +824,10 @@ impl<'a> Iterator for TapeAllocator<'a> {
 
         let out_reg = match self.get_register(index) {
             Ok(reg) => reg,
-            Err(op) => return Some(AllocOp::LoadStore(op)),
+            Err(CopyOp { src, dst }) => {
+                self.wip = Some((index, op));
+                return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
+            }
         };
 
         use ClauseOp48::*;
@@ -794,6 +837,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
             SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
             NegReg(arg) => NegReg(self.get(arg)),
+            CopyReg(arg) => CopyReg(self.get(arg)),
             AbsReg(arg) => AbsReg(self.get(arg)),
             RecipReg(arg) => RecipReg(self.get(arg)),
             SqrtReg(arg) => SqrtReg(self.get(arg)),
@@ -816,7 +860,81 @@ impl<'a> Iterator for TapeAllocator<'a> {
         // to deliver some actual output.
         self.wip = None;
 
-        Some(AllocOp::Op(out_op, out_reg.try_into().unwrap()))
+        Some(AllocOp(out_op, out_reg.try_into().unwrap()))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Debug)]
+pub struct AllocatedTape {
+    /// Raw instruction tape, stored in forward (evaluation) order
+    pub tape: Vec<AllocOp>,
+
+    pub total_slots: usize,
+    pub out_slot: usize,
+
+    /// The number of nodes which store values in the choice array during
+    /// interval evaluation.
+    pub choice_count: usize,
+}
+
+impl AllocatedTape {
+    /// Builds an evaluator which takes a (read-only) reference to this tape
+    pub fn get_evaluator(&self) -> AllocatedTapeEval {
+        AllocatedTapeEval {
+            tape: self,
+            slots: vec![0.0; self.total_slots],
+            out_slot: self.out_slot,
+        }
+    }
+}
+
+/// Workspace to evaluate a tape
+pub struct AllocatedTapeEval<'a> {
+    tape: &'a AllocatedTape,
+    out_slot: usize,
+    slots: Vec<f32>,
+}
+
+impl<'a> AllocatedTapeEval<'a> {
+    fn v(&self, i: u32) -> f32 {
+        self.slots[i as usize]
+    }
+    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
+        use ClauseOp48::*;
+
+        for &AllocOp(op, out) in self.tape.tape.iter() {
+            self.slots[out as usize] = match op {
+                Input(i) => match i {
+                    0 => x,
+                    1 => y,
+                    2 => z,
+                    _ => panic!(),
+                },
+                NegReg(i) => -self.v(i),
+                AbsReg(i) => self.v(i).abs(),
+                RecipReg(i) => 1.0 / self.v(i),
+                SqrtReg(i) => self.v(i).sqrt(),
+                SquareReg(i) => self.v(i) * self.v(i),
+
+                AddRegReg(a, b) => self.v(a) + self.v(b),
+                MulRegReg(a, b) => self.v(a) * self.v(b),
+                SubRegReg(a, b) => self.v(a) - self.v(b),
+                MinRegReg(a, b) => self.v(a).min(self.v(b)),
+                MaxRegReg(a, b) => self.v(a).max(self.v(b)),
+                AddRegImm(a, imm) => self.v(a) + imm,
+                MulRegImm(a, imm) => self.v(a) * imm,
+                SubImmReg(a, imm) => imm - self.v(a),
+                SubRegImm(a, imm) => self.v(a) - imm,
+                MinRegImm(a, imm) => self.v(a).min(imm),
+                MaxRegImm(a, imm) => self.v(a).max(imm),
+                CopyImm(imm) => imm,
+
+                CopyReg(arg) => self.v(arg),
+            };
+        }
+        self.slots[self.slots.len() - 1]
     }
 }
 
@@ -838,9 +956,9 @@ mod tests {
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
         let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0), 2.0);
-        assert_eq!(eval.f(1.0, 3.0), 2.0);
-        assert_eq!(eval.f(3.0, 3.5), 3.5);
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
+        assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
     }
 
     #[test]
@@ -853,35 +971,53 @@ mod tests {
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
         let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0), 2.0);
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
         let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0), 3.0);
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
         let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0), 2.0);
-        assert_eq!(eval.f(3.0, 2.0), 2.0);
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
         let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0), 1.0);
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
         let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0), 3.0);
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
         let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 0.0), 1.0);
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
+    }
+
+    #[test]
+    fn test_alloc() {
+        dbg!(std::mem::size_of::<ClauseOp48>());
+        dbg!(std::mem::size_of::<AllocOp>());
+        dbg!(std::mem::size_of::<(ClauseOp48, u32)>());
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let lol = tape.alloc(3);
+        let mut eval = lol.get_evaluator();
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.f(3.0, 4.0, 0.0), 3.0);
     }
 }
