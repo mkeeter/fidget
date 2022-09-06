@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::scheduled::Scheduled;
 use crate::{
@@ -250,14 +250,8 @@ where
             NegReg(arg) => NegReg(self.get(arg)),
             AbsReg(arg) => AbsReg(self.get(arg)),
             RecipReg(arg) => RecipReg(self.get(arg)),
-            SqrtReg(arg) => {
-                self.last_used[arg as usize] = index;
-                SqrtReg(self.get(arg))
-            }
-            SquareReg(arg) => {
-                self.last_used[arg as usize] = index;
-                SquareReg(self.get(arg))
-            }
+            SqrtReg(arg) => SqrtReg(self.get(arg)),
+            SquareReg(arg) => SquareReg(self.get(arg)),
 
             AddRegImm(arg, imm) => AddRegImm(self.get(arg), imm),
             MulRegImm(arg, imm) => MulRegImm(self.get(arg), imm),
@@ -558,17 +552,21 @@ impl<'a> Iterator for TapeBuilder<'a> {
 /// of registers, allowing for reuse.
 pub struct TapeAllocator<'a> {
     /// Forward iterator over the tape
-    iter: std::slice::Iter<'a, ClauseOp48>,
+    iter:
+        std::iter::Enumerate<std::iter::Rev<std::slice::Iter<'a, ClauseOp48>>>,
+
+    /// Represents the last use of a node in the iterator
+    last_use: &'a [usize],
 
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
-    allocations: Vec<u32>,
+    allocations: Vec<usize>,
 
     /// Map from a particular register to the index in the original tape that's
-    /// using that register, or `u32::MAX` if the register is currently unused.
-    registers: Vec<u32>,
-    register_lru: Vec<u32>,
-    time: u32,
+    /// using that register, or `usize::MAX` if the register is currently unused.
+    registers: Vec<usize>,
+    register_lru: Vec<usize>,
+    time: usize,
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
@@ -577,38 +575,44 @@ pub struct TapeAllocator<'a> {
     /// Available short registers (index < 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_registers: Vec<u32>,
+    spare_registers: Vec<usize>,
 
     /// Available extended registers (index >= 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_memory: Vec<u32>,
+    spare_memory: Vec<usize>,
+
+    /// Active nodes (as local slot indexes), sorted by position in
+    /// the input data
+    active: BTreeSet<(usize, usize)>,
 
     /// If we popped a clause but haven't finished it, store it here
-    wip: Option<ClauseOp48>,
+    wip: Option<(usize, ClauseOp48)>,
 
     /// Total allocated slots
-    total_slots: u32,
+    total_slots: usize,
 }
 
 impl<'a> TapeAllocator<'a> {
-    pub fn new(tape: &'a Tape, reg_limit: u8) -> Self {
+    pub fn new(tape: &'a Tape, len: usize, reg_limit: u8) -> Self {
         Self {
-            iter: tape.tape.iter(),
-            allocations: vec![u32::MAX; tape.tape.len()],
+            iter: tape.tape.iter().rev().enumerate(),
+            last_use: &tape.last_used,
+            allocations: vec![usize::MAX; len],
 
-            registers: vec![u32::MAX; reg_limit as usize],
+            registers: vec![usize::MAX; reg_limit as usize],
             register_lru: vec![0; reg_limit as usize],
             time: 0,
 
             reg_limit,
             spare_registers: Vec::with_capacity(reg_limit as usize),
-            spare_memory: (0..reg_limit).map(|i| i as u32).collect(),
+            spare_memory: (0..reg_limit as usize).collect(),
             wip: None,
-            total_slots: reg_limit as u32,
+            total_slots: reg_limit as usize,
+            active: BTreeSet::new(),
         }
     }
-    fn get_memory(&mut self) -> u32 {
+    fn get_memory(&mut self) -> usize {
         if let Some(p) = self.spare_memory.pop() {
             p
         } else {
@@ -618,37 +622,49 @@ impl<'a> TapeAllocator<'a> {
         }
     }
 
-    fn oldest_reg(&self) -> u32 {
+    fn oldest_reg(&self) -> usize {
         self.register_lru
             .iter()
             .enumerate()
             .min_by_key(|i| i.1)
             .unwrap()
             .0
-            .try_into()
-            .unwrap()
+    }
+
+    /// Looks up a node by global index
+    ///
+    /// The node must already be in a register, otherwise this will panic
+    fn get(&mut self, n: u32) -> u32 {
+        let slot = self.allocations[n as usize];
+        assert!(slot < self.reg_limit as usize);
+        slot as u32
     }
 
     /// Attempt to get a register for the given node (which is an index into the
     /// globally-allocated tape).
     ///
-    /// The given node must have been assigned.
+    /// This happens to work if a node is unassigned, because at that point, it
+    /// will be allocated to `usize::MAX`, which looks like a (very far away)
+    /// slot in memory.
     ///
     /// This may take multiple attempts, returning an `Err(LoadStoreOp::...)`
     /// when intermediate memory movement needs to take place.
-    fn get_register(&mut self, n: u32) -> Result<u32, LoadStoreOp> {
-        let slot = self.allocations[n as usize];
-        if slot >= self.reg_limit as u32 {
+    fn get_register(&mut self, n: usize) -> Result<usize, LoadStoreOp> {
+        let slot = self.allocations[n];
+        if slot >= self.reg_limit as usize {
             if let Some(reg) = self.spare_registers.pop() {
                 // If we've got a spare register, then we can use it by adding a
                 // `Load` instruction to the stream.
-                assert_eq!(self.registers[reg as usize], u32::MAX);
+                assert_eq!(self.registers[reg], usize::MAX);
 
-                // Release the memory slot that we were previously using
-                self.spare_memory.push(slot);
+                // Release the memory slot that we were previously using, if
+                // it's not the dummy slot indicating no assignment was made.
+                if slot != usize::MAX {
+                    self.spare_memory.push(slot);
+                }
 
-                self.registers[reg as usize] = n;
-                self.allocations[n as usize] = reg;
+                self.registers[reg] = n;
+                self.allocations[n] = reg;
                 Err(LoadStoreOp::Load {
                     src: slot,
                     dst: reg,
@@ -658,46 +674,149 @@ impl<'a> TapeAllocator<'a> {
                 // oldest value to a slot in memory.
                 let mem = self.get_memory();
                 let reg = self.oldest_reg();
-                let prev_node = self.registers[reg as usize];
-                self.registers[reg as usize] = u32::MAX;
+
+                // Whoever was previously using you is in for a surprise
+                let prev_node = self.registers[reg];
+                self.allocations[prev_node] = mem;
+
+                // Be free, young register!
+                self.registers[reg] = usize::MAX;
                 self.spare_registers.push(reg);
-                self.allocations[prev_node as usize] = mem;
+
+                // (next time we pass this way, the register will be available
+                //  in self.spare_registers!)
+
                 Err(LoadStoreOp::Store { src: reg, dst: mem })
             }
         } else {
             // Update the use time of this register
-            self.register_lru[slot as usize] = self.time;
+            self.register_lru[slot] = self.time;
             Ok(slot)
         }
     }
 }
 
 pub enum LoadStoreOp {
-    Load { src: u32, dst: u32 },
-    Store { src: u32, dst: u32 },
+    Load { src: usize, dst: usize },
+    Store { src: usize, dst: usize },
 }
 
 pub enum AllocOp {
     LoadStore(LoadStoreOp),
-    Op(ClauseOp48),
+    Op(ClauseOp48, u32),
 }
 
 impl<'a> Iterator for TapeAllocator<'a> {
     type Item = AllocOp;
     fn next(&mut self) -> Option<Self::Item> {
-        let op: Option<ClauseOp48> =
-            self.wip.or_else(|| self.iter.next().cloned());
+        let (index, op): (usize, ClauseOp48) = self
+            .wip
+            .or_else(|| self.iter.next().map(|(i, n)| (i, *n)))?;
 
         self.time += 1;
 
-        // Check if LHS is available
-        //      If not, check if a register is available
-        //          Yes => Emit a LOAD
-        //          No =>, boot a register into memory, emitting a STORE
-        // Check if RHS is available
+        // Make sure that we have LHS and RHS already loaded into registers,
+        // returning early with a Load or Store if necessary.
+        match op {
+            ClauseOp48::Input(..) | ClauseOp48::CopyImm(..) => (),
+            ClauseOp48::NegReg(arg)
+            | ClauseOp48::AbsReg(arg)
+            | ClauseOp48::RecipReg(arg)
+            | ClauseOp48::SqrtReg(arg)
+            | ClauseOp48::SquareReg(arg)
+            | ClauseOp48::AddRegImm(arg, ..)
+            | ClauseOp48::MulRegImm(arg, ..)
+            | ClauseOp48::SubImmReg(arg, ..)
+            | ClauseOp48::SubRegImm(arg, ..)
+            | ClauseOp48::MinRegImm(arg, ..)
+            | ClauseOp48::MaxRegImm(arg, ..) => {
+                match self.get_register(arg as usize) {
+                    Ok(_reg) => (),
+                    Err(out) => {
+                        self.wip = Some((index, op));
+                        return Some(AllocOp::LoadStore(out));
+                    }
+                }
+            }
 
-        // Every clause in the original tape expands to one or more clauses.
-        todo!()
+            ClauseOp48::AddRegReg(lhs, rhs)
+            | ClauseOp48::MulRegReg(lhs, rhs)
+            | ClauseOp48::SubRegReg(lhs, rhs)
+            | ClauseOp48::MinRegReg(lhs, rhs)
+            | ClauseOp48::MaxRegReg(lhs, rhs) => {
+                match self.get_register(lhs as usize) {
+                    Ok(_reg) => (),
+                    Err(out) => {
+                        self.wip = Some((index, op));
+                        return Some(AllocOp::LoadStore(out));
+                    }
+                }
+                match self.get_register(rhs as usize) {
+                    Ok(_reg) => (),
+                    Err(out) => {
+                        self.wip = Some((index, op));
+                        return Some(AllocOp::LoadStore(out));
+                    }
+                }
+            }
+        }
+
+        // Release anything that's inactive at this point, so that the output
+        // could reuse a register from one of the inputs if this is the last
+        // time it appears.
+        while let Some((j, node)) = self.active.iter().next().cloned() {
+            if j >= index {
+                break;
+            }
+            self.active.remove(&(index, node));
+            let slot = self.allocations[node];
+            if slot >= self.reg_limit as usize {
+                self.spare_registers.push(slot);
+                self.registers[slot] = usize::MAX;
+                self.register_lru[slot] = usize::MAX;
+                // Note that this leaves self.allocations[node] still pointing
+                // to the old register, but that's okay, because it should never
+                // be used again!
+            } else {
+                self.spare_memory.push(slot);
+            }
+        }
+
+        let out_reg = match self.get_register(index) {
+            Ok(reg) => reg,
+            Err(op) => return Some(AllocOp::LoadStore(op)),
+        };
+
+        use ClauseOp48::*;
+        let out_op = match op {
+            Input(..) | CopyImm(..) => op,
+            AddRegReg(lhs, rhs) => AddRegReg(self.get(lhs), self.get(rhs)),
+            MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
+            SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
+            NegReg(arg) => NegReg(self.get(arg)),
+            AbsReg(arg) => AbsReg(self.get(arg)),
+            RecipReg(arg) => RecipReg(self.get(arg)),
+            SqrtReg(arg) => SqrtReg(self.get(arg)),
+            SquareReg(arg) => SquareReg(self.get(arg)),
+
+            AddRegImm(arg, imm) => AddRegImm(self.get(arg), imm),
+            MulRegImm(arg, imm) => MulRegImm(self.get(arg), imm),
+            SubImmReg(arg, imm) => SubImmReg(self.get(arg), imm),
+            SubRegImm(arg, imm) => SubRegImm(self.get(arg), imm),
+
+            MinRegImm(arg, imm) => MinRegImm(self.get(arg), imm),
+            MaxRegImm(arg, imm) => MaxRegImm(self.get(arg), imm),
+            MinRegReg(lhs, rhs) => MinRegReg(self.get(lhs), self.get(rhs)),
+            MaxRegReg(lhs, rhs) => MaxRegReg(self.get(lhs), self.get(rhs)),
+        };
+
+        self.active.insert((self.last_use[index], index));
+
+        // If we've gotten here, then we've cleared the WIP node and are about
+        // to deliver some actual output.
+        self.wip = None;
+
+        Some(AllocOp::Op(out_op, out_reg.try_into().unwrap()))
     }
 }
 
