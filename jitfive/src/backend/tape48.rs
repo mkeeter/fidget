@@ -554,6 +554,155 @@ impl<'a> Iterator for TapeBuilder<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Iterator-style... thingy which performs register allocation on a limited set
+/// of registers, allowing for reuse.
+pub struct TapeAllocator<'a> {
+    /// Forward iterator over the tape
+    iter: std::slice::Iter<'a, ClauseOp48>,
+
+    /// Map from the index in the original (globally allocated) tape to a
+    /// specific register or memory slot.
+    allocations: Vec<u32>,
+
+    /// Map from a particular register to the index in the original tape that's
+    /// using that register, or `u32::MAX` if the register is currently unused.
+    registers: Vec<u32>,
+    register_lru: Vec<u32>,
+    time: u32,
+
+    /// User-defined register limit; beyond this point we use load/store
+    /// operations to move values to and from memory.
+    reg_limit: u8,
+
+    /// Available short registers (index < 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_registers: Vec<u32>,
+
+    /// Available extended registers (index >= 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_memory: Vec<u32>,
+
+    /// If we popped a clause but haven't finished it, store it here
+    wip: Option<ClauseOp48>,
+
+    /// Total allocated slots
+    total_slots: u32,
+}
+
+impl<'a> TapeAllocator<'a> {
+    pub fn new(tape: &'a Tape, reg_limit: u8) -> Self {
+        Self {
+            iter: tape.tape.iter(),
+            allocations: vec![u32::MAX; tape.tape.len()],
+
+            registers: vec![u32::MAX; reg_limit as usize],
+            register_lru: vec![0; reg_limit as usize],
+            time: 0,
+
+            reg_limit,
+            spare_registers: Vec::with_capacity(reg_limit as usize),
+            spare_memory: (0..reg_limit).map(|i| i as u32).collect(),
+            wip: None,
+            total_slots: reg_limit as u32,
+        }
+    }
+    fn get_memory(&mut self) -> u32 {
+        if let Some(p) = self.spare_memory.pop() {
+            p
+        } else {
+            let out = self.total_slots;
+            self.total_slots += 1;
+            out
+        }
+    }
+
+    fn oldest_reg(&self) -> u32 {
+        self.register_lru
+            .iter()
+            .enumerate()
+            .min_by_key(|i| i.1)
+            .unwrap()
+            .0
+            .try_into()
+            .unwrap()
+    }
+
+    /// Attempt to get a register for the given node (which is an index into the
+    /// globally-allocated tape).
+    ///
+    /// The given node must have been assigned.
+    ///
+    /// This may take multiple attempts, returning an `Err(LoadStoreOp::...)`
+    /// when intermediate memory movement needs to take place.
+    fn get_register(&mut self, n: u32) -> Result<u32, LoadStoreOp> {
+        let slot = self.allocations[n as usize];
+        if slot >= self.reg_limit as u32 {
+            if let Some(reg) = self.spare_registers.pop() {
+                // If we've got a spare register, then we can use it by adding a
+                // `Load` instruction to the stream.
+                assert_eq!(self.registers[reg as usize], u32::MAX);
+
+                // Release the memory slot that we were previously using
+                self.spare_memory.push(slot);
+
+                self.registers[reg as usize] = n;
+                self.allocations[n as usize] = reg;
+                Err(LoadStoreOp::Load {
+                    src: slot,
+                    dst: reg,
+                })
+            } else {
+                // Otherwise, we need to free up a register by pushing the
+                // oldest value to a slot in memory.
+                let mem = self.get_memory();
+                let reg = self.oldest_reg();
+                let prev_node = self.registers[reg as usize];
+                self.registers[reg as usize] = u32::MAX;
+                self.spare_registers.push(reg);
+                self.allocations[prev_node as usize] = mem;
+                Err(LoadStoreOp::Store { src: reg, dst: mem })
+            }
+        } else {
+            // Update the use time of this register
+            self.register_lru[slot as usize] = self.time;
+            Ok(slot)
+        }
+    }
+}
+
+pub enum LoadStoreOp {
+    Load { src: u32, dst: u32 },
+    Store { src: u32, dst: u32 },
+}
+
+pub enum AllocOp {
+    LoadStore(LoadStoreOp),
+    Op(ClauseOp48),
+}
+
+impl<'a> Iterator for TapeAllocator<'a> {
+    type Item = AllocOp;
+    fn next(&mut self) -> Option<Self::Item> {
+        let op: Option<ClauseOp48> =
+            self.wip.or_else(|| self.iter.next().cloned());
+
+        self.time += 1;
+
+        // Check if LHS is available
+        //      If not, check if a register is available
+        //          Yes => Emit a LOAD
+        //          No =>, boot a register into memory, emitting a STORE
+        // Check if RHS is available
+
+        // Every clause in the original tape expands to one or more clauses.
+        todo!()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod tests {
     use super::*;
