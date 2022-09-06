@@ -1,4 +1,7 @@
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{
+    aarch64::Assembler, dynasm, AssemblyOffset, DynasmApi, DynasmLabelApi,
+    ExecutableBuffer,
+};
 use num_traits::FromPrimitive;
 
 use crate::backend::{
@@ -14,31 +17,141 @@ const CHOICE_LEFT: u64 = Choice::Left as u64;
 const CHOICE_RIGHT: u64 = Choice::Right as u64;
 const CHOICE_BOTH: u64 = Choice::Both as u64;
 
+struct FloatAssembler {
+    ops: Assembler,
+    shape_fn: AssemblyOffset,
+    reg_count: usize,
+    stack_space: u32,
+}
+
+impl FloatAssembler {
+    fn init(reg_count: usize, total_slots: usize) -> Self {
+        assert!(reg_count <= REGISTER_LIMIT);
+
+        let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
+        dynasm!(ops
+            ; -> shape_fn:
+        );
+        let shape_fn = ops.offset();
+
+        let stack_space = total_slots.saturating_sub(reg_count) as u32 * 4;
+        // Ensure alignment
+        let stack_space = ((stack_space + 15) / 16) * 16;
+
+        dynasm!(ops
+            // Preserve frame and link register
+            ; stp   x29, x30, [sp, #-16]!
+            // Preserve sp
+            ; mov   x29, sp
+            // Preserve callee-saved floating-point registers
+            ; stp   d8, d9, [sp, #-16]!
+            ; stp   d10, d11, [sp, #-16]!
+            ; stp   d12, d13, [sp, #-16]!
+            ; stp   d14, d15, [sp, #-16]!
+            ; sub   sp, sp, #(stack_space)
+        );
+
+        Self {
+            ops,
+            shape_fn,
+            reg_count,
+            stack_space,
+        }
+    }
+    /// Reads from `src_mem` to `dst_reg`
+    fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
+        let sp_offset = 4 * (src_mem - self.reg_count as u32);
+        dynasm!(self.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
+    }
+    /// Writes from `src_reg` to `dst_mem`
+    fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
+        let sp_offset = 4 * (dst_mem - self.reg_count as u32);
+        dynasm!(self.ops ; str S(src_reg), [sp, #(sp_offset)])
+    }
+    /// Swaps a register and memory location, using S4 as an imtermediary
+    fn build_swap(&mut self, reg: u32, mem: u32) {
+        let sp_offset = 4 * (mem - self.reg_count as u32);
+        dynasm!(self.ops
+            ; fmov s4, S(reg)
+            ; ldr S(reg), [sp, #(sp_offset)]
+            ; str s4, [sp, #(sp_offset)]
+        );
+    }
+    /// Copies the given input to `out_reg`
+    fn build_input(&mut self, out_reg: u32, src_arg: u32) {
+        dynasm!(self.ops ; fmov S(out_reg), S(src_arg));
+    }
+    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops ; fmov S(out_reg), S(lhs_reg))
+    }
+    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops ; fneg S(out_reg), S(lhs_reg))
+    }
+    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops ; fabs S(out_reg), S(lhs_reg))
+    }
+    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops
+            ; fmov s7, #1.0
+            ; fdiv S(out_reg), s7, S(lhs_reg)
+        )
+    }
+    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops ; fsqrt S(out_reg), S(lhs_reg))
+    }
+    fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.ops ; fmul S(out_reg), S(lhs_reg), S(lhs_reg))
+    }
+    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.ops ; fadd S(out_reg), S(lhs_reg), S(rhs_reg))
+    }
+    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.ops ; fsub S(out_reg), S(lhs_reg), S(rhs_reg))
+    }
+    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.ops ; fmul S(out_reg), S(lhs_reg), S(rhs_reg))
+    }
+    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.ops ; fmax S(out_reg), S(lhs_reg), S(rhs_reg))
+    }
+    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.ops ; fmin S(out_reg), S(lhs_reg), S(rhs_reg))
+    }
+
+    /// Loads an immediate into register S4, using W9 as an intermediary
+    fn load_imm(&mut self, imm: f32) {
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.ops
+            ; movz w9, #(imm_u32 >> 16), lsl 16
+            ; movk w9, #(imm_u32)
+            ; fmov s4, w9
+        );
+    }
+
+    fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
+        dynasm!(self.ops
+            // Prepare our return value
+            ; fmov  s0, S(out_reg)
+            // Restore stack space used for spills
+            ; add   sp, sp, #(self.stack_space)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+        );
+
+        (self.ops.finalize().unwrap(), self.shape_fn)
+    }
+}
+
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
-    let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
-    dynasm!(ops
-    ; -> shape_fn:
-    );
-    let shape_fn = ops.offset();
-
-    let stack_space = t.total_slots.saturating_sub(t.reg_count) as u32 * 4;
-    // Ensure alignment
-    let stack_space = ((stack_space + 15) / 16) * 16;
-
-    dynasm!(ops
-        // Preserve frame and link register
-        ; stp   x29, x30, [sp, #-16]!
-        // Preserve sp
-        ; mov   x29, sp
-        // Preserve callee-saved floating-point registers
-        ; stp   d8, d9, [sp, #-16]!
-        ; stp   d10, d11, [sp, #-16]!
-        ; stp   d12, d13, [sp, #-16]!
-        ; stp   d14, d15, [sp, #-16]!
-        ; sub   sp, sp, #(stack_space)
-    );
+    let mut asm = FloatAssembler::init(t.reg_count, t.total_slots);
 
     let mut iter = t.tape.iter().rev();
     while let Some(v) = iter.next() {
@@ -47,27 +160,12 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
             let op = ClauseOp32::from_u32(op).unwrap();
             match op {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                    let fast_reg = (v & 0xFF) + REG_OFFSET;
-                    let extended_reg = (v >> 8) & 0xFFFF;
-                    let sp_offset = 4 * (extended_reg - t.reg_count as u32);
+                    let reg = (v & 0xFF) + REG_OFFSET;
+                    let mem = (v >> 8) & 0xFFFF;
                     match op {
-                        ClauseOp32::Load => {
-                            dynasm!(ops
-                                ; ldr S(fast_reg), [sp, #(sp_offset)]
-                            );
-                        }
-                        ClauseOp32::Store => {
-                            dynasm!(ops
-                                ; str S(fast_reg), [sp, #(sp_offset)]
-                            );
-                        }
-                        ClauseOp32::Swap => {
-                            dynasm!(ops
-                                ; fmov s4, S(fast_reg)
-                                ; ldr S(fast_reg), [sp, #(sp_offset)]
-                                ; str s4, [sp, #(sp_offset)]
-                            );
-                        }
+                        ClauseOp32::Load => asm.build_load(reg, mem),
+                        ClauseOp32::Store => asm.build_store(mem, reg),
+                        ClauseOp32::Swap => asm.build_swap(reg, mem),
                         _ => unreachable!(),
                     }
                 }
@@ -75,9 +173,7 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                     let input = (v >> 16) & 0xFF;
                     assert!(input < 3);
                     let out_reg = (v & 0xFF) + REG_OFFSET;
-                    dynasm!(ops
-                        ; fmov S(out_reg), S(input)
-                    );
+                    asm.build_input(out_reg, input)
                 }
                 ClauseOp32::CopyReg
                 | ClauseOp32::NegReg
@@ -85,28 +181,15 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 | ClauseOp32::RecipReg
                 | ClauseOp32::SqrtReg
                 | ClauseOp32::SquareReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
-                    let out_reg = (v & 0xFF) + REG_OFFSET;
+                    let lhs = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let out = (v & 0xFF) + REG_OFFSET;
                     match op {
-                        ClauseOp32::CopyReg => dynasm!(ops
-                            ; fmov S(out_reg), S(lhs_reg)
-                        ),
-                        ClauseOp32::NegReg => dynasm!(ops
-                            ; fneg S(out_reg), S(lhs_reg)
-                        ),
-                        ClauseOp32::AbsReg => dynasm!(ops
-                            ; fabs S(out_reg), S(lhs_reg)
-                        ),
-                        ClauseOp32::RecipReg => dynasm!(ops
-                            ; fmov s7, #1.0
-                            ; fdiv S(out_reg), s7, S(lhs_reg)
-                        ),
-                        ClauseOp32::SqrtReg => dynasm!(ops
-                            ; fsqrt S(out_reg), S(lhs_reg)
-                        ),
-                        ClauseOp32::SquareReg => dynasm!(ops
-                            ; fmul S(out_reg), S(lhs_reg), S(lhs_reg)
-                        ),
+                        ClauseOp32::CopyReg => asm.build_copy(out, lhs),
+                        ClauseOp32::NegReg => asm.build_neg(out, lhs),
+                        ClauseOp32::AbsReg => asm.build_abs(out, lhs),
+                        ClauseOp32::RecipReg => asm.build_recip(out, lhs),
+                        ClauseOp32::SqrtReg => asm.build_sqrt(out, lhs),
+                        ClauseOp32::SquareReg => asm.build_square(out, lhs),
                         _ => unreachable!(),
                     };
                 }
@@ -116,25 +199,15 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
                 | ClauseOp32::SubRegReg
                 | ClauseOp32::MinRegReg
                 | ClauseOp32::MaxRegReg => {
-                    let lhs_reg = ((v >> 16) & 0xFF) + REG_OFFSET;
-                    let rhs_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
-                    let out_reg = (v & 0xFF) + REG_OFFSET;
+                    let lhs = ((v >> 16) & 0xFF) + REG_OFFSET;
+                    let rhs = ((v >> 8) & 0xFF) + REG_OFFSET;
+                    let out = (v & 0xFF) + REG_OFFSET;
                     match op {
-                        ClauseOp32::AddRegReg => dynasm!(ops
-                            ; fadd S(out_reg), S(lhs_reg), S(rhs_reg)
-                        ),
-                        ClauseOp32::MulRegReg => dynasm!(ops
-                            ; fmul S(out_reg), S(lhs_reg), S(rhs_reg)
-                        ),
-                        ClauseOp32::SubRegReg => dynasm!(ops
-                            ; fsub S(out_reg), S(lhs_reg), S(rhs_reg)
-                        ),
-                        ClauseOp32::MinRegReg => dynasm!(ops
-                            ; fmin S(out_reg), S(lhs_reg), S(rhs_reg)
-                        ),
-                        ClauseOp32::MaxRegReg => dynasm!(ops
-                            ; fmax S(out_reg), S(lhs_reg), S(rhs_reg)
-                        ),
+                        ClauseOp32::AddRegReg => asm.build_add(out, lhs, rhs),
+                        ClauseOp32::MulRegReg => asm.build_mul(out, lhs, rhs),
+                        ClauseOp32::SubRegReg => asm.build_sub(out, lhs, rhs),
+                        ClauseOp32::MinRegReg => asm.build_min(out, lhs, rhs),
+                        ClauseOp32::MaxRegReg => asm.build_max(out, lhs, rhs),
                         ClauseOp32::Load | ClauseOp32::Store => {
                             unreachable!()
                         }
@@ -145,59 +218,25 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
         } else {
             let op = (v >> 16) & ((1 << 14) - 1);
             let op = ClauseOp64::from_u32(op).unwrap();
-            let next = iter.next().unwrap();
-            let arg_reg = ((v >> 8) & 0xFF) + REG_OFFSET;
-            let out_reg = (v & 0xFF) + REG_OFFSET;
-            let imm_u32 = *next;
+            let arg = ((v >> 8) & 0xFF) + REG_OFFSET;
+            let out = (v & 0xFF) + REG_OFFSET;
 
-            // Unpack the immediate using two 16-bit writes
-            dynasm!(ops
-                ; movz w9, #(imm_u32 >> 16), lsl 16
-                ; movk w9, #(imm_u32)
-                ; fmov s4, w9
-            );
+            let next = iter.next().unwrap();
+            asm.load_imm(f32::from_bits(*next));
+
             match op {
-                ClauseOp64::AddRegImm => dynasm!(ops
-                    ; fadd S(out_reg), S(arg_reg), s4
-                ),
-                ClauseOp64::MulRegImm => dynasm!(ops
-                    ; fmul S(out_reg), S(arg_reg), s4
-                ),
-                ClauseOp64::SubImmReg => dynasm!(ops
-                    ; fsub S(out_reg), s4, S(arg_reg)
-                ),
-                ClauseOp64::SubRegImm => dynasm!(ops
-                    ; fsub S(out_reg), S(arg_reg), s4
-                ),
-                ClauseOp64::MinRegImm => dynasm!(ops
-                    ; fmin S(out_reg), S(arg_reg), s4
-                ),
-                ClauseOp64::MaxRegImm => dynasm!(ops
-                    ; fmax S(out_reg), S(arg_reg), s4
-                ),
-                ClauseOp64::CopyImm => dynasm!(ops
-                    ; fmov S(out_reg), w9
-                ),
+                ClauseOp64::AddRegImm => asm.build_add(out, arg, 4),
+                ClauseOp64::MulRegImm => asm.build_mul(out, arg, 4),
+                ClauseOp64::SubImmReg => asm.build_sub(out, 4, arg),
+                ClauseOp64::SubRegImm => asm.build_sub(out, arg, 4),
+                ClauseOp64::MinRegImm => asm.build_min(out, arg, 4),
+                ClauseOp64::MaxRegImm => asm.build_max(out, arg, 4),
+                ClauseOp64::CopyImm => asm.build_copy(out, 4),
             };
         }
     }
 
-    dynasm!(ops
-        // Prepare our return value
-        ; fmov  s0, S(REG_OFFSET)
-        // Restore stack space used for spills
-        ; add   sp, sp, #(stack_space)
-        // Restore callee-saved floating-point registers
-        ; ldp   d14, d15, [sp], #16
-        ; ldp   d12, d13, [sp], #16
-        ; ldp   d10, d11, [sp], #16
-        ; ldp   d8, d9, [sp], #16
-        // Restore frame and link register
-        ; ldp   x29, x30, [sp], #16
-        ; ret
-    );
-
-    let buf = ops.finalize().unwrap();
+    let (buf, shape_fn) = asm.finalize(REG_OFFSET);
     let fn_pointer = buf.ptr(shape_fn);
     FloatFuncHandle {
         _buf: buf,
