@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::scheduled::Scheduled;
 use crate::{
@@ -236,6 +236,7 @@ struct TapeSimplify<'a, I> {
     active_iter: std::slice::Iter<'a, bool>,
     remap: Vec<u32>,
     last_used: Vec<usize>,
+    // TODO: we could track an exact size here and implement `ExactSizeIterator`
 }
 
 impl<'a, I> TapeSimplify<'a, I>
@@ -606,9 +607,10 @@ pub struct TapeAllocator<'a> {
     /// The most recently available is at the back of the `Vec`
     spare_memory: Vec<usize>,
 
-    /// Active nodes (as local slot indexes), sorted by position in
-    /// the input data
-    active: BTreeSet<(usize, usize)>,
+    /// Represents which nodes retire at a particular index in the global tape.
+    /// Up to two nodes can be retired at each index; `usize::MAX` indicates
+    /// that there isn't a retired node here yet.
+    retirement: Vec<[usize; 2]>,
 
     /// If we popped a clause but haven't finished it, store it here
     wip: Option<(usize, ClauseOp48)>,
@@ -628,12 +630,12 @@ impl<'a> TapeAllocator<'a> {
             register_lru: vec![0; reg_limit],
             time: 0,
 
+            retirement: vec![[usize::MAX; 2]; tape.tape.len()],
             reg_limit,
             spare_registers: Vec::with_capacity(reg_limit),
             spare_memory: vec![],
             wip: None,
             total_slots: 0,
-            active: BTreeSet::new(),
         }
     }
     fn get_memory(&mut self) -> usize {
@@ -673,7 +675,8 @@ impl<'a> TapeAllocator<'a> {
     ///
     /// This may take multiple attempts, returning an `Err(CopyOp::...)`
     /// when intermediate memory movement needs to take place.
-    fn get_register(&mut self, n: usize) -> Result<usize, CopyOp> {
+    fn get_register(&mut self, n: u32) -> Result<usize, CopyOp> {
+        let n = n as usize;
         let slot = self.allocations[n];
         if slot >= self.reg_limit {
             // Pick a register, prioritizing picking a spare register (if
@@ -756,6 +759,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             .or_else(|| self.iter.next().map(|(i, n)| (i, *n)))?;
 
         self.time += 1;
+        self.wip = Some((index, op));
 
         // Make sure that we have LHS and RHS already loaded into registers,
         // returning early with a Load or Store if necessary.
@@ -773,12 +777,8 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::SubRegImm(arg, ..)
             | ClauseOp48::MinRegImm(arg, ..)
             | ClauseOp48::MaxRegImm(arg, ..) => {
-                match self.get_register(arg as usize) {
-                    Ok(_reg) => (),
-                    Err(CopyOp { src, dst }) => {
-                        self.wip = Some((index, op));
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
-                    }
+                if let Err(CopyOp { src, dst }) = self.get_register(arg) {
+                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                 }
             }
 
@@ -787,19 +787,11 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::SubRegReg(lhs, rhs)
             | ClauseOp48::MinRegReg(lhs, rhs)
             | ClauseOp48::MaxRegReg(lhs, rhs) => {
-                match self.get_register(lhs as usize) {
-                    Ok(_reg) => (),
-                    Err(CopyOp { src, dst }) => {
-                        self.wip = Some((index, op));
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
-                    }
+                if let Err(CopyOp { src, dst }) = self.get_register(lhs) {
+                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                 }
-                match self.get_register(rhs as usize) {
-                    Ok(_reg) => (),
-                    Err(CopyOp { src, dst }) => {
-                        self.wip = Some((index, op));
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
-                    }
+                if let Err(CopyOp { src, dst }) = self.get_register(rhs) {
+                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                 }
             }
         }
@@ -807,11 +799,11 @@ impl<'a> Iterator for TapeAllocator<'a> {
         // Release anything that's inactive at this point, so that the output
         // could reuse a register from one of the inputs if this is the last
         // time it appears.
-        while let Some((j, node)) = self.active.iter().next().cloned() {
-            if j >= index {
-                break;
-            }
-            self.active.remove(&(j, node));
+        for node in self.retirement[index]
+            .iter()
+            .cloned()
+            .filter(|i| *i != usize::MAX)
+        {
             let slot = self.allocations[node];
             if slot < self.reg_limit {
                 self.spare_registers.push(slot);
@@ -825,10 +817,9 @@ impl<'a> Iterator for TapeAllocator<'a> {
             }
         }
 
-        let out_reg = match self.get_register(index) {
+        let out_reg = match self.get_register(index.try_into().unwrap()) {
             Ok(reg) => reg,
             Err(CopyOp { src, dst }) => {
-                self.wip = Some((index, op));
                 return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
             }
         };
@@ -857,7 +848,13 @@ impl<'a> Iterator for TapeAllocator<'a> {
             MaxRegReg(lhs, rhs) => MaxRegReg(self.get(lhs), self.get(rhs)),
         };
 
-        self.active.insert((self.last_use[index], index));
+        // Install this node into the retirement array based on its last use
+        if self.last_use[index] != usize::MAX {
+            *self.retirement[self.last_use[index]]
+                .iter_mut()
+                .find(|i| **i == usize::MAX)
+                .unwrap() = index;
+        }
 
         // If we've gotten here, then we've cleared the WIP node and are about
         // to deliver some actual output.
