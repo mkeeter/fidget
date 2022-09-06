@@ -77,7 +77,10 @@ impl Tape {
 
     pub fn alloc(&self, reg_limit: usize) -> AllocatedTape {
         let mut t = TapeAllocator::new(self, reg_limit);
-        let tape = (&mut t).collect();
+        let mut tape = vec![];
+        for i in &mut t {
+            tape.push(i);
+        }
         AllocatedTape {
             tape,
             choice_count: self.choice_count,
@@ -810,7 +813,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             }
             self.active.remove(&(j, node));
             let slot = self.allocations[node];
-            if slot >= self.reg_limit {
+            if slot < self.reg_limit {
                 self.spare_registers.push(slot);
                 self.registers[slot] = usize::MAX;
                 self.register_lru[slot] = usize::MAX;

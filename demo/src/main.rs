@@ -51,9 +51,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
+            let start = Instant::now();
             let scheduled = jitfive::scheduled::schedule(&ctx, root);
-            let tape = jitfive::backend::tape32::Tape::new(&scheduled);
-            let mut eval = tape.get_evaluator();
+            info!("Scheduled in {:?}", start.elapsed());
+
+            let start = Instant::now();
+            let tape = jitfive::backend::tape48::Tape::new(&scheduled);
+            info!("Built tape in {:?}", start.elapsed());
+
+            let start = Instant::now();
+            let bla = tape.alloc(4096);
+            info!("Allocated tape in {:?}", start.elapsed());
+
+            let mut eval = bla.get_evaluator();
 
             let start = Instant::now();
             let div = (scale - 1) as f64;
@@ -61,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
                 for j in 0..scale {
                     let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.f(x as f32, y as f32);
+                    let v = eval.f(x as f32, y as f32, 0.0);
                     out.push(v <= 0.0);
                 }
             }
