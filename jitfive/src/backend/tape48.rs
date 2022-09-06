@@ -808,7 +808,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             if j >= index {
                 break;
             }
-            self.active.remove(&(index, node));
+            self.active.remove(&(j, node));
             let slot = self.allocations[node];
             if slot >= self.reg_limit {
                 self.spare_registers.push(slot);
@@ -934,7 +934,7 @@ impl<'a> AllocatedTapeEval<'a> {
                 CopyReg(arg) => self.v(arg),
             };
         }
-        self.slots[self.slots.len() - 1]
+        self.slots[self.out_slot]
     }
 }
 
