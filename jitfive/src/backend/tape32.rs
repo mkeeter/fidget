@@ -910,7 +910,7 @@ impl<'a> TapeBuilder<'a> {
     fn get_register(&mut self) -> Register {
         if let Some(r) = self.spare_registers.pop() {
             r
-        } else if self.total_slots <= self.reg_limit {
+        } else if self.total_slots < self.reg_limit {
             let r = Register(self.total_slots as u8);
             self.total_slots += 1;
             r
