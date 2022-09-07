@@ -5,8 +5,9 @@ use dynasmrt::{
 use num_traits::FromPrimitive;
 
 use crate::backend::{
-    common::Choice,
-    tape32::{ClauseOp32, ClauseOp64, Tape},
+    common::{Choice, Simplify},
+    tape32::{ClauseOp32, ClauseOp64, Tape as Tape32},
+    tape48::{AllocOp, ClauseOp48, Tape as Tape48, TapeAllocator},
 };
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
@@ -560,22 +561,24 @@ impl AssemblerT for IntervalAssembler {
             ; ret
         );
 
-        (self.ops.finalize().unwrap(), self.shape_fn)
+        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t);
+pub fn build_float_fn_48(t: &Tape48) -> FloatFuncHandle {
+    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
+    let (buf, fn_pointer) = build_asm_fn_48::<FloatAssembler>(alloc);
     FloatFuncHandle {
         _buf: buf,
         fn_pointer,
     }
 }
 
-pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t);
+pub fn build_interval_fn_48(t: &Tape48) -> IntervalFuncHandle<Tape48> {
+    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
+    let (buf, fn_pointer) = build_asm_fn_48::<IntervalAssembler>(alloc);
     IntervalFuncHandle {
         tape: t,
         choice_count: t.choice_count,
@@ -584,10 +587,114 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     }
 }
 
-fn build_asm_fn<A: AssemblerT>(t: &Tape) -> (ExecutableBuffer, *const u8) {
+////////////////////////////////////////////////////////////////////////////////
+
+fn build_asm_fn_48<A: AssemblerT>(
+    i: impl Iterator<Item = AllocOp>,
+) -> (ExecutableBuffer, *const u8) {
+    let mut asm = A::init();
+
+    let mut last = None;
+    for AllocOp(op, out) in i {
+        let out = out + REG_OFFSET;
+        last = Some(out);
+        use ClauseOp48::*;
+        match op {
+            Input(i) => asm.build_input(out, i as u32),
+            NegReg(arg) => asm.build_neg(out, arg + REG_OFFSET),
+            AbsReg(arg) => asm.build_abs(out, arg + REG_OFFSET),
+            RecipReg(arg) => asm.build_recip(out, arg + REG_OFFSET),
+            SqrtReg(arg) => asm.build_sqrt(out, arg + REG_OFFSET),
+            CopyReg(arg) => {
+                let out = out - REG_OFFSET;
+                match (out < REGISTER_LIMIT as u32, arg < REGISTER_LIMIT as u32)
+                {
+                    (true, true) => {
+                        asm.build_copy(out + REG_OFFSET, arg + REG_OFFSET)
+                    }
+                    (true, false) => asm.build_load(out + REG_OFFSET, arg),
+                    (false, true) => asm.build_store(out, arg + REG_OFFSET),
+                    (false, false) => {
+                        panic!("Cannot do mem-to-mem COPY {} {}", out, arg)
+                    }
+                }
+            }
+            SquareReg(arg) => asm.build_square(out, arg + REG_OFFSET),
+            AddRegReg(lhs, rhs) => {
+                asm.build_add(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+            }
+            MulRegReg(lhs, rhs) => {
+                asm.build_mul(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+            }
+            SubRegReg(lhs, rhs) => {
+                asm.build_sub(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+            }
+            MinRegReg(lhs, rhs) => {
+                asm.build_min(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+            }
+            MaxRegReg(lhs, rhs) => {
+                asm.build_max(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+            }
+            AddRegImm(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_add(out, arg + REG_OFFSET, reg)
+            }
+            MulRegImm(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_mul(out, arg + REG_OFFSET, reg)
+            }
+            SubImmReg(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_sub(out, reg, arg + REG_OFFSET)
+            }
+            SubRegImm(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_sub(out, arg + REG_OFFSET, reg)
+            }
+            MinRegImm(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_min(out, arg + REG_OFFSET, reg)
+            }
+            MaxRegImm(arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_max(out, arg + REG_OFFSET, reg)
+            }
+            CopyImm(imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_copy(out, reg)
+            }
+        }
+    }
+
+    let (buf, shape_fn) = asm.finalize(last.unwrap());
+    let fn_pointer = buf.ptr(shape_fn);
+    (buf, fn_pointer)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub fn build_float_fn_32(t: &Tape32) -> FloatFuncHandle {
+    let (buf, fn_pointer) = build_asm_fn_32::<FloatAssembler>(t);
+    FloatFuncHandle {
+        _buf: buf,
+        fn_pointer,
+    }
+}
+
+pub fn build_interval_fn_32(t: &Tape32) -> IntervalFuncHandle<Tape32> {
+    let (buf, fn_pointer) = build_asm_fn_32::<IntervalAssembler>(t);
+    IntervalFuncHandle {
+        tape: t,
+        choice_count: t.choice_count,
+        _buf: buf,
+        fn_pointer,
+    }
+}
+
+fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
     assert!(t.reg_count <= REGISTER_LIMIT);
 
-    let mut asm = A::init(t.reg_count, t.total_slots);
+    let mut asm = A::init();
 
     let mut iter = t.tape.iter().rev();
     while let Some(v) = iter.next() {
@@ -676,7 +783,6 @@ fn build_asm_fn<A: AssemblerT>(t: &Tape) -> (ExecutableBuffer, *const u8) {
     let fn_pointer = buf.ptr(shape_fn);
     (buf, fn_pointer)
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle which owns a JIT-compiled float function
@@ -695,15 +801,15 @@ impl FloatFuncHandle {
 }
 
 /// Handle which owns a JIT-compiled interval function
-pub struct IntervalFuncHandle<'t> {
+pub struct IntervalFuncHandle<'t, T> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
-    tape: &'t Tape,
+    tape: &'t T,
 }
 
-impl<'t> IntervalFuncHandle<'t> {
-    pub fn get_evaluator(&self) -> IntervalEval {
+impl<'t, T> IntervalFuncHandle<'t, T> {
+    pub fn get_evaluator(&self) -> IntervalEval<T> {
         IntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
@@ -732,7 +838,7 @@ impl<'a> FloatEval<'a> {
 ///
 /// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
 /// owns the underlying executable memory.
-pub struct IntervalEval<'asm> {
+pub struct IntervalEval<'asm, T> {
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
@@ -740,22 +846,24 @@ pub struct IntervalEval<'asm> {
         *mut u8,  // choices
     ) -> [f32; 2],
     choices: Vec<Choice>,
-    tape: &'asm Tape,
+    tape: &'asm T,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> IntervalEval<'a> {
+impl<'a, T> IntervalEval<'a, T> {
     pub fn i(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
         unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
         }
     }
+}
 
+impl<'a, T: Simplify> IntervalEval<'a, T> {
     /// Returns a simplified tape based on `self.choices`
     ///
     /// The choices array should have been calculated during the last interval
     /// evaluation.
-    pub fn push(&self) -> Tape {
+    pub fn push(&self) -> T {
         self.tape.simplify(&self.choices)
     }
 }
@@ -766,20 +874,20 @@ impl<'a> IntervalEval<'a> {
 mod tests {
     use super::*;
     use crate::{
-        backend::tape32::Tape,
+        backend::tape48::Tape,
         context::{Context, Node},
         scheduled::schedule,
     };
 
     fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {
         let scheduled = schedule(ctx, v);
-        let tape = Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT);
-        build_float_fn(&tape)
+        let tape = Tape::new(&scheduled);
+        build_float_fn_48(&tape)
     }
 
     fn to_tape(v: Node, ctx: &Context) -> Tape {
         let scheduled = schedule(ctx, v);
-        Tape::new_with_reg_limit(&scheduled, REGISTER_LIMIT)
+        Tape::new(&scheduled)
     }
 
     #[test]
@@ -803,14 +911,14 @@ mod tests {
         let y = ctx.y();
 
         let tape = to_tape(x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let tape = to_tape(y, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
@@ -824,7 +932,7 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let tape = to_tape(abs_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval([0.0, 1.0]), [0.0, 1.0]);
@@ -837,7 +945,7 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let tape = to_tape(sum, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
@@ -852,7 +960,7 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let tape = to_tape(sqrt_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -870,7 +978,7 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let tape = to_tape(sqrt_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -889,7 +997,7 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
@@ -906,7 +1014,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
@@ -915,7 +1023,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
@@ -930,7 +1038,7 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.i(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
@@ -947,7 +1055,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
@@ -956,7 +1064,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
@@ -969,7 +1077,7 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let tape = to_tape(recip, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.i(x, [0.0, 1.0], [0.0, 1.0]);
 
@@ -997,7 +1105,7 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = to_tape(min, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.i([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.0, 1.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1017,7 +1125,7 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
 
         let tape = to_tape(min, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.i([0.0, 1.0], [0.0, 0.0], [0.0, 0.0]), [0.0, 1.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1037,7 +1145,7 @@ mod tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = to_tape(max, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.i([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.5, 1.5]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1051,7 +1159,7 @@ mod tests {
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = to_tape(max_xy_z, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]), [4.0, 5.0]);
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Right]);
@@ -1071,7 +1179,7 @@ mod tests {
         let max = ctx.max(x, one).unwrap();
 
         let tape = to_tape(max, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = build_interval_fn_48(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 2.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);

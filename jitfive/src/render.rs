@@ -1,12 +1,28 @@
 use std::time::{Duration, Instant};
 
 use crate::backend::dynasm::{FloatEval, IntervalEval};
-use crate::backend::tape32::Tape;
+
+use crate::backend::{
+    dynasm::{
+        build_float_fn_48 as build_float_fn,
+        build_interval_fn_48 as build_interval_fn,
+    },
+    tape48::Tape,
+};
+/*
+use crate::backend::{
+    dynasm::{
+        build_float_fn_32 as build_float_fn,
+        build_interval_fn_32 as build_interval_fn,
+    },
+    tape32::Tape,
+};
+*/
 
 use log::info;
 
-const TILE_SIZE: usize = 64;
-const SUBTILE_SIZE: usize = 8;
+const TILE_SIZE: usize = 256;
+const SUBTILE_SIZE: usize = 32;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Pixel {
@@ -65,7 +81,7 @@ pub fn render(size: usize, tape: Tape) -> Vec<Pixel> {
 
 impl Renderer {
     fn run(&mut self, tape: &Tape) {
-        let i_handle = crate::backend::dynasm::build_interval_fn(tape);
+        let i_handle = build_interval_fn(tape);
         let mut i_eval = i_handle.get_evaluator();
 
         for y in 0..(self.size / TILE_SIZE) {
@@ -88,7 +104,12 @@ impl Renderer {
         2.0 * (p as f32) / ((self.size - 1) as f32) - 1.0
     }
 
-    fn render_tile(&mut self, eval: &mut IntervalEval, x: usize, y: usize) {
+    fn render_tile(
+        &mut self,
+        eval: &mut IntervalEval<Tape>,
+        x: usize,
+        y: usize,
+    ) {
         let x_interval =
             [self.pixel_to_pos(x), self.pixel_to_pos(x + TILE_SIZE)];
         let y_interval =
@@ -116,7 +137,7 @@ impl Renderer {
             self.push_time += start.elapsed();
 
             let start = Instant::now();
-            let sub_jit = crate::backend::dynasm::build_interval_fn(&sub_tape);
+            let sub_jit = build_interval_fn(&sub_tape);
             let mut sub_eval = sub_jit.get_evaluator();
             self.jit_time += start.elapsed();
 
@@ -133,7 +154,12 @@ impl Renderer {
         }
     }
 
-    fn render_subtile(&mut self, eval: &mut IntervalEval, x: usize, y: usize) {
+    fn render_subtile(
+        &mut self,
+        eval: &mut IntervalEval<Tape>,
+        x: usize,
+        y: usize,
+    ) {
         let x_interval =
             [self.pixel_to_pos(x), self.pixel_to_pos(x + SUBTILE_SIZE)];
         let y_interval =
@@ -160,24 +186,24 @@ impl Renderer {
             self.push_time += start.elapsed();
 
             let start = Instant::now();
-            let sub_jit = crate::backend::dynasm::build_float_fn(&sub_tape);
+            let sub_jit = build_float_fn(&sub_tape);
             let mut sub_eval = sub_jit.get_evaluator();
             self.jit_time += start.elapsed();
 
+            let start = Instant::now();
             for x in x..(x + SUBTILE_SIZE) {
                 for y in y..(y + SUBTILE_SIZE) {
                     self.render_pixel(&mut sub_eval, x, y);
                 }
             }
+            self.pixel_time += start.elapsed();
         }
     }
     fn render_pixel(&mut self, eval: &mut FloatEval, x: usize, y: usize) {
         let x_pos = self.pixel_to_pos(x);
         let y_pos = self.pixel_to_pos(y);
 
-        let start = Instant::now();
         let v = eval.f(x_pos, y_pos, 0.0);
-        self.pixel_time += start.elapsed();
         if v < 0.0 {
             self.image[x + y * self.size] = Some(Pixel::Filled);
         } else {

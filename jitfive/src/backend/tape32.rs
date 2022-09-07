@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    backend::common::{Choice, NodeIndex, Op},
+    backend::common::{Choice, NodeIndex, Op, Simplify},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
     util::{bimap::Bimap, queue::PriorityQueue},
@@ -311,7 +311,114 @@ impl Tape {
         }
     }
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+    pub fn pretty_print_tape(&self) {
+        let mut iter = self.tape.iter().rev();
+        while let Some(v) = iter.next() {
+            // 32-bit instruction
+            if v & LONG == 0 {
+                let op = (v >> 24) & ((1 << 6) - 1);
+                let op = ClauseOp32::from_u32(op).unwrap();
+                match op {
+                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
+                        let short = v & 0xFF;
+                        let ext = (v >> 8) & 0xFFFF;
+                        match op {
+                            ClauseOp32::Load => {
+                                print!("${} = LOAD ${}", short, ext)
+                            }
+                            ClauseOp32::Store => {
+                                print!("${} = STORE ${}", ext, short)
+                            }
+                            ClauseOp32::Swap => {
+                                print!("SWAP ${} ${}", short, ext)
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    ClauseOp32::Input => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        print!("${} = INPUT %{}", out_reg, lhs_reg);
+                    }
+                    ClauseOp32::CopyReg
+                    | ClauseOp32::NegReg
+                    | ClauseOp32::AbsReg
+                    | ClauseOp32::RecipReg
+                    | ClauseOp32::SqrtReg
+                    | ClauseOp32::SquareReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        print!("${} = {} ${}", out_reg, op.name(), lhs_reg);
+                    }
+                    ClauseOp32::MaxRegReg
+                    | ClauseOp32::MinRegReg
+                    | ClauseOp32::SubRegReg
+                    | ClauseOp32::AddRegReg
+                    | ClauseOp32::MulRegReg => {
+                        let lhs_reg = (v >> 16) & 0xFF;
+                        let rhs_reg = (v >> 8) & 0xFF;
+                        let out_reg = v & 0xFF;
+                        print!(
+                            "${} = {} ${} ${}",
+                            out_reg,
+                            op.name(),
+                            lhs_reg,
+                            rhs_reg
+                        );
+                    }
+                }
+            } else {
+                let op = (v >> 16) & ((1 << 14) - 1);
+                let op = ClauseOp64::from_u32(op).unwrap();
+                let next = iter.next().unwrap();
+                let imm = f32::from_bits(*next);
+                let arg_reg = (v >> 8) & 0xFF;
+                let out_reg = v & 0xFF;
+                match op {
+                    ClauseOp64::MinRegImm
+                    | ClauseOp64::MaxRegImm
+                    | ClauseOp64::AddRegImm
+                    | ClauseOp64::MulRegImm
+                    | ClauseOp64::SubRegImm => {
+                        print!(
+                            "${} = {} ${} {}",
+                            out_reg,
+                            op.name(),
+                            arg_reg,
+                            imm
+                        );
+                    }
+                    ClauseOp64::SubImmReg => {
+                        print!(
+                            "${} = {} {} ${}",
+                            out_reg,
+                            op.name(),
+                            imm,
+                            arg_reg,
+                        );
+                    }
+                    ClauseOp64::CopyImm => {
+                        print!("${} = COPY {}", out_reg, imm);
+                    }
+                }
+            }
+            // Print a marker for the next instruction being long
+            if v & NEXT != 0 {
+                println!(" [*]");
+            } else {
+                println!();
+            }
+        }
+        println!(
+            "{} slots, {} instructions",
+            self.total_slots,
+            self.tape.len()
+        );
+    }
+}
+
+impl Simplify for Tape {
+    fn simplify(&self, choices: &[Choice]) -> Self {
         let mut out = vec![];
         let mut next_was_set = false;
 
@@ -575,111 +682,6 @@ impl Tape {
             reg_count: self.reg_count,
             choice_count,
         }
-    }
-
-    pub fn pretty_print_tape(&self) {
-        let mut iter = self.tape.iter().rev();
-        while let Some(v) = iter.next() {
-            // 32-bit instruction
-            if v & LONG == 0 {
-                let op = (v >> 24) & ((1 << 6) - 1);
-                let op = ClauseOp32::from_u32(op).unwrap();
-                match op {
-                    ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                        let short = v & 0xFF;
-                        let ext = (v >> 8) & 0xFFFF;
-                        match op {
-                            ClauseOp32::Load => {
-                                print!("${} = LOAD ${}", short, ext)
-                            }
-                            ClauseOp32::Store => {
-                                print!("${} = STORE ${}", ext, short)
-                            }
-                            ClauseOp32::Swap => {
-                                print!("SWAP ${} ${}", short, ext)
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                    ClauseOp32::Input => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        print!("${} = INPUT %{}", out_reg, lhs_reg);
-                    }
-                    ClauseOp32::CopyReg
-                    | ClauseOp32::NegReg
-                    | ClauseOp32::AbsReg
-                    | ClauseOp32::RecipReg
-                    | ClauseOp32::SqrtReg
-                    | ClauseOp32::SquareReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        print!("${} = {} ${}", out_reg, op.name(), lhs_reg);
-                    }
-                    ClauseOp32::MaxRegReg
-                    | ClauseOp32::MinRegReg
-                    | ClauseOp32::SubRegReg
-                    | ClauseOp32::AddRegReg
-                    | ClauseOp32::MulRegReg => {
-                        let lhs_reg = (v >> 16) & 0xFF;
-                        let rhs_reg = (v >> 8) & 0xFF;
-                        let out_reg = v & 0xFF;
-                        print!(
-                            "${} = {} ${} ${}",
-                            out_reg,
-                            op.name(),
-                            lhs_reg,
-                            rhs_reg
-                        );
-                    }
-                }
-            } else {
-                let op = (v >> 16) & ((1 << 14) - 1);
-                let op = ClauseOp64::from_u32(op).unwrap();
-                let next = iter.next().unwrap();
-                let imm = f32::from_bits(*next);
-                let arg_reg = (v >> 8) & 0xFF;
-                let out_reg = v & 0xFF;
-                match op {
-                    ClauseOp64::MinRegImm
-                    | ClauseOp64::MaxRegImm
-                    | ClauseOp64::AddRegImm
-                    | ClauseOp64::MulRegImm
-                    | ClauseOp64::SubRegImm => {
-                        print!(
-                            "${} = {} ${} {}",
-                            out_reg,
-                            op.name(),
-                            arg_reg,
-                            imm
-                        );
-                    }
-                    ClauseOp64::SubImmReg => {
-                        print!(
-                            "${} = {} {} ${}",
-                            out_reg,
-                            op.name(),
-                            imm,
-                            arg_reg,
-                        );
-                    }
-                    ClauseOp64::CopyImm => {
-                        print!("${} = COPY {}", out_reg, imm);
-                    }
-                }
-            }
-            // Print a marker for the next instruction being long
-            if v & NEXT != 0 {
-                println!(" [*]");
-            } else {
-                println!();
-            }
-        }
-        println!(
-            "{} slots, {} instructions",
-            self.total_slots,
-            self.tape.len()
-        );
     }
 }
 

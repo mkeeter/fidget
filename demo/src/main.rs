@@ -90,11 +90,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
+                let tape = jitfive::backend::tape48::Tape::new(&scheduled);
+                let jit = jitfive::backend::dynasm::build_float_fn_48(&tape);
+                /*
                 let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
-                let jit = jitfive::backend::dynasm::build_float_fn(&tape);
+                let jit = jitfive::backend::dynasm::build_float_fn_32(&tape);
+                */
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
@@ -119,10 +123,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
+                let tape = jitfive::backend::tape48::Tape::new(&scheduled);
+                /*
                 let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
-                    &scheduled,
-                    jitfive::backend::dynasm::REGISTER_LIMIT,
+                    &scheduled, 24,
                 );
+                */
                 let image = jitfive::render::render(args.size as usize, tape);
                 let out = image
                     .into_iter()

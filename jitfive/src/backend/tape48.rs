@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::scheduled::Scheduled;
 use crate::{
-    backend::common::{Choice, NodeIndex, Op, VarIndex},
+    backend::common::{Choice, NodeIndex, Op, Simplify, VarIndex},
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     util::indexed::IndexMap,
 };
@@ -131,8 +131,10 @@ impl Tape {
             }
         }
     }
+}
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+impl Simplify for Tape {
+    fn simplify(&self, choices: &[Choice]) -> Self {
         let mut active = vec![false; self.tape.len()];
         let mut choice_iter = choices.iter().rev();
         active[self.tape.len() - 1] = true;
@@ -735,10 +737,10 @@ impl<'a> Iterator for TapeAllocator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let (index, op): (usize, ClauseOp48) = self
             .wip
+            .take()
             .or_else(|| self.iter.next().map(|(i, n)| (i, *n)))?;
 
         self.time += 1;
-        self.wip = Some((index, op));
 
         // Make sure that we have LHS and RHS already loaded into registers,
         // returning early with a Load or Store if necessary.
@@ -757,6 +759,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::MinRegImm(arg, ..)
             | ClauseOp48::MaxRegImm(arg, ..) => match self.get_register(arg) {
                 Err(CopyOp { src, dst }) => {
+                    self.wip = Some((index, op));
                     return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                 }
                 Ok(r) => (r, 0),
@@ -769,13 +772,15 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::MaxRegReg(lhs, rhs) => {
                 let lhs = match self.get_register(lhs) {
                     Err(CopyOp { src, dst }) => {
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst))
+                        self.wip = Some((index, op));
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                     }
                     Ok(reg) => reg,
                 };
                 let rhs = match self.get_register(rhs) {
                     Err(CopyOp { src, dst }) => {
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst))
+                        self.wip = Some((index, op));
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                     }
                     Ok(reg) => reg,
                 };
@@ -807,6 +812,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
         let out_reg = match self.get_register(index.try_into().unwrap()) {
             Ok(reg) => reg,
             Err(CopyOp { src, dst }) => {
+                self.wip = Some((index, op));
                 return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
             }
         };
@@ -842,10 +848,6 @@ impl<'a> Iterator for TapeAllocator<'a> {
                 .find(|i| **i == usize::MAX)
                 .unwrap() = index;
         }
-
-        // If we've gotten here, then we've cleared the WIP node and are about
-        // to deliver some actual output.
-        self.wip = None;
 
         Some(AllocOp(out_op, out_reg))
     }

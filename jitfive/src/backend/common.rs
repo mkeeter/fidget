@@ -30,3 +30,7 @@ pub enum Choice {
     Right,
     Both,
 }
+
+pub trait Simplify {
+    fn simplify(&self, choices: &[Choice]) -> Self;
+}
