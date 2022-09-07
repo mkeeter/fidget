@@ -217,6 +217,7 @@ impl Tape {
             active_iter,
             remap: vec![],
             last_used: vec![],
+            new_size: 0,
         };
 
         let out = (&mut simplify).collect();
@@ -236,6 +237,7 @@ struct TapeSimplify<'a, I> {
     active_iter: std::slice::Iter<'a, bool>,
     remap: Vec<u32>,
     last_used: Vec<usize>,
+    new_size: usize,
     // TODO: we could track an exact size here and implement `ExactSizeIterator`
 }
 
@@ -244,13 +246,14 @@ where
     I: Iterator<Item = ClauseOp48>,
 {
     fn get(&mut self, i: u32) -> u32 {
-        self.last_used[i as usize] = self.last_used.len();
+        self.last_used[i as usize] = self.new_size;
         self.remap[i as usize]
     }
 
     fn step(&mut self, op: ClauseOp48) -> Option<ClauseOp48> {
         use ClauseOp48::*;
 
+        self.last_used.push(usize::MAX);
         let active = self.active_iter.next().unwrap();
         if !active {
             if matches!(
@@ -263,7 +266,6 @@ where
             return None;
         }
 
-        let index = self.remap.len();
         let op = match op {
             Input(..) | CopyImm(..) => op,
             AddRegReg(lhs, rhs) => AddRegReg(self.get(lhs), self.get(rhs)),
@@ -327,8 +329,8 @@ where
                 }
             }
         };
-        self.last_used.push(usize::MAX);
-        self.remap.push(index as u32);
+        self.remap.push(self.new_size as u32);
+        self.new_size += 1;
         Some(op)
     }
 }
@@ -749,7 +751,7 @@ pub struct CopyOp {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct AllocOp(ClauseOp48, u32);
+pub struct AllocOp(pub ClauseOp48, pub u32);
 
 impl<'a> Iterator for TapeAllocator<'a> {
     type Item = AllocOp;
