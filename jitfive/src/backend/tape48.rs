@@ -215,12 +215,13 @@ impl Tape {
             tape_iter,
             choice_iter,
             active_iter,
-            remap: vec![],
+            remap: Vec::with_capacity(self.tape.len()),
             last_used: vec![],
-            new_size: 0,
         };
 
-        let out = (&mut simplify).collect();
+        let mut out = Vec::with_capacity(self.tape.len());
+        out.extend(&mut simplify);
+        out.reverse();
 
         Self {
             tape: out,
@@ -237,7 +238,6 @@ struct TapeSimplify<'a, I> {
     active_iter: std::slice::Iter<'a, bool>,
     remap: Vec<u32>,
     last_used: Vec<usize>,
-    new_size: usize,
     // TODO: we could track an exact size here and implement `ExactSizeIterator`
 }
 
@@ -246,14 +246,14 @@ where
     I: Iterator<Item = ClauseOp48>,
 {
     fn get(&mut self, i: u32) -> u32 {
-        self.last_used[i as usize] = self.new_size;
-        self.remap[i as usize]
+        let r = self.remap[i as usize];
+        self.last_used[r as usize] = self.last_used.len();
+        r
     }
 
-    fn step(&mut self, op: ClauseOp48) -> Option<ClauseOp48> {
+    fn step(&mut self, mut op: ClauseOp48) -> Option<ClauseOp48> {
         use ClauseOp48::*;
 
-        self.last_used.push(usize::MAX);
         let active = self.active_iter.next().unwrap();
         if !active {
             if matches!(
@@ -266,71 +266,57 @@ where
             return None;
         }
 
-        let op = match op {
-            Input(..) | CopyImm(..) => op,
-            AddRegReg(lhs, rhs) => AddRegReg(self.get(lhs), self.get(rhs)),
-            MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
-            SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
-            NegReg(arg) => NegReg(self.get(arg)),
-            CopyReg(arg) => CopyReg(self.get(arg)),
-            AbsReg(arg) => AbsReg(self.get(arg)),
-            RecipReg(arg) => RecipReg(self.get(arg)),
-            SqrtReg(arg) => SqrtReg(self.get(arg)),
-            SquareReg(arg) => SquareReg(self.get(arg)),
+        match &mut op {
+            Input(..) | CopyImm(..) => (),
+            AddRegReg(lhs, rhs) | MulRegReg(lhs, rhs) | SubRegReg(lhs, rhs) => {
+                *lhs = self.get(*lhs);
+                *rhs = self.get(*rhs);
+            }
+            NegReg(arg) | CopyReg(arg) | AbsReg(arg) | RecipReg(arg)
+            | SqrtReg(arg) | SquareReg(arg) => {
+                *arg = self.get(*arg);
+            }
 
-            AddRegImm(arg, imm) => AddRegImm(self.get(arg), imm),
-            MulRegImm(arg, imm) => MulRegImm(self.get(arg), imm),
-            SubImmReg(arg, imm) => SubImmReg(self.get(arg), imm),
-            SubRegImm(arg, imm) => SubRegImm(self.get(arg), imm),
+            AddRegImm(arg, ..)
+            | MulRegImm(arg, ..)
+            | SubImmReg(arg, ..)
+            | SubRegImm(arg, ..) => {
+                *arg = self.get(*arg);
+            }
 
             MinRegImm(arg, imm) | MaxRegImm(arg, imm) => {
                 match self.choice_iter.next().unwrap() {
                     Choice::Left => {
-                        self.remap.push(self.remap[arg as usize]);
+                        self.remap.push(self.remap[*arg as usize]);
                         return None;
                     }
-                    Choice::Right => CopyImm(imm),
+                    Choice::Right => op = CopyImm(*imm),
                     Choice::Both => {
                         self.choice_count += 1;
-                        match op {
-                            MinRegImm(arg, imm) => {
-                                MinRegImm(self.get(arg), imm)
-                            }
-                            MaxRegImm(arg, imm) => {
-                                MaxRegImm(self.get(arg), imm)
-                            }
-                            _ => unreachable!(),
-                        }
+                        *arg = self.get(*arg);
                     }
                 }
             }
             MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
                 match self.choice_iter.next().unwrap() {
                     Choice::Left => {
-                        self.remap.push(self.remap[lhs as usize]);
+                        self.remap.push(self.remap[*lhs as usize]);
                         return None;
                     }
                     Choice::Right => {
-                        self.remap.push(self.remap[rhs as usize]);
+                        self.remap.push(self.remap[*rhs as usize]);
                         return None;
                     }
                     Choice::Both => {
                         self.choice_count += 1;
-                        match op {
-                            MinRegReg(lhs, rhs) => {
-                                MinRegReg(self.get(lhs), self.get(rhs))
-                            }
-                            MaxRegReg(lhs, rhs) => {
-                                MaxRegReg(self.get(lhs), self.get(rhs))
-                            }
-                            _ => unreachable!(),
-                        }
+                        *lhs = self.get(*lhs);
+                        *rhs = self.get(*rhs);
                     }
                 }
             }
         };
-        self.remap.push(self.new_size as u32);
-        self.new_size += 1;
+        self.remap.push(self.last_used.len() as u32);
+        self.last_used.push(usize::MAX);
         Some(op)
     }
 }
@@ -659,15 +645,6 @@ impl<'a> TapeAllocator<'a> {
             .0
     }
 
-    /// Looks up a node by global index
-    ///
-    /// The node must already be in a register, otherwise this will panic
-    fn get(&mut self, n: u32) -> u32 {
-        let slot = self.allocations[n as usize];
-        assert!(slot < self.reg_limit);
-        slot as u32
-    }
-
     /// Attempt to get a register for the given node (which is an index into the
     /// globally-allocated tape).
     ///
@@ -677,7 +654,7 @@ impl<'a> TapeAllocator<'a> {
     ///
     /// This may take multiple attempts, returning an `Err(CopyOp::...)`
     /// when intermediate memory movement needs to take place.
-    fn get_register(&mut self, n: u32) -> Result<usize, CopyOp> {
+    fn get_register(&mut self, n: u32) -> Result<u32, CopyOp> {
         let n = n as usize;
         let slot = self.allocations[n];
         if slot >= self.reg_limit {
@@ -690,7 +667,7 @@ impl<'a> TapeAllocator<'a> {
                     self.total_slots += 1;
                     Some(reg)
                 } else {
-                    self.spare_registers.pop()
+                    None
                 }
             });
 
@@ -706,7 +683,7 @@ impl<'a> TapeAllocator<'a> {
                 // it's not the dummy slot indicating no assignment was made.
                 if slot == usize::MAX {
                     self.register_lru[reg] = self.time;
-                    Ok(reg)
+                    Ok(reg as u32)
                 } else {
                     self.spare_memory.push(slot);
                     Err(CopyOp {
@@ -739,7 +716,7 @@ impl<'a> TapeAllocator<'a> {
         } else {
             // Update the use time of this register
             self.register_lru[slot] = self.time;
-            Ok(slot)
+            Ok(slot as u32)
         }
     }
 }
@@ -765,8 +742,8 @@ impl<'a> Iterator for TapeAllocator<'a> {
 
         // Make sure that we have LHS and RHS already loaded into registers,
         // returning early with a Load or Store if necessary.
-        match op {
-            ClauseOp48::Input(..) | ClauseOp48::CopyImm(..) => (),
+        let (lhs, rhs) = match op {
+            ClauseOp48::Input(..) | ClauseOp48::CopyImm(..) => (0, 0),
             ClauseOp48::NegReg(arg)
             | ClauseOp48::AbsReg(arg)
             | ClauseOp48::RecipReg(arg)
@@ -778,25 +755,33 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::SubImmReg(arg, ..)
             | ClauseOp48::SubRegImm(arg, ..)
             | ClauseOp48::MinRegImm(arg, ..)
-            | ClauseOp48::MaxRegImm(arg, ..) => {
-                if let Err(CopyOp { src, dst }) = self.get_register(arg) {
+            | ClauseOp48::MaxRegImm(arg, ..) => match self.get_register(arg) {
+                Err(CopyOp { src, dst }) => {
                     return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
                 }
-            }
+                Ok(r) => (r, 0),
+            },
 
             ClauseOp48::AddRegReg(lhs, rhs)
             | ClauseOp48::MulRegReg(lhs, rhs)
             | ClauseOp48::SubRegReg(lhs, rhs)
             | ClauseOp48::MinRegReg(lhs, rhs)
             | ClauseOp48::MaxRegReg(lhs, rhs) => {
-                if let Err(CopyOp { src, dst }) = self.get_register(lhs) {
-                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
-                }
-                if let Err(CopyOp { src, dst }) = self.get_register(rhs) {
-                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
-                }
+                let lhs = match self.get_register(lhs) {
+                    Err(CopyOp { src, dst }) => {
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst))
+                    }
+                    Ok(reg) => reg,
+                };
+                let rhs = match self.get_register(rhs) {
+                    Err(CopyOp { src, dst }) => {
+                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst))
+                    }
+                    Ok(reg) => reg,
+                };
+                (lhs, rhs)
             }
-        }
+        };
 
         // Release anything that's inactive at this point, so that the output
         // could reuse a register from one of the inputs if this is the last
@@ -829,25 +814,25 @@ impl<'a> Iterator for TapeAllocator<'a> {
         use ClauseOp48::*;
         let out_op = match op {
             Input(..) | CopyImm(..) => op,
-            AddRegReg(lhs, rhs) => AddRegReg(self.get(lhs), self.get(rhs)),
-            MulRegReg(lhs, rhs) => MulRegReg(self.get(lhs), self.get(rhs)),
-            SubRegReg(lhs, rhs) => SubRegReg(self.get(lhs), self.get(rhs)),
-            NegReg(arg) => NegReg(self.get(arg)),
-            CopyReg(arg) => CopyReg(self.get(arg)),
-            AbsReg(arg) => AbsReg(self.get(arg)),
-            RecipReg(arg) => RecipReg(self.get(arg)),
-            SqrtReg(arg) => SqrtReg(self.get(arg)),
-            SquareReg(arg) => SquareReg(self.get(arg)),
+            AddRegReg(..) => AddRegReg(lhs, rhs),
+            MulRegReg(..) => MulRegReg(lhs, rhs),
+            SubRegReg(..) => SubRegReg(lhs, rhs),
+            NegReg(..) => NegReg(lhs),
+            CopyReg(..) => CopyReg(lhs),
+            AbsReg(..) => AbsReg(lhs),
+            RecipReg(..) => RecipReg(lhs),
+            SqrtReg(..) => SqrtReg(lhs),
+            SquareReg(..) => SquareReg(lhs),
 
-            AddRegImm(arg, imm) => AddRegImm(self.get(arg), imm),
-            MulRegImm(arg, imm) => MulRegImm(self.get(arg), imm),
-            SubImmReg(arg, imm) => SubImmReg(self.get(arg), imm),
-            SubRegImm(arg, imm) => SubRegImm(self.get(arg), imm),
+            AddRegImm(_arg, imm) => AddRegImm(lhs, imm),
+            MulRegImm(_arg, imm) => MulRegImm(lhs, imm),
+            SubImmReg(_arg, imm) => SubImmReg(lhs, imm),
+            SubRegImm(_arg, imm) => SubRegImm(lhs, imm),
 
-            MinRegImm(arg, imm) => MinRegImm(self.get(arg), imm),
-            MaxRegImm(arg, imm) => MaxRegImm(self.get(arg), imm),
-            MinRegReg(lhs, rhs) => MinRegReg(self.get(lhs), self.get(rhs)),
-            MaxRegReg(lhs, rhs) => MaxRegReg(self.get(lhs), self.get(rhs)),
+            MinRegImm(_arg, imm) => MinRegImm(lhs, imm),
+            MaxRegImm(_arg, imm) => MaxRegImm(lhs, imm),
+            MinRegReg(..) => MinRegReg(lhs, rhs),
+            MaxRegReg(..) => MaxRegReg(lhs, rhs),
         };
 
         // Install this node into the retirement array based on its last use
@@ -862,7 +847,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
         // to deliver some actual output.
         self.wip = None;
 
-        Some(AllocOp(out_op, out_reg.try_into().unwrap()))
+        Some(AllocOp(out_op, out_reg))
     }
 }
 
