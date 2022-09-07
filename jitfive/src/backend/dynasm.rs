@@ -18,7 +18,7 @@ const CHOICE_RIGHT: u64 = Choice::Right as u64;
 const CHOICE_BOTH: u64 = Choice::Both as u64;
 
 trait AssemblerT {
-    fn init(reg_count: usize, total_slots: usize) -> Self;
+    fn init() -> Self;
     fn build_load(&mut self, dst_reg: u32, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u32);
     fn build_swap(&mut self, reg: u32, mem: u32);
@@ -43,26 +43,46 @@ trait AssemblerT {
     fn finalize(self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset);
 }
 
-struct FloatAssembler {
+struct FloatAssembler(AssemblerData<f32>);
+
+struct AssemblerData<T> {
     ops: Assembler,
     shape_fn: AssemblyOffset,
-    reg_count: usize,
-    stack_space: u32,
+
+    /// Offset of the stack pointer, in bytes
+    mem_offset: usize,
+
+    _p: std::marker::PhantomData<*const T>,
+}
+
+impl<T> AssemblerData<T> {
+    fn check_stack(&mut self, mem_slot: u32) -> u32 {
+        assert!(mem_slot >= REGISTER_LIMIT as u32);
+        let mem =
+            (mem_slot as usize - REGISTER_LIMIT) * std::mem::size_of::<T>();
+
+        if mem > self.mem_offset {
+            // Round up to the nearest multiple of 16 bytes, for alignment
+            let mem_aligned = ((mem + 15) / 16) * 16;
+            let addr = u32::try_from(mem_aligned - self.mem_offset).unwrap();
+            dynasm!(self.ops
+                ; sub sp, sp, #(addr)
+            );
+            self.mem_offset = mem_aligned;
+        }
+        // Return the offset of the given slot, computed based on the new stack
+        // pointer location in memory.
+        u32::try_from(self.mem_offset - mem).unwrap()
+    }
 }
 
 impl AssemblerT for FloatAssembler {
-    fn init(reg_count: usize, total_slots: usize) -> Self {
-        assert!(reg_count <= REGISTER_LIMIT);
-
+    fn init() -> Self {
         let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
         dynasm!(ops
             ; -> shape_fn:
         );
         let shape_fn = ops.offset();
-
-        let stack_space = total_slots.saturating_sub(reg_count) as u32 * 4;
-        // Ensure alignment
-        let stack_space = ((stack_space + 15) / 16) * 16;
 
         dynasm!(ops
             // Preserve frame and link register
@@ -74,30 +94,32 @@ impl AssemblerT for FloatAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
-            ; sub   sp, sp, #(stack_space)
         );
 
-        Self {
+        Self(AssemblerData {
             ops,
             shape_fn,
-            reg_count,
-            stack_space,
-        }
+            mem_offset: 0,
+            _p: std::marker::PhantomData,
+        })
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        let sp_offset = 4 * (src_mem - self.reg_count as u32);
-        dynasm!(self.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
+        assert!(dst_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(src_mem);
+        dynasm!(self.0.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        let sp_offset = 4 * (dst_mem - self.reg_count as u32);
-        dynasm!(self.ops ; str S(src_reg), [sp, #(sp_offset)])
+        assert!(src_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(dst_mem);
+        dynasm!(self.0.ops ; str S(src_reg), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an imtermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
-        let sp_offset = 4 * (mem - self.reg_count as u32);
-        dynasm!(self.ops
+        assert!(reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(mem);
+        dynasm!(self.0.ops
             ; fmov s4, S(reg)
             ; ldr S(reg), [sp, #(sp_offset)]
             ; str s4, [sp, #(sp_offset)]
@@ -105,50 +127,50 @@ impl AssemblerT for FloatAssembler {
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u32, src_arg: u32) {
-        dynasm!(self.ops ; fmov S(out_reg), S(src_arg));
+        dynasm!(self.0.ops ; fmov S(out_reg), S(src_arg));
     }
     fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fmov S(out_reg), S(lhs_reg))
+        dynasm!(self.0.ops ; fmov S(out_reg), S(lhs_reg))
     }
     fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fneg S(out_reg), S(lhs_reg))
+        dynasm!(self.0.ops ; fneg S(out_reg), S(lhs_reg))
     }
     fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fabs S(out_reg), S(lhs_reg))
+        dynasm!(self.0.ops ; fabs S(out_reg), S(lhs_reg))
     }
     fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             ; fmov s7, #1.0
             ; fdiv S(out_reg), s7, S(lhs_reg)
         )
     }
     fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fsqrt S(out_reg), S(lhs_reg))
+        dynasm!(self.0.ops ; fsqrt S(out_reg), S(lhs_reg))
     }
     fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fmul S(out_reg), S(lhs_reg), S(lhs_reg))
+        dynasm!(self.0.ops ; fmul S(out_reg), S(lhs_reg), S(lhs_reg))
     }
     fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fadd S(out_reg), S(lhs_reg), S(rhs_reg))
+        dynasm!(self.0.ops ; fadd S(out_reg), S(lhs_reg), S(rhs_reg))
     }
     fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fsub S(out_reg), S(lhs_reg), S(rhs_reg))
+        dynasm!(self.0.ops ; fsub S(out_reg), S(lhs_reg), S(rhs_reg))
     }
     fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fmul S(out_reg), S(lhs_reg), S(rhs_reg))
+        dynasm!(self.0.ops ; fmul S(out_reg), S(lhs_reg), S(rhs_reg))
     }
     fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fmax S(out_reg), S(lhs_reg), S(rhs_reg))
+        dynasm!(self.0.ops ; fmax S(out_reg), S(lhs_reg), S(rhs_reg))
     }
     fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fmin S(out_reg), S(lhs_reg), S(rhs_reg))
+        dynasm!(self.0.ops ; fmin S(out_reg), S(lhs_reg), S(rhs_reg))
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u32 {
         const IMM_REG: u32 = 4;
         let imm_u32 = imm.to_bits();
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             ; movz w9, #(imm_u32 >> 16), lsl 16
             ; movk w9, #(imm_u32)
             ; fmov S(IMM_REG), w9
@@ -157,11 +179,11 @@ impl AssemblerT for FloatAssembler {
     }
 
     fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(out_reg)
             // Restore stack space used for spills
-            ; add   sp, sp, #(self.stack_space)
+            ; add   sp, sp, #(self.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -172,18 +194,11 @@ impl AssemblerT for FloatAssembler {
             ; ret
         );
 
-        (self.ops.finalize().unwrap(), self.shape_fn)
+        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-struct IntervalAssembler {
-    ops: Assembler,
-    shape_fn: AssemblyOffset,
-    reg_count: usize,
-    stack_space: u32,
-}
 
 /// Alright, here's the plan.
 ///
@@ -214,19 +229,15 @@ struct IntervalAssembler {
 /// In general, expect to use `v4` and `v5` for intermediate (float) values,
 /// and `[x,w]15` for intermediate integer values.  These are all caller-saved,
 /// so we can trash them at will.
-impl AssemblerT for IntervalAssembler {
-    fn init(reg_count: usize, total_slots: usize) -> Self {
-        assert!(reg_count <= REGISTER_LIMIT);
+struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
+impl AssemblerT for IntervalAssembler {
+    fn init() -> Self {
         let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
         dynasm!(ops
             ; -> shape_fn:
         );
         let shape_fn = ops.offset();
-
-        let stack_space = total_slots.saturating_sub(reg_count) as u32 * 4 * 2;
-        // Ensure alignment
-        let stack_space = ((stack_space + 15) / 16) * 16;
 
         dynasm!(ops
             // Preserve frame and link register
@@ -238,7 +249,6 @@ impl AssemblerT for IntervalAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
-            ; sub   sp, sp, #(stack_space)
 
             // Arguments are passed in S0-5; collect them into V0-1
             ; mov v0.s[1], v1.s[0]
@@ -248,27 +258,27 @@ impl AssemblerT for IntervalAssembler {
             ; mov v2.s[1], v5.s[0]
         );
 
-        Self {
+        Self(AssemblerData {
             ops,
             shape_fn,
-            reg_count,
-            stack_space,
-        }
+            mem_offset: 0,
+            _p: std::marker::PhantomData,
+        })
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        let sp_offset = 2 * 4 * (src_mem - self.reg_count as u32);
-        dynasm!(self.ops ; ldr D(dst_reg), [sp, #(sp_offset)])
+        let sp_offset = self.0.check_stack(src_mem);
+        dynasm!(self.0.ops ; ldr D(dst_reg), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        let sp_offset = 2 * 4 * (dst_mem - self.reg_count as u32);
-        dynasm!(self.ops ; str D(src_reg), [sp, #(sp_offset)])
+        let sp_offset = self.0.check_stack(dst_mem);
+        dynasm!(self.0.ops ; str D(src_reg), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an imtermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
-        let sp_offset = 2 * 4 * (mem - self.reg_count as u32);
-        dynasm!(self.ops
+        let sp_offset = self.0.check_stack(mem);
+        dynasm!(self.0.ops
             ; fmov d4, D(reg)
             ; ldr D(reg), [sp, #(sp_offset)]
             ; str d4, [sp, #(sp_offset)]
@@ -276,19 +286,19 @@ impl AssemblerT for IntervalAssembler {
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u32, src_arg: u32) {
-        dynasm!(self.ops ; fmov D(out_reg), D(src_arg));
+        dynasm!(self.0.ops ; fmov D(out_reg), D(src_arg));
     }
     fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops ; fmov D(out_reg), D(lhs_reg))
+        dynasm!(self.0.ops ; fmov D(out_reg), D(lhs_reg))
     }
     fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             ; fneg V(out_reg).s2, V(lhs_reg).s2
             ; rev64 V(out_reg).s2, V(out_reg).s2
         )
     }
     fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Store lhs < 0.0 in x15
             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
             ; fmov x15, d4
@@ -323,7 +333,7 @@ impl AssemblerT for IntervalAssembler {
     }
     fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
             ; fcmgt s4, S(lhs_reg), 0.0
             ; fmov w15, s4
@@ -354,7 +364,7 @@ impl AssemblerT for IntervalAssembler {
     }
     fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Store lhs <= 0.0 in x8
             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
             ; fmov x15, d4
@@ -386,7 +396,7 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(lhs_reg).s2, #0.0
             ; fmov x15, d4
@@ -414,16 +424,16 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops ; fadd V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2)
+        dynasm!(self.0.ops ; fadd V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2)
     }
     fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             ; rev64 v4.s2, V(rhs_reg).s2
             ; fsub V(out_reg).s2, V(lhs_reg).s2, v4.s2
         )
     }
     fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Set up v4 to contain
             //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
             // and v5 to contain
@@ -443,7 +453,7 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Basically the same as MinRegReg
             ; zip2 v4.s2, V(lhs_reg).s2, V(rhs_reg).s2
             ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
@@ -475,7 +485,7 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
             //      *choices++ = CHOICE_LEFT
             //      out = lhs
@@ -525,7 +535,7 @@ impl AssemblerT for IntervalAssembler {
         // functions, e.g. mul / min / max
         const IMM_REG: u32 = 6;
         let imm_u32 = imm.to_bits();
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             ; movz w15, #(imm_u32 >> 16), lsl 16
             ; movk w15, #(imm_u32)
             ; dup V(IMM_REG).s2, w15
@@ -534,12 +544,12 @@ impl AssemblerT for IntervalAssembler {
     }
 
     fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
-        dynasm!(self.ops
+        dynasm!(self.0.ops
             // Prepare our return value
             ; mov  s0, V(out_reg).s[0]
             ; mov  s1, V(out_reg).s[1]
             // Restore stack space used for spills
-            ; add   sp, sp, #(self.stack_space)
+            ; add   sp, sp, #(self.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
