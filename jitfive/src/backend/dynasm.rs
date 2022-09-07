@@ -276,7 +276,7 @@ impl AssemblerT for IntervalAssembler {
         let sp_offset = self.0.check_stack(dst_mem);
         dynasm!(self.0.ops ; str D(src_reg), [sp, #(sp_offset)])
     }
-    /// Swaps a register and memory location, using S4 as an imtermediary
+    /// Swaps a register and memory location, using S4 as an intermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
         let sp_offset = self.0.check_stack(mem);
         dynasm!(self.0.ops
@@ -565,12 +565,167 @@ impl AssemblerT for IntervalAssembler {
     }
 }
 
+struct VecAssembler(AssemblerData<[f32; 4]>);
+impl AssemblerT for VecAssembler {
+    fn init() -> Self {
+        let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
+        dynasm!(ops
+            ; -> shape_fn:
+        );
+        let shape_fn = ops.offset();
+
+        dynasm!(ops
+            // Preserve frame and link register
+            ; stp   x29, x30, [sp, #-16]!
+            // Preserve sp
+            ; mov   x29, sp
+            // Preserve callee-saved floating-point registers
+            ; stp   d8, d9, [sp, #-16]!
+            ; stp   d10, d11, [sp, #-16]!
+            ; stp   d12, d13, [sp, #-16]!
+            ; stp   d14, d15, [sp, #-16]!
+
+            // We're actually loading two f32s, but we can pretend they're
+            // doubles in order to move 64 bits at a time
+            ; ldp d0, d1, [x0]
+            ; mov v0.d[1], v1.d[0]
+            ; ldp d1, d2, [x1]
+            ; mov v1.d[1], v2.d[0]
+            ; ldp d2, d3, [x2]
+            ; mov v2.d[1], v3.d[0]
+        );
+
+        Self(AssemblerData {
+            ops,
+            shape_fn,
+            mem_offset: 0,
+            _p: std::marker::PhantomData,
+        })
+    }
+    /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
+    fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
+        assert!(dst_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(src_mem);
+        dynasm!(self.0.ops
+            ; ldp D(dst_reg), d4, [sp, #(sp_offset)]
+            ; mov V(dst_reg).d[1], v4.d[0]
+        )
+    }
+
+    /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
+    fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
+        assert!(src_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(dst_mem);
+        dynasm!(self.0.ops
+            ; mov v4.d[0], V(src_reg).d[1]
+            ; stp D(src_reg), d4, [sp, #(sp_offset)]
+        )
+    }
+    /// Swaps a register and memory location, using D4 and D5 as intermediaries
+    fn build_swap(&mut self, reg: u32, mem: u32) {
+        assert!(reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        let sp_offset = self.0.check_stack(mem);
+        dynasm!(self.0.ops
+            ; mov v4.b16, V(reg).b16
+            ; ldp D(reg), d5, [sp, #(sp_offset)]
+            ; mov V(reg).d[1], v5.d[0]
+            ; mov v5.d[0], v4.d[1]
+            ; stp d4, d5, [sp, #(sp_offset)]
+        );
+    }
+    /// Copies the given input to `out_reg`
+    fn build_input(&mut self, out_reg: u32, src_arg: u32) {
+        dynasm!(self.0.ops ; mov V(out_reg).b16, V(src_arg).b16);
+    }
+    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops ; mov V(out_reg).b16, V(lhs_reg).b16)
+    }
+    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops ; fneg V(out_reg).s4, V(lhs_reg).s4)
+    }
+    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops ; fabs V(out_reg).s4, V(lhs_reg).s4)
+    }
+    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops
+            ; fmov s7, #1.0
+            ; dup v7.s4, v7.s[0]
+            ; fdiv V(out_reg).s4, v7.s4, V(lhs_reg).s4
+        )
+    }
+    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops ; fsqrt V(out_reg).s4, V(lhs_reg).s4)
+    }
+    fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
+        dynasm!(self.0.ops ; fmul V(out_reg).s4, V(lhs_reg).s4, V(lhs_reg).s4)
+    }
+    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.0.ops ; fadd V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    }
+    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.0.ops ; fsub V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    }
+    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.0.ops ; fmul V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    }
+    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.0.ops ; fmax V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    }
+    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+        dynasm!(self.0.ops ; fmin V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    }
+
+    /// Loads an immediate into register V4, using W9 as an intermediary
+    fn load_imm(&mut self, imm: f32) -> u32 {
+        const IMM_REG: u32 = 4;
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; movz w9, #(imm_u32 >> 16), lsl 16
+            ; movk w9, #(imm_u32)
+            ; dup V(IMM_REG).s4, w9
+        );
+        IMM_REG
+    }
+
+    fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
+        dynasm!(self.0.ops
+            // Prepare our return value, writing to the pointer in x3
+            // It's fine to overwrite X at this point in V0, since we're not
+            // using it anymore.
+            ; mov v0.d[0], V(out_reg).d[1]
+            ; stp D(out_reg), d0, [x3]
+
+            // Restore stack space used for spills
+            ; add   sp, sp, #(self.0.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+        );
+
+        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn build_float_fn_48(t: &Tape48) -> FloatFuncHandle {
     let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
     let (buf, fn_pointer) = build_asm_fn_48::<FloatAssembler>(alloc);
     FloatFuncHandle {
+        _buf: buf,
+        fn_pointer,
+    }
+}
+
+pub fn build_vec_fn_48(t: &Tape48) -> VecFuncHandle {
+    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
+    let (buf, fn_pointer) = build_asm_fn_48::<VecAssembler>(alloc);
+    VecFuncHandle {
         _buf: buf,
         fn_pointer,
     }
@@ -819,6 +974,23 @@ impl<'t, T> IntervalFuncHandle<'t, T> {
     }
 }
 
+/// Handle which owns a JIT-compiled float x 4 function
+pub struct VecFuncHandle {
+    _buf: dynasmrt::ExecutableBuffer,
+    fn_pointer: *const u8,
+}
+
+impl VecFuncHandle {
+    pub fn get_evaluator(&self) -> VecEval {
+        VecEval {
+            fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
+            _p: std::marker::PhantomData,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Handle for evaluation of a JIT-compiled function
 ///
 /// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
@@ -868,6 +1040,25 @@ impl<'a, T: Simplify> IntervalEval<'a, T> {
     }
 }
 
+/// Handle for evaluation of a JIT-compiled function
+///
+/// The lifetime of this `struct` is bound to an `VecFuncHandle`, which owns
+/// the underlying executable memory.
+pub struct VecEval<'asm> {
+    fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
+    _p: std::marker::PhantomData<&'asm ()>,
+}
+
+impl<'a> VecEval<'a> {
+    pub fn v(&self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
+        let mut out = [0.0; 4];
+        unsafe {
+            (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
+        }
+        out
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
@@ -883,6 +1074,12 @@ mod tests {
         let scheduled = schedule(ctx, v);
         let tape = Tape::new(&scheduled);
         build_float_fn_48(&tape)
+    }
+
+    fn to_vec_fn(v: Node, ctx: &Context) -> VecFuncHandle {
+        let scheduled = schedule(ctx, v);
+        let tape = Tape::new(&scheduled);
+        build_vec_fn_48(&tape)
     }
 
     fn to_tape(v: Node, ctx: &Context) -> Tape {
@@ -1189,5 +1386,36 @@ mod tests {
 
         assert_eq!(eval.i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]), [2.0, 3.0]);
         assert_eq!(eval.choices, vec![Choice::Left]);
+    }
+
+    #[test]
+    fn test_vectorized() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+
+        let jit = to_vec_fn(x, &ctx);
+        let eval = jit.get_evaluator();
+        assert_eq!(
+            eval.v(
+                [0.0, 1.0, 2.0, 3.0],
+                [3.0, 2.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 100.0]
+            ),
+            [0.0, 1.0, 2.0, 3.0]
+        );
+
+        let two = ctx.constant(2.0);
+        let mul = ctx.mul(y, two).unwrap();
+        let jit = to_vec_fn(mul, &ctx);
+        let eval = jit.get_evaluator();
+        assert_eq!(
+            eval.v(
+                [0.0, 1.0, 2.0, 3.0],
+                [3.0, 2.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 100.0]
+            ),
+            [6.0, 4.0, 2.0, 0.0]
+        );
     }
 }
