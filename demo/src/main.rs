@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Built tape in {:?}", start.elapsed());
 
             let start = Instant::now();
-            let bla = tape.alloc(4096);
+            let bla = tape.alloc(256);
             info!("Allocated tape in {:?}", start.elapsed());
 
             let mut eval = bla.get_evaluator();
