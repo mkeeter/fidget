@@ -14,9 +14,9 @@ use crate::backend::{
 pub const REGISTER_LIMIT: usize = 24;
 const OFFSET: u32 = 8;
 
-const CHOICE_LEFT: u64 = Choice::Left as u64;
-const CHOICE_RIGHT: u64 = Choice::Right as u64;
-const CHOICE_BOTH: u64 = Choice::Both as u64;
+const CHOICE_LEFT: u32 = Choice::Left as u32;
+const CHOICE_RIGHT: u32 = Choice::Right as u32;
+const CHOICE_BOTH: u32 = Choice::Both as u32;
 
 trait AssemblerT {
     fn init() -> Self;
@@ -466,6 +466,7 @@ impl AssemblerT for IntervalAssembler {
             ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
+            ; ldrb w16, [x0]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> lhs
@@ -475,17 +476,17 @@ impl AssemblerT for IntervalAssembler {
 
             // LHS < RHS
             ; fmov D(out_reg), D(rhs_reg)
-            ; mov w16, #CHOICE_RIGHT
+            ; orr w16, w16, #CHOICE_RIGHT
             ; b #24 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(out_reg), D(lhs_reg)
-            ; mov w16, #CHOICE_LEFT
+            ; orr w16, w16, #CHOICE_LEFT
             ; b #12 // -> end
 
             // <- both
             ; fmax V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
-            ; mov w16, #CHOICE_BOTH
+            ; orr w16, w16, #CHOICE_BOTH
 
             // <- end
             ; strb w16, [x0], #1 // post-increment
@@ -494,13 +495,13 @@ impl AssemblerT for IntervalAssembler {
     fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
         dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
-            //      *choices++ = CHOICE_LEFT
+            //      *choices++ |= CHOICE_LEFT
             //      out = lhs
             //  elif rhs.upper < lhs.lower
-            //      *choices++ = CHOICE_RIGHT
+            //      *choices++ |= CHOICE_RIGHT
             //      out = rhs
             //  else
-            //      *choices++ = CHOICE_BOTH
+            //      *choices++ |= CHOICE_BOTH
             //      out = fmin(lhs, rhs)
 
             // v4 = [lhs.upper, rhs.upper]
@@ -510,6 +511,7 @@ impl AssemblerT for IntervalAssembler {
             ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
+            ; ldrb w16, [x0]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> rhs
@@ -517,19 +519,19 @@ impl AssemblerT for IntervalAssembler {
             ; tst x15, #0x1
             ; b.eq #28 // -> both
 
-            // LHS < RHS
+            // Fallthrough: LHS < RHS
             ; fmov D(out_reg), D(lhs_reg)
-            ; mov w16, #CHOICE_LEFT
+            ; orr w16, w16, #CHOICE_LEFT
             ; b #24 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(out_reg), D(rhs_reg)
-            ; mov w16, #CHOICE_RIGHT
+            ; orr w16, w16, #CHOICE_RIGHT
             ; b #12
 
             // <- both
             ; fmin V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
-            ; mov w16, #CHOICE_BOTH
+            ; orr w16, w16, #CHOICE_BOTH
 
             // <- end
             ; strb w16, [x0], #1 // post-increment
@@ -1083,9 +1085,70 @@ pub struct IntervalEval<'asm, T> {
 }
 
 impl<'a, T> IntervalEval<'a, T> {
+    /// Evaluates an interval
     pub fn i(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+        self.choices.fill(Choice::Unknown);
         unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
+        }
+    }
+    /// Evaluates an interval with subdivision
+    ///
+    /// The given interval is split into `subdiv` sub-intervals, then the
+    /// resulting bounds are combined.  Running with `subdiv = 0` or `subdiv =
+    /// 1` is equivalent to calling [`Self::i`].
+    ///
+    /// This produces a more tightly-bounded accurate result at the cost of
+    /// increased computation, but can be a good trade-off if interval
+    /// evaluation is cheap!
+    pub fn i_subdiv(
+        &mut self,
+        x: [f32; 2],
+        y: [f32; 2],
+        z: [f32; 2],
+        subdiv: usize,
+    ) -> [f32; 2] {
+        if subdiv == 0 {
+            self.i(x, y, z)
+        } else {
+            self.choices.fill(Choice::Unknown);
+            self.i_subdiv_recurse(x, y, z, subdiv - 1)
+        }
+    }
+    pub fn i_subdiv_recurse(
+        &mut self,
+        x: [f32; 2],
+        y: [f32; 2],
+        z: [f32; 2],
+        subdiv: usize,
+    ) -> [f32; 2] {
+        if subdiv == 0 {
+            let choice_ptr = self.choices.as_mut_ptr() as *mut u8;
+            unsafe { (self.fn_interval)(x, y, z, choice_ptr) }
+        } else {
+            let dx = x[1] - x[0];
+            let dy = y[1] - y[0];
+            let dz = z[1] - z[0];
+            let (a, b) = if dx >= dy && dx >= dz {
+                let x_mid = x[0] + dx / 2.0;
+                (
+                    self.i_subdiv_recurse([x[0], x_mid], y, z, subdiv - 1),
+                    self.i_subdiv_recurse([x_mid, x[1]], y, z, subdiv - 1),
+                )
+            } else if dy >= dz {
+                let y_mid = y[0] + dy / 2.0;
+                (
+                    self.i_subdiv_recurse(x, [y[0], y_mid], z, subdiv - 1),
+                    self.i_subdiv_recurse(x, [y_mid, y[1]], z, subdiv - 1),
+                )
+            } else {
+                let z_mid = z[0] + dz / 2.0;
+                (
+                    self.i_subdiv_recurse(x, y, [z[0], z_mid], subdiv - 1),
+                    self.i_subdiv_recurse(x, y, [z_mid, z[1]], subdiv - 1),
+                )
+            };
+            [a[0].min(b[0]), a[1].min(b[1])]
         }
     }
 }

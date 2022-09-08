@@ -537,6 +537,9 @@ impl Simplify for Tape {
                                 active[arg_reg] = true;
                                 // Leave v unchanged
                             }
+                            Choice::Unknown => {
+                                panic!("oh no")
+                            }
                         }
                     }
                 }
@@ -623,6 +626,9 @@ impl Simplify for Tape {
                                 active[rhs_reg] = true;
                                 choice_count += 1;
                                 // v remains unchanged
+                            }
+                            Choice::Unknown => {
+                                panic!("oh no")
                             }
                         }
                     }

@@ -188,6 +188,9 @@ impl Simplify for Tape {
                         Choice::Both => {
                             active[arg as usize] = true;
                         }
+                        Choice::Unknown => {
+                            panic!("oh no")
+                        }
                     }
                 }
 
@@ -202,6 +205,9 @@ impl Simplify for Tape {
                         Choice::Both => {
                             active[lhs as usize] = true;
                             active[rhs as usize] = true;
+                        }
+                        Choice::Unknown => {
+                            panic!("oh no")
                         }
                     }
                 }
@@ -297,6 +303,9 @@ where
                         self.choice_count += 1;
                         *arg = self.get(*arg);
                     }
+                    Choice::Unknown => {
+                        panic!("oh no")
+                    }
                 }
             }
             MinRegReg(lhs, rhs) | MaxRegReg(lhs, rhs) => {
@@ -313,6 +322,9 @@ where
                         self.choice_count += 1;
                         *lhs = self.get(*lhs);
                         *rhs = self.get(*rhs);
+                    }
+                    Choice::Unknown => {
+                        panic!("oh no")
                     }
                 }
             }
