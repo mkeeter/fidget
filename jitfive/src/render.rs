@@ -4,21 +4,11 @@ use crate::backend::dynasm::{IntervalEval, VecEval};
 
 use crate::backend::{
     dynasm::{
-        build_float_fn_48 as build_float_fn,
         build_interval_fn_48 as build_interval_fn,
         build_vec_fn_48 as build_vec_fn,
     },
     tape48::Tape,
 };
-/*
-use crate::backend::{
-    dynasm::{
-        build_float_fn_32 as build_float_fn,
-        build_interval_fn_32 as build_interval_fn,
-    },
-    tape32::Tape,
-};
-*/
 
 use log::info;
 

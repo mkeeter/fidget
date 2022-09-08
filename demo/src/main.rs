@@ -46,6 +46,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
+    info!(
+        "bla size: {:?}",
+        std::mem::size_of::<jitfive::backend::dynasm::AsmOp>()
+    );
 
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
@@ -96,14 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Built JIT function in {:?}", start.elapsed());
                 info!("{:x?}", eval.v([0.0; 4], [0.0; 4], [0.0; 4]));
 
-                /*
-                let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
-                    &scheduled,
-                    jitfive::backend::dynasm::REGISTER_LIMIT,
-                );
-                let jit = jitfive::backend::dynasm::build_float_fn_32(&tape);
-                */
-
                 let start = Instant::now();
                 let div = (scale - 1) as f64;
                 for i in 0..scale {
@@ -147,11 +143,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
                 let tape = jitfive::backend::tape48::Tape::new(&scheduled);
-                /*
-                let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
-                    &scheduled, 24,
-                );
-                */
                 let image = jitfive::render::render(args.size as usize, tape);
                 let out = image
                     .into_iter()

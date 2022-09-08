@@ -2,13 +2,59 @@ use dynasmrt::{
     aarch64::Assembler, dynasm, AssemblyOffset, DynasmApi, DynasmLabelApi,
     ExecutableBuffer,
 };
-use num_traits::FromPrimitive;
 
 use crate::backend::{
     common::{Choice, Simplify},
-    tape32::{ClauseOp32, ClauseOp64, Tape as Tape32},
     tape48::{AllocOp, ClauseOp48, Tape as Tape48, TapeAllocator},
 };
+
+/// Operation that can be passed directly to the assembler
+///
+/// This is analagous to the `ClauseOp` family, but assumes relative addressing
+/// and a maximum of 256 registers (and hence includes `Load` and `Store`
+/// operations).
+///
+/// Arguments, in order, are
+/// - Output register
+/// - LHS register (or input slot for `Input`)
+/// - RHS register (or immediate for `*Imm`)
+pub enum AsmOp {
+    /// Reads one of the inputs (X, Y, Z)
+    Input(u8, u8),
+
+    NegReg(u8, u8),
+    AbsReg(u8, u8),
+    RecipReg(u8, u8),
+    SqrtReg(u8, u8),
+    SquareReg(u8, u8),
+
+    /// Copies the given register
+    CopyReg(u8, u8),
+
+    /// Add a register and an immediate
+    AddRegImm(u8, u8, f32),
+    /// Multiply a register and an immediate
+    MulRegImm(u8, u8, f32),
+    /// Subtract a register from an immediate
+    SubImmReg(u8, u8, f32),
+    /// Subtract an immediate from a register
+    SubRegImm(u8, u8, f32),
+    /// Compute the minimum of a register and an immediate
+    MinRegImm(u8, u8, f32),
+    /// Compute the maximum of a register and an immediate
+    MaxRegImm(u8, u8, f32),
+
+    AddRegReg(u8, u8, u8),
+    MulRegReg(u8, u8, u8),
+    SubRegReg(u8, u8, u8),
+    MinRegReg(u8, u8, u8),
+    MaxRegReg(u8, u8, u8),
+
+    /// Copy an immediate to a register
+    CopyImm(u8, f32),
+    Load(u8, u32),
+    Store(u8, u32),
+}
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
@@ -888,118 +934,6 @@ fn build_asm_fn_48<A: AssemblerT>(
     (buf, fn_pointer)
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-pub fn build_float_fn_32(t: &Tape32) -> FloatFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn_32::<FloatAssembler>(t);
-    FloatFuncHandle {
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-pub fn build_interval_fn_32(t: &Tape32) -> IntervalFuncHandle<Tape32> {
-    let (buf, fn_pointer) = build_asm_fn_32::<IntervalAssembler>(t);
-    IntervalFuncHandle {
-        tape: t,
-        choice_count: t.choice_count,
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
-    assert!(t.reg_count <= REGISTER_LIMIT);
-
-    let mut asm = A::init();
-
-    let mut iter = t.tape.iter().rev();
-    while let Some(v) = iter.next() {
-        if v & (1 << 30) == 0 {
-            let op = (v >> 24) & ((1 << 6) - 1);
-            let op = ClauseOp32::from_u32(op).unwrap();
-            match op {
-                ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                    let reg = (v & 0xFF) + OFFSET;
-                    let mem = (v >> 8) & 0xFFFF;
-                    match op {
-                        ClauseOp32::Load => asm.build_load(reg, mem),
-                        ClauseOp32::Store => asm.build_store(mem, reg),
-                        ClauseOp32::Swap => asm.build_swap(reg, mem),
-                        _ => unreachable!(),
-                    }
-                }
-                ClauseOp32::Input => {
-                    let input = (v >> 16) & 0xFF;
-                    assert!(input < 3);
-                    let out_reg = (v & 0xFF) + OFFSET;
-                    asm.build_input(out_reg, input)
-                }
-                ClauseOp32::CopyReg
-                | ClauseOp32::NegReg
-                | ClauseOp32::AbsReg
-                | ClauseOp32::RecipReg
-                | ClauseOp32::SqrtReg
-                | ClauseOp32::SquareReg => {
-                    let lhs = ((v >> 16) & 0xFF) + OFFSET;
-                    let out = (v & 0xFF) + OFFSET;
-                    match op {
-                        ClauseOp32::CopyReg => asm.build_copy(out, lhs),
-                        ClauseOp32::NegReg => asm.build_neg(out, lhs),
-                        ClauseOp32::AbsReg => asm.build_abs(out, lhs),
-                        ClauseOp32::RecipReg => asm.build_recip(out, lhs),
-                        ClauseOp32::SqrtReg => asm.build_sqrt(out, lhs),
-                        ClauseOp32::SquareReg => asm.build_square(out, lhs),
-                        _ => unreachable!(),
-                    };
-                }
-
-                ClauseOp32::AddRegReg
-                | ClauseOp32::MulRegReg
-                | ClauseOp32::SubRegReg
-                | ClauseOp32::MinRegReg
-                | ClauseOp32::MaxRegReg => {
-                    let lhs = ((v >> 16) & 0xFF) + OFFSET;
-                    let rhs = ((v >> 8) & 0xFF) + OFFSET;
-                    let out = (v & 0xFF) + OFFSET;
-                    match op {
-                        ClauseOp32::AddRegReg => asm.build_add(out, lhs, rhs),
-                        ClauseOp32::MulRegReg => asm.build_mul(out, lhs, rhs),
-                        ClauseOp32::SubRegReg => asm.build_sub(out, lhs, rhs),
-                        ClauseOp32::MinRegReg => asm.build_min(out, lhs, rhs),
-                        ClauseOp32::MaxRegReg => asm.build_max(out, lhs, rhs),
-                        ClauseOp32::Load | ClauseOp32::Store => {
-                            unreachable!()
-                        }
-                        _ => unreachable!(),
-                    };
-                }
-            }
-        } else {
-            let op = (v >> 16) & ((1 << 14) - 1);
-            let op = ClauseOp64::from_u32(op).unwrap();
-            let arg = ((v >> 8) & 0xFF) + OFFSET;
-            let out = (v & 0xFF) + OFFSET;
-
-            let next = iter.next().unwrap();
-            let reg = asm.load_imm(f32::from_bits(*next));
-
-            match op {
-                ClauseOp64::AddRegImm => asm.build_add(out, arg, reg),
-                ClauseOp64::MulRegImm => asm.build_mul(out, arg, reg),
-                ClauseOp64::SubImmReg => asm.build_sub(out, reg, arg),
-                ClauseOp64::SubRegImm => asm.build_sub(out, arg, reg),
-                ClauseOp64::MinRegImm => asm.build_min(out, arg, reg),
-                ClauseOp64::MaxRegImm => asm.build_max(out, arg, reg),
-                ClauseOp64::CopyImm => asm.build_copy(out, reg),
-            };
-        }
-    }
-
-    let (buf, shape_fn) = asm.finalize(OFFSET);
-    let fn_pointer = buf.ptr(shape_fn);
-    (buf, fn_pointer)
-}
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle which owns a JIT-compiled float function
