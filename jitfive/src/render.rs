@@ -22,7 +22,7 @@ use crate::backend::{
 
 use log::info;
 
-const TILE_SIZE: usize = 256;
+const TILE_SIZE: usize = 128;
 const SUBTILE_SIZE: usize = 32;
 
 #[derive(Copy, Clone, Debug)]
