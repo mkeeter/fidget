@@ -12,7 +12,7 @@ use crate::backend::{
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: usize = 24;
-const REG_OFFSET: u32 = 8;
+const OFFSET: u32 = 8;
 
 const CHOICE_LEFT: u64 = Choice::Left as u64;
 const CHOICE_RIGHT: u64 = Choice::Right as u64;
@@ -40,6 +40,10 @@ trait AssemblerT {
 
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u32;
+
+    fn dump_debug_state(&mut self) {
+        // Nothing to do here
+    }
 
     fn finalize(self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset);
 }
@@ -108,18 +112,21 @@ impl AssemblerT for FloatAssembler {
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
         assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(src_mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
         assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(dst_mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops ; str S(src_reg), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an imtermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
         assert!(reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops
             ; fmov s4, S(reg)
             ; ldr S(reg), [sp, #(sp_offset)]
@@ -269,16 +276,19 @@ impl AssemblerT for IntervalAssembler {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
         let sp_offset = self.0.check_stack(src_mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops ; ldr D(dst_reg), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
         let sp_offset = self.0.check_stack(dst_mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops ; str D(src_reg), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an intermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
         let sp_offset = self.0.check_stack(mem);
+        assert!(sp_offset <= 504);
         dynasm!(self.0.ops
             ; fmov d4, D(reg)
             ; ldr D(reg), [sp, #(sp_offset)]
@@ -333,6 +343,7 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+        println!("RECIP");
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
@@ -364,6 +375,7 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
+        println!("SQRT");
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Store lhs <= 0.0 in x8
@@ -593,6 +605,31 @@ impl AssemblerT for VecAssembler {
             ; mov v1.d[1], v2.d[0]
             ; ldp d2, d3, [x2]
             ; mov v2.d[1], v3.d[0]
+
+            ; fmov v8.s4, #1.0
+            ; fmov v9.s4, #1.0
+            ; fmov v10.s4, #1.0
+            ; fmov v11.s4, #1.0
+            ; fmov v12.s4, #1.0
+            ; fmov v13.s4, #1.0
+            ; fmov v14.s4, #1.0
+            ; fmov v15.s4, #1.0
+            ; fmov v16.s4, #1.0
+            ; fmov v17.s4, #1.0
+            ; fmov v18.s4, #1.0
+            ; fmov v19.s4, #1.0
+            ; fmov v20.s4, #1.0
+            ; fmov v21.s4, #1.0
+            ; fmov v22.s4, #1.0
+            ; fmov v23.s4, #1.0
+            ; fmov v24.s4, #1.0
+            ; fmov v25.s4, #1.0
+            ; fmov v26.s4, #1.0
+            ; fmov v27.s4, #1.0
+            ; fmov v28.s4, #1.0
+            ; fmov v29.s4, #1.0
+            ; fmov v30.s4, #1.0
+            ; fmov v31.s4, #1.0
         );
 
         Self(AssemblerData {
@@ -606,20 +643,46 @@ impl AssemblerT for VecAssembler {
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
         assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(src_mem);
-        dynasm!(self.0.ops
-            ; ldp D(dst_reg), d4, [sp, #(sp_offset)]
-            ; mov V(dst_reg).d[1], v4.d[0]
-        )
+        println!(
+            "   load mem {} (sp_offset {}) to {}",
+            src_mem, sp_offset, dst_reg
+        );
+        if sp_offset >= 512 {
+            assert!(sp_offset < 4096);
+            dynasm!(self.0.ops
+                ; add x9, sp, #(sp_offset)
+                ; ldp D(dst_reg), d4, [x9]
+                ; mov V(dst_reg).d[1], v4.d[0]
+            )
+        } else {
+            dynasm!(self.0.ops
+                ; ldp D(dst_reg), d4, [sp, #(sp_offset)]
+                ; mov V(dst_reg).d[1], v4.d[0]
+            )
+        }
     }
 
     /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
         assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(dst_mem);
-        dynasm!(self.0.ops
-            ; mov v4.d[0], V(src_reg).d[1]
-            ; stp D(src_reg), d4, [sp, #(sp_offset)]
-        )
+        println!(
+            "   load reg {} to {} (sp_offset {})",
+            src_reg, dst_mem, sp_offset
+        );
+        if sp_offset >= 512 {
+            assert!(sp_offset < 4096);
+            dynasm!(self.0.ops
+                ; add x9, sp, #(sp_offset)
+                ; mov v4.d[0], V(src_reg).d[1]
+                ; stp D(src_reg), d4, [x9]
+            )
+        } else {
+            dynasm!(self.0.ops
+                ; mov v4.d[0], V(src_reg).d[1]
+                ; stp D(src_reg), d4, [sp, #(sp_offset)]
+            )
+        }
     }
     /// Swaps a register and memory location, using D4 and D5 as intermediaries
     fn build_swap(&mut self, reg: u32, mem: u32) {
@@ -709,6 +772,60 @@ impl AssemblerT for VecAssembler {
 
         (self.0.ops.finalize().unwrap(), self.0.shape_fn)
     }
+
+    fn dump_debug_state(&mut self) {
+        dynasm!(self.0.ops
+            ; mov v4.d[0], v8.d[1]
+            ; stp d8, d4, [x4], #16
+            ; mov v4.d[0], v9.d[1]
+            ; stp d9, d4, [x4], #16
+            ; mov v4.d[0], v10.d[1]
+            ; stp d10, d4, [x4], #16
+            ; mov v4.d[0], v11.d[1]
+            ; stp d11, d4, [x4], #16
+            ; mov v4.d[0], v12.d[1]
+            ; stp d12, d4, [x4], #16
+            ; mov v4.d[0], v13.d[1]
+            ; stp d13, d4, [x4], #16
+            ; mov v4.d[0], v14.d[1]
+            ; stp d14, d4, [x4], #16
+            ; mov v4.d[0], v15.d[1]
+            ; stp d15, d4, [x4], #16
+            ; mov v4.d[0], v16.d[1]
+            ; stp d16, d4, [x4], #16
+            ; mov v4.d[0], v17.d[1]
+            ; stp d17, d4, [x4], #16
+            ; mov v4.d[0], v18.d[1]
+            ; stp d18, d4, [x4], #16
+            ; mov v4.d[0], v19.d[1]
+            ; stp d19, d4, [x4], #16
+            ; mov v4.d[0], v20.d[1]
+            ; stp d20, d4, [x4], #16
+            ; mov v4.d[0], v21.d[1]
+            ; stp d21, d4, [x4], #16
+            ; mov v4.d[0], v22.d[1]
+            ; stp d22, d4, [x4], #16
+            ; mov v4.d[0], v23.d[1]
+            ; stp d23, d4, [x4], #16
+            ; mov v4.d[0], v24.d[1]
+            ; stp d24, d4, [x4], #16
+            ; mov v4.d[0], v25.d[1]
+            ; stp d25, d4, [x4], #16
+            ; mov v4.d[0], v26.d[1]
+            ; stp d26, d4, [x4], #16
+            ; mov v4.d[0], v27.d[1]
+            ; stp d27, d4, [x4], #16
+            ; mov v4.d[0], v28.d[1]
+            ; stp d28, d4, [x4], #16
+            ; mov v4.d[0], v29.d[1]
+            ; stp d29, d4, [x4], #16
+            ; mov v4.d[0], v30.d[1]
+            ; stp d30, d4, [x4], #16
+            ; mov v4.d[0], v31.d[1]
+            ; stp d31, d4, [x4], #16
+        )
+        // Nothing to do here
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -776,6 +893,7 @@ fn build_asm_fn_48<A: AssemblerT>(
                     (true, false) => asm.build_load(out + OFFSET, arg),
                     (false, true) => {
                         asm.build_store(out, arg + OFFSET);
+                        asm.dump_debug_state();
                         continue; // Don't modify `last`
                     }
                     (false, false) => {
@@ -830,6 +948,7 @@ fn build_asm_fn_48<A: AssemblerT>(
                 asm.build_copy(out + OFFSET, reg);
             }
         }
+        asm.dump_debug_state();
         last = Some(out + OFFSET);
     }
 
@@ -1057,15 +1176,34 @@ impl<'a, T: Simplify> IntervalEval<'a, T> {
 /// The lifetime of this `struct` is bound to an `VecFuncHandle`, which owns
 /// the underlying executable memory.
 pub struct VecEval<'asm> {
-    fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
+    fn_vec: unsafe extern "C" fn(
+        *const f32,
+        *const f32,
+        *const f32,
+        *mut f32,
+        *mut f32,
+    ),
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
 impl<'a> VecEval<'a> {
     pub fn v(&self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
         let mut out = [0.0; 4];
+        let mut trace = vec![[[0.0f32; 4]; 24]; 9000];
         unsafe {
-            (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
+            (self.fn_vec)(
+                x.as_ptr(),
+                y.as_ptr(),
+                z.as_ptr(),
+                out.as_mut_ptr(),
+                trace.as_mut_ptr() as *mut f32,
+            )
+        }
+        println!();
+        println!("----------------------");
+        println!();
+        for t in trace {
+            println!("{:x?}", t);
         }
         out
     }

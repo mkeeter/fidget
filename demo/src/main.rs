@@ -91,11 +91,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
                 let tape = jitfive::backend::tape48::Tape::new(&scheduled);
-                /*
+                tape.pretty_print();
+                println!();
+                println!("----------------------------------------------------------------------");
+                println!();
                 let jit = jitfive::backend::dynasm::build_vec_fn_48(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
-                info!("{:?}", eval.v([0.0; 4], [0.0; 4], [0.0; 4]));
+                info!("{:x?}", eval.v([0.0; 4], [0.0; 4], [0.0; 4]));
 
                 /*
                 let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
@@ -105,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let jit = jitfive::backend::dynasm::build_float_fn_32(&tape);
                 */
 
+                /*
                 let start = Instant::now();
                 let div = (scale - 1) as f64;
                 for i in 0..scale {
@@ -121,6 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 */
+                /*
                 let jit = jitfive::backend::dynasm::build_float_fn_48(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
@@ -135,6 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         out.push(v <= 0.0);
                     }
                 }
+                */
 
                 // Convert from Vec<bool> to an image
                 let out = out

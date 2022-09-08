@@ -1,11 +1,12 @@
 use std::time::{Duration, Instant};
 
-use crate::backend::dynasm::{FloatEval, IntervalEval};
+use crate::backend::dynasm::{IntervalEval, VecEval};
 
 use crate::backend::{
     dynasm::{
         build_float_fn_48 as build_float_fn,
         build_interval_fn_48 as build_interval_fn,
+        build_vec_fn_48 as build_vec_fn,
     },
     tape48::Tape,
 };
@@ -186,28 +187,36 @@ impl Renderer {
             self.push_time += start.elapsed();
 
             let start = Instant::now();
-            let sub_jit = build_float_fn(&sub_tape);
+            let sub_jit = build_vec_fn(&sub_tape);
             let mut sub_eval = sub_jit.get_evaluator();
             self.jit_time += start.elapsed();
 
             let start = Instant::now();
-            for x in x..(x + SUBTILE_SIZE) {
-                for y in y..(y + SUBTILE_SIZE) {
-                    self.render_pixel(&mut sub_eval, x, y);
+            for y in y..(y + SUBTILE_SIZE) {
+                for dx in 0..(SUBTILE_SIZE / 4) {
+                    self.render_pixels(&mut sub_eval, x + dx * 4, y);
                 }
             }
             self.pixel_time += start.elapsed();
         }
     }
-    fn render_pixel(&mut self, eval: &mut FloatEval, x: usize, y: usize) {
-        let x_pos = self.pixel_to_pos(x);
-        let y_pos = self.pixel_to_pos(y);
 
-        let v = eval.f(x_pos, y_pos, 0.0);
-        if v < 0.0 {
-            self.image[x + y * self.size] = Some(Pixel::Filled);
-        } else {
-            self.image[x + y * self.size] = Some(Pixel::Empty);
+    fn render_pixels(&mut self, eval: &mut VecEval, x: usize, y: usize) {
+        let mut x_vec = [0.0; 4];
+        for (i, o) in x_vec.iter_mut().enumerate() {
+            *o = self.pixel_to_pos(x + i);
+        }
+        let y_vec = [self.pixel_to_pos(y); 4];
+
+        let v = eval.v(x_vec, y_vec, [0.0; 4]);
+        for (i, v) in v.iter().enumerate() {
+            /*
+            if *v < 0.0 {
+                self.image[x + i + y * self.size] = Some(Pixel::Filled);
+            } else {
+                self.image[x + i + y * self.size] = Some(Pixel::Empty);
+            }
+            */
         }
     }
 }
