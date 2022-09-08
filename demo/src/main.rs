@@ -91,7 +91,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
                 let tape = jitfive::backend::tape48::Tape::new(&scheduled);
-                let jit = jitfive::backend::dynasm::build_float_fn_48(&tape);
+                /*
+                let jit = jitfive::backend::dynasm::build_vec_fn_48(&tape);
+                let eval = jit.get_evaluator();
+                info!("Built JIT function in {:?}", start.elapsed());
+                info!("{:?}", eval.v([0.0; 4], [0.0; 4], [0.0; 4]));
+
                 /*
                 let tape = jitfive::backend::tape32::Tape::new_with_reg_limit(
                     &scheduled,
@@ -99,6 +104,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 let jit = jitfive::backend::dynasm::build_float_fn_32(&tape);
                 */
+
+                let start = Instant::now();
+                let div = (scale - 1) as f64;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f64) / div);
+                    for j in 0..(scale / 4) {
+                        let mut x = [0.0; 4];
+                        for i in 0u32..4 {
+                            x[i as usize] = (-1.0
+                                + 2.0 * ((j * 4 + i) as f64) / div)
+                                as f32;
+                        }
+                        let v = eval.v(x, [y as f32; 4], [0.0; 4]);
+                        out.extend(v.into_iter().map(|v| v <= 0.0));
+                    }
+                }
+                */
+                let jit = jitfive::backend::dynasm::build_float_fn_48(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 

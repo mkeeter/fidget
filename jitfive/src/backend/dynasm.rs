@@ -106,19 +106,19 @@ impl AssemblerT for FloatAssembler {
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        assert!(dst_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(src_mem);
         dynasm!(self.0.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        assert!(src_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(dst_mem);
         dynasm!(self.0.ops ; str S(src_reg), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an imtermediary
     fn build_swap(&mut self, reg: u32, mem: u32) {
-        assert!(reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(mem);
         dynasm!(self.0.ops
             ; fmov s4, S(reg)
@@ -604,7 +604,7 @@ impl AssemblerT for VecAssembler {
     }
     /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
     fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        assert!(dst_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(src_mem);
         dynasm!(self.0.ops
             ; ldp D(dst_reg), d4, [sp, #(sp_offset)]
@@ -614,7 +614,7 @@ impl AssemblerT for VecAssembler {
 
     /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
     fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        assert!(src_reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(dst_mem);
         dynasm!(self.0.ops
             ; mov v4.d[0], V(src_reg).d[1]
@@ -623,7 +623,7 @@ impl AssemblerT for VecAssembler {
     }
     /// Swaps a register and memory location, using D4 and D5 as intermediaries
     fn build_swap(&mut self, reg: u32, mem: u32) {
-        assert!(reg - REG_OFFSET < REGISTER_LIMIT as u32);
+        assert!(reg - OFFSET < REGISTER_LIMIT as u32);
         let sp_offset = self.0.check_stack(mem);
         dynasm!(self.0.ops
             ; mov v4.b16, V(reg).b16
@@ -751,74 +751,86 @@ fn build_asm_fn_48<A: AssemblerT>(
 
     let mut last = None;
     for AllocOp(op, out) in i {
-        let out = out + REG_OFFSET;
-        last = Some(out);
+        println!("{:?} => {}", op, out);
         use ClauseOp48::*;
         match op {
-            Input(i) => asm.build_input(out, i as u32),
-            NegReg(arg) => asm.build_neg(out, arg + REG_OFFSET),
-            AbsReg(arg) => asm.build_abs(out, arg + REG_OFFSET),
-            RecipReg(arg) => asm.build_recip(out, arg + REG_OFFSET),
-            SqrtReg(arg) => asm.build_sqrt(out, arg + REG_OFFSET),
+            Input(i) => {
+                asm.build_input(out + OFFSET, i as u32);
+            }
+            NegReg(arg) => {
+                asm.build_neg(out + OFFSET, arg + OFFSET);
+            }
+            AbsReg(arg) => {
+                asm.build_abs(out + OFFSET, arg + OFFSET);
+            }
+            RecipReg(arg) => {
+                asm.build_recip(out + OFFSET, arg + OFFSET);
+            }
+            SqrtReg(arg) => {
+                asm.build_sqrt(out + OFFSET, arg + OFFSET);
+            }
             CopyReg(arg) => {
-                let out = out - REG_OFFSET;
                 match (out < REGISTER_LIMIT as u32, arg < REGISTER_LIMIT as u32)
                 {
-                    (true, true) => {
-                        asm.build_copy(out + REG_OFFSET, arg + REG_OFFSET)
+                    (true, true) => asm.build_copy(out + OFFSET, arg + OFFSET),
+                    (true, false) => asm.build_load(out + OFFSET, arg),
+                    (false, true) => {
+                        asm.build_store(out, arg + OFFSET);
+                        continue; // Don't modify `last`
                     }
-                    (true, false) => asm.build_load(out + REG_OFFSET, arg),
-                    (false, true) => asm.build_store(out, arg + REG_OFFSET),
                     (false, false) => {
                         panic!("Cannot do mem-to-mem COPY {} {}", out, arg)
                     }
                 }
             }
-            SquareReg(arg) => asm.build_square(out, arg + REG_OFFSET),
+            SquareReg(arg) => {
+                asm.build_square(out + OFFSET, arg + OFFSET);
+            }
             AddRegReg(lhs, rhs) => {
-                asm.build_add(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+                asm.build_add(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
             MulRegReg(lhs, rhs) => {
-                asm.build_mul(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+                asm.build_mul(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
             SubRegReg(lhs, rhs) => {
-                asm.build_sub(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+                asm.build_sub(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
             MinRegReg(lhs, rhs) => {
-                asm.build_min(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+                asm.build_min(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
             MaxRegReg(lhs, rhs) => {
-                asm.build_max(out, lhs + REG_OFFSET, rhs + REG_OFFSET)
+                asm.build_max(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
             AddRegImm(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_add(out, arg + REG_OFFSET, reg)
+                asm.build_add(out + OFFSET, arg + OFFSET, reg);
             }
             MulRegImm(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_mul(out, arg + REG_OFFSET, reg)
+                asm.build_mul(out + OFFSET, arg + OFFSET, reg);
             }
             SubImmReg(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_sub(out, reg, arg + REG_OFFSET)
+                asm.build_sub(out + OFFSET, reg, arg + OFFSET);
             }
             SubRegImm(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_sub(out, arg + REG_OFFSET, reg)
+                asm.build_sub(out + OFFSET, arg + OFFSET, reg);
             }
             MinRegImm(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_min(out, arg + REG_OFFSET, reg)
+                asm.build_min(out + OFFSET, arg + OFFSET, reg);
             }
             MaxRegImm(arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_max(out, arg + REG_OFFSET, reg)
+                asm.build_max(out + OFFSET, arg + OFFSET, reg);
             }
             CopyImm(imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_copy(out, reg)
+                asm.build_copy(out + OFFSET, reg);
             }
         }
+        last = Some(out + OFFSET);
     }
 
     let (buf, shape_fn) = asm.finalize(last.unwrap());
@@ -858,7 +870,7 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
             let op = ClauseOp32::from_u32(op).unwrap();
             match op {
                 ClauseOp32::Load | ClauseOp32::Store | ClauseOp32::Swap => {
-                    let reg = (v & 0xFF) + REG_OFFSET;
+                    let reg = (v & 0xFF) + OFFSET;
                     let mem = (v >> 8) & 0xFFFF;
                     match op {
                         ClauseOp32::Load => asm.build_load(reg, mem),
@@ -870,7 +882,7 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
                 ClauseOp32::Input => {
                     let input = (v >> 16) & 0xFF;
                     assert!(input < 3);
-                    let out_reg = (v & 0xFF) + REG_OFFSET;
+                    let out_reg = (v & 0xFF) + OFFSET;
                     asm.build_input(out_reg, input)
                 }
                 ClauseOp32::CopyReg
@@ -879,8 +891,8 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
                 | ClauseOp32::RecipReg
                 | ClauseOp32::SqrtReg
                 | ClauseOp32::SquareReg => {
-                    let lhs = ((v >> 16) & 0xFF) + REG_OFFSET;
-                    let out = (v & 0xFF) + REG_OFFSET;
+                    let lhs = ((v >> 16) & 0xFF) + OFFSET;
+                    let out = (v & 0xFF) + OFFSET;
                     match op {
                         ClauseOp32::CopyReg => asm.build_copy(out, lhs),
                         ClauseOp32::NegReg => asm.build_neg(out, lhs),
@@ -897,9 +909,9 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
                 | ClauseOp32::SubRegReg
                 | ClauseOp32::MinRegReg
                 | ClauseOp32::MaxRegReg => {
-                    let lhs = ((v >> 16) & 0xFF) + REG_OFFSET;
-                    let rhs = ((v >> 8) & 0xFF) + REG_OFFSET;
-                    let out = (v & 0xFF) + REG_OFFSET;
+                    let lhs = ((v >> 16) & 0xFF) + OFFSET;
+                    let rhs = ((v >> 8) & 0xFF) + OFFSET;
+                    let out = (v & 0xFF) + OFFSET;
                     match op {
                         ClauseOp32::AddRegReg => asm.build_add(out, lhs, rhs),
                         ClauseOp32::MulRegReg => asm.build_mul(out, lhs, rhs),
@@ -916,8 +928,8 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
         } else {
             let op = (v >> 16) & ((1 << 14) - 1);
             let op = ClauseOp64::from_u32(op).unwrap();
-            let arg = ((v >> 8) & 0xFF) + REG_OFFSET;
-            let out = (v & 0xFF) + REG_OFFSET;
+            let arg = ((v >> 8) & 0xFF) + OFFSET;
+            let out = (v & 0xFF) + OFFSET;
 
             let next = iter.next().unwrap();
             let reg = asm.load_imm(f32::from_bits(*next));
@@ -934,7 +946,7 @@ fn build_asm_fn_32<A: AssemblerT>(t: &Tape32) -> (ExecutableBuffer, *const u8) {
         }
     }
 
-    let (buf, shape_fn) = asm.finalize(REG_OFFSET);
+    let (buf, shape_fn) = asm.finalize(OFFSET);
     let fn_pointer = buf.ptr(shape_fn);
     (buf, fn_pointer)
 }
