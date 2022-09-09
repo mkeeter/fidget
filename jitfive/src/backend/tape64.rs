@@ -475,10 +475,10 @@ impl<'a> TapeEval<'a> {
     }
     pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
         let mut data = self.tape.data.iter().rev();
-        let mut d = || *data.next().unwrap();
+        let mut next = || *data.next().unwrap();
         for &op in self.tape.tape.iter().rev() {
             let out = match op {
-                ClauseOp64::Input => match d() {
+                ClauseOp64::Input => match next() {
                     0 => x,
                     1 => y,
                     2 => z,
@@ -490,14 +490,14 @@ impl<'a> TapeEval<'a> {
                 | ClauseOp64::SqrtReg
                 | ClauseOp64::CopyReg
                 | ClauseOp64::SquareReg => {
-                    let arg = self.v(d());
+                    let arg = self.v(next());
                     match op {
                         ClauseOp64::NegReg => -arg,
                         ClauseOp64::AbsReg => arg.abs(),
                         ClauseOp64::RecipReg => 1.0 / arg,
                         ClauseOp64::SqrtReg => arg.sqrt(),
                         ClauseOp64::SquareReg => arg * arg,
-                        ClauseOp64::CopyReg => self.v(d()),
+                        ClauseOp64::CopyReg => arg,
                         _ => unreachable!(),
                     }
                 }
@@ -507,8 +507,8 @@ impl<'a> TapeEval<'a> {
                 | ClauseOp64::SubRegReg
                 | ClauseOp64::MinRegReg
                 | ClauseOp64::MaxRegReg => {
-                    let rhs = self.v(d());
-                    let lhs = self.v(d());
+                    let rhs = self.v(next());
+                    let lhs = self.v(next());
                     match op {
                         ClauseOp64::AddRegReg => lhs + rhs,
                         ClauseOp64::MulRegReg => lhs * rhs,
@@ -525,8 +525,8 @@ impl<'a> TapeEval<'a> {
                 | ClauseOp64::SubRegImm
                 | ClauseOp64::MinRegImm
                 | ClauseOp64::MaxRegImm => {
-                    let imm = f32::from_bits(d());
-                    let arg = self.v(d());
+                    let imm = f32::from_bits(next());
+                    let arg = self.v(next());
                     match op {
                         ClauseOp64::AddRegImm => arg + imm,
                         ClauseOp64::MulRegImm => arg * imm,
@@ -537,9 +537,9 @@ impl<'a> TapeEval<'a> {
                         _ => unreachable!(),
                     }
                 }
-                ClauseOp64::CopyImm => f32::from_bits(d()),
+                ClauseOp64::CopyImm => f32::from_bits(next()),
             };
-            self.slots[d() as usize] = out;
+            self.slots[next() as usize] = out;
         }
         self.slots[self.tape.data[0] as usize]
     }
