@@ -107,6 +107,88 @@ impl Tape {
         }
     }
 
+    pub fn pretty_print(&self) {
+        let mut data = self.data.iter().rev();
+        let mut next = || *data.next().unwrap();
+        for &op in self.tape.iter().rev() {
+            match op {
+                ClauseOp64::Input => {
+                    let i = next();
+                    let out = next();
+                    println!("${out} = %{i}");
+                }
+                ClauseOp64::NegReg
+                | ClauseOp64::AbsReg
+                | ClauseOp64::RecipReg
+                | ClauseOp64::SqrtReg
+                | ClauseOp64::CopyReg
+                | ClauseOp64::SquareReg => {
+                    let arg = next();
+                    let out = next();
+                    let op = match op {
+                        ClauseOp64::NegReg => "NEG",
+                        ClauseOp64::AbsReg => "ABS",
+                        ClauseOp64::RecipReg => "RECIP",
+                        ClauseOp64::SqrtReg => "SQRT",
+                        ClauseOp64::SquareReg => "SQUARE",
+                        ClauseOp64::CopyReg => "COPY",
+                        _ => unreachable!(),
+                    };
+                    println!("${out} {op} ${arg}");
+                }
+
+                ClauseOp64::AddRegReg
+                | ClauseOp64::MulRegReg
+                | ClauseOp64::SubRegReg
+                | ClauseOp64::MinRegReg
+                | ClauseOp64::MaxRegReg => {
+                    let rhs = next();
+                    let lhs = next();
+                    let out = next();
+                    let op = match op {
+                        ClauseOp64::AddRegReg => "ADD",
+                        ClauseOp64::MulRegReg => "MUL",
+                        ClauseOp64::SubRegReg => "SUB",
+                        ClauseOp64::MinRegReg => "MIN",
+                        ClauseOp64::MaxRegReg => "MAX",
+                        _ => unreachable!(),
+                    };
+                    println!("${out} = {op} ${lhs} ${rhs}");
+                }
+
+                ClauseOp64::AddRegImm
+                | ClauseOp64::MulRegImm
+                | ClauseOp64::SubImmReg
+                | ClauseOp64::SubRegImm
+                | ClauseOp64::MinRegImm
+                | ClauseOp64::MaxRegImm => {
+                    let imm = f32::from_bits(next());
+                    let arg = next();
+                    let out = next();
+                    let (op, swap) = match op {
+                        ClauseOp64::AddRegImm => ("ADD", false),
+                        ClauseOp64::MulRegImm => ("MUL", false),
+                        ClauseOp64::SubImmReg => ("SUB", true),
+                        ClauseOp64::SubRegImm => ("SUB", false),
+                        ClauseOp64::MinRegImm => ("MIN", false),
+                        ClauseOp64::MaxRegImm => ("MAX", false),
+                        _ => unreachable!(),
+                    };
+                    if swap {
+                        println!("${out} = {op} ${arg} {imm}");
+                    } else {
+                        println!("${out} = {op} {imm} ${arg}");
+                    }
+                }
+                ClauseOp64::CopyImm => {
+                    let imm = f32::from_bits(next());
+                    let out = next();
+                    println!("${out} = COPY {imm}");
+                }
+            }
+        }
+    }
+
     pub fn simplify(&self, choices: &[Choice]) -> (Self, Vec<AsmOp>) {
         // If a node is active (i.e. has been used as an input, as we walk the
         // tape in reverse order), then store its new slot assignment here.
@@ -542,5 +624,71 @@ impl<'a> TapeEval<'a> {
             self.slots[next() as usize] = out;
         }
         self.slots[self.tape.data[0] as usize]
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::common::Choice;
+
+    #[test]
+    fn basic_interpreter() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let one = ctx.constant(1.0);
+        let sum = ctx.add(x, one).unwrap();
+        let min = ctx.min(sum, y).unwrap();
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
+        assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
+    }
+
+    #[test]
+    fn test_push() {
+        let mut ctx = crate::context::Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        let mut eval = t.0.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        let mut eval = t.0.get_evaluator();
+        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
+
+        let one = ctx.constant(1.0);
+        let min = ctx.min(x, one).unwrap();
+        let scheduled = crate::scheduled::schedule(&ctx, min);
+        let tape = Tape::new(&scheduled);
+        let mut eval = tape.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
+
+        let t = tape.simplify(&[Choice::Left]);
+        let mut eval = t.0.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
+
+        let t = tape.simplify(&[Choice::Right]);
+        let mut eval = t.0.get_evaluator();
+        assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
+        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
     }
 }
