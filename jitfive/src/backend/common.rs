@@ -25,7 +25,7 @@ pub type Op = GenericOp<VarIndex, f64, NodeIndex, ChoiceIndex>;
 /// which have no notion of Rust enums.
 ///
 /// Note that this is a bitfield such that
-/// ```
+/// ```text
 /// Choice::Both = Choice::Left | Choice::Right
 /// ```
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

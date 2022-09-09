@@ -63,11 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tape = jitfive::backend::tape48::Tape::new(&scheduled);
             info!("Built tape in {:?}", start.elapsed());
 
-            let start = Instant::now();
-            let bla = tape.alloc(256);
-            info!("Allocated tape in {:?}", start.elapsed());
-
-            let mut eval = bla.get_evaluator();
+            let mut eval = tape.get_evaluator();
 
             let start = Instant::now();
             let div = (scale - 1) as f64;

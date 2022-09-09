@@ -5,7 +5,7 @@ use dynasmrt::{
 
 use crate::backend::{
     common::{Choice, Simplify},
-    tape48::{AllocOp, ClauseOp48, Tape as Tape48, TapeAllocator},
+    tape48::{Tape as Tape48, TapeAllocator},
 };
 
 /// Operation that can be passed directly to the assembler
@@ -18,6 +18,7 @@ use crate::backend::{
 /// - Output register
 /// - LHS register (or input slot for `Input`)
 /// - RHS register (or immediate for `*Imm`)
+#[derive(Copy, Clone, Debug)]
 pub enum AsmOp {
     /// Reads one of the inputs (X, Y, Z)
     Input(u8, u8),
@@ -57,8 +58,8 @@ pub enum AsmOp {
 }
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
-pub const REGISTER_LIMIT: usize = 24;
-const OFFSET: u32 = 8;
+pub const REGISTER_LIMIT: u8 = 24;
+const OFFSET: u8 = 8;
 
 const CHOICE_LEFT: u32 = Choice::Left as u32;
 const CHOICE_RIGHT: u32 = Choice::Right as u32;
@@ -66,28 +67,28 @@ const CHOICE_BOTH: u32 = Choice::Both as u32;
 
 trait AssemblerT {
     fn init() -> Self;
-    fn build_load(&mut self, dst_reg: u32, src_mem: u32);
-    fn build_store(&mut self, dst_mem: u32, src_reg: u32);
-    fn build_swap(&mut self, reg: u32, mem: u32);
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32);
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8);
+    fn build_swap(&mut self, reg: u8, mem: u32);
 
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u32, src_arg: u32);
-    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_square(&mut self, out_reg: u32, lhs_reg: u32);
-    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32);
-    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32);
-    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32);
-    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32);
-    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32);
+    fn build_input(&mut self, out_reg: u8, src_arg: u8);
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8);
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     /// Loads an immediate into a register, returning that register
-    fn load_imm(&mut self, imm: f32) -> u32;
+    fn load_imm(&mut self, imm: f32) -> u8;
 
-    fn finalize(self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset);
+    fn finalize(self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset);
 }
 
 struct FloatAssembler(AssemblerData<f32>);
@@ -105,8 +106,8 @@ struct AssemblerData<T> {
 impl<T> AssemblerData<T> {
     fn check_stack(&mut self, mem_slot: u32) -> u32 {
         assert!(mem_slot >= REGISTER_LIMIT as u32);
-        let mem =
-            (mem_slot as usize - REGISTER_LIMIT) * std::mem::size_of::<T>();
+        let mem = (mem_slot as usize - REGISTER_LIMIT as usize)
+            * std::mem::size_of::<T>();
 
         if mem > self.mem_offset {
             // Round up to the nearest multiple of 16 bytes, for alignment
@@ -151,87 +152,101 @@ impl AssemblerT for FloatAssembler {
         })
     }
     /// Reads from `src_mem` to `dst_reg`
-    fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+        assert!(dst_reg >= OFFSET);
+        assert!(dst_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(src_mem);
         assert!(sp_offset <= 16384);
-        dynasm!(self.0.ops ; ldr S(dst_reg), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; ldr S(dst_reg as u32), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
-    fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+        assert!(src_reg >= OFFSET);
+        assert!(src_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(dst_mem);
         assert!(sp_offset <= 16384);
-        dynasm!(self.0.ops ; str S(src_reg), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; str S(src_reg as u32), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an imtermediary
-    fn build_swap(&mut self, reg: u32, mem: u32) {
-        assert!(reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_swap(&mut self, reg: u8, mem: u32) {
+        assert!(reg >= OFFSET);
+        assert!(mem >= REGISTER_LIMIT as u32);
+        assert!(reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops
-            ; fmov s4, S(reg)
-            ; ldr S(reg), [sp, #(sp_offset)]
+            ; fmov s4, S(reg as u32)
+            ; ldr S(reg as u32), [sp, #(sp_offset)]
             ; str s4, [sp, #(sp_offset)]
         );
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u32, src_arg: u32) {
-        dynasm!(self.0.ops ; fmov S(out_reg), S(src_arg));
+    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        dynasm!(self.0.ops ; fmov S(out_reg as u32), S(src_arg as u32));
     }
-    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fmov S(out_reg), S(lhs_reg))
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmov S(out_reg as u32), S(lhs_reg as u32))
     }
-    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fneg S(out_reg), S(lhs_reg))
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fneg S(out_reg as u32), S(lhs_reg as u32))
     }
-    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fabs S(out_reg), S(lhs_reg))
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fabs S(out_reg as u32), S(lhs_reg as u32))
     }
-    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmov s7, #1.0
-            ; fdiv S(out_reg), s7, S(lhs_reg)
+            ; fdiv S(out_reg as u32), s7, S(lhs_reg as u32)
         )
     }
-    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fsqrt S(out_reg), S(lhs_reg))
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fsqrt S(out_reg as u32), S(lhs_reg as u32))
     }
-    fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fmul S(out_reg), S(lhs_reg), S(lhs_reg))
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmul S(out_reg as u32), S(lhs_reg as u32), S(lhs_reg as u32))
     }
-    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fadd S(out_reg), S(lhs_reg), S(rhs_reg))
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fadd S(out_reg as u32), S(lhs_reg as u32), S(rhs_reg as u32)
+        )
     }
-    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fsub S(out_reg), S(lhs_reg), S(rhs_reg))
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fsub S(out_reg as u32), S(lhs_reg as u32), S(rhs_reg as u32)
+        )
     }
-    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmul S(out_reg), S(lhs_reg), S(rhs_reg))
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmul S(out_reg as u32), S(lhs_reg as u32), S(rhs_reg as u32)
+        )
     }
-    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmax S(out_reg), S(lhs_reg), S(rhs_reg))
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmax S(out_reg as u32), S(lhs_reg as u32), S(rhs_reg as u32)
+        )
     }
-    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmin S(out_reg), S(lhs_reg), S(rhs_reg))
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmin S(out_reg as u32), S(lhs_reg as u32), S(rhs_reg as u32)
+        )
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
-    fn load_imm(&mut self, imm: f32) -> u32 {
-        const IMM_REG: u32 = 4;
+    fn load_imm(&mut self, imm: f32) -> u8 {
+        const IMM_REG: u8 = 4;
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
             ; movz w9, #(imm_u32 >> 16), lsl 16
             ; movk w9, #(imm_u32)
-            ; fmov S(IMM_REG), w9
+            ; fmov S(IMM_REG as u32), w9
         );
         IMM_REG
     }
 
-    fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value
-            ; fmov  s0, S(out_reg)
+            ; fmov  s0, S(out_reg as u32)
             // Restore stack space used for spills
             ; add   sp, sp, #(self.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
@@ -316,48 +331,54 @@ impl AssemblerT for IntervalAssembler {
         })
     }
     /// Reads from `src_mem` to `dst_reg`
-    fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+        assert!(dst_reg >= OFFSET);
+        assert!(dst_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(src_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; ldr D(dst_reg), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; ldr D(dst_reg as u32), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
-    fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+        assert!(src_reg >= OFFSET);
+        assert!(src_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(dst_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; str D(src_reg), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; str D(src_reg as u32), [sp, #(sp_offset)])
     }
     /// Swaps a register and memory location, using S4 as an intermediary
-    fn build_swap(&mut self, reg: u32, mem: u32) {
+    fn build_swap(&mut self, reg: u8, mem: u32) {
+        assert!(reg >= OFFSET);
+        assert!(reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops
-            ; fmov d4, D(reg)
-            ; ldr D(reg), [sp, #(sp_offset)]
+            ; fmov d4, D(reg as u32)
+            ; ldr D(reg as u32), [sp, #(sp_offset)]
             ; str d4, [sp, #(sp_offset)]
         );
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u32, src_arg: u32) {
-        dynasm!(self.0.ops ; fmov D(out_reg), D(src_arg));
+    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        dynasm!(self.0.ops ; fmov D(out_reg as u32), D(src_arg as u32));
     }
-    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fmov D(out_reg), D(lhs_reg))
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmov D(out_reg as u32), D(lhs_reg as u32))
     }
-    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fneg V(out_reg).s2, V(lhs_reg).s2
-            ; rev64 V(out_reg).s2, V(out_reg).s2
+            ; fneg V(out_reg as u32).s2, V(lhs_reg as u32).s2
+            ; rev64 V(out_reg as u32).s2, V(out_reg as u32).s2
         )
     }
-    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Store lhs < 0.0 in x15
-            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+            ; fcmle v4.s2, V(lhs_reg as u32).s2, #0.0
             ; fmov x15, d4
 
-            // Store abs(lhs) in V(out_reg)
-            ; fabs V(out_reg).s2, V(lhs_reg).s2
+            // Store abs(lhs) in V(out_reg as u32)
+            ; fabs V(out_reg as u32).s2, V(lhs_reg as u32).s2
 
             // Check whether lhs.upper < 0
             ; tst x15, #0x1_0000_0000
@@ -372,29 +393,29 @@ impl AssemblerT for IntervalAssembler {
             // if lhs.lower < 0, then the output is
             //  [0.0, max(abs(lower, upper))]
             ; movi d4, #0
-            ; fmaxnmv s4, V(out_reg).s4
-            ; fmov D(out_reg), d4
+            ; fmaxnmv s4, V(out_reg as u32).s4
+            ; fmov D(out_reg as u32), d4
             // Fall through to do the swap
 
             // <- upper_lz
             // if upper < 0
             //   return [-upper, -lower]
-            ; rev64 V(out_reg).s2, V(out_reg).s2
+            ; rev64 V(out_reg as u32).s2, V(out_reg as u32).s2
 
             // <- end
         )
     }
-    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
-            ; fcmgt s4, S(lhs_reg), 0.0
+            ; fcmgt s4, S(lhs_reg as u32), 0.0
             ; fmov w15, s4
             ; tst w15, #0x1
             ; b.ne #40 // -> okay
 
             // Check whether lhs.upper < 0.0
-            ; mov s4, V(lhs_reg).s[1]
+            ; mov s4, V(lhs_reg as u32).s[1]
             ; fcmlt s4, s4, 0.0
             ; fmov w15, s4
             ; tst w15, #0x1
@@ -403,23 +424,23 @@ impl AssemblerT for IntervalAssembler {
             // Bad case: the division spans 0, so return NaN
             ; movz w15, #(nan_u32 >> 16), lsl 16
             ; movk w15, #(nan_u32)
-            ; dup V(out_reg).s2, w15
+            ; dup V(out_reg as u32).s2, w15
             ; b #20 // -> end
 
             // <- okay
             ; fmov s4, #1.0
             ; dup v4.s2, v4.s[0]
-            ; fdiv V(out_reg).s2, v4.s2, V(lhs_reg).s2
-            ; rev64 V(out_reg).s2, V(out_reg).s2
+            ; fdiv V(out_reg as u32).s2, v4.s2, V(lhs_reg as u32).s2
+            ; rev64 V(out_reg as u32).s2, V(out_reg as u32).s2
 
             // <- end
         )
     }
-    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Store lhs <= 0.0 in x8
-            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+            ; fcmle v4.s2, V(lhs_reg as u32).s2, #0.0
             ; fmov x15, d4
 
             // Check whether lhs.upper < 0
@@ -430,30 +451,30 @@ impl AssemblerT for IntervalAssembler {
             ; b.ne #12 // -> lower_lz
 
             // Happy path
-            ; fsqrt V(out_reg).s2, V(lhs_reg).s2
+            ; fsqrt V(out_reg as u32).s2, V(lhs_reg as u32).s2
             ; b #36 // -> end
 
             // <- lower_lz
-            ; mov v4.s[0], V(lhs_reg).s[1]
+            ; mov v4.s[0], V(lhs_reg as u32).s[1]
             ; fsqrt s4, s4
-            ; movi D(out_reg), #0
-            ; mov V(out_reg).s[1], v4.s[0]
+            ; movi D(out_reg as u32), #0
+            ; mov V(out_reg as u32).s[1], v4.s[0]
             ; b #16
 
             // <- upper_lz
             ; movz w9, #(nan_u32 >> 16), lsl 16
             ; movk w9, #(nan_u32)
-            ; dup V(out_reg).s2, w9
+            ; dup V(out_reg as u32).s2, w9
 
             // <- end
         )
     }
-    fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Store lhs <= 0.0 in x15
-            ; fcmle v4.s2, V(lhs_reg).s2, #0.0
+            ; fcmle v4.s2, V(lhs_reg as u32).s2, #0.0
             ; fmov x15, d4
-            ; fmul V(out_reg).s2, V(lhs_reg).s2, V(lhs_reg).s2
+            ; fmul V(out_reg as u32).s2, V(lhs_reg as u32).s2, V(lhs_reg as u32).s2
 
             // Check whether lhs.upper <= 0.0
             ; tst x15, #0x1_0000_0000
@@ -465,27 +486,27 @@ impl AssemblerT for IntervalAssembler {
 
             // If the input interval straddles 0, then the
             // output is [0, max(lower**2, upper**2)]
-            ; fmaxnmv s4, V(out_reg).s4
-            ; movi D(out_reg), #0
-            ; mov V(out_reg).s[1], v4.s[0]
+            ; fmaxnmv s4, V(out_reg as u32).s4
+            ; movi D(out_reg as u32), #0
+            ; mov V(out_reg as u32).s[1], v4.s[0]
             ; b #8 // -> end
 
             // <- swap
-            ; rev64 V(out_reg).s2, V(out_reg).s2
+            ; rev64 V(out_reg as u32).s2, V(out_reg as u32).s2
 
             // <- end
         )
     }
-    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fadd V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2)
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fadd V(out_reg as u32).s2, V(lhs_reg as u32).s2, V(rhs_reg as u32).s2)
     }
-    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; rev64 v4.s2, V(rhs_reg).s2
-            ; fsub V(out_reg).s2, V(lhs_reg).s2, v4.s2
+            ; rev64 v4.s2, V(rhs_reg as u32).s2
+            ; fsub V(out_reg as u32).s2, V(lhs_reg as u32).s2, v4.s2
         )
     }
-    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Set up v4 to contain
             //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
@@ -495,21 +516,21 @@ impl AssemblerT for IntervalAssembler {
             // Multiplying them out will hit all four possible
             // combinations; then we extract the min and max
             // with vector-reducing operations
-            ; rev64 v4.s2, V(lhs_reg).s2
-            ; mov v4.d[1], V(lhs_reg).d[0]
-            ; dup v5.d2, V(rhs_reg).d[0]
+            ; rev64 v4.s2, V(lhs_reg as u32).s2
+            ; mov v4.d[1], V(lhs_reg as u32).d[0]
+            ; dup v5.d2, V(rhs_reg as u32).d[0]
 
             ; fmul v4.s4, v4.s4, v5.s4
-            ; fminnmv S(out_reg), v4.s4
+            ; fminnmv S(out_reg as u32), v4.s4
             ; fmaxnmv s5, v4.s4
-            ; mov V(out_reg).s[1], v5.s[0]
+            ; mov V(out_reg as u32).s[1], v5.s[0]
         )
     }
-    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Basically the same as MinRegReg
-            ; zip2 v4.s2, V(lhs_reg).s2, V(rhs_reg).s2
-            ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
+            ; zip2 v4.s2, V(lhs_reg as u32).s2, V(rhs_reg as u32).s2
+            ; zip1 v5.s2, V(rhs_reg as u32).s2, V(lhs_reg as u32).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
             ; ldrb w16, [x0]
@@ -521,24 +542,24 @@ impl AssemblerT for IntervalAssembler {
             ; b.eq #28 // -> both
 
             // LHS < RHS
-            ; fmov D(out_reg), D(rhs_reg)
+            ; fmov D(out_reg as u32), D(rhs_reg as u32)
             ; orr w16, w16, #CHOICE_RIGHT
             ; b #24 // -> end
 
             // <- lhs (when RHS < LHS)
-            ; fmov D(out_reg), D(lhs_reg)
+            ; fmov D(out_reg as u32), D(lhs_reg as u32)
             ; orr w16, w16, #CHOICE_LEFT
             ; b #12 // -> end
 
             // <- both
-            ; fmax V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
+            ; fmax V(out_reg as u32).s2, V(lhs_reg as u32).s2, V(rhs_reg as u32).s2
             ; orr w16, w16, #CHOICE_BOTH
 
             // <- end
             ; strb w16, [x0], #1 // post-increment
         )
     }
-    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
             //      *choices++ |= CHOICE_LEFT
@@ -553,8 +574,8 @@ impl AssemblerT for IntervalAssembler {
             // v4 = [lhs.upper, rhs.upper]
             // v5 = [rhs.lower, lhs.lower]
             // This lets us do two comparisons simultaneously
-            ; zip2 v4.s2, V(lhs_reg).s2, V(rhs_reg).s2
-            ; zip1 v5.s2, V(rhs_reg).s2, V(lhs_reg).s2
+            ; zip2 v4.s2, V(lhs_reg as u32).s2, V(rhs_reg as u32).s2
+            ; zip1 v5.s2, V(rhs_reg as u32).s2, V(lhs_reg as u32).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
             ; ldrb w16, [x0]
@@ -566,17 +587,17 @@ impl AssemblerT for IntervalAssembler {
             ; b.eq #28 // -> both
 
             // Fallthrough: LHS < RHS
-            ; fmov D(out_reg), D(lhs_reg)
+            ; fmov D(out_reg as u32), D(lhs_reg as u32)
             ; orr w16, w16, #CHOICE_LEFT
             ; b #24 // -> end
 
             // <- rhs (for when RHS < LHS)
-            ; fmov D(out_reg), D(rhs_reg)
+            ; fmov D(out_reg as u32), D(rhs_reg as u32)
             ; orr w16, w16, #CHOICE_RIGHT
             ; b #12
 
             // <- both
-            ; fmin V(out_reg).s2, V(lhs_reg).s2, V(rhs_reg).s2
+            ; fmin V(out_reg as u32).s2, V(lhs_reg as u32).s2, V(rhs_reg as u32).s2
             ; orr w16, w16, #CHOICE_BOTH
 
             // <- end
@@ -585,24 +606,24 @@ impl AssemblerT for IntervalAssembler {
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
-    fn load_imm(&mut self, imm: f32) -> u32 {
+    fn load_imm(&mut self, imm: f32) -> u8 {
         // IMM_REG is selected to avoid scratch registers used by other
         // functions, e.g. mul / min / max
-        const IMM_REG: u32 = 6;
+        const IMM_REG: u8 = 6;
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
             ; movz w15, #(imm_u32 >> 16), lsl 16
             ; movk w15, #(imm_u32)
-            ; dup V(IMM_REG).s2, w15
+            ; dup V(IMM_REG as u32).s2, w15
         );
         IMM_REG
     }
 
-    fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value
-            ; mov  s0, V(out_reg).s[0]
-            ; mov  s1, V(out_reg).s[1]
+            ; mov  s0, V(out_reg as u32).s[0]
+            ; mov  s1, V(out_reg as u32).s[1]
             // Restore stack space used for spills
             ; add   sp, sp, #(self.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
@@ -682,115 +703,118 @@ impl AssemblerT for VecAssembler {
         })
     }
     /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
-    fn build_load(&mut self, dst_reg: u32, src_mem: u32) {
-        assert!(dst_reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+        assert!(dst_reg >= OFFSET);
+        assert!(dst_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(src_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
                 ; add x9, sp, #(sp_offset)
-                ; ldp D(dst_reg), d4, [x9]
-                ; mov V(dst_reg).d[1], v4.d[0]
+                ; ldp D(dst_reg as u32), d4, [x9]
+                ; mov V(dst_reg as u32).d[1], v4.d[0]
             )
         } else {
             dynasm!(self.0.ops
-                ; ldp D(dst_reg), d4, [sp, #(sp_offset)]
-                ; mov V(dst_reg).d[1], v4.d[0]
+                ; ldp D(dst_reg as u32), d4, [sp, #(sp_offset)]
+                ; mov V(dst_reg as u32).d[1], v4.d[0]
             )
         }
     }
 
     /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
-    fn build_store(&mut self, dst_mem: u32, src_reg: u32) {
-        assert!(src_reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+        assert!(src_reg >= OFFSET);
+        assert!(src_reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(dst_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
                 ; add x9, sp, #(sp_offset)
-                ; mov v4.d[0], V(src_reg).d[1]
-                ; stp D(src_reg), d4, [x9]
+                ; mov v4.d[0], V(src_reg as u32).d[1]
+                ; stp D(src_reg as u32), d4, [x9]
             )
         } else {
             dynasm!(self.0.ops
-                ; mov v4.d[0], V(src_reg).d[1]
-                ; stp D(src_reg), d4, [sp, #(sp_offset)]
+                ; mov v4.d[0], V(src_reg as u32).d[1]
+                ; stp D(src_reg as u32), d4, [sp, #(sp_offset)]
             )
         }
     }
     /// Swaps a register and memory location, using D4 and D5 as intermediaries
-    fn build_swap(&mut self, reg: u32, mem: u32) {
-        assert!(reg - OFFSET < REGISTER_LIMIT as u32);
+    fn build_swap(&mut self, reg: u8, mem: u32) {
+        assert!(reg >= OFFSET);
+        assert!(reg - OFFSET < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(mem);
         dynasm!(self.0.ops
-            ; mov v4.b16, V(reg).b16
-            ; ldp D(reg), d5, [sp, #(sp_offset)]
-            ; mov V(reg).d[1], v5.d[0]
+            ; mov v4.b16, V(reg as u32).b16
+            ; ldp D(reg as u32), d5, [sp, #(sp_offset)]
+            ; mov V(reg as u32).d[1], v5.d[0]
             ; mov v5.d[0], v4.d[1]
             ; stp d4, d5, [sp, #(sp_offset)]
         );
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u32, src_arg: u32) {
-        dynasm!(self.0.ops ; mov V(out_reg).b16, V(src_arg).b16);
+    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        dynasm!(self.0.ops ; mov V(out_reg as u32).b16, V(src_arg as u32).b16);
     }
-    fn build_copy(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; mov V(out_reg).b16, V(lhs_reg).b16)
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; mov V(out_reg as u32).b16, V(lhs_reg as u32).b16)
     }
-    fn build_neg(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fneg V(out_reg).s4, V(lhs_reg).s4)
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fneg V(out_reg as u32).s4, V(lhs_reg as u32).s4)
     }
-    fn build_abs(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fabs V(out_reg).s4, V(lhs_reg).s4)
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fabs V(out_reg as u32).s4, V(lhs_reg as u32).s4)
     }
-    fn build_recip(&mut self, out_reg: u32, lhs_reg: u32) {
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmov s7, #1.0
             ; dup v7.s4, v7.s[0]
-            ; fdiv V(out_reg).s4, v7.s4, V(lhs_reg).s4
+            ; fdiv V(out_reg as u32).s4, v7.s4, V(lhs_reg as u32).s4
         )
     }
-    fn build_sqrt(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fsqrt V(out_reg).s4, V(lhs_reg).s4)
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fsqrt V(out_reg as u32).s4, V(lhs_reg as u32).s4)
     }
-    fn build_square(&mut self, out_reg: u32, lhs_reg: u32) {
-        dynasm!(self.0.ops ; fmul V(out_reg).s4, V(lhs_reg).s4, V(lhs_reg).s4)
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmul V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(lhs_reg as u32).s4)
     }
-    fn build_add(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fadd V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fadd V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(rhs_reg as u32).s4)
     }
-    fn build_sub(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fsub V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fsub V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(rhs_reg as u32).s4)
     }
-    fn build_mul(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmul V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fmul V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(rhs_reg as u32).s4)
     }
-    fn build_max(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmax V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fmax V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(rhs_reg as u32).s4)
     }
-    fn build_min(&mut self, out_reg: u32, lhs_reg: u32, rhs_reg: u32) {
-        dynasm!(self.0.ops ; fmin V(out_reg).s4, V(lhs_reg).s4, V(rhs_reg).s4)
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fmin V(out_reg as u32).s4, V(lhs_reg as u32).s4, V(rhs_reg as u32).s4)
     }
 
     /// Loads an immediate into register V4, using W9 as an intermediary
-    fn load_imm(&mut self, imm: f32) -> u32 {
-        const IMM_REG: u32 = 4;
+    fn load_imm(&mut self, imm: f32) -> u8 {
+        const IMM_REG: u8 = 4;
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
             ; movz w9, #(imm_u32 >> 16), lsl 16
             ; movk w9, #(imm_u32)
-            ; dup V(IMM_REG).s4, w9
+            ; dup V(IMM_REG as u32).s4, w9
         );
         IMM_REG
     }
 
-    fn finalize(mut self, out_reg: u32) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x3
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
-            ; mov v0.d[0], V(out_reg).d[1]
-            ; stp D(out_reg), d0, [x3]
+            ; mov v0.d[0], V(out_reg as u32).d[1]
+            ; stp D(out_reg as u32), d0, [x3]
 
             // Restore stack space used for spills
             ; add   sp, sp, #(self.0.mem_offset as u32)
@@ -842,94 +866,87 @@ pub fn build_interval_fn_48(t: &Tape48) -> IntervalFuncHandle<Tape48> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn build_asm_fn_48<A: AssemblerT>(
-    i: impl Iterator<Item = AllocOp>,
+    i: impl Iterator<Item = AsmOp>,
 ) -> (ExecutableBuffer, *const u8) {
     let mut asm = A::init();
 
-    let mut last = None;
-    for AllocOp(op, out) in i {
-        use ClauseOp48::*;
+    for op in i {
+        use AsmOp::*;
         match op {
-            Input(i) => {
-                asm.build_input(out + OFFSET, i as u32);
+            Load(reg, mem) => {
+                asm.build_load(reg + OFFSET, mem);
             }
-            NegReg(arg) => {
+            Store(reg, mem) => {
+                asm.build_store(mem, reg + OFFSET);
+            }
+            Input(out, i) => {
+                asm.build_input(out + OFFSET, i);
+            }
+            NegReg(out, arg) => {
                 asm.build_neg(out + OFFSET, arg + OFFSET);
             }
-            AbsReg(arg) => {
+            AbsReg(out, arg) => {
                 asm.build_abs(out + OFFSET, arg + OFFSET);
             }
-            RecipReg(arg) => {
+            RecipReg(out, arg) => {
                 asm.build_recip(out + OFFSET, arg + OFFSET);
             }
-            SqrtReg(arg) => {
+            SqrtReg(out, arg) => {
                 asm.build_sqrt(out + OFFSET, arg + OFFSET);
             }
-            CopyReg(arg) => {
-                match (out < REGISTER_LIMIT as u32, arg < REGISTER_LIMIT as u32)
-                {
-                    (true, true) => asm.build_copy(out + OFFSET, arg + OFFSET),
-                    (true, false) => asm.build_load(out + OFFSET, arg),
-                    (false, true) => {
-                        asm.build_store(out, arg + OFFSET);
-                        continue; // Don't modify `last`
-                    }
-                    (false, false) => {
-                        panic!("Cannot do mem-to-mem COPY {} {}", out, arg)
-                    }
-                }
+            CopyReg(out, arg) => {
+                asm.build_copy(out + OFFSET, arg + OFFSET);
             }
-            SquareReg(arg) => {
+            SquareReg(out, arg) => {
                 asm.build_square(out + OFFSET, arg + OFFSET);
             }
-            AddRegReg(lhs, rhs) => {
+            AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
-            MulRegReg(lhs, rhs) => {
+            MulRegReg(out, lhs, rhs) => {
                 asm.build_mul(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
-            SubRegReg(lhs, rhs) => {
+            SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
-            MinRegReg(lhs, rhs) => {
+            MinRegReg(out, lhs, rhs) => {
                 asm.build_min(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
-            MaxRegReg(lhs, rhs) => {
+            MaxRegReg(out, lhs, rhs) => {
                 asm.build_max(out + OFFSET, lhs + OFFSET, rhs + OFFSET);
             }
-            AddRegImm(arg, imm) => {
+            AddRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_add(out + OFFSET, arg + OFFSET, reg);
             }
-            MulRegImm(arg, imm) => {
+            MulRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_mul(out + OFFSET, arg + OFFSET, reg);
             }
-            SubImmReg(arg, imm) => {
+            SubImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out + OFFSET, reg, arg + OFFSET);
             }
-            SubRegImm(arg, imm) => {
+            SubRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out + OFFSET, arg + OFFSET, reg);
             }
-            MinRegImm(arg, imm) => {
+            MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out + OFFSET, arg + OFFSET, reg);
             }
-            MaxRegImm(arg, imm) => {
+            MaxRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out + OFFSET, arg + OFFSET, reg);
             }
-            CopyImm(imm) => {
+            CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out + OFFSET, reg);
             }
         }
-        last = Some(out + OFFSET);
     }
 
-    let (buf, shape_fn) = asm.finalize(last.unwrap());
+    let (buf, shape_fn) = asm.finalize(OFFSET);
     let fn_pointer = buf.ptr(shape_fn);
     (buf, fn_pointer)
 }

@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::scheduled::Scheduled;
 use crate::{
-    backend::common::{Choice, NodeIndex, Op, Simplify, VarIndex},
+    backend::{
+        common::{Choice, NodeIndex, Op, Simplify, VarIndex},
+        dynasm::AsmOp,
+    },
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     util::indexed::IndexMap,
 };
@@ -46,7 +49,7 @@ pub enum ClauseOp48 {
     CopyImm(f32),
 }
 
-/// Tape storing 48-bit (12-byte) operations:
+/// Tape storing 48-bit (12-byte) operations (TODO check this math):
 /// - 4-byte opcode
 /// - 4-byte LHS register
 /// - 4-byte RHS register (or immediate `f32`)
@@ -72,20 +75,6 @@ impl Tape {
         TapeEval {
             tape: self,
             slots: vec![0.0; self.tape.len()],
-        }
-    }
-
-    pub fn alloc(&self, reg_limit: usize) -> AllocatedTape {
-        let mut t = TapeAllocator::new(self, reg_limit);
-        let mut tape = vec![];
-        for i in &mut t {
-            tape.push(i);
-        }
-        AllocatedTape {
-            tape,
-            choice_count: self.choice_count,
-            total_slots: t.total_slots,
-            out_slot: t.allocations[self.tape.len() - 1],
         }
     }
 
@@ -587,27 +576,29 @@ pub struct TapeAllocator<'a> {
 
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
-    allocations: Vec<usize>,
+    allocations: Vec<u32>,
 
     /// Map from a particular register to the index in the original tape that's
     /// using that register, or `usize::MAX` if the register is currently unused.
     registers: Vec<usize>,
+
+    /// For reach register, this `Vec` stores its last access time
     register_lru: Vec<usize>,
     time: usize,
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
-    reg_limit: usize,
+    reg_limit: u8,
 
     /// Available short registers (index < 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_registers: Vec<usize>,
+    spare_registers: Vec<u8>,
 
     /// Available extended registers (index >= 256)
     ///
     /// The most recently available is at the back of the `Vec`
-    spare_memory: Vec<usize>,
+    spare_memory: Vec<u32>,
 
     /// Represents which nodes retire at a particular index in the global tape.
     /// Up to two nodes can be retired at each index; `usize::MAX` indicates
@@ -618,29 +609,33 @@ pub struct TapeAllocator<'a> {
     wip: Option<(usize, ClauseOp48)>,
 
     /// Total allocated slots
-    total_slots: usize,
+    total_slots: u32,
+
+    /// Have we inserted a final copy operation into the tape?
+    done: bool,
 }
 
 impl<'a> TapeAllocator<'a> {
-    pub fn new(tape: &'a Tape, reg_limit: usize) -> Self {
+    pub fn new(tape: &'a Tape, reg_limit: u8) -> Self {
         Self {
             iter: tape.tape.iter().rev().enumerate(),
             last_use: &tape.last_used,
-            allocations: vec![usize::MAX; tape.tape.len()],
+            allocations: vec![u32::MAX; tape.tape.len()],
 
-            registers: vec![usize::MAX; reg_limit],
-            register_lru: vec![0; reg_limit],
+            registers: vec![usize::MAX; reg_limit as usize],
+            register_lru: vec![0; reg_limit as usize],
             time: 0,
 
             retirement: vec![[usize::MAX; 2]; tape.tape.len()],
             reg_limit,
-            spare_registers: Vec::with_capacity(reg_limit),
+            spare_registers: Vec::with_capacity(reg_limit as usize),
             spare_memory: vec![],
             wip: None,
             total_slots: 0,
+            done: false,
         }
     }
-    fn get_memory(&mut self) -> usize {
+    fn get_memory(&mut self) -> u32 {
         if let Some(p) = self.spare_memory.pop() {
             p
         } else {
@@ -650,13 +645,15 @@ impl<'a> TapeAllocator<'a> {
         }
     }
 
-    fn oldest_reg(&self) -> usize {
+    fn oldest_reg(&self) -> u8 {
         self.register_lru
             .iter()
             .enumerate()
             .min_by_key(|i| i.1)
             .unwrap()
             .0
+            .try_into()
+            .unwrap()
     }
 
     /// Attempt to get a register for the given node (which is an index into the
@@ -668,18 +665,18 @@ impl<'a> TapeAllocator<'a> {
     ///
     /// This may take multiple attempts, returning an `Err(CopyOp::...)`
     /// when intermediate memory movement needs to take place.
-    fn get_register(&mut self, n: u32) -> Result<u32, CopyOp> {
+    fn get_register(&mut self, n: u32) -> Result<u8, CopyOp> {
         let n = n as usize;
         let slot = self.allocations[n];
-        if slot >= self.reg_limit {
+        if slot >= self.reg_limit as u32 {
             // Pick a register, prioritizing picking a spare register (if
             // possible); if not, then introducing a new register (if we haven't
             // allocated past our limit)
             let reg = self.spare_registers.pop().or_else(|| {
-                if self.total_slots < self.reg_limit {
+                if self.total_slots < self.reg_limit as u32 {
                     let reg = self.total_slots;
                     self.total_slots += 1;
-                    Some(reg)
+                    Some(reg.try_into().unwrap())
                 } else {
                     None
                 }
@@ -688,21 +685,21 @@ impl<'a> TapeAllocator<'a> {
             if let Some(reg) = reg {
                 // If we've got a spare register, then we can use it by adding a
                 // `Load` instruction to the stream.
-                assert_eq!(self.registers[reg], usize::MAX);
+                assert_eq!(self.registers[reg as usize], usize::MAX);
 
-                self.registers[reg] = n;
-                self.allocations[n] = reg;
+                self.registers[reg as usize] = n;
+                self.allocations[n] = reg as u32;
 
                 // Release the memory slot that we were previously using, if
                 // it's not the dummy slot indicating no assignment was made.
-                if slot == usize::MAX {
-                    self.register_lru[reg] = self.time;
-                    Ok(reg as u32)
+                if slot == u32::MAX {
+                    self.register_lru[reg as usize] = self.time;
+                    Ok(reg as u8)
                 } else {
                     self.spare_memory.push(slot);
-                    Err(CopyOp {
-                        src: slot as u32,
-                        dst: reg as u32,
+                    Err(CopyOp::Load {
+                        src: slot,
+                        dst: reg,
                     })
                 }
             } else {
@@ -712,45 +709,64 @@ impl<'a> TapeAllocator<'a> {
                 let reg = self.oldest_reg();
 
                 // Whoever was previously using you is in for a surprise
-                let prev_node = self.registers[reg];
+                let prev_node = self.registers[reg as usize];
                 self.allocations[prev_node] = mem;
 
                 // Be free, young register!
-                self.registers[reg] = usize::MAX;
+                self.registers[reg as usize] = usize::MAX;
                 self.spare_registers.push(reg);
 
                 // (next time we pass this way, the register will be available
                 //  in self.spare_registers!)
 
-                Err(CopyOp {
-                    src: reg as u32,
-                    dst: mem as u32,
-                })
+                Err(CopyOp::Store { src: reg, dst: mem })
             }
         } else {
             // Update the use time of this register
-            self.register_lru[slot] = self.time;
-            Ok(slot as u32)
+            self.register_lru[slot as usize] = self.time;
+            Ok(slot as u8)
         }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct CopyOp {
-    src: u32,
-    dst: u32,
+pub enum CopyOp {
+    Load { src: u32, dst: u8 },
+    Store { src: u8, dst: u32 },
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct AllocOp(pub ClauseOp48, pub u32);
+impl From<CopyOp> for AsmOp {
+    fn from(c: CopyOp) -> Self {
+        match c {
+            CopyOp::Load { src, dst } => AsmOp::Load(dst, src),
+            CopyOp::Store { src, dst } => AsmOp::Store(src, dst),
+        }
+    }
+}
 
 impl<'a> Iterator for TapeAllocator<'a> {
-    type Item = AllocOp;
+    type Item = AsmOp;
     fn next(&mut self) -> Option<Self::Item> {
-        let (index, op): (usize, ClauseOp48) = self
+        let next = self
             .wip
             .take()
-            .or_else(|| self.iter.next().map(|(i, n)| (i, *n)))?;
+            .or_else(|| self.iter.next().map(|(i, n)| (i, *n)));
+
+        let (index, op) = match next {
+            Some((index, op)) => (index, op),
+            None if !self.done => {
+                // Copy from the last write into register 0
+                self.done = true;
+                let last_reg = *self.allocations.last().unwrap();
+                if last_reg > 0 {
+                    assert!(last_reg < self.reg_limit as u32);
+                    return Some(AsmOp::CopyReg(0, last_reg as u8));
+                } else {
+                    return None;
+                }
+            }
+            None => return None,
+        };
 
         self.time += 1;
 
@@ -770,9 +786,9 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::SubRegImm(arg, ..)
             | ClauseOp48::MinRegImm(arg, ..)
             | ClauseOp48::MaxRegImm(arg, ..) => match self.get_register(arg) {
-                Err(CopyOp { src, dst }) => {
+                Err(c) => {
                     self.wip = Some((index, op));
-                    return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
+                    return Some(AsmOp::from(c));
                 }
                 Ok(r) => (r, 0),
             },
@@ -783,16 +799,16 @@ impl<'a> Iterator for TapeAllocator<'a> {
             | ClauseOp48::MinRegReg(lhs, rhs)
             | ClauseOp48::MaxRegReg(lhs, rhs) => {
                 let lhs = match self.get_register(lhs) {
-                    Err(CopyOp { src, dst }) => {
+                    Err(c) => {
                         self.wip = Some((index, op));
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
+                        return Some(AsmOp::from(c));
                     }
                     Ok(reg) => reg,
                 };
                 let rhs = match self.get_register(rhs) {
-                    Err(CopyOp { src, dst }) => {
+                    Err(c) => {
                         self.wip = Some((index, op));
-                        return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
+                        return Some(AsmOp::from(c));
                     }
                     Ok(reg) => reg,
                 };
@@ -809,10 +825,10 @@ impl<'a> Iterator for TapeAllocator<'a> {
             .filter(|i| *i != usize::MAX)
         {
             let slot = self.allocations[node];
-            if slot < self.reg_limit {
-                self.spare_registers.push(slot);
-                self.registers[slot] = usize::MAX;
-                self.register_lru[slot] = usize::MAX;
+            if slot < self.reg_limit as u32 {
+                self.spare_registers.push(slot as u8);
+                self.registers[slot as usize] = usize::MAX;
+                self.register_lru[slot as usize] = usize::MAX;
                 // Note that this leaves self.allocations[node] still pointing
                 // to the old register, but that's okay, because it should never
                 // be used again!
@@ -823,34 +839,35 @@ impl<'a> Iterator for TapeAllocator<'a> {
 
         let out_reg = match self.get_register(index.try_into().unwrap()) {
             Ok(reg) => reg,
-            Err(CopyOp { src, dst }) => {
+            Err(c) => {
                 self.wip = Some((index, op));
-                return Some(AllocOp(ClauseOp48::CopyReg(src), dst));
+                return Some(AsmOp::from(c));
             }
         };
 
         use ClauseOp48::*;
         let out_op = match op {
-            Input(..) | CopyImm(..) => op,
-            AddRegReg(..) => AddRegReg(lhs, rhs),
-            MulRegReg(..) => MulRegReg(lhs, rhs),
-            SubRegReg(..) => SubRegReg(lhs, rhs),
-            NegReg(..) => NegReg(lhs),
-            CopyReg(..) => CopyReg(lhs),
-            AbsReg(..) => AbsReg(lhs),
-            RecipReg(..) => RecipReg(lhs),
-            SqrtReg(..) => SqrtReg(lhs),
-            SquareReg(..) => SquareReg(lhs),
+            Input(i) => AsmOp::Input(out_reg, i),
+            CopyImm(f) => AsmOp::CopyImm(out_reg, f),
+            AddRegReg(..) => AsmOp::AddRegReg(out_reg, lhs, rhs),
+            MulRegReg(..) => AsmOp::MulRegReg(out_reg, lhs, rhs),
+            SubRegReg(..) => AsmOp::SubRegReg(out_reg, lhs, rhs),
+            NegReg(..) => AsmOp::NegReg(out_reg, lhs),
+            CopyReg(..) => AsmOp::CopyReg(out_reg, lhs),
+            AbsReg(..) => AsmOp::AbsReg(out_reg, lhs),
+            RecipReg(..) => AsmOp::RecipReg(out_reg, lhs),
+            SqrtReg(..) => AsmOp::SqrtReg(out_reg, lhs),
+            SquareReg(..) => AsmOp::SquareReg(out_reg, lhs),
 
-            AddRegImm(_arg, imm) => AddRegImm(lhs, imm),
-            MulRegImm(_arg, imm) => MulRegImm(lhs, imm),
-            SubImmReg(_arg, imm) => SubImmReg(lhs, imm),
-            SubRegImm(_arg, imm) => SubRegImm(lhs, imm),
+            AddRegImm(_arg, imm) => AsmOp::AddRegImm(out_reg, lhs, imm),
+            MulRegImm(_arg, imm) => AsmOp::MulRegImm(out_reg, lhs, imm),
+            SubImmReg(_arg, imm) => AsmOp::SubImmReg(out_reg, lhs, imm),
+            SubRegImm(_arg, imm) => AsmOp::SubRegImm(out_reg, lhs, imm),
 
-            MinRegImm(_arg, imm) => MinRegImm(lhs, imm),
-            MaxRegImm(_arg, imm) => MaxRegImm(lhs, imm),
-            MinRegReg(..) => MinRegReg(lhs, rhs),
-            MaxRegReg(..) => MaxRegReg(lhs, rhs),
+            MinRegImm(_arg, imm) => AsmOp::MinRegImm(out_reg, lhs, imm),
+            MaxRegImm(_arg, imm) => AsmOp::MaxRegImm(out_reg, lhs, imm),
+            MinRegReg(..) => AsmOp::MinRegReg(out_reg, lhs, rhs),
+            MaxRegReg(..) => AsmOp::MaxRegReg(out_reg, lhs, rhs),
         };
 
         // Install this node into the retirement array based on its last use
@@ -861,81 +878,7 @@ impl<'a> Iterator for TapeAllocator<'a> {
                 .unwrap() = index;
         }
 
-        Some(AllocOp(out_op, out_reg))
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Clone, Debug)]
-pub struct AllocatedTape {
-    /// Raw instruction tape, stored in forward (evaluation) order
-    pub tape: Vec<AllocOp>,
-
-    pub total_slots: usize,
-    pub out_slot: usize,
-
-    /// The number of nodes which store values in the choice array during
-    /// interval evaluation.
-    pub choice_count: usize,
-}
-
-impl AllocatedTape {
-    /// Builds an evaluator which takes a (read-only) reference to this tape
-    pub fn get_evaluator(&self) -> AllocatedTapeEval {
-        AllocatedTapeEval {
-            tape: self,
-            slots: vec![0.0; self.total_slots],
-            out_slot: self.out_slot,
-        }
-    }
-}
-
-/// Workspace to evaluate a tape
-pub struct AllocatedTapeEval<'a> {
-    tape: &'a AllocatedTape,
-    out_slot: usize,
-    slots: Vec<f32>,
-}
-
-impl<'a> AllocatedTapeEval<'a> {
-    fn v(&self, i: u32) -> f32 {
-        self.slots[i as usize]
-    }
-    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
-        use ClauseOp48::*;
-
-        for &AllocOp(op, out) in self.tape.tape.iter() {
-            self.slots[out as usize] = match op {
-                Input(i) => match i {
-                    0 => x,
-                    1 => y,
-                    2 => z,
-                    _ => panic!(),
-                },
-                NegReg(i) => -self.v(i),
-                AbsReg(i) => self.v(i).abs(),
-                RecipReg(i) => 1.0 / self.v(i),
-                SqrtReg(i) => self.v(i).sqrt(),
-                SquareReg(i) => self.v(i) * self.v(i),
-
-                AddRegReg(a, b) => self.v(a) + self.v(b),
-                MulRegReg(a, b) => self.v(a) * self.v(b),
-                SubRegReg(a, b) => self.v(a) - self.v(b),
-                MinRegReg(a, b) => self.v(a).min(self.v(b)),
-                MaxRegReg(a, b) => self.v(a).max(self.v(b)),
-                AddRegImm(a, imm) => self.v(a) + imm,
-                MulRegImm(a, imm) => self.v(a) * imm,
-                SubImmReg(a, imm) => imm - self.v(a),
-                SubRegImm(a, imm) => self.v(a) - imm,
-                MinRegImm(a, imm) => self.v(a).min(imm),
-                MaxRegImm(a, imm) => self.v(a).max(imm),
-                CopyImm(imm) => imm,
-
-                CopyReg(arg) => self.v(arg),
-            };
-        }
-        self.slots[self.out_slot]
+        Some(out_op)
     }
 }
 
@@ -1002,23 +945,5 @@ mod tests {
         let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
-    }
-
-    #[test]
-    fn test_alloc() {
-        dbg!(std::mem::size_of::<ClauseOp48>());
-        dbg!(std::mem::size_of::<AllocOp>());
-        dbg!(std::mem::size_of::<(ClauseOp48, u32)>());
-        let mut ctx = crate::context::Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let min = ctx.min(x, y).unwrap();
-
-        let scheduled = crate::scheduled::schedule(&ctx, min);
-        let tape = Tape::new(&scheduled);
-        let lol = tape.alloc(3);
-        let mut eval = lol.get_evaluator();
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.f(3.0, 4.0, 0.0), 3.0);
     }
 }
