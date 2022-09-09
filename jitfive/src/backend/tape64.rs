@@ -99,6 +99,14 @@ impl Tape {
         }
     }
 
+    /// Builds an evaluator which takes a (read-only) reference to this tape
+    pub fn get_evaluator(&self) -> TapeEval {
+        TapeEval {
+            tape: self,
+            slots: vec![0.0; self.tape.len()],
+        }
+    }
+
     pub fn simplify(&self, choices: &[Choice]) -> (Self, Vec<AsmOp>) {
         // If a node is active (i.e. has been used as an input, as we walk the
         // tape in reverse order), then store its new slot assignment here.
@@ -450,5 +458,89 @@ impl<'a> TapeBuilder<'a> {
         };
         let r = self.mapping.insert(node, index);
         assert!(r.is_none());
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Workspace to evaluate a tape
+pub struct TapeEval<'a> {
+    tape: &'a Tape,
+    slots: Vec<f32>,
+}
+
+impl<'a> TapeEval<'a> {
+    fn v(&self, i: u32) -> f32 {
+        self.slots[i as usize]
+    }
+    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
+        let mut data = self.tape.data.iter().rev();
+        let mut d = || *data.next().unwrap();
+        for &op in self.tape.tape.iter().rev() {
+            let out = match op {
+                ClauseOp64::Input => match d() {
+                    0 => x,
+                    1 => y,
+                    2 => z,
+                    _ => panic!(),
+                },
+                ClauseOp64::NegReg
+                | ClauseOp64::AbsReg
+                | ClauseOp64::RecipReg
+                | ClauseOp64::SqrtReg
+                | ClauseOp64::CopyReg
+                | ClauseOp64::SquareReg => {
+                    let arg = self.v(d());
+                    match op {
+                        ClauseOp64::NegReg => -arg,
+                        ClauseOp64::AbsReg => arg.abs(),
+                        ClauseOp64::RecipReg => 1.0 / arg,
+                        ClauseOp64::SqrtReg => arg.sqrt(),
+                        ClauseOp64::SquareReg => arg * arg,
+                        ClauseOp64::CopyReg => self.v(d()),
+                        _ => unreachable!(),
+                    }
+                }
+
+                ClauseOp64::AddRegReg
+                | ClauseOp64::MulRegReg
+                | ClauseOp64::SubRegReg
+                | ClauseOp64::MinRegReg
+                | ClauseOp64::MaxRegReg => {
+                    let rhs = self.v(d());
+                    let lhs = self.v(d());
+                    match op {
+                        ClauseOp64::AddRegReg => lhs + rhs,
+                        ClauseOp64::MulRegReg => lhs * rhs,
+                        ClauseOp64::SubRegReg => lhs - rhs,
+                        ClauseOp64::MinRegReg => lhs.min(rhs),
+                        ClauseOp64::MaxRegReg => lhs.max(rhs),
+                        _ => unreachable!(),
+                    }
+                }
+
+                ClauseOp64::AddRegImm
+                | ClauseOp64::MulRegImm
+                | ClauseOp64::SubImmReg
+                | ClauseOp64::SubRegImm
+                | ClauseOp64::MinRegImm
+                | ClauseOp64::MaxRegImm => {
+                    let imm = f32::from_bits(d());
+                    let arg = self.v(d());
+                    match op {
+                        ClauseOp64::AddRegImm => arg + imm,
+                        ClauseOp64::MulRegImm => arg * imm,
+                        ClauseOp64::SubImmReg => imm - arg,
+                        ClauseOp64::SubRegImm => arg - imm,
+                        ClauseOp64::MinRegImm => arg.min(imm),
+                        ClauseOp64::MaxRegImm => arg.max(imm),
+                        _ => unreachable!(),
+                    }
+                }
+                ClauseOp64::CopyImm => f32::from_bits(d()),
+            };
+            self.slots[d() as usize] = out;
+        }
+        self.slots[self.tape.data[0] as usize]
     }
 }
