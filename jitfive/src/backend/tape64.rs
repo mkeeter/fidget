@@ -319,7 +319,7 @@ impl Tape {
                                 ops_out.push(CopyReg);
                             }
                             None => {
-                                active[lhs as usize] = Some(new_index);
+                                active[rhs as usize] = Some(new_index);
                             }
                         },
                         Choice::Both => {
@@ -383,6 +383,7 @@ struct TapeBuilder<'a> {
     choice_count: usize,
 }
 
+#[derive(Debug)]
 enum Location {
     Slot(u32),
     Immediate(f32),
@@ -418,7 +419,7 @@ impl<'a> TapeBuilder<'a> {
 
     fn step(&mut self, node: NodeIndex, op: Op) {
         let index = self.mapping.len().try_into().unwrap();
-        match op {
+        let op = match op {
             Op::Var(v) => {
                 let arg = match self.vars.get_by_index(v).unwrap().as_str() {
                     "X" => 0,
@@ -426,14 +427,15 @@ impl<'a> TapeBuilder<'a> {
                     "Z" => 2,
                     _ => panic!(),
                 };
-                self.tape.push(ClauseOp64::Input);
                 self.data.push(arg);
                 self.data.push(index);
+                Some(ClauseOp64::Input)
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
                 // recording its value for use as an immediate later.
                 self.constants.insert(node, c as f32);
+                None
             }
             Op::Binary(op, lhs, rhs) => {
                 let lhs = self.get_allocated_value(lhs);
@@ -457,29 +459,30 @@ impl<'a> TapeBuilder<'a> {
                     ),
                 };
 
-                match (lhs, rhs) {
+                let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.tape.push(f.0);
                         self.data.push(rhs);
                         self.data.push(lhs);
                         self.data.push(index);
+                        f.0
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.tape.push(f.1);
                         self.data.push(imm.to_bits());
                         self.data.push(arg);
                         self.data.push(index);
+                        f.1
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.tape.push(f.2);
                         self.data.push(imm.to_bits());
                         self.data.push(arg);
                         self.data.push(index);
+                        f.2
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
                     }
-                }
+                };
+                Some(op)
             }
             Op::BinaryChoice(op, lhs, rhs, ..) => {
                 self.choice_count += 1;
@@ -495,29 +498,30 @@ impl<'a> TapeBuilder<'a> {
                     }
                 };
 
-                match (lhs, rhs) {
+                let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.tape.push(f.0);
                         self.data.push(rhs);
                         self.data.push(lhs);
                         self.data.push(index);
+                        f.0
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.tape.push(f.1);
                         self.data.push(imm.to_bits());
                         self.data.push(arg);
                         self.data.push(index);
+                        f.1
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.tape.push(f.1);
                         self.data.push(imm.to_bits());
                         self.data.push(arg);
                         self.data.push(index);
+                        f.1
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
                     }
-                }
+                };
+                Some(op)
             }
             Op::Unary(op, lhs) => {
                 let lhs = match self.get_allocated_value(lhs) {
@@ -533,13 +537,17 @@ impl<'a> TapeBuilder<'a> {
                     UnaryOpcode::Sqrt => ClauseOp64::SqrtReg,
                     UnaryOpcode::Square => ClauseOp64::SquareReg,
                 };
-                self.tape.push(op);
                 self.data.push(lhs);
                 self.data.push(index);
+                Some(op)
             }
         };
-        let r = self.mapping.insert(node, index);
-        assert!(r.is_none());
+
+        if let Some(op) = op {
+            self.tape.push(op);
+            let r = self.mapping.insert(node, index);
+            assert!(r.is_none());
+        }
     }
 }
 

@@ -7,6 +7,7 @@ use crate::{
 };
 
 /// Represents a set of instructions that have been scheduled (somehow)
+#[derive(Debug)]
 pub struct Scheduled {
     /// Topologically sorted instruction list, i.e. all nodes are guaranteed to
     /// execute _after_ their inputs.
