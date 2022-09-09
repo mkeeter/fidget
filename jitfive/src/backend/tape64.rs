@@ -1,5 +1,8 @@
 use crate::{
-    backend::common::{NodeIndex, Op, VarIndex},
+    backend::{
+        common::{Choice, NodeIndex, Op, VarIndex},
+        dynasm::AsmOp,
+    },
     op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
     util::indexed::IndexMap,
@@ -11,11 +14,18 @@ use std::collections::BTreeMap;
 pub enum ClauseOp64 {
     /// Reads one of the inputs (X, Y, Z)
     Input,
+    /// Copy an immediate to a register
+    CopyImm,
 
+    /// Negates a register
     NegReg,
+    /// Takes the absolute value of a register
     AbsReg,
+    /// Takes the reciprocal of a register
     RecipReg,
+    /// Takes the square root of a register
     SqrtReg,
+    /// Squares a register
     SquareReg,
 
     /// Copies the given register
@@ -29,19 +39,22 @@ pub enum ClauseOp64 {
     SubImmReg,
     /// Subtract an immediate from a register
     SubRegImm,
+
+    /// Adds two registers
+    AddRegReg,
+    /// Multiplies two registers
+    MulRegReg,
+    /// Subtracts two registers
+    SubRegReg,
+
     /// Compute the minimum of a register and an immediate
     MinRegImm,
     /// Compute the maximum of a register and an immediate
     MaxRegImm,
-
-    AddRegReg,
-    MulRegReg,
-    SubRegReg,
+    /// Compute the minimum of two registers
     MinRegReg,
+    /// Compute the maximum of two registers
     MaxRegReg,
-
-    /// Copy an immediate to a register
-    CopyImm,
 }
 
 /// Tape storing... stuff
@@ -85,6 +98,185 @@ impl Tape {
             choice_count: builder.choice_count,
         }
     }
+
+    pub fn simplify(&self, choices: &[Choice]) -> (Self, Vec<AsmOp>) {
+        // If a node is active (i.e. has been used as an input, as we walk the
+        // tape in reverse order), then store its new slot assignment here.
+        let mut active = vec![None; self.tape.len()];
+        let mut count = 0..;
+        let mut choice_count = 0;
+
+        // The tape is constructed so that the output slot is first
+        active[self.data[0] as usize] = Some(count.next().unwrap());
+
+        // Other iterators to consume various arrays in order
+        let mut data = self.data.iter();
+        let mut choice_iter = choices.iter().rev();
+
+        let mut ops_out = vec![];
+        let mut data_out = vec![];
+
+        for &op in self.tape.iter() {
+            use ClauseOp64::*;
+            let index = *data.next().unwrap();
+            if active[index as usize].is_none() {
+                match op {
+                    Input | CopyImm | NegReg | AbsReg | RecipReg | SqrtReg
+                    | SquareReg | CopyReg => {
+                        data.next().unwrap();
+                    }
+                    AddRegImm | MulRegImm | SubRegImm | SubImmReg
+                    | AddRegReg | MulRegReg | SubRegReg => {
+                        data.next().unwrap();
+                        data.next().unwrap();
+                    }
+
+                    MinRegImm | MaxRegImm | MinRegReg | MaxRegReg => {
+                        data.next().unwrap();
+                        data.next().unwrap();
+                        choice_iter.next().unwrap();
+                    }
+                }
+                continue;
+            }
+
+            // Because we reassign nodes when they're used as an *input*
+            // (while walking the tape in reverse), this node must have been
+            // assigned already.
+            let new_index = active[index as usize].unwrap();
+
+            match op {
+                Input | CopyImm => {
+                    let i = *data.next().unwrap();
+                    data_out.push(new_index);
+                    data_out.push(i);
+                    ops_out.push(op)
+                }
+                NegReg | AbsReg | RecipReg | SqrtReg | SquareReg => {
+                    let arg = *active[*data.next().unwrap() as usize]
+                        .get_or_insert_with(|| count.next().unwrap());
+                    data_out.push(new_index);
+                    data_out.push(arg);
+                    ops_out.push(op);
+                }
+                CopyReg => {
+                    // CopyReg effectively does
+                    //      dst <= src
+                    // If src has not yet been used (as we iterate backwards
+                    // through the tape), then we can replace it with dst
+                    // everywhere!
+                    let src = *data.next().unwrap();
+                    match active[src as usize] {
+                        Some(new_src) => {
+                            data_out.push(new_index);
+                            data_out.push(new_src);
+                            ops_out.push(op);
+                        }
+                        None => {
+                            active[src as usize] = Some(new_index);
+                        }
+                    }
+                }
+                MinRegImm | MaxRegImm => {
+                    let arg = *data.next().unwrap();
+                    let imm = *data.next().unwrap();
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match active[arg as usize] {
+                            Some(new_arg) => {
+                                data_out.push(new_index);
+                                data_out.push(new_arg);
+                                ops_out.push(CopyReg);
+                            }
+                            None => {
+                                active[arg as usize] = Some(new_index);
+                            }
+                        },
+                        Choice::Right => {
+                            data_out.push(new_index);
+                            data_out.push(imm);
+                            ops_out.push(CopyImm);
+                        }
+                        Choice::Both => {
+                            choice_count += 1;
+                            let arg = *active[arg as usize]
+                                .get_or_insert_with(|| count.next().unwrap());
+                            data_out.push(new_index);
+                            data_out.push(arg);
+                            data_out.push(imm);
+                            ops_out.push(op);
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                MinRegReg | MaxRegReg => {
+                    let lhs = *data.next().unwrap();
+                    let rhs = *data.next().unwrap();
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match active[lhs as usize] {
+                            Some(new_lhs) => {
+                                data_out.push(new_index);
+                                data_out.push(new_lhs);
+                                ops_out.push(CopyReg);
+                            }
+                            None => {
+                                active[lhs as usize] = Some(new_index);
+                            }
+                        },
+                        Choice::Right => match active[rhs as usize] {
+                            Some(new_rhs) => {
+                                data_out.push(new_index);
+                                data_out.push(new_rhs);
+                                ops_out.push(CopyReg);
+                            }
+                            None => {
+                                active[lhs as usize] = Some(new_index);
+                            }
+                        },
+                        Choice::Both => {
+                            choice_count += 1;
+                            let lhs = *active[lhs as usize]
+                                .get_or_insert_with(|| count.next().unwrap());
+                            let rhs = *active[rhs as usize]
+                                .get_or_insert_with(|| count.next().unwrap());
+                            data_out.push(new_index);
+                            data_out.push(lhs);
+                            data_out.push(rhs);
+                            ops_out.push(op);
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                AddRegReg | MulRegReg | SubRegReg => {
+                    let lhs = *active[*data.next().unwrap() as usize]
+                        .get_or_insert_with(|| count.next().unwrap());
+                    let rhs = *active[*data.next().unwrap() as usize]
+                        .get_or_insert_with(|| count.next().unwrap());
+                    data_out.push(new_index);
+                    data_out.push(lhs);
+                    data_out.push(rhs);
+                    ops_out.push(op);
+                }
+                AddRegImm | MulRegImm | SubRegImm | SubImmReg => {
+                    let arg = *active[*data.next().unwrap() as usize]
+                        .get_or_insert_with(|| count.next().unwrap());
+                    let imm = *data.next().unwrap();
+                    data_out.push(new_index);
+                    data_out.push(arg);
+                    data_out.push(imm);
+                    ops_out.push(op);
+                }
+            }
+        }
+        assert_eq!(count.next().unwrap() as usize, ops_out.len());
+        (
+            Tape {
+                tape: ops_out,
+                data: data_out,
+                choice_count,
+            },
+            vec![],
+        )
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -102,7 +294,7 @@ struct TapeBuilder<'a> {
 }
 
 enum Location {
-    Register(u32),
+    Slot(u32),
     Immediate(f32),
 }
 
@@ -121,18 +313,17 @@ impl<'a> TapeBuilder<'a> {
 
     fn get_allocated_value(&mut self, node: NodeIndex) -> Location {
         if let Some(r) = self.mapping.get(&node).cloned() {
-            Location::Register(r)
+            Location::Slot(r)
         } else {
             let c = self.constants.get(&node).unwrap();
             Location::Immediate(*c)
         }
     }
 
-    fn run(&mut self) -> Tape {
+    fn run(&mut self) {
         while let Some(&(n, op)) = self.iter.next() {
             self.step(n, op);
         }
-        unimplemented!()
     }
 
     fn step(&mut self, node: NodeIndex, op: Op) {
@@ -146,8 +337,8 @@ impl<'a> TapeBuilder<'a> {
                     _ => panic!(),
                 };
                 self.tape.push(ClauseOp64::Input);
-                self.data.push(index);
                 self.data.push(arg);
+                self.data.push(index);
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
@@ -176,25 +367,24 @@ impl<'a> TapeBuilder<'a> {
                     ),
                 };
 
-                self.data.push(index);
                 match (lhs, rhs) {
-                    (Location::Register(lhs), Location::Register(rhs)) => {
+                    (Location::Slot(lhs), Location::Slot(rhs)) => {
                         self.tape.push(f.0);
-                        self.data.push(index);
-                        self.data.push(lhs);
                         self.data.push(rhs);
+                        self.data.push(lhs);
+                        self.data.push(index);
                     }
-                    (Location::Register(arg), Location::Immediate(imm)) => {
+                    (Location::Slot(arg), Location::Immediate(imm)) => {
                         self.tape.push(f.1);
-                        self.data.push(index);
-                        self.data.push(arg);
                         self.data.push(imm.to_bits());
+                        self.data.push(arg);
+                        self.data.push(index);
                     }
-                    (Location::Immediate(imm), Location::Register(arg)) => {
+                    (Location::Immediate(imm), Location::Slot(arg)) => {
                         self.tape.push(f.2);
-                        self.data.push(index);
-                        self.data.push(arg);
                         self.data.push(imm.to_bits());
+                        self.data.push(arg);
+                        self.data.push(index);
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
@@ -216,23 +406,23 @@ impl<'a> TapeBuilder<'a> {
                 };
 
                 match (lhs, rhs) {
-                    (Location::Register(lhs), Location::Register(rhs)) => {
+                    (Location::Slot(lhs), Location::Slot(rhs)) => {
                         self.tape.push(f.0);
-                        self.data.push(index);
-                        self.data.push(lhs);
                         self.data.push(rhs);
-                    }
-                    (Location::Register(arg), Location::Immediate(imm)) => {
-                        self.tape.push(f.1);
+                        self.data.push(lhs);
                         self.data.push(index);
-                        self.data.push(arg);
-                        self.data.push(imm.to_bits());
                     }
-                    (Location::Immediate(imm), Location::Register(arg)) => {
+                    (Location::Slot(arg), Location::Immediate(imm)) => {
                         self.tape.push(f.1);
-                        self.data.push(index);
-                        self.data.push(arg);
                         self.data.push(imm.to_bits());
+                        self.data.push(arg);
+                        self.data.push(index);
+                    }
+                    (Location::Immediate(imm), Location::Slot(arg)) => {
+                        self.tape.push(f.1);
+                        self.data.push(imm.to_bits());
+                        self.data.push(arg);
+                        self.data.push(index);
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
@@ -241,7 +431,7 @@ impl<'a> TapeBuilder<'a> {
             }
             Op::Unary(op, lhs) => {
                 let lhs = match self.get_allocated_value(lhs) {
-                    Location::Register(r) => r,
+                    Location::Slot(r) => r,
                     Location::Immediate(..) => {
                         panic!("Cannot handle f(imm)")
                     }
@@ -254,8 +444,8 @@ impl<'a> TapeBuilder<'a> {
                     UnaryOpcode::Square => ClauseOp64::SquareReg,
                 };
                 self.tape.push(op);
-                self.data.push(index);
                 self.data.push(lhs);
+                self.data.push(index);
             }
         };
         let r = self.mapping.insert(node, index);
