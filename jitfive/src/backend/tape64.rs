@@ -369,6 +369,103 @@ impl Tape {
     }
 }
 
+struct TapeAllocator {
+    /// Map from the index in the original (globally allocated) tape to a
+    /// specific register or memory slot.
+    allocations: Vec<u32>,
+
+    /// Map from a particular register to the index in the original tape that's
+    /// using that register, or `usize::MAX` if the register is currently unused.
+    registers: Vec<usize>,
+
+    /// For each register, this `Vec` stores its last access time
+    register_lru: Vec<usize>,
+    time: usize,
+
+    /// User-defined register limit; beyond this point we use load/store
+    /// operations to move values to and from memory.
+    reg_limit: u8,
+
+    /// Available short registers (index < 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_registers: Vec<u8>,
+
+    /// Available extended registers (index >= 256)
+    ///
+    /// The most recently available is at the back of the `Vec`
+    spare_memory: Vec<u32>,
+
+    /// Total allocated slots
+    ///
+    /// This will be <= the number of clauses in the tape, because we can often
+    /// reuse slots.
+    total_slots: u32,
+
+    /// Output slots, assembled in reverse order
+    out: Vec<AsmOp>,
+}
+
+impl TapeAllocator {
+    fn new(reg_limit: u8) -> Self {
+        Self {
+            allocations: vec![],
+
+            registers: vec![usize::MAX; reg_limit as usize],
+            register_lru: vec![0; reg_limit as usize],
+            time: 0,
+
+            reg_limit,
+            spare_registers: vec![],
+            spare_memory: vec![],
+
+            total_slots: 0,
+            out: vec![],
+        }
+    }
+
+    /// Returns an available memory slot.
+    ///
+    /// We can *always* call this, because we treat memory as unlimited.
+    ///
+    /// > If there's one thing I love
+    /// > It's an infinite resource
+    /// > If there's one thing worth loving
+    /// > It's a surplus of supplies
+    fn get_memory(&mut self) -> u32 {
+        if let Some(p) = self.spare_memory.pop() {
+            p
+        } else {
+            let out = self.total_slots;
+            self.total_slots += 1;
+            out
+        }
+    }
+
+    /// Finds the oldest register
+    ///
+    /// This is useful when deciding which register to evict to make room
+    fn oldest_reg(&self) -> u8 {
+        self.register_lru
+            .iter()
+            .enumerate()
+            .min_by_key(|i| i.1)
+            .unwrap()
+            .0
+            .try_into()
+            .unwrap()
+    }
+
+    /// Returns the slot allocated to the given node in the globally indexed
+    /// tape, or `u32::MAX` if unassigned.
+    fn get_allocation(&mut self, n: usize) -> u32 {
+        if n >= self.allocations.len() {
+            self.allocations.resize(n + 1, u32::MAX);
+        }
+        self.allocations.get(n).cloned().unwrap_or(u32::MAX)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 struct TapeBuilder<'a> {
