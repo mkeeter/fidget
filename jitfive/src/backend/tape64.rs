@@ -57,6 +57,44 @@ pub enum ClauseOp64 {
     MaxRegReg,
 }
 
+/// `Tape` stores a pair of flat expressions suitable for evaluation:
+/// - `ssa` is suitable for use during tape simplification
+/// - `asm` is ready to be fed into an assembler, e.g. `dynasm`
+///
+/// We keep both because SSA form makes tape shortening easier, while the `asm`
+/// data already has registers assigned.
+pub struct Tape {
+    ssa: SsaTape,
+    asm: Vec<AsmOp>,
+    reg_limit: u8,
+}
+
+impl Tape {
+    pub fn new(s: &Scheduled) -> Self {
+        Self::new_with_reg_limit(s, u8::MAX)
+    }
+
+    pub fn new_with_reg_limit(s: &Scheduled, reg_limit: u8) -> Self {
+        let ssa = SsaTape::new(s);
+        let dummy = vec![Choice::Both; ssa.choice_count];
+        let (ssa, asm) = ssa.simplify(&dummy, reg_limit);
+        Self {
+            ssa,
+            asm,
+            reg_limit,
+        }
+    }
+
+    pub fn simplify(&self, choices: &[Choice]) -> Self {
+        let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
+        Self {
+            ssa,
+            asm,
+            reg_limit: self.reg_limit,
+        }
+    }
+}
+
 /// Tape storing... stuff
 /// - 4-byte opcode
 /// - 4-byte output register
@@ -67,7 +105,7 @@ pub enum ClauseOp64 {
 ///
 /// All slot addressing is absolute.
 #[derive(Clone, Debug)]
-pub struct Tape {
+pub struct SsaTape {
     /// The tape is stored in reverse order, such that the root of the tree is
     /// the first item in the tape.
     pub tape: Vec<ClauseOp64>,
@@ -86,9 +124,9 @@ pub struct Tape {
     pub choice_count: usize,
 }
 
-impl Tape {
+impl SsaTape {
     pub fn new(t: &Scheduled) -> Self {
-        let mut builder = TapeBuilder::new(t);
+        let mut builder = SsaTapeBuilder::new(t);
         builder.run();
         builder.tape.reverse();
         builder.data.reverse();
@@ -100,8 +138,8 @@ impl Tape {
     }
 
     /// Builds an evaluator which takes a (read-only) reference to this tape
-    pub fn get_evaluator(&self) -> TapeEval {
-        TapeEval {
+    pub fn get_evaluator(&self) -> SsaTapeEval {
+        SsaTapeEval {
             tape: self,
             slots: vec![0.0; self.tape.len()],
         }
@@ -189,14 +227,18 @@ impl Tape {
         }
     }
 
-    pub fn simplify(&self, choices: &[Choice]) -> (Self, Vec<AsmOp>) {
+    pub fn simplify(
+        &self,
+        choices: &[Choice],
+        reg_limit: u8,
+    ) -> (Self, Vec<AsmOp>) {
         // If a node is active (i.e. has been used as an input, as we walk the
         // tape in reverse order), then store its new slot assignment here.
         let mut active = vec![None; self.tape.len()];
         let mut count = 0..;
         let mut choice_count = 0;
 
-        let mut alloc = TapeAllocator::new(24);
+        let mut alloc = SsaTapeAllocator::new(reg_limit);
 
         // The tape is constructed so that the output slot is first
         active[self.data[0] as usize] = Some(count.next().unwrap());
@@ -261,18 +303,7 @@ impl Tape {
                     data_out.push(arg);
                     ops_out.push(op);
 
-                    alloc.op_reg(
-                        new_index,
-                        arg,
-                        match op {
-                            NegReg => AsmOp::NegReg,
-                            AbsReg => AsmOp::AbsReg,
-                            RecipReg => AsmOp::RecipReg,
-                            SqrtReg => AsmOp::SqrtReg,
-                            SquareReg => AsmOp::SquareReg,
-                            _ => unreachable!(),
-                        },
-                    );
+                    alloc.op_reg(new_index, arg, op);
                 }
                 CopyReg => {
                     // CopyReg effectively does
@@ -287,7 +318,7 @@ impl Tape {
                             data_out.push(new_src);
                             ops_out.push(op);
 
-                            alloc.op_reg(new_index, new_src, AsmOp::CopyReg);
+                            alloc.op_reg(new_index, new_src, CopyReg);
                         }
                         None => {
                             active[src as usize] = Some(new_index);
@@ -304,11 +335,7 @@ impl Tape {
                                 data_out.push(new_arg);
                                 ops_out.push(CopyReg);
 
-                                alloc.op_reg(
-                                    new_index,
-                                    new_arg,
-                                    AsmOp::CopyReg,
-                                );
+                                alloc.op_reg(new_index, new_arg, CopyReg);
                             }
                             None => {
                                 active[arg as usize] = Some(new_index);
@@ -335,11 +362,7 @@ impl Tape {
                                 new_index,
                                 arg,
                                 f32::from_bits(imm),
-                                match op {
-                                    MinRegImm => AsmOp::MinRegImm,
-                                    MaxRegImm => AsmOp::MaxRegImm,
-                                    _ => unreachable!(),
-                                },
+                                op,
                             );
                         }
                         Choice::Unknown => panic!("oh no"),
@@ -355,11 +378,7 @@ impl Tape {
                                 data_out.push(new_lhs);
                                 ops_out.push(CopyReg);
 
-                                alloc.op_reg(
-                                    new_index,
-                                    new_lhs,
-                                    AsmOp::CopyReg,
-                                );
+                                alloc.op_reg(new_index, new_lhs, CopyReg);
                             }
                             None => {
                                 active[lhs as usize] = Some(new_index);
@@ -371,11 +390,7 @@ impl Tape {
                                 data_out.push(new_rhs);
                                 ops_out.push(CopyReg);
 
-                                alloc.op_reg(
-                                    new_index,
-                                    new_rhs,
-                                    AsmOp::CopyReg,
-                                );
+                                alloc.op_reg(new_index, new_rhs, CopyReg);
                             }
                             None => {
                                 active[rhs as usize] = Some(new_index);
@@ -392,16 +407,7 @@ impl Tape {
                             data_out.push(rhs);
                             ops_out.push(op);
 
-                            alloc.op_reg_reg(
-                                new_index,
-                                lhs,
-                                rhs,
-                                match op {
-                                    MinRegImm => AsmOp::MinRegReg,
-                                    MaxRegImm => AsmOp::MaxRegReg,
-                                    _ => unreachable!(),
-                                },
-                            );
+                            alloc.op_reg_reg(new_index, lhs, rhs, op);
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
@@ -416,17 +422,7 @@ impl Tape {
                     data_out.push(rhs);
                     ops_out.push(op);
 
-                    alloc.op_reg_reg(
-                        new_index,
-                        lhs,
-                        rhs,
-                        match op {
-                            AddRegReg => AsmOp::AddRegReg,
-                            MulRegReg => AsmOp::MulRegReg,
-                            SubRegReg => AsmOp::SubRegReg,
-                            _ => unreachable!(),
-                        },
-                    );
+                    alloc.op_reg_reg(new_index, lhs, rhs, op);
                 }
                 AddRegImm | MulRegImm | SubRegImm | SubImmReg => {
                     let arg = *active[*data.next().unwrap() as usize]
@@ -437,18 +433,7 @@ impl Tape {
                     data_out.push(imm);
                     ops_out.push(op);
 
-                    alloc.op_reg_imm(
-                        new_index,
-                        arg,
-                        f32::from_bits(imm),
-                        match op {
-                            AddRegImm => AsmOp::AddRegImm,
-                            MulRegImm => AsmOp::MulRegImm,
-                            SubRegImm => AsmOp::SubRegImm,
-                            SubImmReg => AsmOp::SubImmReg,
-                            _ => unreachable!(),
-                        },
-                    );
+                    alloc.op_reg_imm(new_index, arg, f32::from_bits(imm), op);
                 }
             }
         }
@@ -457,7 +442,7 @@ impl Tape {
         assert_eq!(ops_out.len(), alloc.out.len());
 
         (
-            Tape {
+            SsaTape {
                 tape: ops_out,
                 data: data_out,
                 choice_count,
@@ -467,17 +452,15 @@ impl Tape {
     }
 }
 
-struct TapeAllocator {
+struct SsaTapeAllocator {
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
-    ///
-    /// TODO: make this a strong type representing a slot, instead of `u32`
     allocations: Vec<u32>,
 
     /// Map from a particular register to the index in the original tape that's
     /// using that register, or `usize::MAX` if the register is currently unused.
     ///
-    /// TODO: make this a strong type representing an SSA node, instead of `u32`
+    /// The inner `u32` here is an index into the original (SSA) tape
     registers: Vec<u32>,
 
     /// For each register, this `Vec` stores its last access time
@@ -486,8 +469,6 @@ struct TapeAllocator {
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
-    ///
-    /// TODO: make this a strong type
     reg_limit: u8,
 
     /// Available short registers (index < 256)
@@ -510,7 +491,7 @@ struct TapeAllocator {
     out: Vec<AsmOp>,
 }
 
-impl TapeAllocator {
+impl SsaTapeAllocator {
     fn new(reg_limit: u8) -> Self {
         Self {
             allocations: vec![],
@@ -648,7 +629,7 @@ impl TapeAllocator {
         self.allocations[node as usize] = u32::MAX;
     }
 
-    fn op_reg(&mut self, out: u32, arg: u32, op: fn(u8, u8) -> AsmOp) {
+    fn op_reg(&mut self, out: u32, arg: u32, op: ClauseOp64) {
         // The output must be allocated already, since we're walking the tape in
         // reverse.  However, it may be in a memory slot, so we might need to
         // free up a register for it.
@@ -658,16 +639,19 @@ impl TapeAllocator {
         self.release(out);
 
         let arg = self.get_register(arg);
+
+        let op: fn(u8, u8) -> AsmOp = match op {
+            ClauseOp64::NegReg => AsmOp::NegReg,
+            ClauseOp64::AbsReg => AsmOp::AbsReg,
+            ClauseOp64::RecipReg => AsmOp::RecipReg,
+            ClauseOp64::SqrtReg => AsmOp::SqrtReg,
+            ClauseOp64::SquareReg => AsmOp::SquareReg,
+            _ => panic!(),
+        };
         self.out.push(op(out, arg));
     }
 
-    fn op_reg_reg(
-        &mut self,
-        out: u32,
-        lhs: u32,
-        rhs: u32,
-        op: fn(u8, u8, u8) -> AsmOp,
-    ) {
+    fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: ClauseOp64) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_register(out);
@@ -675,22 +659,33 @@ impl TapeAllocator {
 
         let lhs = self.get_register(lhs);
         let rhs = self.get_register(rhs);
+        let op: fn(u8, u8, u8) -> AsmOp = match op {
+            ClauseOp64::AddRegReg => AsmOp::AddRegReg,
+            ClauseOp64::SubRegReg => AsmOp::SubRegReg,
+            ClauseOp64::MulRegReg => AsmOp::MulRegReg,
+            ClauseOp64::MinRegReg => AsmOp::MinRegReg,
+            ClauseOp64::MaxRegReg => AsmOp::MaxRegReg,
+            _ => panic!(),
+        };
         self.out.push(op(out, lhs, rhs));
     }
 
-    fn op_reg_imm(
-        &mut self,
-        out: u32,
-        arg: u32,
-        imm: f32,
-        op: fn(u8, u8, f32) -> AsmOp,
-    ) {
+    fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: ClauseOp64) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_register(out);
         self.release(out);
 
         let arg = self.get_register(arg);
+        let op: fn(u8, u8, f32) -> AsmOp = match op {
+            ClauseOp64::AddRegImm => AsmOp::AddRegImm,
+            ClauseOp64::SubRegImm => AsmOp::SubRegImm,
+            ClauseOp64::SubImmReg => AsmOp::SubImmReg,
+            ClauseOp64::MulRegImm => AsmOp::MulRegImm,
+            ClauseOp64::MinRegImm => AsmOp::MinRegImm,
+            ClauseOp64::MaxRegImm => AsmOp::MaxRegImm,
+            _ => panic!(),
+        };
         self.out.push(op(out, arg, imm));
     }
 
@@ -715,28 +710,25 @@ impl TapeAllocator {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Copy, Clone, Debug)]
-struct SsaReg(u32);
-
-struct TapeBuilder<'a> {
+struct SsaTapeBuilder<'a> {
     iter: std::slice::Iter<'a, (NodeIndex, Op)>,
 
     tape: Vec<ClauseOp64>,
     data: Vec<u32>,
 
     vars: &'a IndexMap<String, VarIndex>,
-    mapping: BTreeMap<NodeIndex, SsaReg>,
+    mapping: BTreeMap<NodeIndex, u32>,
     constants: BTreeMap<NodeIndex, f32>,
     choice_count: usize,
 }
 
 #[derive(Debug)]
 enum Location {
-    Slot(SsaReg),
+    Slot(u32),
     Immediate(f32),
 }
 
-impl<'a> TapeBuilder<'a> {
+impl<'a> SsaTapeBuilder<'a> {
     fn new(t: &'a Scheduled) -> Self {
         Self {
             iter: t.tape.iter(),
@@ -765,7 +757,7 @@ impl<'a> TapeBuilder<'a> {
     }
 
     fn step(&mut self, node: NodeIndex, op: Op) {
-        let index = SsaReg(self.mapping.len().try_into().unwrap());
+        let index: u32 = self.mapping.len().try_into().unwrap();
         let op = match op {
             Op::Var(v) => {
                 let arg = match self.vars.get_by_index(v).unwrap().as_str() {
@@ -775,7 +767,7 @@ impl<'a> TapeBuilder<'a> {
                     _ => panic!(),
                 };
                 self.data.push(arg);
-                self.data.push(index.0);
+                self.data.push(index);
                 Some(ClauseOp64::Input)
             }
             Op::Const(c) => {
@@ -808,21 +800,21 @@ impl<'a> TapeBuilder<'a> {
 
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(rhs.0);
-                        self.data.push(lhs.0);
-                        self.data.push(index.0);
+                        self.data.push(rhs);
+                        self.data.push(lhs);
+                        self.data.push(index);
                         f.0
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
                         self.data.push(imm.to_bits());
-                        self.data.push(arg.0);
-                        self.data.push(index.0);
+                        self.data.push(arg);
+                        self.data.push(index);
                         f.1
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
                         self.data.push(imm.to_bits());
-                        self.data.push(arg.0);
-                        self.data.push(index.0);
+                        self.data.push(arg);
+                        self.data.push(index);
                         f.2
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
@@ -847,21 +839,21 @@ impl<'a> TapeBuilder<'a> {
 
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(rhs.0);
-                        self.data.push(lhs.0);
-                        self.data.push(index.0);
+                        self.data.push(rhs);
+                        self.data.push(lhs);
+                        self.data.push(index);
                         f.0
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
                         self.data.push(imm.to_bits());
-                        self.data.push(arg.0);
-                        self.data.push(index.0);
+                        self.data.push(arg);
+                        self.data.push(index);
                         f.1
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
                         self.data.push(imm.to_bits());
-                        self.data.push(arg.0);
-                        self.data.push(index.0);
+                        self.data.push(arg);
+                        self.data.push(index);
                         f.1
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
@@ -884,8 +876,8 @@ impl<'a> TapeBuilder<'a> {
                     UnaryOpcode::Sqrt => ClauseOp64::SqrtReg,
                     UnaryOpcode::Square => ClauseOp64::SquareReg,
                 };
-                self.data.push(lhs.0);
-                self.data.push(index.0);
+                self.data.push(lhs);
+                self.data.push(index);
                 Some(op)
             }
         };
@@ -901,12 +893,12 @@ impl<'a> TapeBuilder<'a> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Workspace to evaluate a tape
-pub struct TapeEval<'a> {
-    tape: &'a Tape,
+pub struct SsaTapeEval<'a> {
+    tape: &'a SsaTape,
     slots: Vec<f32>,
 }
 
-impl<'a> TapeEval<'a> {
+impl<'a> SsaTapeEval<'a> {
     fn v(&self, i: u32) -> f32 {
         self.slots[i as usize]
     }
