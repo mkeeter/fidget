@@ -27,7 +27,9 @@ const IMM_REG: u8 = 6;
 /// register below `OFFSET` (which is "negative" from the perspective of this
 /// function).
 fn reg(r: u8) -> u32 {
-    r.wrapping_add(OFFSET) as u32
+    let out = r.wrapping_add(OFFSET) as u32;
+    assert!(out < 32);
+    out
 }
 
 const CHOICE_LEFT: u32 = Choice::Left as u32;
@@ -38,7 +40,6 @@ trait AssemblerT {
     fn init() -> Self;
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
-    fn build_swap(&mut self, reg: u8, mem: u32);
 
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8);
@@ -133,18 +134,6 @@ impl AssemblerT for FloatAssembler {
         let sp_offset = self.0.check_stack(dst_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
-    }
-    /// Swaps a register and memory location, using S4 as an imtermediary
-    fn build_swap(&mut self, r: u8, mem: u32) {
-        assert!(mem >= REGISTER_LIMIT as u32);
-        assert!(r < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(mem);
-        assert!(sp_offset <= 16384);
-        dynasm!(self.0.ops
-            ; fmov s4, S(reg(r))
-            ; ldr S(reg(r)), [sp, #(sp_offset)]
-            ; str s4, [sp, #(sp_offset)]
-        );
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
@@ -308,17 +297,6 @@ impl AssemblerT for IntervalAssembler {
         let sp_offset = self.0.check_stack(dst_mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
-    }
-    /// Swaps a register and memory location, using S4 as an intermediary
-    fn build_swap(&mut self, r: u8, mem: u32) {
-        assert!(r < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(mem);
-        assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops
-            ; fmov d4, D(reg(r))
-            ; ldr D(reg(r)), [sp, #(sp_offset)]
-            ; str d4, [sp, #(sp_offset)]
-        );
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
@@ -697,18 +675,6 @@ impl AssemblerT for VecAssembler {
                 ; stp D(reg(src_reg)), d4, [sp, #(sp_offset)]
             )
         }
-    }
-    /// Swaps a register and memory location, using D4 and D5 as intermediaries
-    fn build_swap(&mut self, r: u8, mem: u32) {
-        assert!(r < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(mem);
-        dynasm!(self.0.ops
-            ; mov v4.b16, V(reg(r)).b16
-            ; ldp D(reg(r)), d5, [sp, #(sp_offset)]
-            ; mov V(reg(r)).d[1], v5.d[0]
-            ; mov v5.d[0], v4.d[1]
-            ; stp d4, d5, [sp, #(sp_offset)]
-        );
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {

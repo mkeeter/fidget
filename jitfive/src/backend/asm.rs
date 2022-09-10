@@ -136,7 +136,7 @@ impl<'a> AsmEval<'a> {
                     *self.v(out) = self.slots[mem as usize];
                 }
                 Store(out, mem) => {
-                    if mem as usize > self.slots.len() {
+                    if mem as usize >= self.slots.len() {
                         self.slots.resize(mem as usize + 1, std::f32::NAN);
                     }
                     self.slots[mem as usize] = *self.v(out);

@@ -86,7 +86,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape64::Tape::new(&scheduled);
+                let tape = jitfive::backend::tape64::Tape::new_with_reg_limit(
+                    &scheduled, 24,
+                );
                 let jit = jitfive::backend::dynasm::build_vec_fn_64(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());

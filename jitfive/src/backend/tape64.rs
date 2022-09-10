@@ -439,7 +439,7 @@ impl SsaTape {
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        assert_eq!(ops_out.len(), alloc.out.len());
+        assert!(ops_out.len() <= alloc.out.len());
 
         (
             SsaTape {
