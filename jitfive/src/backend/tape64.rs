@@ -991,7 +991,7 @@ mod tests {
         let min = ctx.min(sum, y).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.get_evaluator();
+        let mut eval = tape.ssa.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
         assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
@@ -1006,17 +1006,17 @@ mod tests {
 
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.get_evaluator();
+        let mut eval = tape.ssa.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.0.get_evaluator();
+        let mut eval = t.ssa.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.0.get_evaluator();
+        let mut eval = t.ssa.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
@@ -1024,17 +1024,17 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.get_evaluator();
+        let mut eval = tape.ssa.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.0.get_evaluator();
+        let mut eval = t.ssa.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.0.get_evaluator();
+        let mut eval = t.ssa.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
     }
