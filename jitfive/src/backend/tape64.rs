@@ -637,6 +637,7 @@ impl SsaTapeAllocator {
 
         let out = self.get_register(out);
         self.release(out);
+        let pos = self.out.len();
 
         let arg = self.get_register(arg);
 
@@ -649,7 +650,7 @@ impl SsaTapeAllocator {
             ClauseOp64::CopyReg => AsmOp::CopyReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, arg));
+        self.out.insert(pos, op(out, arg));
     }
 
     fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: ClauseOp64) {
@@ -657,6 +658,7 @@ impl SsaTapeAllocator {
 
         let out = self.get_register(out);
         self.release(out);
+        let pos = self.out.len();
 
         let lhs = self.get_register(lhs);
         let rhs = self.get_register(rhs);
@@ -668,7 +670,7 @@ impl SsaTapeAllocator {
             ClauseOp64::MaxRegReg => AsmOp::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, lhs, rhs));
+        self.out.insert(pos, op(out, lhs, rhs));
     }
 
     fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: ClauseOp64) {
@@ -676,6 +678,7 @@ impl SsaTapeAllocator {
 
         let out = self.get_register(out);
         self.release(out);
+        let pos = self.out.len();
 
         let arg = self.get_register(arg);
         let op: fn(u8, u8, f32) -> AsmOp = match op {
@@ -687,7 +690,7 @@ impl SsaTapeAllocator {
             ClauseOp64::MaxRegImm => AsmOp::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, arg, imm));
+        self.out.insert(pos, op(out, arg, imm));
     }
 
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
@@ -695,8 +698,9 @@ impl SsaTapeAllocator {
 
         let out = self.get_register(out);
         self.release(out);
+        let pos = self.out.len();
 
-        self.out.push(AsmOp::CopyImm(out, imm));
+        self.out.insert(pos, AsmOp::CopyImm(out, imm));
     }
 
     fn op_input(&mut self, out: u32, i: u8) {
@@ -704,8 +708,9 @@ impl SsaTapeAllocator {
 
         let out = self.get_register(out);
         self.release(out);
+        let pos = self.out.len();
 
-        self.out.push(AsmOp::Input(out, i));
+        self.out.insert(pos, AsmOp::Input(out, i));
     }
 }
 
