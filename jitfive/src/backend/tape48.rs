@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::scheduled::Scheduled;
 use crate::{
     backend::{
+        asm::AsmOp,
         common::{Choice, NodeIndex, Op, Simplify, VarIndex},
-        dynasm::AsmOp,
     },
     op::{BinaryOpcode, UnaryOpcode},
     util::indexed::IndexMap,

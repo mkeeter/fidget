@@ -4,58 +4,10 @@ use dynasmrt::{
 };
 
 use crate::backend::{
+    asm::AsmOp,
     common::{Choice, Simplify},
     tape48::{Tape as Tape48, TapeAllocator},
 };
-
-/// Operation that can be passed directly to the assembler
-///
-/// This is analagous to the `ClauseOp` family, but assumes relative addressing
-/// and a maximum of 256 registers (and hence includes `Load` and `Store`
-/// operations).
-///
-/// Arguments, in order, are
-/// - Output register
-/// - LHS register (or input slot for `Input`)
-/// - RHS register (or immediate for `*Imm`)
-#[derive(Copy, Clone, Debug)]
-pub enum AsmOp {
-    /// Reads one of the inputs (X, Y, Z)
-    Input(u8, u8),
-
-    NegReg(u8, u8),
-    AbsReg(u8, u8),
-    RecipReg(u8, u8),
-    SqrtReg(u8, u8),
-    SquareReg(u8, u8),
-
-    /// Copies the given register
-    CopyReg(u8, u8),
-
-    /// Add a register and an immediate
-    AddRegImm(u8, u8, f32),
-    /// Multiply a register and an immediate
-    MulRegImm(u8, u8, f32),
-    /// Subtract a register from an immediate
-    SubImmReg(u8, u8, f32),
-    /// Subtract an immediate from a register
-    SubRegImm(u8, u8, f32),
-    /// Compute the minimum of a register and an immediate
-    MinRegImm(u8, u8, f32),
-    /// Compute the maximum of a register and an immediate
-    MaxRegImm(u8, u8, f32),
-
-    AddRegReg(u8, u8, u8),
-    MulRegReg(u8, u8, u8),
-    SubRegReg(u8, u8, u8),
-    MinRegReg(u8, u8, u8),
-    MaxRegReg(u8, u8, u8),
-
-    /// Copy an immediate to a register
-    CopyImm(u8, f32),
-    Load(u8, u32),
-    Store(u8, u32),
-}
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: u8 = 24;

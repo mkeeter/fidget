@@ -1,7 +1,7 @@
 use crate::{
     backend::{
+        asm::{AsmEval, AsmOp},
         common::{Choice, NodeIndex, Op, VarIndex},
-        dynasm::AsmOp,
     },
     op::{BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
@@ -74,6 +74,10 @@ impl Tape {
         Self::new_with_reg_limit(s, u8::MAX)
     }
 
+    pub fn get_evaluator(&self) -> AsmEval {
+        AsmEval::new(&self.asm)
+    }
+
     pub fn new_with_reg_limit(s: &Scheduled, reg_limit: u8) -> Self {
         let ssa = SsaTape::new(s);
         let dummy = vec![Choice::Both; ssa.choice_count];
@@ -134,14 +138,6 @@ impl SsaTape {
             tape: builder.tape,
             data: builder.data,
             choice_count: builder.choice_count,
-        }
-    }
-
-    /// Builds an evaluator which takes a (read-only) reference to this tape
-    pub fn get_evaluator(&self) -> SsaTapeEval {
-        SsaTapeEval {
-            tape: self,
-            slots: vec![0.0; self.tape.len()],
         }
     }
 
@@ -517,9 +513,9 @@ impl SsaTapeAllocator {
     ///
     /// We can *always* call this, because we treat memory as unlimited.
     ///
-    /// > If there's one thing I love
-    /// > It's an infinite resource
-    /// > If there's one thing worth loving
+    /// > If there's one thing I love  
+    /// > It's an infinite resource  
+    /// > If there's one thing worth loving  
     /// > It's a surplus of supplies
     fn get_memory(&mut self) -> u32 {
         if let Some(p) = self.spare_memory.pop() {
@@ -871,90 +867,6 @@ impl<'a> SsaTapeBuilder<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Workspace to evaluate a tape
-pub struct SsaTapeEval<'a> {
-    tape: &'a SsaTape,
-    slots: Vec<f32>,
-}
-
-impl<'a> SsaTapeEval<'a> {
-    fn v(&self, i: u32) -> f32 {
-        self.slots[i as usize]
-    }
-    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
-        let mut data = self.tape.data.iter().rev();
-        let mut next = || *data.next().unwrap();
-        for &op in self.tape.tape.iter().rev() {
-            let out = match op {
-                ClauseOp64::Input => match next() {
-                    0 => x,
-                    1 => y,
-                    2 => z,
-                    _ => panic!(),
-                },
-                ClauseOp64::NegReg
-                | ClauseOp64::AbsReg
-                | ClauseOp64::RecipReg
-                | ClauseOp64::SqrtReg
-                | ClauseOp64::CopyReg
-                | ClauseOp64::SquareReg => {
-                    let arg = self.v(next());
-                    match op {
-                        ClauseOp64::NegReg => -arg,
-                        ClauseOp64::AbsReg => arg.abs(),
-                        ClauseOp64::RecipReg => 1.0 / arg,
-                        ClauseOp64::SqrtReg => arg.sqrt(),
-                        ClauseOp64::SquareReg => arg * arg,
-                        ClauseOp64::CopyReg => arg,
-                        _ => unreachable!(),
-                    }
-                }
-
-                ClauseOp64::AddRegReg
-                | ClauseOp64::MulRegReg
-                | ClauseOp64::SubRegReg
-                | ClauseOp64::MinRegReg
-                | ClauseOp64::MaxRegReg => {
-                    let rhs = self.v(next());
-                    let lhs = self.v(next());
-                    match op {
-                        ClauseOp64::AddRegReg => lhs + rhs,
-                        ClauseOp64::MulRegReg => lhs * rhs,
-                        ClauseOp64::SubRegReg => lhs - rhs,
-                        ClauseOp64::MinRegReg => lhs.min(rhs),
-                        ClauseOp64::MaxRegReg => lhs.max(rhs),
-                        _ => unreachable!(),
-                    }
-                }
-
-                ClauseOp64::AddRegImm
-                | ClauseOp64::MulRegImm
-                | ClauseOp64::SubImmReg
-                | ClauseOp64::SubRegImm
-                | ClauseOp64::MinRegImm
-                | ClauseOp64::MaxRegImm => {
-                    let imm = f32::from_bits(next());
-                    let arg = self.v(next());
-                    match op {
-                        ClauseOp64::AddRegImm => arg + imm,
-                        ClauseOp64::MulRegImm => arg * imm,
-                        ClauseOp64::SubImmReg => imm - arg,
-                        ClauseOp64::SubRegImm => arg - imm,
-                        ClauseOp64::MinRegImm => arg.min(imm),
-                        ClauseOp64::MaxRegImm => arg.max(imm),
-                        _ => unreachable!(),
-                    }
-                }
-                ClauseOp64::CopyImm => f32::from_bits(next()),
-            };
-            self.slots[next() as usize] = out;
-        }
-        self.slots[self.tape.data[0] as usize]
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -970,7 +882,7 @@ mod tests {
         let min = ctx.min(sum, y).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.ssa.get_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
         assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
@@ -985,17 +897,17 @@ mod tests {
 
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.ssa.get_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.ssa.get_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.ssa.get_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
 
@@ -1003,17 +915,17 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
         let scheduled = crate::scheduled::schedule(&ctx, min);
         let tape = Tape::new(&scheduled);
-        let mut eval = tape.ssa.get_evaluator();
+        let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.ssa.get_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.ssa.get_evaluator();
+        let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
     }

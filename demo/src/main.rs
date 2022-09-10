@@ -46,10 +46,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = std::fs::File::open(args.filename)?;
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
-    info!(
-        "bla size: {:?}",
-        std::mem::size_of::<jitfive::backend::dynasm::AsmOp>()
-    );
 
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
