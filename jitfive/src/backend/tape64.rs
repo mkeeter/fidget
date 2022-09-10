@@ -1,7 +1,7 @@
 use crate::{
     backend::{
         asm::{AsmEval, AsmOp},
-        common::{Choice, NodeIndex, Op, VarIndex},
+        common::{Choice, NodeIndex, Op, Simplify, VarIndex},
     },
     op::{BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
@@ -64,8 +64,8 @@ pub enum ClauseOp64 {
 /// We keep both because SSA form makes tape shortening easier, while the `asm`
 /// data already has registers assigned.
 pub struct Tape {
-    ssa: SsaTape,
-    asm: Vec<AsmOp>,
+    pub ssa: SsaTape,
+    pub asm: Vec<AsmOp>,
     reg_limit: u8,
 }
 
@@ -88,8 +88,10 @@ impl Tape {
             reg_limit,
         }
     }
+}
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+impl Simplify for Tape {
+    fn simplify(&self, choices: &[Choice]) -> Self {
         let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
         Self {
             ssa,
@@ -132,8 +134,6 @@ impl SsaTape {
     pub fn new(t: &Scheduled) -> Self {
         let mut builder = SsaTapeBuilder::new(t);
         builder.run();
-        builder.tape.reverse();
-        builder.data.reverse();
         Self {
             tape: builder.tape,
             data: builder.data,
@@ -754,6 +754,8 @@ impl<'a> SsaTapeBuilder<'a> {
         while let Some(&(n, op)) = self.iter.next() {
             self.step(n, op);
         }
+        self.tape.reverse();
+        self.data.reverse();
     }
 
     fn step(&mut self, node: NodeIndex, op: Op) {
