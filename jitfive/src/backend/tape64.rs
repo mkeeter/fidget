@@ -646,7 +646,8 @@ impl SsaTapeAllocator {
             ClauseOp64::RecipReg => AsmOp::RecipReg,
             ClauseOp64::SqrtReg => AsmOp::SqrtReg,
             ClauseOp64::SquareReg => AsmOp::SquareReg,
-            _ => panic!(),
+            ClauseOp64::CopyReg => AsmOp::CopyReg,
+            _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, arg));
     }
@@ -665,7 +666,7 @@ impl SsaTapeAllocator {
             ClauseOp64::MulRegReg => AsmOp::MulRegReg,
             ClauseOp64::MinRegReg => AsmOp::MinRegReg,
             ClauseOp64::MaxRegReg => AsmOp::MaxRegReg,
-            _ => panic!(),
+            _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, lhs, rhs));
     }
@@ -684,7 +685,7 @@ impl SsaTapeAllocator {
             ClauseOp64::MulRegImm => AsmOp::MulRegImm,
             ClauseOp64::MinRegImm => AsmOp::MinRegImm,
             ClauseOp64::MaxRegImm => AsmOp::MaxRegImm,
-            _ => panic!(),
+            _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, arg, imm));
     }
@@ -766,7 +767,7 @@ impl<'a> SsaTapeBuilder<'a> {
                     "X" => 0,
                     "Y" => 1,
                     "Z" => 2,
-                    _ => panic!(),
+                    i => panic!("Unexpected input index: {i}"),
                 };
                 self.data.push(arg);
                 self.data.push(index);

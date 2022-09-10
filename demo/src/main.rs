@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Scheduled in {:?}", start.elapsed());
 
             let start = Instant::now();
-            let tape = jitfive::backend::tape48::Tape::new(&scheduled);
+            let tape = jitfive::backend::tape64::Tape::new(&scheduled);
             info!("Built tape in {:?}", start.elapsed());
 
             let mut eval = tape.get_evaluator();
@@ -86,8 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape48::Tape::new(&scheduled);
-                let jit = jitfive::backend::dynasm::build_vec_fn_48(&tape);
+                let tape = jitfive::backend::tape64::Tape::new(&scheduled);
+                let jit = jitfive::backend::dynasm::build_vec_fn_64(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
                 info!("{:x?}", eval.v([0.0; 4], [0.0; 4], [0.0; 4]));
@@ -107,22 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         out.extend(v.into_iter().map(|v| v <= 0.0));
                     }
                 }
-                /*
-                let jit = jitfive::backend::dynasm::build_float_fn_48(&tape);
-                let eval = jit.get_evaluator();
-                info!("Built JIT function in {:?}", start.elapsed());
-
-                let start = Instant::now();
-                let div = (scale - 1) as f64;
-                for i in 0..scale {
-                    let y = -(-1.0 + 2.0 * (i as f64) / div);
-                    for j in 0..scale {
-                        let x = -1.0 + 2.0 * (j as f64) / div;
-                        let v = eval.f(x as f32, y as f32, 0.0);
-                        out.push(v <= 0.0);
-                    }
-                }
-                */
 
                 // Convert from Vec<bool> to an image
                 let out = out
@@ -134,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape48::Tape::new(&scheduled);
+                let tape = jitfive::backend::tape64::Tape::new(&scheduled);
                 let image = jitfive::render::render(args.size as usize, tape);
                 let out = image
                     .into_iter()

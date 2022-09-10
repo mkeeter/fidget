@@ -1085,7 +1085,7 @@ impl<'a, T> IntervalEval<'a, T> {
                     self.i_subdiv_recurse(x, y, [z_mid, z[1]], subdiv - 1),
                 )
             };
-            [a[0].min(b[0]), a[1].min(b[1])]
+            [a[0].min(b[0]), a[1].max(b[1])]
         }
     }
 }
