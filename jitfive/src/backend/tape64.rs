@@ -209,9 +209,9 @@ impl SsaTape {
                         _ => unreachable!(),
                     };
                     if swap {
-                        println!("${out} = {op} ${arg} {imm}");
-                    } else {
                         println!("${out} = {op} {imm} ${arg}");
+                    } else {
+                        println!("${out} = {op} ${arg} {imm}");
                     }
                 }
                 ClauseOp64::CopyImm => {
