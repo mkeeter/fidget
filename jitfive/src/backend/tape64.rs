@@ -243,6 +243,10 @@ impl SsaTape {
         // The tape is constructed so that the output slot is first
         active[self.data[0] as usize] = Some(count.next().unwrap());
 
+        // We'll also bind the output register to r0 in the allocator
+        let r = alloc.get_register(0);
+        assert_eq!(r, 0);
+
         // Other iterators to consume various arrays in order
         let mut data = self.data.iter();
         let mut choice_iter = choices.iter().rev();
