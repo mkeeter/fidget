@@ -42,7 +42,7 @@ fn dot_color_to_rgb(s: &str) -> &'static str {
         "green" => "#00FF00",
         "goldenrod" => "#DAA520",
         "dodgerblue" => "#1E90FF",
-        s => panic!("Unknown X11 color '{}'", s),
+        s => panic!("Unknown X11 color '{s}'"),
     }
 }
 
