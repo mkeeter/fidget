@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    op::{BinaryChoiceOpcode, BinaryOpcode, GenericOp, UnaryOpcode},
+    op::{BinaryOpcode, GenericOp, UnaryOpcode},
     util::indexed::{define_index, IndexMap, IndexVec},
 };
 
@@ -161,17 +161,6 @@ impl Context {
         self.op_binary_f(a, b, |lhs, rhs| Op::Binary(op, lhs, rhs))
     }
 
-    /// Find or create a [Node] for the given binary choice operation, with
-    /// constant folding.
-    fn op_binary_choice(
-        &mut self,
-        a: Node,
-        b: Node,
-        op: BinaryChoiceOpcode,
-    ) -> Result<Node, Error> {
-        self.op_binary_f(a, b, |lhs, rhs| Op::BinaryChoice(op, lhs, rhs, ()))
-    }
-
     /// Find or create a [Node] for a generic binary operation (represented by a
     /// thunk), with constant folding.
     fn op_binary_f<F>(&mut self, a: Node, b: Node, f: F) -> Result<Node, Error>
@@ -204,17 +193,6 @@ impl Context {
         op: BinaryOpcode,
     ) -> Result<Node, Error> {
         self.op_binary(a.min(b), a.max(b), op)
-    }
-
-    /// Find or create a [Node] for the given commutative choice operation, with
-    /// constant folding; deduplication is encouraged by sorting `a` and `b`.
-    fn op_binary_choice_commutative(
-        &mut self,
-        a: Node,
-        b: Node,
-        op: BinaryChoiceOpcode,
-    ) -> Result<Node, Error> {
-        self.op_binary_choice(a.min(b), a.max(b), op)
     }
 
     /// Builds an addition node
@@ -264,7 +242,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_choice_commutative(a, b, BinaryChoiceOpcode::Min)
+            self.op_binary_commutative(a, b, BinaryOpcode::Min)
         }
     }
     /// Builds an `max` node
@@ -280,7 +258,7 @@ impl Context {
         if a == b {
             Ok(a)
         } else {
-            self.op_binary_choice_commutative(a, b, BinaryChoiceOpcode::Max)
+            self.op_binary_commutative(a, b, BinaryOpcode::Max)
         }
     }
 
@@ -438,14 +416,8 @@ impl Context {
                     BinaryOpcode::Add => a + b,
                     BinaryOpcode::Mul => a * b,
                     BinaryOpcode::Sub => a - b,
-                }
-            }
-            Op::BinaryChoice(op, a, b, _) => {
-                let a = get(*a)?;
-                let b = get(*b)?;
-                match op {
-                    BinaryChoiceOpcode::Min => a.min(b),
-                    BinaryChoiceOpcode::Max => a.max(b),
+                    BinaryOpcode::Min => a.min(b),
+                    BinaryOpcode::Max => a.max(b),
                 }
             }
 

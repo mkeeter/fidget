@@ -3,7 +3,7 @@ use crate::{
         common::{Choice, NodeIndex, Op, VarIndex},
         dynasm::AsmOp,
     },
-    op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+    op::{BinaryOpcode, UnaryOpcode},
     scheduled::Scheduled,
     util::indexed::IndexMap,
 };
@@ -796,6 +796,16 @@ impl<'a> SsaTapeBuilder<'a> {
                         ClauseOp64::SubRegImm,
                         ClauseOp64::SubImmReg,
                     ),
+                    BinaryOpcode::Min => (
+                        ClauseOp64::MinRegReg,
+                        ClauseOp64::MinRegImm,
+                        ClauseOp64::MinRegImm,
+                    ),
+                    BinaryOpcode::Max => (
+                        ClauseOp64::MaxRegReg,
+                        ClauseOp64::MaxRegImm,
+                        ClauseOp64::MaxRegImm,
+                    ),
                 };
 
                 let op = match (lhs, rhs) {
@@ -816,45 +826,6 @@ impl<'a> SsaTapeBuilder<'a> {
                         self.data.push(arg);
                         self.data.push(index);
                         f.2
-                    }
-                    (Location::Immediate(..), Location::Immediate(..)) => {
-                        panic!("Cannot handle f(imm, imm)")
-                    }
-                };
-                Some(op)
-            }
-            Op::BinaryChoice(op, lhs, rhs, ..) => {
-                self.choice_count += 1;
-                let lhs = self.get_allocated_value(lhs);
-                let rhs = self.get_allocated_value(rhs);
-
-                let f = match op {
-                    BinaryChoiceOpcode::Min => {
-                        (ClauseOp64::MinRegReg, ClauseOp64::MinRegImm)
-                    }
-                    BinaryChoiceOpcode::Max => {
-                        (ClauseOp64::MaxRegReg, ClauseOp64::MaxRegImm)
-                    }
-                };
-
-                let op = match (lhs, rhs) {
-                    (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(rhs);
-                        self.data.push(lhs);
-                        self.data.push(index);
-                        f.0
-                    }
-                    (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.data.push(imm.to_bits());
-                        self.data.push(arg);
-                        self.data.push(index);
-                        f.1
-                    }
-                    (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.data.push(imm.to_bits());
-                        self.data.push(arg);
-                        self.data.push(index);
-                        f.1
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")

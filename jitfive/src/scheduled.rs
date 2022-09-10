@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    backend::common::{ChoiceIndex, NodeIndex, Op, VarIndex},
+    backend::common::{NodeIndex, Op, VarIndex},
     context::{Context, Node},
     util::indexed::{IndexMap, IndexVec},
 };
@@ -39,10 +39,6 @@ impl Scheduled {
             match op {
                 Op::Var(..) | Op::Const(..) => (),
                 Op::Binary(_op, a, b) => {
-                    last_use[*a] = i;
-                    last_use[*b] = i;
-                }
-                Op::BinaryChoice(_op, a, b, ..) => {
                     last_use[*a] = i;
                     last_use[*b] = i;
                 }
@@ -120,12 +116,6 @@ pub fn schedule(ctx: &Context, root: Node) -> Scheduled {
                 *op,
                 nodes.get_by_value(*lhs).unwrap(),
                 nodes.get_by_value(*rhs).unwrap(),
-            ),
-            CtxOp::BinaryChoice(op, lhs, rhs, _c) => Op::BinaryChoice(
-                *op,
-                nodes.get_by_value(*lhs).unwrap(),
-                nodes.get_by_value(*rhs).unwrap(),
-                ChoiceIndex::from(0),
             ),
             CtxOp::Const(i) => Op::Const(i.0),
             CtxOp::Var(v) => Op::Var(

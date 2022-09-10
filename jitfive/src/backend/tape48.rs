@@ -6,7 +6,7 @@ use crate::{
         common::{Choice, NodeIndex, Op, Simplify, VarIndex},
         dynasm::AsmOp,
     },
-    op::{BinaryChoiceOpcode, BinaryOpcode, UnaryOpcode},
+    op::{BinaryOpcode, UnaryOpcode},
     util::indexed::IndexMap,
 };
 
@@ -472,6 +472,16 @@ impl<'a> TapeBuilder<'a> {
                         ClauseOp48::SubRegImm,
                         ClauseOp48::SubImmReg,
                     ),
+                    BinaryOpcode::Min => (
+                        ClauseOp48::MinRegReg,
+                        ClauseOp48::MinRegImm,
+                        ClauseOp48::MinRegImm,
+                    ),
+                    BinaryOpcode::Max => (
+                        ClauseOp48::MaxRegReg,
+                        ClauseOp48::MaxRegImm,
+                        ClauseOp48::MaxRegImm,
+                    ),
                 };
 
                 match (lhs, rhs) {
@@ -487,37 +497,6 @@ impl<'a> TapeBuilder<'a> {
                     (Location::Immediate(imm), Location::Register(arg)) => {
                         self.last_used[arg as usize] = index;
                         f.2(arg, imm)
-                    }
-                    (Location::Immediate(..), Location::Immediate(..)) => {
-                        panic!("Cannot handle f(imm, imm)")
-                    }
-                }
-            }
-            Op::BinaryChoice(op, lhs, rhs, ..) => {
-                self.choice_count += 1;
-                let lhs = self.get_allocated_value(lhs);
-                let rhs = self.get_allocated_value(rhs);
-
-                let f: (RegRegFn, RegImmFn) = match op {
-                    BinaryChoiceOpcode::Min => {
-                        (ClauseOp48::MinRegReg, ClauseOp48::MinRegImm)
-                    }
-                    BinaryChoiceOpcode::Max => {
-                        (ClauseOp48::MaxRegReg, ClauseOp48::MaxRegImm)
-                    }
-                };
-
-                match (lhs, rhs) {
-                    (Location::Register(lhs), Location::Register(rhs)) => {
-                        self.last_used[lhs as usize] = index;
-                        self.last_used[rhs as usize] = index;
-                        f.0(lhs, rhs)
-                    }
-                    (Location::Register(arg), Location::Immediate(imm)) => {
-                        f.1(arg, imm)
-                    }
-                    (Location::Immediate(imm), Location::Register(arg)) => {
-                        f.1(arg, imm)
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")

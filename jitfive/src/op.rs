@@ -16,10 +16,6 @@ pub enum BinaryOpcode {
     Add,
     Mul,
     Sub,
-}
-
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum BinaryChoiceOpcode {
     Min,
     Max,
 }
@@ -33,11 +29,10 @@ pub enum BinaryChoiceOpcode {
 /// - `C` is a choice index type attached to each min/max node (which can be
 ///   empty at certain points in the pipeline)
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum GenericOp<V, F, N, C = ()> {
+pub enum GenericOp<V, F, N> {
     Var(V),
     Const(F),
     Binary(BinaryOpcode, N, N),
-    BinaryChoice(BinaryChoiceOpcode, N, N, C),
     Unary(UnaryOpcode, N),
 }
 
@@ -51,12 +46,14 @@ fn dot_color_to_rgb(s: &str) -> &'static str {
     }
 }
 
-impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
+impl<V, F, N: Copy> GenericOp<V, F, N> {
     pub fn dot_node_color(&self) -> &str {
         match self {
             GenericOp::Const(..) => "green",
             GenericOp::Var(..) => "red",
-            GenericOp::BinaryChoice(..) => "dodgerblue",
+            GenericOp::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..) => {
+                "dodgerblue"
+            }
             GenericOp::Binary(..) | GenericOp::Unary(..) => "goldenrod",
         }
     }
@@ -64,16 +61,13 @@ impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
         match self {
             GenericOp::Const(..) => "oval",
             GenericOp::Var(..) => "circle",
-            GenericOp::Binary(..)
-            | GenericOp::Unary(..)
-            | GenericOp::BinaryChoice(..) => "box",
+            GenericOp::Binary(..) | GenericOp::Unary(..) => "box",
         }
     }
 
     pub fn iter_children(&self) -> impl Iterator<Item = N> {
         let out = match self {
-            GenericOp::Binary(_, a, b)
-            | GenericOp::BinaryChoice(_, a, b, _) => [Some(*a), Some(*b)],
+            GenericOp::Binary(_, a, b) => [Some(*a), Some(*b)],
             GenericOp::Unary(_, a) => [Some(*a), None],
             GenericOp::Var(..) | GenericOp::Const(..) => [None, None],
         };
@@ -81,7 +75,7 @@ impl<V, F, N: Copy, C> GenericOp<V, F, N, C> {
     }
 }
 
-impl<V, F, N: Copy, C> GenericOp<V, F, N, C>
+impl<V, F, N: Copy> GenericOp<V, F, N>
 where
     usize: From<N> + From<V>,
     V: Eq + std::hash::Hash + Copy + From<usize>,
@@ -99,10 +93,8 @@ where
                 BinaryOpcode::Add => out += "add",
                 BinaryOpcode::Mul => out += "mul",
                 BinaryOpcode::Sub => out += "sub",
-            },
-            GenericOp::BinaryChoice(op, ..) => match op {
-                BinaryChoiceOpcode::Min => out += "min",
-                BinaryChoiceOpcode::Max => out += "max",
+                BinaryOpcode::Min => out += "min",
+                BinaryOpcode::Max => out += "max",
             },
             GenericOp::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
