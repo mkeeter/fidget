@@ -484,6 +484,10 @@ impl<'a> TapeBuilder<'a> {
                     ),
                 };
 
+                if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
+                    self.choice_count += 1;
+                }
+
                 match (lhs, rhs) {
                     (Location::Register(lhs), Location::Register(rhs)) => {
                         self.last_used[lhs as usize] = index;

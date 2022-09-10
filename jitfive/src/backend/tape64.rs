@@ -808,6 +808,10 @@ impl<'a> SsaTapeBuilder<'a> {
                     ),
                 };
 
+                if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
+                    self.choice_count += 1;
+                }
+
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
                         self.data.push(rhs);
