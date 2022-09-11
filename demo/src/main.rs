@@ -125,7 +125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
                 let tape = jitfive::backend::tape64::Tape::new_with_reg_limit(
-                    &scheduled, 24,
+                    &scheduled,
+                    jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
                 let image = jitfive::render::render(args.size as usize, tape);
                 let out = image
