@@ -632,7 +632,7 @@ impl SsaTapeAllocator {
     }
 
     fn bind_register(&mut self, n: u32, reg: u8) {
-        assert!(self.allocations[n as usize] == u32::MAX);
+        assert!(self.allocations[n as usize] >= self.reg_limit as u32);
         assert!(self.registers[reg as usize] == u32::MAX);
 
         // Bind the register and update its use time
