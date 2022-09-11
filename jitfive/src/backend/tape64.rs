@@ -252,7 +252,6 @@ impl SsaTape {
         let mut data_out = vec![];
 
         for &op in self.tape.iter() {
-            let bla_len = alloc.out.len();
             use ClauseOp64::*;
             let index = *data.next().unwrap();
             if active[index as usize].is_none() {

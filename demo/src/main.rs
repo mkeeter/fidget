@@ -128,7 +128,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
-                let image = jitfive::render::render(args.size as usize, tape);
+                for _ in 0..99 {
+                    jitfive::render::render(args.size as usize, &tape);
+                }
+                let image = jitfive::render::render(args.size as usize, &tape);
                 let out = image
                     .into_iter()
                     .flat_map(|p| p.as_color().into_iter())
@@ -157,7 +160,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect();
             (out, start)
         };
-        info!("Finished rendering in {:?}", start.elapsed());
+        info!(
+            "Finished rendering in {:?}",
+            start.elapsed().as_micros() as f64 / 1000.0 / 100.0
+        );
 
         image::save_buffer(
             img,

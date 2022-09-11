@@ -52,7 +52,7 @@ struct Renderer {
 /// - 64x64 intervals
 /// - 8x8 intervals
 /// - 8x8 pixels
-pub fn render(size: usize, tape: Tape) -> Vec<Pixel> {
+pub fn render(size: usize, tape: &Tape) -> Vec<Pixel> {
     assert_eq!(size % TILE_SIZE, 0);
     let mut r = Renderer {
         size,
