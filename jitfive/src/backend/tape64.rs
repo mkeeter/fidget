@@ -80,7 +80,6 @@ impl Tape {
 
     pub fn new_with_reg_limit(s: &Scheduled, reg_limit: u8) -> Self {
         let ssa = SsaTape::new(s);
-        ssa.pretty_print();
         let dummy = vec![Choice::Both; ssa.choice_count];
         let (ssa, asm) = ssa.simplify(&dummy, reg_limit);
         Self {
@@ -439,13 +438,6 @@ impl SsaTape {
                     alloc.op_reg_imm(new_index, arg, f32::from_bits(imm), op);
                 }
             }
-            for a in alloc.out[bla_len..].iter() {
-                println!("{a:?}");
-            }
-            println!("spares: {:?}", alloc.spare_registers);
-            println!("regs: {:?}", alloc.registers);
-            println!("lru: {:?}", alloc.register_lru);
-            println!("-------------");
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
