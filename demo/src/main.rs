@@ -122,12 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect();
                 (out, start)
             } else {
-                let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
                 let tape = jitfive::backend::tape64::Tape::new_with_reg_limit(
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
+                let start = Instant::now();
                 for _ in 0..99 {
                     jitfive::render::render(args.size as usize, &tape);
                 }
