@@ -43,8 +43,17 @@ pub enum AsmOp {
 
     /// Copy an immediate to a register
     CopyImm(u8, f32),
-    Load(u8, u32),
-    Store(u8, u32),
+    Load(u8, u32, Dbg),
+    Store(u8, u32, Dbg),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Dbg {
+    ArgInMemNoSpareReg,
+    ArgUnallocNoSpareReg,
+    ArgInMemSpareReg,
+    OutInMemSpareReg,
+    OutInMemNoSpareReg,
 }
 
 /// Evaluator for a slice of [`AsmOp`]
@@ -132,10 +141,10 @@ impl<'a> AsmEval<'a> {
                 CopyImm(out, imm) => {
                     *self.v(out) = imm;
                 }
-                Load(out, mem) => {
+                Load(out, mem, _) => {
                     *self.v(out) = self.slots[mem as usize];
                 }
-                Store(out, mem) => {
+                Store(out, mem, _) => {
                     if mem as usize >= self.slots.len() {
                         self.slots.resize(mem as usize + 1, std::f32::NAN);
                     }

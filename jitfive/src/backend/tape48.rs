@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::scheduled::Scheduled;
 use crate::{
     backend::{
-        asm::AsmOp,
+        asm::{AsmOp, Dbg},
         common::{Choice, NodeIndex, Op, Simplify, VarIndex},
     },
     op::{BinaryOpcode, UnaryOpcode},
@@ -721,8 +721,12 @@ pub enum CopyOp {
 impl From<CopyOp> for AsmOp {
     fn from(c: CopyOp) -> Self {
         match c {
-            CopyOp::Load { src, dst } => AsmOp::Load(dst, src),
-            CopyOp::Store { src, dst } => AsmOp::Store(src, dst),
+            CopyOp::Load { src, dst } => {
+                AsmOp::Load(dst, src, Dbg::ArgInMemSpareReg)
+            }
+            CopyOp::Store { src, dst } => {
+                AsmOp::Store(src, dst, Dbg::ArgInMemSpareReg)
+            }
         }
     }
 }

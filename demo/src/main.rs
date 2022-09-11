@@ -94,12 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
                 let mut eval_trad = tape.get_evaluator();
-                for a in eval_trad.tape.iter().rev() {
-                    println!("{:?}", a);
-                }
-                info!("trad: {:x?}", eval_trad.f(1.0, 2.0, 0.0));
-                info!("asm:  {:x?}", eval.v([1.0; 4], [2.0; 4], [0.0; 4]));
-                info!("ctx:  {:x?}", ctx.eval_xyz(root, 1.0, 2.0, 0.0)?);
+                info!("trad: {:x?}", eval_trad.f(0.2, 0.4, 0.0));
+                info!("asm:  {:x?}", eval.v([0.2; 4], [0.4; 4], [0.0; 4]));
+                info!("ctx:  {:x?}", ctx.eval_xyz(root, 0.2, 0.4, 0.0)?);
 
                 let start = Instant::now();
                 let div = (scale - 1) as f64;

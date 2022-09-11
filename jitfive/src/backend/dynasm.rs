@@ -11,7 +11,7 @@ use crate::backend::{
 };
 
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
-pub const REGISTER_LIMIT: u8 = 24;
+pub const REGISTER_LIMIT: u8 = 3;
 const OFFSET: u8 = 8;
 
 /// IMM_REG is selected to avoid scratch registers used by other
@@ -825,10 +825,10 @@ fn build_asm_fn<A: AssemblerT>(
     for op in i {
         use AsmOp::*;
         match op {
-            Load(reg, mem) => {
+            Load(reg, mem, _) => {
                 asm.build_load(reg, mem);
             }
-            Store(reg, mem) => {
+            Store(reg, mem, _) => {
                 asm.build_store(mem, reg);
             }
             Input(out, i) => {

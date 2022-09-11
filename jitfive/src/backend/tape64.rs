@@ -1,6 +1,6 @@
 use crate::{
     backend::{
-        asm::{AsmEval, AsmOp},
+        asm::{AsmEval, AsmOp, Dbg},
         common::{Choice, NodeIndex, Op, Simplify, VarIndex},
     },
     op::{BinaryOpcode, UnaryOpcode},
@@ -80,6 +80,7 @@ impl Tape {
 
     pub fn new_with_reg_limit(s: &Scheduled, reg_limit: u8) -> Self {
         let ssa = SsaTape::new(s);
+        ssa.pretty_print();
         let dummy = vec![Choice::Both; ssa.choice_count];
         let (ssa, asm) = ssa.simplify(&dummy, reg_limit);
         Self {
@@ -252,6 +253,7 @@ impl SsaTape {
         let mut data_out = vec![];
 
         for &op in self.tape.iter() {
+            let bla_len = alloc.out.len();
             use ClauseOp64::*;
             let index = *data.next().unwrap();
             if active[index as usize].is_none() {
@@ -437,6 +439,11 @@ impl SsaTape {
                     alloc.op_reg_imm(new_index, arg, f32::from_bits(imm), op);
                 }
             }
+            for a in alloc.out[bla_len..].iter().rev() {
+                println!("{a:?}");
+            }
+            println!("spares: {:?}", alloc.spare_registers);
+            println!("-------------");
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
@@ -451,6 +458,15 @@ impl SsaTape {
             alloc.out,
         )
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Copy, Clone, Debug)]
+enum Allocation {
+    Register(u8),
+    Memory(u32),
+    Unassigned,
 }
 
 struct SsaTapeAllocator {
@@ -491,7 +507,7 @@ struct SsaTapeAllocator {
     /// Output slots, assembled in reverse order
     out: Vec<AsmOp>,
 
-    wip: Option<AsmOp>,
+    wip: Vec<AsmOp>,
 }
 
 impl SsaTapeAllocator {
@@ -509,7 +525,7 @@ impl SsaTapeAllocator {
 
             total_slots: 0,
             out: vec![],
-            wip: None,
+            wip: vec![],
         }
     }
 
@@ -582,17 +598,17 @@ impl SsaTapeAllocator {
         let slot = self.get_allocation(n);
         if slot < self.reg_limit as u32 {
             // Slot is already allocated and is a register
+            assert!(self.registers[slot as usize] == n);
             self.register_lru[slot as usize] = self.time;
             self.time += 1;
             slot as u8
         } else if slot != u32::MAX {
             // This node is briefly unallocated
-            self.allocations[n as usize] = u32::MAX;
-            self.spare_memory.push(slot);
             let reg = if let Some(reg) = self.get_spare_register() {
                 // Slot is in memory, and a spare register is available
                 assert_eq!(self.registers[reg as usize], u32::MAX);
-                self.wip = Some(AsmOp::Store(reg, slot));
+                self.out
+                    .push(AsmOp::Store(reg, slot, Dbg::ArgInMemSpareReg));
                 reg
             } else {
                 // Slot is in memory, and no spare register is available
@@ -605,14 +621,18 @@ impl SsaTapeAllocator {
                 let prev_node = self.registers[reg as usize];
                 self.allocations[prev_node as usize] = mem;
 
-                // This register is now unassigned
+                // This register is now unassigned (and will be bound
+                // momentarily)
                 self.registers[reg as usize] = u32::MAX;
 
-                self.wip = Some(AsmOp::Store(reg, slot));
-                self.out.push(AsmOp::Load(reg, mem));
+                self.wip
+                    .push(AsmOp::Store(reg, slot, Dbg::ArgInMemNoSpareReg));
+                self.out
+                    .push(AsmOp::Load(reg, mem, Dbg::ArgInMemNoSpareReg));
                 reg
             };
             // Rebind the node to the register
+            self.release_mem(n, slot);
             self.bind_register(n, reg);
             reg
         } else {
@@ -634,7 +654,8 @@ impl SsaTapeAllocator {
                 // This register is now unassigned
                 self.registers[reg as usize] = u32::MAX;
 
-                self.out.push(AsmOp::Load(reg, mem));
+                self.wip
+                    .push(AsmOp::Load(reg, mem, Dbg::ArgUnallocNoSpareReg));
                 reg
             };
             // Bind the node to the register
@@ -646,19 +667,20 @@ impl SsaTapeAllocator {
     fn get_out_register(&mut self, n: u32) -> u8 {
         // Find the current allocation of this node, if present
         let slot = self.get_allocation(n);
+        assert!(slot != u32::MAX);
         if slot < self.reg_limit as u32 {
             // Slot is already allocated and is a register
+            assert!(self.registers[slot as usize] == n);
             self.register_lru[slot as usize] = self.time;
             self.time += 1;
             slot as u8
-        } else if slot != u32::MAX {
+        } else {
             // This node is briefly unallocated
-            self.allocations[n as usize] = u32::MAX;
-            self.spare_memory.push(slot);
             let reg = if let Some(reg) = self.get_spare_register() {
                 // Slot is in memory, and a spare register is available
                 assert_eq!(self.registers[reg as usize], u32::MAX);
-                self.out.push(AsmOp::Store(reg, slot));
+                self.out
+                    .push(AsmOp::Store(reg, slot, Dbg::OutInMemSpareReg));
                 reg
             } else {
                 // Slot is in memory, and no spare register is available
@@ -674,15 +696,16 @@ impl SsaTapeAllocator {
                 // This register is now unassigned
                 self.registers[reg as usize] = u32::MAX;
 
-                self.out.push(AsmOp::Store(reg, slot));
-                self.out.push(AsmOp::Load(reg, mem));
+                self.out
+                    .push(AsmOp::Store(reg, slot, Dbg::OutInMemNoSpareReg));
+                self.out
+                    .push(AsmOp::Load(reg, mem, Dbg::OutInMemNoSpareReg));
                 reg
             };
             // Rebind the node to the register
+            self.release_mem(n, slot);
             self.bind_register(n, reg);
             reg
-        } else {
-            panic!()
         }
     }
 
@@ -698,7 +721,7 @@ impl SsaTapeAllocator {
     }
 
     /// Release a register back to the pool of spares
-    fn release(&mut self, reg: u8) {
+    fn release_reg(&mut self, reg: u8) {
         // Release the output register, so it could be used for inputs
         assert!(reg < self.reg_limit);
 
@@ -712,6 +735,53 @@ impl SsaTapeAllocator {
         self.allocations[node as usize] = u32::MAX;
     }
 
+    fn release_mem(&mut self, node: u32, mem: u32) {
+        assert!(mem >= self.reg_limit as u32);
+        self.allocations[node as usize] = u32::MAX;
+        self.spare_memory.push(mem);
+    }
+
+    /// Builds an operation that uses a single register.
+    ///
+    /// When we enter this function, the output can be assigned to either a
+    /// register or memory, and the input can be a register, memory, or
+    /// unassigned.  This gives us six unique situations.
+    ///
+    ///   out | arg | what do?
+    ///  ================================================================
+    ///    rX |  rY | rX = op rY
+    ///       |     |
+    ///       |     | Afterwards, rX is free
+    ///  -----|-----|----------------------------------------------------
+    ///    rX |  mY | store rX -> mY
+    ///       |     | rX = op rX
+    ///       |     |
+    ///       |     | Afterward, rX points to the former mY
+    ///  -----|-----|----------------------------------------------------
+    ///    rX |  U  | rX = op rX
+    ///       |     |
+    ///       |     | Afterward, rX points to the arg
+    ///  -----|-----|----------------------------------------------------
+    ///    mX |  rY | rZ = op rY
+    ///       |     | store rZ -> mX
+    ///       |     | load rZ <- m? (if rZ was an eviction)
+    ///       |     |
+    ///       |     | Afterward, m? points to the former rZ; rZ and mX are free
+    ///  -----|-----|----------------------------------------------------
+    ///    mX |  mY | store rZ -> mY
+    ///       |     | rZ = op rZ
+    ///       |     | store rZ -> mX
+    ///       |     | load rZ <- m? (if rZ was an eviction)
+    ///       |     |
+    ///       |     | Afterwards, rZ points to arg and m? points to the
+    ///       |     | former rZ; mX and mY are free
+    ///  -----|-----|----------------------------------------------------
+    ///    mX |  U  | rX = op rX
+    ///       |     | store rX -> mX
+    ///       |     | load rX <- m? (if eviction)
+    ///       |     |
+    ///       |     | Afterwards, rX points to the arg and mX is free
+    ///  -----|-----|----------------------------------------------------
     fn op_reg(&mut self, out: u32, arg: u32, op: ClauseOp64) {
         // The output must be allocated already, since we're walking the tape in
         // reverse.  However, it may be in a memory slot, so we might need to
@@ -719,7 +789,7 @@ impl SsaTapeAllocator {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_out_register(out);
-        self.release(out);
+        self.release_reg(out);
 
         let arg = self.get_arg_register(arg);
 
@@ -733,14 +803,14 @@ impl SsaTapeAllocator {
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, arg));
-        self.out.extend(self.wip.take());
+        self.out.append(&mut self.wip);
     }
 
     fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: ClauseOp64) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_out_register(out);
-        self.release(out);
+        self.release_reg(out);
 
         let lhs = self.get_arg_register(lhs);
         let rhs = self.get_arg_register(rhs);
@@ -753,14 +823,14 @@ impl SsaTapeAllocator {
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, lhs, rhs));
-        self.out.extend(self.wip.take());
+        self.out.append(&mut self.wip);
     }
 
     fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: ClauseOp64) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_out_register(out);
-        self.release(out);
+        self.release_reg(out);
 
         let arg = self.get_arg_register(arg);
         let op: fn(u8, u8, f32) -> AsmOp = match op {
@@ -773,27 +843,27 @@ impl SsaTapeAllocator {
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.out.push(op(out, arg, imm));
-        self.out.extend(self.wip.take());
+        self.out.append(&mut self.wip);
     }
 
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_out_register(out);
-        self.release(out);
+        self.release_reg(out);
 
         self.out.push(AsmOp::CopyImm(out, imm));
-        self.out.extend(self.wip.take());
+        self.out.append(&mut self.wip);
     }
 
     fn op_input(&mut self, out: u32, i: u8) {
         assert!(self.get_allocation(out) != u32::MAX);
 
         let out = self.get_out_register(out);
-        self.release(out);
+        self.release_reg(out);
 
         self.out.push(AsmOp::Input(out, i));
-        self.out.extend(self.wip.take());
+        self.out.append(&mut self.wip);
     }
 }
 
