@@ -1,6 +1,6 @@
 use crate::{
     backend::{
-        asm::{AsmEval, AsmOp, Dbg},
+        asm::{AsmEval, AsmOp},
         common::{Choice, NodeIndex, Op, Simplify, VarIndex},
     },
     op::{BinaryOpcode, UnaryOpcode},
@@ -439,7 +439,7 @@ impl SsaTape {
                     alloc.op_reg_imm(new_index, arg, f32::from_bits(imm), op);
                 }
             }
-            for a in alloc.out[bla_len..].iter().rev() {
+            for a in alloc.out[bla_len..].iter() {
                 println!("{a:?}");
             }
             println!("spares: {:?}", alloc.spare_registers);
@@ -506,8 +506,6 @@ struct SsaTapeAllocator {
 
     /// Output slots, assembled in reverse order
     out: Vec<AsmOp>,
-
-    wip: Vec<AsmOp>,
 }
 
 impl SsaTapeAllocator {
@@ -525,7 +523,6 @@ impl SsaTapeAllocator {
 
             total_slots: 0,
             out: vec![],
-            wip: vec![],
         }
     }
 
@@ -563,11 +560,17 @@ impl SsaTapeAllocator {
 
     /// Returns the slot allocated to the given node in the globally indexed
     /// tape, or `u32::MAX` if unassigned.
-    fn get_allocation(&mut self, n: u32) -> u32 {
+    fn get_allocation(&mut self, n: u32) -> Allocation {
         if n as usize >= self.allocations.len() {
             self.allocations.resize(n as usize + 1, u32::MAX);
+            Allocation::Unassigned
+        } else {
+            match self.allocations[n as usize] {
+                i if i < self.reg_limit as u32 => Allocation::Register(i as u8),
+                u32::MAX => Allocation::Unassigned,
+                i => Allocation::Memory(i),
+            }
         }
-        self.allocations[n as usize]
     }
 
     /// Return an unoccupied register, if available
@@ -584,129 +587,44 @@ impl SsaTapeAllocator {
         })
     }
 
-    /// Attempt to get a register for the given node (which is an index into the
-    /// globally-allocated tape).
-    ///
-    /// This happens to work if a node is unassigned, because at that point, it
-    /// will be allocated to `usize::MAX`, which looks like a (very far away)
-    /// slot in memory.
-    ///
-    /// If there are no free registers, then this function will move a register
-    /// into memory, adjusting the allocations table accordingly.
-    fn get_arg_register(&mut self, n: u32) -> u8 {
-        // Find the current allocation of this node, if present
-        let slot = self.get_allocation(n);
-        if slot < self.reg_limit as u32 {
-            // Slot is already allocated and is a register
-            assert!(self.registers[slot as usize] == n);
-            self.register_lru[slot as usize] = self.time;
-            self.time += 1;
-            slot as u8
-        } else if slot != u32::MAX {
-            // This node is briefly unallocated
-            let reg = if let Some(reg) = self.get_spare_register() {
-                // Slot is in memory, and a spare register is available
-                assert_eq!(self.registers[reg as usize], u32::MAX);
-                self.out
-                    .push(AsmOp::Store(reg, slot, Dbg::ArgInMemSpareReg));
-                reg
-            } else {
-                // Slot is in memory, and no spare register is available
-                let reg = self.oldest_reg();
-
-                // Here's where it will go:
-                let mem = self.get_memory();
-
-                // Whoever was previously using you is in for a surprise
-                let prev_node = self.registers[reg as usize];
-                self.allocations[prev_node as usize] = mem;
-
-                // This register is now unassigned (and will be bound
-                // momentarily)
-                self.registers[reg as usize] = u32::MAX;
-
-                self.wip
-                    .push(AsmOp::Store(reg, slot, Dbg::ArgInMemNoSpareReg));
-                self.out
-                    .push(AsmOp::Load(reg, mem, Dbg::ArgInMemNoSpareReg));
-                reg
-            };
-            // Rebind the node to the register
-            self.release_mem(n, slot);
-            self.bind_register(n, reg);
+    fn get_register(&mut self) -> u8 {
+        if let Some(reg) = self.get_spare_register() {
+            assert_eq!(self.registers[reg as usize], u32::MAX);
             reg
         } else {
-            let reg = if let Some(reg) = self.get_spare_register() {
-                // Slot is unallocated, and a spare register is available
-                assert_eq!(self.registers[reg as usize], u32::MAX);
-                reg
-            } else {
-                // Slot is unallocated, and no spare register is available
-                let reg = self.oldest_reg();
+            // Slot is in memory, and no spare register is available
+            let reg = self.oldest_reg();
 
-                // Here's where it will go:
-                let mem = self.get_memory();
+            // Here's where it will go:
+            let mem = self.get_memory();
 
-                // Whoever was previously using you is in for a surprise
-                let prev_node = self.registers[reg as usize];
-                self.allocations[prev_node as usize] = mem;
+            // Whoever was previously using you is in for a surprise
+            let prev_node = self.registers[reg as usize];
+            self.allocations[prev_node as usize] = mem;
 
-                // This register is now unassigned
-                self.registers[reg as usize] = u32::MAX;
+            // This register is now unassigned
+            self.registers[reg as usize] = u32::MAX;
 
-                self.wip
-                    .push(AsmOp::Load(reg, mem, Dbg::ArgUnallocNoSpareReg));
-                reg
-            };
-            // Bind the node to the register
-            self.bind_register(n, reg);
+            self.out.push(AsmOp::Load(reg, mem, line!()));
             reg
         }
     }
 
-    fn get_out_register(&mut self, n: u32) -> u8 {
-        // Find the current allocation of this node, if present
-        let slot = self.get_allocation(n);
-        assert!(slot != u32::MAX);
-        if slot < self.reg_limit as u32 {
-            // Slot is already allocated and is a register
-            assert!(self.registers[slot as usize] == n);
-            self.register_lru[slot as usize] = self.time;
-            self.time += 1;
-            slot as u8
-        } else {
-            // This node is briefly unallocated
-            let reg = if let Some(reg) = self.get_spare_register() {
-                // Slot is in memory, and a spare register is available
-                assert_eq!(self.registers[reg as usize], u32::MAX);
-                self.out
-                    .push(AsmOp::Store(reg, slot, Dbg::OutInMemSpareReg));
-                reg
-            } else {
-                // Slot is in memory, and no spare register is available
-                let reg = self.oldest_reg();
+    fn poke_reg(&mut self, reg: u8) {
+        self.register_lru[reg as usize] = self.time;
+        self.time += 1;
+    }
 
-                // Here's where it will go:
-                let mem = self.get_memory();
+    fn rebind_register(&mut self, n: u32, reg: u8) {
+        assert!(self.allocations[n as usize] >= self.reg_limit as u32);
+        assert!(self.registers[reg as usize] != u32::MAX);
 
-                // Whoever was previously using you is in for a surprise
-                let prev_node = self.registers[reg as usize];
-                self.allocations[prev_node as usize] = mem;
+        let prev_node = self.registers[reg as usize];
+        self.allocations[prev_node as usize] = u32::MAX;
 
-                // This register is now unassigned
-                self.registers[reg as usize] = u32::MAX;
-
-                self.out
-                    .push(AsmOp::Store(reg, slot, Dbg::OutInMemNoSpareReg));
-                self.out
-                    .push(AsmOp::Load(reg, mem, Dbg::OutInMemNoSpareReg));
-                reg
-            };
-            // Rebind the node to the register
-            self.release_mem(n, slot);
-            self.bind_register(n, reg);
-            reg
-        }
+        // Bind the register and update its use time
+        self.registers[reg as usize] = n;
+        self.allocations[n as usize] = reg as u32;
     }
 
     fn bind_register(&mut self, n: u32, reg: u8) {
@@ -716,8 +634,6 @@ impl SsaTapeAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.register_lru[reg as usize] = self.time;
-        self.time += 1;
     }
 
     /// Release a register back to the pool of spares
@@ -735,10 +651,20 @@ impl SsaTapeAllocator {
         self.allocations[node as usize] = u32::MAX;
     }
 
-    fn release_mem(&mut self, node: u32, mem: u32) {
+    fn release_mem(&mut self, mem: u32) {
         assert!(mem >= self.reg_limit as u32);
-        self.allocations[node as usize] = u32::MAX;
         self.spare_memory.push(mem);
+        // This leaves self.allocations[...] stil pointing to the memory slot,
+        // but that's okay, because it should never be used
+    }
+
+    /// Pushes an operation to the tape and pokes its inputs, updating
+    /// their last use time.
+    fn push_op(&mut self, op: AsmOp) {
+        self.out.push(op);
+        for arg in op.iter_arg_regs() {
+            self.poke_reg(arg);
+        }
     }
 
     /// Builds an operation that uses a single register.
@@ -749,50 +675,42 @@ impl SsaTapeAllocator {
     ///
     ///   out | arg | what do?
     ///  ================================================================
-    ///    rX |  rY | rX = op rY
+    ///   r_x | r_y | r_x = op r_y
     ///       |     |
-    ///       |     | Afterwards, rX is free
+    ///       |     | Afterwards, r_x is free
     ///  -----|-----|----------------------------------------------------
-    ///    rX |  mY | store rX -> mY
-    ///       |     | rX = op rX
+    ///   r_x | m_y | store r_x -> m_y
+    ///       |     | r_x = op r_x
     ///       |     |
-    ///       |     | Afterward, rX points to the former mY
+    ///       |     | Afterward, r_x points to the former m_y
     ///  -----|-----|----------------------------------------------------
-    ///    rX |  U  | rX = op rX
+    ///   r_x |  U  | r_x = op r_x
     ///       |     |
-    ///       |     | Afterward, rX points to the arg
+    ///       |     | Afterward, r_x points to the arg
     ///  -----|-----|----------------------------------------------------
-    ///    mX |  rY | rZ = op rY
-    ///       |     | store rZ -> mX
-    ///       |     | load rZ <- m? (if rZ was an eviction)
+    ///   m_x | r_y | r_a = op r_y
+    ///       |     | store r_a -> m_x
+    ///       |     | [load r_a <- m_a]
     ///       |     |
-    ///       |     | Afterward, m? points to the former rZ; rZ and mX are free
+    ///       |     | Afterward, r_a and m_x are free, [m_a points to the former
+    ///       |     | r_a]
     ///  -----|-----|----------------------------------------------------
-    ///    mX |  mY | store rZ -> mY
-    ///       |     | rZ = op rZ
-    ///       |     | store rZ -> mX
-    ///       |     | load rZ <- m? (if rZ was an eviction)
+    ///   m_x | m_y | store r_a -> m_y
+    ///       |     | r_a = op rA
+    ///       |     | store r_a -> m_x
+    ///       |     | [load r_a <- m_a]
     ///       |     |
-    ///       |     | Afterwards, rZ points to arg and m? points to the
-    ///       |     | former rZ; mX and mY are free
+    ///       |     | Afterwards, r_a points to arg, m_x and m_y are free, [and m_a
+    ///       |     | points to the former r_a]
     ///  -----|-----|----------------------------------------------------
-    ///    mX |  U  | rX = op rX
-    ///       |     | store rX -> mX
-    ///       |     | load rX <- m? (if eviction)
+    ///   m_x |  U  | r_a = op rA
+    ///       |     | store r_a -> m_x
+    ///       |     | [load r_a <- m_a]
     ///       |     |
-    ///       |     | Afterwards, rX points to the arg and mX is free
+    ///       |     | Afterwards, r_a points to the arg, m_x is free, [and m_a
+    ///       |     | poitns to the former r_a]
     ///  -----|-----|----------------------------------------------------
     fn op_reg(&mut self, out: u32, arg: u32, op: ClauseOp64) {
-        // The output must be allocated already, since we're walking the tape in
-        // reverse.  However, it may be in a memory slot, so we might need to
-        // free up a register for it.
-        assert!(self.get_allocation(out) != u32::MAX);
-
-        let out = self.get_out_register(out);
-        self.release_reg(out);
-
-        let arg = self.get_arg_register(arg);
-
         let op: fn(u8, u8) -> AsmOp = match op {
             ClauseOp64::NegReg => AsmOp::NegReg,
             ClauseOp64::AbsReg => AsmOp::AbsReg,
@@ -802,18 +720,162 @@ impl SsaTapeAllocator {
             ClauseOp64::CopyReg => AsmOp::CopyReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, arg));
-        self.out.append(&mut self.wip);
+        use Allocation::*;
+        match (self.get_allocation(out), self.get_allocation(arg)) {
+            (Register(r_x), Register(r_y)) => {
+                assert!(r_x != r_y);
+                self.push_op(op(r_x, r_y));
+                self.release_reg(r_x);
+            }
+            (Register(r_x), Memory(m_y)) => {
+                self.push_op(op(r_x, r_x));
+                self.rebind_register(arg, r_x);
+
+                self.out.push(AsmOp::Store(r_x, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Register(r_x), Unassigned) => {
+                self.push_op(op(r_x, r_x));
+                self.rebind_register(arg, r_x);
+            }
+            (Memory(m_x), Register(r_y)) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_y));
+                self.release_reg(r_a);
+            }
+            (Memory(m_x), Memory(m_y)) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a));
+                self.rebind_register(arg, r_a);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Memory(m_x), Unassigned) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a));
+                self.rebind_register(arg, r_a);
+            }
+            (Unassigned, _) => panic!("Cannot have unassigned output"),
+        }
     }
 
+    ///   out | lhs | rhs | what do?
+    ///  ================================================================
+    ///  r_x  | r_y  | r_z  | r_x = op r_y r_z
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_x is free
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | m_y  | r_z  | store r_x -> m_y
+    ///       |      |      | r_x = op r_x r_z
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_x points to the former m_y, and
+    ///       |      |      | m_y is free
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | r_y  | m_z  | ibid
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | m_y  | m_z  | store r_x -> m_y
+    ///       |      |      | store r_a -> m_z
+    ///       |      |      | r_x = op r_x r_a
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_x points to the former m_y, r_a points
+    ///       |      |      | to the former m_z, m_y and m_z are free, [and m_a
+    ///       |      |      | points to the former r_a]
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | U    | r_z  | r_x = op r_x r_z
+    ///       |      |      |
+    ///       |      |      | Afterward, r_x points to the lhs
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | r_y  | U    | ibid
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | U    | U    | rx = op r_x r_a
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterward, r_x points to the lhs, r_a points to the
+    ///       |      |      | rhs, [and m_a points to the former r_a]
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | U    | m_z  | store r_a -> m_z
+    ///       |      |      | r_x = op r_x r_a
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterward, r_x points to the lhs, r_a points to the
+    ///       |      |      | rhs, m_z is free, [and m_a points to the former r_a]
+    ///  -----|------|------|----------------------------------------------
+    ///  r_x  | m_y  | U    | ibid
+    ///  =====|======|======|==============================================
+    ///   m_x | r_y  | r_z  | r_a = op r_y r_z
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a and m_x are free, [m_a points to the
+    ///       |      |      | former r_a}
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x | r_y  | m_z  | store r_a -> m_z
+    ///       |      |      | r_a = op r_y rA
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a points to rhs, m_z and m_x are free,
+    ///       |      |      | [and m_a points to the former r_a]
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x | m_y  | r_z  | ibid
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x | m_y  | m_z  | store r_a -> m_y
+    ///       |      |      | store r_b -> m_z
+    ///       |      |      | r_a = op rA r_b
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      | [load r_b <- m_b]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a points to lhs, r_b points to rhs,
+    ///       |      |      | m_x,m_y, m_z are all free, [m_a points to the former
+    ///       |      |      | r_a], [m_b points to the former r_b]
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x | r_y  | U    | r_a = op r_y rA
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a points to rhs, m_x is free, [m_a
+    ///       |      |      | points to the former r_a]
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x |  U   | r_z  | ibid
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x |  U   | U    | r_a = op rA r_b
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      | [load r_b <- m_b]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a points to lhs, r_b points to rhs,
+    ///       |      |      | m_x is free, [m_a / m_b point to former r_a / r_b]
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x | m_y  | U    | store r_a -> m_y
+    ///       |      |      | r_a = op rA r_b
+    ///       |      |      | store r_a -> m_x
+    ///       |      |      | [load r_a <- m_a]
+    ///       |      |      | [load r_b <- m_b]
+    ///       |      |      |
+    ///       |      |      | Afterwards, r_a points to lhs, r_b points to rhs,
+    ///       |      |      | m_x and m_y are free, [m_a / m_b point to former
+    ///       |      |      | r_a / r_b]
+    ///  -----|------|------|----------------------------------------------
+    ///   m_x  | U   | m_z  | ibid
     fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: ClauseOp64) {
-        assert!(self.get_allocation(out) != u32::MAX);
-
-        let out = self.get_out_register(out);
-        self.release_reg(out);
-
-        let lhs = self.get_arg_register(lhs);
-        let rhs = self.get_arg_register(rhs);
         let op: fn(u8, u8, u8) -> AsmOp = match op {
             ClauseOp64::AddRegReg => AsmOp::AddRegReg,
             ClauseOp64::SubRegReg => AsmOp::SubRegReg,
@@ -822,17 +884,192 @@ impl SsaTapeAllocator {
             ClauseOp64::MaxRegReg => AsmOp::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, lhs, rhs));
-        self.out.append(&mut self.wip);
+        use Allocation::*;
+        match (
+            self.get_allocation(out),
+            self.get_allocation(lhs),
+            self.get_allocation(rhs),
+        ) {
+            (Register(r_x), Register(r_y), Register(r_z)) => {
+                self.push_op(op(r_x, r_y, r_z));
+                self.release_reg(r_x);
+            }
+            (Register(r_x), Memory(m_y), Register(r_z)) => {
+                self.push_op(op(r_x, r_x, r_z));
+                self.rebind_register(lhs, r_x);
+
+                self.push_op(AsmOp::Store(r_x, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Register(r_x), Register(r_y), Memory(m_z)) => {
+                self.push_op(op(r_x, r_y, r_x));
+                self.rebind_register(rhs, r_x);
+
+                self.push_op(AsmOp::Store(r_x, m_z, line!()));
+                self.release_mem(m_z);
+            }
+            (Register(r_x), Memory(m_y), Memory(m_z)) => {
+                let r_a = self.get_register();
+                self.push_op(op(r_x, r_x, r_a));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
+
+                self.push_op(AsmOp::Store(r_x, m_y, line!()));
+                self.release_mem(m_y);
+
+                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.release_mem(m_z);
+            }
+            (Register(r_x), Unassigned, Register(r_z)) => {
+                self.push_op(op(r_x, r_x, r_z));
+                self.rebind_register(lhs, r_x);
+            }
+            (Register(r_x), Register(r_y), Unassigned) => {
+                self.push_op(op(r_x, r_y, r_x));
+                self.rebind_register(rhs, r_x);
+            }
+            (Register(r_x), Unassigned, Unassigned) => {
+                let r_a = self.get_register();
+                self.push_op(op(r_x, r_x, r_a));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
+            }
+            (Register(r_x), Unassigned, Memory(m_z)) => {
+                let r_a = self.get_register();
+                self.push_op(op(r_x, r_x, r_a));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
+
+                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.release_mem(m_z);
+            }
+            (Register(r_x), Memory(m_y), Unassigned) => {
+                let r_a = self.get_register();
+                self.push_op(op(r_x, r_a, r_x));
+                self.bind_register(lhs, r_a);
+                self.rebind_register(rhs, r_x);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.release_mem(m_y);
+            }
+
+            (Memory(m_x), Register(r_y), Register(r_z)) => {
+                let r_a = self.get_register();
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_y, r_z));
+                self.release_reg(r_a);
+            }
+            (Memory(m_x), Register(r_y), Memory(m_z)) => {
+                let r_a = self.get_register();
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_y, r_a));
+                self.rebind_register(rhs, r_a);
+
+                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.release_mem(m_z);
+            }
+            (Memory(m_x), Memory(m_y), Register(r_z)) => {
+                let r_a = self.get_register();
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_z));
+                self.rebind_register(lhs, r_a);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Memory(m_x), Memory(m_y), Memory(m_z)) => {
+                let r_a = self.get_register();
+                let r_b = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_b));
+                self.rebind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.push_op(AsmOp::Store(r_b, m_z, line!()));
+                self.release_mem(m_y);
+                self.release_mem(m_z);
+            }
+            (Memory(m_x), Register(r_y), Unassigned) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_y, r_a));
+                self.rebind_register(rhs, r_a);
+            }
+            (Memory(m_x), Unassigned, Register(r_z)) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_z));
+                self.rebind_register(lhs, r_a);
+            }
+            (Memory(m_x), Unassigned, Unassigned) => {
+                let r_a = self.get_register();
+                let r_b = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_b));
+                self.rebind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
+            }
+            (Memory(m_x), Memory(m_y), Unassigned) => {
+                let r_a = self.get_register();
+                let r_b = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_b));
+                self.rebind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Memory(m_x), Unassigned, Memory(m_z)) => {
+                let r_a = self.get_register();
+                let r_b = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, r_b));
+                self.rebind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
+
+                self.push_op(AsmOp::Store(r_b, m_z, line!()));
+                self.release_mem(m_z);
+            }
+            (Unassigned, _, _) => panic!("Cannot have unassigned output"),
+        }
     }
 
     fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: ClauseOp64) {
-        assert!(self.get_allocation(out) != u32::MAX);
-
-        let out = self.get_out_register(out);
-        self.release_reg(out);
-
-        let arg = self.get_arg_register(arg);
         let op: fn(u8, u8, f32) -> AsmOp = match op {
             ClauseOp64::AddRegImm => AsmOp::AddRegImm,
             ClauseOp64::SubRegImm => AsmOp::SubRegImm,
@@ -842,28 +1079,98 @@ impl SsaTapeAllocator {
             ClauseOp64::MaxRegImm => AsmOp::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        self.out.push(op(out, arg, imm));
-        self.out.append(&mut self.wip);
+        // Identical to `op_reg`, except the functions also take `imm`
+        use Allocation::*;
+        match (self.get_allocation(out), self.get_allocation(arg)) {
+            (Register(r_x), Register(r_y)) => {
+                assert!(r_x != r_y);
+                self.push_op(op(r_x, r_y, imm));
+                self.release_reg(r_x);
+            }
+            (Register(r_x), Memory(m_y)) => {
+                self.push_op(op(r_x, r_x, imm));
+                self.out.push(AsmOp::Store(r_x, m_y, line!()));
+                self.rebind_register(arg, r_x);
+                self.release_mem(m_y);
+            }
+            (Register(r_x), Unassigned) => {
+                self.push_op(op(r_x, r_x, imm));
+                self.rebind_register(arg, r_x);
+            }
+            (Memory(m_x), Register(r_y)) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_y, imm));
+                self.release_reg(r_a);
+            }
+            (Memory(m_x), Memory(m_y)) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, imm));
+                self.rebind_register(arg, r_a);
+
+                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.release_mem(m_y);
+            }
+            (Memory(m_x), Unassigned) => {
+                let r_a = self.get_register();
+
+                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+
+                self.push_op(op(r_a, r_a, imm));
+                self.rebind_register(arg, r_a);
+            }
+            (Unassigned, _) => panic!("Cannot have unassigned output"),
+        }
     }
 
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
-        assert!(self.get_allocation(out) != u32::MAX);
+        use Allocation::*;
+        match self.get_allocation(out) {
+            Register(reg) => {
+                self.push_op(AsmOp::CopyImm(reg, imm));
+            }
+            Memory(mem) => {
+                let r_a = self.get_register();
 
-        let out = self.get_out_register(out);
-        self.release_reg(out);
+                self.push_op(AsmOp::Store(r_a, mem, line!()));
+                self.release_mem(mem);
+                self.bind_register(out, r_a);
 
-        self.out.push(AsmOp::CopyImm(out, imm));
-        self.out.append(&mut self.wip);
+                self.push_op(AsmOp::CopyImm(r_a, imm));
+                self.release_reg(r_a);
+            }
+            Unassigned => panic!("Cannot have unassigned output"),
+        }
     }
 
     fn op_input(&mut self, out: u32, i: u8) {
-        assert!(self.get_allocation(out) != u32::MAX);
+        use Allocation::*;
+        match self.get_allocation(out) {
+            Register(reg) => {
+                self.push_op(AsmOp::Input(reg, i));
+            }
+            Memory(mem) => {
+                let r_a = self.get_register();
+                self.push_op(AsmOp::Store(r_a, mem, line!()));
+                self.release_mem(mem);
+                self.bind_register(out, r_a);
 
-        let out = self.get_out_register(out);
-        self.release_reg(out);
-
-        self.out.push(AsmOp::Input(out, i));
-        self.out.append(&mut self.wip);
+                self.push_op(AsmOp::Input(r_a, i));
+                self.release_reg(r_a);
+            }
+            Unassigned => panic!("Cannot have unassigned output"),
+        }
     }
 }
 

@@ -43,17 +43,39 @@ pub enum AsmOp {
 
     /// Copy an immediate to a register
     CopyImm(u8, f32),
-    Load(u8, u32, Dbg),
-    Store(u8, u32, Dbg),
+    Load(u8, u32, u32),
+    Store(u8, u32, u32),
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Dbg {
-    ArgInMemNoSpareReg,
-    ArgUnallocNoSpareReg,
-    ArgInMemSpareReg,
-    OutInMemSpareReg,
-    OutInMemNoSpareReg,
+impl AsmOp {
+    pub fn iter_arg_regs(&self) -> impl Iterator<Item = u8> {
+        use AsmOp::*;
+        let out = match *self {
+            Load(..) | Input(..) | CopyImm(..) => [None, None],
+
+            CopyReg(_out, reg)
+            | SquareReg(_out, reg)
+            | SqrtReg(_out, reg)
+            | RecipReg(_out, reg)
+            | AbsReg(_out, reg)
+            | NegReg(_out, reg)
+            | MaxRegImm(_out, reg, ..)
+            | MinRegImm(_out, reg, ..)
+            | SubRegImm(_out, reg, ..)
+            | SubImmReg(_out, reg, ..)
+            | MulRegImm(_out, reg, ..)
+            | AddRegImm(_out, reg, ..) => [Some(reg), None],
+
+            MaxRegReg(_out, lhs, rhs)
+            | MinRegReg(_out, lhs, rhs)
+            | SubRegReg(_out, lhs, rhs)
+            | MulRegReg(_out, lhs, rhs)
+            | AddRegReg(_out, lhs, rhs) => [Some(lhs), Some(rhs)],
+
+            Store(reg, _mem, ..) => [Some(reg), None],
+        };
+        out.into_iter().flatten()
+    }
 }
 
 /// Evaluator for a slice of [`AsmOp`]
