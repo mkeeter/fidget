@@ -48,31 +48,34 @@ pub enum AsmOp {
 }
 
 impl AsmOp {
-    pub fn iter_arg_regs(&self) -> impl Iterator<Item = u8> {
+    /// Iterates over registers, returning the output last
+    pub fn iter_reg(&self) -> impl Iterator<Item = u8> {
         use AsmOp::*;
         let out = match *self {
-            Load(..) | Input(..) | CopyImm(..) => [None, None],
+            Load(out, ..) | Input(out, ..) | CopyImm(out, ..) => {
+                [None, None, Some(out)]
+            }
 
-            CopyReg(_out, reg)
-            | SquareReg(_out, reg)
-            | SqrtReg(_out, reg)
-            | RecipReg(_out, reg)
-            | AbsReg(_out, reg)
-            | NegReg(_out, reg)
-            | MaxRegImm(_out, reg, ..)
-            | MinRegImm(_out, reg, ..)
-            | SubRegImm(_out, reg, ..)
-            | SubImmReg(_out, reg, ..)
-            | MulRegImm(_out, reg, ..)
-            | AddRegImm(_out, reg, ..) => [Some(reg), None],
+            CopyReg(out, reg)
+            | SquareReg(out, reg)
+            | SqrtReg(out, reg)
+            | RecipReg(out, reg)
+            | AbsReg(out, reg)
+            | NegReg(out, reg)
+            | MaxRegImm(out, reg, ..)
+            | MinRegImm(out, reg, ..)
+            | SubRegImm(out, reg, ..)
+            | SubImmReg(out, reg, ..)
+            | MulRegImm(out, reg, ..)
+            | AddRegImm(out, reg, ..) => [Some(reg), Some(out), None],
 
-            MaxRegReg(_out, lhs, rhs)
-            | MinRegReg(_out, lhs, rhs)
-            | SubRegReg(_out, lhs, rhs)
-            | MulRegReg(_out, lhs, rhs)
-            | AddRegReg(_out, lhs, rhs) => [Some(lhs), Some(rhs)],
+            MaxRegReg(out, lhs, rhs)
+            | MinRegReg(out, lhs, rhs)
+            | SubRegReg(out, lhs, rhs)
+            | MulRegReg(out, lhs, rhs)
+            | AddRegReg(out, lhs, rhs) => [Some(lhs), Some(rhs), Some(out)],
 
-            Store(reg, _mem, ..) => [Some(reg), None],
+            Store(reg, _mem, ..) => [Some(reg), None, None],
         };
         out.into_iter().flatten()
     }

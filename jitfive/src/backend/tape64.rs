@@ -443,6 +443,8 @@ impl SsaTape {
                 println!("{a:?}");
             }
             println!("spares: {:?}", alloc.spare_registers);
+            println!("regs: {:?}", alloc.registers);
+            println!("lru: {:?}", alloc.register_lru);
             println!("-------------");
         }
 
@@ -590,6 +592,7 @@ impl SsaTapeAllocator {
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
             assert_eq!(self.registers[reg as usize], u32::MAX);
+            self.poke_reg(reg);
             reg
         } else {
             // Slot is in memory, and no spare register is available
@@ -606,6 +609,7 @@ impl SsaTapeAllocator {
             self.registers[reg as usize] = u32::MAX;
 
             self.out.push(AsmOp::Load(reg, mem, line!()));
+            self.poke_reg(reg);
             reg
         }
     }
@@ -662,7 +666,7 @@ impl SsaTapeAllocator {
     /// their last use time.
     fn push_op(&mut self, op: AsmOp) {
         self.out.push(op);
-        for arg in op.iter_arg_regs() {
+        for arg in op.iter_reg() {
             self.poke_reg(arg);
         }
     }
@@ -739,7 +743,9 @@ impl SsaTapeAllocator {
                 self.rebind_register(arg, r_x);
             }
             (Memory(m_x), Register(r_y)) => {
+                self.poke_reg(r_y);
                 let r_a = self.get_register();
+                assert!(r_a != r_y);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -909,7 +915,10 @@ impl SsaTapeAllocator {
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Memory(m_z)) => {
+                self.poke_reg(r_x);
                 let r_a = self.get_register();
+                assert!(r_a != r_x);
+
                 self.push_op(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
@@ -929,13 +938,19 @@ impl SsaTapeAllocator {
                 self.rebind_register(rhs, r_x);
             }
             (Register(r_x), Unassigned, Unassigned) => {
+                self.poke_reg(r_x);
                 let r_a = self.get_register();
+                assert!(r_a != r_x);
+
                 self.push_op(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
             (Register(r_x), Unassigned, Memory(m_z)) => {
+                self.poke_reg(r_x);
                 let r_a = self.get_register();
+                assert!(r_a != r_x);
+
                 self.push_op(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
@@ -944,7 +959,10 @@ impl SsaTapeAllocator {
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Unassigned) => {
+                self.poke_reg(r_x);
                 let r_a = self.get_register();
+                assert!(r_a != r_x);
+
                 self.push_op(op(r_x, r_a, r_x));
                 self.bind_register(lhs, r_a);
                 self.rebind_register(rhs, r_x);
@@ -954,7 +972,12 @@ impl SsaTapeAllocator {
             }
 
             (Memory(m_x), Register(r_y), Register(r_z)) => {
+                self.poke_reg(r_y);
+                self.poke_reg(r_z);
                 let r_a = self.get_register();
+                assert!(r_a != r_y);
+                assert!(r_a != r_z);
+
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
@@ -963,7 +986,10 @@ impl SsaTapeAllocator {
                 self.release_reg(r_a);
             }
             (Memory(m_x), Register(r_y), Memory(m_z)) => {
+                self.poke_reg(r_y);
                 let r_a = self.get_register();
+                assert!(r_a != r_y);
+
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
@@ -975,7 +1001,10 @@ impl SsaTapeAllocator {
                 self.release_mem(m_z);
             }
             (Memory(m_x), Memory(m_y), Register(r_z)) => {
+                self.poke_reg(r_z);
                 let r_a = self.get_register();
+                assert!(r_a != r_z);
+
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
@@ -989,6 +1018,7 @@ impl SsaTapeAllocator {
             (Memory(m_x), Memory(m_y), Memory(m_z)) => {
                 let r_a = self.get_register();
                 let r_b = self.get_register();
+                assert!(r_a != r_b);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1004,7 +1034,9 @@ impl SsaTapeAllocator {
                 self.release_mem(m_z);
             }
             (Memory(m_x), Register(r_y), Unassigned) => {
+                self.poke_reg(r_y);
                 let r_a = self.get_register();
+                assert!(r_a != r_y);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1014,7 +1046,9 @@ impl SsaTapeAllocator {
                 self.rebind_register(rhs, r_a);
             }
             (Memory(m_x), Unassigned, Register(r_z)) => {
+                self.poke_reg(r_z);
                 let r_a = self.get_register();
+                assert!(r_a != r_z);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1026,6 +1060,7 @@ impl SsaTapeAllocator {
             (Memory(m_x), Unassigned, Unassigned) => {
                 let r_a = self.get_register();
                 let r_b = self.get_register();
+                assert!(r_a != r_b);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1038,6 +1073,7 @@ impl SsaTapeAllocator {
             (Memory(m_x), Memory(m_y), Unassigned) => {
                 let r_a = self.get_register();
                 let r_b = self.get_register();
+                assert!(r_a != r_b);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1053,6 +1089,7 @@ impl SsaTapeAllocator {
             (Memory(m_x), Unassigned, Memory(m_z)) => {
                 let r_a = self.get_register();
                 let r_b = self.get_register();
+                assert!(r_a != r_b);
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
@@ -1098,6 +1135,7 @@ impl SsaTapeAllocator {
                 self.rebind_register(arg, r_x);
             }
             (Memory(m_x), Register(r_y)) => {
+                self.poke_reg(r_y);
                 let r_a = self.get_register();
 
                 self.push_op(AsmOp::Store(r_a, m_x, line!()));
