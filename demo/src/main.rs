@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
-                let jit = jitfive::backend::dynasm::build_vec_fn_64(&tape);
+                let jit = jitfive::backend::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
                 let mut eval_trad = tape.get_evaluator();
@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (out, start)
             } else {
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape64::Tape::new_with_reg_limit(
+                let tape = jitfive::backend::tape::Tape::new_with_reg_limit(
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );
