@@ -47,40 +47,6 @@ pub enum AsmOp {
     Store(u8, u32, u32),
 }
 
-impl AsmOp {
-    /// Iterates over registers, returning the output last
-    pub fn iter_reg(&self) -> impl Iterator<Item = u8> {
-        use AsmOp::*;
-        let out = match *self {
-            Load(out, ..) | Input(out, ..) | CopyImm(out, ..) => {
-                [None, None, Some(out)]
-            }
-
-            CopyReg(out, reg)
-            | SquareReg(out, reg)
-            | SqrtReg(out, reg)
-            | RecipReg(out, reg)
-            | AbsReg(out, reg)
-            | NegReg(out, reg)
-            | MaxRegImm(out, reg, ..)
-            | MinRegImm(out, reg, ..)
-            | SubRegImm(out, reg, ..)
-            | SubImmReg(out, reg, ..)
-            | MulRegImm(out, reg, ..)
-            | AddRegImm(out, reg, ..) => [Some(reg), Some(out), None],
-
-            MaxRegReg(out, lhs, rhs)
-            | MinRegReg(out, lhs, rhs)
-            | SubRegReg(out, lhs, rhs)
-            | MulRegReg(out, lhs, rhs)
-            | AddRegReg(out, lhs, rhs) => [Some(lhs), Some(rhs), Some(out)],
-
-            Store(reg, _mem, ..) => [Some(reg), None, None],
-        };
-        out.into_iter().flatten()
-    }
-}
-
 /// Evaluator for a slice of [`AsmOp`]
 pub struct AsmEval<'a> {
     /// Instruction tape, in reverse-evaluation order

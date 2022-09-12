@@ -511,11 +511,11 @@ impl SsaTapeAllocator {
             time: 0,
 
             reg_limit,
-            spare_registers: vec![],
-            spare_memory: vec![],
+            spare_registers: Vec::with_capacity(reg_limit as usize),
+            spare_memory: Vec::with_capacity(1024),
 
             total_slots: 0,
-            out: vec![],
+            out: Vec::with_capacity(1024),
         }
     }
 
@@ -551,15 +551,21 @@ impl SsaTapeAllocator {
             .unwrap()
     }
 
-    /// Returns the slot allocated to the given node in the globally indexed
-    /// tape, or `u32::MAX` if unassigned.
+    /// Returns the slot allocated to the given node
+    ///
+    /// The input is an SSA assignment (i.e. an assignment in the global `Tape`)
+    ///
+    /// If the output is a register, then it's poked to update recency
     fn get_allocation(&mut self, n: u32) -> Allocation {
         if n as usize >= self.allocations.len() {
             self.allocations.resize(n as usize + 1, u32::MAX);
             Allocation::Unassigned
         } else {
             match self.allocations[n as usize] {
-                i if i < self.reg_limit as u32 => Allocation::Register(i as u8),
+                i if i < self.reg_limit as u32 => {
+                    self.poke_reg(i as u8);
+                    Allocation::Register(i as u8)
+                }
                 u32::MAX => Allocation::Unassigned,
                 i => Allocation::Memory(i),
             }
@@ -620,6 +626,7 @@ impl SsaTapeAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
+        self.poke_reg(reg);
     }
 
     fn bind_register(&mut self, n: u32, reg: u8) {
@@ -629,6 +636,7 @@ impl SsaTapeAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
+        self.poke_reg(reg);
     }
 
     /// Release a register back to the pool of spares
@@ -651,15 +659,6 @@ impl SsaTapeAllocator {
         self.spare_memory.push(mem);
         // This leaves self.allocations[...] stil pointing to the memory slot,
         // but that's okay, because it should never be used
-    }
-
-    /// Pushes an operation to the tape and pokes its inputs, updating
-    /// their last use time.
-    fn push_op(&mut self, op: AsmOp) {
-        self.out.push(op);
-        for arg in op.iter_reg() {
-            self.poke_reg(arg);
-        }
     }
 
     /// Builds an operation that uses a single register.
@@ -719,53 +718,52 @@ impl SsaTapeAllocator {
         match (self.get_allocation(out), self.get_allocation(arg)) {
             (Register(r_x), Register(r_y)) => {
                 assert!(r_x != r_y);
-                self.push_op(op(r_x, r_y));
+                self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
             (Register(r_x), Memory(m_y)) => {
-                self.push_op(op(r_x, r_x));
+                self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
 
                 self.out.push(AsmOp::Store(r_x, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Register(r_x), Unassigned) => {
-                self.push_op(op(r_x, r_x));
+                self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
             }
             (Memory(m_x), Register(r_y)) => {
-                self.poke_reg(r_y);
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_y));
+                self.out.push(op(r_a, r_y));
                 self.release_reg(r_a);
             }
             (Memory(m_x), Memory(m_y)) => {
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a));
+                self.out.push(op(r_a, r_a));
                 self.rebind_register(arg, r_a);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Unassigned) => {
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a));
+                self.out.push(op(r_a, r_a));
                 self.rebind_register(arg, r_a);
             }
             (Unassigned, _) => panic!("Cannot have unassigned output"),
@@ -888,122 +886,114 @@ impl SsaTapeAllocator {
             self.get_allocation(rhs),
         ) {
             (Register(r_x), Register(r_y), Register(r_z)) => {
-                self.push_op(op(r_x, r_y, r_z));
+                self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
             (Register(r_x), Memory(m_y), Register(r_z)) => {
-                self.push_op(op(r_x, r_x, r_z));
+                self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
 
-                self.push_op(AsmOp::Store(r_x, m_y, line!()));
+                self.out.push(AsmOp::Store(r_x, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Register(r_x), Register(r_y), Memory(m_z)) => {
-                self.push_op(op(r_x, r_y, r_x));
+                self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
 
-                self.push_op(AsmOp::Store(r_x, m_z, line!()));
+                self.out.push(AsmOp::Store(r_x, m_z, line!()));
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Memory(m_z)) => {
-                self.poke_reg(r_x);
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
-                self.push_op(op(r_x, r_x, r_a));
+                self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
 
-                self.push_op(AsmOp::Store(r_x, m_y, line!()));
+                self.out.push(AsmOp::Store(r_x, m_y, line!()));
                 self.release_mem(m_y);
 
-                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z, line!()));
                 self.release_mem(m_z);
             }
             (Register(r_x), Unassigned, Register(r_z)) => {
-                self.push_op(op(r_x, r_x, r_z));
+                self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
             (Register(r_x), Register(r_y), Unassigned) => {
-                self.push_op(op(r_x, r_y, r_x));
+                self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
             (Register(r_x), Unassigned, Unassigned) => {
-                self.poke_reg(r_x);
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
-                self.push_op(op(r_x, r_x, r_a));
+                self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
             (Register(r_x), Unassigned, Memory(m_z)) => {
-                self.poke_reg(r_x);
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
-                self.push_op(op(r_x, r_x, r_a));
+                self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
 
-                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z, line!()));
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Unassigned) => {
-                self.poke_reg(r_x);
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
-                self.push_op(op(r_x, r_a, r_x));
+                self.out.push(op(r_x, r_a, r_x));
                 self.bind_register(lhs, r_a);
                 self.rebind_register(rhs, r_x);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
                 self.release_mem(m_y);
             }
 
             (Memory(m_x), Register(r_y), Register(r_z)) => {
-                self.poke_reg(r_y);
-                self.poke_reg(r_z);
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
                 assert!(r_a != r_z);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_y, r_z));
+                self.out.push(op(r_a, r_y, r_z));
                 self.release_reg(r_a);
             }
             (Memory(m_x), Register(r_y), Memory(m_z)) => {
-                self.poke_reg(r_y);
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_y, r_a));
+                self.out.push(op(r_a, r_y, r_a));
                 self.rebind_register(rhs, r_a);
 
-                self.push_op(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z, line!()));
                 self.release_mem(m_z);
             }
             (Memory(m_x), Memory(m_y), Register(r_z)) => {
-                self.poke_reg(r_z);
                 let r_a = self.get_register();
                 assert!(r_a != r_z);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_z));
+                self.out.push(op(r_a, r_a, r_z));
                 self.rebind_register(lhs, r_a);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Memory(m_y), Memory(m_z)) => {
@@ -1011,41 +1001,39 @@ impl SsaTapeAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_b));
+                self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
-                self.push_op(AsmOp::Store(r_b, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_b, m_z, line!()));
                 self.release_mem(m_y);
                 self.release_mem(m_z);
             }
             (Memory(m_x), Register(r_y), Unassigned) => {
-                self.poke_reg(r_y);
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_y, r_a));
+                self.out.push(op(r_a, r_y, r_a));
                 self.rebind_register(rhs, r_a);
             }
             (Memory(m_x), Unassigned, Register(r_z)) => {
-                self.poke_reg(r_z);
                 let r_a = self.get_register();
                 assert!(r_a != r_z);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_z));
+                self.out.push(op(r_a, r_a, r_z));
                 self.rebind_register(lhs, r_a);
             }
             (Memory(m_x), Unassigned, Unassigned) => {
@@ -1053,11 +1041,11 @@ impl SsaTapeAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_b));
+                self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
             }
@@ -1066,15 +1054,15 @@ impl SsaTapeAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_b));
+                self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Unassigned, Memory(m_z)) => {
@@ -1082,15 +1070,15 @@ impl SsaTapeAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, r_b));
+                self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.push_op(AsmOp::Store(r_b, m_z, line!()));
+                self.out.push(AsmOp::Store(r_b, m_z, line!()));
                 self.release_mem(m_z);
             }
             (Unassigned, _, _) => panic!("Cannot have unassigned output"),
@@ -1112,51 +1100,50 @@ impl SsaTapeAllocator {
         match (self.get_allocation(out), self.get_allocation(arg)) {
             (Register(r_x), Register(r_y)) => {
                 assert!(r_x != r_y);
-                self.push_op(op(r_x, r_y, imm));
+                self.out.push(op(r_x, r_y, imm));
                 self.release_reg(r_x);
             }
             (Register(r_x), Memory(m_y)) => {
-                self.push_op(op(r_x, r_x, imm));
+                self.out.push(op(r_x, r_x, imm));
                 self.out.push(AsmOp::Store(r_x, m_y, line!()));
                 self.rebind_register(arg, r_x);
                 self.release_mem(m_y);
             }
             (Register(r_x), Unassigned) => {
-                self.push_op(op(r_x, r_x, imm));
+                self.out.push(op(r_x, r_x, imm));
                 self.rebind_register(arg, r_x);
             }
             (Memory(m_x), Register(r_y)) => {
-                self.poke_reg(r_y);
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_y, imm));
+                self.out.push(op(r_a, r_y, imm));
                 self.release_reg(r_a);
             }
             (Memory(m_x), Memory(m_y)) => {
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, imm));
+                self.out.push(op(r_a, r_a, imm));
                 self.rebind_register(arg, r_a);
 
-                self.push_op(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y, line!()));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Unassigned) => {
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x, line!()));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
-                self.push_op(op(r_a, r_a, imm));
+                self.out.push(op(r_a, r_a, imm));
                 self.rebind_register(arg, r_a);
             }
             (Unassigned, _) => panic!("Cannot have unassigned output"),
@@ -1167,16 +1154,16 @@ impl SsaTapeAllocator {
         use Allocation::*;
         match self.get_allocation(out) {
             Register(reg) => {
-                self.push_op(AsmOp::CopyImm(reg, imm));
+                self.out.push(AsmOp::CopyImm(reg, imm));
             }
             Memory(mem) => {
                 let r_a = self.get_register();
 
-                self.push_op(AsmOp::Store(r_a, mem, line!()));
+                self.out.push(AsmOp::Store(r_a, mem, line!()));
                 self.release_mem(mem);
                 self.bind_register(out, r_a);
 
-                self.push_op(AsmOp::CopyImm(r_a, imm));
+                self.out.push(AsmOp::CopyImm(r_a, imm));
                 self.release_reg(r_a);
             }
             Unassigned => panic!("Cannot have unassigned output"),
@@ -1187,15 +1174,15 @@ impl SsaTapeAllocator {
         use Allocation::*;
         match self.get_allocation(out) {
             Register(reg) => {
-                self.push_op(AsmOp::Input(reg, i));
+                self.out.push(AsmOp::Input(reg, i));
             }
             Memory(mem) => {
                 let r_a = self.get_register();
-                self.push_op(AsmOp::Store(r_a, mem, line!()));
+                self.out.push(AsmOp::Store(r_a, mem, line!()));
                 self.release_mem(mem);
                 self.bind_register(out, r_a);
 
-                self.push_op(AsmOp::Input(r_a, i));
+                self.out.push(AsmOp::Input(r_a, i));
                 self.release_reg(r_a);
             }
             Unassigned => panic!("Cannot have unassigned output"),
