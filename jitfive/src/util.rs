@@ -1,3 +1,2 @@
-pub mod bimap;
 pub mod indexed;
-pub mod queue;
+pub mod lru;

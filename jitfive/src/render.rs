@@ -9,8 +9,8 @@ use crate::backend::{
 
 use log::info;
 
-const TILE_SIZE: usize = 128;
-const SUBTILE_SIZE: usize = 32;
+const TILE_SIZE: usize = 256;
+const SUBTILE_SIZE: usize = 64;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Pixel {
@@ -59,7 +59,7 @@ pub fn render(size: usize, tape: &Tape) -> Vec<Pixel> {
         push_time: Duration::ZERO,
         jit_time: Duration::ZERO,
     };
-    r.run(&tape);
+    r.run(tape);
     info!("Interval time: {:?}", r.interval_time);
     info!("Pixel time:    {:?}", r.pixel_time);
     info!("Push time:     {:?}", r.push_time);
@@ -92,12 +92,7 @@ impl Renderer {
         2.0 * (p as f32) / ((self.size - 1) as f32) - 1.0
     }
 
-    fn render_tile(
-        &mut self,
-        eval: &mut IntervalEval<Tape>,
-        x: usize,
-        y: usize,
-    ) {
+    fn render_tile(&mut self, eval: &mut IntervalEval, x: usize, y: usize) {
         let x_interval =
             [self.pixel_to_pos(x), self.pixel_to_pos(x + TILE_SIZE)];
         let y_interval =
@@ -142,12 +137,7 @@ impl Renderer {
         }
     }
 
-    fn render_subtile(
-        &mut self,
-        eval: &mut IntervalEval<Tape>,
-        x: usize,
-        y: usize,
-    ) {
+    fn render_subtile(&mut self, eval: &mut IntervalEval, x: usize, y: usize) {
         let x_interval =
             [self.pixel_to_pos(x), self.pixel_to_pos(x + SUBTILE_SIZE)];
         let y_interval =

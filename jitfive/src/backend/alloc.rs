@@ -1,5 +1,8 @@
 use crate::backend::asm::AsmOp;
 use crate::backend::tape::TapeOp;
+use crate::util::lru::Lru;
+
+use arrayvec::ArrayVec;
 
 #[derive(Copy, Clone, Debug)]
 enum Allocation {
@@ -17,11 +20,17 @@ pub struct RegisterAllocator {
     /// using that register, or `usize::MAX` if the register is currently unused.
     ///
     /// The inner `u32` here is an index into the original (SSA) tape
-    registers: Vec<u32>,
+    ///
+    /// Only the first `reg_limit` indexes are valid, but we use a fixed
+    /// (maximum) size array for speed.
+    registers: [u32; u8::MAX as usize],
 
-    /// For each register, this `Vec` stores its last access time
-    register_lru: Vec<usize>,
-    time: usize,
+    /// Stores a least-recently-used list of register
+    ///
+    /// This is sized with a backing array that can hold the maximum register
+    /// count (`u8::MAX`), but will be constructed with the specific register
+    /// limit in `new()`.
+    register_lru: Lru<{ u8::MAX as usize + 1 }>,
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
@@ -29,8 +38,8 @@ pub struct RegisterAllocator {
 
     /// Available short registers (index < 256)
     ///
-    /// The most recently available is at the back of the `Vec`
-    spare_registers: Vec<u8>,
+    /// The most recently available is at the back
+    spare_registers: ArrayVec<u8, { u8::MAX as usize }>,
 
     /// Available extended registers (index >= 256)
     ///
@@ -52,16 +61,15 @@ impl RegisterAllocator {
     ///
     /// Upon construction, nothing is bound; calling `bind_initial_register` may
     /// be necessary.
-    pub fn new(reg_limit: u8) -> Self {
+    pub fn new(reg_limit: u8, size: usize) -> Self {
         Self {
-            allocations: vec![],
+            allocations: vec![u32::MAX; size],
 
-            registers: vec![u32::MAX; reg_limit as usize],
-            register_lru: vec![0; reg_limit as usize],
-            time: 0,
+            registers: [u32::MAX; u8::MAX as usize],
+            register_lru: Lru::new(reg_limit as usize),
 
             reg_limit,
-            spare_registers: Vec::with_capacity(reg_limit as usize),
+            spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
             total_slots: 0,
@@ -71,7 +79,6 @@ impl RegisterAllocator {
 
     /// Binds the SSA register 0 to local register 0
     pub fn bind_initial_register(&mut self) {
-        self.allocations.resize(1, u32::MAX);
         self.bind_register(0, 0);
         self.total_slots += 1;
     }
@@ -102,15 +109,8 @@ impl RegisterAllocator {
     /// Finds the oldest register
     ///
     /// This is useful when deciding which register to evict to make room
-    fn oldest_reg(&self) -> u8 {
-        self.register_lru
-            .iter()
-            .enumerate()
-            .min_by_key(|i| i.1)
-            .unwrap()
-            .0
-            .try_into()
-            .unwrap()
+    fn oldest_reg(&mut self) -> u8 {
+        self.register_lru.pop() as u8
     }
 
     /// Returns the slot allocated to the given node
@@ -119,18 +119,13 @@ impl RegisterAllocator {
     ///
     /// If the output is a register, then it's poked to update recency
     fn get_allocation(&mut self, n: u32) -> Allocation {
-        if n as usize >= self.allocations.len() {
-            self.allocations.resize(n as usize + 1, u32::MAX);
-            Allocation::Unassigned
-        } else {
-            match self.allocations[n as usize] {
-                i if i < self.reg_limit as u32 => {
-                    self.poke_reg(i as u8);
-                    Allocation::Register(i as u8)
-                }
-                u32::MAX => Allocation::Unassigned,
-                i => Allocation::Memory(i),
+        match self.allocations[n as usize] {
+            i if i < self.reg_limit as u32 => {
+                self.register_lru.poke(i as usize);
+                Allocation::Register(i as u8)
             }
+            u32::MAX => Allocation::Unassigned,
+            i => Allocation::Memory(i),
         }
     }
 
@@ -151,7 +146,7 @@ impl RegisterAllocator {
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
             assert_eq!(self.registers[reg as usize], u32::MAX);
-            self.poke_reg(reg);
+            self.register_lru.poke(reg as usize);
             reg
         } else {
             // Slot is in memory, and no spare register is available
@@ -168,14 +163,8 @@ impl RegisterAllocator {
             self.registers[reg as usize] = u32::MAX;
 
             self.out.push(AsmOp::Load(reg, mem, line!()));
-            self.poke_reg(reg);
             reg
         }
-    }
-
-    fn poke_reg(&mut self, reg: u8) {
-        self.register_lru[reg as usize] = self.time;
-        self.time += 1;
     }
 
     fn rebind_register(&mut self, n: u32, reg: u8) {
@@ -188,7 +177,7 @@ impl RegisterAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.poke_reg(reg);
+        self.register_lru.poke(reg as usize);
     }
 
     fn bind_register(&mut self, n: u32, reg: u8) {
@@ -198,7 +187,7 @@ impl RegisterAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.poke_reg(reg);
+        self.register_lru.poke(reg as usize);
     }
 
     /// Release a register back to the pool of spares

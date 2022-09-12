@@ -66,7 +66,7 @@ struct AssemblerData<T> {
     ops: Assembler,
     shape_fn: AssemblyOffset,
 
-    /// Offset of the stack pointer, in bytes
+    /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
 
     _p: std::marker::PhantomData<*const T>,
@@ -754,6 +754,7 @@ impl AssemblerT for VecAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Builds a JIT handle for a function taking and returning `f32`
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     let (buf, fn_pointer) =
         build_asm_fn::<FloatAssembler>(t.asm.iter().cloned().rev());
@@ -763,7 +764,12 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
     }
 }
 
-pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle<Tape> {
+/// Builds a JIT handle for a function taking and returning `[f32; 2]`
+/// representing intervals (i.e. lower and upper bounds)
+///
+/// The handle also borrows the input `Tape`, in order to construct shortened
+/// (optimized) sub-tapes.
+pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
     let (buf, fn_pointer) =
         build_asm_fn::<IntervalAssembler>(t.asm.iter().cloned().rev());
     IntervalFuncHandle {
@@ -774,6 +780,8 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle<Tape> {
     }
 }
 
+/// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
+/// uses SIMD to evaluate four points at a time.
 pub fn build_vec_fn(t: &Tape) -> VecFuncHandle {
     let (buf, fn_pointer) =
         build_asm_fn::<VecAssembler>(t.asm.iter().cloned().rev());
@@ -880,6 +888,7 @@ pub struct FloatFuncHandle {
 }
 
 impl FloatFuncHandle {
+    /// Returns an evaluator, bound to the lifetime of the `FloatFuncHandle`
     pub fn get_evaluator(&self) -> FloatEval {
         FloatEval {
             fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
@@ -889,15 +898,19 @@ impl FloatFuncHandle {
 }
 
 /// Handle which owns a JIT-compiled interval function
-pub struct IntervalFuncHandle<'t, T> {
+///
+/// This handle additionally borrows the input `Tape`, which allows us to
+/// compute simpler tapes based on interval evaluation results.
+pub struct IntervalFuncHandle<'t> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
-    tape: &'t T,
+    tape: &'t Tape,
 }
 
-impl<'t, T> IntervalFuncHandle<'t, T> {
-    pub fn get_evaluator(&self) -> IntervalEval<T> {
+impl<'t> IntervalFuncHandle<'t> {
+    /// Returns an evaluator, bound to the lifetime of the `IntervalFuncHandle`
+    pub fn get_evaluator(&self) -> IntervalEval {
         IntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
@@ -907,13 +920,14 @@ impl<'t, T> IntervalFuncHandle<'t, T> {
     }
 }
 
-/// Handle which owns a JIT-compiled float x 4 function
+/// Handle which owns a JIT-compiled vectorized (4x) float function
 pub struct VecFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
 impl VecFuncHandle {
+    /// Returns an evaluator, bound to the lifetime of the `VecFuncHandle`
     pub fn get_evaluator(&self) -> VecEval {
         VecEval {
             fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
@@ -924,7 +938,7 @@ impl VecFuncHandle {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle for evaluation of a JIT-compiled function
+/// Handle for evaluation of a JIT-compiled float function
 ///
 /// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
 /// the underlying executable memory.
@@ -939,11 +953,11 @@ impl<'a> FloatEval<'a> {
     }
 }
 
-/// Handle for evaluation of a JIT-compiled function
+/// Handle for evaluation of a JIT-compiled function Interval function
 ///
 /// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
 /// owns the underlying executable memory.
-pub struct IntervalEval<'asm, T> {
+pub struct IntervalEval<'asm> {
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
@@ -951,11 +965,11 @@ pub struct IntervalEval<'asm, T> {
         *mut u8,  // choices
     ) -> [f32; 2],
     choices: Vec<Choice>,
-    tape: &'asm T,
+    tape: &'asm Tape,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a, T> IntervalEval<'a, T> {
+impl<'a> IntervalEval<'a> {
     /// Evaluates an interval
     pub fn i(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
         self.choices.fill(Choice::Unknown);
@@ -1022,14 +1036,12 @@ impl<'a, T> IntervalEval<'a, T> {
             [a[0].min(b[0]), a[1].max(b[1])]
         }
     }
-}
 
-impl<'a, T: Simplify> IntervalEval<'a, T> {
     /// Returns a simplified tape based on `self.choices`
     ///
     /// The choices array should have been calculated during the last interval
     /// evaluation.
-    pub fn push(&self) -> T {
+    pub fn push(&self) -> Tape {
         self.tape.simplify(&self.choices)
     }
 }

@@ -235,7 +235,9 @@ impl SsaTape {
         let mut count = 0..;
         let mut choice_count = 0;
 
-        let mut alloc = RegisterAllocator::new(reg_limit);
+        // At this point, we don't know how long the shortened tape will be, but
+        // we can be sure that it's <= our current tape length.
+        let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
 
         // The tape is constructed so that the output slot is first
         active[self.data[0] as usize] = Some(count.next().unwrap());

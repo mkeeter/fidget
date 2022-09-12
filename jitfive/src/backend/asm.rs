@@ -50,7 +50,7 @@ pub enum AsmOp {
 /// Evaluator for a slice of [`AsmOp`]
 pub struct AsmEval<'a> {
     /// Instruction tape, in reverse-evaluation order
-    pub tape: &'a [AsmOp],
+    tape: &'a [AsmOp],
     /// Workspace for data
     slots: Vec<f32>,
 }
