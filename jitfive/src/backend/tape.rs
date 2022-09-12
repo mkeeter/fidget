@@ -437,7 +437,8 @@ impl SsaTape {
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        assert!(ops_out.len() <= alloc.out().len());
+        let alloc = alloc.take();
+        assert!(ops_out.len() <= alloc.len());
 
         (
             SsaTape {
@@ -445,7 +446,7 @@ impl SsaTape {
                 data: data_out,
                 choice_count,
             },
-            alloc.take(),
+            alloc,
         )
     }
 }

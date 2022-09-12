@@ -48,10 +48,6 @@ pub struct RegisterAllocator {
 }
 
 impl RegisterAllocator {
-    pub fn out(&self) -> &[AsmOp] {
-        &self.out
-    }
-
     pub fn take(self) -> Vec<AsmOp> {
         self.out
     }
