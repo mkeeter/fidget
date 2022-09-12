@@ -6,7 +6,6 @@ use dynasmrt::{
 use crate::backend::{
     asm::AsmOp,
     common::{Choice, Simplify},
-    tape48::{Tape as Tape48, TapeAllocator},
     tape64::Tape as Tape64,
 };
 
@@ -750,37 +749,6 @@ impl AssemblerT for VecAssembler {
         );
 
         (self.0.ops.finalize().unwrap(), self.0.shape_fn)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub fn build_float_fn_48(t: &Tape48) -> FloatFuncHandle {
-    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
-    let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(alloc);
-    FloatFuncHandle {
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-pub fn build_vec_fn_48(t: &Tape48) -> VecFuncHandle {
-    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
-    let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(alloc);
-    VecFuncHandle {
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-pub fn build_interval_fn_48(t: &Tape48) -> IntervalFuncHandle<Tape48> {
-    let alloc = TapeAllocator::new(t, REGISTER_LIMIT);
-    let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(alloc);
-    IntervalFuncHandle {
-        tape: t,
-        choice_count: t.choice_count,
-        _buf: buf,
-        fn_pointer,
     }
 }
 
