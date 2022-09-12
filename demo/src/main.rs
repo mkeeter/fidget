@@ -86,6 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
+                info!("Scheduled in {:?}", start.elapsed());
+                let start = Instant::now();
                 let tape = jitfive::backend::tape::Tape::new_with_reg_limit(
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
