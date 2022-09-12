@@ -48,10 +48,10 @@ pub struct RegisterAllocator {
 }
 
 impl RegisterAllocator {
-    pub fn take(self) -> Vec<AsmOp> {
-        self.out
-    }
-
+    /// Builds a new `RegisterAllocator`.
+    ///
+    /// Upon construction, nothing is bound; calling `bind_initial_register` may
+    /// be necessary.
     pub fn new(reg_limit: u8) -> Self {
         Self {
             allocations: vec![],
@@ -74,6 +74,11 @@ impl RegisterAllocator {
         self.allocations.resize(1, u32::MAX);
         self.bind_register(0, 0);
         self.total_slots += 1;
+    }
+
+    /// Claims the internal `Vec<AsmOp>`
+    pub fn take(self) -> Vec<AsmOp> {
+        self.out
     }
 
     /// Returns an available memory slot.
@@ -696,10 +701,12 @@ impl RegisterAllocator {
         }
     }
 
+    /// Lowers a `CopyImm` operation into the tape
     pub fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| AsmOp::CopyImm(out, imm));
     }
 
+    /// Lowers a `Input` operation into the tape
     pub fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| AsmOp::Input(out, i));
     }
