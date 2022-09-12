@@ -11,7 +11,7 @@ use crate::{
 use std::collections::BTreeMap;
 
 #[derive(Copy, Clone, Debug)]
-pub enum ClauseOp64 {
+pub enum TapeOp {
     /// Reads one of the inputs (X, Y, Z)
     Input,
     /// Copy an immediate to a register
@@ -114,7 +114,7 @@ impl Simplify for Tape {
 pub struct SsaTape {
     /// The tape is stored in reverse order, such that the root of the tree is
     /// the first item in the tape.
-    pub tape: Vec<ClauseOp64>,
+    pub tape: Vec<TapeOp>,
 
     /// Variable-length data for tape clauses.
     ///
@@ -146,66 +146,66 @@ impl SsaTape {
         let mut next = || *data.next().unwrap();
         for &op in self.tape.iter().rev() {
             match op {
-                ClauseOp64::Input => {
+                TapeOp::Input => {
                     let i = next();
                     let out = next();
                     println!("${out} = %{i}");
                 }
-                ClauseOp64::NegReg
-                | ClauseOp64::AbsReg
-                | ClauseOp64::RecipReg
-                | ClauseOp64::SqrtReg
-                | ClauseOp64::CopyReg
-                | ClauseOp64::SquareReg => {
+                TapeOp::NegReg
+                | TapeOp::AbsReg
+                | TapeOp::RecipReg
+                | TapeOp::SqrtReg
+                | TapeOp::CopyReg
+                | TapeOp::SquareReg => {
                     let arg = next();
                     let out = next();
                     let op = match op {
-                        ClauseOp64::NegReg => "NEG",
-                        ClauseOp64::AbsReg => "ABS",
-                        ClauseOp64::RecipReg => "RECIP",
-                        ClauseOp64::SqrtReg => "SQRT",
-                        ClauseOp64::SquareReg => "SQUARE",
-                        ClauseOp64::CopyReg => "COPY",
+                        TapeOp::NegReg => "NEG",
+                        TapeOp::AbsReg => "ABS",
+                        TapeOp::RecipReg => "RECIP",
+                        TapeOp::SqrtReg => "SQRT",
+                        TapeOp::SquareReg => "SQUARE",
+                        TapeOp::CopyReg => "COPY",
                         _ => unreachable!(),
                     };
                     println!("${out} {op} ${arg}");
                 }
 
-                ClauseOp64::AddRegReg
-                | ClauseOp64::MulRegReg
-                | ClauseOp64::SubRegReg
-                | ClauseOp64::MinRegReg
-                | ClauseOp64::MaxRegReg => {
+                TapeOp::AddRegReg
+                | TapeOp::MulRegReg
+                | TapeOp::SubRegReg
+                | TapeOp::MinRegReg
+                | TapeOp::MaxRegReg => {
                     let rhs = next();
                     let lhs = next();
                     let out = next();
                     let op = match op {
-                        ClauseOp64::AddRegReg => "ADD",
-                        ClauseOp64::MulRegReg => "MUL",
-                        ClauseOp64::SubRegReg => "SUB",
-                        ClauseOp64::MinRegReg => "MIN",
-                        ClauseOp64::MaxRegReg => "MAX",
+                        TapeOp::AddRegReg => "ADD",
+                        TapeOp::MulRegReg => "MUL",
+                        TapeOp::SubRegReg => "SUB",
+                        TapeOp::MinRegReg => "MIN",
+                        TapeOp::MaxRegReg => "MAX",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
                 }
 
-                ClauseOp64::AddRegImm
-                | ClauseOp64::MulRegImm
-                | ClauseOp64::SubImmReg
-                | ClauseOp64::SubRegImm
-                | ClauseOp64::MinRegImm
-                | ClauseOp64::MaxRegImm => {
+                TapeOp::AddRegImm
+                | TapeOp::MulRegImm
+                | TapeOp::SubImmReg
+                | TapeOp::SubRegImm
+                | TapeOp::MinRegImm
+                | TapeOp::MaxRegImm => {
                     let imm = f32::from_bits(next());
                     let arg = next();
                     let out = next();
                     let (op, swap) = match op {
-                        ClauseOp64::AddRegImm => ("ADD", false),
-                        ClauseOp64::MulRegImm => ("MUL", false),
-                        ClauseOp64::SubImmReg => ("SUB", true),
-                        ClauseOp64::SubRegImm => ("SUB", false),
-                        ClauseOp64::MinRegImm => ("MIN", false),
-                        ClauseOp64::MaxRegImm => ("MAX", false),
+                        TapeOp::AddRegImm => ("ADD", false),
+                        TapeOp::MulRegImm => ("MUL", false),
+                        TapeOp::SubImmReg => ("SUB", true),
+                        TapeOp::SubRegImm => ("SUB", false),
+                        TapeOp::MinRegImm => ("MIN", false),
+                        TapeOp::MaxRegImm => ("MAX", false),
                         _ => unreachable!(),
                     };
                     if swap {
@@ -214,7 +214,7 @@ impl SsaTape {
                         println!("${out} = {op} ${arg} {imm}");
                     }
                 }
-                ClauseOp64::CopyImm => {
+                TapeOp::CopyImm => {
                     let imm = f32::from_bits(next());
                     let out = next();
                     println!("${out} = COPY {imm}");
@@ -252,7 +252,7 @@ impl SsaTape {
         let mut data_out = vec![];
 
         for &op in self.tape.iter() {
-            use ClauseOp64::*;
+            use TapeOp::*;
             let index = *data.next().unwrap();
             if active[index as usize].is_none() {
                 match op {
@@ -704,14 +704,14 @@ impl SsaTapeAllocator {
     ///       |     | Afterwards, r_a points to the arg, m_x is free, [and m_a
     ///       |     | poitns to the former r_a]
     ///  -----|-----|----------------------------------------------------
-    fn op_reg(&mut self, out: u32, arg: u32, op: ClauseOp64) {
+    fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
         let op: fn(u8, u8) -> AsmOp = match op {
-            ClauseOp64::NegReg => AsmOp::NegReg,
-            ClauseOp64::AbsReg => AsmOp::AbsReg,
-            ClauseOp64::RecipReg => AsmOp::RecipReg,
-            ClauseOp64::SqrtReg => AsmOp::SqrtReg,
-            ClauseOp64::SquareReg => AsmOp::SquareReg,
-            ClauseOp64::CopyReg => AsmOp::CopyReg,
+            TapeOp::NegReg => AsmOp::NegReg,
+            TapeOp::AbsReg => AsmOp::AbsReg,
+            TapeOp::RecipReg => AsmOp::RecipReg,
+            TapeOp::SqrtReg => AsmOp::SqrtReg,
+            TapeOp::SquareReg => AsmOp::SquareReg,
+            TapeOp::CopyReg => AsmOp::CopyReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         use Allocation::*;
@@ -870,13 +870,13 @@ impl SsaTapeAllocator {
     ///       |      |      | r_a / r_b]
     ///  -----|------|------|----------------------------------------------
     ///   m_x  | U   | m_z  | ibid
-    fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: ClauseOp64) {
+    fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: TapeOp) {
         let op: fn(u8, u8, u8) -> AsmOp = match op {
-            ClauseOp64::AddRegReg => AsmOp::AddRegReg,
-            ClauseOp64::SubRegReg => AsmOp::SubRegReg,
-            ClauseOp64::MulRegReg => AsmOp::MulRegReg,
-            ClauseOp64::MinRegReg => AsmOp::MinRegReg,
-            ClauseOp64::MaxRegReg => AsmOp::MaxRegReg,
+            TapeOp::AddRegReg => AsmOp::AddRegReg,
+            TapeOp::SubRegReg => AsmOp::SubRegReg,
+            TapeOp::MulRegReg => AsmOp::MulRegReg,
+            TapeOp::MinRegReg => AsmOp::MinRegReg,
+            TapeOp::MaxRegReg => AsmOp::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         use Allocation::*;
@@ -1085,14 +1085,14 @@ impl SsaTapeAllocator {
         }
     }
 
-    fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: ClauseOp64) {
+    fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: TapeOp) {
         let op: fn(u8, u8, f32) -> AsmOp = match op {
-            ClauseOp64::AddRegImm => AsmOp::AddRegImm,
-            ClauseOp64::SubRegImm => AsmOp::SubRegImm,
-            ClauseOp64::SubImmReg => AsmOp::SubImmReg,
-            ClauseOp64::MulRegImm => AsmOp::MulRegImm,
-            ClauseOp64::MinRegImm => AsmOp::MinRegImm,
-            ClauseOp64::MaxRegImm => AsmOp::MaxRegImm,
+            TapeOp::AddRegImm => AsmOp::AddRegImm,
+            TapeOp::SubRegImm => AsmOp::SubRegImm,
+            TapeOp::SubImmReg => AsmOp::SubImmReg,
+            TapeOp::MulRegImm => AsmOp::MulRegImm,
+            TapeOp::MinRegImm => AsmOp::MinRegImm,
+            TapeOp::MaxRegImm => AsmOp::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
         // Identical to `op_reg`, except the functions also take `imm`
@@ -1195,7 +1195,7 @@ impl SsaTapeAllocator {
 struct SsaTapeBuilder<'a> {
     iter: std::slice::Iter<'a, (NodeIndex, Op)>,
 
-    tape: Vec<ClauseOp64>,
+    tape: Vec<TapeOp>,
     data: Vec<u32>,
 
     vars: &'a IndexMap<String, VarIndex>,
@@ -1252,7 +1252,7 @@ impl<'a> SsaTapeBuilder<'a> {
                 };
                 self.data.push(arg);
                 self.data.push(index);
-                Some(ClauseOp64::Input)
+                Some(TapeOp::Input)
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
@@ -1266,29 +1266,29 @@ impl<'a> SsaTapeBuilder<'a> {
 
                 let f = match op {
                     BinaryOpcode::Add => (
-                        ClauseOp64::AddRegReg,
-                        ClauseOp64::AddRegImm,
-                        ClauseOp64::AddRegImm,
+                        TapeOp::AddRegReg,
+                        TapeOp::AddRegImm,
+                        TapeOp::AddRegImm,
                     ),
                     BinaryOpcode::Mul => (
-                        ClauseOp64::MulRegReg,
-                        ClauseOp64::MulRegImm,
-                        ClauseOp64::MulRegImm,
+                        TapeOp::MulRegReg,
+                        TapeOp::MulRegImm,
+                        TapeOp::MulRegImm,
                     ),
                     BinaryOpcode::Sub => (
-                        ClauseOp64::SubRegReg,
-                        ClauseOp64::SubRegImm,
-                        ClauseOp64::SubImmReg,
+                        TapeOp::SubRegReg,
+                        TapeOp::SubRegImm,
+                        TapeOp::SubImmReg,
                     ),
                     BinaryOpcode::Min => (
-                        ClauseOp64::MinRegReg,
-                        ClauseOp64::MinRegImm,
-                        ClauseOp64::MinRegImm,
+                        TapeOp::MinRegReg,
+                        TapeOp::MinRegImm,
+                        TapeOp::MinRegImm,
                     ),
                     BinaryOpcode::Max => (
-                        ClauseOp64::MaxRegReg,
-                        ClauseOp64::MaxRegImm,
-                        ClauseOp64::MaxRegImm,
+                        TapeOp::MaxRegReg,
+                        TapeOp::MaxRegImm,
+                        TapeOp::MaxRegImm,
                     ),
                 };
 
@@ -1329,11 +1329,11 @@ impl<'a> SsaTapeBuilder<'a> {
                     }
                 };
                 let op = match op {
-                    UnaryOpcode::Neg => ClauseOp64::NegReg,
-                    UnaryOpcode::Abs => ClauseOp64::AbsReg,
-                    UnaryOpcode::Recip => ClauseOp64::RecipReg,
-                    UnaryOpcode::Sqrt => ClauseOp64::SqrtReg,
-                    UnaryOpcode::Square => ClauseOp64::SquareReg,
+                    UnaryOpcode::Neg => TapeOp::NegReg,
+                    UnaryOpcode::Abs => TapeOp::AbsReg,
+                    UnaryOpcode::Recip => TapeOp::RecipReg,
+                    UnaryOpcode::Sqrt => TapeOp::SqrtReg,
+                    UnaryOpcode::Square => TapeOp::SquareReg,
                 };
                 self.data.push(lhs);
                 self.data.push(index);
