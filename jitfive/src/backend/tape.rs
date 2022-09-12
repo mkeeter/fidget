@@ -661,11 +661,24 @@ impl SsaTapeAllocator {
         // but that's okay, because it should never be used
     }
 
+    fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
+        let op: fn(u8, u8) -> AsmOp = match op {
+            TapeOp::NegReg => AsmOp::NegReg,
+            TapeOp::AbsReg => AsmOp::AbsReg,
+            TapeOp::RecipReg => AsmOp::RecipReg,
+            TapeOp::SqrtReg => AsmOp::SqrtReg,
+            TapeOp::SquareReg => AsmOp::SquareReg,
+            TapeOp::CopyReg => AsmOp::CopyReg,
+            _ => panic!("Bad opcode: {op:?}"),
+        };
+        self.op_reg_fn(out, arg, op);
+    }
+
     /// Lowers an operation that uses a single register into an `AsmOp`
     ///
     /// This is surprisingly tricky; see the source code for the table of 6
     /// possible situations.
-    fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
+    fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> AsmOp) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
         // unassigned.  This gives us six unique situations.
@@ -707,15 +720,6 @@ impl SsaTapeAllocator {
         //       |     | Afterwards, r_a points to the arg, m_x is free,
         //       |     | [and m_a points to the former r_a]
         //  -----|-----|----------------------------------------------------
-        let op: fn(u8, u8) -> AsmOp = match op {
-            TapeOp::NegReg => AsmOp::NegReg,
-            TapeOp::AbsReg => AsmOp::AbsReg,
-            TapeOp::RecipReg => AsmOp::RecipReg,
-            TapeOp::SqrtReg => AsmOp::SqrtReg,
-            TapeOp::SquareReg => AsmOp::SquareReg,
-            TapeOp::CopyReg => AsmOp::CopyReg,
-            _ => panic!("Bad opcode: {op:?}"),
-        };
         use Allocation::*;
         match (self.get_allocation(out), self.get_allocation(arg)) {
             (Register(r_x), Register(r_y)) => {
@@ -1112,98 +1116,35 @@ impl SsaTapeAllocator {
             TapeOp::MaxRegImm => AsmOp::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        // Identical to `op_reg`, except the functions also take `imm`
+        self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
+    }
+
+    fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> AsmOp) {
         use Allocation::*;
-        match (self.get_allocation(out), self.get_allocation(arg)) {
-            (Register(r_x), Register(r_y)) => {
-                assert!(r_x != r_y);
-                self.out.push(op(r_x, r_y, imm));
-                self.release_reg(r_x);
+        match self.get_allocation(out) {
+            Register(reg) => {
+                self.out.push(op(reg));
             }
-            (Register(r_x), Memory(m_y)) => {
-                self.out.push(op(r_x, r_x, imm));
-                self.out.push(AsmOp::Store(r_x, m_y, line!()));
-                self.rebind_register(arg, r_x);
-                self.release_mem(m_y);
-            }
-            (Register(r_x), Unassigned) => {
-                self.out.push(op(r_x, r_x, imm));
-                self.rebind_register(arg, r_x);
-            }
-            (Memory(m_x), Register(r_y)) => {
+            Memory(mem) => {
                 let r_a = self.get_register();
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
-                self.release_mem(m_x);
+                self.out.push(AsmOp::Store(r_a, mem, line!()));
+                self.release_mem(mem);
                 self.bind_register(out, r_a);
 
-                self.out.push(op(r_a, r_y, imm));
+                self.out.push(op(r_a));
                 self.release_reg(r_a);
             }
-            (Memory(m_x), Memory(m_y)) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, imm));
-                self.rebind_register(arg, r_a);
-
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
-                self.release_mem(m_y);
-            }
-            (Memory(m_x), Unassigned) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, imm));
-                self.rebind_register(arg, r_a);
-            }
-            (Unassigned, _) => panic!("Cannot have unassigned output"),
+            Unassigned => panic!("Cannot have unassigned output"),
         }
     }
 
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
-        use Allocation::*;
-        match self.get_allocation(out) {
-            Register(reg) => {
-                self.out.push(AsmOp::CopyImm(reg, imm));
-            }
-            Memory(mem) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, mem, line!()));
-                self.release_mem(mem);
-                self.bind_register(out, r_a);
-
-                self.out.push(AsmOp::CopyImm(r_a, imm));
-                self.release_reg(r_a);
-            }
-            Unassigned => panic!("Cannot have unassigned output"),
-        }
+        self.op_out_only(out, |out| AsmOp::CopyImm(out, imm));
     }
 
     fn op_input(&mut self, out: u32, i: u8) {
-        use Allocation::*;
-        match self.get_allocation(out) {
-            Register(reg) => {
-                self.out.push(AsmOp::Input(reg, i));
-            }
-            Memory(mem) => {
-                let r_a = self.get_register();
-                self.out.push(AsmOp::Store(r_a, mem, line!()));
-                self.release_mem(mem);
-                self.bind_register(out, r_a);
-
-                self.out.push(AsmOp::Input(r_a, i));
-                self.release_reg(r_a);
-            }
-            Unassigned => panic!("Cannot have unassigned output"),
-        }
+        self.op_out_only(out, |out| AsmOp::Input(out, i));
     }
 }
 
