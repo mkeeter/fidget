@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Scheduled in {:?}", start.elapsed());
 
             let start = Instant::now();
-            let tape = jitfive::backend::tape64::Tape::new(&scheduled);
+            let tape = jitfive::backend::tape::Tape::new(&scheduled);
             info!("Built tape in {:?}", start.elapsed());
 
             let mut eval = tape.get_evaluator();
@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape64::Tape::new_with_reg_limit(
+                let tape = jitfive::backend::tape::Tape::new_with_reg_limit(
                     &scheduled,
                     jitfive::backend::dynasm::REGISTER_LIMIT,
                 );

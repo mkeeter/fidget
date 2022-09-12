@@ -3,11 +3,8 @@ use std::time::{Duration, Instant};
 use crate::backend::dynasm::{IntervalEval, VecEval};
 
 use crate::backend::{
-    dynasm::{
-        build_interval_fn_64 as build_interval_fn,
-        build_vec_fn_64 as build_vec_fn,
-    },
-    tape64::Tape,
+    dynasm::{build_interval_fn, build_vec_fn},
+    tape::Tape,
 };
 
 use log::info;
