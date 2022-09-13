@@ -1,9 +1,12 @@
-pub mod backend;
+pub mod asm;
 pub mod context;
-pub mod error;
-pub mod op;
 pub mod render;
+pub mod tape;
 pub mod util;
+
+mod error;
+
+pub use error::Error;
 
 #[cfg(test)]
 mod tests {

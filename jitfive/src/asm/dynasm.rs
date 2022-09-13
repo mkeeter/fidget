@@ -3,9 +3,8 @@ use dynasmrt::{
     ExecutableBuffer,
 };
 
-use crate::backend::{
-    asm::AsmOp,
-    common::{Choice, Simplify},
+use crate::{
+    asm::{AsmOp, Choice},
     tape::Tape,
 };
 
@@ -756,8 +755,7 @@ impl AssemblerT for VecAssembler {
 
 /// Builds a JIT handle for a function taking and returning `f32`
 pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
-    let (buf, fn_pointer) =
-        build_asm_fn::<FloatAssembler>(t.asm.iter().cloned().rev());
+    let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
     FloatFuncHandle {
         _buf: buf,
         fn_pointer,
@@ -770,11 +768,10 @@ pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
 /// The handle also borrows the input `Tape`, in order to construct shortened
 /// (optimized) sub-tapes.
 pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
-    let (buf, fn_pointer) =
-        build_asm_fn::<IntervalAssembler>(t.asm.iter().cloned().rev());
+    let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
     IntervalFuncHandle {
         tape: t,
-        choice_count: t.ssa.choice_count,
+        choice_count: t.choice_count(),
         _buf: buf,
         fn_pointer,
     }
@@ -783,8 +780,7 @@ pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
 /// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
 /// uses SIMD to evaluate four points at a time.
 pub fn build_vec_fn(t: &Tape) -> VecFuncHandle {
-    let (buf, fn_pointer) =
-        build_asm_fn::<VecAssembler>(t.asm.iter().cloned().rev());
+    let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
     VecFuncHandle {
         _buf: buf,
         fn_pointer,
@@ -801,10 +797,10 @@ fn build_asm_fn<A: AssemblerT>(
     for op in i {
         use AsmOp::*;
         match op {
-            Load(reg, mem, _) => {
+            Load(reg, mem) => {
                 asm.build_load(reg, mem);
             }
-            Store(reg, mem, _) => {
+            Store(reg, mem) => {
                 asm.build_store(mem, reg);
             }
             Input(out, i) => {
@@ -1071,8 +1067,8 @@ impl<'a> VecEval<'a> {
 mod tests {
     use super::*;
     use crate::{
-        backend::tape::Tape,
         context::{Context, Node},
+        tape::Tape,
     };
 
     fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {

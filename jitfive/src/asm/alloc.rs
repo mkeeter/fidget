@@ -1,6 +1,7 @@
-use crate::backend::asm::AsmOp;
-use crate::backend::tape::TapeOp;
-use crate::util::lru::Lru;
+use crate::{
+    asm::{lru::Lru, AsmOp},
+    tape::TapeOp,
+};
 
 use arrayvec::ArrayVec;
 
@@ -11,6 +12,7 @@ enum Allocation {
     Unassigned,
 }
 
+/// Cheap and cheerful single-pass register allocation
 pub struct RegisterAllocator {
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
@@ -159,7 +161,7 @@ impl RegisterAllocator {
             // This register is now unassigned
             self.registers[reg as usize] = u32::MAX;
 
-            self.out.push(AsmOp::Load(reg, mem, line!()));
+            self.out.push(AsmOp::Load(reg, mem));
             reg
         }
     }
@@ -209,10 +211,11 @@ impl RegisterAllocator {
         // but that's okay, because it should never be used
     }
 
-    /// Lowers an operation that uses a single register into an `AsmOp`
+    /// Lowers an operation that uses a single register into an
+    /// [`AsmOp`](crate::asm::AsmOp), pushing it to the internal tape.
     ///
-    /// This is surprisingly tricky; see the source code for the table of 6
-    /// possible situations.
+    /// This may also push `Load` or `Store` instructions to the internal tape,
+    /// if there aren't enough spare registers.
     pub fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
         let op: fn(u8, u8) -> AsmOp = match op {
             TapeOp::NegReg => AsmOp::NegReg,
@@ -279,7 +282,7 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_y, line!()));
+                self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
             }
             (Register(r_x), Unassigned) => {
@@ -290,7 +293,7 @@ impl RegisterAllocator {
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -300,20 +303,20 @@ impl RegisterAllocator {
             (Memory(m_x), Memory(m_y)) => {
                 let r_a = self.get_register();
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
                 self.out.push(op(r_a, r_a));
                 self.rebind_register(arg, r_a);
 
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Unassigned) => {
                 let r_a = self.get_register();
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -324,13 +327,16 @@ impl RegisterAllocator {
         }
     }
 
-    /// Lowers a two-register operation into `AsmOp` and stores them
+    /// Lowers a two-register operation into an [`AsmOp`](crate::asm::AsmOp),
+    /// pushing it to the internal tape.
     ///
-    /// Inputs are SSA registers from a `Tape`, i.e. globally addressed.
+    /// Inputs are SSA registers from a [`Tape`](crate::tape::Tape), i.e.
+    /// globally addressed.
     ///
-    /// This is trickier than it sounds, because it could require evicting
-    /// previous registers to make room!  For all the gory details, look at the
-    /// table in the source code, showing the 18 (!) possible configurations.
+    /// If there aren't enough spare registers, this may also push `Load` or
+    /// `Store` instructions to the internal tape.  It's trickier than it
+    /// sounds; look at the source code for a table showing all 18 (!) possible
+    /// configurations.
     pub fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: TapeOp) {
         // Looking at this horrific table, you may be tempted to think "surely
         // there's a clean abstraction that wraps this up in a few functions".
@@ -462,14 +468,14 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_y, line!()));
+                self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
             }
             (Register(r_x), Register(r_y), Memory(m_z)) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_z, line!()));
+                self.out.push(AsmOp::Store(r_x, m_z));
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Memory(m_z)) => {
@@ -480,10 +486,10 @@ impl RegisterAllocator {
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
 
-                self.out.push(AsmOp::Store(r_x, m_y, line!()));
+                self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
 
-                self.out.push(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z));
                 self.release_mem(m_z);
             }
             (Register(r_x), Unassigned, Register(r_z)) => {
@@ -510,7 +516,7 @@ impl RegisterAllocator {
                 self.rebind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
 
-                self.out.push(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z));
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Unassigned) => {
@@ -521,7 +527,7 @@ impl RegisterAllocator {
                 self.bind_register(lhs, r_a);
                 self.rebind_register(rhs, r_x);
 
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
             }
 
@@ -530,7 +536,7 @@ impl RegisterAllocator {
                 assert!(r_a != r_y);
                 assert!(r_a != r_z);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -541,28 +547,28 @@ impl RegisterAllocator {
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
                 self.out.push(op(r_a, r_y, r_a));
                 self.rebind_register(rhs, r_a);
 
-                self.out.push(AsmOp::Store(r_a, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_z));
                 self.release_mem(m_z);
             }
             (Memory(m_x), Memory(m_y), Register(r_z)) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_z);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
                 self.out.push(op(r_a, r_a, r_z));
                 self.rebind_register(lhs, r_a);
 
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Memory(m_y), Memory(m_z)) => {
@@ -570,7 +576,7 @@ impl RegisterAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -578,8 +584,8 @@ impl RegisterAllocator {
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
-                self.out.push(AsmOp::Store(r_b, m_z, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y));
+                self.out.push(AsmOp::Store(r_b, m_z));
                 self.release_mem(m_y);
                 self.release_mem(m_z);
             }
@@ -587,7 +593,7 @@ impl RegisterAllocator {
                 let r_a = self.get_register();
                 assert!(r_a != r_y);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -598,7 +604,7 @@ impl RegisterAllocator {
                 let r_a = self.get_register();
                 assert!(r_a != r_z);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -610,7 +616,7 @@ impl RegisterAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -623,7 +629,7 @@ impl RegisterAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -631,7 +637,7 @@ impl RegisterAllocator {
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_y, line!()));
+                self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
             }
             (Memory(m_x), Unassigned, Memory(m_z)) => {
@@ -639,7 +645,7 @@ impl RegisterAllocator {
                 let r_b = self.get_register();
                 assert!(r_a != r_b);
 
-                self.out.push(AsmOp::Store(r_a, m_x, line!()));
+                self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
                 self.bind_register(out, r_a);
 
@@ -647,13 +653,15 @@ impl RegisterAllocator {
                 self.rebind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
 
-                self.out.push(AsmOp::Store(r_b, m_z, line!()));
+                self.out.push(AsmOp::Store(r_b, m_z));
                 self.release_mem(m_z);
             }
             (Unassigned, _, _) => panic!("Cannot have unassigned output"),
         }
     }
 
+    /// Lowers a function taking one register and one immediate into an
+    /// [`AsmOp`](crate::asm::AsmOp), pushing it to the internal tape.
     pub fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: TapeOp) {
         let op: fn(u8, u8, f32) -> AsmOp = match op {
             TapeOp::AddRegImm => AsmOp::AddRegImm,
@@ -676,7 +684,7 @@ impl RegisterAllocator {
             Memory(mem) => {
                 let r_a = self.get_register();
 
-                self.out.push(AsmOp::Store(r_a, mem, line!()));
+                self.out.push(AsmOp::Store(r_a, mem));
                 self.release_mem(mem);
                 self.bind_register(out, r_a);
 
@@ -687,12 +695,12 @@ impl RegisterAllocator {
         }
     }
 
-    /// Lowers a `CopyImm` operation into the tape
+    /// Pushes a [`CopyImm`](crate::asm::AsmOp::CopyImm) operation to the tape
     pub fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| AsmOp::CopyImm(out, imm));
     }
 
-    /// Lowers a `Input` operation into the tape
+    /// Pushes an [`Input`](crate::asm::AsmOp::Input) operation to the tape
     pub fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| AsmOp::Input(out, i));
     }

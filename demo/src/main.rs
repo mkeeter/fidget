@@ -81,10 +81,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut out = Vec::with_capacity((scale * scale) as usize);
 
                 let start = Instant::now();
-                let tape = ctx
-                    .get_tape(root, jitfive::backend::dynasm::REGISTER_LIMIT);
+                let tape =
+                    ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
                 info!("Got tape in {:?}", start.elapsed());
-                let jit = jitfive::backend::dynasm::build_vec_fn(&tape);
+                let jit = jitfive::asm::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
                 let mut eval_trad = tape.get_evaluator();
@@ -116,8 +116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect();
                 (out, start)
             } else {
-                let tape = ctx
-                    .get_tape(root, jitfive::backend::dynasm::REGISTER_LIMIT);
+                let tape =
+                    ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
                 let start = Instant::now();
                 for _ in 0..99 {
                     jitfive::render::render(args.size as usize, &tape);

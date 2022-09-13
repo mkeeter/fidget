@@ -1,9 +1,7 @@
 use std::time::{Duration, Instant};
 
-use crate::backend::dynasm::{IntervalEval, VecEval};
-
-use crate::backend::{
-    dynasm::{build_interval_fn, build_vec_fn},
+use crate::{
+    asm::dynasm::{build_interval_fn, build_vec_fn, IntervalEval, VecEval},
     tape::Tape,
 };
 

@@ -1,100 +1,7 @@
 use crate::{
-    backend::{
-        alloc::RegisterAllocator,
-        asm::{AsmEval, AsmOp},
-        common::{Choice, Simplify},
-    },
-    context::{Context, Node},
-    op::{BinaryOpcode, Op, UnaryOpcode},
+    asm::{AsmOp, Choice, RegisterAllocator},
+    tape::TapeOp,
 };
-
-use std::collections::BTreeMap;
-
-#[derive(Copy, Clone, Debug)]
-pub enum TapeOp {
-    /// Reads one of the inputs (X, Y, Z)
-    Input,
-    /// Copy an immediate to a register
-    CopyImm,
-
-    /// Negates a register
-    NegReg,
-    /// Takes the absolute value of a register
-    AbsReg,
-    /// Takes the reciprocal of a register
-    RecipReg,
-    /// Takes the square root of a register
-    SqrtReg,
-    /// Squares a register
-    SquareReg,
-
-    /// Copies the given register
-    CopyReg,
-
-    /// Add a register and an immediate
-    AddRegImm,
-    /// Multiply a register and an immediate
-    MulRegImm,
-    /// Subtract a register from an immediate
-    SubImmReg,
-    /// Subtract an immediate from a register
-    SubRegImm,
-
-    /// Adds two registers
-    AddRegReg,
-    /// Multiplies two registers
-    MulRegReg,
-    /// Subtracts two registers
-    SubRegReg,
-
-    /// Compute the minimum of a register and an immediate
-    MinRegImm,
-    /// Compute the maximum of a register and an immediate
-    MaxRegImm,
-    /// Compute the minimum of two registers
-    MinRegReg,
-    /// Compute the maximum of two registers
-    MaxRegReg,
-}
-
-/// `Tape` stores a pair of flat expressions suitable for evaluation:
-/// - `ssa` is suitable for use during tape simplification
-/// - `asm` is ready to be fed into an assembler, e.g. `dynasm`
-///
-/// We keep both because SSA form makes tape shortening easier, while the `asm`
-/// data already has registers assigned.
-pub struct Tape {
-    pub ssa: SsaTape,
-    pub asm: Vec<AsmOp>,
-    reg_limit: u8,
-}
-
-impl Tape {
-    pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
-        let dummy = vec![Choice::Both; ssa.choice_count];
-        let (ssa, asm) = ssa.simplify(&dummy, reg_limit);
-        Self {
-            ssa,
-            asm,
-            reg_limit,
-        }
-    }
-
-    pub fn get_evaluator(&self) -> AsmEval {
-        AsmEval::new(&self.asm)
-    }
-}
-
-impl Simplify for Tape {
-    fn simplify(&self, choices: &[Choice]) -> Self {
-        let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
-        Self {
-            ssa,
-            asm,
-            reg_limit: self.reg_limit,
-        }
-    }
-}
 
 /// Tape storing... stuff
 /// - 4-byte opcode
@@ -206,6 +113,47 @@ impl SsaTape {
                 }
             }
         }
+    }
+
+    /// Lowers the tape to assembly with a particular register limit
+    ///
+    /// Note that if you _also_ want to simplify the tape, it's more efficient
+    /// to use [`simplify`](Self::simplify), which simultaneously simplifies
+    /// **and** performs register allocation in a single pass.
+    pub fn get_asm(&self, reg_limit: u8) -> Vec<AsmOp> {
+        let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
+        let mut data = self.data.iter();
+        for &op in self.tape.iter() {
+            use TapeOp::*;
+            let index = *data.next().unwrap();
+
+            match op {
+                Input => {
+                    let i = *data.next().unwrap();
+                    alloc.op_input(index, i.try_into().unwrap());
+                }
+                CopyImm => {
+                    let imm = f32::from_bits(*data.next().unwrap());
+                    alloc.op_copy_imm(index, imm);
+                }
+                CopyReg | NegReg | AbsReg | RecipReg | SqrtReg | SquareReg => {
+                    let arg = *data.next().unwrap();
+                    alloc.op_reg(index, arg, op);
+                }
+                MinRegImm | MaxRegImm | AddRegImm | MulRegImm | SubRegImm
+                | SubImmReg => {
+                    let arg = *data.next().unwrap();
+                    let imm = f32::from_bits(*data.next().unwrap());
+                    alloc.op_reg_imm(index, arg, imm, op);
+                }
+                AddRegReg | MulRegReg | SubRegReg | MinRegReg | MaxRegReg => {
+                    let lhs = *data.next().unwrap();
+                    let rhs = *data.next().unwrap();
+                    alloc.op_reg_reg(index, lhs, rhs, op);
+                }
+            }
+        }
+        alloc.take()
     }
 
     pub fn simplify(
@@ -433,263 +381,5 @@ impl SsaTape {
             },
             alloc,
         )
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct SsaTapeBuilder {
-    tape: Vec<TapeOp>,
-    data: Vec<u32>,
-
-    mapping: BTreeMap<Node, u32>,
-    constants: BTreeMap<Node, f32>,
-    choice_count: usize,
-}
-
-#[derive(Debug)]
-enum Location {
-    Slot(u32),
-    Immediate(f32),
-}
-
-impl SsaTapeBuilder {
-    pub fn new() -> Self {
-        Self {
-            tape: vec![],
-            data: vec![],
-            mapping: BTreeMap::new(),
-            constants: BTreeMap::new(),
-            choice_count: 0,
-        }
-    }
-
-    pub fn finish(self) -> SsaTape {
-        SsaTape {
-            tape: self.tape,
-            data: self.data,
-            choice_count: self.choice_count,
-        }
-    }
-
-    fn get_allocated_value(&mut self, node: Node) -> Location {
-        if let Some(r) = self.mapping.get(&node).cloned() {
-            Location::Slot(r)
-        } else {
-            let c = self.constants.get(&node).unwrap();
-            Location::Immediate(*c)
-        }
-    }
-
-    /// Ensure that the given node is mapped.
-    ///
-    /// This must be called before `step` uses the node (as either parent or
-    /// child).
-    pub fn declare_node(&mut self, node: Node, op: Op) {
-        match op {
-            Op::Const(c) => {
-                self.constants.insert(node, c.0 as f32);
-            }
-            _ => {
-                let index: u32 = self.mapping.len().try_into().unwrap();
-                self.mapping.entry(node).or_insert(index);
-            }
-        }
-    }
-
-    pub fn step(&mut self, node: Node, op: Op, ctx: &Context) {
-        let index = self.mapping.get(&node).cloned();
-        let op = match op {
-            Op::Var(v) => {
-                let arg = match ctx.get_var_by_index(v).unwrap() {
-                    "X" => 0,
-                    "Y" => 1,
-                    "Z" => 2,
-                    i => panic!("Unexpected input index: {i}"),
-                };
-                self.data.push(index.unwrap());
-                self.data.push(arg);
-                Some(TapeOp::Input)
-            }
-            Op::Const(c) => {
-                // Skip this (because it's not inserted into the tape),
-                // recording its value for use as an immediate later.
-                self.constants.insert(node, c.0 as f32);
-                assert!(index.is_none());
-                None
-            }
-            Op::Binary(op, lhs, rhs) => {
-                let lhs = self.get_allocated_value(lhs);
-                let rhs = self.get_allocated_value(rhs);
-                let index = index.unwrap();
-
-                let f = match op {
-                    BinaryOpcode::Add => (
-                        TapeOp::AddRegReg,
-                        TapeOp::AddRegImm,
-                        TapeOp::AddRegImm,
-                    ),
-                    BinaryOpcode::Mul => (
-                        TapeOp::MulRegReg,
-                        TapeOp::MulRegImm,
-                        TapeOp::MulRegImm,
-                    ),
-                    BinaryOpcode::Sub => (
-                        TapeOp::SubRegReg,
-                        TapeOp::SubRegImm,
-                        TapeOp::SubImmReg,
-                    ),
-                    BinaryOpcode::Min => (
-                        TapeOp::MinRegReg,
-                        TapeOp::MinRegImm,
-                        TapeOp::MinRegImm,
-                    ),
-                    BinaryOpcode::Max => (
-                        TapeOp::MaxRegReg,
-                        TapeOp::MaxRegImm,
-                        TapeOp::MaxRegImm,
-                    ),
-                };
-
-                if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
-                    self.choice_count += 1;
-                }
-
-                let op = match (lhs, rhs) {
-                    (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(index);
-                        self.data.push(lhs);
-                        self.data.push(rhs);
-                        f.0
-                    }
-                    (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.data.push(index);
-                        self.data.push(arg);
-                        self.data.push(imm.to_bits());
-                        f.1
-                    }
-                    (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.data.push(index);
-                        self.data.push(arg);
-                        self.data.push(imm.to_bits());
-                        f.2
-                    }
-                    (Location::Immediate(..), Location::Immediate(..)) => {
-                        panic!("Cannot handle f(imm, imm)")
-                    }
-                };
-                Some(op)
-            }
-            Op::Unary(op, lhs) => {
-                let lhs = match self.get_allocated_value(lhs) {
-                    Location::Slot(r) => r,
-                    Location::Immediate(..) => {
-                        panic!("Cannot handle f(imm)")
-                    }
-                };
-                let index = index.unwrap();
-                let op = match op {
-                    UnaryOpcode::Neg => TapeOp::NegReg,
-                    UnaryOpcode::Abs => TapeOp::AbsReg,
-                    UnaryOpcode::Recip => TapeOp::RecipReg,
-                    UnaryOpcode::Sqrt => TapeOp::SqrtReg,
-                    UnaryOpcode::Square => TapeOp::SquareReg,
-                };
-                self.data.push(index);
-                self.data.push(lhs);
-                Some(op)
-            }
-        };
-
-        if let Some(op) = op {
-            self.tape.push(op);
-        }
-    }
-}
-
-impl Default for SsaTapeBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backend::common::Choice;
-
-    #[test]
-    fn basic_interpreter() {
-        let mut ctx = crate::context::Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let one = ctx.constant(1.0);
-        let sum = ctx.add(x, one).unwrap();
-        let min = ctx.min(sum, y).unwrap();
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
-        assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
-    }
-
-    #[test]
-    fn test_push() {
-        let mut ctx = crate::context::Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let min = ctx.min(x, y).unwrap();
-
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
-
-        let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
-
-        let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
-
-        let one = ctx.constant(1.0);
-        let min = ctx.min(x, one).unwrap();
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
-
-        let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
-
-        let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
-    }
-
-    #[test]
-    fn test_ring() {
-        let mut ctx = crate::context::Context::new();
-        let c0 = ctx.constant(0.5);
-        let x = ctx.x();
-        let y = ctx.y();
-        let x2 = ctx.square(x).unwrap();
-        let y2 = ctx.square(y).unwrap();
-        let r = ctx.add(x2, y2).unwrap();
-        let c6 = ctx.sub(r, c0).unwrap();
-        let c7 = ctx.constant(0.25);
-        let c8 = ctx.sub(c7, r).unwrap();
-        let c9 = ctx.max(c8, c6).unwrap();
-
-        let tape = ctx.get_tape(c9, u8::MAX);
-        assert_eq!(tape.ssa.tape.len(), 8);
     }
 }
