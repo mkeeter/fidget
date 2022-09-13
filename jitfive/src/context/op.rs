@@ -1,11 +1,5 @@
-use std::fmt::Write;
-
+use crate::context::{Node, VarNode};
 use ordered_float::OrderedFloat;
-
-use crate::{
-    context::{Node, VarNode},
-    util::indexed::IndexMap,
-};
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {
@@ -82,43 +76,6 @@ impl Op {
 }
 
 impl Op {
-    pub fn dot_node(
-        &self,
-        i: Node,
-        vars: &IndexMap<String, VarNode>,
-    ) -> String {
-        let mut out = format!(r#"n{} [label = ""#, usize::from(i));
-        match self {
-            Op::Const(c) => write!(out, "{}", c).unwrap(),
-            Op::Var(v) => {
-                let v = vars.get_by_index(*v).unwrap();
-                out += v;
-            }
-            Op::Binary(op, ..) => match op {
-                BinaryOpcode::Add => out += "add",
-                BinaryOpcode::Mul => out += "mul",
-                BinaryOpcode::Sub => out += "sub",
-                BinaryOpcode::Min => out += "min",
-                BinaryOpcode::Max => out += "max",
-            },
-            Op::Unary(op, ..) => match op {
-                UnaryOpcode::Neg => out += "neg",
-                UnaryOpcode::Abs => out += "abs",
-                UnaryOpcode::Recip => out += "recip",
-                UnaryOpcode::Sqrt => out += "sqrt",
-                UnaryOpcode::Square => out += "square",
-            },
-        };
-        write!(
-            out,
-            r#"" color="{0}1" shape="{1}" fontcolor="{0}4"]"#,
-            self.dot_node_color(),
-            self.dot_node_shape()
-        )
-        .unwrap();
-        out
-    }
-
     pub fn dot_edges(&self, i: Node) -> String {
         let mut out = String::new();
         for c in self.iter_children() {

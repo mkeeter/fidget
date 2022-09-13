@@ -2,7 +2,6 @@ pub mod asm;
 pub mod context;
 pub mod render;
 pub mod tape;
-pub mod util;
 
 mod error;
 

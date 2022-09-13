@@ -1,8 +1,10 @@
 use crate::{
-    context::{BinaryOpcode, Op, UnaryOpcode},
+    context::{
+        indexed::{define_index, IndexMap, IndexVec},
+        BinaryOpcode, Op, UnaryOpcode,
+    },
     error::Error,
     tape::{SsaTapeBuilder, Tape},
-    util::indexed::{define_index, IndexMap, IndexVec},
 };
 
 use std::collections::{BTreeMap, BTreeSet};
