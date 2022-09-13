@@ -52,11 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
             let start = Instant::now();
-            let scheduled = jitfive::scheduled::schedule(&ctx, root);
-            info!("Scheduled in {:?}", start.elapsed());
-
-            let start = Instant::now();
-            let tape = jitfive::backend::tape::Tape::new(&scheduled);
+            let tape = ctx.get_tape(root, u8::MAX);
             info!("Built tape in {:?}", start.elapsed());
 
             let mut eval = tape.get_evaluator();
@@ -85,13 +81,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut out = Vec::with_capacity((scale * scale) as usize);
 
                 let start = Instant::now();
-                let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                info!("Scheduled in {:?}", start.elapsed());
-                let start = Instant::now();
-                let tape = jitfive::backend::tape::Tape::new_with_reg_limit(
-                    &scheduled,
-                    jitfive::backend::dynasm::REGISTER_LIMIT,
-                );
+                let tape = ctx
+                    .get_tape(root, jitfive::backend::dynasm::REGISTER_LIMIT);
+                info!("Got tape in {:?}", start.elapsed());
                 let jit = jitfive::backend::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
@@ -124,11 +116,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect();
                 (out, start)
             } else {
-                let scheduled = jitfive::scheduled::schedule(&ctx, root);
-                let tape = jitfive::backend::tape::Tape::new_with_reg_limit(
-                    &scheduled,
-                    jitfive::backend::dynasm::REGISTER_LIMIT,
-                );
+                let tape = ctx
+                    .get_tape(root, jitfive::backend::dynasm::REGISTER_LIMIT);
                 let start = Instant::now();
                 for _ in 0..99 {
                     jitfive::render::render(args.size as usize, &tape);

@@ -1,10 +1,11 @@
 use crate::{
+    backend::tape::{SsaTapeBuilder, Tape},
     error::Error,
     op::{BinaryOpcode, GenericOp, UnaryOpcode},
     util::indexed::{define_index, IndexMap, IndexVec},
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read};
 
 use ordered_float::OrderedFloat;
@@ -353,6 +354,45 @@ impl Context {
     pub fn div(&mut self, a: Node, b: Node) -> Result<Node, Error> {
         let b = self.recip(b)?;
         self.mul(a, b)
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    pub fn get_tape(&self, root: Node, reg_limit: u8) -> Tape {
+        let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
+        let mut seen = BTreeSet::new();
+        let mut todo = vec![root];
+        let mut builder = SsaTapeBuilder::new();
+
+        // Accumulate parent counts and declare all the nodes into the builder
+        while let Some(node) = todo.pop() {
+            if !seen.insert(node) {
+                continue;
+            }
+            let op = self.get_op(node).unwrap();
+            builder.declare_node(node, *op);
+            for child in op.iter_children() {
+                *parent_count.entry(child).or_default() += 1;
+                todo.push(child);
+            }
+        }
+
+        // Now that we've populated our parents, flatten the graph
+        let mut todo = vec![root];
+        let mut seen = BTreeSet::new();
+        while let Some(node) = todo.pop() {
+            if *parent_count.get(&node).unwrap_or(&0) > 0 || !seen.insert(node)
+            {
+                continue;
+            }
+            let op = self.get_op(node).unwrap();
+            for child in op.iter_children() {
+                todo.push(child);
+                *parent_count.get_mut(&child).unwrap() -= 1;
+            }
+            builder.step(node, *op, self);
+        }
+        let ssa_tape = builder.finish();
+        Tape::from_ssa(ssa_tape, reg_limit)
     }
 
     ////////////////////////////////////////////////////////////////////////////

@@ -2,11 +2,10 @@ use crate::{
     backend::{
         alloc::RegisterAllocator,
         asm::{AsmEval, AsmOp},
-        common::{Choice, NodeIndex, Op, Simplify, VarIndex},
+        common::{Choice, Simplify},
     },
+    context::{Context, Node, Op},
     op::{BinaryOpcode, UnaryOpcode},
-    scheduled::Scheduled,
-    util::indexed::IndexMap,
 };
 
 use std::collections::BTreeMap;
@@ -71,16 +70,7 @@ pub struct Tape {
 }
 
 impl Tape {
-    pub fn new(s: &Scheduled) -> Self {
-        Self::new_with_reg_limit(s, u8::MAX)
-    }
-
-    pub fn get_evaluator(&self) -> AsmEval {
-        AsmEval::new(&self.asm)
-    }
-
-    pub fn new_with_reg_limit(s: &Scheduled, reg_limit: u8) -> Self {
-        let ssa = SsaTape::new(s);
+    pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let dummy = vec![Choice::Both; ssa.choice_count];
         let (ssa, asm) = ssa.simplify(&dummy, reg_limit);
         Self {
@@ -88,6 +78,10 @@ impl Tape {
             asm,
             reg_limit,
         }
+    }
+
+    pub fn get_evaluator(&self) -> AsmEval {
+        AsmEval::new(&self.asm)
     }
 }
 
@@ -132,16 +126,6 @@ pub struct SsaTape {
 }
 
 impl SsaTape {
-    pub fn new(t: &Scheduled) -> Self {
-        let mut builder = SsaTapeBuilder::new(t);
-        builder.run();
-        Self {
-            tape: builder.tape,
-            data: builder.data,
-            choice_count: builder.choice_count,
-        }
-    }
-
     pub fn pretty_print(&self) {
         let mut data = self.data.iter().rev();
         let mut next = || *data.next().unwrap();
@@ -454,15 +438,12 @@ impl SsaTape {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct SsaTapeBuilder<'a> {
-    iter: std::slice::Iter<'a, (NodeIndex, Op)>,
-
+pub struct SsaTapeBuilder {
     tape: Vec<TapeOp>,
     data: Vec<u32>,
 
-    vars: &'a IndexMap<String, VarIndex>,
-    mapping: BTreeMap<NodeIndex, u32>,
-    constants: BTreeMap<NodeIndex, f32>,
+    mapping: BTreeMap<Node, u32>,
+    constants: BTreeMap<Node, f32>,
     choice_count: usize,
 }
 
@@ -472,20 +453,26 @@ enum Location {
     Immediate(f32),
 }
 
-impl<'a> SsaTapeBuilder<'a> {
-    fn new(t: &'a Scheduled) -> Self {
+impl SsaTapeBuilder {
+    pub fn new() -> Self {
         Self {
-            iter: t.tape.iter(),
             tape: vec![],
             data: vec![],
-            vars: &t.vars,
             mapping: BTreeMap::new(),
             constants: BTreeMap::new(),
             choice_count: 0,
         }
     }
 
-    fn get_allocated_value(&mut self, node: NodeIndex) -> Location {
+    pub fn finish(self) -> SsaTape {
+        SsaTape {
+            tape: self.tape,
+            data: self.data,
+            choice_count: self.choice_count,
+        }
+    }
+
+    fn get_allocated_value(&mut self, node: Node) -> Location {
         if let Some(r) = self.mapping.get(&node).cloned() {
             Location::Slot(r)
         } else {
@@ -494,37 +481,47 @@ impl<'a> SsaTapeBuilder<'a> {
         }
     }
 
-    fn run(&mut self) {
-        while let Some(&(n, op)) = self.iter.next() {
-            self.step(n, op);
+    /// Ensure that the given node is mapped.
+    ///
+    /// This must be called before `step` uses the node (as either parent or
+    /// child).
+    pub fn declare_node(&mut self, node: Node, op: Op) {
+        match op {
+            Op::Const(c) => {
+                self.constants.insert(node, c.0 as f32);
+            }
+            _ => {
+                let index: u32 = self.mapping.len().try_into().unwrap();
+                self.mapping.entry(node).or_insert(index);
+            }
         }
-        self.tape.reverse();
-        self.data.reverse();
     }
 
-    fn step(&mut self, node: NodeIndex, op: Op) {
-        let index: u32 = self.mapping.len().try_into().unwrap();
+    pub fn step(&mut self, node: Node, op: Op, ctx: &Context) {
+        let index = self.mapping.get(&node).cloned();
         let op = match op {
             Op::Var(v) => {
-                let arg = match self.vars.get_by_index(v).unwrap().as_str() {
+                let arg = match ctx.get_var_by_index(v).unwrap() {
                     "X" => 0,
                     "Y" => 1,
                     "Z" => 2,
                     i => panic!("Unexpected input index: {i}"),
                 };
+                self.data.push(index.unwrap());
                 self.data.push(arg);
-                self.data.push(index);
                 Some(TapeOp::Input)
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
                 // recording its value for use as an immediate later.
-                self.constants.insert(node, c as f32);
+                self.constants.insert(node, c.0 as f32);
+                assert!(index.is_none());
                 None
             }
             Op::Binary(op, lhs, rhs) => {
                 let lhs = self.get_allocated_value(lhs);
                 let rhs = self.get_allocated_value(rhs);
+                let index = index.unwrap();
 
                 let f = match op {
                     BinaryOpcode::Add => (
@@ -560,21 +557,21 @@ impl<'a> SsaTapeBuilder<'a> {
 
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(rhs);
-                        self.data.push(lhs);
                         self.data.push(index);
+                        self.data.push(lhs);
+                        self.data.push(rhs);
                         f.0
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.data.push(imm.to_bits());
-                        self.data.push(arg);
                         self.data.push(index);
+                        self.data.push(arg);
+                        self.data.push(imm.to_bits());
                         f.1
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.data.push(imm.to_bits());
-                        self.data.push(arg);
                         self.data.push(index);
+                        self.data.push(arg);
+                        self.data.push(imm.to_bits());
                         f.2
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
@@ -590,6 +587,7 @@ impl<'a> SsaTapeBuilder<'a> {
                         panic!("Cannot handle f(imm)")
                     }
                 };
+                let index = index.unwrap();
                 let op = match op {
                     UnaryOpcode::Neg => TapeOp::NegReg,
                     UnaryOpcode::Abs => TapeOp::AbsReg,
@@ -597,17 +595,21 @@ impl<'a> SsaTapeBuilder<'a> {
                     UnaryOpcode::Sqrt => TapeOp::SqrtReg,
                     UnaryOpcode::Square => TapeOp::SquareReg,
                 };
-                self.data.push(lhs);
                 self.data.push(index);
+                self.data.push(lhs);
                 Some(op)
             }
         };
 
         if let Some(op) = op {
             self.tape.push(op);
-            let r = self.mapping.insert(node, index);
-            assert!(r.is_none());
         }
+    }
+}
+
+impl Default for SsaTapeBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -626,8 +628,7 @@ mod tests {
         let one = ctx.constant(1.0);
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
-        let scheduled = crate::scheduled::schedule(&ctx, min);
-        let tape = Tape::new(&scheduled);
+        let tape = ctx.get_tape(min, u8::MAX);
         let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
@@ -641,8 +642,7 @@ mod tests {
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let scheduled = crate::scheduled::schedule(&ctx, min);
-        let tape = Tape::new(&scheduled);
+        let tape = ctx.get_tape(min, u8::MAX);
         let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
@@ -659,8 +659,7 @@ mod tests {
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
-        let scheduled = crate::scheduled::schedule(&ctx, min);
-        let tape = Tape::new(&scheduled);
+        let tape = ctx.get_tape(min, u8::MAX);
         let mut eval = tape.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
@@ -674,5 +673,23 @@ mod tests {
         let mut eval = t.get_evaluator();
         assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
+    }
+
+    #[test]
+    fn test_ring() {
+        let mut ctx = crate::context::Context::new();
+        let c0 = ctx.constant(0.5);
+        let x = ctx.x();
+        let y = ctx.y();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let r = ctx.add(x2, y2).unwrap();
+        let c6 = ctx.sub(r, c0).unwrap();
+        let c7 = ctx.constant(0.25);
+        let c8 = ctx.sub(c7, r).unwrap();
+        let c9 = ctx.max(c8, c6).unwrap();
+
+        let tape = ctx.get_tape(c9, u8::MAX);
+        assert_eq!(tape.ssa.tape.len(), 8);
     }
 }

@@ -1073,24 +1073,20 @@ mod tests {
     use crate::{
         backend::tape::Tape,
         context::{Context, Node},
-        scheduled::schedule,
     };
 
     fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {
-        let scheduled = schedule(ctx, v);
-        let tape = Tape::new(&scheduled);
+        let tape = ctx.get_tape(v, REGISTER_LIMIT);
         build_float_fn(&tape)
     }
 
     fn to_vec_fn(v: Node, ctx: &Context) -> VecFuncHandle {
-        let scheduled = schedule(ctx, v);
-        let tape = Tape::new(&scheduled);
+        let tape = ctx.get_tape(v, REGISTER_LIMIT);
         build_vec_fn(&tape)
     }
 
     fn to_tape(v: Node, ctx: &Context) -> Tape {
-        let scheduled = schedule(ctx, v);
-        Tape::new(&scheduled)
+        ctx.get_tape(v, REGISTER_LIMIT)
     }
 
     #[test]
