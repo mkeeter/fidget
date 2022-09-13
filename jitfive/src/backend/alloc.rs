@@ -59,10 +59,10 @@ pub struct RegisterAllocator {
 impl RegisterAllocator {
     /// Builds a new `RegisterAllocator`.
     ///
-    /// Upon construction, nothing is bound; calling `bind_initial_register` may
-    /// be necessary.
+    /// Upon construction, SSA register 0 is bound to local register 0; you
+    /// would be well advised to use it as the output of your function.
     pub fn new(reg_limit: u8, size: usize) -> Self {
-        Self {
+        let mut out = Self {
             allocations: vec![u32::MAX; size],
 
             registers: [u32::MAX; u8::MAX as usize],
@@ -72,15 +72,11 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
-            total_slots: 0,
+            total_slots: 1,
             out: Vec::with_capacity(1024),
-        }
-    }
-
-    /// Binds the SSA register 0 to local register 0
-    pub fn bind_initial_register(&mut self) {
-        self.bind_register(0, 0);
-        self.total_slots += 1;
+        };
+        out.bind_register(0, 0);
+        out
     }
 
     /// Claims the internal `Vec<AsmOp>`
@@ -90,7 +86,8 @@ impl RegisterAllocator {
 
     /// Returns an available memory slot.
     ///
-    /// We can *always* call this, because we treat memory as unlimited.
+    /// Memory is treated as unlimited; if we don't have any spare slots, then
+    /// we'll assign a new one (incrementing `self.total_slots`).
     ///
     /// > If there's one thing I love  
     /// > It's an infinite resource  

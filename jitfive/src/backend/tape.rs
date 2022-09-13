@@ -241,7 +241,6 @@ impl SsaTape {
 
         // The tape is constructed so that the output slot is first
         active[self.data[0] as usize] = Some(count.next().unwrap());
-        alloc.bind_initial_register();
 
         // Other iterators to consume various arrays in order
         let mut data = self.data.iter();
