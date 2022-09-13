@@ -4,8 +4,8 @@ use crate::{
         asm::{AsmEval, AsmOp},
         common::{Choice, Simplify},
     },
-    context::{Context, Node, Op},
-    op::{BinaryOpcode, UnaryOpcode},
+    context::{Context, Node},
+    op::{BinaryOpcode, Op, UnaryOpcode},
 };
 
 use std::collections::BTreeMap;

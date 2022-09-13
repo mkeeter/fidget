@@ -1,7 +1,7 @@
 use crate::{
     backend::tape::{SsaTapeBuilder, Tape},
     error::Error,
-    op::{BinaryOpcode, GenericOp, UnaryOpcode},
+    op::{BinaryOpcode, Op, UnaryOpcode},
     util::indexed::{define_index, IndexMap, IndexVec},
 };
 
@@ -12,17 +12,6 @@ use ordered_float::OrderedFloat;
 
 define_index!(Node, "An index in the `Context::ops` map");
 define_index!(VarNode, "An index in the `Context::vars` map");
-
-/// Represents an operation in a math expression.
-///
-/// `Op`s should be constructed by calling functions on
-/// [`Context`](crate::context::Context), e.g.
-/// [`Context::add`](crate::context::Context::add) will generate an `Op::Add`
-/// node and return an opaque handle.
-///
-/// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
-/// which generated it, and will not be valid for a different `Context`.
-pub type Op = GenericOp<VarNode, OrderedFloat<f64>, Node>;
 
 impl Node {
     pub fn dot_name(&self) -> String {

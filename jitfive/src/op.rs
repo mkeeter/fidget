@@ -1,6 +1,11 @@
 use std::fmt::Write;
 
-use crate::util::indexed::IndexMap;
+use ordered_float::OrderedFloat;
+
+use crate::{
+    context::{Node, VarNode},
+    util::indexed::IndexMap,
+};
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {
@@ -20,20 +25,21 @@ pub enum BinaryOpcode {
     Max,
 }
 
-/// Represents an generic operation
+/// Represents an operation in a math expression.
 ///
-/// Parameterized by four types:
-/// - `V` is an index type associated with `Var` nodes
-/// - `F` is the type used to store floating-point values
-/// - `N` is the index type for inter-op references
-/// - `C` is a choice index type attached to each min/max node (which can be
-///   empty at certain points in the pipeline)
+/// `Op`s should be constructed by calling functions on
+/// [`Context`](crate::context::Context), e.g.
+/// [`Context::add`](crate::context::Context::add) will generate an `Op::Add`
+/// node and return an opaque handle.
+///
+/// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
+/// which generated it, and will not be valid for a different `Context`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum GenericOp<V, F, N> {
-    Var(V),
-    Const(F),
-    Binary(BinaryOpcode, N, N),
-    Unary(UnaryOpcode, N),
+pub enum Op {
+    Var(VarNode),
+    Const(OrderedFloat<f64>),
+    Binary(BinaryOpcode, Node, Node),
+    Unary(UnaryOpcode, Node),
 }
 
 fn dot_color_to_rgb(s: &str) -> &'static str {
@@ -46,57 +52,56 @@ fn dot_color_to_rgb(s: &str) -> &'static str {
     }
 }
 
-impl<V, F, N: Copy> GenericOp<V, F, N> {
+impl Op {
     pub fn dot_node_color(&self) -> &str {
         match self {
-            GenericOp::Const(..) => "green",
-            GenericOp::Var(..) => "red",
-            GenericOp::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..) => {
+            Op::Const(..) => "green",
+            Op::Var(..) => "red",
+            Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..) => {
                 "dodgerblue"
             }
-            GenericOp::Binary(..) | GenericOp::Unary(..) => "goldenrod",
+            Op::Binary(..) | Op::Unary(..) => "goldenrod",
         }
     }
     pub fn dot_node_shape(&self) -> &str {
         match self {
-            GenericOp::Const(..) => "oval",
-            GenericOp::Var(..) => "circle",
-            GenericOp::Binary(..) | GenericOp::Unary(..) => "box",
+            Op::Const(..) => "oval",
+            Op::Var(..) => "circle",
+            Op::Binary(..) | Op::Unary(..) => "box",
         }
     }
 
-    pub fn iter_children(&self) -> impl Iterator<Item = N> {
+    pub fn iter_children(&self) -> impl Iterator<Item = Node> {
         let out = match self {
-            GenericOp::Binary(_, a, b) => [Some(*a), Some(*b)],
-            GenericOp::Unary(_, a) => [Some(*a), None],
-            GenericOp::Var(..) | GenericOp::Const(..) => [None, None],
+            Op::Binary(_, a, b) => [Some(*a), Some(*b)],
+            Op::Unary(_, a) => [Some(*a), None],
+            Op::Var(..) | Op::Const(..) => [None, None],
         };
         out.into_iter().flatten()
     }
 }
 
-impl<V, F, N: Copy> GenericOp<V, F, N>
-where
-    usize: From<N> + From<V>,
-    V: Eq + std::hash::Hash + Copy + From<usize>,
-    F: std::fmt::Display,
-{
-    pub fn dot_node(&self, i: N, vars: &IndexMap<String, V>) -> String {
+impl Op {
+    pub fn dot_node(
+        &self,
+        i: Node,
+        vars: &IndexMap<String, VarNode>,
+    ) -> String {
         let mut out = format!(r#"n{} [label = ""#, usize::from(i));
         match self {
-            GenericOp::Const(c) => write!(out, "{}", c).unwrap(),
-            GenericOp::Var(v) => {
+            Op::Const(c) => write!(out, "{}", c).unwrap(),
+            Op::Var(v) => {
                 let v = vars.get_by_index(*v).unwrap();
                 out += v;
             }
-            GenericOp::Binary(op, ..) => match op {
+            Op::Binary(op, ..) => match op {
                 BinaryOpcode::Add => out += "add",
                 BinaryOpcode::Mul => out += "mul",
                 BinaryOpcode::Sub => out += "sub",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
             },
-            GenericOp::Unary(op, ..) => match op {
+            Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
                 UnaryOpcode::Abs => out += "abs",
                 UnaryOpcode::Recip => out += "recip",
@@ -114,7 +119,7 @@ where
         out
     }
 
-    pub fn dot_edges(&self, i: N) -> String {
+    pub fn dot_edges(&self, i: Node) -> String {
         let mut out = String::new();
         for c in self.iter_children() {
             out += &self.dot_edge(i, c, "FF");
@@ -122,7 +127,7 @@ where
         out
     }
 
-    pub fn dot_edge(&self, a: N, b: N, alpha: &str) -> String {
+    pub fn dot_edge(&self, a: Node, b: Node, alpha: &str) -> String {
         let color = dot_color_to_rgb(self.dot_node_color()).to_owned() + alpha;
         format!(
             "n{} -> n{} [color = \"{color}\"]\n",

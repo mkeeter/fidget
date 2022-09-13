@@ -1,16 +1,3 @@
-use crate::{op::GenericOp, util::indexed::define_index};
-
-define_index!(
-    VarIndex,
-    "Index of a variable, globally unique in the compiler pipeline"
-);
-define_index!(
-    NodeIndex,
-    "Index of a node, globally unique in the compiler pipeline"
-);
-
-pub type Op = GenericOp<VarIndex, f64, NodeIndex>;
-
 /// Represents a single choice made at a min/max node.
 ///
 /// Explicitly stored in a `u8` so that this can be written by JIT functions,
