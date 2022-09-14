@@ -1,3 +1,19 @@
+//! Infrastructure and algorithms for complex closed-form implicit surfaces.
+//!
+//! ```
+//! use jitfive::context::Context;
+//! let mut ctx = Context::new();
+//! let x = ctx.x();
+//! let y = ctx.y();
+//! let x_squared = ctx.mul(x, x).unwrap();
+//! let y_squared = ctx.mul(y, y).unwrap();
+//! let radius = ctx.add(x_squared, y_squared).unwrap();
+//! let one = ctx.constant(1.0);
+//! let circle = ctx.sub(radius, one).unwrap();
+//!
+//! use jitfive::asm::dynasm::REGISTER_LIMIT;
+//! let tape = ctx.get_tape(circle, REGISTER_LIMIT);
+//! ```
 pub mod asm;
 pub mod context;
 pub mod render;

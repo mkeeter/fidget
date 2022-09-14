@@ -479,18 +479,21 @@ impl RegisterAllocator {
                 self.release_mem(m_z);
             }
             (Register(r_x), Memory(m_y), Memory(m_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_x);
+                let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-                self.bind_register(rhs, r_a);
+                if lhs != rhs {
+                    self.bind_register(rhs, r_a);
+                }
 
                 self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
 
-                self.out.push(AsmOp::Store(r_a, m_z));
-                self.release_mem(m_z);
+                if lhs != rhs {
+                    self.out.push(AsmOp::Store(r_a, m_z));
+                    self.release_mem(m_z);
+                }
             }
             (Register(r_x), Unassigned, Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
@@ -506,7 +509,9 @@ impl RegisterAllocator {
 
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-                self.bind_register(rhs, r_a);
+                if lhs != rhs {
+                    self.bind_register(rhs, r_a);
+                }
             }
             (Register(r_x), Unassigned, Memory(m_z)) => {
                 let r_a = self.get_register();
@@ -514,7 +519,9 @@ impl RegisterAllocator {
 
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-                self.bind_register(rhs, r_a);
+                if lhs != rhs {
+                    self.bind_register(rhs, r_a);
+                }
 
                 self.out.push(AsmOp::Store(r_a, m_z));
                 self.release_mem(m_z);
@@ -525,7 +532,9 @@ impl RegisterAllocator {
 
                 self.out.push(op(r_x, r_a, r_x));
                 self.bind_register(lhs, r_a);
-                self.rebind_register(rhs, r_x);
+                if lhs != rhs {
+                    self.rebind_register(rhs, r_x);
+                }
 
                 self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
@@ -573,8 +582,7 @@ impl RegisterAllocator {
             }
             (Memory(m_x), Memory(m_y), Memory(m_z)) => {
                 let r_a = self.get_register();
-                let r_b = self.get_register();
-                assert!(r_a != r_b);
+                let r_b = if lhs == rhs { r_a } else { self.get_register() };
 
                 self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
@@ -582,12 +590,18 @@ impl RegisterAllocator {
 
                 self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
-                self.bind_register(rhs, r_b);
+                if lhs != rhs {
+                    self.bind_register(rhs, r_b);
+                }
 
                 self.out.push(AsmOp::Store(r_a, m_y));
-                self.out.push(AsmOp::Store(r_b, m_z));
+                if lhs != rhs {
+                    self.out.push(AsmOp::Store(r_b, m_z));
+                }
                 self.release_mem(m_y);
-                self.release_mem(m_z);
+                if lhs != rhs {
+                    self.release_mem(m_z);
+                }
             }
             (Memory(m_x), Register(r_y), Unassigned) => {
                 let r_a = self.get_register();
@@ -613,8 +627,7 @@ impl RegisterAllocator {
             }
             (Memory(m_x), Unassigned, Unassigned) => {
                 let r_a = self.get_register();
-                let r_b = self.get_register();
-                assert!(r_a != r_b);
+                let r_b = if lhs == rhs { r_a } else { self.get_register() };
 
                 self.out.push(AsmOp::Store(r_a, m_x));
                 self.release_mem(m_x);
@@ -622,7 +635,9 @@ impl RegisterAllocator {
 
                 self.out.push(op(r_a, r_a, r_b));
                 self.rebind_register(lhs, r_a);
-                self.bind_register(rhs, r_b);
+                if lhs != rhs {
+                    self.bind_register(rhs, r_b);
+                }
             }
             (Memory(m_x), Memory(m_y), Unassigned) => {
                 let r_a = self.get_register();

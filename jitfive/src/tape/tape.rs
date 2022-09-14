@@ -134,4 +134,15 @@ mod tests {
         let tape = ctx.get_tape(c9, u8::MAX);
         assert_eq!(tape.ssa.tape.len(), 8);
     }
+
+    #[test]
+    fn test_dupe() {
+        use crate::context::Context;
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let x_squared = ctx.mul(x, x).unwrap();
+
+        let tape = ctx.get_tape(x_squared, u8::MAX);
+        assert_eq!(tape.ssa.tape.len(), 2);
+    }
 }
