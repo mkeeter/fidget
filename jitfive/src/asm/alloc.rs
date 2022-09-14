@@ -504,8 +504,7 @@ impl RegisterAllocator {
                 self.rebind_register(rhs, r_x);
             }
             (Register(r_x), Unassigned, Unassigned) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_x);
+                let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);

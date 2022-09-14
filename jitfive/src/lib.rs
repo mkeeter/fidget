@@ -11,8 +11,13 @@
 //! let one = ctx.constant(1.0);
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
-//! use jitfive::asm::dynasm::REGISTER_LIMIT;
-//! let tape = ctx.get_tape(circle, REGISTER_LIMIT);
+//! let tape = ctx.get_tape(circle, u8::MAX);
+//! let mut eval = tape.get_float_evaluator();
+//! assert_eq!(eval.eval(0.0, 0.0, 0.0), -1.0);
+//! assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
+//!
+//! let r = 0.5f32.sqrt();
+//! assert!(eval.eval(r, r, 0.0).abs() < 1e-6)
 //! ```
 pub mod asm;
 pub mod context;

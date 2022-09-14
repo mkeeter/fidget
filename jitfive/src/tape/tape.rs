@@ -145,4 +145,22 @@ mod tests {
         let tape = ctx.get_tape(x_squared, u8::MAX);
         assert_eq!(tape.ssa.tape.len(), 2);
     }
+
+    #[test]
+    fn test_circle() {
+        use crate::context::Context;
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let x_squared = ctx.mul(x, x).unwrap();
+        let y_squared = ctx.mul(y, y).unwrap();
+        let radius = ctx.add(x_squared, y_squared).unwrap();
+        let one = ctx.constant(1.0);
+        let circle = ctx.sub(radius, one).unwrap();
+
+        let tape = ctx.get_tape(circle, u8::MAX);
+        let mut eval = tape.get_float_evaluator();
+        assert_eq!(eval.eval(0.0, 0.0, 0.0), -1.0);
+        assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
+    }
 }
