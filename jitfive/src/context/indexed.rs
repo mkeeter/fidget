@@ -2,24 +2,24 @@
 use crate::error::Error;
 use std::collections::HashMap;
 
-/// Stores a set of `(Value, Index)` tuples, with lookup in both directions.
+/// Stores a set of `(V, I)` tuples, with lookup in both directions.
 ///
-/// Implemented using a `Vec<Value>` and a `HashMap<Value, Index>`.
+/// Implemented using a `Vec<V>` and a `HashMap<V, I>`.
 ///
-/// The `Index` type should be a wrapper around a `usize` and be convertible
-/// in both directions; it is typically passed around using `Copy`.  A suitable
-/// index type can be constructed with [define_index].
+/// The index type `I` should be a wrapper around a `usize` and be convertible
+/// in both directions using the `Index` trait; it is typically passed around
+/// using `Copy`.  A suitable index type can be constructed with [define_index].
 ///
-/// The `Value` type may be larger and is passed around by reference. However,
+/// The `V` type may be larger and is passed around by reference. However,
 /// it must be `Clone`, because it is stored twice in the data structure (once
 /// in the `Vec` and once in the `HashMap`).
 #[derive(Clone, Debug)]
-pub struct IndexMap<Value, Index> {
-    data: Vec<Value>,
-    map: HashMap<Value, Index>,
+pub(crate) struct IndexMap<V, Index> {
+    data: Vec<V>,
+    map: HashMap<V, Index>,
 }
 
-impl<Value, Index> Default for IndexMap<Value, Index> {
+impl<V, Index> Default for IndexMap<V, Index> {
     fn default() -> Self {
         Self {
             data: vec![],
@@ -28,11 +28,15 @@ impl<Value, Index> Default for IndexMap<Value, Index> {
     }
 }
 
-impl<Value, Index> IndexMap<Value, Index>
+pub(crate) trait Index {
+    fn new(i: usize) -> Self;
+    fn get(&self) -> usize;
+}
+
+impl<V, I> IndexMap<V, I>
 where
-    Value: Eq + std::hash::Hash + Clone,
-    Index: Eq + std::hash::Hash + Copy + From<usize>,
-    usize: From<Index>,
+    V: Eq + std::hash::Hash + Clone,
+    I: Eq + std::hash::Hash + Copy + Index,
 {
     pub fn len(&self) -> usize {
         self.data.len()
@@ -40,16 +44,16 @@ where
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-    pub fn get_by_index(&self, v: Index) -> Option<&Value> {
-        self.data.get(usize::from(v))
+    pub fn get_by_index(&self, i: I) -> Option<&V> {
+        self.data.get(i.get())
     }
     /// Insert the given value into the map, returning a handle.
     ///
     /// If the value is already in the map, the handle will be to the existing
     /// instance (so it will not be inserted twice).
-    pub fn insert(&mut self, v: Value) -> Index {
+    pub fn insert(&mut self, v: V) -> I {
         *self.map.entry(v.clone()).or_insert_with(|| {
-            let out = Index::from(self.data.len());
+            let out = I::new(self.data.len());
             self.data.push(v);
             out
         })
@@ -59,7 +63,7 @@ where
     ///
     /// This is _usually_ the most recently inserted value, except when
     /// `insert` is called on a duplicate.
-    pub fn pop(&mut self) -> Result<Value, Error> {
+    pub fn pop(&mut self) -> Result<V, Error> {
         match self.data.pop() {
             Some(v) => {
                 self.map.remove(&v);
@@ -68,26 +72,26 @@ where
             None => Err(Error::EmptyMap),
         }
     }
-    pub fn keys(&self) -> impl Iterator<Item = Index> {
-        (0..self.data.len()).map(Index::from)
+    pub fn keys(&self) -> impl Iterator<Item = I> {
+        (0..self.data.len()).map(I::new)
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// A `Vec<Value>` with strongly-typed indexes, used to improve the type-safety
+/// A `Vec<V>` with strongly-typed indexes, used to improve the type-safety
 /// of data storage.
 ///
 /// The `Index` type should be a wrapper around a `usize` and be convertible
 /// in both directions; it is typically passed around using `Copy`.  A suitable
 /// index type can be constructed with [define_index].
 #[derive(Clone, Debug)]
-pub struct IndexVec<Value, Index> {
-    data: Vec<Value>,
-    _phantom: std::marker::PhantomData<*const Index>,
+pub struct IndexVec<V, I> {
+    data: Vec<V>,
+    _phantom: std::marker::PhantomData<*const I>,
 }
 
-impl<Value, Index> Default for IndexVec<Value, Index> {
+impl<V, I> Default for IndexVec<V, I> {
     fn default() -> Self {
         Self {
             data: vec![],
@@ -96,41 +100,41 @@ impl<Value, Index> Default for IndexVec<Value, Index> {
     }
 }
 
-impl<Value, Index> std::iter::IntoIterator for IndexVec<Value, Index> {
-    type Item = Value;
-    type IntoIter = std::vec::IntoIter<Value>;
+impl<V, I> std::iter::IntoIterator for IndexVec<V, I> {
+    type Item = V;
+    type IntoIter = std::vec::IntoIter<V>;
     fn into_iter(self) -> Self::IntoIter {
         self.data.into_iter()
     }
 }
 
-impl<Value, Index> FromIterator<Value> for IndexVec<Value, Index> {
-    fn from_iter<I: IntoIterator<Item = Value>>(iter: I) -> Self {
+impl<V, I> FromIterator<V> for IndexVec<V, I> {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         Vec::from_iter(iter).into()
     }
 }
 
-impl<Value, Index> std::ops::Index<Index> for IndexVec<Value, Index>
+impl<V, I> std::ops::Index<I> for IndexVec<V, I>
 where
-    usize: From<Index>,
+    I: Index,
 {
-    type Output = Value;
-    fn index(&self, i: Index) -> &Value {
-        &self.data[usize::from(i)]
+    type Output = V;
+    fn index(&self, i: I) -> &V {
+        &self.data[i.get()]
     }
 }
 
-impl<Value, Index> std::ops::IndexMut<Index> for IndexVec<Value, Index>
+impl<V, I> std::ops::IndexMut<I> for IndexVec<V, I>
 where
-    usize: From<Index>,
+    I: Index,
 {
-    fn index_mut(&mut self, i: Index) -> &mut Value {
-        &mut self.data[usize::from(i)]
+    fn index_mut(&mut self, i: I) -> &mut V {
+        &mut self.data[i.get()]
     }
 }
 
-impl<Value, Index> From<Vec<Value>> for IndexVec<Value, Index> {
-    fn from(data: Vec<Value>) -> Self {
+impl<V, I> From<Vec<V>> for IndexVec<V, I> {
+    fn from(data: Vec<V>) -> Self {
         Self {
             data,
             _phantom: std::marker::PhantomData,
@@ -148,14 +152,12 @@ macro_rules! define_index {
             Copy, Clone, Default, Debug, Eq, PartialEq, Hash, Ord, PartialOrd,
         )]
         pub struct $name(usize);
-        impl From<usize> for $name {
-            fn from(v: usize) -> Self {
-                Self(v)
+        impl crate::context::indexed::Index for $name {
+            fn new(i: usize) -> Self {
+                Self(i)
             }
-        }
-        impl From<$name> for usize {
-            fn from(v: $name) -> Self {
-                v.0
+            fn get(&self) -> usize {
+                self.0
             }
         }
     };

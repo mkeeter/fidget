@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tape = ctx.get_tape(root, u8::MAX);
             info!("Built tape in {:?}", start.elapsed());
 
-            let mut eval = tape.get_evaluator();
+            let mut eval = tape.get_float_evaluator();
 
             let start = Instant::now();
             let div = (scale - 1) as f64;
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
                 for j in 0..scale {
                     let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.f(x as f32, y as f32, 0.0);
+                    let v = eval.eval(x as f32, y as f32, 0.0);
                     out.push(v <= 0.0);
                 }
             }
@@ -87,10 +87,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let jit = jitfive::asm::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
-                let mut eval_trad = tape.get_evaluator();
-                info!("trad: {:x?}", eval_trad.f(0.2, 0.4, 0.0));
-                info!("asm:  {:x?}", eval.v([0.2; 4], [0.4; 4], [0.0; 4]));
-                info!("ctx:  {:x?}", ctx.eval_xyz(root, 0.2, 0.4, 0.0)?);
 
                 let start = Instant::now();
                 let div = (scale - 1) as f64;
@@ -103,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 + 2.0 * ((j * 4 + i) as f64) / div)
                                 as f32;
                         }
-                        let v = eval.v(x, [y as f32; 4], [0.0; 4]);
+                        let v = eval.eval(x, [y as f32; 4], [0.0; 4]);
                         out.extend(v.into_iter().map(|v| v <= 0.0));
                     }
                 }

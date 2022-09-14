@@ -183,7 +183,7 @@ impl Renderer {
         }
         let y_vec = [self.pixel_to_pos(y); 4];
 
-        let v = eval.v(x_vec, y_vec, [0.0; 4]);
+        let v = eval.eval(x_vec, y_vec, [0.0; 4]);
         for (i, v) in v.iter().enumerate() {
             if *v < 0.0 {
                 self.image[x + i + y * self.size] = Some(Pixel::Filled);

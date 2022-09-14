@@ -1,4 +1,4 @@
-use crate::context::{Node, VarNode};
+use crate::context::{indexed::Index, Node, VarNode};
 use ordered_float::OrderedFloat;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -86,10 +86,6 @@ impl Op {
 
     pub fn dot_edge(&self, a: Node, b: Node, alpha: &str) -> String {
         let color = dot_color_to_rgb(self.dot_node_color()).to_owned() + alpha;
-        format!(
-            "n{} -> n{} [color = \"{color}\"]\n",
-            usize::from(a),
-            usize::from(b),
-        )
+        format!("n{} -> n{} [color = \"{color}\"]\n", a.get(), b.get(),)
     }
 }

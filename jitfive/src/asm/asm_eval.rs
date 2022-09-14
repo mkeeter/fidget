@@ -1,14 +1,14 @@
 use crate::asm::AsmOp;
 
 /// Evaluator for a slice of [`AsmOp`]
-pub struct AsmEval<'a> {
+pub struct AsmFloatEval<'a> {
     /// Instruction tape, in reverse-evaluation order
     tape: &'a [AsmOp],
     /// Workspace for data
     slots: Vec<f32>,
 }
 
-impl<'a> AsmEval<'a> {
+impl<'a> AsmFloatEval<'a> {
     pub fn new(tape: &'a [AsmOp]) -> Self {
         Self {
             tape,
@@ -21,7 +21,7 @@ impl<'a> AsmEval<'a> {
         }
         &mut self.slots[i as usize]
     }
-    pub fn f(&mut self, x: f32, y: f32, z: f32) -> f32 {
+    pub fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
         for &op in self.tape.iter().rev() {
             use AsmOp::*;
             match op {

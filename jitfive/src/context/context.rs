@@ -1,6 +1,6 @@
 use crate::{
     context::{
-        indexed::{define_index, IndexMap, IndexVec},
+        indexed::{define_index, Index, IndexMap, IndexVec},
         BinaryOpcode, Op, UnaryOpcode,
     },
     error::Error,
@@ -554,7 +554,7 @@ impl Context {
     /// (this is a local function instead of a function on `Op` because it
     ///  requires looking up variables by name)
     fn dot_node(&self, i: Node) -> String {
-        let mut out = format!(r#"n{} [label = ""#, usize::from(i));
+        let mut out = format!(r#"n{} [label = ""#, i.get());
         let op = self.ops.get_by_index(i).unwrap();
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),

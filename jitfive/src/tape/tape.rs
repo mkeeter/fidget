@@ -1,5 +1,5 @@
 use crate::{
-    asm::{AsmEval, AsmOp, Choice},
+    asm::{AsmFloatEval, AsmOp, Choice},
     tape::SsaTape,
 };
 
@@ -36,8 +36,8 @@ impl Tape {
         }
     }
 
-    pub fn get_evaluator(&self) -> AsmEval {
-        AsmEval::new(&self.asm)
+    pub fn get_float_evaluator(&self) -> AsmFloatEval {
+        AsmFloatEval::new(&self.asm)
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
@@ -72,10 +72,10 @@ mod tests {
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.f(1.0, 3.0, 0.0), 2.0);
-        assert_eq!(eval.f(3.0, 3.5, 0.0), 3.5);
+        let mut eval = tape.get_float_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.eval(1.0, 3.0, 0.0), 2.0);
+        assert_eq!(eval.eval(3.0, 3.5, 0.0), 3.5);
     }
 
     #[test]
@@ -86,36 +86,36 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
+        let mut eval = tape.get_float_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.eval(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 3.0);
+        let mut eval = t.get_float_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0), 1.0);
+        assert_eq!(eval.eval(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.f(3.0, 2.0, 0.0), 2.0);
+        let mut eval = t.get_float_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.eval(3.0, 2.0, 0.0), 2.0);
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
+        let mut eval = tape.get_float_evaluator();
+        assert_eq!(eval.eval(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.eval(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 3.0);
+        let mut eval = t.get_float_evaluator();
+        assert_eq!(eval.eval(0.5, 0.0, 0.0), 0.5);
+        assert_eq!(eval.eval(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_evaluator();
-        assert_eq!(eval.f(0.5, 0.0, 0.0), 1.0);
-        assert_eq!(eval.f(3.0, 0.0, 0.0), 1.0);
+        let mut eval = t.get_float_evaluator();
+        assert_eq!(eval.eval(0.5, 0.0, 0.0), 1.0);
+        assert_eq!(eval.eval(3.0, 0.0, 0.0), 1.0);
     }
 
     #[test]
