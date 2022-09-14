@@ -200,10 +200,15 @@ impl Context {
     /// assert_eq!(v, 2.0);
     /// ```
     pub fn add(&mut self, a: Node, b: Node) -> Result<Node, Error> {
-        match (self.const_value(a)?, self.const_value(b)?) {
-            (Some(zero), _) if zero == 0.0 => Ok(b),
-            (_, Some(zero)) if zero == 0.0 => Ok(a),
-            _ => self.op_binary_commutative(a, b, BinaryOpcode::Add),
+        if a == b {
+            let two = self.constant(2.0);
+            self.mul(a, two)
+        } else {
+            match (self.const_value(a)?, self.const_value(b)?) {
+                (Some(zero), _) if zero == 0.0 => Ok(b),
+                (_, Some(zero)) if zero == 0.0 => Ok(a),
+                _ => self.op_binary_commutative(a, b, BinaryOpcode::Add),
+            }
         }
     }
 
@@ -217,10 +222,14 @@ impl Context {
     /// assert_eq!(v, 10.0);
     /// ```
     pub fn mul(&mut self, a: Node, b: Node) -> Result<Node, Error> {
-        match (self.const_value(a)?, self.const_value(b)?) {
-            (Some(one), _) if one == 1.0 => Ok(b),
-            (_, Some(one)) if one == 1.0 => Ok(a),
-            _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
+        if a == b {
+            self.square(a)
+        } else {
+            match (self.const_value(a)?, self.const_value(b)?) {
+                (Some(one), _) if one == 1.0 => Ok(b),
+                (_, Some(one)) if one == 1.0 => Ok(a),
+                _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
+            }
         }
     }
 

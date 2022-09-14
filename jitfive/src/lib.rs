@@ -16,8 +16,33 @@
 //! assert_eq!(eval.eval(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
 //!
-//! let r = 0.5f32.sqrt();
-//! assert!(eval.eval(r, r, 0.0).abs() < 1e-6)
+//! const N: usize = 15;
+//! for i in 0..N {
+//!     for j in 0..N {
+//!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
+//!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
+//!         let v = eval.eval(x, y, 0.0);
+//!         print!("{}", if v < 0.0 { "XX" } else { "  " });
+//!     }
+//!     println!();
+//! }
+//!
+//! // This will print
+//! //           XXXXXXXXXX
+//! //       XXXXXXXXXXXXXXXXXX
+//! //     XXXXXXXXXXXXXXXXXXXXXX
+//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
+//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
+//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//! // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
+//! //   XXXXXXXXXXXXXXXXXXXXXXXXXX
+//! //     XXXXXXXXXXXXXXXXXXXXXX
+//! //       XXXXXXXXXXXXXXXXXX
+//! //           XXXXXXXXXX
 //! ```
 pub mod asm;
 pub mod context;
