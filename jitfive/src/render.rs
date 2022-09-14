@@ -97,7 +97,7 @@ impl Renderer {
             [self.pixel_to_pos(y), self.pixel_to_pos(y + TILE_SIZE)];
 
         let start = Instant::now();
-        let i = eval.i_subdiv(x_interval, y_interval, [0.0, 0.0], 3);
+        let i = eval.eval_subdiv(x_interval, y_interval, [0.0, 0.0], 3);
         self.interval_time += start.elapsed();
 
         if i[1] < 0.0 {
@@ -141,7 +141,7 @@ impl Renderer {
         let y_interval =
             [self.pixel_to_pos(y), self.pixel_to_pos(y + SUBTILE_SIZE)];
         let start = Instant::now();
-        let i = eval.i_subdiv(x_interval, y_interval, [0.0, 0.0], 3);
+        let i = eval.eval_subdiv(x_interval, y_interval, [0.0, 0.0], 3);
         self.interval_time += start.elapsed();
 
         if i[1] < 0.0 {
