@@ -4,7 +4,8 @@ mod op;
 mod ssa;
 mod tape;
 
-pub use builder::SsaTapeBuilder;
-pub use op::TapeOp;
-pub use ssa::SsaTape;
+pub(crate) use builder::SsaTapeBuilder;
+pub(crate) use op::TapeOp;
+pub(crate) use ssa::SsaTape;
+
 pub use tape::Tape;

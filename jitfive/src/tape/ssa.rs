@@ -3,15 +3,17 @@ use crate::{
     tape::TapeOp,
 };
 
-/// Tape storing... stuff
-/// - 4-byte opcode
-/// - 4-byte output register
+/// Instruction tape, storing [`TapeOp`](crate::tape::TapeOp) in SSA form
+///
+/// Each operation has the following parameters
+/// - 4-byte opcode (required)
+/// - 4-byte output register (required)
 /// - 4-byte LHS register
 /// - 4-byte RHS register (or immediate `f32`)
 ///
 /// Outputs, arguments, and immediates are packed into the `data` array
 ///
-/// All slot addressing is absolute.
+/// All register addressing is absolute.
 #[derive(Clone, Debug)]
 pub struct SsaTape {
     /// The tape is stored in reverse order, such that the root of the tree is

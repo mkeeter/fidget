@@ -1,12 +1,11 @@
 /// Operation that can be passed directly to the assembler
 ///
-/// This is analagous to the `ClauseOp` family, but assumes relative addressing
-/// and a maximum of 256 registers (and hence includes `Load` and `Store`
-/// operations).
+/// Note that these operations **are not** in SSA form; they operate on a
+/// limited number of registers and will reuse them when needed.
 ///
 /// Arguments, in order, are
 /// - Output register
-/// - LHS register (or input slot for `Input`)
+/// - LHS register (or input slot for [`Input`](AsmOp::Input))
 /// - RHS register (or immediate for `*Imm`)
 #[derive(Copy, Clone, Debug)]
 pub enum AsmOp {

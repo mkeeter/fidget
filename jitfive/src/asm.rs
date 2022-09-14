@@ -7,7 +7,8 @@ mod lru;
 
 pub mod dynasm;
 
-pub use alloc::RegisterAllocator;
+pub(crate) use alloc::RegisterAllocator;
+
 pub use asm_eval::AsmFloatEval;
 pub use asm_op::AsmOp;
 pub use choice::Choice;

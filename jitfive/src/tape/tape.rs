@@ -6,13 +6,12 @@ use crate::{
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
 /// Under the hood, [`Tape`](Self) stores two different representations:
-/// - An [`SsaTape`](crate::tape::SsaTape), suitable for use during tape
-///   simplification
+/// - A tape in SSA form, suitable for use during tape simplification
 /// - A [`Vec<AsmOp>`](crate::asm::AsmOp), ready to be fed into an assembler,
 ///   (e.g. [`dynasm`](crate::asm::dynasm)).
 ///
 /// We keep both because SSA form makes tape shortening easier, while the `asm`
-/// data already has registers assigned.
+/// data already has registers assigned for lowering into machine assembly.
 pub struct Tape {
     ssa: SsaTape,
     asm: Vec<AsmOp>,

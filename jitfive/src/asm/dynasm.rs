@@ -1,3 +1,4 @@
+//! Infrastructure for compiling down to native machine code
 use dynasmrt::{
     aarch64::Assembler, dynasm, AssemblyOffset, DynasmApi, DynasmLabelApi,
     ExecutableBuffer,
@@ -8,11 +9,17 @@ use crate::{
     tape::Tape,
 };
 
+/// Number of registers available when executing natively
+///
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
 pub const REGISTER_LIMIT: u8 = 24;
+
+/// Offset before the first useable register
 const OFFSET: u8 = 8;
 
-/// IMM_REG is selected to avoid scratch registers used by other
+/// Register written to by `CopyImm`
+///
+/// `IMM_REG` is selected to avoid scratch registers used by other
 /// functions, e.g. interval mul / min / max
 const IMM_REG: u8 = 6;
 
@@ -877,7 +884,7 @@ fn build_asm_fn<A: AssemblerT>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle which owns a JIT-compiled float function
+/// Handle owning a JIT-compiled float function
 pub struct FloatFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
@@ -893,7 +900,7 @@ impl FloatFuncHandle {
     }
 }
 
-/// Handle which owns a JIT-compiled interval function
+/// Handle owning a JIT-compiled interval function
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
@@ -916,7 +923,7 @@ impl<'t> IntervalFuncHandle<'t> {
     }
 }
 
-/// Handle which owns a JIT-compiled vectorized (4x) float function
+/// Handle owning a JIT-compiled vectorized (4x) float function
 pub struct VecFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
@@ -934,7 +941,7 @@ impl VecFuncHandle {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle for evaluation of a JIT-compiled float function
+/// Evaluator for a JIT-compiled function taking `f32` values
 ///
 /// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
 /// the underlying executable memory.
@@ -949,7 +956,7 @@ impl<'a> FloatEval<'a> {
     }
 }
 
-/// Handle for evaluation of a JIT-compiled function Interval function
+/// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
 ///
 /// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
 /// owns the underlying executable memory.
@@ -1042,7 +1049,7 @@ impl<'a> IntervalEval<'a> {
     }
 }
 
-/// Handle for evaluation of a JIT-compiled function
+/// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
 /// The lifetime of this `struct` is bound to an `VecFuncHandle`, which owns
 /// the underlying executable memory.
