@@ -47,6 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
+    const N: usize = 100; // TODO
+
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             let scale = args.size;
@@ -116,13 +118,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
                 let cfg = jitfive::render_mt::RenderConfig {
                     image_size: args.size as usize,
-                    tile_size: 128,
+                    tile_size: 256,
                     subtile_size: 64,
-                    threads: 1,
-                    interval_subdiv: 2,
+                    threads: 8,
+                    interval_subdiv: 3,
                 };
                 let start = Instant::now();
-                for _ in 0..99 {
+                for _ in 0..(N - 1) {
                     jitfive::render_mt::render(&tape, &cfg);
                 }
                 let image = jitfive::render_mt::render(&tape, &cfg);
@@ -155,8 +157,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (out, start)
         };
         info!(
-            "Finished rendering in {:?}",
-            start.elapsed().as_micros() as f64 / 1000.0 / 100.0
+            "Finished rendering in {:?} ms",
+            start.elapsed().as_micros() as f64 / 1000.0 / (N as f64)
         );
 
         image::save_buffer(

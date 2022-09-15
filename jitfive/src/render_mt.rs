@@ -42,7 +42,7 @@ fn worker(
         }
         let tile = tiles[index];
 
-        let mut pixels = vec![None; config.image_size * config.image_size];
+        let mut pixels = vec![None; config.tile_size * config.tile_size];
         render_tile(&mut eval, &mut pixels, config, tile);
         let pixels = pixels.into_iter().map(Option::unwrap).collect();
         out.push((tile, pixels))
@@ -56,7 +56,6 @@ fn render_tile(
     config: &RenderConfig,
     tile: Tile,
 ) {
-    println!("rendering {:?}", tile);
     let x_min = config.pixel_to_pos(tile.corner[0]);
     let x_max = config.pixel_to_pos(tile.corner[0] + config.tile_size);
     let y_min = config.pixel_to_pos(tile.corner[1]);
@@ -70,17 +69,9 @@ fn render_tile(
     );
 
     if i[1] < 0.0 {
-        for y in 0..config.tile_size {
-            for x in 0..config.tile_size {
-                out[x + y * config.tile_size] = Some(Pixel::FilledTile);
-            }
-        }
+        out.fill(Some(Pixel::FilledTile));
     } else if i[0] > 0.0 {
-        for y in 0..config.tile_size {
-            for x in 0..config.tile_size {
-                out[x + y * config.tile_size] = Some(Pixel::EmptyTile);
-            }
-        }
+        out.fill(Some(Pixel::EmptyTile));
     } else {
         let sub_tape = eval.push();
         let sub_jit = build_interval_fn(&sub_tape);
@@ -110,7 +101,6 @@ fn render_subtile(
     config: &RenderConfig,
     tile: Tile,
 ) {
-    println!("    rendering {:?}", tile);
     let x_min = config.pixel_to_pos(tile.corner[0]);
     let x_max = config.pixel_to_pos(tile.corner[0] + config.subtile_size);
     let y_min = config.pixel_to_pos(tile.corner[1]);
@@ -122,18 +112,23 @@ fn render_subtile(
         [0.0, 0.0],
         config.interval_subdiv,
     );
-    println!("    {:?}", i);
 
     if i[1] < 0.0 {
         for y in 0..config.subtile_size {
             for x in 0..config.subtile_size {
-                out[x + y * config.subtile_size] = Some(Pixel::FilledSubtile);
+                out[x
+                    + (tile.corner[0] % config.tile_size)
+                    + (y + (tile.corner[1] % config.tile_size))
+                        * config.tile_size] = Some(Pixel::FilledSubtile);
             }
         }
     } else if i[0] > 0.0 {
         for y in 0..config.subtile_size {
             for x in 0..config.subtile_size {
-                out[x + y * config.subtile_size] = Some(Pixel::EmptySubtile);
+                out[x
+                    + (tile.corner[0] % config.tile_size)
+                    + (y + (tile.corner[1] % config.tile_size))
+                        * config.tile_size] = Some(Pixel::EmptySubtile);
             }
         }
     } else {
@@ -161,7 +156,6 @@ fn render_pixels(
     config: &RenderConfig,
     tile: Tile,
 ) {
-    println!("        rendering {:?}", tile);
     let mut x_vec = [0.0; 4];
     for (i, x) in x_vec.iter_mut().enumerate() {
         *x = config.pixel_to_pos(tile.corner[0] + i);
@@ -170,7 +164,9 @@ fn render_pixels(
     let v = eval.eval(x_vec, y_vec, [0.0; 4]);
 
     for (i, v) in v.iter().enumerate() {
-        out[tile.corner[0] + i + tile.corner[1] * config.subtile_size] =
+        out[tile.corner[0] % config.tile_size
+            + i
+            + (tile.corner[1] % config.tile_size) * config.tile_size] =
             Some(if *v < 0.0 {
                 Pixel::Filled
             } else {
@@ -188,7 +184,9 @@ pub fn render(tape: &Tape, config: &RenderConfig) -> Vec<Pixel> {
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
-            tiles.push(Tile { corner: [i, j] });
+            tiles.push(Tile {
+                corner: [i * config.tile_size, j * config.tile_size],
+            });
         }
     }
 
