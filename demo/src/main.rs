@@ -29,6 +29,9 @@ struct Args {
     #[clap(short, long, requires = "asm")]
     brute: bool,
 
+    #[clap(short = 'N', default_value = "1", requires = "image")]
+    n: usize,
+
     /// Image size
     #[clap(short, long, requires = "image", default_value = "128")]
     size: u32,
@@ -47,26 +50,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
-    const N: usize = 100; // TODO
-
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             let scale = args.size;
-            let mut out = Vec::with_capacity((scale * scale) as usize);
             let start = Instant::now();
             let tape = ctx.get_tape(root, u8::MAX);
             info!("Built tape in {:?}", start.elapsed());
 
             let mut eval = tape.get_float_evaluator();
-
+            let mut out = vec![];
             let start = Instant::now();
-            let div = (scale - 1) as f64;
-            for i in 0..scale {
-                let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..scale {
-                    let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = eval.eval(x as f32, y as f32, 0.0);
-                    out.push(v <= 0.0);
+            for _ in 0..args.n {
+                out.clear();
+                let div = (scale - 1) as f64;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f64) / div);
+                    for j in 0..scale {
+                        let x = -1.0 + 2.0 * (j as f64) / div;
+                        let v = eval.eval(x as f32, y as f32, 0.0);
+                        out.push(v <= 0.0);
+                    }
                 }
             }
 
@@ -80,29 +83,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if args.asm {
             if args.brute {
                 let scale = args.size;
-                let mut out = Vec::with_capacity((scale * scale) as usize);
 
                 let start = Instant::now();
                 let tape =
                     ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
                 info!("Got tape in {:?}", start.elapsed());
+
+                let start = Instant::now();
                 let jit = jitfive::asm::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
+                let mut out = vec![];
                 let start = Instant::now();
-                let div = (scale - 1) as f64;
-                for i in 0..scale {
-                    let y = -(-1.0 + 2.0 * (i as f64) / div);
-                    for j in 0..(scale / 4) {
-                        let mut x = [0.0; 4];
-                        for i in 0u32..4 {
-                            x[i as usize] = (-1.0
-                                + 2.0 * ((j * 4 + i) as f64) / div)
-                                as f32;
+                for _ in 0..args.n {
+                    out.clear();
+                    let div = (scale - 1) as f64;
+                    for i in 0..scale {
+                        let y = -(-1.0 + 2.0 * (i as f64) / div);
+                        for j in 0..(scale / 4) {
+                            let mut x = [0.0; 4];
+                            for i in 0u32..4 {
+                                x[i as usize] = (-1.0
+                                    + 2.0 * ((j * 4 + i) as f64) / div)
+                                    as f32;
+                            }
+                            let v = eval.eval(x, [y as f32; 4], [0.0; 4]);
+                            out.extend(v.into_iter().map(|v| v <= 0.0));
                         }
-                        let v = eval.eval(x, [y as f32; 4], [0.0; 4]);
-                        out.extend(v.into_iter().map(|v| v <= 0.0));
                     }
                 }
 
@@ -114,8 +122,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect();
                 (out, start)
             } else {
+                let start = Instant::now();
                 let tape =
                     ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
+                info!("Got tape in {:?}", start.elapsed());
+
                 let cfg = jitfive::render_mt::RenderConfig {
                     image_size: args.size as usize,
                     tile_size: 256,
@@ -124,10 +135,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     interval_subdiv: 3,
                 };
                 let start = Instant::now();
-                for _ in 0..(N - 1) {
-                    jitfive::render_mt::render(&tape, &cfg);
+                let mut image = vec![];
+                for _ in 0..args.n {
+                    image = jitfive::render_mt::render(&tape, &cfg);
                 }
-                let image = jitfive::render_mt::render(&tape, &cfg);
                 let out = image
                     .into_iter()
                     .flat_map(|p| p.as_color().into_iter())
@@ -138,27 +149,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let start = Instant::now();
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
-            let div = (scale - 1) as f64;
-            for i in 0..scale {
-                let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..scale {
-                    let x = -1.0 + 2.0 * (j as f64) / div;
-                    let v = ctx.eval_xyz(root, x, y, 0.0)? as f32;
-                    out.push(v <= 0.0);
+            for _ in 0..args.n {
+                out.clear();
+                let div = (scale - 1) as f64;
+                for i in 0..scale {
+                    let y = -(-1.0 + 2.0 * (i as f64) / div);
+                    for j in 0..scale {
+                        let x = -1.0 + 2.0 * (j as f64) / div;
+                        let v = ctx.eval_xyz(root, x, y, 0.0)? as f32;
+                        out.extend(if v <= 0.0 {
+                            [u8::MAX; 4]
+                        } else {
+                            [0, 0, 0, 255]
+                        });
+                    }
                 }
             }
-
-            // Convert from Vec<bool> to an image
-            let out = out
-                .into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                .flat_map(|i| i.into_iter())
-                .collect();
             (out, start)
         };
         info!(
-            "Finished rendering in {:?} ms",
-            start.elapsed().as_micros() as f64 / 1000.0 / (N as f64)
+            "Rendered {}x at {:?} ms/frame",
+            args.n,
+            start.elapsed().as_micros() as f64 / 1000.0 / (args.n as f64)
         );
 
         image::save_buffer(
