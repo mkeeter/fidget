@@ -114,11 +114,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let tape =
                     ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
+                let cfg = jitfive::render_mt::RenderConfig {
+                    image_size: args.size as usize,
+                    tile_size: 128,
+                    subtile_size: 64,
+                    threads: 1,
+                    interval_subdiv: 2,
+                };
                 let start = Instant::now();
                 for _ in 0..99 {
-                    jitfive::render::render(args.size as usize, &tape);
+                    jitfive::render_mt::render(&tape, &cfg);
                 }
-                let image = jitfive::render::render(args.size as usize, &tape);
+                let image = jitfive::render_mt::render(&tape, &cfg);
                 let out = image
                     .into_iter()
                     .flat_map(|p| p.as_color().into_iter())

@@ -910,6 +910,7 @@ pub struct IntervalFuncHandle<'t> {
     choice_count: usize,
     tape: &'t Tape,
 }
+unsafe impl Sync for IntervalFuncHandle<'_> {}
 
 impl<'t> IntervalFuncHandle<'t> {
     /// Returns an evaluator, bound to the lifetime of the `IntervalFuncHandle`
