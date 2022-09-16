@@ -14,7 +14,7 @@ use crate::{
 /// data already has registers assigned for lowering into machine assembly.
 pub struct Tape {
     ssa: SsaTape,
-    asm: Vec<AsmOp>,
+    asm: AsmTape,
     reg_limit: u8,
 }
 
@@ -30,20 +30,20 @@ impl Tape {
         let asm = ssa.get_asm(reg_limit);
         Self {
             ssa,
-            asm,
+            asm: AsmTape(asm),
             reg_limit,
         }
     }
 
     pub fn get_float_evaluator(&self) -> AsmFloatEval {
-        AsmFloatEval::new(&self.asm)
+        AsmFloatEval::new(&self.asm.0)
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
         Self {
             ssa,
-            asm,
+            asm: AsmTape(asm),
             reg_limit: self.reg_limit,
         }
     }
@@ -51,7 +51,45 @@ impl Tape {
     /// Produces an iterator that visits [`AsmOp`](crate::asm::AsmOp) values in
     /// evaluation order.
     pub fn iter_asm(&self) -> impl Iterator<Item = AsmOp> + '_ {
-        self.asm.iter().cloned().rev()
+        self.asm.0.iter().cloned().rev()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct AsmTape(Vec<AsmOp>);
+
+impl AsmTape {
+    fn simplify(&self, reg_limit: u8, choices: &[Choice]) -> Self {
+        let mut choice_iter = choices.iter().rev();
+        let mut alloc =
+            crate::asm::asm_alloc::AsmAllocator::new(reg_limit, self.0.len());
+
+        let mut active = vec![false; 256]; // TODO
+
+        for &op in self.0.iter() {
+            use AsmOp::*;
+            if !alloc.is_active(op.out()) {
+                if matches!(
+                    op,
+                    MinRegImm(..)
+                        | MaxRegImm(..)
+                        | MinRegReg(..)
+                        | MaxRegReg(..)
+                ) {
+                    choice_iter.next().unwrap();
+                }
+                continue;
+            }
+            match op {
+                Input(out, i) => alloc.op_input(out as u32, i),
+                NegReg(out, reg) => {
+                    alloc.op_reg_fn(out as u32, reg as u32, NegReg)
+                }
+            }
+        }
+
+        todo!()
     }
 }
 

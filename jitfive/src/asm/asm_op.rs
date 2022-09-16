@@ -62,3 +62,32 @@ pub enum AsmOp {
     /// Read from a memory slot to a register
     Store(u8, u32),
 }
+
+impl AsmOp {
+    pub fn out(&self) -> u32 {
+        use AsmOp::*;
+        match self {
+            Input(out, ..)
+            | NegReg(out, ..)
+            | AbsReg(out, ..)
+            | RecipReg(out, ..)
+            | SqrtReg(out, ..)
+            | SquareReg(out, ..)
+            | CopyReg(out, ..)
+            | AddRegImm(out, ..)
+            | MulRegImm(out, ..)
+            | SubImmReg(out, ..)
+            | SubRegImm(out, ..)
+            | MinRegImm(out, ..)
+            | MaxRegImm(out, ..)
+            | AddRegReg(out, ..)
+            | MulRegReg(out, ..)
+            | SubRegReg(out, ..)
+            | MinRegReg(out, ..)
+            | MaxRegReg(out, ..)
+            | CopyImm(out, ..)
+            | Load(out, ..) => *out as u32,
+            Store(_reg, mem) => *mem,
+        }
+    }
+}
