@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
                 info!("Got tape in {:?}", start.elapsed());
 
-                let cfg = jitfive::render_mt::RenderConfig {
+                let cfg = jitfive::render::RenderConfig {
                     image_size: args.size as usize,
                     tile_size: 256,
                     subtile_size: 64,
@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let mut image = vec![];
                 for _ in 0..args.n {
-                    image = jitfive::render_mt::render(&tape, &cfg);
+                    image = jitfive::render::render(&tape, &cfg);
                 }
                 let out = image
                     .into_iter()

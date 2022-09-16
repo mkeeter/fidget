@@ -47,7 +47,6 @@
 pub mod asm;
 pub mod context;
 pub mod render;
-pub mod render_mt;
 pub mod tape;
 
 mod error;
