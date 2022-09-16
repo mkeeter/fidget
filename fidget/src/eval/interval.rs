@@ -86,11 +86,13 @@ impl std::ops::Mul<Interval> for Interval {
                 k += 1;
             }
         }
-        // XXX this isn't particularly NaN-safe
-        Interval {
-            lower: out.iter().map(|f| OrderedFloat(*f)).min().unwrap().0,
-            upper: out.iter().map(|f| OrderedFloat(*f)).max().unwrap().0,
+        let mut lower = out[0];
+        let mut upper = out[0];
+        for &v in &out[1..] {
+            lower = lower.min(v);
+            upper = upper.max(v);
         }
+        Interval { lower, upper }
     }
 }
 
