@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "jitfive",
+    "fidget",
     "demo",
 ]
 [profile.release]

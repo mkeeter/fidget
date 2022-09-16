@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// Universal error type for `jitfive`
+/// Universal error type for `fidget`
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("node is not present in this `Context`")]

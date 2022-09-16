@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use env_logger::Env;
-use jitfive::context::Context;
+use fidget::context::Context;
 use log::info;
 
 /// Simple test program
@@ -86,11 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let tape =
-                    ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
+                    ctx.get_tape(root, fidget::asm::dynasm::REGISTER_LIMIT);
                 info!("Got tape in {:?}", start.elapsed());
 
                 let start = Instant::now();
-                let jit = jitfive::asm::dynasm::build_vec_fn(&tape);
+                let jit = fidget::asm::dynasm::build_vec_fn(&tape);
                 let eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
@@ -124,10 +124,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let start = Instant::now();
                 let tape =
-                    ctx.get_tape(root, jitfive::asm::dynasm::REGISTER_LIMIT);
+                    ctx.get_tape(root, fidget::asm::dynasm::REGISTER_LIMIT);
                 info!("Got tape in {:?}", start.elapsed());
 
-                let cfg = jitfive::render::RenderConfig {
+                let cfg = fidget::render::RenderConfig {
                     image_size: args.size as usize,
                     tile_size: 256,
                     subtile_size: 64,
@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let mut image = vec![];
                 for _ in 0..args.n {
-                    image = jitfive::render::render(&tape, &cfg);
+                    image = fidget::render::render(&tape, &cfg);
                 }
                 let out = image
                     .into_iter()
