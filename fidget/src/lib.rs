@@ -1,7 +1,7 @@
 //! Infrastructure and algorithms for complex closed-form implicit surfaces.
 //!
 //! ```
-//! use jitfive::context::Context;
+//! use fidget::context::Context;
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -12,7 +12,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = tape.get_float_evaluator();
+//! let mut eval = tape.get_evaluator();
 //! assert_eq!(eval.eval(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
 //!
@@ -46,6 +46,7 @@
 //! ```
 pub mod asm;
 pub mod context;
+pub mod eval;
 pub mod render;
 pub mod tape;
 

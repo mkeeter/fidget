@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tape = ctx.get_tape(root, u8::MAX);
             info!("Built tape in {:?}", start.elapsed());
 
-            let mut eval = tape.get_float_evaluator();
+            let mut eval = tape.get_evaluator();
             let mut out = vec![];
             let start = Instant::now();
             for _ in 0..args.n {

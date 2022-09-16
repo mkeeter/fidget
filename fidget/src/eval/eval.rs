@@ -1,27 +1,27 @@
-use crate::asm::AsmOp;
+use crate::{asm::AsmOp, eval::EvalMath};
 
 /// Evaluator for a slice of [`AsmOp`]
-pub struct AsmFloatEval<'a> {
+pub struct AsmEval<'a, T> {
     /// Instruction tape, in reverse-evaluation order
     tape: &'a [AsmOp],
     /// Workspace for data
-    slots: Vec<f32>,
+    slots: Vec<T>,
 }
 
-impl<'a> AsmFloatEval<'a> {
+impl<'a, T: EvalMath> AsmEval<'a, T> {
     pub fn new(tape: &'a [AsmOp]) -> Self {
         Self {
             tape,
             slots: vec![],
         }
     }
-    fn v(&mut self, i: u8) -> &mut f32 {
+    fn v(&mut self, i: u8) -> &mut T {
         if i as usize >= self.slots.len() {
-            self.slots.resize(i as usize + 1, std::f32::NAN);
+            self.slots.resize(i as usize + 1, T::from(std::f32::NAN));
         }
         &mut self.slots[i as usize]
     }
-    pub fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
+    pub fn eval(&mut self, x: T, y: T, z: T) -> T {
         for &op in self.tape.iter().rev() {
             use AsmOp::*;
             match op {
@@ -40,7 +40,7 @@ impl<'a> AsmFloatEval<'a> {
                     *self.v(out) = self.v(arg).abs();
                 }
                 RecipReg(out, arg) => {
-                    *self.v(out) = 1.0 / *self.v(arg);
+                    *self.v(out) = self.v(arg).recip();
                 }
                 SqrtReg(out, arg) => {
                     *self.v(out) = self.v(arg).sqrt();
@@ -50,22 +50,22 @@ impl<'a> AsmFloatEval<'a> {
                 }
                 CopyReg(out, arg) => *self.v(out) = *self.v(arg),
                 AddRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) + imm;
+                    *self.v(out) = *self.v(arg) + imm.into();
                 }
                 MulRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) * imm;
+                    *self.v(out) = *self.v(arg) * imm.into();
                 }
                 SubImmReg(out, arg, imm) => {
-                    *self.v(out) = imm - *self.v(arg);
+                    *self.v(out) = T::from(imm) - *self.v(arg);
                 }
                 SubRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) - imm;
+                    *self.v(out) = *self.v(arg) - imm.into();
                 }
                 MinRegImm(out, arg, imm) => {
-                    *self.v(out) = self.v(arg).min(imm);
+                    *self.v(out) = self.v(arg).min(imm.into());
                 }
                 MaxRegImm(out, arg, imm) => {
-                    *self.v(out) = self.v(arg).max(imm);
+                    *self.v(out) = self.v(arg).max(imm.into());
                 }
                 AddRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) + *self.v(rhs)
@@ -83,14 +83,15 @@ impl<'a> AsmFloatEval<'a> {
                     *self.v(out) = self.v(lhs).max(*self.v(rhs))
                 }
                 CopyImm(out, imm) => {
-                    *self.v(out) = imm;
+                    *self.v(out) = imm.into();
                 }
                 Load(out, mem) => {
                     *self.v(out) = self.slots[mem as usize];
                 }
                 Store(out, mem) => {
                     if mem as usize >= self.slots.len() {
-                        self.slots.resize(mem as usize + 1, std::f32::NAN);
+                        self.slots
+                            .resize(mem as usize + 1, T::from(std::f32::NAN));
                     }
                     self.slots[mem as usize] = *self.v(out);
                 }
