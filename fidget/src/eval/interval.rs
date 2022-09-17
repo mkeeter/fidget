@@ -1,5 +1,4 @@
 use crate::eval::EvalMath;
-use ordered_float::OrderedFloat;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Interval {

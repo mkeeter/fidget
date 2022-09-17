@@ -13,6 +13,7 @@ use crate::{
 ///
 /// We keep both because SSA form makes tape shortening easier, while the `asm`
 /// data already has registers assigned for lowering into machine assembly.
+#[derive(Clone)]
 pub struct Tape {
     ssa: SsaTape,
     asm: Vec<AsmOp>,

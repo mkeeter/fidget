@@ -90,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Got tape in {:?}", start.elapsed());
 
                 let start = Instant::now();
-                let jit = fidget::asm::dynasm::build_vec_fn(&tape);
-                let eval = jit.get_evaluator();
+                let jit = fidget::asm::dynasm::VecFuncHandle::from(tape);
+                let mut eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
                 let mut out = vec![];
@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let start = Instant::now();
                 let mut image = vec![];
                 for _ in 0..args.n {
-                    image = fidget::render::render(&tape, &cfg);
+                    image = fidget::render::render(tape.clone(), &cfg);
                 }
                 let out = image
                     .into_iter()
