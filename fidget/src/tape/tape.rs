@@ -1,6 +1,6 @@
 use crate::{
-    asm::{AsmOp, Choice},
-    eval::{AsmEval, EvalMath},
+    asm::AsmOp,
+    eval::{AsmEval, Choice, EvalMath},
     tape::SsaTape,
 };
 

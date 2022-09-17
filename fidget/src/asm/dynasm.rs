@@ -4,10 +4,7 @@ use dynasmrt::{
     ExecutableBuffer,
 };
 
-use crate::{
-    asm::{AsmOp, Choice},
-    tape::Tape,
-};
+use crate::{asm::AsmOp, eval::Choice, tape::Tape};
 
 /// Number of registers available when executing natively
 ///

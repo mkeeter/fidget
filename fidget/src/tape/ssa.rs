@@ -1,5 +1,6 @@
 use crate::{
-    asm::{AsmOp, Choice, RegisterAllocator},
+    asm::{AsmOp, RegisterAllocator},
+    eval::Choice,
     tape::TapeOp,
 };
 
