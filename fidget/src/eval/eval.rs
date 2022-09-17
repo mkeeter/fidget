@@ -1,9 +1,13 @@
-use crate::{asm::AsmOp, eval::EvalMath};
+use crate::{
+    asm::AsmOp,
+    eval::{Choice, EvalMath, FloatEval, Interval, IntervalEval},
+};
 
 /// Evaluator for a slice of [`AsmOp`]
 pub struct AsmEval<'a, T> {
     /// Instruction tape, in reverse-evaluation order
     tape: &'a [AsmOp],
+    choices: Vec<Choice>,
     /// Workspace for data
     slots: Vec<T>,
 }
@@ -13,6 +17,7 @@ impl<'a, T: EvalMath> AsmEval<'a, T> {
         Self {
             tape,
             slots: vec![],
+            choices: vec![],
         }
     }
     fn v(&mut self, i: u8) -> &mut T {
@@ -62,10 +67,14 @@ impl<'a, T: EvalMath> AsmEval<'a, T> {
                     *self.v(out) = *self.v(arg) - imm.into();
                 }
                 MinRegImm(out, arg, imm) => {
-                    *self.v(out) = self.v(arg).min(imm.into());
+                    let (value, choice) = self.v(arg).min_choice(imm.into());
+                    *self.v(out) = value;
+                    self.choices.push(choice);
                 }
                 MaxRegImm(out, arg, imm) => {
-                    *self.v(out) = self.v(arg).max(imm.into());
+                    let (value, choice) = self.v(arg).max_choice(imm.into());
+                    *self.v(out) = value;
+                    self.choices.push(choice);
                 }
                 AddRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) + *self.v(rhs)
@@ -77,10 +86,14 @@ impl<'a, T: EvalMath> AsmEval<'a, T> {
                     *self.v(out) = *self.v(lhs) - *self.v(rhs)
                 }
                 MinRegReg(out, lhs, rhs) => {
-                    *self.v(out) = self.v(lhs).min(*self.v(rhs))
+                    let (value, choice) = self.v(lhs).min_choice(*self.v(rhs));
+                    *self.v(out) = value;
+                    self.choices.push(choice);
                 }
                 MaxRegReg(out, lhs, rhs) => {
-                    *self.v(out) = self.v(lhs).max(*self.v(rhs))
+                    let (value, choice) = self.v(lhs).max_choice(*self.v(rhs));
+                    *self.v(out) = value;
+                    self.choices.push(choice);
                 }
                 CopyImm(out, imm) => {
                     *self.v(out) = imm.into();
@@ -98,5 +111,20 @@ impl<'a, T: EvalMath> AsmEval<'a, T> {
             }
         }
         self.slots[0]
+    }
+}
+
+impl<'a> IntervalEval for AsmEval<'a, Interval> {
+    fn choices(&self) -> &[Choice] {
+        &self.choices
+    }
+    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
+        AsmEval::eval(self, x, y, z)
+    }
+}
+
+impl<'a> FloatEval for AsmEval<'a, f32> {
+    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
+        AsmEval::eval(self, x, y, z)
     }
 }

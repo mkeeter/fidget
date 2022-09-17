@@ -1,7 +1,7 @@
 use crate::{
     eval::{
-        Interval, IntervalEval, IntervalFuncHandle, OwnedIntervalEval,
-        OwnedVecEval, VecEval, VecFuncHandle,
+        FuncHandle, Interval, IntervalEval, IntervalFuncHandle,
+        OwnedIntervalEval, OwnedVecEval, VecEval, VecFuncHandle,
     },
     tape::Tape,
 };
@@ -54,11 +54,10 @@ struct Tile {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<
-    I: IntervalFuncHandle + for<'a> From<&'a Tape>,
-    V: VecFuncHandle + for<'a> From<&'a Tape>,
+    I: IntervalFuncHandle + for<'b> From<&'b Tape>,
+    V: VecFuncHandle + for<'b> From<&'b Tape>,
 >(
-    tape: &Tape,
-    i_handle: &I,
+    i_handle: &FuncHandle<I>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -74,7 +73,6 @@ fn worker<
 
         let mut pixels = vec![None; config.tile_size * config.tile_size];
         render_tile_recurse::<I, V>(
-            &tape,
             &mut eval,
             &mut pixels,
             config,
@@ -90,10 +88,9 @@ fn worker<
 ////////////////////////////////////////////////////////////////////////////////
 
 fn render_tile_recurse<
-    I: IntervalFuncHandle + for<'a> From<&'a Tape>,
-    V: VecFuncHandle + for<'a> From<&'a Tape>,
+    I: IntervalFuncHandle + for<'b> From<&'b Tape>,
+    V: VecFuncHandle + for<'b> From<&'b Tape>,
 >(
-    tape: &Tape,
     eval: &mut OwnedIntervalEval<I::Evaluator>,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -143,14 +140,13 @@ fn render_tile_recurse<
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = tape.simplify(eval.choices());
-        let sub_jit: I = I::from(&sub_tape);
+        let sub_tape = eval.simplify();
+        let sub_jit: FuncHandle<I> = FuncHandle::new(&sub_tape);
         let mut sub_eval = sub_jit.get_evaluator();
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
                 render_tile_recurse::<I, V>(
-                    &sub_tape,
                     &mut sub_eval,
                     out,
                     config,
@@ -165,7 +161,7 @@ fn render_tile_recurse<
             }
         }
     } else {
-        let sub_tape = tape.simplify(eval.choices());
+        let sub_tape = eval.simplify();
         let sub_jit: V = V::from(&sub_tape);
         let mut sub_eval = sub_jit.get_evaluator();
         for j in 0..tile_sizes[0] {
@@ -221,7 +217,7 @@ pub fn render<
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = I::from(tape);
+    let i_handle = FuncHandle::new(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -235,9 +231,9 @@ pub fn render<
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(s.spawn(|| {
-                worker::<I, V>(tape, &i_handle, &tiles, &index, config)
-            }));
+            handles.push(
+                s.spawn(|| worker::<I, V>(&i_handle, &tiles, &index, config)),
+            );
         }
         let mut out = vec![];
         for h in handles {

@@ -1,4 +1,4 @@
-use crate::eval::EvalMath;
+use crate::eval::{Choice, EvalMath};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Interval {
@@ -53,17 +53,37 @@ impl EvalMath for Interval {
     fn recip(self) -> Self {
         todo!()
     }
-    fn min(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower.min(rhs.lower),
-            upper: self.upper.min(rhs.upper),
-        }
+    fn min_choice(self, rhs: Self) -> (Self, Choice) {
+        let choice = if rhs.upper < self.lower {
+            Choice::Right
+        } else if self.upper < rhs.lower {
+            Choice::Left
+        } else {
+            Choice::Both
+        };
+        (
+            Interval {
+                lower: self.lower.min(rhs.lower),
+                upper: self.upper.min(rhs.upper),
+            },
+            choice,
+        )
     }
-    fn max(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower.max(rhs.lower),
-            upper: self.upper.max(rhs.upper),
-        }
+    fn max_choice(self, rhs: Self) -> (Self, Choice) {
+        let choice = if rhs.lower > self.lower {
+            Choice::Right
+        } else if self.lower > rhs.upper {
+            Choice::Left
+        } else {
+            Choice::Both
+        };
+        (
+            Interval {
+                lower: self.lower.max(rhs.lower),
+                upper: self.upper.max(rhs.upper),
+            },
+            choice,
+        )
     }
 }
 
