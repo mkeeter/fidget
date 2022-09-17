@@ -5,7 +5,11 @@ use dynasmrt::{
 };
 
 use crate::{
-    asm::{AsmOp, Choice},
+    asm::AsmOp,
+    eval::{
+        Choice, /*FloatEval, FloatFuncHandle,*/ Interval, IntervalEval,
+        IntervalFuncHandle, VecEval, VecFuncHandle,
+    },
     tape::Tape,
 };
 
@@ -75,6 +79,7 @@ struct AssemblerData<T> {
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
 
+    /// Marker for the associated type
     _p: std::marker::PhantomData<*const T>,
 }
 
@@ -760,42 +765,6 @@ impl AssemblerT for VecAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Builds a JIT handle for a function taking and returning `f32`
-pub fn build_float_fn(t: &Tape) -> FloatFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
-    FloatFuncHandle {
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-/// Builds a JIT handle for a function taking and returning `[f32; 2]`
-/// representing intervals (i.e. lower and upper bounds)
-///
-/// The handle also borrows the input `Tape`, in order to construct shortened
-/// (optimized) sub-tapes.
-pub fn build_interval_fn(t: &Tape) -> IntervalFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-    IntervalFuncHandle {
-        tape: t,
-        choice_count: t.choice_count(),
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-/// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
-/// uses SIMD to evaluate four points at a time.
-pub fn build_vec_fn(t: &Tape) -> VecFuncHandle {
-    let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
-    VecFuncHandle {
-        _buf: buf,
-        fn_pointer,
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 fn build_asm_fn<A: AssemblerT>(
     i: impl Iterator<Item = AsmOp>,
 ) -> (ExecutableBuffer, *const u8) {
@@ -885,57 +854,99 @@ fn build_asm_fn<A: AssemblerT>(
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
-pub struct FloatFuncHandle {
+pub struct JitFloatFuncHandle<'t> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
+    tape: &'t Tape,
 }
 
-impl FloatFuncHandle {
-    /// Returns an evaluator, bound to the lifetime of the `FloatFuncHandle`
-    pub fn get_evaluator(&self) -> FloatEval {
-        FloatEval {
+impl<'a> From<&'a Tape> for JitFloatFuncHandle<'a> {
+    fn from(t: &'a Tape) -> Self {
+        let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
+        JitFloatFuncHandle {
+            _buf: buf,
+            fn_pointer,
+            tape: t,
+        }
+    }
+}
+
+/*
+impl<'a> FloatFuncHandle for JitFloatFuncHandle<'a> {
+    type Evaluator = JitFloatEval<'a>;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitFloatFuncHandle`
+    fn get_evaluator(&self) -> Self::Evaluator {
+        Self::Evaluator {
             fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
             _p: std::marker::PhantomData,
         }
     }
 }
+*/
 
 /// Handle owning a JIT-compiled interval function
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
-pub struct IntervalFuncHandle<'t> {
+pub struct JitIntervalFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
-    tape: &'t Tape,
 }
-unsafe impl Sync for IntervalFuncHandle<'_> {}
+unsafe impl Sync for JitIntervalFuncHandle {}
 
-impl<'t> IntervalFuncHandle<'t> {
-    /// Returns an evaluator, bound to the lifetime of the `IntervalFuncHandle`
-    pub fn get_evaluator(&self) -> IntervalEval {
-        IntervalEval {
+impl From<&Tape> for JitIntervalFuncHandle {
+    /// Builds a JIT handle for a function taking and returning `[f32; 2]`
+    /// representing intervals (i.e. lower and upper bounds)
+    ///
+    /// The handle also borrows the input `Tape`, in order to construct
+    /// shortened (optimized) sub-tapes.
+    fn from(t: &Tape) -> Self {
+        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
+        JitIntervalFuncHandle {
+            choice_count: t.choice_count(),
+            _buf: buf,
+            fn_pointer,
+        }
+    }
+}
+
+impl IntervalFuncHandle for JitIntervalFuncHandle {
+    type Evaluator = JitIntervalEval;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitIntervalFuncHandle`
+    fn get_raw_evaluator(&self) -> Self::Evaluator {
+        JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
-            tape: self.tape,
-            _p: std::marker::PhantomData,
         }
     }
 }
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
-pub struct VecFuncHandle {
+pub struct JitVecFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
-impl VecFuncHandle {
-    /// Returns an evaluator, bound to the lifetime of the `VecFuncHandle`
-    pub fn get_evaluator(&self) -> VecEval {
-        VecEval {
+impl From<&Tape> for JitVecFuncHandle {
+    fn from(t: &Tape) -> Self {
+        let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
+        JitVecFuncHandle {
+            _buf: buf,
+            fn_pointer,
+        }
+    }
+}
+
+impl VecFuncHandle for JitVecFuncHandle {
+    type Evaluator = JitVecEval;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitVecFuncHandle`
+    fn get_raw_evaluator(&self) -> Self::Evaluator {
+        JitVecEval {
             fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
-            _p: std::marker::PhantomData,
         }
     }
 }
@@ -944,24 +955,27 @@ impl VecFuncHandle {
 
 /// Evaluator for a JIT-compiled function taking `f32` values
 ///
-/// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
-/// the underlying executable memory.
-pub struct FloatEval<'asm> {
+/// The lifetime of this `struct` is bound to an `JitFloatFuncHandle`, which
+/// owns the underlying executable memory.
+pub struct JitFloatEval {
     fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
-    _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> FloatEval<'a> {
-    pub fn eval(&self, x: f32, y: f32, z: f32) -> f32 {
+/*
+impl<'a> FloatEval for JitFloatEval<'a> {
+    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
         unsafe { (self.fn_float)(x, y, z) }
     }
 }
+*/
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
 ///
-/// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
+/// The lifetime of this `struct` is bound to an `JitIntervalFuncHandle`, which
 /// owns the underlying executable memory.
-pub struct IntervalEval<'asm> {
+pub struct JitIntervalEval {
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
@@ -969,18 +983,26 @@ pub struct IntervalEval<'asm> {
         *mut u8,  // choices
     ) -> [f32; 2],
     choices: Vec<Choice>,
-    tape: &'asm Tape,
-    _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> IntervalEval<'a> {
+impl IntervalEval for JitIntervalEval {
     /// Evaluates an interval
-    pub fn eval(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
         self.choices.fill(Choice::Unknown);
-        unsafe {
+        let x = [x.lower, x.upper];
+        let y = [y.lower, y.upper];
+        let z = [z.lower, z.upper];
+        let out = unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
-        }
+        };
+        out.into()
     }
+    fn choices(&self) -> &[Choice] {
+        &self.choices
+    }
+}
+
+impl JitIntervalEval {
     /// Evaluates an interval with subdivision
     ///
     /// The given interval is split into `subdiv` sub-intervals, then the
@@ -998,7 +1020,8 @@ impl<'a> IntervalEval<'a> {
         subdiv: usize,
     ) -> [f32; 2] {
         if subdiv == 0 {
-            self.eval(x, y, z)
+            let out = self.eval(x.into(), y.into(), z.into());
+            [out.lower, out.upper] // TODO
         } else {
             self.choices.fill(Choice::Unknown);
             self.eval_subdiv_recurse(x, y, z, subdiv - 1)
@@ -1040,27 +1063,20 @@ impl<'a> IntervalEval<'a> {
             [a[0].min(b[0]), a[1].max(b[1])]
         }
     }
-
-    /// Returns a simplified tape based on `self.choices`
-    ///
-    /// The choices array should have been calculated during the last interval
-    /// evaluation.
-    pub fn push(&self) -> Tape {
-        self.tape.simplify(&self.choices)
-    }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
-/// The lifetime of this `struct` is bound to an `VecFuncHandle`, which owns
+/// The lifetime of this `struct` is bound to an `JitVecFuncHandle`, which owns
 /// the underlying executable memory.
-pub struct VecEval<'asm> {
+pub struct JitVecEval {
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
-    _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> VecEval<'a> {
-    pub fn eval(&self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
+impl VecEval for JitVecEval {
+    fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
         let mut out = [0.0; 4];
         unsafe {
             (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
@@ -1079,14 +1095,14 @@ mod tests {
         tape::Tape,
     };
 
-    fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {
+    fn to_float_fn(v: Node, ctx: &Context) -> JitFloatFuncHandle {
         let tape = ctx.get_tape(v, REGISTER_LIMIT);
-        build_float_fn(&tape)
+        (&tape).into()
     }
 
-    fn to_vec_fn(v: Node, ctx: &Context) -> VecFuncHandle {
+    fn to_vec_fn(v: Node, ctx: &Context) -> JitVecFuncHandle {
         let tape = ctx.get_tape(v, REGISTER_LIMIT);
-        build_vec_fn(&tape)
+        (&tape).into()
     }
 
     fn to_tape(v: Node, ctx: &Context) -> Tape {
@@ -1114,14 +1130,14 @@ mod tests {
         let y = ctx.y();
 
         let tape = to_tape(x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let tape = to_tape(y, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
@@ -1135,7 +1151,7 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let tape = to_tape(abs_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval([0.0, 1.0]), [0.0, 1.0]);
@@ -1148,7 +1164,7 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let tape = to_tape(sum, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
@@ -1163,7 +1179,7 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let tape = to_tape(sqrt_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -1181,7 +1197,7 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let tape = to_tape(sqrt_x, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -1200,7 +1216,7 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
@@ -1217,7 +1233,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
@@ -1226,7 +1242,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let tape = to_tape(mul, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
@@ -1241,7 +1257,7 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
@@ -1258,7 +1274,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
@@ -1267,7 +1283,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let tape = to_tape(sub, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
@@ -1280,7 +1296,7 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let tape = to_tape(recip, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
 
@@ -1308,7 +1324,7 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = to_tape(min, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.0, 1.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1328,7 +1344,7 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
 
         let tape = to_tape(min, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0], [0.0, 0.0]), [0.0, 1.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1348,7 +1364,7 @@ mod tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = to_tape(max, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.5, 1.5]);
         assert_eq!(eval.choices, vec![Choice::Both]);
@@ -1362,7 +1378,7 @@ mod tests {
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = to_tape(max_xy_z, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]), [4.0, 5.0]);
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Right]);
@@ -1382,7 +1398,7 @@ mod tests {
         let max = ctx.max(x, one).unwrap();
 
         let tape = to_tape(max, &ctx);
-        let jit = build_interval_fn(&tape);
+        let jit = JitIntervalEval::from(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 2.0]);
         assert_eq!(eval.choices, vec![Choice::Both]);

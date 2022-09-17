@@ -1,7 +1,7 @@
 use crate::{
-    asm::dynasm::{
-        build_interval_fn, build_vec_fn, IntervalEval, IntervalFuncHandle,
-        VecEval,
+    eval::{
+        Interval, IntervalEval, IntervalFuncHandle, OwnedIntervalEval,
+        OwnedVecEval, VecEval, VecFuncHandle,
     },
     tape::Tape,
 };
@@ -53,8 +53,12 @@ struct Tile {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker(
-    i_handle: &IntervalFuncHandle,
+fn worker<
+    I: IntervalFuncHandle + for<'a> From<&'a Tape>,
+    V: VecFuncHandle + for<'a> From<&'a Tape>,
+>(
+    tape: &Tape,
+    i_handle: &I,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -69,7 +73,8 @@ fn worker(
         let tile = tiles[index];
 
         let mut pixels = vec![None; config.tile_size * config.tile_size];
-        render_tile_recurse(
+        render_tile_recurse::<I, V>(
+            &tape,
             &mut eval,
             &mut pixels,
             config,
@@ -84,8 +89,12 @@ fn worker(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse(
-    eval: &mut IntervalEval,
+fn render_tile_recurse<
+    I: IntervalFuncHandle + for<'a> From<&'a Tape>,
+    V: VecFuncHandle + for<'a> From<&'a Tape>,
+>(
+    tape: &Tape,
+    eval: &mut OwnedIntervalEval<I::Evaluator>,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile_sizes: &[usize],
@@ -96,20 +105,25 @@ fn render_tile_recurse(
     let y_min = config.pixel_to_pos(tile.corner[1]);
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
-    let i = eval.eval_subdiv(
-        [x_min, x_max],
-        [y_min, y_max],
-        [0.0, 0.0],
-        config.interval_subdiv,
+    let i = eval.eval(
+        Interval {
+            lower: x_min,
+            upper: x_max,
+        },
+        Interval {
+            lower: y_min,
+            upper: y_max,
+        },
+        0.0.into(),
     );
 
-    let fill = if i[1] < 0.0 {
+    let fill = if i.upper < 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::FilledTile)
         } else {
             Some(Pixel::FilledSubtile)
         }
-    } else if i[0] > 0.0 {
+    } else if i.lower > 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::EmptyTile)
         } else {
@@ -129,13 +143,14 @@ fn render_tile_recurse(
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = eval.push();
-        let sub_jit = build_interval_fn(&sub_tape);
+        let sub_tape = tape.simplify(eval.choices());
+        let sub_jit: I = I::from(&sub_tape);
         let mut sub_eval = sub_jit.get_evaluator();
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse(
+                render_tile_recurse::<I, V>(
+                    &sub_tape,
                     &mut sub_eval,
                     out,
                     config,
@@ -150,8 +165,8 @@ fn render_tile_recurse(
             }
         }
     } else {
-        let sub_tape = eval.push();
-        let sub_jit = build_vec_fn(&sub_tape);
+        let sub_tape = tape.simplify(eval.choices());
+        let sub_jit: V = V::from(&sub_tape);
         let mut sub_eval = sub_jit.get_evaluator();
         for j in 0..tile_sizes[0] {
             for i in 0..(tile_sizes[0] / 4) {
@@ -168,8 +183,8 @@ fn render_tile_recurse(
     }
 }
 
-fn render_pixels(
-    eval: &mut VecEval,
+fn render_pixels<V: VecEval>(
+    eval: &mut OwnedVecEval<V>,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile: Tile,
@@ -195,12 +210,18 @@ fn render_pixels(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render(tape: &Tape, config: &RenderConfig) -> Vec<Pixel> {
+pub fn render<
+    I: IntervalFuncHandle + Sync + for<'a> From<&'a Tape>,
+    V: VecFuncHandle + for<'a> From<&'a Tape>,
+>(
+    tape: &Tape,
+    config: &RenderConfig,
+) -> Vec<Pixel> {
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = build_interval_fn(tape);
+    let i_handle = I::from(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -214,7 +235,9 @@ pub fn render(tape: &Tape, config: &RenderConfig) -> Vec<Pixel> {
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(s.spawn(|| worker(&i_handle, &tiles, &index, config)));
+            handles.push(s.spawn(|| {
+                worker::<I, V>(tape, &i_handle, &tiles, &index, config)
+            }));
         }
         let mut out = vec![];
         for h in handles {

@@ -1,10 +1,18 @@
 use crate::eval::EvalMath;
-use ordered_float::OrderedFloat;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Interval {
     pub lower: f32,
     pub upper: f32,
+}
+
+impl From<[f32; 2]> for Interval {
+    fn from(i: [f32; 2]) -> Self {
+        Self {
+            lower: i[0],
+            upper: i[1],
+        }
+    }
 }
 
 impl EvalMath for Interval {

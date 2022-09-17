@@ -1,6 +1,6 @@
 use crate::{
-    asm::{AsmOp, Choice},
-    eval::{AsmEval, EvalMath},
+    asm::AsmOp,
+    eval::{AsmEval, Choice, EvalMath},
     tape::SsaTape,
 };
 
@@ -23,7 +23,7 @@ impl Tape {
     /// Returns the number of choice (min/max) nodes in the tape.
     ///
     /// This is required if pre-allocating space for evaluation that writes
-    /// [`Choice`](crate::asm::Choice) values.
+    /// [`Choice`](crate::eval::Choice) values.
     pub fn choice_count(&self) -> usize {
         self.ssa.choice_count
     }
