@@ -6,7 +6,10 @@ use dynasmrt::{
 
 use crate::{
     asm::AsmOp,
-    eval::{Choice, IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle},
+    eval::{
+        Choice, Interval, IntervalEval, IntervalFuncHandle, VecEval,
+        VecFuncHandle,
+    },
     tape::Tape,
 };
 
@@ -988,10 +991,17 @@ pub struct JitIntervalEval<'asm> {
 
 impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
     /// Evaluates an interval
-    fn eval(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
         self.choices.fill(Choice::Unknown);
-        unsafe {
+        let x = [x.lower, x.upper];
+        let y = [y.lower, y.upper];
+        let z = [z.lower, z.upper];
+        let out = unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
+        };
+        Interval {
+            lower: out[0],
+            upper: out[1],
         }
     }
 
@@ -1003,6 +1013,8 @@ impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
         self.tape.simplify(&self.choices)
     }
 }
+
+/*
 impl<'a> JitIntervalEval<'a> {
     /// Evaluates an interval with subdivision
     ///
@@ -1064,6 +1076,7 @@ impl<'a> JitIntervalEval<'a> {
         }
     }
 }
+*/
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
@@ -1125,13 +1138,19 @@ mod tests {
 
         let jit = to_interval_fn(x, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
+        let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
+            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let jit = to_interval_fn(y, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
+        let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
+            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
         assert_eq!(eval_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0]);
     }
@@ -1144,19 +1163,25 @@ mod tests {
 
         let jit = to_interval_fn(abs_x, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
-        assert_eq!(eval([0.0, 1.0]), [0.0, 1.0]);
-        assert_eq!(eval([1.0, 5.0]), [1.0, 5.0]);
-        assert_eq!(eval([-2.0, 5.0]), [0.0, 5.0]);
-        assert_eq!(eval([-6.0, 5.0]), [0.0, 6.0]);
-        assert_eq!(eval([-6.0, -1.0]), [1.0, 6.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
+        assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
+        assert_eq!(eval_x([1.0, 5.0]), [1.0, 5.0]);
+        assert_eq!(eval_x([-2.0, 5.0]), [0.0, 5.0]);
+        assert_eq!(eval_x([-6.0, 5.0]), [0.0, 6.0]);
+        assert_eq!(eval_x([-6.0, -1.0]), [1.0, 6.0]);
 
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let jit = to_interval_fn(sum, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
+        let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
+            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
         assert_eq!(eval_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0]);
         assert_eq!(eval_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0]);
@@ -1170,7 +1195,10 @@ mod tests {
 
         let jit = to_interval_fn(sqrt_x, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 4.0]), [0.0, 2.0]);
         assert_eq!(eval_x([-2.0, 4.0]), [0.0, 2.0]);
@@ -1187,7 +1215,10 @@ mod tests {
 
         let jit = to_interval_fn(sqrt_x, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_x([0.0, 4.0]), [0.0, 16.0]);
         assert_eq!(eval_x([2.0, 4.0]), [4.0, 16.0]);
@@ -1205,7 +1236,10 @@ mod tests {
 
         let jit = to_interval_fn(mul, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
+        let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
+            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0]);
         assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0]);
@@ -1221,7 +1255,10 @@ mod tests {
         let mul = ctx.mul(x, two).unwrap();
         let jit = to_interval_fn(mul, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
         assert_eq!(eval_x([1.0, 2.0]), [2.0, 4.0]);
 
@@ -1229,7 +1266,10 @@ mod tests {
         let mul = ctx.mul(x, neg_three).unwrap();
         let jit = to_interval_fn(mul, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-6.0, -3.0]);
     }
@@ -1243,7 +1283,10 @@ mod tests {
 
         let jit = to_interval_fn(sub, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_xy = |x, y| eval.eval(x, y, [0.0, 1.0]);
+        let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
+            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0]);
         assert_eq!(eval_xy([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0]);
@@ -1259,7 +1302,10 @@ mod tests {
         let sub = ctx.sub(x, two).unwrap();
         let jit = to_interval_fn(sub, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-1.0, 0.0]);
 
@@ -1267,7 +1313,10 @@ mod tests {
         let sub = ctx.sub(neg_three, x).unwrap();
         let jit = to_interval_fn(sub, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
         assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
         assert_eq!(eval_x([1.0, 2.0]), [-5.0, -4.0]);
     }
@@ -1279,7 +1328,10 @@ mod tests {
         let recip = ctx.recip(x).unwrap();
         let jit = to_interval_fn(recip, &ctx);
         let mut eval = jit.get_evaluator();
-        let mut eval_x = |x| eval.eval(x, [0.0, 1.0], [0.0, 1.0]);
+        let mut eval_x = |x: [f32; 2]| {
+            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            [i.lower, i.upper]
+        };
 
         let nanan = eval_x([0.0, 1.0]);
         assert!(nanan[0].is_nan());
@@ -1306,13 +1358,22 @@ mod tests {
 
         let jit = to_interval_fn(min, &ctx);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(
+            eval.eval([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into()),
+            [0.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
-        assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(
+            eval.eval([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
+            [0.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into()),
+            [0.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Right]);
     }
 
@@ -1325,13 +1386,22 @@ mod tests {
 
         let jit = to_interval_fn(min, &ctx);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval([0.0, 1.0], [0.0, 0.0], [0.0, 0.0]), [0.0, 1.0]);
+        assert_eq!(
+            eval.eval([0.0, 1.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            [0.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
-        assert_eq!(eval.eval([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]), [-1.0, 0.0]);
+        assert_eq!(
+            eval.eval([-1.0, 0.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            [-1.0, 0.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            [1.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Right]);
     }
 
@@ -1344,26 +1414,44 @@ mod tests {
 
         let jit = to_interval_fn(max, &ctx);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval([0.0, 1.0], [0.5, 1.5], [0.0, 0.0]), [0.5, 1.5]);
+        assert_eq!(
+            eval.eval([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into(),),
+            [0.5, 1.5].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
-        assert_eq!(eval.eval([0.0, 1.0], [2.0, 3.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(
+            eval.eval([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
+            [2.0, 3.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Right]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into(),),
+            [2.0, 3.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let jit = to_interval_fn(max_xy_z, &ctx);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]), [4.0, 5.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [4.0, 5.0].into()),
+            [4.0, 5.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Right]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 4.0]), [2.0, 4.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [1.0, 4.0].into()),
+            [2.0, 4.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Both]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]), [2.0, 3.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [1.0, 1.5].into()),
+            [2.0, 3.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Left]);
     }
 
@@ -1376,13 +1464,22 @@ mod tests {
 
         let jit = to_interval_fn(max, &ctx);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 2.0]);
+        assert_eq!(
+            eval.eval([0.0, 2.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            [1.0, 2.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
-        assert_eq!(eval.eval([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(
+            eval.eval([-1.0, 0.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            [1.0, 1.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Right]);
 
-        assert_eq!(eval.eval([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]), [2.0, 3.0]);
+        assert_eq!(
+            eval.eval([2.0, 3.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            [2.0, 3.0].into()
+        );
         assert_eq!(eval.choices, vec![Choice::Left]);
     }
 

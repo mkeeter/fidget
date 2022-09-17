@@ -8,4 +8,7 @@ pub use choice::Choice;
 pub use eval::AsmEval;
 pub use interval::Interval;
 pub use math::EvalMath;
-pub use traits::{IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle};
+pub use traits::{
+    FloatEval, FloatFuncHandle, IntervalEval, IntervalFuncHandle, VecEval,
+    VecFuncHandle,
+};

@@ -1,6 +1,8 @@
 use crate::{
     asm::dynasm::{JitIntervalFuncHandle, JitVecFuncHandle},
-    eval::{IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle},
+    eval::{
+        Interval, IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle,
+    },
     tape::Tape,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -96,19 +98,28 @@ fn render_tile_recurse<I: IntervalFuncHandle, V: VecFuncHandle>(
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
     let i = eval.eval(
-        [x_min, x_max],
-        [y_min, y_max],
-        [0.0, 0.0],
+        Interval {
+            lower: x_min,
+            upper: x_max,
+        },
+        Interval {
+            lower: y_min,
+            upper: y_max,
+        },
+        Interval {
+            lower: 0.0,
+            upper: 0.0,
+        },
         // TODO: config.interval_subdiv,
     );
 
-    let fill = if i[1] < 0.0 {
+    let fill = if i.upper < 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::FilledTile)
         } else {
             Some(Pixel::FilledSubtile)
         }
-    } else if i[0] > 0.0 {
+    } else if i.lower > 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::EmptyTile)
         } else {

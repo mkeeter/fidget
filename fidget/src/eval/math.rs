@@ -1,3 +1,5 @@
+use crate::eval::Choice;
+
 /// Trait for math operations used during evaluation
 pub trait EvalMath:
     Clone
@@ -11,8 +13,8 @@ pub trait EvalMath:
     fn abs(self) -> Self;
     fn sqrt(self) -> Self;
     fn recip(self) -> Self;
-    fn min(self, rhs: Self) -> Self;
-    fn max(self, rhs: Self) -> Self;
+    fn min_choice(self, rhs: Self) -> (Self, Choice);
+    fn max_choice(self, rhs: Self) -> (Self, Choice);
 }
 
 impl EvalMath for f32 {
@@ -25,10 +27,10 @@ impl EvalMath for f32 {
     fn recip(self) -> Self {
         1.0 / self
     }
-    fn min(self, rhs: Self) -> Self {
-        f32::min(self, rhs)
+    fn min_choice(self, rhs: Self) -> (Self, Choice) {
+        (f32::min(self, rhs), Choice::Both) // TODO
     }
-    fn max(self, rhs: Self) -> Self {
-        f32::max(self, rhs)
+    fn max_choice(self, rhs: Self) -> (Self, Choice) {
+        (f32::max(self, rhs), Choice::Both) // TODO
     }
 }

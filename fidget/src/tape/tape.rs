@@ -38,7 +38,7 @@ impl Tape {
     }
 
     pub fn get_evaluator<T: EvalMath>(&self) -> AsmEval<T> {
-        AsmEval::new(&self.asm)
+        AsmEval::new(self)
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {

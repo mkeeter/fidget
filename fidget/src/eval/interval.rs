@@ -1,9 +1,18 @@
-use crate::eval::EvalMath;
+use crate::eval::{Choice, EvalMath};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Interval {
     pub lower: f32,
     pub upper: f32,
+}
+
+impl From<[f32; 2]> for Interval {
+    fn from(i: [f32; 2]) -> Interval {
+        Interval {
+            lower: i[0],
+            upper: i[1],
+        }
+    }
 }
 
 impl EvalMath for Interval {
@@ -44,17 +53,37 @@ impl EvalMath for Interval {
     fn recip(self) -> Self {
         todo!()
     }
-    fn min(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower.min(rhs.lower),
-            upper: self.upper.min(rhs.upper),
-        }
+    fn min_choice(self, rhs: Self) -> (Self, Choice) {
+        let choice = if self.lower > rhs.upper {
+            Choice::Left
+        } else if rhs.lower > self.upper {
+            Choice::Right
+        } else {
+            Choice::Both
+        };
+        (
+            Interval {
+                lower: self.lower.min(rhs.lower),
+                upper: self.upper.min(rhs.upper),
+            },
+            choice,
+        )
     }
-    fn max(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower.max(rhs.lower),
-            upper: self.upper.max(rhs.upper),
-        }
+    fn max_choice(self, rhs: Self) -> (Self, Choice) {
+        let choice = if self.lower > rhs.upper {
+            Choice::Left
+        } else if rhs.lower > self.upper {
+            Choice::Right
+        } else {
+            Choice::Both
+        };
+        (
+            Interval {
+                lower: self.lower.max(rhs.lower),
+                upper: self.upper.max(rhs.upper),
+            },
+            choice,
+        )
     }
 }
 
