@@ -4,7 +4,11 @@ use dynasmrt::{
     ExecutableBuffer,
 };
 
-use crate::{asm::AsmOp, eval::Choice, tape::Tape};
+use crate::{
+    asm::AsmOp,
+    eval::{Choice, IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle},
+    tape::Tape,
+};
 
 /// Number of registers available when executing natively
 ///
@@ -775,10 +779,10 @@ impl From<Tape> for FloatFuncHandle {
 ///
 /// The handle also takes ownership of the input `Tape`, in order to construct
 /// shortened (optimized) sub-tapes.
-impl From<Tape> for IntervalFuncHandle {
-    fn from(t: Tape) -> IntervalFuncHandle {
+impl From<Tape> for JitIntervalFuncHandle {
+    fn from(t: Tape) -> JitIntervalFuncHandle {
         let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        IntervalFuncHandle {
+        JitIntervalFuncHandle {
             choice_count: t.choice_count(),
             tape: t,
             _buf: buf,
@@ -789,10 +793,10 @@ impl From<Tape> for IntervalFuncHandle {
 
 /// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
 /// uses SIMD to evaluate four points at a time.
-impl From<Tape> for VecFuncHandle {
-    fn from(t: Tape) -> VecFuncHandle {
+impl From<Tape> for JitVecFuncHandle {
+    fn from(t: Tape) -> JitVecFuncHandle {
         let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
-        VecFuncHandle {
+        JitVecFuncHandle {
             _buf: buf,
             fn_pointer,
         }
@@ -909,18 +913,20 @@ impl FloatFuncHandle {
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
-pub struct IntervalFuncHandle {
+pub struct JitIntervalFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
     tape: Tape,
 }
-unsafe impl Sync for IntervalFuncHandle {}
+unsafe impl Sync for JitIntervalFuncHandle {}
 
-impl IntervalFuncHandle {
-    /// Returns an evaluator, bound to the lifetime of the `IntervalFuncHandle`
-    pub fn get_evaluator(&self) -> IntervalEval {
-        IntervalEval {
+impl IntervalFuncHandle for JitIntervalFuncHandle {
+    type Evaluator<'a> = JitIntervalEval<'a>;
+    /// Returns an evaluator, bound to the lifetime of the
+    /// `JitIntervalFuncHandle`
+    fn get_evaluator(&self) -> JitIntervalEval {
+        JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
             tape: &self.tape,
@@ -930,15 +936,17 @@ impl IntervalFuncHandle {
 }
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
-pub struct VecFuncHandle {
+pub struct JitVecFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
-impl VecFuncHandle {
-    /// Returns an evaluator, bound to the lifetime of the `VecFuncHandle`
-    pub fn get_evaluator(&self) -> VecEval {
-        VecEval {
+impl VecFuncHandle for JitVecFuncHandle {
+    type Evaluator<'a> = JitVecEval<'a>;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitVecFuncHandle`
+    fn get_evaluator(&self) -> JitVecEval {
+        JitVecEval {
             fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
             _p: std::marker::PhantomData,
         }
@@ -964,9 +972,9 @@ impl<'a> FloatEval<'a> {
 
 /// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
 ///
-/// The lifetime of this `struct` is bound to an `IntervalFuncHandle`, which
+/// The lifetime of this `struct` is bound to an `JitIntervalFuncHandle`, which
 /// owns the underlying executable memory.
-pub struct IntervalEval<'asm> {
+pub struct JitIntervalEval<'asm> {
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
@@ -978,14 +986,24 @@ pub struct IntervalEval<'asm> {
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> IntervalEval<'a> {
+impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
     /// Evaluates an interval
-    pub fn eval(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
+    fn eval(&mut self, x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> [f32; 2] {
         self.choices.fill(Choice::Unknown);
         unsafe {
             (self.fn_interval)(x, y, z, self.choices.as_mut_ptr() as *mut u8)
         }
     }
+
+    /// Returns a simplified tape based on `self.choices`
+    ///
+    /// The choices array should have been calculated during the last interval
+    /// evaluation.
+    fn simplify(&self) -> Tape {
+        self.tape.simplify(&self.choices)
+    }
+}
+impl<'a> JitIntervalEval<'a> {
     /// Evaluates an interval with subdivision
     ///
     /// The given interval is split into `subdiv` sub-intervals, then the
@@ -1045,27 +1063,19 @@ impl<'a> IntervalEval<'a> {
             [a[0].min(b[0]), a[1].max(b[1])]
         }
     }
-
-    /// Returns a simplified tape based on `self.choices`
-    ///
-    /// The choices array should have been calculated during the last interval
-    /// evaluation.
-    pub fn push(&self) -> Tape {
-        self.tape.simplify(&self.choices)
-    }
 }
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
-/// The lifetime of this `struct` is bound to an `VecFuncHandle`, which owns
+/// The lifetime of this `struct` is bound to an `JitVecFuncHandle`, which owns
 /// the underlying executable memory.
-pub struct VecEval<'asm> {
+pub struct JitVecEval<'asm> {
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> VecEval<'a> {
-    pub fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
+impl<'a> VecEval<'a> for JitVecEval<'a> {
+    fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
         let mut out = [0.0; 4];
         unsafe {
             (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
@@ -1085,11 +1095,11 @@ mod tests {
         ctx.get_tape(v, REGISTER_LIMIT).into()
     }
 
-    fn to_vec_fn(v: Node, ctx: &Context) -> VecFuncHandle {
+    fn to_vec_fn(v: Node, ctx: &Context) -> JitVecFuncHandle {
         ctx.get_tape(v, REGISTER_LIMIT).into()
     }
 
-    fn to_interval_fn(v: Node, ctx: &Context) -> IntervalFuncHandle {
+    fn to_interval_fn(v: Node, ctx: &Context) -> JitIntervalFuncHandle {
         ctx.get_tape(v, REGISTER_LIMIT).into()
     }
 

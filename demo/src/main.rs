@@ -90,7 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Got tape in {:?}", start.elapsed());
 
                 let start = Instant::now();
-                let jit = fidget::asm::dynasm::VecFuncHandle::from(tape);
+                let jit = fidget::asm::dynasm::JitVecFuncHandle::from(tape);
+                use fidget::eval::{VecEval, VecFuncHandle};
                 let mut eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
