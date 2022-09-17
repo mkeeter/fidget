@@ -1,5 +1,4 @@
 use crate::{
-    asm::dynasm::{JitIntervalFuncHandle, JitVecFuncHandle},
     eval::{
         Interval, IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle,
     },
@@ -205,12 +204,15 @@ fn render_pixels<V: VecFuncHandle>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render(tape: Tape, config: &RenderConfig) -> Vec<Pixel> {
+pub fn render<I: IntervalFuncHandle + Sync, V: VecFuncHandle>(
+    tape: Tape,
+    config: &RenderConfig,
+) -> Vec<Pixel> {
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = JitIntervalFuncHandle::from(tape);
+    let i_handle = I::from(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -224,11 +226,9 @@ pub fn render(tape: Tape, config: &RenderConfig) -> Vec<Pixel> {
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(s.spawn(|| {
-                worker::<JitIntervalFuncHandle, JitVecFuncHandle>(
-                    &i_handle, &tiles, &index, config,
-                )
-            }));
+            handles.push(
+                s.spawn(|| worker::<I, V>(&i_handle, &tiles, &index, config)),
+            );
         }
         let mut out = vec![];
         for h in handles {

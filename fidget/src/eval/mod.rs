@@ -5,7 +5,7 @@ mod math;
 mod traits;
 
 pub use choice::Choice;
-pub use eval::AsmEval;
+pub use eval::{AsmEval, InterpreterHandle};
 pub use interval::Interval;
 pub use math::EvalMath;
 pub use traits::{
