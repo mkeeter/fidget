@@ -101,7 +101,7 @@ fn render_tile_recurse<
     let y_min = config.pixel_to_pos(tile.corner[1]);
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
-    let i = eval.eval(
+    let i = eval.eval_i(
         Interval {
             lower: x_min,
             upper: x_max,
@@ -193,7 +193,7 @@ fn render_pixels<'a, V: VecFuncHandle<'a>>(
         *x = config.pixel_to_pos(tile.corner[0] + i);
     }
     let y_vec = [config.pixel_to_pos(tile.corner[1]); 4];
-    let v = eval.eval(x_vec, y_vec, [0.0; 4]);
+    let v = eval.eval_v(x_vec, y_vec, [0.0; 4]);
 
     for (i, v) in v.iter().enumerate() {
         out[tile.corner[0] % config.tile_size

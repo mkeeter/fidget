@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     + 2.0 * ((j * 4 + i) as f64) / div)
                                     as f32;
                             }
-                            let v = eval.eval(x, [y as f32; 4], [0.0; 4]);
+                            let v = eval.eval_v(x, [y as f32; 4], [0.0; 4]);
                             out.extend(v.into_iter().map(|v| v <= 0.0));
                         }
                     }

@@ -22,7 +22,7 @@ pub trait IntervalFuncHandle<'a>: Sync {
 /// a new [`Tape`](crate::eval::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
     fn simplify(&self) -> Tape;
-    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval;
+    fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -44,7 +44,7 @@ pub trait VecFuncHandle<'a> {
 
 /// `f32 x 4` evaluator
 pub trait VecEval<'a> {
-    fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4];
+    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -66,14 +66,14 @@ pub trait FloatFuncHandle<'a> {
 
 /// `f32` evaluator
 pub trait FloatEval<'a> {
-    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32;
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32;
 }
 
 impl<'a, F: FloatEval<'a>> VecEval<'a> for F {
-    fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
+    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
         let mut out = [0.0; 4];
         for i in 0..4 {
-            out[i] = FloatEval::eval(self, x[i], y[i], z[i])
+            out[i] = FloatEval::eval_f(self, x[i], y[i], z[i])
         }
         out
     }

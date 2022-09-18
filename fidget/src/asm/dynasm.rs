@@ -955,7 +955,7 @@ pub struct JitFloatEval<'asm> {
 }
 
 impl<'a> FloatEval<'a> for JitFloatEval<'a> {
-    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32 {
         unsafe { (self.fn_float)(x, y, z) }
     }
 }
@@ -978,7 +978,7 @@ pub struct JitIntervalEval<'asm> {
 
 impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
     /// Evaluates an interval
-    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
+    fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
         self.choices.fill(Choice::Unknown);
         let x = [x.lower, x.upper];
         let y = [y.lower, y.upper];
@@ -1075,7 +1075,7 @@ pub struct JitVecEval<'asm> {
 }
 
 impl<'a> VecEval<'a> for JitVecEval<'a> {
-    fn eval(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
+    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
         let mut out = [0.0; 4];
         unsafe {
             (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
@@ -1089,19 +1089,7 @@ impl<'a> VecEval<'a> for JitVecEval<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{Context, Node};
-
-    fn to_float_fn(v: Node, ctx: &Context) -> JitFloatFuncHandle {
-        ctx.get_tape(v, REGISTER_LIMIT).into()
-    }
-
-    fn to_vec_fn(v: Node, ctx: &Context) -> JitVecFuncHandle {
-        ctx.get_tape(v, REGISTER_LIMIT).into()
-    }
-
-    fn to_interval_fn(v: Node, ctx: &Context) -> JitIntervalFuncHandle {
-        ctx.get_tape(v, REGISTER_LIMIT).into()
-    }
+    use crate::context::Context;
 
     #[test]
     fn test_dynasm() {
@@ -1112,9 +1100,10 @@ mod tests {
         let y2 = ctx.mul(y, two).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
-        let jit = to_float_fn(sum, &ctx);
+        let tape = ctx.get_tape(sum, REGISTER_LIMIT);
+        let jit = JitFloatFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0), 6.0);
+        assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 6.0);
     }
 
     #[test]
@@ -1123,19 +1112,21 @@ mod tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let jit = to_interval_fn(x, &ctx);
+        let tape = ctx.get_tape(x, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
-        let jit = to_interval_fn(y, &ctx);
+        let tape = ctx.get_tape(y, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);
@@ -1148,10 +1139,11 @@ mod tests {
         let x = ctx.x();
         let abs_x = ctx.abs(x).unwrap();
 
-        let jit = to_interval_fn(abs_x, &ctx);
+        let tape = ctx.get_tape(abs_x, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -1163,10 +1155,11 @@ mod tests {
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
-        let jit = to_interval_fn(sum, &ctx);
+        let tape = ctx.get_tape(sum, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0]);
@@ -1180,10 +1173,11 @@ mod tests {
         let x = ctx.x();
         let sqrt_x = ctx.sqrt(x).unwrap();
 
-        let jit = to_interval_fn(sqrt_x, &ctx);
+        let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -1200,10 +1194,11 @@ mod tests {
         let x = ctx.x();
         let sqrt_x = ctx.square(x).unwrap();
 
-        let jit = to_interval_fn(sqrt_x, &ctx);
+        let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 1.0]);
@@ -1221,10 +1216,11 @@ mod tests {
         let y = ctx.y();
         let mul = ctx.mul(x, y).unwrap();
 
-        let jit = to_interval_fn(mul, &ctx);
+        let tape = ctx.get_tape(mul, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0]);
@@ -1240,10 +1236,11 @@ mod tests {
         let x = ctx.x();
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
-        let jit = to_interval_fn(mul, &ctx);
+        let tape = ctx.get_tape(mul, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [0.0, 2.0]);
@@ -1251,10 +1248,11 @@ mod tests {
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
-        let jit = to_interval_fn(mul, &ctx);
+        let tape = ctx.get_tape(mul, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [-3.0, 0.0]);
@@ -1268,10 +1266,11 @@ mod tests {
         let y = ctx.y();
         let sub = ctx.sub(x, y).unwrap();
 
-        let jit = to_interval_fn(sub, &ctx);
+        let tape = ctx.get_tape(sub, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval(x.into(), y.into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0]);
@@ -1287,10 +1286,11 @@ mod tests {
         let x = ctx.x();
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
-        let jit = to_interval_fn(sub, &ctx);
+        let tape = ctx.get_tape(sub, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [-2.0, -1.0]);
@@ -1298,10 +1298,11 @@ mod tests {
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
-        let jit = to_interval_fn(sub, &ctx);
+        let tape = ctx.get_tape(sub, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
         assert_eq!(eval_x([0.0, 1.0]), [-4.0, -3.0]);
@@ -1313,10 +1314,11 @@ mod tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
-        let jit = to_interval_fn(recip, &ctx);
+        let tape = ctx.get_tape(recip, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
-            let i = eval.eval(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
+            let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
             [i.lower, i.upper]
         };
 
@@ -1343,22 +1345,23 @@ mod tests {
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let jit = to_interval_fn(min, &ctx);
+        let tape = ctx.get_tape(min, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into()),
+            eval.eval_i([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into()),
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
         assert_eq!(
-            eval.eval([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
+            eval.eval_i([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into()),
+            eval.eval_i([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into()),
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Right]);
@@ -1371,22 +1374,23 @@ mod tests {
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
 
-        let jit = to_interval_fn(min, &ctx);
+        let tape = ctx.get_tape(min, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval([0.0, 1.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            eval.eval_i([0.0, 1.0].into(), [0.0; 2].into(), [0.0; 2].into()),
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
         assert_eq!(
-            eval.eval([-1.0, 0.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            eval.eval_i([-1.0, 0.0].into(), [0.0; 2].into(), [0.0; 2].into()),
             [-1.0, 0.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0; 2].into(), [0.0; 2].into()),
+            eval.eval_i([2.0, 3.0].into(), [0.0; 2].into(), [0.0; 2].into()),
             [1.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Right]);
@@ -1399,44 +1403,58 @@ mod tests {
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let jit = to_interval_fn(max, &ctx);
+        let tape = ctx.get_tape(max, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into(),),
+            eval.eval_i([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into(),),
             [0.5, 1.5].into()
         );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
         assert_eq!(
-            eval.eval([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
+            eval.eval_i([0.0, 1.0].into(), [2.0, 3.0].into(), [0.0; 2].into()),
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Right]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into(),),
+            eval.eval_i([2.0, 3.0].into(), [0.0, 1.0].into(), [0.0; 2].into(),),
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left]);
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
-        let jit = to_interval_fn(max_xy_z, &ctx);
+        let tape = ctx.get_tape(max_xy_z, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [4.0, 5.0].into()),
+            eval.eval_i(
+                [2.0, 3.0].into(),
+                [0.0, 1.0].into(),
+                [4.0, 5.0].into()
+            ),
             [4.0, 5.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Right]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [1.0, 4.0].into()),
+            eval.eval_i(
+                [2.0, 3.0].into(),
+                [0.0, 1.0].into(),
+                [1.0, 4.0].into()
+            ),
             [2.0, 4.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Both]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 1.0].into(), [1.0, 1.5].into()),
+            eval.eval_i(
+                [2.0, 3.0].into(),
+                [0.0, 1.0].into(),
+                [1.0, 1.5].into()
+            ),
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left, Choice::Left]);
@@ -1449,22 +1467,35 @@ mod tests {
         let one = ctx.constant(1.0);
         let max = ctx.max(x, one).unwrap();
 
-        let jit = to_interval_fn(max, &ctx);
+        let tape = ctx.get_tape(max, REGISTER_LIMIT);
+        let jit = JitIntervalFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval([0.0, 2.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            eval.eval_i(
+                [0.0, 2.0].into(),
+                [0.0, 0.0].into(),
+                [0.0, 0.0].into()
+            ),
             [1.0, 2.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Both]);
 
         assert_eq!(
-            eval.eval([-1.0, 0.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            eval.eval_i(
+                [-1.0, 0.0].into(),
+                [0.0, 0.0].into(),
+                [0.0, 0.0].into()
+            ),
             [1.0, 1.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Right]);
 
         assert_eq!(
-            eval.eval([2.0, 3.0].into(), [0.0, 0.0].into(), [0.0, 0.0].into()),
+            eval.eval_i(
+                [2.0, 3.0].into(),
+                [0.0, 0.0].into(),
+                [0.0, 0.0].into()
+            ),
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices, vec![Choice::Left]);
@@ -1476,10 +1507,11 @@ mod tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let jit = to_vec_fn(x, &ctx);
+        let tape = ctx.get_tape(x, REGISTER_LIMIT);
+        let jit = JitVecFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval(
+            eval.eval_v(
                 [0.0, 1.0, 2.0, 3.0],
                 [3.0, 2.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 100.0]
@@ -1489,10 +1521,11 @@ mod tests {
 
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
-        let jit = to_vec_fn(mul, &ctx);
+        let tape = ctx.get_tape(mul, REGISTER_LIMIT);
+        let jit = JitVecFuncHandle::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
-            eval.eval(
+            eval.eval_v(
                 [0.0, 1.0, 2.0, 3.0],
                 [3.0, 2.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 100.0]

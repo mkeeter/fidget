@@ -7,30 +7,30 @@ use crate::{
     tape::Tape,
 };
 
-pub struct InterpreterHandle {
-    tape: Tape,
+pub struct InterpreterHandle<'a> {
+    tape: &'a Tape,
 }
 
-impl<'a> IntervalFuncHandle<'a> for InterpreterHandle {
-    type Evaluator<'b> = AsmEval<'b, Interval>;
-    type Recurse<'b> = InterpreterHandle;
+impl<'a> IntervalFuncHandle<'a> for InterpreterHandle<'a> {
+    type Evaluator<'b> = AsmEval<'b, Interval> where Self: 'b;
+    type Recurse<'b> = InterpreterHandle<'b>;
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
         self.tape.get_evaluator()
     }
     fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
-        InterpreterHandle { tape: tape.clone() }
+        InterpreterHandle { tape }
     }
 }
 
-impl<'a> FloatFuncHandle<'a> for InterpreterHandle {
-    type Evaluator<'b> = AsmEval<'b, f32>;
-    type Recurse<'b> = InterpreterHandle;
+impl<'a> FloatFuncHandle<'a> for InterpreterHandle<'a> {
+    type Evaluator<'b> = AsmEval<'b, f32> where Self: 'b;
+    type Recurse<'b> = InterpreterHandle<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
         self.tape.get_evaluator()
     }
     fn from_tape(tape: &Tape) -> InterpreterHandle {
-        InterpreterHandle { tape: tape.clone() }
+        InterpreterHandle { tape }
     }
 }
 
@@ -38,13 +38,13 @@ impl<'a> IntervalEval<'a> for AsmEval<'a, Interval> {
     fn simplify(&self) -> Tape {
         self.tape.simplify(&self.choices)
     }
-    fn eval(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
+    fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
         AsmEval::eval(self, x, y, z)
     }
 }
 
 impl<'a> FloatEval<'a> for AsmEval<'a, f32> {
-    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32 {
         AsmEval::eval(self, x, y, z)
     }
 }
