@@ -90,9 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Got tape in {:?}", start.elapsed());
 
                 let start = Instant::now();
-                let jit =
-                    fidget::asm::dynasm::JitVecFuncHandle::from_tape(&tape);
-                use fidget::eval::{VecEval, VecFuncHandle};
+                let jit = fidget::asm::dynasm::JitVecFunc::from_tape(&tape);
+                use fidget::eval::{VecEval, VecFunc};
                 let mut eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
@@ -140,8 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut image = vec![];
                 for _ in 0..args.n {
                     image = fidget::render::render::<
-                        fidget::asm::dynasm::JitIntervalFuncHandle,
-                        fidget::asm::dynasm::JitVecFuncHandle,
+                        fidget::asm::dynasm::JitIntervalFunc,
+                        fidget::asm::dynasm::JitVecFunc,
                     >(tape.clone(), &cfg);
                 }
                 let out = image
@@ -151,7 +150,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (out, start)
             }
         } else {
-            /*
             let start = Instant::now();
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
@@ -172,27 +170,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             (out, start)
-            let scale = args.size;
-
-            let start = Instant::now();
-            let tape = ctx.get_tape(root, u8::MAX);
-            info!("Got tape in {:?}", start.elapsed());
-
-            let start = Instant::now();
-            let jit = fidget::eval::InterpreterHandle::from(tape);
-            info!("Built JIT function in {:?}", start.elapsed());
-
-
-            // Convert from Vec<bool> to an image
-            let out = out
-                .into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                .flat_map(|i| i.into_iter())
-                .collect();
-            (out, start)
-
-            */
-            todo!()
         };
         info!(
             "Rendered {}x at {:?} ms/frame",

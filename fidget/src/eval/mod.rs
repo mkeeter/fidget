@@ -9,6 +9,5 @@ pub use eval::{AsmEval, InterpreterHandle};
 pub use interval::Interval;
 pub use math::EvalMath;
 pub use traits::{
-    FloatEval, FloatFuncHandle, IntervalEval, IntervalFuncHandle, VecEval,
-    VecFuncHandle,
+    FloatEval, FloatFunc, IntervalEval, IntervalFunc, VecEval, VecFunc,
 };

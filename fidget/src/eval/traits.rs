@@ -5,8 +5,8 @@ use crate::{eval::Interval, tape::Tape};
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `IntervalEval` objects, which actually do evaluation.
-pub trait IntervalFuncHandle<'a>: Sync {
-    type Recurse<'b>: IntervalFuncHandle<'b>;
+pub trait IntervalFunc<'a>: Sync {
+    type Recurse<'b>: IntervalFunc<'b>;
     type Evaluator<'b>: IntervalEval<'b>
     where
         Self: 'b;
@@ -18,7 +18,7 @@ pub trait IntervalFuncHandle<'a>: Sync {
 /// Interval evaluator
 ///
 /// The evaluator will likely have a lifetime bounded to its parent
-/// [`IntervalFuncHandle`](crate::eval::IntervalFuncHandle), and can generate
+/// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
 /// a new [`Tape`](crate::eval::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
     fn simplify(&self) -> Tape;
@@ -32,8 +32,8 @@ pub trait IntervalEval<'a> {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `VecEval` objects, which actually do evaluation.
-pub trait VecFuncHandle<'a> {
-    type Recurse<'b>: VecFuncHandle<'b>;
+pub trait VecFunc<'a> {
+    type Recurse<'b>: VecFunc<'b>;
     type Evaluator<'b>: VecEval<'b>
     where
         Self: 'b;
@@ -53,9 +53,9 @@ pub trait VecEval<'a> {
 ///
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
-/// one or more `VecEval` objects, which actually do evaluation.
-pub trait FloatFuncHandle<'a> {
-    type Recurse<'b>: FloatFuncHandle<'b>;
+/// one or more `FloatEval` objects, which actually do evaluation.
+pub trait FloatFunc<'a> {
+    type Recurse<'b>: FloatFunc<'b>;
     type Evaluator<'b>: FloatEval<'b>
     where
         Self: 'b;

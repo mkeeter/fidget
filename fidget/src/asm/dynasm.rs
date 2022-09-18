@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, FloatEval, FloatFuncHandle, Interval, IntervalEval,
-        IntervalFuncHandle, VecEval, VecFuncHandle,
+        Choice, FloatEval, FloatFunc, Interval, IntervalEval, IntervalFunc,
+        VecEval, VecFunc,
     },
     tape::Tape,
 };
@@ -853,16 +853,16 @@ fn build_asm_fn<A: AssemblerT>(
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
-pub struct JitFloatFuncHandle {
+pub struct JitFloatFunc {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
-impl<'a> FloatFuncHandle<'a> for JitFloatFuncHandle {
+impl<'a> FloatFunc<'a> for JitFloatFunc {
     type Evaluator<'b> = JitFloatEval<'b> where Self: 'b;
-    type Recurse<'b> = JitFloatFuncHandle;
+    type Recurse<'b> = JitFloatFunc;
 
-    /// Returns an evaluator, bound to the lifetime of the `JitFloatFuncHandle`
+    /// Returns an evaluator, bound to the lifetime of the `JitFloatFunc`
     fn get_evaluator(&self) -> JitFloatEval {
         JitFloatEval {
             fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
@@ -870,9 +870,9 @@ impl<'a> FloatFuncHandle<'a> for JitFloatFuncHandle {
         }
     }
 
-    fn from_tape(t: &Tape) -> JitFloatFuncHandle {
+    fn from_tape(t: &Tape) -> JitFloatFunc {
         let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
-        JitFloatFuncHandle {
+        JitFloatFunc {
             _buf: buf,
             fn_pointer,
         }
@@ -883,20 +883,20 @@ impl<'a> FloatFuncHandle<'a> for JitFloatFuncHandle {
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
-pub struct JitIntervalFuncHandle<'a> {
+pub struct JitIntervalFunc<'a> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
     tape: &'a Tape,
 }
-unsafe impl Sync for JitIntervalFuncHandle<'_> {}
+unsafe impl Sync for JitIntervalFunc<'_> {}
 
-impl<'a> IntervalFuncHandle<'a> for JitIntervalFuncHandle<'a> {
+impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
     type Evaluator<'b> = JitIntervalEval<'b> where Self: 'b;
-    type Recurse<'b> = JitIntervalFuncHandle<'b>;
+    type Recurse<'b> = JitIntervalFunc<'b>;
 
     /// Returns an evaluator, bound to the lifetime of the
-    /// `JitIntervalFuncHandle`
+    /// `JitIntervalFunc`
     fn get_evaluator(&self) -> JitIntervalEval {
         JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
@@ -907,7 +907,7 @@ impl<'a> IntervalFuncHandle<'a> for JitIntervalFuncHandle<'a> {
     }
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        JitIntervalFuncHandle {
+        JitIntervalFunc {
             choice_count: t.choice_count(),
             tape: t,
             _buf: buf,
@@ -917,16 +917,16 @@ impl<'a> IntervalFuncHandle<'a> for JitIntervalFuncHandle<'a> {
 }
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
-pub struct JitVecFuncHandle {
+pub struct JitVecFunc {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
-impl<'a> VecFuncHandle<'a> for JitVecFuncHandle {
-    type Recurse<'b> = JitVecFuncHandle;
+impl<'a> VecFunc<'a> for JitVecFunc {
+    type Recurse<'b> = JitVecFunc;
     type Evaluator<'b> = JitVecEval<'b>;
 
-    /// Returns an evaluator, bound to the lifetime of the `JitVecFuncHandle`
+    /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
     fn get_evaluator(&self) -> JitVecEval {
         JitVecEval {
             fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
@@ -936,7 +936,7 @@ impl<'a> VecFuncHandle<'a> for JitVecFuncHandle {
 
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
-        JitVecFuncHandle {
+        JitVecFunc {
             _buf: buf,
             fn_pointer,
         }
@@ -947,7 +947,7 @@ impl<'a> VecFuncHandle<'a> for JitVecFuncHandle {
 
 /// Evaluator for a JIT-compiled function taking `f32` values
 ///
-/// The lifetime of this `struct` is bound to an `JitFloatFuncHandle`, which owns
+/// The lifetime of this `struct` is bound to an `JitFloatFunc`, which owns
 /// the underlying executable memory.
 pub struct JitFloatEval<'asm> {
     fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
@@ -962,7 +962,7 @@ impl<'a> FloatEval<'a> for JitFloatEval<'a> {
 
 /// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
 ///
-/// The lifetime of this `struct` is bound to an `JitIntervalFuncHandle`, which
+/// The lifetime of this `struct` is bound to an `JitIntervalFunc`, which
 /// owns the underlying executable memory.
 pub struct JitIntervalEval<'asm> {
     fn_interval: unsafe extern "C" fn(
@@ -1067,7 +1067,7 @@ impl<'a> JitIntervalEval<'a> {
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
-/// The lifetime of this `struct` is bound to an `JitVecFuncHandle`, which owns
+/// The lifetime of this `struct` is bound to an `JitVecFunc`, which owns
 /// the underlying executable memory.
 pub struct JitVecEval<'asm> {
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
@@ -1101,7 +1101,7 @@ mod tests {
         let sum = ctx.add(x, y2).unwrap();
 
         let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let jit = JitFloatFuncHandle::from_tape(&tape);
+        let jit = JitFloatFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 6.0);
     }
@@ -1113,7 +1113,7 @@ mod tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
             let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
@@ -1123,7 +1123,7 @@ mod tests {
         assert_eq!(eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0]);
 
         let tape = ctx.get_tape(y, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
             let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
@@ -1140,7 +1140,7 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let tape = ctx.get_tape(abs_x, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1156,7 +1156,7 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
             let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
@@ -1174,7 +1174,7 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1195,7 +1195,7 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1217,7 +1217,7 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
             let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
@@ -1237,7 +1237,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1249,7 +1249,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1267,7 +1267,7 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
             let i = eval.eval_i(x.into(), y.into(), [0.0, 1.0].into());
@@ -1287,7 +1287,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1299,7 +1299,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1315,7 +1315,7 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let tape = ctx.get_tape(recip, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_x = |x: [f32; 2]| {
             let i = eval.eval_i(x.into(), [0.0, 1.0].into(), [0.0, 1.0].into());
@@ -1346,7 +1346,7 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into()),
@@ -1375,7 +1375,7 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
 
         let tape = ctx.get_tape(min, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0].into(), [0.0; 2].into(), [0.0; 2].into()),
@@ -1404,7 +1404,7 @@ mod tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape(max, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0].into(), [0.5, 1.5].into(), [0.0; 2].into(),),
@@ -1427,7 +1427,7 @@ mod tests {
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = ctx.get_tape(max_xy_z, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i(
@@ -1468,7 +1468,7 @@ mod tests {
         let max = ctx.max(x, one).unwrap();
 
         let tape = ctx.get_tape(max, REGISTER_LIMIT);
-        let jit = JitIntervalFuncHandle::from_tape(&tape);
+        let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i(
@@ -1508,7 +1508,7 @@ mod tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let jit = JitVecFuncHandle::from_tape(&tape);
+        let jit = JitVecFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_v(
@@ -1522,7 +1522,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = JitVecFuncHandle::from_tape(&tape);
+        let jit = JitVecFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_v(

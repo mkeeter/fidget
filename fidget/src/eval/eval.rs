@@ -1,8 +1,8 @@
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, EvalMath, FloatEval, FloatFuncHandle, Interval, IntervalEval,
-        IntervalFuncHandle,
+        Choice, EvalMath, FloatEval, FloatFunc, Interval, IntervalEval,
+        IntervalFunc,
     },
     tape::Tape,
 };
@@ -11,7 +11,7 @@ pub struct InterpreterHandle<'a> {
     tape: &'a Tape,
 }
 
-impl<'a> IntervalFuncHandle<'a> for InterpreterHandle<'a> {
+impl<'a> IntervalFunc<'a> for InterpreterHandle<'a> {
     type Evaluator<'b> = AsmEval<'b, Interval> where Self: 'b;
     type Recurse<'b> = InterpreterHandle<'b>;
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
@@ -22,7 +22,7 @@ impl<'a> IntervalFuncHandle<'a> for InterpreterHandle<'a> {
     }
 }
 
-impl<'a> FloatFuncHandle<'a> for InterpreterHandle<'a> {
+impl<'a> FloatFunc<'a> for InterpreterHandle<'a> {
     type Evaluator<'b> = AsmEval<'b, f32> where Self: 'b;
     type Recurse<'b> = InterpreterHandle<'b>;
 

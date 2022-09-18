@@ -1,7 +1,5 @@
 use crate::{
-    eval::{
-        Interval, IntervalEval, IntervalFuncHandle, VecEval, VecFuncHandle,
-    },
+    eval::{Interval, IntervalEval, IntervalFunc, VecEval, VecFunc},
     tape::Tape,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -52,7 +50,7 @@ struct Tile {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, 'b, I: IntervalFuncHandle<'a>, V: VecFuncHandle<'b>>(
+fn worker<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     i_handle: &I,
     tiles: &[Tile],
     i: &AtomicUsize,
@@ -82,12 +80,7 @@ fn worker<'a, 'b, I: IntervalFuncHandle<'a>, V: VecFuncHandle<'b>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<
-    'a,
-    'b,
-    I: IntervalFuncHandle<'a>,
-    V: VecFuncHandle<'b>,
->(
+fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     handle: &I,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -180,7 +173,7 @@ fn render_tile_recurse<
     }
 }
 
-fn render_pixels<'a, V: VecFuncHandle<'a>>(
+fn render_pixels<'a, V: VecFunc<'a>>(
     handle: &V,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -209,7 +202,7 @@ fn render_pixels<'a, V: VecFuncHandle<'a>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle<'a>>(
+pub fn render<'a, I: IntervalFunc<'a>, V: VecFunc<'a>>(
     tape: Tape,
     config: &RenderConfig,
 ) -> Vec<Pixel> {
