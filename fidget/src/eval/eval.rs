@@ -2,11 +2,13 @@ use crate::{
     asm::AsmOp,
     eval::{
         Choice, EvalMath, FloatEval, FloatFunc, Interval, IntervalEval,
-        IntervalFunc,
+        IntervalFunc, Simplify,
     },
     tape::Tape,
 };
 
+/// Generic `struct` which wraps a `Tape` and converts it to an `AsmEval` of
+/// various flavors.
 pub struct InterpreterHandle<'a> {
     tape: &'a Tape,
 }
@@ -34,10 +36,13 @@ impl<'a> FloatFunc<'a> for InterpreterHandle<'a> {
     }
 }
 
-impl<'a> IntervalEval<'a> for AsmEval<'a, Interval> {
+impl<'a> Simplify for AsmEval<'a, Interval> {
     fn simplify(&self) -> Tape {
         self.tape.simplify(&self.choices)
     }
+}
+
+impl<'a> IntervalEval<'a> for AsmEval<'a, Interval> {
     fn reset_choices(&mut self) {
         self.choices.fill(Choice::Unknown);
     }

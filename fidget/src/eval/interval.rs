@@ -1,5 +1,10 @@
 use crate::eval::{Choice, EvalMath};
 
+/// Represents a range, with conservative calculations to guarantee that it
+/// always contains the actual value.
+///
+/// # Warning
+/// This implementation does not set rounding modes, so it may not be _perfect_.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Interval {
     pub lower: f32,

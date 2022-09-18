@@ -13,18 +13,32 @@ pub trait IntervalFunc<'a>: Sync {
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
+/// Token produced by interval evaluation, which allows you to simplify a `Tape`
+pub struct EvalToken<'a, 'b, I: IntervalEval<'a> + ?Sized>(
+    &'b mut I,
+    std::marker::PhantomData<&'a ()>,
+);
+impl<'a, 'b, I: IntervalEval<'a>> EvalToken<'a, 'b, I> {
+    /// Returns a tape that only includes active clauses
+    pub fn simplify(self) -> Tape {
+        self.0.simplify()
+    }
+}
+
+pub(crate) mod private {
+    use super::*;
+    #[doc(hidden)]
+    pub trait Simplify {
+        fn simplify(&self) -> Tape;
+    }
+}
+
 /// Interval evaluator
 ///
 /// The evaluator will likely have a lifetime bounded to its parent
 /// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
-pub trait IntervalEval<'a> {
-    /// Produces a shortened tape based on the results of the previous
-    /// evaluation.
-    // TODO: should we have eval_i* return a Token of some kind which can be
-    // consumed here?
-    fn simplify(&self) -> Tape;
-
+pub trait IntervalEval<'a>: private::Simplify {
     /// Evaluates the given interval and records choices into the internal
     /// array, _without_ resetting the choice array beforehand.
     ///
@@ -37,9 +51,15 @@ pub trait IntervalEval<'a> {
     fn reset_choices(&mut self);
 
     /// Performs interval evaluation and tape simplification
-    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
+    fn eval_i<I: Into<Interval>>(
+        &mut self,
+        x: I,
+        y: I,
+        z: I,
+    ) -> (Interval, EvalToken<'a, '_, Self>) {
         self.reset_choices();
-        self.eval_i_inner(x, y, z)
+        let out = self.eval_i_inner(x, y, z);
+        (out, EvalToken(self, std::marker::PhantomData))
     }
 
     /// Evaluates an interval with subdivision

@@ -23,8 +23,8 @@ pub struct Tape {
 impl Tape {
     /// Returns the number of choice (min/max) nodes in the tape.
     ///
-    /// This is required if pre-allocating space for evaluation that writes
-    /// [`Choice`](crate::eval::Choice) values.
+    /// This is required because some evaluators pre-allocated spaces for the
+    /// choice array.
     pub fn choice_count(&self) -> usize {
         self.ssa.choice_count
     }
@@ -41,7 +41,7 @@ impl Tape {
         AsmEval::new(self)
     }
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+    pub(crate) fn simplify(&self, choices: &[Choice]) -> Self {
         let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
         Self {
             ssa,
@@ -163,6 +163,6 @@ mod tests {
         let tape = ctx.get_tape(circle, u8::MAX);
         let mut eval = tape.get_evaluator();
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
-        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
     }
 }

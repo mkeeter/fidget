@@ -1,3 +1,4 @@
+//! Bitmap rendering
 use crate::{
     eval::{Interval, IntervalEval, IntervalFunc, VecEval, VecFunc},
     tape::Tape,
@@ -94,7 +95,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     let y_min = config.pixel_to_pos(tile.corner[1]);
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
-    let i = eval.eval_i(
+    let (i, token) = eval.eval_i(
         Interval {
             lower: x_min,
             upper: x_max,
@@ -136,7 +137,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = eval.simplify();
+        let sub_tape = token.simplify();
         let sub_jit = I::from_tape(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
@@ -156,7 +157,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             }
         }
     } else {
-        let sub_tape = eval.simplify();
+        let sub_tape = token.simplify();
         let sub_jit = V::from_tape(&sub_tape);
         for j in 0..tile_sizes[0] {
             for i in 0..(tile_sizes[0] / 4) {

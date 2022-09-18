@@ -1,6 +1,7 @@
 use crate::context::{indexed::Index, Node, VarNode};
 use ordered_float::OrderedFloat;
 
+/// A one-argument math operation
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {
     Neg,
@@ -10,6 +11,7 @@ pub enum UnaryOpcode {
     Square,
 }
 
+/// A two-argument math operation
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BinaryOpcode {
     Add,

@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, FloatEval, FloatFunc, Interval, IntervalEval, IntervalFunc,
-        VecEval, VecFunc,
+        Choice, EvalToken, FloatEval, FloatFunc, Interval, IntervalEval,
+        IntervalFunc, Simplify, VecEval, VecFunc,
     },
     tape::Tape,
 };
@@ -1004,7 +1004,9 @@ impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
             upper: out[1],
         }
     }
+}
 
+impl<'a> Simplify for JitIntervalEval<'a> {
     /// Returns a simplified tape based on `self.choices`
     ///
     /// The choices array should have been calculated during the last interval
