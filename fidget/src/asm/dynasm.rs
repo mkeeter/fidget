@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, Interval, IntervalEval, IntervalFuncHandle, VecEval,
-        VecFuncHandle,
+        Choice, FloatEval, FloatFuncHandle, Interval, IntervalEval,
+        IntervalFuncHandle, VecEval, VecFuncHandle,
     },
     tape::Tape,
 };
@@ -764,33 +764,6 @@ impl AssemblerT for VecAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Builds a JIT handle for a function taking and returning `f32`
-///
-/// This consumes the input `Tape` for API consistency
-impl From<Tape> for FloatFuncHandle {
-    fn from(t: Tape) -> FloatFuncHandle {
-        let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
-        FloatFuncHandle {
-            _buf: buf,
-            fn_pointer,
-        }
-    }
-}
-
-/// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
-/// uses SIMD to evaluate four points at a time.
-impl From<Tape> for JitVecFuncHandle {
-    fn from(t: Tape) -> JitVecFuncHandle {
-        let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
-        JitVecFuncHandle {
-            _buf: buf,
-            fn_pointer,
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 fn build_asm_fn<A: AssemblerT>(
     i: impl Iterator<Item = AsmOp>,
 ) -> (ExecutableBuffer, *const u8) {
@@ -880,17 +853,28 @@ fn build_asm_fn<A: AssemblerT>(
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
-pub struct FloatFuncHandle {
+pub struct JitFloatFuncHandle {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
 }
 
-impl FloatFuncHandle {
-    /// Returns an evaluator, bound to the lifetime of the `FloatFuncHandle`
-    pub fn get_evaluator(&self) -> FloatEval {
-        FloatEval {
+impl<'a> FloatFuncHandle<'a> for JitFloatFuncHandle {
+    type Evaluator<'b> = JitFloatEval<'b> where Self: 'b;
+    type Recurse<'b> = JitFloatFuncHandle;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitFloatFuncHandle`
+    fn get_evaluator(&self) -> JitFloatEval {
+        JitFloatEval {
             fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
             _p: std::marker::PhantomData,
+        }
+    }
+
+    fn from_tape(t: &Tape) -> JitFloatFuncHandle {
+        let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
+        JitFloatFuncHandle {
+            _buf: buf,
+            fn_pointer,
         }
     }
 }
@@ -938,8 +922,9 @@ pub struct JitVecFuncHandle {
     fn_pointer: *const u8,
 }
 
-impl VecFuncHandle for JitVecFuncHandle {
-    type Evaluator<'a> = JitVecEval<'a>;
+impl<'a> VecFuncHandle<'a> for JitVecFuncHandle {
+    type Recurse<'b> = JitVecFuncHandle;
+    type Evaluator<'b> = JitVecEval<'b>;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFuncHandle`
     fn get_evaluator(&self) -> JitVecEval {
@@ -948,21 +933,29 @@ impl VecFuncHandle for JitVecFuncHandle {
             _p: std::marker::PhantomData,
         }
     }
+
+    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+        let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
+        JitVecFuncHandle {
+            _buf: buf,
+            fn_pointer,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Evaluator for a JIT-compiled function taking `f32` values
 ///
-/// The lifetime of this `struct` is bound to an `FloatFuncHandle`, which owns
+/// The lifetime of this `struct` is bound to an `JitFloatFuncHandle`, which owns
 /// the underlying executable memory.
-pub struct FloatEval<'asm> {
+pub struct JitFloatEval<'asm> {
     fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
     _p: std::marker::PhantomData<&'asm ()>,
 }
 
-impl<'a> FloatEval<'a> {
-    pub fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
+impl<'a> FloatEval<'a> for JitFloatEval<'a> {
+    fn eval(&mut self, x: f32, y: f32, z: f32) -> f32 {
         unsafe { (self.fn_float)(x, y, z) }
     }
 }
@@ -1098,7 +1091,7 @@ mod tests {
     use super::*;
     use crate::context::{Context, Node};
 
-    fn to_float_fn(v: Node, ctx: &Context) -> FloatFuncHandle {
+    fn to_float_fn(v: Node, ctx: &Context) -> JitFloatFuncHandle {
         ctx.get_tape(v, REGISTER_LIMIT).into()
     }
 

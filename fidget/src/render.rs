@@ -52,7 +52,7 @@ struct Tile {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
+fn worker<'a, 'b, I: IntervalFuncHandle<'a>, V: VecFuncHandle<'b>>(
     i_handle: &I,
     tiles: &[Tile],
     i: &AtomicUsize,
@@ -82,7 +82,12 @@ fn worker<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
+fn render_tile_recurse<
+    'a,
+    'b,
+    I: IntervalFuncHandle<'a>,
+    V: VecFuncHandle<'b>,
+>(
     handle: &I,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -159,7 +164,7 @@ fn render_tile_recurse<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
         }
     } else {
         let sub_tape = eval.simplify();
-        let sub_jit = V::from(sub_tape);
+        let sub_jit = V::from_tape(&sub_tape);
         for j in 0..tile_sizes[0] {
             for i in 0..(tile_sizes[0] / 4) {
                 render_pixels(
@@ -175,7 +180,7 @@ fn render_tile_recurse<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
     }
 }
 
-fn render_pixels<V: VecFuncHandle>(
+fn render_pixels<'a, V: VecFuncHandle<'a>>(
     handle: &V,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -204,7 +209,7 @@ fn render_pixels<V: VecFuncHandle>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
+pub fn render<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle<'a>>(
     tape: Tape,
     config: &RenderConfig,
 ) -> Vec<Pixel> {

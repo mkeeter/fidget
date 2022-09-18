@@ -11,12 +11,6 @@ pub struct InterpreterHandle {
     tape: Tape,
 }
 
-impl From<Tape> for InterpreterHandle {
-    fn from(tape: Tape) -> Self {
-        InterpreterHandle { tape }
-    }
-}
-
 impl<'a> IntervalFuncHandle<'a> for InterpreterHandle {
     type Evaluator<'b> = AsmEval<'b, Interval>;
     type Recurse<'b> = InterpreterHandle;
@@ -28,10 +22,15 @@ impl<'a> IntervalFuncHandle<'a> for InterpreterHandle {
     }
 }
 
-impl FloatFuncHandle for InterpreterHandle {
-    type Evaluator<'a> = AsmEval<'a, f32>;
+impl<'a> FloatFuncHandle<'a> for InterpreterHandle {
+    type Evaluator<'b> = AsmEval<'b, f32>;
+    type Recurse<'b> = InterpreterHandle;
+
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
         self.tape.get_evaluator()
+    }
+    fn from_tape(tape: &Tape) -> InterpreterHandle {
+        InterpreterHandle { tape: tape.clone() }
     }
 }
 
