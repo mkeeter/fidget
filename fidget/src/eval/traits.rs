@@ -77,9 +77,10 @@ pub trait IntervalEval<'a>: private::Simplify {
         y: I,
         z: I,
         subdiv: usize,
-    ) -> Interval {
+    ) -> (Interval, EvalToken<'a, '_, Self>) {
         self.reset_choices();
-        self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1))
+        let out = self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1));
+        (out, EvalToken(self, std::marker::PhantomData))
     }
 
     #[doc(hidden)]
