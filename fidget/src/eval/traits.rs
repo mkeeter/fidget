@@ -19,8 +19,94 @@ pub trait IntervalFunc<'a>: Sync {
 /// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
+    /// Produces a shortened tape based on the results of the previous
+    /// evaluation.
+    // TODO: should we have eval_i* return a Token of some kind which can be
+    // consumed here?
     fn simplify(&self) -> Tape;
-    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval;
+
+    /// Evaluates the given interval and records choices into the internal
+    /// array, _without_ resetting the choice array beforehand.
+    ///
+    /// This function is a building block for `eval_subdiv`, but likely
+    /// shouldn't be called on its own.
+    fn eval_i_inner<I: Into<Interval>>(&mut self, x: I, y: I, z: I)
+        -> Interval;
+
+    /// Resets the internal choice array to `Choice::Unknown`
+    fn reset_choices(&mut self);
+
+    /// Performs interval evaluation and tape simplification
+    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
+        self.reset_choices();
+        self.eval_i_inner(x, y, z)
+    }
+
+    /// Evaluates an interval with subdivision
+    ///
+    /// The given interval is split into `2**subdiv` sub-intervals, then the
+    /// resulting bounds are combined.  Running with `subdiv = 0` or `subdiv =
+    /// 1` is equivalent to calling [`Self::eval_i`].
+    ///
+    /// This produces a more tightly-bounded accurate result at the cost of
+    /// increased computation, but can be a good trade-off if interval
+    /// evaluation is cheap!
+    fn eval_i_subdiv<I: Into<Interval>>(
+        &mut self,
+        x: I,
+        y: I,
+        z: I,
+        subdiv: usize,
+    ) -> Interval {
+        self.reset_choices();
+        self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1))
+    }
+
+    #[doc(hidden)]
+    fn eval_subdiv_recurse<I: Into<Interval>>(
+        &mut self,
+        x: I,
+        y: I,
+        z: I,
+        subdiv: usize,
+    ) -> Interval {
+        if subdiv == 0 {
+            self.eval_i_inner(x, y, z)
+        } else {
+            let x = x.into();
+            let y = y.into();
+            let z = z.into();
+            let dx = x.upper - x.lower;
+            let dy = y.upper - y.lower;
+            let dz = z.upper - z.lower;
+
+            // Helper function to shorten code below
+            let mut f = |x: Interval, y: Interval, z: Interval| {
+                self.eval_subdiv_recurse(x, y, z, subdiv - 1)
+            };
+
+            let (a, b) = if dx >= dy && dx >= dz {
+                let x_mid = x.lower + dx / 2.0;
+                (
+                    f(Interval::new(x.lower, x_mid), y, z),
+                    f(Interval::new(x_mid, x.upper), y, z),
+                )
+            } else if dy >= dz {
+                let y_mid = y.lower + dy / 2.0;
+                (
+                    f(x, Interval::new(y.lower, y_mid), z),
+                    f(x, Interval::new(y_mid, y.upper), z),
+                )
+            } else {
+                let z_mid = z.lower + dz / 2.0;
+                (
+                    f(x, y, Interval::new(z.lower, z_mid)),
+                    f(x, y, Interval::new(z_mid, z.upper)),
+                )
+            };
+            Interval::new(a.lower.min(b.lower), a.upper.max(b.upper))
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

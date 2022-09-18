@@ -977,9 +977,17 @@ pub struct JitIntervalEval<'asm> {
 }
 
 impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
-    /// Evaluates an interval
-    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
+    fn reset_choices(&mut self) {
         self.choices.fill(Choice::Unknown);
+    }
+
+    /// Evaluates an interval
+    fn eval_i_inner<I: Into<Interval>>(
+        &mut self,
+        x: I,
+        y: I,
+        z: I,
+    ) -> Interval {
         let x: Interval = x.into();
         let y: Interval = y.into();
         let z: Interval = z.into();

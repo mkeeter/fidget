@@ -6,6 +6,12 @@ pub struct Interval {
     pub upper: f32,
 }
 
+impl Interval {
+    pub fn new(lower: f32, upper: f32) -> Self {
+        Self { lower, upper }
+    }
+}
+
 impl From<[f32; 2]> for Interval {
     fn from(i: [f32; 2]) -> Interval {
         Interval {
