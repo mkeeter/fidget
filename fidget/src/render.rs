@@ -52,7 +52,7 @@ struct Tile {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: IntervalFuncHandle, V: VecFuncHandle>(
+fn worker<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
     i_handle: &I,
     tiles: &[Tile],
     i: &AtomicUsize,
@@ -82,7 +82,7 @@ fn worker<I: IntervalFuncHandle, V: VecFuncHandle>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<I: IntervalFuncHandle, V: VecFuncHandle>(
+fn render_tile_recurse<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
     handle: &I,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
@@ -139,11 +139,11 @@ fn render_tile_recurse<I: IntervalFuncHandle, V: VecFuncHandle>(
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify();
-        let sub_jit = I::from(sub_tape);
+        let sub_jit = I::from_tape(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I, V>(
+                render_tile_recurse::<I::Recurse<'_>, V>(
                     &sub_jit,
                     out,
                     config,
@@ -204,7 +204,7 @@ fn render_pixels<V: VecFuncHandle>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: IntervalFuncHandle + Sync, V: VecFuncHandle>(
+pub fn render<'a, I: IntervalFuncHandle<'a>, V: VecFuncHandle>(
     tape: Tape,
     config: &RenderConfig,
 ) -> Vec<Pixel> {
@@ -212,7 +212,7 @@ pub fn render<I: IntervalFuncHandle + Sync, V: VecFuncHandle>(
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = I::from(tape);
+    let i_handle = I::from_tape(&tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -227,7 +227,7 @@ pub fn render<I: IntervalFuncHandle + Sync, V: VecFuncHandle>(
         let mut handles = vec![];
         for _ in 0..config.threads {
             handles.push(
-                s.spawn(|| worker::<I, V>(&i_handle, &tiles, &index, config)),
+                s.spawn(|| worker::<_, V>(&i_handle, &tiles, &index, config)),
             );
         }
         let mut out = vec![];

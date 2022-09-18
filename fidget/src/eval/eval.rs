@@ -17,10 +17,14 @@ impl From<Tape> for InterpreterHandle {
     }
 }
 
-impl IntervalFuncHandle for InterpreterHandle {
-    type Evaluator<'a> = AsmEval<'a, Interval>;
+impl<'a> IntervalFuncHandle<'a> for InterpreterHandle {
+    type Evaluator<'b> = AsmEval<'b, Interval>;
+    type Recurse<'b> = InterpreterHandle;
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
         self.tape.get_evaluator()
+    }
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+        InterpreterHandle { tape: tape.clone() }
     }
 }
 

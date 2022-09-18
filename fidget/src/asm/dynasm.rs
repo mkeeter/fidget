@@ -777,23 +777,6 @@ impl From<Tape> for FloatFuncHandle {
     }
 }
 
-/// Builds a JIT handle for a function taking and returning `[f32; 2]`
-/// representing intervals (i.e. lower and upper bounds)
-///
-/// The handle also takes ownership of the input `Tape`, in order to construct
-/// shortened (optimized) sub-tapes.
-impl From<Tape> for JitIntervalFuncHandle {
-    fn from(t: Tape) -> JitIntervalFuncHandle {
-        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        JitIntervalFuncHandle {
-            choice_count: t.choice_count(),
-            tape: t,
-            _buf: buf,
-            fn_pointer,
-        }
-    }
-}
-
 /// Builds a JIT handle for a function taking and returning `[f32; 4]`, which
 /// uses SIMD to evaluate four points at a time.
 impl From<Tape> for JitVecFuncHandle {
@@ -916,24 +899,35 @@ impl FloatFuncHandle {
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
-pub struct JitIntervalFuncHandle {
+pub struct JitIntervalFuncHandle<'a> {
     _buf: dynasmrt::ExecutableBuffer,
     fn_pointer: *const u8,
     choice_count: usize,
-    tape: Tape,
+    tape: &'a Tape,
 }
-unsafe impl Sync for JitIntervalFuncHandle {}
+unsafe impl Sync for JitIntervalFuncHandle<'_> {}
 
-impl IntervalFuncHandle for JitIntervalFuncHandle {
-    type Evaluator<'a> = JitIntervalEval<'a>;
+impl<'a> IntervalFuncHandle<'a> for JitIntervalFuncHandle<'a> {
+    type Evaluator<'b> = JitIntervalEval<'b> where Self: 'b;
+    type Recurse<'b> = JitIntervalFuncHandle<'b>;
+
     /// Returns an evaluator, bound to the lifetime of the
     /// `JitIntervalFuncHandle`
     fn get_evaluator(&self) -> JitIntervalEval {
         JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
-            tape: &self.tape,
+            tape: self.tape,
             _p: std::marker::PhantomData,
+        }
+    }
+    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
+        JitIntervalFuncHandle {
+            choice_count: t.choice_count(),
+            tape: t,
+            _buf: buf,
+            fn_pointer,
         }
     }
 }

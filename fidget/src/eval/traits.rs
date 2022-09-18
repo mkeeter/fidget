@@ -1,10 +1,13 @@
 use crate::{eval::Interval, tape::Tape};
 
-pub trait IntervalFuncHandle: From<Tape> {
-    type Evaluator<'a>: IntervalEval<'a>
+pub trait IntervalFuncHandle<'a>: Sync {
+    type Evaluator<'b>: IntervalEval<'b>
     where
-        Self: 'a;
+        Self: 'b;
+    type Recurse<'b>: IntervalFuncHandle<'b>;
+
     fn get_evaluator(&self) -> Self::Evaluator<'_>;
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
 pub trait IntervalEval<'a> {

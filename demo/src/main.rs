@@ -150,6 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (out, start)
             }
         } else {
+            /*
             let start = Instant::now();
             let scale = args.size;
             let mut out = Vec::with_capacity((scale * scale) as usize);
@@ -170,6 +171,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             (out, start)
+            let scale = args.size;
+
+            let start = Instant::now();
+            let tape = ctx.get_tape(root, u8::MAX);
+            info!("Got tape in {:?}", start.elapsed());
+
+            let start = Instant::now();
+            let jit = fidget::eval::InterpreterHandle::from(tape);
+            info!("Built JIT function in {:?}", start.elapsed());
+
+
+            // Convert from Vec<bool> to an image
+            let out = out
+                .into_iter()
+                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+                .flat_map(|i| i.into_iter())
+                .collect();
+            (out, start)
+
+            */
+            todo!()
         };
         info!(
             "Rendered {}x at {:?} ms/frame",
