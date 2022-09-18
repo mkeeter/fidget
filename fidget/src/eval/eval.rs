@@ -17,7 +17,7 @@ impl<'a> IntervalFunc<'a> for InterpreterHandle<'a> {
     fn get_evaluator(&self) -> Self::Evaluator<'_> {
         self.tape.get_evaluator()
     }
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(tape: &Tape) -> InterpreterHandle {
         InterpreterHandle { tape }
     }
 }

@@ -905,7 +905,7 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
             _p: std::marker::PhantomData,
         }
     }
-    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(t: &Tape) -> JitIntervalFunc {
         let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
         JitIntervalFunc {
             choice_count: t.choice_count(),
@@ -934,7 +934,7 @@ impl<'a> VecFunc<'a> for JitVecFunc {
         }
     }
 
-    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(t: &Tape) -> JitVecFunc {
         let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
         JitVecFunc {
             _buf: buf,
