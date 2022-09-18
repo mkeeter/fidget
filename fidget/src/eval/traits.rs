@@ -17,7 +17,7 @@ pub trait IntervalFunc<'a>: Sync {
 ///
 /// The evaluator will likely have a lifetime bounded to its parent
 /// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
-/// a new [`Tape`](crate::eval::Tape) on demand after evaluation.
+/// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
     fn simplify(&self) -> Tape;
     fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval;
