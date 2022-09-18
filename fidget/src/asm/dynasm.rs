@@ -859,11 +859,11 @@ pub struct JitFloatFunc {
 }
 
 impl<'a> FloatFunc<'a> for JitFloatFunc {
-    type Evaluator<'b> = JitFloatEval<'b> where Self: 'b;
+    type Evaluator = JitFloatEval<'a>;
     type Recurse<'b> = JitFloatFunc;
 
     /// Returns an evaluator, bound to the lifetime of the `JitFloatFunc`
-    fn get_evaluator(&self) -> JitFloatEval {
+    fn get_evaluator(&self) -> Self::Evaluator {
         JitFloatEval {
             fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
             _p: std::marker::PhantomData,
@@ -892,12 +892,12 @@ pub struct JitIntervalFunc<'a> {
 unsafe impl Sync for JitIntervalFunc<'_> {}
 
 impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
-    type Evaluator<'b> = JitIntervalEval<'b> where Self: 'b;
+    type Evaluator = JitIntervalEval<'a>;
     type Recurse<'b> = JitIntervalFunc<'b>;
 
     /// Returns an evaluator, bound to the lifetime of the
     /// `JitIntervalFunc`
-    fn get_evaluator(&self) -> JitIntervalEval {
+    fn get_evaluator(&self) -> JitIntervalEval<'a> {
         JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
@@ -924,10 +924,10 @@ pub struct JitVecFunc {
 
 impl<'a> VecFunc<'a> for JitVecFunc {
     type Recurse<'b> = JitVecFunc;
-    type Evaluator<'b> = JitVecEval<'b>;
+    type Evaluator = JitVecEval<'a>;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
-    fn get_evaluator(&self) -> JitVecEval {
+    fn get_evaluator(&self) -> Self::Evaluator {
         JitVecEval {
             fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
             _p: std::marker::PhantomData,

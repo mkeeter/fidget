@@ -12,9 +12,9 @@ pub struct InterpreterHandle<'a> {
 }
 
 impl<'a> IntervalFunc<'a> for InterpreterHandle<'a> {
-    type Evaluator<'b> = AsmEval<'b, Interval> where Self: 'b;
+    type Evaluator = AsmEval<'a, Interval>;
     type Recurse<'b> = InterpreterHandle<'b>;
-    fn get_evaluator(&self) -> Self::Evaluator<'_> {
+    fn get_evaluator(&self) -> Self::Evaluator {
         self.tape.get_evaluator()
     }
     fn from_tape(tape: &Tape) -> InterpreterHandle {
@@ -23,10 +23,10 @@ impl<'a> IntervalFunc<'a> for InterpreterHandle<'a> {
 }
 
 impl<'a> FloatFunc<'a> for InterpreterHandle<'a> {
-    type Evaluator<'b> = AsmEval<'b, f32> where Self: 'b;
+    type Evaluator = AsmEval<'a, f32>;
     type Recurse<'b> = InterpreterHandle<'b>;
 
-    fn get_evaluator(&self) -> Self::Evaluator<'_> {
+    fn get_evaluator(&self) -> Self::Evaluator {
         self.tape.get_evaluator()
     }
     fn from_tape(tape: &Tape) -> InterpreterHandle {

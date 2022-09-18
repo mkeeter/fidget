@@ -6,12 +6,10 @@ use crate::{eval::Interval, tape::Tape};
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `IntervalEval` objects, which actually do evaluation.
 pub trait IntervalFunc<'a>: Sync {
+    type Evaluator: IntervalEval<'a>;
     type Recurse<'b>: IntervalFunc<'b>;
-    type Evaluator<'b>: IntervalEval<'b>
-    where
-        Self: 'b;
 
-    fn get_evaluator(&self) -> Self::Evaluator<'_>;
+    fn get_evaluator(&self) -> Self::Evaluator;
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
@@ -33,12 +31,10 @@ pub trait IntervalEval<'a> {
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `VecEval` objects, which actually do evaluation.
 pub trait VecFunc<'a> {
+    type Evaluator: VecEval<'a>;
     type Recurse<'b>: VecFunc<'b>;
-    type Evaluator<'b>: VecEval<'b>
-    where
-        Self: 'b;
 
-    fn get_evaluator(&self) -> Self::Evaluator<'_>;
+    fn get_evaluator(&self) -> Self::Evaluator;
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
@@ -55,12 +51,10 @@ pub trait VecEval<'a> {
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `FloatEval` objects, which actually do evaluation.
 pub trait FloatFunc<'a> {
+    type Evaluator: FloatEval<'a>;
     type Recurse<'b>: FloatFunc<'b>;
-    type Evaluator<'b>: FloatEval<'b>
-    where
-        Self: 'b;
 
-    fn get_evaluator(&self) -> Self::Evaluator<'_>;
+    fn get_evaluator(&self) -> Self::Evaluator;
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
