@@ -38,8 +38,8 @@ impl<'a> IntervalEval<'a> for AsmEval<'a, Interval> {
     fn simplify(&self) -> Tape {
         self.tape.simplify(&self.choices)
     }
-    fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval {
-        AsmEval::eval(self, x, y, z)
+    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
+        AsmEval::eval(self, x.into(), y.into(), z.into())
     }
 }
 

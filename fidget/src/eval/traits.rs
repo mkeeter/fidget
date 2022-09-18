@@ -20,7 +20,7 @@ pub trait IntervalFunc<'a>: Sync {
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
     fn simplify(&self) -> Tape;
-    fn eval_i(&mut self, x: Interval, y: Interval, z: Interval) -> Interval;
+    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
