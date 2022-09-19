@@ -139,7 +139,6 @@ pub trait IntervalEval<'a> {
 /// one or more `FloatSliceEval` objects, which actually do evaluation.
 pub trait FloatSliceFunc<'a> {
     type Evaluator: FloatSliceEval<'a>;
-    type Recurse<'b>: FloatSliceFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator;
 }
@@ -158,10 +157,8 @@ pub trait FloatSliceEval<'a> {
 /// one or more `FloatEval` objects, which actually do evaluation.
 pub trait FloatFunc<'a> {
     type Evaluator: FloatEval<'a>;
-    type Recurse<'b>: FloatFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator;
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
 /// `f32` evaluator

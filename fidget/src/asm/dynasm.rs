@@ -860,7 +860,6 @@ pub struct JitFloatFunc {
 
 impl<'a> FloatFunc<'a> for JitFloatFunc {
     type Evaluator = JitFloatEval<'a>;
-    type Recurse<'b> = JitFloatFunc;
 
     /// Returns an evaluator, bound to the lifetime of the `JitFloatFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
@@ -869,8 +868,10 @@ impl<'a> FloatFunc<'a> for JitFloatFunc {
             _p: std::marker::PhantomData,
         }
     }
+}
 
-    fn from_tape(t: &Tape) -> JitFloatFunc {
+impl JitFloatFunc {
+    pub fn from_tape(t: &Tape) -> JitFloatFunc {
         let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
         JitFloatFunc {
             _buf: buf,
@@ -938,7 +939,6 @@ pub struct JitVecFunc {
 }
 
 impl<'a> FloatSliceFunc<'a> for JitVecFunc {
-    type Recurse<'b> = JitVecFunc;
     type Evaluator = JitVecEval<'a>;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`

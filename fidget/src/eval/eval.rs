@@ -171,7 +171,6 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
 
 impl<'a> FloatSliceFunc<'a> for AsmFunc<'a> {
     type Evaluator = AsmFloatSliceEval<'a>;
-    type Recurse<'b> = AsmFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmFloatSliceEval::new(self.tape)
