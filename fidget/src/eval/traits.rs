@@ -26,19 +26,34 @@ pub trait IntervalEval<'a> {
     ///
     /// This function is a building block for `eval_subdiv`, but likely
     /// shouldn't be called on its own.
+    #[doc(hidden)]
     fn eval_i_inner<I: Into<Interval>>(&mut self, x: I, y: I, z: I)
         -> Interval;
 
     /// Resets the internal choice array to `Choice::Unknown`
+    #[doc(hidden)]
     fn reset_choices(&mut self);
+
+    /// Post-evaluation wrangling of choice array
+    #[doc(hidden)]
     fn load_choices(&mut self);
 
-    /// Performs interval evaluation and tape simplification
+    /// Performs interval evaluation
     fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
         self.reset_choices();
         let out = self.eval_i_inner(x, y, z);
         self.load_choices();
         out
+    }
+
+    /// Performs interval evaluation
+    fn eval_i_x<I: Into<Interval>>(&mut self, x: I) -> Interval {
+        self.eval_i(x.into(), Interval::new(0.0, 0.0), Interval::new(0.0, 0.0))
+    }
+
+    /// Performs interval evaluation
+    fn eval_i_xy<I: Into<Interval>>(&mut self, x: I, y: I) -> Interval {
+        self.eval_i(x.into(), y.into(), Interval::new(0.0, 0.0))
     }
 
     /// Evaluates an interval with subdivision
