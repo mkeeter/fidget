@@ -95,7 +95,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     let y_min = config.pixel_to_pos(tile.corner[1]);
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
-    let (i, token) = eval.eval_i(
+    let (i, token) = eval.eval_i_subdiv(
         Interval {
             lower: x_min,
             upper: x_max,
@@ -108,7 +108,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             lower: 0.0,
             upper: 0.0,
         },
-        // TODO: config.interval_subdiv,
+        config.interval_subdiv,
     );
 
     let fill = if i.upper < 0.0 {

@@ -91,12 +91,12 @@ pub trait IntervalEval<'a>: private::Simplify {
         z: I,
         subdiv: usize,
     ) -> Interval {
+        let x = x.into();
+        let y = y.into();
+        let z = z.into();
         if subdiv == 0 {
             self.eval_i_inner(x, y, z)
         } else {
-            let x = x.into();
-            let y = y.into();
-            let z = z.into();
             let dx = x.upper - x.lower;
             let dy = y.upper - y.lower;
             let dz = z.upper - z.lower;
