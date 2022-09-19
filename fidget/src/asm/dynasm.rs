@@ -901,6 +901,7 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
         JitIntervalEval {
             fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
             choices: vec![Choice::Both; self.choice_count],
+            choices_raw: vec![0u8; self.choice_count],
             tape: self.tape,
             _p: std::marker::PhantomData,
         }
@@ -971,6 +972,7 @@ pub struct JitIntervalEval<'asm> {
         [f32; 2], // Z
         *mut u8,  // choices
     ) -> [f32; 2],
+    choices_raw: Vec<u8>,
     choices: Vec<Choice>,
     tape: &'asm Tape,
     _p: std::marker::PhantomData<&'asm ()>,
@@ -978,7 +980,19 @@ pub struct JitIntervalEval<'asm> {
 
 impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
     fn reset_choices(&mut self) {
-        self.choices.fill(Choice::Unknown);
+        self.choices_raw.fill(0);
+    }
+
+    fn load_choices(&mut self) {
+        for (out, c) in self.choices.iter_mut().zip(self.choices_raw.iter()) {
+            *out = match c {
+                0 => Choice::Unknown,
+                1 => Choice::Left,
+                2 => Choice::Right,
+                3 => Choice::Both,
+                _ => panic!("invalid choice {}", c),
+            }
+        }
     }
 
     /// Evaluates an interval
@@ -996,7 +1010,7 @@ impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
                 [x.lower(), x.upper()],
                 [y.lower(), y.upper()],
                 [z.lower(), z.upper()],
-                self.choices.as_mut_ptr() as *mut u8,
+                self.choices_raw.as_mut_ptr() as *mut u8,
             )
         };
         Interval::new(out[0], out[1])
@@ -1072,7 +1086,7 @@ mod tests {
         let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval_i(x, y, [0.0, 1.0]);
+            let i = eval.eval_i(x, y, [0.0, 1.0]).0;
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0]);

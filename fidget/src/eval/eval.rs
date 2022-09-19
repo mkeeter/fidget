@@ -43,6 +43,9 @@ impl<'a> IntervalEval<'a> for AsmEval<'a, Interval> {
     fn reset_choices(&mut self) {
         self.choices.fill(Choice::Unknown);
     }
+    fn load_choices(&mut self) {
+        // Nothing to do here
+    }
     fn eval_i_inner<I: Into<Interval>>(
         &mut self,
         x: I,

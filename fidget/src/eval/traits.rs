@@ -31,11 +31,14 @@ pub trait IntervalEval<'a> {
 
     /// Resets the internal choice array to `Choice::Unknown`
     fn reset_choices(&mut self);
+    fn load_choices(&mut self);
 
     /// Performs interval evaluation and tape simplification
     fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
         self.reset_choices();
-        self.eval_i_inner(x, y, z)
+        let out = self.eval_i_inner(x, y, z);
+        self.load_choices();
+        out
     }
 
     /// Evaluates an interval with subdivision
@@ -55,7 +58,9 @@ pub trait IntervalEval<'a> {
         subdiv: usize,
     ) -> Interval {
         self.reset_choices();
-        self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1))
+        let out = self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1));
+        self.load_choices();
+        out
     }
 
     #[doc(hidden)]
@@ -70,9 +75,6 @@ pub trait IntervalEval<'a> {
         let y = y.into();
         let z = z.into();
         if subdiv == 0 {
-            for v in [x, y, z] {
-                println!("        {:.2?}", v);
-            }
             self.eval_i_inner(x, y, z)
         } else {
             let dx = x.upper() - x.lower();

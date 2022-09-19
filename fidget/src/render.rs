@@ -99,13 +99,6 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     let y = Interval::new(y_min, y_max);
     let z = Interval::new(0.0, 0.0);
     let i = eval.eval_i_subdiv(x, y, z, config.interval_subdiv);
-    if tile_sizes.len() == 2 {
-        println!("{:.2?} {:.2?} {:.2?} =>", x, y, z);
-        println!("   {:.2?}, {:.2?}", i, eval.eval_i(x, y, z));
-        println!(
-            "------------------------------------------------------------"
-        );
-    }
 
     let fill = if i.upper() < 0.0 {
         if tile_sizes.len() > 1 {
