@@ -24,7 +24,7 @@ impl<'a> IntervalFunc<'a> for AsmFunc<'a> {
 }
 
 impl<'a> AsmFunc<'a> {
-    fn from_tape(tape: &Tape) -> AsmFunc {
+    pub fn from_tape(tape: &Tape) -> AsmFunc {
         AsmFunc { tape }
     }
 }
@@ -175,10 +175,6 @@ impl<'a> FloatSliceFunc<'a> for AsmFunc<'a> {
 
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmFloatSliceEval::new(self.tape)
-    }
-
-    fn from_tape(tape: &Tape) -> AsmFunc {
-        AsmFunc { tape }
     }
 }
 

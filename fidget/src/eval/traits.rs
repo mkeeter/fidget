@@ -1,8 +1,10 @@
 use crate::{eval::Interval, tape::Tape};
 
-pub trait FromTape<'a> {
-    type Impl: IntervalFunc<'a>;
-    fn from_tape(t: &'a Tape) -> Self::Impl;
+pub trait EvalSeed<'a> {
+    type IntervalFunc: IntervalFunc<'a>;
+    type FloatSliceFunc: FloatSliceFunc<'a>;
+    fn from_tape_i(t: &'a Tape) -> Self::IntervalFunc;
+    fn from_tape_s(t: &'a Tape) -> Self::FloatSliceFunc;
 }
 
 /// Function handle for interval evaluation
@@ -140,7 +142,6 @@ pub trait FloatSliceFunc<'a> {
     type Recurse<'b>: FloatSliceFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator;
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
 /// Simultaneous evaluation of many points

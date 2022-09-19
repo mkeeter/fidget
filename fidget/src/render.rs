@@ -1,7 +1,7 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        FloatSliceEval, FloatSliceFunc, FromTape, Interval, IntervalEval,
+        EvalSeed, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
         IntervalFunc,
     },
     tape::Tape,
@@ -72,14 +72,14 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, 'b, I, V: FloatSliceFunc<'b>>(
-    i_handle: &<I as FromTape<'a>>::Impl,
+fn worker<'a, I>(
+    i_handle: &<I as EvalSeed<'a>>::IntervalFunc,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
 ) -> Vec<(Tile, Vec<Pixel>)>
 where
-    for<'c> I: FromTape<'c>,
+    for<'s> I: EvalSeed<'s>,
 {
     let mut out = vec![];
     let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
@@ -91,7 +91,7 @@ where
         let tile = tiles[index];
 
         let mut pixels = vec![None; config.tile_size * config.tile_size];
-        render_tile_recurse::<I, V>(
+        render_tile_recurse::<I>(
             i_handle,
             &mut pixels,
             config,
@@ -107,15 +107,15 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, 'b, I, V: FloatSliceFunc<'b>>(
-    handle: &<I as FromTape<'a>>::Impl,
+fn render_tile_recurse<'a, I>(
+    handle: &<I as EvalSeed<'a>>::IntervalFunc,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
     scratch: &mut Scratch,
 ) where
-    for<'c> I: FromTape<'c>,
+    for<'s> I: EvalSeed<'s>,
 {
     let mut eval = handle.get_evaluator();
 
@@ -156,11 +156,11 @@ fn render_tile_recurse<'a, 'b, I, V: FloatSliceFunc<'b>>(
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify();
-        let sub_jit = I::from_tape(&sub_tape);
+        let sub_jit = I::from_tape_i(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I, V>(
+                render_tile_recurse::<I>(
                     &sub_jit,
                     out,
                     config,
@@ -177,7 +177,7 @@ fn render_tile_recurse<'a, 'b, I, V: FloatSliceFunc<'b>>(
         }
     } else {
         let sub_tape = eval.simplify();
-        let sub_jit = V::from_tape(&sub_tape);
+        let sub_jit = I::from_tape_s(&sub_tape);
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -212,18 +212,15 @@ fn render_tile_recurse<'a, 'b, I, V: FloatSliceFunc<'b>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I, V: FloatSliceFunc<'a>>(
-    tape: Tape,
-    config: &RenderConfig,
-) -> Vec<Pixel>
+pub fn render<'a, I>(tape: Tape, config: &RenderConfig) -> Vec<Pixel>
 where
-    for<'s> I: FromTape<'s>,
+    for<'s> I: EvalSeed<'s>,
 {
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = I::from_tape(&tape);
+    let i_handle = I::from_tape_i(&tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -238,7 +235,7 @@ where
         let mut handles = vec![];
         for _ in 0..config.threads {
             handles.push(
-                s.spawn(|| worker::<I, V>(&i_handle, &tiles, &index, config)),
+                s.spawn(|| worker::<I>(&i_handle, &tiles, &index, config)),
             );
         }
         let mut out = vec![];

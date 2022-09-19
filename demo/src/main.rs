@@ -142,8 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut image = vec![];
                 for _ in 0..args.n {
                     image = fidget::render::render::<
-                        fidget::asm::dynasm::JitIntervalSeed,
-                        fidget::asm::dynasm::JitVecFunc,
+                        fidget::asm::dynasm::JitEvalSeed,
                     >(tape.clone(), &cfg);
                 }
                 let out = image

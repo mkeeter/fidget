@@ -7,7 +7,7 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc, FromTape,
+        Choice, EvalSeed, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc,
         Interval, IntervalEval, IntervalFunc,
     },
     tape::Tape,
@@ -892,7 +892,7 @@ pub struct JitIntervalFunc<'a> {
 unsafe impl Sync for JitIntervalFunc<'_> {}
 
 impl<'a> JitIntervalFunc<'a> {
-    fn from_tape(t: &'a Tape) -> Self {
+    pub fn from_tape(t: &'a Tape) -> Self {
         let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
         JitIntervalFunc {
             choice_count: t.choice_count(),
@@ -919,11 +919,15 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
     }
 }
 
-pub enum JitIntervalSeed {}
-impl<'a> FromTape<'a> for JitIntervalSeed {
-    type Impl = JitIntervalFunc<'a>;
-    fn from_tape(t: &Tape) -> JitIntervalFunc {
+pub enum JitEvalSeed {}
+impl<'a> EvalSeed<'a> for JitEvalSeed {
+    type IntervalFunc = JitIntervalFunc<'a>;
+    type FloatSliceFunc = JitVecFunc;
+    fn from_tape_i(t: &Tape) -> JitIntervalFunc {
         JitIntervalFunc::from_tape(t)
+    }
+    fn from_tape_s(t: &Tape) -> JitVecFunc {
+        JitVecFunc::from_tape(t)
     }
 }
 
@@ -944,8 +948,10 @@ impl<'a> FloatSliceFunc<'a> for JitVecFunc {
             _p: std::marker::PhantomData,
         }
     }
+}
 
-    fn from_tape(t: &Tape) -> JitVecFunc {
+impl JitVecFunc {
+    pub fn from_tape(t: &Tape) -> JitVecFunc {
         let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
         JitVecFunc {
             _buf: buf,
