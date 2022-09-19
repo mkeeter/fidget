@@ -18,10 +18,12 @@ pub struct AsmFunc<'a> {
 
 impl<'a> IntervalFunc<'a> for AsmFunc<'a> {
     type Evaluator = AsmIntervalEval<'a>;
-    type Recurse<'b> = AsmFunc<'b>;
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmIntervalEval::new(self.tape)
     }
+}
+
+impl<'a> AsmFunc<'a> {
     fn from_tape(tape: &Tape) -> AsmFunc {
         AsmFunc { tape }
     }

@@ -1,5 +1,10 @@
 use crate::{eval::Interval, tape::Tape};
 
+pub trait FromTape<'a> {
+    type Impl: IntervalFunc<'a>;
+    fn from_tape(t: &'a Tape) -> Self::Impl;
+}
+
 /// Function handle for interval evaluation
 ///
 /// This trait represents a `struct` that _owns_ a function, but does not have
@@ -7,10 +12,8 @@ use crate::{eval::Interval, tape::Tape};
 /// one or more `IntervalEval` objects, which actually do evaluation.
 pub trait IntervalFunc<'a>: Sync {
     type Evaluator: IntervalEval<'a>;
-    type Recurse<'b>: IntervalFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator;
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
 /// Interval evaluator

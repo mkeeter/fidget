@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc, Interval,
-        IntervalEval, IntervalFunc,
+        Choice, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc, FromTape,
+        Interval, IntervalEval, IntervalFunc,
     },
     tape::Tape,
 };
@@ -891,9 +891,20 @@ pub struct JitIntervalFunc<'a> {
 }
 unsafe impl Sync for JitIntervalFunc<'_> {}
 
+impl<'a> JitIntervalFunc<'a> {
+    fn from_tape(t: &'a Tape) -> Self {
+        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
+        JitIntervalFunc {
+            choice_count: t.choice_count(),
+            tape: t,
+            _buf: buf,
+            fn_pointer,
+        }
+    }
+}
+
 impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
     type Evaluator = JitIntervalEval<'a>;
-    type Recurse<'b> = JitIntervalFunc<'b>;
 
     /// Returns an evaluator, bound to the lifetime of the
     /// `JitIntervalFunc`
@@ -906,14 +917,13 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
             _p: std::marker::PhantomData,
         }
     }
+}
+
+pub enum JitIntervalSeed {}
+impl<'a> FromTape<'a> for JitIntervalSeed {
+    type Impl = JitIntervalFunc<'a>;
     fn from_tape(t: &Tape) -> JitIntervalFunc {
-        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        JitIntervalFunc {
-            choice_count: t.choice_count(),
-            tape: t,
-            _buf: buf,
-            fn_pointer,
-        }
+        JitIntervalFunc::from_tape(t)
     }
 }
 

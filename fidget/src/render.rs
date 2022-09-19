@@ -1,7 +1,8 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        FloatSliceEval, FloatSliceFunc, Interval, IntervalEval, IntervalFunc,
+        FloatSliceEval, FloatSliceFunc, FromTape, Interval, IntervalEval,
+        IntervalFunc,
     },
     tape::Tape,
 };
@@ -71,12 +72,15 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
-    i_handle: &I,
+fn worker<'a, 'b, I, V: FloatSliceFunc<'b>>(
+    i_handle: &<I as FromTape<'a>>::Impl,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
-) -> Vec<(Tile, Vec<Pixel>)> {
+) -> Vec<(Tile, Vec<Pixel>)>
+where
+    for<'c> I: FromTape<'c>,
+{
     let mut out = vec![];
     let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
     loop {
@@ -103,14 +107,16 @@ fn worker<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
-    handle: &I,
+fn render_tile_recurse<'a, 'b, I, V: FloatSliceFunc<'b>>(
+    handle: &<I as FromTape<'a>>::Impl,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
     scratch: &mut Scratch,
-) {
+) where
+    for<'c> I: FromTape<'c>,
+{
     let mut eval = handle.get_evaluator();
 
     let x_min = config.pixel_to_pos(tile.corner[0]);
@@ -154,7 +160,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I::Recurse<'_>, V>(
+                render_tile_recurse::<I, V>(
                     &sub_jit,
                     out,
                     config,
@@ -206,10 +212,13 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I: IntervalFunc<'a>, V: FloatSliceFunc<'a>>(
+pub fn render<'a, I, V: FloatSliceFunc<'a>>(
     tape: Tape,
     config: &RenderConfig,
-) -> Vec<Pixel> {
+) -> Vec<Pixel>
+where
+    for<'s> I: FromTape<'s>,
+{
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
@@ -229,7 +238,7 @@ pub fn render<'a, I: IntervalFunc<'a>, V: FloatSliceFunc<'a>>(
         let mut handles = vec![];
         for _ in 0..config.threads {
             handles.push(
-                s.spawn(|| worker::<_, V>(&i_handle, &tiles, &index, config)),
+                s.spawn(|| worker::<I, V>(&i_handle, &tiles, &index, config)),
             );
         }
         let mut out = vec![];
