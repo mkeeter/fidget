@@ -1,6 +1,8 @@
 //! Bitmap rendering
 use crate::{
-    eval::{Interval, IntervalEval, IntervalFunc, VecEval, VecFunc},
+    eval::{
+        FloatSliceEval, FloatSliceFunc, Interval, IntervalEval, IntervalFunc,
+    },
     tape::Tape,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,15 +51,34 @@ struct Tile {
     corner: [usize; 2],
 }
 
+struct Scratch {
+    x: Vec<f32>,
+    y: Vec<f32>,
+    z: Vec<f32>,
+    out: Vec<f32>,
+}
+
+impl Scratch {
+    fn new(size: usize) -> Self {
+        Self {
+            x: vec![0.0; size],
+            y: vec![0.0; size],
+            z: vec![0.0; size],
+            out: vec![0.0; size],
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
+fn worker<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
     i_handle: &I,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
 ) -> Vec<(Tile, Vec<Pixel>)> {
     let mut out = vec![];
+    let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
     loop {
         let index = i.fetch_add(1, Ordering::Relaxed);
         if index >= tiles.len() {
@@ -72,6 +93,7 @@ fn worker<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             config,
             &[config.tile_size, config.subtile_size],
             tile,
+            &mut scratch,
         );
         let pixels = pixels.into_iter().map(Option::unwrap).collect();
         out.push((tile, pixels))
@@ -81,12 +103,13 @@ fn worker<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
+fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: FloatSliceFunc<'b>>(
     handle: &I,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
+    scratch: &mut Scratch,
 ) {
     let mut eval = handle.get_evaluator();
 
@@ -142,57 +165,48 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
                             tile.corner[1] + j * next_tile_size,
                         ],
                     },
+                    scratch,
                 );
             }
         }
     } else {
         let sub_tape = eval.simplify();
         let sub_jit = V::from_tape(&sub_tape);
+
+        let mut index = 0;
         for j in 0..tile_sizes[0] {
-            for i in 0..(tile_sizes[0] / 4) {
-                render_pixels(
-                    &sub_jit,
-                    out,
-                    config,
-                    Tile {
-                        corner: [tile.corner[0] + i * 4, tile.corner[1] + j],
-                    },
-                );
+            let y = config.pixel_to_pos(tile.corner[1] + j);
+            for i in 0..tile_sizes[0] {
+                scratch.x[index] = config.pixel_to_pos(tile.corner[0] + i);
+                scratch.y[index] = y;
+                index += 1;
+            }
+        }
+
+        let mut eval = sub_jit.get_evaluator();
+        eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+
+        let mut index = 0;
+        for j in 0..tile_sizes[0] {
+            for i in 0..tile_sizes[0] {
+                out[tile.corner[0] % config.tile_size
+                    + i
+                    + ((tile.corner[1] % config.tile_size) + j)
+                        * config.tile_size] =
+                    Some(if scratch.out[index] < 0.0 {
+                        Pixel::Filled
+                    } else {
+                        Pixel::Empty
+                    });
+                index += 1;
             }
         }
     }
 }
 
-fn render_pixels<'a, V: VecFunc<'a>>(
-    handle: &V,
-    out: &mut [Option<Pixel>],
-    config: &RenderConfig,
-    tile: Tile,
-) {
-    let mut eval = handle.get_evaluator();
-
-    let mut x_vec = [0.0; 4];
-    for (i, x) in x_vec.iter_mut().enumerate() {
-        *x = config.pixel_to_pos(tile.corner[0] + i);
-    }
-    let y_vec = [config.pixel_to_pos(tile.corner[1]); 4];
-    let v = eval.eval_v(x_vec, y_vec, [0.0; 4]);
-
-    for (i, v) in v.iter().enumerate() {
-        out[tile.corner[0] % config.tile_size
-            + i
-            + (tile.corner[1] % config.tile_size) * config.tile_size] =
-            Some(if *v < 0.0 {
-                Pixel::Filled
-            } else {
-                Pixel::Empty
-            });
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I: IntervalFunc<'a>, V: VecFunc<'a>>(
+pub fn render<'a, I: IntervalFunc<'a>, V: FloatSliceFunc<'a>>(
     tape: Tape,
     config: &RenderConfig,
 ) -> Vec<Pixel> {

@@ -91,33 +91,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let start = Instant::now();
                 let jit = fidget::asm::dynasm::JitVecFunc::from_tape(&tape);
-                use fidget::eval::{VecEval, VecFunc};
+                use fidget::eval::{FloatSliceEval, FloatSliceFunc};
                 let mut eval = jit.get_evaluator();
                 info!("Built JIT function in {:?}", start.elapsed());
 
-                let mut out = vec![];
+                let mut out = vec![0.0; (scale * scale) as usize];
                 let start = Instant::now();
                 for _ in 0..args.n {
-                    out.clear();
+                    let mut xs = vec![0.0; (scale * scale) as usize];
+                    let mut ys = vec![0.0; (scale * scale) as usize];
+                    let zs = vec![0.0; (scale * scale) as usize];
+
                     let div = (scale - 1) as f64;
+                    let mut index = 0;
                     for i in 0..scale {
                         let y = -(-1.0 + 2.0 * (i as f64) / div);
-                        for j in 0..(scale / 4) {
-                            let mut x = [0.0; 4];
-                            for i in 0u32..4 {
-                                x[i as usize] = (-1.0
-                                    + 2.0 * ((j * 4 + i) as f64) / div)
-                                    as f32;
-                            }
-                            let v = eval.eval_v(x, [y as f32; 4], [0.0; 4]);
-                            out.extend(v.into_iter().map(|v| v <= 0.0));
+                        for j in 0..scale {
+                            let x = -1.0 + 2.0 * (j as f64) / div;
+                            xs[index] = x as f32;
+                            ys[index] = y as f32;
+                            index += 1;
                         }
                     }
+                    eval.eval_s(&xs, &ys, &zs, &mut out);
                 }
 
                 // Convert from Vec<bool> to an image
                 let out = out
                     .into_iter()
+                    .map(|b| b < 0.0)
                     .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
                     .flat_map(|i| i.into_iter())
                     .collect();

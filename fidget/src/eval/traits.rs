@@ -127,22 +127,22 @@ pub trait IntervalEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Function handle for `f32 x 4` evaluation
+/// Function handle for evaluation of many points simultaneously.
 ///
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
-/// one or more `VecEval` objects, which actually do evaluation.
-pub trait VecFunc<'a> {
-    type Evaluator: VecEval<'a>;
-    type Recurse<'b>: VecFunc<'b>;
+/// one or more `FloatSliceEval` objects, which actually do evaluation.
+pub trait FloatSliceFunc<'a> {
+    type Evaluator: FloatSliceEval<'a>;
+    type Recurse<'b>: FloatSliceFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator;
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
-/// `f32 x 4` evaluator
-pub trait VecEval<'a> {
-    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4];
+/// Simultaneous evaluation of many points
+pub trait FloatSliceEval<'a> {
+    fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -163,14 +163,4 @@ pub trait FloatFunc<'a> {
 /// `f32` evaluator
 pub trait FloatEval<'a> {
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32;
-}
-
-impl<'a, F: FloatEval<'a>> VecEval<'a> for F {
-    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
-        let mut out = [0.0; 4];
-        for i in 0..4 {
-            out[i] = FloatEval::eval_f(self, x[i], y[i], z[i])
-        }
-        out
-    }
 }

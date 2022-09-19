@@ -12,7 +12,8 @@ pub use float4::Float4;
 pub use interval::Interval;
 pub use math::EvalMath;
 pub use traits::{
-    FloatEval, FloatFunc, IntervalEval, IntervalFunc, VecEval, VecFunc,
+    FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc, IntervalEval,
+    IntervalFunc,
 };
 
 pub(crate) use choice::Choice;
