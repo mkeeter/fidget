@@ -95,29 +95,25 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
     let y_min = config.pixel_to_pos(tile.corner[1]);
     let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
 
-    let (i, token) = eval.eval_i_subdiv(
-        Interval {
-            lower: x_min,
-            upper: x_max,
-        },
-        Interval {
-            lower: y_min,
-            upper: y_max,
-        },
-        Interval {
-            lower: 0.0,
-            upper: 0.0,
-        },
-        config.interval_subdiv,
-    );
+    let x = Interval::new(x_min, x_max);
+    let y = Interval::new(y_min, y_max);
+    let z = Interval::new(0.0, 0.0);
+    let i = eval.eval_i_subdiv(x, y, z, config.interval_subdiv);
+    if tile_sizes.len() == 2 {
+        println!("{:.2?} {:.2?} {:.2?} =>", x, y, z);
+        println!("   {:.2?}, {:.2?}", i, eval.eval_i(x, y, z));
+        println!(
+            "------------------------------------------------------------"
+        );
+    }
 
-    let fill = if i.upper < 0.0 {
+    let fill = if i.upper() < 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::FilledTile)
         } else {
             Some(Pixel::FilledSubtile)
         }
-    } else if i.lower > 0.0 {
+    } else if i.lower() > 0.0 {
         if tile_sizes.len() > 1 {
             Some(Pixel::EmptyTile)
         } else {
@@ -137,7 +133,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = token.simplify();
+        let sub_tape = eval.simplify();
         let sub_jit = I::from_tape(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
@@ -157,7 +153,7 @@ fn render_tile_recurse<'a, 'b, I: IntervalFunc<'a>, V: VecFunc<'b>>(
             }
         }
     } else {
-        let sub_tape = token.simplify();
+        let sub_tape = eval.simplify();
         let sub_jit = V::from_tape(&sub_tape);
         for j in 0..tile_sizes[0] {
             for i in 0..(tile_sizes[0] / 4) {

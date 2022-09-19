@@ -13,32 +13,14 @@ pub trait IntervalFunc<'a>: Sync {
     fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 }
 
-/// Token produced by interval evaluation, which allows you to simplify a `Tape`
-pub struct EvalToken<'a, 'b, I: IntervalEval<'a> + ?Sized>(
-    &'b mut I,
-    std::marker::PhantomData<&'a ()>,
-);
-impl<'a, 'b, I: IntervalEval<'a>> EvalToken<'a, 'b, I> {
-    /// Returns a tape that only includes active clauses
-    pub fn simplify(self) -> Tape {
-        self.0.simplify()
-    }
-}
-
-pub(crate) mod private {
-    use super::*;
-    #[doc(hidden)]
-    pub trait Simplify {
-        fn simplify(&self) -> Tape;
-    }
-}
-
 /// Interval evaluator
 ///
 /// The evaluator will likely have a lifetime bounded to its parent
 /// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
-pub trait IntervalEval<'a>: private::Simplify {
+pub trait IntervalEval<'a> {
+    fn simplify(&self) -> Tape;
+
     /// Evaluates the given interval and records choices into the internal
     /// array, _without_ resetting the choice array beforehand.
     ///
@@ -51,15 +33,9 @@ pub trait IntervalEval<'a>: private::Simplify {
     fn reset_choices(&mut self);
 
     /// Performs interval evaluation and tape simplification
-    fn eval_i<I: Into<Interval>>(
-        &mut self,
-        x: I,
-        y: I,
-        z: I,
-    ) -> (Interval, EvalToken<'a, '_, Self>) {
+    fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
         self.reset_choices();
-        let out = self.eval_i_inner(x, y, z);
-        (out, EvalToken(self, std::marker::PhantomData))
+        self.eval_i_inner(x, y, z)
     }
 
     /// Evaluates an interval with subdivision
@@ -77,10 +53,9 @@ pub trait IntervalEval<'a>: private::Simplify {
         y: I,
         z: I,
         subdiv: usize,
-    ) -> (Interval, EvalToken<'a, '_, Self>) {
+    ) -> Interval {
         self.reset_choices();
-        let out = self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1));
-        (out, EvalToken(self, std::marker::PhantomData))
+        self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1))
     }
 
     #[doc(hidden)]
@@ -95,11 +70,14 @@ pub trait IntervalEval<'a>: private::Simplify {
         let y = y.into();
         let z = z.into();
         if subdiv == 0 {
+            for v in [x, y, z] {
+                println!("        {:.2?}", v);
+            }
             self.eval_i_inner(x, y, z)
         } else {
-            let dx = x.upper - x.lower;
-            let dy = y.upper - y.lower;
-            let dz = z.upper - z.lower;
+            let dx = x.upper() - x.lower();
+            let dy = y.upper() - y.lower();
+            let dz = z.upper() - z.lower();
 
             // Helper function to shorten code below
             let mut f = |x: Interval, y: Interval, z: Interval| {
@@ -107,25 +85,25 @@ pub trait IntervalEval<'a>: private::Simplify {
             };
 
             let (a, b) = if dx >= dy && dx >= dz {
-                let x_mid = x.lower + dx / 2.0;
+                let x_mid = x.lower() + dx / 2.0;
                 (
-                    f(Interval::new(x.lower, x_mid), y, z),
-                    f(Interval::new(x_mid, x.upper), y, z),
+                    f(Interval::new(x.lower(), x_mid), y, z),
+                    f(Interval::new(x_mid, x.upper()), y, z),
                 )
             } else if dy >= dz {
-                let y_mid = y.lower + dy / 2.0;
+                let y_mid = y.lower() + dy / 2.0;
                 (
-                    f(x, Interval::new(y.lower, y_mid), z),
-                    f(x, Interval::new(y_mid, y.upper), z),
+                    f(x, Interval::new(y.lower(), y_mid), z),
+                    f(x, Interval::new(y_mid, y.upper()), z),
                 )
             } else {
-                let z_mid = z.lower + dz / 2.0;
+                let z_mid = z.lower() + dz / 2.0;
                 (
-                    f(x, y, Interval::new(z.lower, z_mid)),
-                    f(x, y, Interval::new(z_mid, z.upper)),
+                    f(x, y, Interval::new(z.lower(), z_mid)),
+                    f(x, y, Interval::new(z_mid, z.upper())),
                 )
             };
-            Interval::new(a.lower.min(b.lower), a.upper.max(b.upper))
+            Interval::new(a.lower().min(b.lower()), a.upper().max(b.upper()))
         }
     }
 }

@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, EvalToken, FloatEval, FloatFunc, Interval, IntervalEval,
-        IntervalFunc, Simplify, VecEval, VecFunc,
+        Choice, FloatEval, FloatFunc, Interval, IntervalEval, IntervalFunc,
+        VecEval, VecFunc,
     },
     tape::Tape,
 };
@@ -993,20 +993,15 @@ impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
         let z: Interval = z.into();
         let out = unsafe {
             (self.fn_interval)(
-                [x.lower, x.upper],
-                [y.lower, y.upper],
-                [z.lower, z.upper],
+                [x.lower(), x.upper()],
+                [y.lower(), y.upper()],
+                [z.lower(), z.upper()],
                 self.choices.as_mut_ptr() as *mut u8,
             )
         };
-        Interval {
-            lower: out[0],
-            upper: out[1],
-        }
+        Interval::new(out[0], out[1])
     }
-}
 
-impl<'a> Simplify for JitIntervalEval<'a> {
     /// Returns a simplified tape based on `self.choices`
     ///
     /// The choices array should have been calculated during the last interval
@@ -1067,7 +1062,7 @@ mod tests {
         let jit = JitIntervalFunc::from_tape(&tape);
         let mut eval = jit.get_evaluator();
         let mut eval_xy = |x: [f32; 2], y: [f32; 2]| {
-            let i = eval.eval_i(x, y, [0.0, 1.0]);
+            let i = eval.eval_i(x, y, [0.0, 1.0]).0;
             [i.lower, i.upper]
         };
         assert_eq!(eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0]);

@@ -7,22 +7,26 @@ use crate::eval::{Choice, EvalMath};
 /// This implementation does not set rounding modes, so it may not be _perfect_.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Interval {
-    pub lower: f32,
-    pub upper: f32,
+    lower: f32,
+    upper: f32,
 }
 
 impl Interval {
     pub fn new(lower: f32, upper: f32) -> Self {
+        assert!(upper >= lower || (lower.is_nan() && upper.is_nan()));
         Self { lower, upper }
+    }
+    pub fn lower(&self) -> f32 {
+        self.lower
+    }
+    pub fn upper(&self) -> f32 {
+        self.upper
     }
 }
 
 impl From<[f32; 2]> for Interval {
     fn from(i: [f32; 2]) -> Interval {
-        Interval {
-            lower: i[0],
-            upper: i[1],
-        }
+        Interval::new(i[0], i[1])
     }
 }
 
@@ -30,15 +34,9 @@ impl EvalMath for Interval {
     fn abs(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
-                Interval {
-                    lower: 0.0,
-                    upper: self.upper.max(-self.lower),
-                }
+                Interval::new(0.0, self.upper.max(-self.lower))
             } else {
-                Interval {
-                    lower: -self.upper,
-                    upper: -self.lower,
-                }
+                Interval::new(-self.upper, -self.lower)
             }
         } else {
             self
@@ -47,18 +45,12 @@ impl EvalMath for Interval {
     fn sqrt(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
-                Interval {
-                    lower: 0.0,
-                    upper: self.upper.sqrt(),
-                }
+                Interval::new(0.0, self.upper.sqrt())
             } else {
                 std::f32::NAN.into()
             }
         } else {
-            Interval {
-                lower: self.lower.sqrt(),
-                upper: self.upper.sqrt(),
-            }
+            Interval::new(self.lower.sqrt(), self.upper.sqrt())
         }
     }
     fn recip(self) -> Self {
@@ -73,10 +65,7 @@ impl EvalMath for Interval {
             Choice::Both
         };
         (
-            Interval {
-                lower: self.lower.min(rhs.lower),
-                upper: self.upper.min(rhs.upper),
-            },
+            Interval::new(self.lower.min(rhs.lower), self.upper.min(rhs.upper)),
             choice,
         )
     }
@@ -89,10 +78,7 @@ impl EvalMath for Interval {
             Choice::Both
         };
         (
-            Interval {
-                lower: self.lower.max(rhs.lower),
-                upper: self.upper.max(rhs.upper),
-            },
+            Interval::new(self.lower.max(rhs.lower), self.upper.max(rhs.upper)),
             choice,
         )
     }
@@ -100,17 +86,14 @@ impl EvalMath for Interval {
 
 impl From<f32> for Interval {
     fn from(f: f32) -> Self {
-        Interval { lower: f, upper: f }
+        Interval::new(f, f)
     }
 }
 
 impl std::ops::Add<Interval> for Interval {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower + rhs.lower,
-            upper: self.upper + rhs.upper,
-        }
+        Interval::new(self.lower + rhs.lower, self.upper + rhs.upper)
     }
 }
 
@@ -131,26 +114,20 @@ impl std::ops::Mul<Interval> for Interval {
             lower = lower.min(v);
             upper = upper.max(v);
         }
-        Interval { lower, upper }
+        Interval::new(lower, upper)
     }
 }
 
 impl std::ops::Sub<Interval> for Interval {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        Interval {
-            lower: self.lower - rhs.upper,
-            upper: self.upper - rhs.lower,
-        }
+        Interval::new(self.lower - rhs.upper, self.upper - rhs.lower)
     }
 }
 
 impl std::ops::Neg for Interval {
     type Output = Self;
     fn neg(self) -> Self {
-        Interval {
-            lower: -self.upper,
-            upper: -self.lower,
-        }
+        Interval::new(-self.upper, -self.lower)
     }
 }

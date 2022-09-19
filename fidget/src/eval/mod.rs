@@ -12,9 +12,7 @@ pub use float4::Float4;
 pub use interval::Interval;
 pub use math::EvalMath;
 pub use traits::{
-    EvalToken, FloatEval, FloatFunc, IntervalEval, IntervalFunc, VecEval,
-    VecFunc,
+    FloatEval, FloatFunc, IntervalEval, IntervalFunc, VecEval, VecFunc,
 };
 
 pub(crate) use choice::Choice;
-pub(crate) use traits::private::Simplify;
