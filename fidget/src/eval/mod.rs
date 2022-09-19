@@ -7,7 +7,7 @@ mod interval;
 mod math;
 mod traits;
 
-pub use eval::{AsmEval, InterpreterHandle};
+pub use eval::{AsmFloatSliceEval, AsmFunc, AsmIntervalEval};
 pub use float4::Float4;
 pub use interval::Interval;
 pub use math::EvalMath;

@@ -164,3 +164,11 @@ pub trait FloatFunc<'a> {
 pub trait FloatEval<'a> {
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32;
 }
+
+impl<'a, F: FloatSliceEval<'a>> FloatEval<'a> for F {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32 {
+        let mut out = [0.0];
+        self.eval_s(&[x], &[y], &[z], &mut out);
+        out[0]
+    }
+}

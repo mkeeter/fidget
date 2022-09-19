@@ -57,7 +57,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let tape = ctx.get_tape(root, u8::MAX);
             info!("Built tape in {:?}", start.elapsed());
 
-            let mut eval = tape.get_evaluator();
+            let mut eval = tape.get_float_evaluator();
+            use fidget::eval::FloatEval;
             let mut out = vec![];
             let start = Instant::now();
             for _ in 0..args.n {
@@ -67,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let y = -(-1.0 + 2.0 * (i as f64) / div);
                     for j in 0..scale {
                         let x = -1.0 + 2.0 * (j as f64) / div;
-                        let v = eval.eval(x as f32, y as f32, 0.0);
+                        let v = eval.eval_f(x as f32, y as f32, 0.0);
                         out.push(v <= 0.0);
                     }
                 }
