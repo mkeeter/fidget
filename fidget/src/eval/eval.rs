@@ -1,8 +1,8 @@
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
-        IntervalFunc,
+        Choice, EvalFamily, FloatSliceEval, FloatSliceFunc, Interval,
+        IntervalEval, IntervalFunc,
     },
     tape::Tape,
 };
@@ -12,6 +12,20 @@ use crate::{
 /// Generic `struct` which wraps a `Tape` and converts it to an `Asm*Eval`
 pub struct AsmFunc<'a> {
     tape: &'a Tape,
+}
+
+/// Family of evaluators that use a local interpreter
+pub enum AsmFamily {}
+
+impl<'a> EvalFamily<'a> for AsmFamily {
+    type IntervalFunc = AsmFunc<'a>;
+    type FloatSliceFunc = AsmFunc<'a>;
+    fn from_tape_i(t: &Tape) -> AsmFunc {
+        AsmFunc { tape: t }
+    }
+    fn from_tape_s(t: &Tape) -> AsmFunc {
+        AsmFunc { tape: t }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
