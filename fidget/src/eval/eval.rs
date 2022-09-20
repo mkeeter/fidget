@@ -191,7 +191,7 @@ impl<'a> FloatSliceFunc<'a> for AsmFunc<'a> {
     }
 }
 
-/// Interval evaluator for a slice of [`AsmOp`]
+/// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
 pub struct AsmFloatSliceEval<'t> {
     /// Instruction tape, in reverse-evaluation order
     tape: &'t Tape,

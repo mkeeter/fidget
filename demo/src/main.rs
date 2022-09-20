@@ -52,35 +52,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
-            let scale = args.size;
-            let start = Instant::now();
-            let tape = ctx.get_tape(root, u8::MAX);
-            info!("Built tape in {:?}", start.elapsed());
+            if args.brute {
+                let scale = args.size;
+                let start = Instant::now();
+                let tape = ctx.get_tape(root, u8::MAX);
+                info!("Built tape in {:?}", start.elapsed());
+                tape.pretty_print();
 
-            let mut eval = tape.get_float_evaluator();
-            use fidget::eval::FloatEval;
-            let mut out = vec![];
-            let start = Instant::now();
-            for _ in 0..args.n {
-                out.clear();
-                let div = (scale - 1) as f64;
-                for i in 0..scale {
-                    let y = -(-1.0 + 2.0 * (i as f64) / div);
-                    for j in 0..scale {
-                        let x = -1.0 + 2.0 * (j as f64) / div;
-                        let v = eval.eval_f(x as f32, y as f32, 0.0);
-                        out.push(v <= 0.0);
+                let mut eval = tape.get_float_evaluator();
+                use fidget::eval::FloatEval;
+                let mut out = vec![];
+                let start = Instant::now();
+                for _ in 0..args.n {
+                    out.clear();
+                    let div = (scale - 1) as f64;
+                    for i in 0..scale {
+                        let y = -(-1.0 + 2.0 * (i as f64) / div);
+                        for j in 0..scale {
+                            let x = -1.0 + 2.0 * (j as f64) / div;
+                            let v = eval.eval_f(x as f32, y as f32, 0.0);
+                            println!("{} {} {}", x, y, v);
+                            out.push(v <= 0.0);
+                        }
                     }
                 }
-            }
+                // Convert from Vec<bool> to an image
+                let out = out
+                    .into_iter()
+                    .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+                    .flat_map(|i| i.into_iter())
+                    .collect();
+                (out, start)
+            } else {
+                let start = Instant::now();
+                let tape = ctx.get_tape(root, u8::MAX);
+                info!("Got tape in {:?}", start.elapsed());
 
-            // Convert from Vec<bool> to an image
-            let out = out
-                .into_iter()
-                .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                .flat_map(|i| i.into_iter())
-                .collect();
-            (out, start)
+                let cfg = fidget::render::RenderConfig {
+                    image_size: args.size as usize,
+                    tile_size: 256,
+                    subtile_size: 64,
+                    threads: 8,
+                    interval_subdiv: 3,
+                };
+                let start = Instant::now();
+                let mut image = vec![];
+                for _ in 0..args.n {
+                    image = fidget::render::render::<fidget::eval::AsmFamily>(
+                        tape.clone(),
+                        &cfg,
+                    );
+                }
+                let out = image
+                    .into_iter()
+                    .flat_map(|p| p.as_color().into_iter())
+                    .collect();
+                (out, start)
+            }
         } else if args.asm {
             if args.brute {
                 let scale = args.size;

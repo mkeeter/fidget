@@ -55,6 +55,10 @@ impl Tape {
     pub fn iter_asm(&self) -> impl Iterator<Item = AsmOp> + '_ {
         self.asm.iter().cloned().rev()
     }
+
+    pub fn pretty_print(&self) {
+        self.ssa.pretty_print()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
