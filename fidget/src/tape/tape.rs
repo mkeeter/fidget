@@ -163,6 +163,6 @@ mod tests {
         let tape = ctx.get_tape(circle, u8::MAX);
         let mut eval = tape.get_float_evaluator();
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
-        assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
     }
 }

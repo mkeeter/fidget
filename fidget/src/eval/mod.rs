@@ -3,12 +3,10 @@
 mod choice;
 mod eval;
 mod interval;
-mod math;
 mod traits;
 
 pub use eval::{AsmFloatSliceEval, AsmFunc, AsmIntervalEval};
 pub use interval::Interval;
-pub use math::EvalMath;
 pub use traits::{
     EvalSeed, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc,
     IntervalEval, IntervalFunc,

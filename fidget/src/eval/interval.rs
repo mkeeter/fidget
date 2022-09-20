@@ -1,4 +1,4 @@
-use crate::eval::{Choice, EvalMath};
+use crate::eval::Choice;
 
 /// Represents a range, with conservative calculations to guarantee that it
 /// always contains the actual value.
@@ -30,8 +30,8 @@ impl From<[f32; 2]> for Interval {
     }
 }
 
-impl EvalMath for Interval {
-    fn abs(self) -> Self {
+impl Interval {
+    pub fn abs(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
                 Interval::new(0.0, self.upper.max(-self.lower))
@@ -42,7 +42,7 @@ impl EvalMath for Interval {
             self
         }
     }
-    fn sqrt(self) -> Self {
+    pub fn sqrt(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
                 Interval::new(0.0, self.upper.sqrt())
@@ -53,10 +53,10 @@ impl EvalMath for Interval {
             Interval::new(self.lower.sqrt(), self.upper.sqrt())
         }
     }
-    fn recip(self) -> Self {
+    pub fn recip(self) -> Self {
         todo!()
     }
-    fn min_choice(self, rhs: Self) -> (Self, Choice) {
+    pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
         let choice = if self.lower > rhs.upper {
             Choice::Left
         } else if rhs.lower > self.upper {
@@ -69,7 +69,7 @@ impl EvalMath for Interval {
             choice,
         )
     }
-    fn max_choice(self, rhs: Self) -> (Self, Choice) {
+    pub fn max_choice(self, rhs: Self) -> (Self, Choice) {
         let choice = if self.lower > rhs.upper {
             Choice::Left
         } else if rhs.lower > self.upper {

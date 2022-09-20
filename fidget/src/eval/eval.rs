@@ -1,8 +1,8 @@
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, EvalMath, FloatSliceEval, FloatSliceFunc, Interval,
-        IntervalEval, IntervalFunc,
+        Choice, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
+        IntervalFunc,
     },
     tape::Tape,
 };

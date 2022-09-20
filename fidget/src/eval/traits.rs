@@ -1,5 +1,10 @@
 use crate::{eval::Interval, tape::Tape};
 
+/// Represents a "family" of evaluators (JIT, interpreter, etc)
+///
+/// This trait is only needed as a work-around to allow recursion during
+/// rendering.  It should be implemented on an unutterable type (e.g. `enum
+/// MyEvalSeed {}`).
 pub trait EvalSeed<'a> {
     type IntervalFunc: IntervalFunc<'a>;
     type FloatSliceFunc: FloatSliceFunc<'a>;
@@ -15,6 +20,7 @@ pub trait EvalSeed<'a> {
 pub trait IntervalFunc<'a>: Sync {
     type Evaluator: IntervalEval<'a>;
 
+    /// Return the evaluator type, which may borrow from this `struct`
     fn get_evaluator(&self) -> Self::Evaluator;
 }
 
@@ -24,6 +30,8 @@ pub trait IntervalFunc<'a>: Sync {
 /// [`IntervalFunc`](crate::eval::IntervalFunc), and can generate
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
 pub trait IntervalEval<'a> {
+    /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
+    /// evaluation.
     fn simplify(&self) -> Tape;
 
     /// Evaluates the given interval and records choices into the internal
