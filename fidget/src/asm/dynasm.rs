@@ -7,8 +7,8 @@ use dynasmrt::{
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, EvalSeed, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc,
-        Interval, IntervalEval, IntervalFunc,
+        Choice, EvalFamily, FloatEval, FloatFunc, FloatSliceEval,
+        FloatSliceFunc, Interval, IntervalEval, IntervalFunc,
     },
     tape::Tape,
 };
@@ -920,8 +920,8 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
     }
 }
 
-pub enum JitEvalSeed {}
-impl<'a> EvalSeed<'a> for JitEvalSeed {
+pub enum JitEvalFamily {}
+impl<'a> EvalFamily<'a> for JitEvalFamily {
     type IntervalFunc = JitIntervalFunc<'a>;
     type FloatSliceFunc = JitVecFunc;
     fn from_tape_i(t: &Tape) -> JitIntervalFunc {

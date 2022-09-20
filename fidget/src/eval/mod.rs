@@ -8,7 +8,7 @@ mod traits;
 pub use eval::{AsmFloatSliceEval, AsmFunc, AsmIntervalEval};
 pub use interval::Interval;
 pub use traits::{
-    EvalSeed, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc,
+    EvalFamily, FloatEval, FloatFunc, FloatSliceEval, FloatSliceFunc,
     IntervalEval, IntervalFunc,
 };
 

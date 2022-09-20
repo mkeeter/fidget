@@ -1,7 +1,7 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        EvalSeed, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
+        EvalFamily, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
         IntervalFunc,
     },
     tape::Tape,
@@ -73,13 +73,13 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<'a, I>(
-    i_handle: &<I as EvalSeed<'a>>::IntervalFunc,
+    i_handle: &<I as EvalFamily<'a>>::IntervalFunc,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
 ) -> Vec<(Tile, Vec<Pixel>)>
 where
-    for<'s> I: EvalSeed<'s>,
+    for<'s> I: EvalFamily<'s>,
 {
     let mut out = vec![];
     let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
@@ -108,14 +108,14 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 fn render_tile_recurse<'a, I>(
-    handle: &<I as EvalSeed<'a>>::IntervalFunc,
+    handle: &<I as EvalFamily<'a>>::IntervalFunc,
     out: &mut [Option<Pixel>],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
     scratch: &mut Scratch,
 ) where
-    for<'s> I: EvalSeed<'s>,
+    for<'s> I: EvalFamily<'s>,
 {
     let mut eval = handle.get_evaluator();
 
@@ -214,7 +214,7 @@ fn render_tile_recurse<'a, I>(
 
 pub fn render<'a, I>(tape: Tape, config: &RenderConfig) -> Vec<Pixel>
 where
-    for<'s> I: EvalSeed<'s>,
+    for<'s> I: EvalFamily<'s>,
 {
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);

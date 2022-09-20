@@ -4,8 +4,8 @@ use crate::{eval::Interval, tape::Tape};
 ///
 /// This trait is only needed as a work-around to allow recursion during
 /// rendering.  It should be implemented on an unutterable type (e.g. `enum
-/// MyEvalSeed {}`).
-pub trait EvalSeed<'a> {
+/// MyEvalFamily {}`).
+pub trait EvalFamily<'a> {
     type IntervalFunc: IntervalFunc<'a>;
     type FloatSliceFunc: FloatSliceFunc<'a>;
     fn from_tape_i(t: &'a Tape) -> Self::IntervalFunc;
