@@ -212,7 +212,7 @@ impl<'a> AsmFloatSliceEval<'a> {
     fn v<I: Into<usize>>(&mut self, i: I) -> &mut [f32] {
         let i: usize = i.into();
         if i >= self.slots.len() {
-            self.slots.resize_with(i + 1, || vec![]);
+            self.slots.resize_with(i + 1, Vec::new);
         }
         if self.slots[i].len() < self.slice_size {
             self.slots[i].resize(self.slice_size, std::f32::NAN);

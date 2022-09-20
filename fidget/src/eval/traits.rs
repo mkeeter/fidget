@@ -59,21 +59,27 @@ pub trait IntervalEval<'a> {
         out
     }
 
-    /// Performs interval evaluation
+    /// Performs interval evaluation, using zeros for Y and Z
+    ///
+    /// This is a convenience function for unit testing
+    #[doc(hidden)]
     fn eval_i_x<I: Into<Interval>>(&mut self, x: I) -> Interval {
         self.eval_i(x.into(), Interval::new(0.0, 0.0), Interval::new(0.0, 0.0))
     }
 
-    /// Performs interval evaluation
+    /// Performs interval evaluation, using zeros for Z
+    ///
+    /// This is a convenience function for unit testing
+    #[doc(hidden)]
     fn eval_i_xy<I: Into<Interval>>(&mut self, x: I, y: I) -> Interval {
         self.eval_i(x.into(), y.into(), Interval::new(0.0, 0.0))
     }
 
-    /// Evaluates an interval with subdivision
+    /// Evaluates an interval with subdivision, for higher precision
     ///
     /// The given interval is split into `2**subdiv` sub-intervals, then the
-    /// resulting bounds are combined.  Running with `subdiv = 0` or `subdiv =
-    /// 1` is equivalent to calling [`Self::eval_i`].
+    /// resulting bounds are combined.  Running with `subdiv = 0` is equivalent
+    /// to calling [`Self::eval_i`].
     ///
     /// This produces a more tightly-bounded accurate result at the cost of
     /// increased computation, but can be a good trade-off if interval
@@ -86,7 +92,7 @@ pub trait IntervalEval<'a> {
         subdiv: usize,
     ) -> Interval {
         self.reset_choices();
-        let out = self.eval_subdiv_recurse(x, y, z, subdiv.saturating_sub(1));
+        let out = self.eval_subdiv_recurse(x, y, z, subdiv);
         self.load_choices();
         out
     }
