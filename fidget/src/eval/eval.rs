@@ -336,5 +336,6 @@ impl<'a> FloatSliceEval<'a> for AsmFloatSliceEval<'a> {
                 }
             }
         }
+        out.copy_from_slice(&self.slots[0])
     }
 }
