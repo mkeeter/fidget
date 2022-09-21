@@ -23,10 +23,10 @@ struct Args {
 
     /// Render using the `dynasm`-compiled function
     #[clap(short, long, requires = "image", conflicts_with = "interpreter")]
-    asm: bool,
+    jit: bool,
 
     /// Use brute-force (pixel-by-pixel) evaluation
-    #[clap(short, long, requires = "asm")]
+    #[clap(short, long)]
     brute: bool,
 
     #[clap(short = 'N', default_value = "1", requires = "image")]
@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect();
                 (out, start)
             }
-        } else if args.asm {
+        } else if args.jit {
             if args.brute {
                 let scale = args.size;
 
