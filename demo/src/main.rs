@@ -59,20 +59,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Built tape in {:?}", start.elapsed());
 
                 let mut eval = tape.get_float_evaluator();
-                use fidget::eval::FloatEval;
-                let mut out = vec![];
+                use fidget::eval::FloatSliceEval;
+                let mut out: Vec<bool> = vec![];
                 let start = Instant::now();
                 for _ in 0..args.n {
-                    out.clear();
+                    let mut xs = vec![];
+                    let mut ys = vec![];
                     let div = (scale - 1) as f64;
                     for i in 0..scale {
                         let y = -(-1.0 + 2.0 * (i as f64) / div);
                         for j in 0..scale {
                             let x = -1.0 + 2.0 * (j as f64) / div;
-                            let v = eval.eval_f(x as f32, y as f32, 0.0);
-                            out.push(v <= 0.0);
+                            xs.push(x as f32);
+                            ys.push(y as f32);
                         }
                     }
+                    let zs = vec![0.0; xs.len()];
+                    let mut values = vec![0.0; xs.len()];
+                    eval.eval_s(&xs, &ys, &zs, &mut values);
+                    out = values.into_iter().map(|v| v <= 0.0).collect();
                 }
                 // Convert from Vec<bool> to an image
                 let out = out
