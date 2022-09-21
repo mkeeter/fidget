@@ -57,9 +57,9 @@ impl Interval {
         todo!()
     }
     pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
-        let choice = if self.lower > rhs.upper {
+        let choice = if self.upper < rhs.lower {
             Choice::Left
-        } else if rhs.lower > self.upper {
+        } else if rhs.upper < self.lower {
             Choice::Right
         } else {
             Choice::Both
@@ -129,5 +129,17 @@ impl std::ops::Neg for Interval {
     type Output = Self;
     fn neg(self) -> Self {
         Interval::new(-self.upper, -self.lower)
+    }
+}
+
+mod test {
+    use super::*;
+    #[test]
+    fn test_interval() {
+        let a = Interval::new(0.0, 1.0);
+        let b = Interval::new(0.5, 1.5);
+        let (v, c) = a.min_choice(b);
+        assert_eq!(v, [0.0, 1.0].into());
+        assert_eq!(c, Choice::Both);
     }
 }

@@ -1,7 +1,7 @@
 //! Infrastructure and algorithms for complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::context::Context;
+//! use fidget::{eval::FloatEval, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -12,16 +12,16 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = tape.get_evaluator();
-//! assert_eq!(eval.eval(0.0, 0.0, 0.0), -1.0);
-//! assert_eq!(eval.eval(1.0, 0.0, 0.0), 0.0);
+//! let mut eval = tape.get_float_evaluator();
+//! assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
+//! assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
 //!
 //! const N: usize = 15;
 //! for i in 0..N {
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let v = eval.eval(x, y, 0.0);
+//!         let v = eval.eval_f(x, y, 0.0);
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();

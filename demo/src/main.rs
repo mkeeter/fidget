@@ -93,10 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let cfg = fidget::render::RenderConfig {
                     image_size: args.size as usize,
-                    tile_size: 256,
-                    subtile_size: 64,
+                    tile_size: 64,
+                    subtile_size: 8,
                     threads: 8,
-                    interval_subdiv: 3,
+                    interval_subdiv: 0,
                 };
                 let start = Instant::now();
                 let mut image = vec![];

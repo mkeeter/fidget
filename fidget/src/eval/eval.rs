@@ -79,7 +79,7 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
         self.tape.simplify(&self.choices)
     }
     fn reset_choices(&mut self) {
-        self.choices.fill(Choice::Unknown);
+        self.choices_raw.fill(0);
     }
     fn load_choices(&mut self) {
         for (out, c) in self.choices.iter_mut().zip(self.choices_raw.iter()) {
