@@ -82,7 +82,15 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
         self.choices.fill(Choice::Unknown);
     }
     fn load_choices(&mut self) {
-        // Nothing to do here
+        for (out, c) in self.choices.iter_mut().zip(self.choices_raw.iter()) {
+            *out = match c {
+                0 => Choice::Unknown,
+                1 => Choice::Left,
+                2 => Choice::Right,
+                3 => Choice::Both,
+                _ => panic!("invalid choice {}", c),
+            }
+        }
     }
     fn eval_i_inner<I: Into<Interval>>(
         &mut self,
