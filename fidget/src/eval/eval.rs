@@ -18,6 +18,9 @@ pub struct AsmFunc<'a> {
 pub enum AsmFamily {}
 
 impl<'a> EvalFamily<'a> for AsmFamily {
+    /// This is interpreted, so we can use the maximum number of registers
+    const REG_LIMIT: u8 = u8::MAX;
+
     type IntervalFunc = AsmFunc<'a>;
     type FloatSliceFunc = AsmFunc<'a>;
     fn from_tape_i(t: &Tape) -> AsmFunc {
@@ -75,8 +78,8 @@ impl<'a> AsmIntervalEval<'a> {
 }
 
 impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
-    fn simplify(&self) -> Tape {
-        self.tape.simplify(&self.choices)
+    fn simplify(&self, reg_limit: u8) -> Tape {
+        self.tape.simplify_with_reg_limit(&self.choices, reg_limit)
     }
     fn reset_choices(&mut self) {
         self.choices_raw.fill(0);

@@ -922,6 +922,9 @@ impl<'a> IntervalFunc<'a> for JitIntervalFunc<'a> {
 
 pub enum JitEvalFamily {}
 impl<'a> EvalFamily<'a> for JitEvalFamily {
+    /// This is interpreted, so we can use the maximum number of registers
+    const REG_LIMIT: u8 = REGISTER_LIMIT;
+
     type IntervalFunc = JitIntervalFunc<'a>;
     type FloatSliceFunc = JitVecFunc;
     fn from_tape_i(t: &Tape) -> JitIntervalFunc {
@@ -1036,8 +1039,8 @@ impl<'a> IntervalEval<'a> for JitIntervalEval<'a> {
     ///
     /// The choices array should have been calculated during the last interval
     /// evaluation.
-    fn simplify(&self) -> Tape {
-        self.tape.simplify(&self.choices)
+    fn simplify(&self, reg_limit: u8) -> Tape {
+        self.tape.simplify_with_reg_limit(&self.choices, reg_limit)
     }
 }
 

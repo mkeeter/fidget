@@ -155,7 +155,7 @@ fn render_tile_recurse<'a, I>(
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = eval.simplify();
+        let sub_tape = eval.simplify(I::REG_LIMIT);
         let sub_jit = I::from_tape_i(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
@@ -176,7 +176,7 @@ fn render_tile_recurse<'a, I>(
             }
         }
     } else {
-        let sub_tape = eval.simplify();
+        let sub_tape = eval.simplify(I::REG_LIMIT);
         let sub_jit = I::from_tape_s(&sub_tape);
 
         let mut index = 0;
@@ -212,7 +212,7 @@ fn render_tile_recurse<'a, I>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<'a, I>(tape: Tape, config: &RenderConfig) -> Vec<Pixel>
+pub fn render<I>(tape: Tape, config: &RenderConfig) -> Vec<Pixel>
 where
     for<'s> I: EvalFamily<'s>,
 {

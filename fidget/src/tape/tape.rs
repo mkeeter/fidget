@@ -17,7 +17,6 @@ use crate::{
 pub struct Tape {
     ssa: SsaTape,
     asm: Vec<AsmOp>,
-    reg_limit: u8,
 }
 
 impl Tape {
@@ -30,24 +29,24 @@ impl Tape {
     }
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let asm = ssa.get_asm(reg_limit);
-        Self {
-            ssa,
-            asm,
-            reg_limit,
-        }
+        Self { ssa, asm }
     }
 
     pub fn get_float_evaluator(&self) -> AsmFloatSliceEval {
         AsmFloatSliceEval::new(self)
     }
 
-    pub(crate) fn simplify(&self, choices: &[Choice]) -> Self {
-        let (ssa, asm) = self.ssa.simplify(choices, self.reg_limit);
-        Self {
-            ssa,
-            asm,
-            reg_limit: self.reg_limit,
-        }
+    pub fn simplify(&self, choices: &[Choice]) -> Self {
+        self.simplify_with_reg_limit(choices, u8::MAX)
+    }
+
+    pub fn simplify_with_reg_limit(
+        &self,
+        choices: &[Choice],
+        reg_limit: u8,
+    ) -> Self {
+        let (ssa, asm) = self.ssa.simplify(choices, reg_limit);
+        Self { ssa, asm }
     }
 
     /// Produces an iterator that visits [`AsmOp`](crate::asm::AsmOp) values in

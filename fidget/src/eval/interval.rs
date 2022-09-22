@@ -132,8 +132,10 @@ impl std::ops::Neg for Interval {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
+
     #[test]
     fn test_interval() {
         let a = Interval::new(0.0, 1.0);

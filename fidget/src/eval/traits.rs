@@ -6,6 +6,9 @@ use crate::{eval::Interval, tape::Tape};
 /// rendering.  It should be implemented on an unutterable type (e.g. `enum
 /// MyEvalFamily {}`).
 pub trait EvalFamily<'a> {
+    /// Register limit for this evaluator family.
+    const REG_LIMIT: u8;
+
     type IntervalFunc: IntervalFunc<'a>;
     type FloatSliceFunc: FloatSliceFunc<'a>;
     fn from_tape_i(t: &'a Tape) -> Self::IntervalFunc;
@@ -32,7 +35,7 @@ pub trait IntervalFunc<'a>: Sync {
 pub trait IntervalEval<'a> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
-    fn simplify(&self) -> Tape;
+    fn simplify(&self, reg_limit: u8) -> Tape;
 
     /// Evaluates the given interval and records choices into the internal
     /// array, _without_ resetting the choice array beforehand.

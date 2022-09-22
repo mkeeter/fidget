@@ -2,8 +2,9 @@ use std::time::Instant;
 
 use clap::Parser;
 use env_logger::Env;
-use fidget::context::Context;
 use log::info;
+
+use fidget::context::{Context, Node};
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -40,6 +41,70 @@ struct Args {
     filename: String,
 }
 
+fn run<'a, I: fidget::eval::EvalFamily<'a>>(
+    ctx: &Context,
+    node: Node,
+    brute: bool,
+    size: u32,
+    n: usize,
+) -> (Vec<u8>, std::time::Instant) {
+    let start = Instant::now();
+    let tape = ctx.get_tape(node, I::REG_LIMIT);
+    info!("Built tape in {:?}", start.elapsed());
+
+    if brute {
+        let mut eval = tape.get_float_evaluator();
+        use fidget::eval::FloatSliceEval;
+        let mut out: Vec<bool> = vec![];
+        let start = Instant::now();
+        for _ in 0..n {
+            let mut xs = vec![];
+            let mut ys = vec![];
+            let div = (size - 1) as f64;
+            for i in 0..size {
+                let y = -(-1.0 + 2.0 * (i as f64) / div);
+                for j in 0..size {
+                    let x = -1.0 + 2.0 * (j as f64) / div;
+                    xs.push(x as f32);
+                    ys.push(y as f32);
+                }
+            }
+            let zs = vec![0.0; xs.len()];
+            let mut values = vec![0.0; xs.len()];
+            eval.eval_s(&xs, &ys, &zs, &mut values);
+            out = values.into_iter().map(|v| v <= 0.0).collect();
+        }
+        // Convert from Vec<bool> to an image
+        let out = out
+            .into_iter()
+            .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+            .flat_map(|i| i.into_iter())
+            .collect();
+        (out, start)
+    } else {
+        let cfg = fidget::render::RenderConfig {
+            image_size: size as usize,
+            tile_size: 64,
+            subtile_size: 8,
+            threads: 8,
+            interval_subdiv: 0,
+        };
+        let start = Instant::now();
+        let mut image = vec![];
+        for _ in 0..n {
+            image = fidget::render::render::<fidget::eval::AsmFamily>(
+                tape.clone(),
+                &cfg,
+            );
+        }
+        let out = image
+            .into_iter()
+            .flat_map(|p| p.as_color().into_iter())
+            .collect();
+        (out, start)
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
@@ -52,136 +117,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
-            if args.brute {
-                let scale = args.size;
-                let start = Instant::now();
-                let tape = ctx.get_tape(root, u8::MAX);
-                info!("Built tape in {:?}", start.elapsed());
-
-                let mut eval = tape.get_float_evaluator();
-                use fidget::eval::FloatSliceEval;
-                let mut out: Vec<bool> = vec![];
-                let start = Instant::now();
-                for _ in 0..args.n {
-                    let mut xs = vec![];
-                    let mut ys = vec![];
-                    let div = (scale - 1) as f64;
-                    for i in 0..scale {
-                        let y = -(-1.0 + 2.0 * (i as f64) / div);
-                        for j in 0..scale {
-                            let x = -1.0 + 2.0 * (j as f64) / div;
-                            xs.push(x as f32);
-                            ys.push(y as f32);
-                        }
-                    }
-                    let zs = vec![0.0; xs.len()];
-                    let mut values = vec![0.0; xs.len()];
-                    eval.eval_s(&xs, &ys, &zs, &mut values);
-                    out = values.into_iter().map(|v| v <= 0.0).collect();
-                }
-                // Convert from Vec<bool> to an image
-                let out = out
-                    .into_iter()
-                    .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                    .flat_map(|i| i.into_iter())
-                    .collect();
-                (out, start)
-            } else {
-                let start = Instant::now();
-                let tape = ctx.get_tape(root, u8::MAX);
-                info!("Got tape in {:?}", start.elapsed());
-
-                let cfg = fidget::render::RenderConfig {
-                    image_size: args.size as usize,
-                    tile_size: 64,
-                    subtile_size: 8,
-                    threads: 8,
-                    interval_subdiv: 0,
-                };
-                let start = Instant::now();
-                let mut image = vec![];
-                for _ in 0..args.n {
-                    image = fidget::render::render::<fidget::eval::AsmFamily>(
-                        tape.clone(),
-                        &cfg,
-                    );
-                }
-                let out = image
-                    .into_iter()
-                    .flat_map(|p| p.as_color().into_iter())
-                    .collect();
-                (out, start)
-            }
+            run::<fidget::eval::AsmFamily>(
+                &ctx, root, args.brute, args.size, args.n,
+            )
         } else if args.jit {
-            if args.brute {
-                let scale = args.size;
-
-                let start = Instant::now();
-                let tape =
-                    ctx.get_tape(root, fidget::asm::dynasm::REGISTER_LIMIT);
-                info!("Got tape in {:?}", start.elapsed());
-
-                let start = Instant::now();
-                let jit = fidget::asm::dynasm::JitVecFunc::from_tape(&tape);
-                use fidget::eval::{FloatSliceEval, FloatSliceFunc};
-                let mut eval = jit.get_evaluator();
-                info!("Built JIT function in {:?}", start.elapsed());
-
-                let mut out = vec![0.0; (scale * scale) as usize];
-                let start = Instant::now();
-                for _ in 0..args.n {
-                    let mut xs = vec![0.0; (scale * scale) as usize];
-                    let mut ys = vec![0.0; (scale * scale) as usize];
-                    let zs = vec![0.0; (scale * scale) as usize];
-
-                    let div = (scale - 1) as f64;
-                    let mut index = 0;
-                    for i in 0..scale {
-                        let y = -(-1.0 + 2.0 * (i as f64) / div);
-                        for j in 0..scale {
-                            let x = -1.0 + 2.0 * (j as f64) / div;
-                            xs[index] = x as f32;
-                            ys[index] = y as f32;
-                            index += 1;
-                        }
-                    }
-                    eval.eval_s(&xs, &ys, &zs, &mut out);
-                }
-
-                // Convert from Vec<bool> to an image
-                let out = out
-                    .into_iter()
-                    .map(|b| b < 0.0)
-                    .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
-                    .flat_map(|i| i.into_iter())
-                    .collect();
-                (out, start)
-            } else {
-                let start = Instant::now();
-                let tape =
-                    ctx.get_tape(root, fidget::asm::dynasm::REGISTER_LIMIT);
-                info!("Got tape in {:?}", start.elapsed());
-
-                let cfg = fidget::render::RenderConfig {
-                    image_size: args.size as usize,
-                    tile_size: 256,
-                    subtile_size: 64,
-                    threads: 8,
-                    interval_subdiv: 3,
-                };
-                let start = Instant::now();
-                let mut image = vec![];
-                for _ in 0..args.n {
-                    image = fidget::render::render::<
-                        fidget::asm::dynasm::JitEvalFamily,
-                    >(tape.clone(), &cfg);
-                }
-                let out = image
-                    .into_iter()
-                    .flat_map(|p| p.as_color().into_iter())
-                    .collect();
-                (out, start)
-            }
+            run::<fidget::asm::dynasm::JitEvalFamily>(
+                &ctx, root, args.brute, args.size, args.n,
+            )
         } else {
             let start = Instant::now();
             let scale = args.size;
