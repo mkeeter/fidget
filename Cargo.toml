@@ -2,6 +2,7 @@
 members = [
     "fidget",
     "demo",
+    "gui",
 ]
 [profile.release]
 debug = true
