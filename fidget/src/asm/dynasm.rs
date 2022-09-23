@@ -1085,9 +1085,9 @@ impl<'a> FloatSliceEval<'a> for JitVecEval<'a> {
                 };
             }
             let v = self.eval_v(x, y, z);
-            for j in 0..4 {
+            for (j, v) in v.iter().enumerate() {
                 match out.get_mut(i + j) {
-                    Some(o) => *o = v[j],
+                    Some(o) => *o = *v,
                     None => return,
                 }
             }
