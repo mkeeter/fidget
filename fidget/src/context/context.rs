@@ -38,6 +38,12 @@ impl Context {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub fn clear(&mut self) {
+        self.ops.clear();
+        self.vars.clear();
+    }
+
     /// Returns the number of [`Op`](crate::context::Op) nodes in the context
     pub fn len(&self) -> usize {
         self.ops.len()

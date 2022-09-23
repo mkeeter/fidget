@@ -38,6 +38,11 @@ where
     V: Eq + std::hash::Hash + Clone,
     I: Eq + std::hash::Hash + Copy + Index,
 {
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.map.clear();
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }
