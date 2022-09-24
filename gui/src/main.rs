@@ -33,7 +33,7 @@ impl Default for MyApp {
             first_run: true,
             textures: vec![],
             engine,
-            script: "// hello, world".to_owned(),
+            script: "draw(circle(0, 0, 0.5))".to_owned(),
             out: Err("".to_string()),
             label_height: None,
         }
@@ -56,7 +56,6 @@ impl MyApp {
         theme.selection.bg_fill = f(sol.selection);
         theme.selection.stroke =
             egui::Stroke::new(1.0, f(sol.selection_border));
-        println!("{:#?}", theme);
 
         ctx.set_visuals(theme);
     }
@@ -110,6 +109,13 @@ impl eframe::App for MyApp {
                 }
             });
 
+        let rect = ctx.available_rect();
+        let size = rect.max - rect.min;
+        let max_size = size.x.max(size.y);
+        let image_size = (max_size * ctx.pixels_per_point()) as usize;
+        let tile_size = 64;
+        let image_size = (image_size + tile_size - 1) / tile_size * tile_size;
+
         // Render shapes into self.textures
         if let Ok(script_ctx) = &self.out {
             for (i, s) in script_ctx.shapes.iter().enumerate() {
@@ -121,9 +127,9 @@ impl eframe::App for MyApp {
                 >(
                     tape,
                     &RenderConfig {
-                        image_size: 512,
-                        tile_size: 64,
-                        subtile_size: 8,
+                        image_size,
+                        tile_size,
+                        subtile_size: tile_size / 8,
                         threads: 8,
                         interval_subdiv: 3,
                     },
@@ -139,13 +145,24 @@ impl eframe::App for MyApp {
                         )
                     })
                     .collect::<Vec<_>>();
+
                 let image = egui::ImageData::Color(egui::ColorImage {
-                    size: [512; 2],
+                    size: [image_size; 2],
                     pixels,
                 });
 
                 match self.textures.get_mut(i) {
-                    Some(t) => t.set(image, egui::TextureFilter::Linear),
+                    Some(t) => {
+                        if t.size() == [image_size; 2] {
+                            t.set(image, egui::TextureFilter::Linear)
+                        } else {
+                            *t = ctx.load_texture(
+                                "tex",
+                                image,
+                                egui::TextureFilter::Linear,
+                            )
+                        }
+                    }
                     None => {
                         let texture = ctx.load_texture(
                             "tex",
@@ -157,6 +174,20 @@ impl eframe::App for MyApp {
                 }
             }
         }
+
+        let uv = if size.x > size.y {
+            let r = (1.0 - (size.y / size.x)) / 2.0;
+            egui::Rect {
+                min: egui::Pos2::new(0.0, r),
+                max: egui::Pos2::new(1.0, 1.0 - r),
+            }
+        } else {
+            let r = (1.0 - (size.x / size.y)) / 2.0;
+            egui::Rect {
+                min: egui::Pos2::new(r, 0.0),
+                max: egui::Pos2::new(1.0 - r, 1.0),
+            }
+        };
 
         let r = egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
@@ -174,10 +205,7 @@ impl eframe::App for MyApp {
                             min: pos,
                             max: pos + size,
                         },
-                        egui::Rect {
-                            min: egui::Pos2::new(0.0, 0.0),
-                            max: egui::Pos2::new(1.0, 1.0),
-                        },
+                        uv,
                         egui::Color32::WHITE,
                     );
                     painter.add(mesh);
@@ -192,9 +220,9 @@ impl eframe::App for MyApp {
                     egui::Sense::click_and_drag(),
                 )
             });
-        println!("{:?}", r.inner);
+        // TODO: handle r.inner
         if r.inner.hovered() {
-            println!("{:?}", ctx.input().scroll_delta);
+            // TODO: handle ctx.input().scroll_delta
         }
     }
 }
