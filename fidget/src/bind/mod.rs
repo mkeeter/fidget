@@ -21,6 +21,7 @@ impl Engine {
         engine.register_fn("__var_x", var_x);
         engine.register_fn("__var_y", var_y);
         engine.register_fn("__draw", draw);
+        engine.register_fn("__draw_rgb", draw_rgb);
 
         macro_rules! register_binary_fns {
             ($op:literal, $name:ident, $engine:ident) => {
@@ -78,9 +79,14 @@ impl Engine {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub struct DrawShape {
+    pub shape: Node,
+    pub color_rgb: [u8; 3],
+}
+
 pub struct ScriptContext {
     pub context: Context,
-    pub shapes: Vec<Node>,
+    pub shapes: Vec<DrawShape>,
 }
 
 impl ScriptContext {
@@ -130,7 +136,27 @@ fn var_y(ctx: rhai::NativeCallContext) -> Node {
 
 fn draw(ctx: rhai::NativeCallContext, node: Node) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
-    ctx.lock().unwrap().shapes.push(node);
+    ctx.lock().unwrap().shapes.push(DrawShape {
+        shape: node,
+        color_rgb: [u8::MAX; 3],
+    });
+}
+
+fn draw_rgb(ctx: rhai::NativeCallContext, node: Node, r: f64, g: f64, b: f64) {
+    let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
+    let f = |a| {
+        if a < 0.0 {
+            0
+        } else if a > 1.0 {
+            255
+        } else {
+            (a * 255.0) as u8
+        }
+    };
+    ctx.lock().unwrap().shapes.push(DrawShape {
+        shape: node,
+        color_rgb: [f(r), f(g), f(b)],
+    });
 }
 
 macro_rules! define_binary_fns {

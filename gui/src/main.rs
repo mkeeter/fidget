@@ -100,7 +100,7 @@ impl eframe::App for MyApp {
             for (i, s) in script_ctx.shapes.iter().enumerate() {
                 let tape = script_ctx
                     .context
-                    .get_tape(*s, fidget::asm::dynasm::REGISTER_LIMIT);
+                    .get_tape(s.shape, fidget::asm::dynasm::REGISTER_LIMIT);
                 let image = fidget::render::render::<
                     fidget::asm::dynasm::JitEvalFamily,
                 >(
@@ -116,8 +116,12 @@ impl eframe::App for MyApp {
                 let pixels = image
                     .into_iter()
                     .map(|p| {
-                        let [r, g, b, a] = p.as_color();
-                        egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+                        egui::Color32::from_rgba_unmultiplied(
+                            s.color_rgb[0],
+                            s.color_rgb[1],
+                            s.color_rgb[2],
+                            p.as_alpha(),
+                        )
                     })
                     .collect::<Vec<_>>();
                 let image = egui::ImageData::Color(egui::ColorImage {
@@ -139,7 +143,7 @@ impl eframe::App for MyApp {
             }
         }
 
-        egui::CentralPanel::default()
+        let r = egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
                 let pos = ui.next_widget_position();
@@ -163,6 +167,19 @@ impl eframe::App for MyApp {
                     );
                     painter.add(mesh);
                 }
+                // Return events from the canvas in the inner response
+                ui.interact(
+                    egui::Rect {
+                        min: pos,
+                        max: pos + size,
+                    },
+                    egui::Id::new("canvas"),
+                    egui::Sense::click_and_drag(),
+                )
             });
+        println!("{:?}", r.inner);
+        if r.inner.hovered() {
+            println!("{:?}", ctx.input().scroll_delta);
+        }
     }
 }

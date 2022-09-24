@@ -99,7 +99,7 @@ fn run<'a, I: fidget::eval::EvalFamily<'a>>(
         }
         let out = image
             .into_iter()
-            .flat_map(|p| p.as_color().into_iter())
+            .flat_map(|p| p.as_debug_color().into_iter())
             .collect();
         (out, start)
     }
