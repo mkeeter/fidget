@@ -14,7 +14,7 @@ fn main() {
 
 struct MyApp {
     label_height: Option<f32>,
-    textures: Vec<egui::TextureHandle>,
+    texture: Option<egui::TextureHandle>,
 
     engine: fidget::bind::Engine,
 
@@ -29,7 +29,7 @@ impl Default for MyApp {
         let engine = fidget::bind::Engine::new();
 
         Self {
-            textures: vec![],
+            texture: None,
             engine,
             script: "draw(circle(0, 0, 0.5))".to_owned(),
             out: Err("".to_string()),
@@ -108,13 +108,14 @@ impl eframe::App for MyApp {
         let size = rect.max - rect.min;
         let max_size = size.x.max(size.y);
         let image_size = (max_size * ctx.pixels_per_point()) as usize;
-        let tile_size = 64;
+        let tile_size = 256;
         let image_size = (image_size + tile_size - 1) / tile_size * tile_size;
 
         // Render shapes into self.textures
         let render_start = std::time::Instant::now();
+        let mut pixel_buf = vec![egui::Color32::BLACK; image_size * image_size];
         if let Ok(script_ctx) = &self.out {
-            for (i, s) in script_ctx.shapes.iter().enumerate() {
+            for s in script_ctx.shapes.iter() {
                 let tape = script_ctx
                     .context
                     .get_tape(s.shape, fidget::asm::dynasm::REGISTER_LIMIT);
@@ -130,46 +131,43 @@ impl eframe::App for MyApp {
                         interval_subdiv: 3,
                     },
                 );
-                let pixels = image
-                    .into_iter()
-                    .map(|p| {
-                        egui::Color32::from_rgba_unmultiplied(
+                for (i, o) in image.iter().zip(pixel_buf.iter_mut()) {
+                    if i.as_alpha() != 0 {
+                        *o = egui::Color32::from_rgba_unmultiplied(
                             s.color_rgb[0],
                             s.color_rgb[1],
                             s.color_rgb[2],
-                            p.as_alpha(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-
-                let image = egui::ImageData::Color(egui::ColorImage {
-                    size: [image_size; 2],
-                    pixels,
-                });
-
-                match self.textures.get_mut(i) {
-                    Some(t) => {
-                        if t.size() == [image_size; 2] {
-                            t.set(image, egui::TextureFilter::Linear)
-                        } else {
-                            *t = ctx.load_texture(
-                                "tex",
-                                image,
-                                egui::TextureFilter::Linear,
-                            )
-                        }
-                    }
-                    None => {
-                        let texture = ctx.load_texture(
-                            "tex",
-                            image,
-                            egui::TextureFilter::Linear,
+                            u8::MAX,
                         );
-                        self.textures.push(texture);
                     }
                 }
             }
         }
+
+        let image = egui::ImageData::Color(egui::ColorImage {
+            size: [image_size; 2],
+            pixels: pixel_buf,
+        });
+
+        match self.texture.as_mut() {
+            Some(t) => {
+                if t.size() == [image_size; 2] {
+                    t.set(image, egui::TextureFilter::Linear)
+                } else {
+                    *t = ctx.load_texture(
+                        "tex",
+                        image,
+                        egui::TextureFilter::Linear,
+                    )
+                }
+            }
+            None => {
+                let texture =
+                    ctx.load_texture("tex", image, egui::TextureFilter::Linear);
+                self.texture = Some(texture);
+            }
+        }
+
         let dt = render_start.elapsed();
         ctx.set_visuals(egui::Visuals::dark());
         egui::Window::new("debug").show(ctx, |ui| {
@@ -200,7 +198,7 @@ impl eframe::App for MyApp {
                     min: pos,
                     max: pos + size,
                 });
-                for t in &self.textures {
+                if let Some(t) = self.texture.as_ref() {
                     let mut mesh = egui::Mesh::with_texture(t.id());
                     mesh.add_rect_with_uv(
                         egui::Rect {
