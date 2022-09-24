@@ -8,4 +8,6 @@ edition = "2021"
 [dependencies]
 eframe = "0.19"
 rhai = "1.10"
+syntect = "5"
+
 fidget = { path = "../fidget" }
