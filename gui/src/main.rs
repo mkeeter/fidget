@@ -44,14 +44,19 @@ impl MyApp {
     fn init(&mut self, ctx: &egui::Context) {
         let mut theme = egui::Visuals::dark();
 
-        let f = |c: syntect::highlighting::Color| {
-            egui::Color32::from_rgb(c.r, c.g, c.b)
+        let f = |c: Option<syntect::highlighting::Color>| {
+            c.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)).unwrap()
         };
         let sol = crate::highlight::get_theme().settings;
 
-        theme.extreme_bg_color = sol.background.map(f).unwrap();
-        theme.widgets.noninteractive.bg_fill = sol.gutter.map(f).unwrap();
-        theme.selection.bg_fill = sol.selection.map(f).unwrap();
+        theme.extreme_bg_color = f(sol.background);
+        theme.widgets.noninteractive.bg_fill = f(sol.gutter);
+        theme.widgets.hovered.bg_stroke =
+            egui::Stroke::new(1.0, f(sol.selection_border));
+        theme.selection.bg_fill = f(sol.selection);
+        theme.selection.stroke =
+            egui::Stroke::new(1.0, f(sol.selection_border));
+        println!("{:#?}", theme);
 
         ctx.set_visuals(theme);
     }
@@ -66,6 +71,16 @@ impl eframe::App for MyApp {
 
         egui::SidePanel::left("root")
             .default_width(400.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(ctx.style().visuals.widgets.noninteractive.bg_fill)
+                    .inner_margin(egui::style::Margin {
+                        top: 7.0,
+                        bottom: 5.0,
+                        left: 5.0,
+                        right: 5.0,
+                    }),
+            )
             .show(ctx, |ui| {
                 let mut size = ui.available_size();
                 if let Some(h) = self.label_height {

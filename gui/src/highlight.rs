@@ -18,7 +18,9 @@ pub fn code_view_ui(
 
     ui.add_sized(
         size,
-        egui::TextEdit::multiline(code).layouter(&mut layouter),
+        egui::TextEdit::multiline(code)
+            .layouter(&mut layouter)
+            .lock_focus(true),
     )
 }
 
