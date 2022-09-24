@@ -13,7 +13,6 @@ fn main() {
 }
 
 struct MyApp {
-    first_run: bool,
     label_height: Option<f32>,
     textures: Vec<egui::TextureHandle>,
 
@@ -30,7 +29,6 @@ impl Default for MyApp {
         let engine = fidget::bind::Engine::new();
 
         Self {
-            first_run: true,
             textures: vec![],
             engine,
             script: "draw(circle(0, 0, 0.5))".to_owned(),
@@ -41,7 +39,7 @@ impl Default for MyApp {
 }
 
 impl MyApp {
-    fn init(&mut self, ctx: &egui::Context) {
+    fn solarized(&mut self, ctx: &egui::Context) {
         let mut theme = egui::Visuals::dark();
 
         let f = |c: Option<syntect::highlighting::Color>| {
@@ -63,10 +61,7 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.first_run {
-            self.init(ctx);
-            self.first_run = false;
-        }
+        self.solarized(ctx);
 
         egui::SidePanel::left("root")
             .default_width(400.0)
@@ -176,6 +171,7 @@ impl eframe::App for MyApp {
             }
         }
         let dt = render_start.elapsed();
+        ctx.set_visuals(egui::Visuals::dark());
         egui::Window::new("debug").show(ctx, |ui| {
             ui.label(format!("Image size: {0}x{0}", image_size));
             ui.label(format!("Render time: {:.2?}", dt));
