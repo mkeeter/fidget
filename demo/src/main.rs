@@ -41,13 +41,16 @@ struct Args {
     filename: String,
 }
 
-fn run<'a, I: fidget::eval::EvalFamily<'a>>(
+fn run<I>(
     ctx: &Context,
     node: Node,
     brute: bool,
     size: u32,
     n: usize,
-) -> (Vec<u8>, std::time::Instant) {
+) -> (Vec<u8>, std::time::Instant)
+where
+    for<'s> I: fidget::eval::EvalFamily<'s>,
+{
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
@@ -84,18 +87,15 @@ fn run<'a, I: fidget::eval::EvalFamily<'a>>(
     } else {
         let cfg = fidget::render::RenderConfig {
             image_size: size as usize,
-            tile_size: 64,
-            subtile_size: 8,
+            tile_size: 256,
+            subtile_size: 64,
             threads: 8,
-            interval_subdiv: 0,
+            interval_subdiv: 3,
         };
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..n {
-            image = fidget::render::render::<fidget::eval::AsmFamily>(
-                tape.clone(),
-                &cfg,
-            );
+            image = fidget::render::render::<I>(tape.clone(), &cfg);
         }
         let out = image
             .into_iter()
