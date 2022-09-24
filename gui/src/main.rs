@@ -111,9 +111,18 @@ impl eframe::App for MyApp {
         let tile_size = 256;
         let image_size = (image_size + tile_size - 1) / tile_size * tile_size;
 
-        // Render shapes into self.textures
+        let mut image = egui::ImageData::Color(egui::ColorImage::new(
+            [image_size; 2],
+            egui::Color32::BLACK,
+        ));
+        let pixels = match &mut image {
+            egui::ImageData::Color(c) => &mut c.pixels,
+            _ => panic!(),
+        };
+
+        // Render shapes into self.texture
         let render_start = std::time::Instant::now();
-        let mut pixel_buf = vec![egui::Color32::BLACK; image_size * image_size];
+
         if let Ok(script_ctx) = &self.out {
             for s in script_ctx.shapes.iter() {
                 let tape = script_ctx
@@ -131,7 +140,7 @@ impl eframe::App for MyApp {
                         interval_subdiv: 3,
                     },
                 );
-                for (i, o) in image.iter().zip(pixel_buf.iter_mut()) {
+                for (i, o) in image.iter().zip(pixels.iter_mut()) {
                     if i.as_alpha() != 0 {
                         *o = egui::Color32::from_rgba_unmultiplied(
                             s.color_rgb[0],
@@ -143,11 +152,6 @@ impl eframe::App for MyApp {
                 }
             }
         }
-
-        let image = egui::ImageData::Color(egui::ColorImage {
-            size: [image_size; 2],
-            pixels: pixel_buf,
-        });
 
         match self.texture.as_mut() {
             Some(t) => {
