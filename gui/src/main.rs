@@ -117,6 +117,7 @@ impl eframe::App for MyApp {
         let image_size = (image_size + tile_size - 1) / tile_size * tile_size;
 
         // Render shapes into self.textures
+        let render_start = std::time::Instant::now();
         if let Ok(script_ctx) = &self.out {
             for (i, s) in script_ctx.shapes.iter().enumerate() {
                 let tape = script_ctx
@@ -174,6 +175,11 @@ impl eframe::App for MyApp {
                 }
             }
         }
+        let dt = render_start.elapsed();
+        egui::Window::new("debug").show(ctx, |ui| {
+            ui.label(format!("Image size: {0}x{0}", image_size));
+            ui.label(format!("Render time: {:.2?}", dt));
+        });
 
         let uv = if size.x > size.y {
             let r = (1.0 - (size.y / size.x)) / 2.0;
