@@ -45,6 +45,7 @@
 //! //           XXXXXXXXXX
 //! ```
 pub mod asm;
+pub mod bind;
 pub mod context;
 pub mod eval;
 pub mod render;
