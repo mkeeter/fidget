@@ -1,5 +1,5 @@
 //! Rhai bindings to Fidget
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use crate::context::{Context, Node};
 
@@ -63,13 +63,16 @@ impl Engine {
     pub fn run(
         &mut self,
         script: &str,
-    ) -> Result<(), Box<rhai::EvalAltResult>> {
+    ) -> Result<ScriptContext, Box<rhai::EvalAltResult>> {
         self.context.lock().unwrap().clear();
-        self.engine.run(script)
-    }
+        self.engine.run(script)?;
 
-    pub fn script_context(&self) -> MutexGuard<ScriptContext> {
-        self.context.lock().unwrap()
+        // Steal the ScriptContext's contents
+        let mut next = ScriptContext::new();
+        let mut lock = self.context.lock().unwrap();
+        std::mem::swap(&mut next, &mut lock);
+
+        Ok(next)
     }
 }
 
@@ -186,3 +189,17 @@ define_binary_fns!(max);
 define_unary_fns!(sqrt);
 define_unary_fns!(square);
 define_unary_fns!(neg);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_bind() {
+        let mut engine = Engine::new();
+        let out = engine.run("draw(|x, y| x + y)").unwrap();
+        assert_eq!(out.shapes.len(), 1);
+    }
+}

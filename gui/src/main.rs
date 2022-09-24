@@ -1,5 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-
 use eframe::egui;
 use fidget::render::RenderConfig;
 
@@ -22,7 +20,7 @@ struct MyApp {
     engine: fidget::bind::Engine,
 
     script: String,
-    out: String,
+    out: Result<fidget::bind::ScriptContext, String>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -36,7 +34,7 @@ impl Default for MyApp {
             textures: vec![],
             engine,
             script: "// hello, world".to_owned(),
-            out: "".to_string(),
+            out: Err("".to_string()),
             label_height: None,
         }
     }
@@ -79,21 +77,26 @@ impl eframe::App for MyApp {
                 let r =
                     crate::highlight::code_view_ui(ui, &mut self.script, size);
                 if r.changed() || self.label_height.is_none() {
-                    let v = self.engine.run(&self.script);
-
-                    self.out = format!("{:?}", v);
+                    self.out = self
+                        .engine
+                        .run(&self.script)
+                        .map_err(|e| format!("{:?}", e));
                 }
 
-                let label = ui.label(&self.out);
-                let new_height = label.rect.height();
+                let new_height = if let Err(e) = &self.out {
+                    let label = ui.label(e);
+                    label.rect.height()
+                } else {
+                    0.0
+                };
                 if Some(new_height) != self.label_height {
                     self.label_height = Some(new_height);
                     ctx.request_repaint();
                 }
             });
 
-        {
-            let script_ctx = self.engine.script_context();
+        // Render shapes into self.textures
+        if let Ok(script_ctx) = &self.out {
             for (i, s) in script_ctx.shapes.iter().enumerate() {
                 let tape = script_ctx
                     .context
