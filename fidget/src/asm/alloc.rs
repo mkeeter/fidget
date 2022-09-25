@@ -229,6 +229,29 @@ impl RegisterAllocator {
         self.op_reg_fn(out, arg, op);
     }
 
+    /// Returns a register that is bound to the given SSA input
+    ///
+    /// If the given SSA input is not already bound to a register, then we
+    /// evict the oldest register using `Self::get_register`, with the
+    /// appropriate set of LOAD/STORE operations.
+    fn get_out_reg(&mut self, out: u32) -> u8 {
+        use Allocation::*;
+        match self.get_allocation(out) {
+            Register(r_x) => r_x,
+            Memory(m_x) => {
+                // TODO: this could be more efficient with a Swap instruction,
+                // since we know that we're about to free a memory slot.
+                let r_a = self.get_register();
+
+                self.out.push(AsmOp::Store(r_a, m_x));
+                self.release_mem(m_x);
+                self.bind_register(out, r_a);
+                r_a
+            }
+            Unassigned => panic!("Cannot have unassigned output"),
+        }
+    }
+
     fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> AsmOp) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
@@ -272,58 +295,24 @@ impl RegisterAllocator {
         //       |     | [and m_a points to the former r_a]
         //  -----|-----|----------------------------------------------------
         use Allocation::*;
-        match (self.get_allocation(out), self.get_allocation(arg)) {
-            (Register(r_x), Register(r_y)) => {
+        let r_x = self.get_out_reg(out);
+        match self.get_allocation(arg) {
+            Register(r_y) => {
                 assert!(r_x != r_y);
                 self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
-            (Register(r_x), Memory(m_y)) => {
+            Memory(m_y) => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
 
                 self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
             }
-            (Register(r_x), Unassigned) => {
+            Unassigned => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
             }
-            (Memory(m_x), Register(r_y)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_y);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_y));
-                self.release_reg(r_a);
-            }
-            (Memory(m_x), Memory(m_y)) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a));
-                self.rebind_register(arg, r_a);
-
-                self.out.push(AsmOp::Store(r_a, m_y));
-                self.release_mem(m_y);
-            }
-            (Memory(m_x), Unassigned) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a));
-                self.rebind_register(arg, r_a);
-            }
-            (Unassigned, _) => panic!("Cannot have unassigned output"),
         }
     }
 
@@ -455,30 +444,27 @@ impl RegisterAllocator {
             _ => panic!("Bad opcode: {op:?}"),
         };
         use Allocation::*;
-        match (
-            self.get_allocation(out),
-            self.get_allocation(lhs),
-            self.get_allocation(rhs),
-        ) {
-            (Register(r_x), Register(r_y), Register(r_z)) => {
+        let r_x = self.get_out_reg(out);
+        match (self.get_allocation(lhs), self.get_allocation(rhs)) {
+            (Register(r_y), Register(r_z)) => {
                 self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
-            (Register(r_x), Memory(m_y), Register(r_z)) => {
+            (Memory(m_y), Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
 
                 self.out.push(AsmOp::Store(r_x, m_y));
                 self.release_mem(m_y);
             }
-            (Register(r_x), Register(r_y), Memory(m_z)) => {
+            (Register(r_y), Memory(m_z)) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
 
                 self.out.push(AsmOp::Store(r_x, m_z));
                 self.release_mem(m_z);
             }
-            (Register(r_x), Memory(m_y), Memory(m_z)) => {
+            (Memory(m_y), Memory(m_z)) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
@@ -495,15 +481,15 @@ impl RegisterAllocator {
                     self.release_mem(m_z);
                 }
             }
-            (Register(r_x), Unassigned, Register(r_z)) => {
+            (Unassigned, Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
-            (Register(r_x), Register(r_y), Unassigned) => {
+            (Register(r_y), Unassigned) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
-            (Register(r_x), Unassigned, Unassigned) => {
+            (Unassigned, Unassigned) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
@@ -512,7 +498,7 @@ impl RegisterAllocator {
                     self.bind_register(rhs, r_a);
                 }
             }
-            (Register(r_x), Unassigned, Memory(m_z)) => {
+            (Unassigned, Memory(m_z)) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
@@ -525,7 +511,7 @@ impl RegisterAllocator {
                 self.out.push(AsmOp::Store(r_a, m_z));
                 self.release_mem(m_z);
             }
-            (Register(r_x), Memory(m_y), Unassigned) => {
+            (Memory(m_y), Unassigned) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
@@ -538,139 +524,6 @@ impl RegisterAllocator {
                 self.out.push(AsmOp::Store(r_a, m_y));
                 self.release_mem(m_y);
             }
-
-            (Memory(m_x), Register(r_y), Register(r_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_y);
-                assert!(r_a != r_z);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_y, r_z));
-                self.release_reg(r_a);
-            }
-            (Memory(m_x), Register(r_y), Memory(m_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_y);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_y, r_a));
-                self.rebind_register(rhs, r_a);
-
-                self.out.push(AsmOp::Store(r_a, m_z));
-                self.release_mem(m_z);
-            }
-            (Memory(m_x), Memory(m_y), Register(r_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_z);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_z));
-                self.rebind_register(lhs, r_a);
-
-                self.out.push(AsmOp::Store(r_a, m_y));
-                self.release_mem(m_y);
-            }
-            (Memory(m_x), Memory(m_y), Memory(m_z)) => {
-                let r_a = self.get_register();
-                let r_b = if lhs == rhs { r_a } else { self.get_register() };
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_b));
-                self.rebind_register(lhs, r_a);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_b);
-                }
-
-                self.out.push(AsmOp::Store(r_a, m_y));
-                if lhs != rhs {
-                    self.out.push(AsmOp::Store(r_b, m_z));
-                }
-                self.release_mem(m_y);
-                if lhs != rhs {
-                    self.release_mem(m_z);
-                }
-            }
-            (Memory(m_x), Register(r_y), Unassigned) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_y);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_y, r_a));
-                self.rebind_register(rhs, r_a);
-            }
-            (Memory(m_x), Unassigned, Register(r_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_z);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_z));
-                self.rebind_register(lhs, r_a);
-            }
-            (Memory(m_x), Unassigned, Unassigned) => {
-                let r_a = self.get_register();
-                let r_b = if lhs == rhs { r_a } else { self.get_register() };
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_b));
-                self.rebind_register(lhs, r_a);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_b);
-                }
-            }
-            (Memory(m_x), Memory(m_y), Unassigned) => {
-                let r_a = self.get_register();
-                let r_b = self.get_register();
-                assert!(r_a != r_b);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_b));
-                self.rebind_register(lhs, r_a);
-                self.bind_register(rhs, r_b);
-
-                self.out.push(AsmOp::Store(r_a, m_y));
-                self.release_mem(m_y);
-            }
-            (Memory(m_x), Unassigned, Memory(m_z)) => {
-                let r_a = self.get_register();
-                let r_b = self.get_register();
-                assert!(r_a != r_b);
-
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a, r_a, r_b));
-                self.rebind_register(lhs, r_a);
-                self.bind_register(rhs, r_b);
-
-                self.out.push(AsmOp::Store(r_b, m_z));
-                self.release_mem(m_z);
-            }
-            (Unassigned, _, _) => panic!("Cannot have unassigned output"),
         }
     }
 
@@ -690,23 +543,9 @@ impl RegisterAllocator {
     }
 
     fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> AsmOp) {
-        use Allocation::*;
-        match self.get_allocation(out) {
-            Register(reg) => {
-                self.out.push(op(reg));
-            }
-            Memory(mem) => {
-                let r_a = self.get_register();
-
-                self.out.push(AsmOp::Store(r_a, mem));
-                self.release_mem(mem);
-                self.bind_register(out, r_a);
-
-                self.out.push(op(r_a));
-                self.release_reg(r_a);
-            }
-            Unassigned => panic!("Cannot have unassigned output"),
-        }
+        let r_x = self.get_out_reg(out);
+        self.out.push(op(r_x));
+        self.release_reg(r_x);
     }
 
     /// Pushes a [`CopyImm`](crate::asm::AsmOp::CopyImm) operation to the tape
