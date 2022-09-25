@@ -229,7 +229,7 @@ fn render_tile_recurse<'a, I, M: RenderMode>(
         for y in 0..tile_sizes[0] {
             let start = (tile.corner[0] % config.tile_size)
                 + (y + (tile.corner[1] % config.tile_size)) * config.tile_size;
-            out[start..(start + tile_sizes[0])].fill(fill);
+            out[start..][..tile_sizes[0]].fill(fill);
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify(I::REG_LIMIT);
@@ -329,8 +329,8 @@ where
             let y = j + tile.corner[1];
             let offset = (config.image_size - y - 1) * config.image_size
                 + tile.corner[0];
-            image[offset..(offset + config.tile_size)].copy_from_slice(
-                &data[(j * config.tile_size)..((j + 1) * config.tile_size)],
+            image[offset..][..config.tile_size].copy_from_slice(
+                &data[(j * config.tile_size)..][..config.tile_size],
             );
         }
     }
