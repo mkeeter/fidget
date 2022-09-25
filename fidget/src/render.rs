@@ -106,7 +106,8 @@ where
         }
         let tile = tiles[index];
 
-        let mut pixels = vec![None; config.tile_size * config.tile_size];
+        let mut pixels =
+            vec![Pixel::Invalid; config.tile_size * config.tile_size];
         render_tile_recurse::<I>(
             i_handle,
             &mut pixels,
@@ -115,7 +116,6 @@ where
             tile,
             &mut scratch,
         );
-        let pixels = pixels.into_iter().map(Option::unwrap).collect();
         out.push((tile, pixels))
     }
     out
@@ -125,7 +125,7 @@ where
 
 fn render_tile_recurse<'a, I>(
     handle: &<I as EvalFamily<'a>>::IntervalFunc,
-    out: &mut [Option<Pixel>],
+    out: &mut [Pixel],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
@@ -167,7 +167,7 @@ fn render_tile_recurse<'a, I>(
                 out[x
                     + (tile.corner[0] % config.tile_size)
                     + (y + (tile.corner[1] % config.tile_size))
-                        * config.tile_size] = Some(fill)
+                        * config.tile_size] = fill
             }
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
@@ -215,12 +215,11 @@ fn render_tile_recurse<'a, I>(
                 out[tile.corner[0] % config.tile_size
                     + i
                     + ((tile.corner[1] % config.tile_size) + j)
-                        * config.tile_size] =
-                    Some(if scratch.out[index] < 0.0 {
-                        Pixel::Filled
-                    } else {
-                        Pixel::Empty
-                    });
+                        * config.tile_size] = if scratch.out[index] < 0.0 {
+                    Pixel::Filled
+                } else {
+                    Pixel::Empty
+                };
                 index += 1;
             }
         }
