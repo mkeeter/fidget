@@ -91,6 +91,10 @@ where
             subtile_size: 64,
             threads: 8,
             interval_subdiv: 3,
+
+            dx: 0.0,
+            dy: 0.0,
+            scale: 1.0,
         };
         let start = Instant::now();
         let mut image = vec![];

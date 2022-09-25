@@ -18,6 +18,10 @@ struct MyApp {
 
     engine: fidget::bind::Engine,
 
+    scale: f32,
+    offset: egui::Vec2,
+    drag_start: Option<egui::Vec2>,
+
     script: String,
     out: Result<fidget::bind::ScriptContext, String>,
 }
@@ -34,11 +38,28 @@ impl Default for MyApp {
             script: "draw(circle(0, 0, 0.5))".to_owned(),
             out: Err("".to_string()),
             label_height: None,
+
+            drag_start: None,
+            scale: 1.0,
+            offset: egui::Vec2::ZERO,
         }
     }
 }
 
 impl MyApp {
+    fn mouse_to_uv(
+        &self,
+        rect: egui::Rect,
+        uv: egui::Rect,
+        p: egui::Pos2,
+    ) -> egui::Vec2 {
+        let r = (p - rect.min) / (rect.max - rect.min);
+        const ONE: egui::Vec2 = egui::Vec2::new(1.0, 1.0);
+        let pos = uv.min.to_vec2() * (ONE - r) + uv.max.to_vec2() * r;
+        let out = ((pos * 2.0) - ONE) * self.scale;
+        egui::Vec2::new(out.x, -out.y) + self.offset
+    }
+
     fn solarized(&mut self, ctx: &egui::Context) {
         let mut theme = egui::Visuals::dark();
 
@@ -138,6 +159,10 @@ impl eframe::App for MyApp {
                         subtile_size: tile_size / 8,
                         threads: 8,
                         interval_subdiv: 3,
+
+                        dx: self.offset.x,
+                        dy: self.offset.y,
+                        scale: self.scale,
                     },
                 );
                 for (i, o) in image.iter().zip(pixels.iter_mut()) {
@@ -204,29 +229,39 @@ impl eframe::App for MyApp {
                 });
                 if let Some(t) = self.texture.as_ref() {
                     let mut mesh = egui::Mesh::with_texture(t.id());
-                    mesh.add_rect_with_uv(
-                        egui::Rect {
-                            min: pos,
-                            max: pos + size,
-                        },
-                        uv,
-                        egui::Color32::WHITE,
-                    );
+                    mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
                     painter.add(mesh);
                 }
                 // Return events from the canvas in the inner response
                 ui.interact(
-                    egui::Rect {
-                        min: pos,
-                        max: pos + size,
-                    },
+                    rect,
                     egui::Id::new("canvas"),
                     egui::Sense::click_and_drag(),
                 )
             });
-        // TODO: handle r.inner
+
+        // Handle pan and zoom
+        if let Some(pos) = r.inner.interact_pointer_pos() {
+            if let Some(start) = self.drag_start {
+                self.offset = egui::Vec2::ZERO;
+                let pos = self.mouse_to_uv(rect, uv, pos);
+                self.offset = start - pos;
+            } else {
+                let pos = self.mouse_to_uv(rect, uv, pos);
+                self.drag_start = Some(pos);
+            }
+        } else {
+            self.drag_start = None;
+        }
+
         if r.inner.hovered() {
-            // TODO: handle ctx.input().scroll_delta
+            let mouse_pos = ctx.input().pointer.hover_pos();
+            let pos_before = mouse_pos.map(|p| self.mouse_to_uv(rect, uv, p));
+            self.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
+            if let Some(pos_before) = pos_before {
+                let pos_after = self.mouse_to_uv(rect, uv, mouse_pos.unwrap());
+                self.offset += pos_before - pos_after;
+            }
         }
     }
 }

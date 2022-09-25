@@ -46,11 +46,15 @@ pub struct RenderConfig {
     pub subtile_size: usize,
     pub interval_subdiv: usize,
     pub threads: usize,
+
+    pub dx: f32,
+    pub dy: f32,
+    pub scale: f32,
 }
 
 impl RenderConfig {
     fn pixel_to_pos(&self, p: usize) -> f32 {
-        2.0 * (p as f32) / (self.image_size as f32) - 1.0
+        (2.0 * (p as f32) / (self.image_size as f32) - 1.0) * self.scale
     }
 }
 
@@ -126,10 +130,10 @@ fn render_tile_recurse<'a, I>(
 {
     let mut eval = handle.get_evaluator();
 
-    let x_min = config.pixel_to_pos(tile.corner[0]);
-    let x_max = config.pixel_to_pos(tile.corner[0] + tile_sizes[0]);
-    let y_min = config.pixel_to_pos(tile.corner[1]);
-    let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]);
+    let x_min = config.pixel_to_pos(tile.corner[0]) + config.dx;
+    let x_max = config.pixel_to_pos(tile.corner[0] + tile_sizes[0]) + config.dx;
+    let y_min = config.pixel_to_pos(tile.corner[1]) + config.dy;
+    let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]) + config.dy;
 
     let x = Interval::new(x_min, x_max);
     let y = Interval::new(y_min, y_max);
@@ -188,9 +192,10 @@ fn render_tile_recurse<'a, I>(
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
-            let y = config.pixel_to_pos(tile.corner[1] + j);
+            let y = config.pixel_to_pos(tile.corner[1] + j) + config.dy;
             for i in 0..tile_sizes[0] {
-                scratch.x[index] = config.pixel_to_pos(tile.corner[0] + i);
+                scratch.x[index] =
+                    config.pixel_to_pos(tile.corner[0] + i) + config.dx;
                 scratch.y[index] = y;
                 index += 1;
             }
