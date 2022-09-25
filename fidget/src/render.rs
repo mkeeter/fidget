@@ -16,6 +16,7 @@ pub enum Pixel {
     FilledSubtile,
     Empty,
     Filled,
+    Invalid,
 }
 
 impl Pixel {
@@ -28,6 +29,7 @@ impl Pixel {
             Pixel::FilledSubtile => [0, 255, 0, 255],
             Pixel::Empty => [0, 0, 0, 255],
             Pixel::Filled => [255, 255, 255, 255],
+            Pixel::Invalid => panic!(),
         }
     }
 
@@ -36,6 +38,7 @@ impl Pixel {
         match self {
             Pixel::EmptyTile | Pixel::EmptySubtile | Pixel::Empty => false,
             Pixel::FilledTile | Pixel::FilledSubtile | Pixel::Filled => true,
+            Pixel::Invalid => panic!(),
         }
     }
 }
@@ -259,16 +262,16 @@ where
         out
     });
 
-    let mut image = vec![None; config.image_size * config.image_size];
+    let mut image = vec![Pixel::Invalid; config.image_size * config.image_size];
     for (tile, data) in out.iter() {
         for j in 0..config.tile_size {
+            let y = j + tile.corner[1];
+            let offset = (config.image_size - y - 1) * config.image_size;
             for i in 0..config.tile_size {
                 let x = i + tile.corner[0];
-                let y = j + tile.corner[1];
-                image[x + (config.image_size - y - 1) * config.image_size] =
-                    Some(data[i + j * config.tile_size]);
+                image[x + offset] = data[i + j * config.tile_size];
             }
         }
     }
-    image.into_iter().map(Option::unwrap).collect()
+    image
 }
