@@ -165,9 +165,9 @@ impl eframe::App for MyApp {
                         scale: self.scale,
                     },
                 );
-                for (i, o) in image.iter().zip(pixels.iter_mut()) {
-                    if i.as_alpha() != 0 {
-                        *o = egui::Color32::from_rgba_unmultiplied(
+                for i in 0..pixels.len() {
+                    if image[i].is_filled() {
+                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
                             s.color_rgb[0],
                             s.color_rgb[1],
                             s.color_rgb[2],

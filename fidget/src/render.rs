@@ -19,6 +19,7 @@ pub enum Pixel {
 }
 
 impl Pixel {
+    #[inline]
     pub fn as_debug_color(&self) -> [u8; 4] {
         match self {
             Pixel::EmptyTile => [50, 0, 0, 255],
@@ -30,10 +31,11 @@ impl Pixel {
         }
     }
 
-    pub fn as_alpha(&self) -> u8 {
+    #[inline]
+    pub fn is_filled(&self) -> bool {
         match self {
-            Pixel::EmptyTile | Pixel::EmptySubtile | Pixel::Empty => 0,
-            Pixel::FilledTile | Pixel::FilledSubtile | Pixel::Filled => u8::MAX,
+            Pixel::EmptyTile | Pixel::EmptySubtile | Pixel::Empty => false,
+            Pixel::FilledTile | Pixel::FilledSubtile | Pixel::Filled => true,
         }
     }
 }

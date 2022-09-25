@@ -41,6 +41,7 @@ impl Engine {
         register_binary_fns!("+", add, engine);
         register_binary_fns!("-", sub, engine);
         register_binary_fns!("*", mul, engine);
+        register_binary_fns!("/", div, engine);
         register_binary_fns!("min", min, engine);
         register_binary_fns!("max", max, engine);
         register_unary_fns!("sqrt", sqrt, engine);
@@ -210,6 +211,7 @@ macro_rules! define_unary_fns {
 define_binary_fns!(add);
 define_binary_fns!(sub);
 define_binary_fns!(mul);
+define_binary_fns!(div);
 define_binary_fns!(min);
 define_binary_fns!(max);
 define_unary_fns!(sqrt);

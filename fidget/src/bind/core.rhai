@@ -40,3 +40,15 @@ fn inverse(a) {
 fn difference(a, b) {
     intersection(a, inverse(b))
 }
+
+fn scale_xy(shape, sx, sy) {
+    |x, y| {
+        shape.call(x / sx, y / sy)
+    }
+}
+
+fn move_xy(shape, dx, dy) {
+    |x, y| {
+        shape.call(x - dx, y - dy)
+    }
+}
