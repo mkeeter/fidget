@@ -227,12 +227,9 @@ fn render_tile_recurse<'a, I, M: RenderMode>(
 
     if let Some(fill) = fill {
         for y in 0..tile_sizes[0] {
-            for x in 0..tile_sizes[0] {
-                out[x
-                    + (tile.corner[0] % config.tile_size)
-                    + (y + (tile.corner[1] % config.tile_size))
-                        * config.tile_size] = fill
-            }
+            let start = (tile.corner[0] % config.tile_size)
+                + (y + (tile.corner[1] % config.tile_size)) * config.tile_size;
+            out[start..(start + tile_sizes[0])].fill(fill);
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify(I::REG_LIMIT);
