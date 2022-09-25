@@ -8,8 +8,55 @@ use crate::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+////////////////////////////////////////////////////////////////////////////////
+
+/// Configuration trait for rendering
+pub trait RenderMode {
+    /// Type of output pixel
+    type Output: Default + Copy + Clone + Send;
+
+    /// Decide whether to subdivide or fill an interval
+    fn interval(i: Interval, depth: usize) -> Option<Self::Output>;
+
+    /// Per-pixel drawing
+    fn pixel(f: f32) -> Self::Output;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Renderer that emits `DebugPixel`
+pub struct DebugRenderMode;
+
+impl RenderMode for DebugRenderMode {
+    type Output = DebugPixel;
+    fn interval(i: Interval, depth: usize) -> Option<DebugPixel> {
+        if i.upper() < 0.0 {
+            if depth > 1 {
+                Some(DebugPixel::FilledSubtile)
+            } else {
+                Some(DebugPixel::FilledTile)
+            }
+        } else if i.lower() > 0.0 {
+            if depth > 1 {
+                Some(DebugPixel::EmptySubtile)
+            } else {
+                Some(DebugPixel::EmptyTile)
+            }
+        } else {
+            None
+        }
+    }
+    fn pixel(f: f32) -> DebugPixel {
+        if f < 0.0 {
+            DebugPixel::Filled
+        } else {
+            DebugPixel::Empty
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
-pub enum Pixel {
+pub enum DebugPixel {
     EmptyTile,
     FilledTile,
     EmptySubtile,
@@ -19,27 +66,58 @@ pub enum Pixel {
     Invalid,
 }
 
-impl Pixel {
+impl Default for DebugPixel {
+    fn default() -> Self {
+        DebugPixel::Invalid
+    }
+}
+
+impl DebugPixel {
     #[inline]
     pub fn as_debug_color(&self) -> [u8; 4] {
         match self {
-            Pixel::EmptyTile => [50, 0, 0, 255],
-            Pixel::FilledTile => [255, 0, 0, 255],
-            Pixel::EmptySubtile => [0, 50, 0, 255],
-            Pixel::FilledSubtile => [0, 255, 0, 255],
-            Pixel::Empty => [0, 0, 0, 255],
-            Pixel::Filled => [255, 255, 255, 255],
-            Pixel::Invalid => panic!(),
+            DebugPixel::EmptyTile => [50, 0, 0, 255],
+            DebugPixel::FilledTile => [255, 0, 0, 255],
+            DebugPixel::EmptySubtile => [0, 50, 0, 255],
+            DebugPixel::FilledSubtile => [0, 255, 0, 255],
+            DebugPixel::Empty => [0, 0, 0, 255],
+            DebugPixel::Filled => [255, 255, 255, 255],
+            DebugPixel::Invalid => panic!(),
         }
     }
 
     #[inline]
     pub fn is_filled(&self) -> bool {
         match self {
-            Pixel::EmptyTile | Pixel::EmptySubtile | Pixel::Empty => false,
-            Pixel::FilledTile | Pixel::FilledSubtile | Pixel::Filled => true,
-            Pixel::Invalid => panic!(),
+            DebugPixel::EmptyTile
+            | DebugPixel::EmptySubtile
+            | DebugPixel::Empty => false,
+            DebugPixel::FilledTile
+            | DebugPixel::FilledSubtile
+            | DebugPixel::Filled => true,
+            DebugPixel::Invalid => panic!(),
         }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Renderer that emits `bool`
+pub struct BitRenderMode;
+
+impl RenderMode for BitRenderMode {
+    type Output = bool;
+    fn interval(i: Interval, _depth: usize) -> Option<bool> {
+        if i.upper() < 0.0 {
+            Some(true)
+        } else if i.lower() > 0.0 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+    fn pixel(f: f32) -> bool {
+        f < 0.0
     }
 }
 
@@ -88,12 +166,12 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, I>(
+fn worker<'a, I, M: RenderMode>(
     i_handle: &<I as EvalFamily<'a>>::IntervalFunc,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
-) -> Vec<(Tile, Vec<Pixel>)>
+) -> Vec<(Tile, Vec<M::Output>)>
 where
     for<'s> I: EvalFamily<'s>,
 {
@@ -107,8 +185,8 @@ where
         let tile = tiles[index];
 
         let mut pixels =
-            vec![Pixel::Invalid; config.tile_size * config.tile_size];
-        render_tile_recurse::<I>(
+            vec![M::Output::default(); config.tile_size * config.tile_size];
+        render_tile_recurse::<I, M>(
             i_handle,
             &mut pixels,
             config,
@@ -123,9 +201,9 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, I>(
+fn render_tile_recurse<'a, I, M: RenderMode>(
     handle: &<I as EvalFamily<'a>>::IntervalFunc,
-    out: &mut [Pixel],
+    out: &mut [M::Output],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
@@ -145,21 +223,7 @@ fn render_tile_recurse<'a, I>(
     let z = Interval::new(0.0, 0.0);
     let i = eval.eval_i_subdiv(x, y, z, config.interval_subdiv);
 
-    let fill = if i.upper() < 0.0 {
-        if tile_sizes.len() > 1 {
-            Some(Pixel::FilledTile)
-        } else {
-            Some(Pixel::FilledSubtile)
-        }
-    } else if i.lower() > 0.0 {
-        if tile_sizes.len() > 1 {
-            Some(Pixel::EmptyTile)
-        } else {
-            Some(Pixel::EmptySubtile)
-        }
-    } else {
-        None
-    };
+    let fill = M::interval(i, tile_sizes.len());
 
     if let Some(fill) = fill {
         for y in 0..tile_sizes[0] {
@@ -176,7 +240,7 @@ fn render_tile_recurse<'a, I>(
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I>(
+                render_tile_recurse::<I, M>(
                     &sub_jit,
                     out,
                     config,
@@ -212,14 +276,11 @@ fn render_tile_recurse<'a, I>(
         let mut index = 0;
         for j in 0..tile_sizes[0] {
             for i in 0..tile_sizes[0] {
+                let p = M::pixel(scratch.out[index]);
                 out[tile.corner[0] % config.tile_size
                     + i
                     + ((tile.corner[1] % config.tile_size) + j)
-                        * config.tile_size] = if scratch.out[index] < 0.0 {
-                    Pixel::Filled
-                } else {
-                    Pixel::Empty
-                };
+                        * config.tile_size] = p;
                 index += 1;
             }
         }
@@ -228,7 +289,10 @@ fn render_tile_recurse<'a, I>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I>(tape: Tape, config: &RenderConfig) -> Vec<Pixel>
+pub fn render<I, M: RenderMode>(
+    tape: Tape,
+    config: &RenderConfig,
+) -> Vec<M::Output>
 where
     for<'s> I: EvalFamily<'s>,
 {
@@ -251,7 +315,7 @@ where
         let mut handles = vec![];
         for _ in 0..config.threads {
             handles.push(
-                s.spawn(|| worker::<I>(&i_handle, &tiles, &index, config)),
+                s.spawn(|| worker::<I, M>(&i_handle, &tiles, &index, config)),
             );
         }
         let mut out = vec![];
@@ -261,15 +325,16 @@ where
         out
     });
 
-    let mut image = vec![Pixel::Invalid; config.image_size * config.image_size];
+    let mut image =
+        vec![M::Output::default(); config.image_size * config.image_size];
     for (tile, data) in out.iter() {
         for j in 0..config.tile_size {
             let y = j + tile.corner[1];
-            let offset = (config.image_size - y - 1) * config.image_size;
-            for i in 0..config.tile_size {
-                let x = i + tile.corner[0];
-                image[x + offset] = data[i + j * config.tile_size];
-            }
+            let offset = (config.image_size - y - 1) * config.image_size
+                + tile.corner[0];
+            image[offset..(offset + config.tile_size)].copy_from_slice(
+                &data[(j * config.tile_size)..((j + 1) * config.tile_size)],
+            );
         }
     }
     image

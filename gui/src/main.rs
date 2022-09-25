@@ -151,6 +151,7 @@ impl eframe::App for MyApp {
                     .get_tape(s.shape, fidget::asm::dynasm::REGISTER_LIMIT);
                 let image = fidget::render::render::<
                     fidget::asm::dynasm::JitEvalFamily,
+                    fidget::render::BitRenderMode,
                 >(
                     tape,
                     &RenderConfig {
@@ -166,7 +167,7 @@ impl eframe::App for MyApp {
                     },
                 );
                 for i in 0..pixels.len() {
-                    if image[i].is_filled() {
+                    if image[i] {
                         pixels[i] = egui::Color32::from_rgba_unmultiplied(
                             s.color_rgb[0],
                             s.color_rgb[1],

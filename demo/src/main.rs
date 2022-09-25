@@ -99,7 +99,10 @@ where
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..n {
-            image = fidget::render::render::<I>(tape.clone(), &cfg);
+            image = fidget::render::render::<I, fidget::render::DebugRenderMode>(
+                tape.clone(),
+                &cfg,
+            );
         }
         let out = image
             .into_iter()
