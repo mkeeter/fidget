@@ -229,6 +229,11 @@ impl RegisterAllocator {
         self.op_reg_fn(out, arg, op);
     }
 
+    fn push_store(&mut self, reg: u8, mem: u32) {
+        self.out.push(AsmOp::Store(reg, mem));
+        self.release_mem(mem);
+    }
+
     /// Returns a register that is bound to the given SSA input
     ///
     /// If the given SSA input is not already bound to a register, then we
@@ -243,8 +248,7 @@ impl RegisterAllocator {
                 // since we know that we're about to free a memory slot.
                 let r_a = self.get_register();
 
-                self.out.push(AsmOp::Store(r_a, m_x));
-                self.release_mem(m_x);
+                self.push_store(r_a, m_x);
                 self.bind_register(out, r_a);
                 r_a
             }
@@ -306,8 +310,7 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_y));
-                self.release_mem(m_y);
+                self.push_store(r_x, m_y);
             }
             Unassigned => {
                 self.out.push(op(r_x, r_x));
@@ -454,15 +457,13 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_y));
-                self.release_mem(m_y);
+                self.push_store(r_x, m_y);
             }
             (Register(r_y), Memory(m_z)) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
 
-                self.out.push(AsmOp::Store(r_x, m_z));
-                self.release_mem(m_z);
+                self.push_store(r_x, m_z);
             }
             (Memory(m_y), Memory(m_z)) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
@@ -473,12 +474,10 @@ impl RegisterAllocator {
                     self.bind_register(rhs, r_a);
                 }
 
-                self.out.push(AsmOp::Store(r_x, m_y));
-                self.release_mem(m_y);
+                self.push_store(r_x, m_y);
 
                 if lhs != rhs {
-                    self.out.push(AsmOp::Store(r_a, m_z));
-                    self.release_mem(m_z);
+                    self.push_store(r_a, m_z);
                 }
             }
             (Unassigned, Register(r_z)) => {
@@ -508,8 +507,7 @@ impl RegisterAllocator {
                     self.bind_register(rhs, r_a);
                 }
 
-                self.out.push(AsmOp::Store(r_a, m_z));
-                self.release_mem(m_z);
+                self.push_store(r_a, m_z);
             }
             (Memory(m_y), Unassigned) => {
                 let r_a = self.get_register();
@@ -521,8 +519,7 @@ impl RegisterAllocator {
                     self.rebind_register(rhs, r_x);
                 }
 
-                self.out.push(AsmOp::Store(r_a, m_y));
-                self.release_mem(m_y);
+                self.push_store(r_a, m_y);
             }
         }
     }
