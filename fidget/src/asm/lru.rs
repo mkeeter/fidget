@@ -1,8 +1,8 @@
 /// Single node in the doubly-linked list
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct LruNode {
-    prev: usize,
-    next: usize,
+    prev: u8,
+    next: u8,
 }
 
 /// Dead-simple LRU cache, implemented as a doubly-linked list with a static
@@ -11,53 +11,62 @@ struct LruNode {
 /// ```text
 ///              <-- prev next -->
 ///      -------      -------      -------      --------
-///      |  a  | <--> |  b  | <--> |  c  | <--> | size | <--|
+///      |  a  | <--> |  b  | <--> |  c  | <--> | head | <--|
 ///      -------      -------      -------      --------    |
-///         ^                       oldest                  |
+///         ^                       oldest       newest     |
 ///         |-----------------------------------------------|
 /// ```
-pub struct Lru<const S: usize> {
-    data: [LruNode; S],
-    size: usize,
+pub struct Lru {
+    data: [LruNode; u8::MAX as usize],
+    head: u8,
 }
 
-impl<const S: usize> Lru<S> {
-    pub fn new(size: usize) -> Self {
-        // We store one extra node to represent the head of the array, so the
-        // backing array must be larger than size
-        assert!(S > size);
-        let mut data = [LruNode { prev: 0, next: 0 }; S];
+impl Lru {
+    pub fn new(size: u8) -> Self {
+        let mut out = Self {
+            data: [LruNode::default(); u8::MAX as usize],
+            head: 0,
+        };
         for i in 0..size {
-            data[i].next = i + 1;
-            data[i + 1].prev = i;
+            out.data[i as usize].next = (i + 1) % size;
+            out.data[i as usize].prev = i.checked_sub(1).unwrap_or(size - 1);
         }
-        // data[size] is the head of the tape
-        data[0].prev = size;
-        data[size].next = 0;
+        out
+    }
 
-        Self { data, size }
+    /// Remove a node from the linked list
+    fn remove(&mut self, i: u8) {
+        let node = self.data[i as usize];
+        self.data[node.prev as usize].next = self.data[i as usize].next;
+        self.data[node.next as usize].prev = self.data[i as usize].prev;
+    }
+
+    /// Inserts node `i` before location `next`
+    fn insert_before(&mut self, i: u8, next: u8) {
+        let prev = self.data[next as usize].prev;
+        self.data[prev as usize].next = i;
+        self.data[next as usize].prev = i;
+        self.data[i as usize] = LruNode { next, prev };
     }
 
     /// Mark the given node as newest
-    pub fn poke(&mut self, i: usize) {
-        assert!(i < self.size);
-        let prev_newest = self.data[self.size].next;
-        if prev_newest != i {
-            // Remove this node from the list
-            self.data[self.data[i].prev].next = self.data[i].next;
-            self.data[self.data[i].next].prev = self.data[i].prev;
-
-            // Reinsert the node between prev_newest and the head
-            self.data[prev_newest].prev = i;
-            self.data[self.size].next = i;
-            self.data[i].next = prev_newest;
-            self.data[i].prev = self.size;
+    pub fn poke(&mut self, i: u8) {
+        let prev_newest = self.head;
+        if prev_newest == i {
+            return;
+        } else if self.data[prev_newest as usize].prev != i {
+            // If this wasn't the oldest node, then remove it and reinsert it
+            // right before the head of the list.
+            self.remove(i);
+            self.insert_before(i, self.head);
         }
+        self.head = i; // rotate the head back by one
     }
+
     /// Look up the oldest node in the list, marking it as newest
-    pub fn pop(&mut self) -> usize {
-        let out = self.data[self.size].prev;
-        self.poke(out);
+    pub fn pop(&mut self) -> u8 {
+        let out = self.data[self.head as usize].prev;
+        self.head = out; // rotate
         out
     }
 }
@@ -68,7 +77,7 @@ mod tests {
 
     #[test]
     fn test_tiny_lru() {
-        let mut lru: Lru<3> = Lru::new(2);
+        let mut lru: Lru = Lru::new(2);
         lru.poke(0);
         assert!(lru.pop() == 1);
         assert!(lru.pop() == 0);
@@ -80,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_medium_lru() {
-        let mut lru: Lru<11> = Lru::new(10);
+        let mut lru: Lru = Lru::new(10);
         lru.poke(0);
         for _ in 0..9 {
             assert!(lru.pop() != 0);

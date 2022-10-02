@@ -32,7 +32,7 @@ pub struct RegisterAllocator {
     /// This is sized with a backing array that can hold the maximum register
     /// count (`u8::MAX`), but will be constructed with the specific register
     /// limit in `new()`.
-    register_lru: Lru<{ u8::MAX as usize + 1 }>,
+    register_lru: Lru,
 
     /// User-defined register limit; beyond this point we use load/store
     /// operations to move values to and from memory.
@@ -68,7 +68,7 @@ impl RegisterAllocator {
             allocations: vec![u32::MAX; size],
 
             registers: [u32::MAX; u8::MAX as usize],
-            register_lru: Lru::new(reg_limit as usize),
+            register_lru: Lru::new(reg_limit),
 
             reg_limit,
             spare_registers: ArrayVec::new(),
@@ -120,7 +120,7 @@ impl RegisterAllocator {
     fn get_allocation(&mut self, n: u32) -> Allocation {
         match self.allocations[n as usize] {
             i if i < self.reg_limit as u32 => {
-                self.register_lru.poke(i as usize);
+                self.register_lru.poke(i as u8);
                 Allocation::Register(i as u8)
             }
             u32::MAX => Allocation::Unassigned,
@@ -145,7 +145,7 @@ impl RegisterAllocator {
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
             assert_eq!(self.registers[reg as usize], u32::MAX);
-            self.register_lru.poke(reg as usize);
+            self.register_lru.poke(reg);
             reg
         } else {
             // Slot is in memory, and no spare register is available
@@ -176,7 +176,7 @@ impl RegisterAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.register_lru.poke(reg as usize);
+        self.register_lru.poke(reg);
     }
 
     fn bind_register(&mut self, n: u32, reg: u8) {
@@ -186,7 +186,7 @@ impl RegisterAllocator {
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.register_lru.poke(reg as usize);
+        self.register_lru.poke(reg);
     }
 
     /// Release a register back to the pool of spares
