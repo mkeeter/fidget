@@ -1,8 +1,10 @@
 use crate::{
     asm::AsmOp,
     eval::{
-        Choice, EvalFamily, FloatSliceEval, FloatSliceFunc, Interval,
-        IntervalEval, IntervalFunc,
+        float_slice::{FloatSliceEvalT, FloatSliceFuncT},
+        interval::{Interval, IntervalEvalT, IntervalFuncT},
+        point::{PointEvalT, PointFuncT},
+        Choice, EvalFamily,
     },
     tape::Tape,
 };
@@ -23,17 +25,22 @@ impl<'a> EvalFamily<'a> for AsmFamily {
 
     type IntervalFunc = AsmFunc<'a>;
     type FloatSliceFunc = AsmFunc<'a>;
-    fn from_tape_i(t: &Tape) -> AsmFunc {
+    type PointFunc = AsmFunc<'a>;
+
+    fn from_tape_i_inner(t: &Tape) -> AsmFunc {
         AsmFunc { tape: t }
     }
-    fn from_tape_s(t: &Tape) -> AsmFunc {
+    fn from_tape_s_inner(t: &Tape) -> AsmFunc {
+        AsmFunc { tape: t }
+    }
+    fn from_tape_p_inner(t: &Tape) -> AsmFunc {
         AsmFunc { tape: t }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> IntervalFunc<'a> for AsmFunc<'a> {
+impl<'a> IntervalFuncT<'a> for AsmFunc<'a> {
     type Evaluator = AsmIntervalEval<'a>;
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmIntervalEval::new(self.tape)
@@ -52,10 +59,6 @@ pub struct AsmIntervalEval<'t> {
     tape: &'t Tape,
     /// Workspace for data
     slots: Vec<Interval>,
-    /// Choice array, in evaluation (forward) order
-    choices: Vec<Choice>,
-    /// Raw choice array, as bitfields
-    choices_raw: Vec<u8>,
 }
 
 impl<'a> AsmIntervalEval<'a> {
@@ -63,8 +66,6 @@ impl<'a> AsmIntervalEval<'a> {
         Self {
             tape,
             slots: vec![], // dynamically resized at runtime
-            choices: vec![Choice::Unknown; tape.choice_count()],
-            choices_raw: vec![0; tape.choice_count()],
         }
     }
 
@@ -77,29 +78,13 @@ impl<'a> AsmIntervalEval<'a> {
     }
 }
 
-impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
-    fn simplify(&self, reg_limit: u8) -> Tape {
-        self.tape.simplify_with_reg_limit(&self.choices, reg_limit)
-    }
-    fn reset_choices(&mut self) {
-        self.choices_raw.fill(0);
-    }
-    fn load_choices(&mut self) {
-        for (out, c) in self.choices.iter_mut().zip(self.choices_raw.iter()) {
-            *out = match c {
-                0 => Choice::Unknown,
-                1 => Choice::Left,
-                2 => Choice::Right,
-                3 => Choice::Both,
-                _ => panic!("invalid choice {}", c),
-            }
-        }
-    }
-    fn eval_i_inner<I: Into<Interval>>(
+impl<'a> IntervalEvalT<'a> for AsmIntervalEval<'a> {
+    fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
         y: I,
         z: I,
+        choices: &mut [Choice],
     ) -> Interval {
         let x = x.into();
         let y = y.into();
@@ -147,13 +132,13 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
                 MinRegImm(out, arg, imm) => {
                     let (value, choice) = self.v(arg).min_choice(imm.into());
                     *self.v(out) = value;
-                    self.choices_raw[choice_index] |= choice as u8;
+                    choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 MaxRegImm(out, arg, imm) => {
                     let (value, choice) = self.v(arg).max_choice(imm.into());
                     *self.v(out) = value;
-                    self.choices_raw[choice_index] |= choice as u8;
+                    choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 AddRegReg(out, lhs, rhs) => {
@@ -168,13 +153,13 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
                 MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = self.v(lhs).min_choice(*self.v(rhs));
                     *self.v(out) = value;
-                    self.choices_raw[choice_index] |= choice as u8;
+                    choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = self.v(lhs).max_choice(*self.v(rhs));
                     *self.v(out) = value;
-                    self.choices_raw[choice_index] |= choice as u8;
+                    choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 CopyImm(out, imm) => {
@@ -194,7 +179,7 @@ impl<'a> IntervalEval<'a> for AsmIntervalEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> FloatSliceFunc<'a> for AsmFunc<'a> {
+impl<'a> FloatSliceFuncT<'a> for AsmFunc<'a> {
     type Evaluator = AsmFloatSliceEval<'a>;
 
     fn get_evaluator(&self) -> Self::Evaluator {
@@ -232,7 +217,7 @@ impl<'a> AsmFloatSliceEval<'a> {
     }
 }
 
-impl<'a> FloatSliceEval<'a> for AsmFloatSliceEval<'a> {
+impl<'a> FloatSliceEvalT<'a> for AsmFloatSliceEval<'a> {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         self.slice_size = xs.len().min(ys.len()).min(zs.len()).min(out.len());
         for op in self.tape.iter_asm() {
@@ -348,5 +333,172 @@ impl<'a> FloatSliceEval<'a> for AsmFloatSliceEval<'a> {
             }
         }
         out.copy_from_slice(&self.slots[0])
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+impl<'a> PointFuncT<'a> for AsmFunc<'a> {
+    type Evaluator = AsmPointEval<'a>;
+
+    fn get_evaluator(&self) -> Self::Evaluator {
+        AsmPointEval::new(self.tape)
+    }
+}
+
+/// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
+pub struct AsmPointEval<'t> {
+    /// Instruction tape, in reverse-evaluation order
+    tape: &'t Tape,
+    /// Workspace for data
+    slots: Vec<f32>,
+}
+
+impl<'a> AsmPointEval<'a> {
+    pub fn new(tape: &'a Tape) -> Self {
+        Self {
+            tape,
+            slots: vec![], // dynamically resized at runtime
+        }
+    }
+    fn v<I: Into<usize>>(&mut self, i: I) -> &mut f32 {
+        let i: usize = i.into();
+        if i >= self.slots.len() {
+            self.slots.resize(i + 1, std::f32::NAN);
+        }
+        &mut self.slots[i]
+    }
+}
+
+impl<'a> PointEvalT<'a> for AsmPointEval<'a> {
+    fn eval_p(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        choices: &mut [Choice],
+    ) -> f32 {
+        let mut choice_index = 0;
+        for op in self.tape.iter_asm() {
+            use AsmOp::*;
+            match op {
+                Input(out, i) => {
+                    *self.v(out) = match i {
+                        0 => x,
+                        1 => y,
+                        2 => z,
+                        _ => panic!("Invalid input: {}", i),
+                    }
+                }
+                NegReg(out, arg) => {
+                    *self.v(out) = -*self.v(arg);
+                }
+                AbsReg(out, arg) => {
+                    *self.v(out) = self.v(arg).abs();
+                }
+                RecipReg(out, arg) => {
+                    *self.v(out) = 1.0 / *self.v(arg);
+                }
+                SqrtReg(out, arg) => {
+                    *self.v(out) = self.v(arg).sqrt();
+                }
+                SquareReg(out, arg) => {
+                    let s = *self.v(arg);
+                    *self.v(out) = s * s;
+                }
+                CopyReg(out, arg) => {
+                    *self.v(out) = *self.v(arg);
+                }
+                AddRegImm(out, arg, imm) => {
+                    *self.v(out) = *self.v(arg) + imm;
+                }
+                MulRegImm(out, arg, imm) => {
+                    *self.v(out) = *self.v(arg) * imm;
+                }
+                SubImmReg(out, arg, imm) => {
+                    *self.v(out) = imm - *self.v(arg);
+                }
+                SubRegImm(out, arg, imm) => {
+                    *self.v(out) = *self.v(arg) - imm;
+                }
+                MinRegImm(out, arg, imm) => {
+                    let a = *self.v(arg);
+                    *self.v(out) = if a < imm {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if imm < a {
+                        choices[choice_index] |= Choice::Right;
+                        imm
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        imm
+                    };
+                    choice_index += 1;
+                }
+                MaxRegImm(out, arg, imm) => {
+                    let a = *self.v(arg);
+                    *self.v(out) = if a > imm {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if imm > a {
+                        choices[choice_index] |= Choice::Right;
+                        imm
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        imm
+                    };
+                    choice_index += 1;
+                }
+                AddRegReg(out, lhs, rhs) => {
+                    *self.v(out) = *self.v(lhs) + *self.v(rhs);
+                }
+                MulRegReg(out, lhs, rhs) => {
+                    *self.v(out) = *self.v(lhs) * *self.v(rhs);
+                }
+                SubRegReg(out, lhs, rhs) => {
+                    *self.v(out) = *self.v(lhs) - *self.v(rhs);
+                }
+                MinRegReg(out, lhs, rhs) => {
+                    let a = *self.v(lhs);
+                    let b = *self.v(rhs);
+                    *self.v(out) = if a < b {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if b < a {
+                        choices[choice_index] |= Choice::Right;
+                        b
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        b
+                    };
+                    choice_index += 1;
+                }
+                MaxRegReg(out, lhs, rhs) => {
+                    let a = *self.v(lhs);
+                    let b = *self.v(rhs);
+                    *self.v(out) = if a > b {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if b > a {
+                        choices[choice_index] |= Choice::Right;
+                        b
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        b
+                    };
+                    choice_index += 1;
+                }
+                CopyImm(out, imm) => {
+                    *self.v(out) = imm;
+                }
+                Load(out, mem) => {
+                    *self.v(out) = *self.v(mem as usize);
+                }
+                Store(out, mem) => {
+                    *self.v(mem as usize) = *self.v(out);
+                }
+            }
+        }
+        self.slots[0]
     }
 }

@@ -1,8 +1,8 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        EvalFamily, FloatSliceEval, FloatSliceFunc, Interval, IntervalEval,
-        IntervalFunc,
+        interval::{Interval, IntervalFunc},
+        EvalFamily,
     },
     tape::Tape,
 };
@@ -167,7 +167,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<'a, I, M: RenderMode>(
-    i_handle: &<I as EvalFamily<'a>>::IntervalFunc,
+    i_handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -202,7 +202,7 @@ where
 ////////////////////////////////////////////////////////////////////////////////
 
 fn render_tile_recurse<'a, I, M: RenderMode>(
-    handle: &<I as EvalFamily<'a>>::IntervalFunc,
+    handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
     out: &mut [M::Output],
     config: &RenderConfig,
     tile_sizes: &[usize],

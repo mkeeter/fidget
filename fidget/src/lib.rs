@@ -1,7 +1,7 @@
 //! Infrastructure and algorithms for complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{eval::FloatEval, context::Context};
+//! use fidget::{eval::{AsmFamily, EvalFamily}, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -12,7 +12,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = tape.get_float_evaluator();
+//! let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
 //! assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
 //!

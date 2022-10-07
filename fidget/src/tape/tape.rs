@@ -1,8 +1,4 @@
-use crate::{
-    asm::AsmOp,
-    eval::{AsmFloatSliceEval, Choice},
-    tape::SsaTape,
-};
+use crate::{asm::AsmOp, eval::Choice, tape::SsaTape};
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
@@ -30,10 +26,6 @@ impl Tape {
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let asm = ssa.get_asm(reg_limit);
         Self { ssa, asm }
-    }
-
-    pub fn get_float_evaluator(&self) -> AsmFloatSliceEval {
-        AsmFloatSliceEval::new(self)
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
@@ -65,7 +57,10 @@ impl Tape {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{context::Context, eval::FloatEval};
+    use crate::{
+        context::Context,
+        eval::{AsmFamily, EvalFamily},
+    };
 
     #[test]
     fn basic_interpreter() {
@@ -76,7 +71,7 @@ mod tests {
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
         assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_f(1.0, 3.0, 0.0), 2.0);
         assert_eq!(eval.eval_f(3.0, 3.5, 0.0), 3.5);
@@ -90,34 +85,34 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
         assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_f(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&t).get_evaluator();
         assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_f(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&t).get_evaluator();
         assert_eq!(eval.eval_f(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_f(3.0, 2.0, 0.0), 2.0);
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = tape.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
         assert_eq!(eval.eval_f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_f(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = t.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&t).get_evaluator();
         assert_eq!(eval.eval_f(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_f(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = t.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&t).get_evaluator();
         assert_eq!(eval.eval_f(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.eval_f(3.0, 0.0, 0.0), 1.0);
     }
@@ -164,7 +159,7 @@ mod tests {
         let circle = ctx.sub(radius, one).unwrap();
 
         let tape = ctx.get_tape(circle, u8::MAX);
-        let mut eval = tape.get_float_evaluator();
+        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
     }

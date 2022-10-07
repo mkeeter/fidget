@@ -56,8 +56,8 @@ where
     info!("Built tape in {:?}", start.elapsed());
 
     if brute {
-        let mut eval = tape.get_float_evaluator();
-        use fidget::eval::FloatSliceEval;
+        use fidget::eval::{AsmFamily, EvalFamily};
+        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
         for _ in 0..n {

@@ -15,3 +15,15 @@ pub enum Choice {
     Right = 2,
     Both = 3,
 }
+
+impl std::ops::BitOrAssign<Choice> for Choice {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = match (*self as u8) | (other as u8) {
+            0 => Self::Unknown,
+            1 => Self::Left,
+            2 => Self::Right,
+            3 => Self::Both,
+            _ => unreachable!(),
+        }
+    }
+}
