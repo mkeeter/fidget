@@ -1,5 +1,5 @@
 //! Bitmap rendering
-use crate::{
+use fidget_core::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT, FloatSliceFunc},
         interval::{Interval, IntervalFunc},

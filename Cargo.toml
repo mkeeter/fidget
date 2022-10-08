@@ -1,6 +1,9 @@
 [workspace]
 members = [
     "fidget",
+    "fidget-core",
+    "fidget-render",
+    "fidget-rhai",
     "demo",
     "gui",
 ]

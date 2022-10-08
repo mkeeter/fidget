@@ -1,5 +1,5 @@
 use eframe::egui;
-use fidget::render::RenderConfig;
+use fidget::render::render2d::RenderConfig;
 
 mod highlight;
 
@@ -149,9 +149,9 @@ impl eframe::App for MyApp {
                 let tape = script_ctx
                     .context
                     .get_tape(s.shape, fidget::asm::dynasm::REGISTER_LIMIT);
-                let image = fidget::render::render::<
+                let image = fidget::render::render2d::render::<
                     fidget::asm::dynasm::JitEvalFamily,
-                    fidget::render::BitRenderMode,
+                    fidget::render::render2d::BitRenderMode,
                 >(
                     tape,
                     &RenderConfig {

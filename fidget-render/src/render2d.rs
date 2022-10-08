@@ -1,5 +1,5 @@
 //! Bitmap rendering
-use crate::{
+use fidget_core::{
     eval::{
         interval::{Interval, IntervalFunc},
         EvalFamily,

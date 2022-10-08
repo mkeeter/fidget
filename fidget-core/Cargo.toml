@@ -1,0 +1,14 @@
+[package]
+name = "fidget-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arrayvec = "0.7"
+dynasmrt = "1.2.3"
+log = "0.4"
+num-derive = "0.3"
+num-traits = "0.2"
+ordered-float = "3"
+rhai = "1.10"
+thiserror = "1"

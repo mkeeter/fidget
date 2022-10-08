@@ -1,7 +1,7 @@
 //! Rhai bindings to Fidget
 use std::sync::{Arc, Mutex};
 
-use crate::context::{Context, Node};
+use fidget_core::context::{Context, Node};
 
 pub struct Engine {
     engine: rhai::Engine,

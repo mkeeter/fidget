@@ -2,9 +2,10 @@
 
 mod asm;
 mod choice;
-pub(crate) mod float_slice;
-pub(crate) mod interval;
-pub(crate) mod point;
+
+pub mod float_slice;
+pub mod interval;
+pub mod point;
 
 // Re-export a few things
 pub use asm::AsmFamily;

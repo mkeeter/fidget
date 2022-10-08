@@ -59,7 +59,7 @@ where
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
 
-    let cfg = fidget::render3d::RenderConfig {
+    let cfg = fidget::render::render3d::RenderConfig {
         image_size: size as usize,
         tile_sizes: [128, 8],
         threads: 8,
@@ -74,7 +74,7 @@ where
     let start = Instant::now();
     let mut image = vec![];
     for _ in 0..n {
-        image = fidget::render3d::render::<I, 2>(tape.clone(), &cfg);
+        image = fidget::render::render3d::render::<I, 2>(tape.clone(), &cfg);
     }
 
     let mut z_min = f32::INFINITY;
@@ -150,7 +150,7 @@ where
             .collect();
         (out, start)
     } else {
-        let cfg = fidget::render::RenderConfig {
+        let cfg = fidget::render::render2d::RenderConfig {
             image_size: size as usize,
             tile_size: 256,
             subtile_size: 64,
@@ -164,7 +164,7 @@ where
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..n {
-            image = fidget::render::render::<I, fidget::render::DebugRenderMode>(
+            image = fidget::render::render2d::render::<I, fidget::render::render2d::DebugRenderMode>(
                 tape.clone(),
                 &cfg,
             );
