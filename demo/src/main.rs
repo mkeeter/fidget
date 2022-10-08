@@ -30,6 +30,10 @@ struct Args {
     #[clap(short, long)]
     brute: bool,
 
+    /// Render in 3D
+    #[clap(short, long, requires = "image", conflicts_with = "brute")]
+    threedee: bool,
+
     #[clap(short = 'N', default_value = "1", requires = "image")]
     n: usize,
 
@@ -40,6 +44,67 @@ struct Args {
     /// Name of the model file to load
     filename: String,
 }
+
+////////////////////////////////////////////////////////////////////////////////
+fn run3d<I>(
+    ctx: &Context,
+    node: Node,
+    size: u32,
+    n: usize,
+) -> (Vec<u8>, std::time::Instant)
+where
+    for<'s> I: fidget::eval::EvalFamily<'s>,
+{
+    let start = Instant::now();
+    let tape = ctx.get_tape(node, I::REG_LIMIT);
+    info!("Built tape in {:?}", start.elapsed());
+
+    let cfg = fidget::render3d::RenderConfig {
+        image_size: size as usize,
+        tile_sizes: [64, 4],
+        threads: 8,
+        interval_subdiv: 3,
+
+        dx: 0.0,
+        dy: 0.0,
+        dz: 0.0,
+        scale: 1.0,
+    };
+
+    let start = Instant::now();
+    let mut image = vec![];
+    for _ in 0..n {
+        image = fidget::render3d::render::<I, 2>(tape.clone(), &cfg);
+    }
+
+    let mut z_min = f32::INFINITY;
+    let mut z_max = f32::NEG_INFINITY;
+    for &z in image.iter().filter(|p| p.is_finite()) {
+        z_min = z_min.min(z);
+        z_max = z_max.max(z);
+    }
+    let dz = if z_min.is_finite() && z_max.is_finite() {
+        z_max - z_min
+    } else {
+        1.0
+    };
+
+    let out = image
+        .into_iter()
+        .flat_map(|p| {
+            if p.is_finite() {
+                let z = (p - z_min) / dz;
+                let z = (z * 255.0) as u8;
+                [z, z, z, 255]
+            } else {
+                [0, 0, 0, 0]
+            }
+        })
+        .collect();
+    (out, start)
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 fn run<I>(
     ctx: &Context,
@@ -124,13 +189,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
-            run::<fidget::eval::AsmFamily>(
-                &ctx, root, args.brute, args.size, args.n,
-            )
+            if args.threedee {
+                run3d::<fidget::eval::AsmFamily>(&ctx, root, args.size, args.n)
+            } else {
+                run::<fidget::eval::AsmFamily>(
+                    &ctx, root, args.brute, args.size, args.n,
+                )
+            }
         } else if args.jit {
-            run::<fidget::asm::dynasm::JitEvalFamily>(
-                &ctx, root, args.brute, args.size, args.n,
-            )
+            if args.threedee {
+                run3d::<fidget::asm::dynasm::JitEvalFamily>(
+                    &ctx, root, args.size, args.n,
+                )
+            } else {
+                run::<fidget::asm::dynasm::JitEvalFamily>(
+                    &ctx, root, args.brute, args.size, args.n,
+                )
+            }
         } else {
             let start = Instant::now();
             let scale = args.size;

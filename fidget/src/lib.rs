@@ -49,6 +49,7 @@ pub mod bind;
 pub mod context;
 pub mod eval;
 pub mod render;
+pub mod render3d;
 pub mod tape;
 
 mod error;
