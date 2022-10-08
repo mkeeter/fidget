@@ -7,6 +7,11 @@ use crate::tape::Tape;
 /// one or more `FloatSliceEval` objects, which actually do evaluation.
 pub trait FloatSliceFuncT<'a> {
     type Evaluator: FloatSliceEvalT<'a>;
+
+    /// Returns an evaluator, which may borrow from this handle
+    ///
+    /// This should be an O(1) operation; heavy lifting should have been
+    /// previously done when constructing the `FloatSliceFuncT` itself.
     fn get_evaluator(&self) -> Self::Evaluator;
 }
 

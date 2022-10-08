@@ -28,6 +28,15 @@ impl<const N: usize> RenderConfig<N> {
     fn pixel_to_pos(&self, p: usize) -> f32 {
         (2.0 * (p as f32) / (self.image_size as f32) - 1.0) * self.scale
     }
+    fn x(&self, p: usize) -> f32 {
+        self.pixel_to_pos(p) + self.dx
+    }
+    fn y(&self, p: usize) -> f32 {
+        self.pixel_to_pos(p) + self.dy
+    }
+    fn z(&self, p: usize) -> f32 {
+        self.pixel_to_pos(p) + self.dz
+    }
     fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
         let x = tile.corner[0] % self.tile_sizes[0] + x;
         let y = tile.corner[1] % self.tile_sizes[0] + y;
@@ -89,22 +98,20 @@ impl<const N: usize> Worker<N> {
     where
         for<'s> I: EvalFamily<'s>,
     {
-        let mut eval = handle.get_evaluator();
         let tile_size = self.config.tile_sizes[depth];
 
-        let x_min = self.config.pixel_to_pos(tile.corner[0]) + self.config.dx;
-        let x_max = self.config.pixel_to_pos(tile.corner[0] + tile_size)
-            + self.config.dx;
-        let y_min = self.config.pixel_to_pos(tile.corner[1]) + self.config.dy;
-        let y_max = self.config.pixel_to_pos(tile.corner[1] + tile_size)
-            + self.config.dy;
-        let z_min = self.config.pixel_to_pos(tile.corner[2]) + self.config.dz;
-        let z_max = self.config.pixel_to_pos(tile.corner[2] + tile_size)
-            + self.config.dz;
+        let x_min = self.config.x(tile.corner[0]);
+        let x_max = self.config.x(tile.corner[0] + tile_size);
+        let y_min = self.config.y(tile.corner[1]);
+        let y_max = self.config.y(tile.corner[1] + tile_size);
+        let z_min = self.config.z(tile.corner[2]);
+        let z_max = self.config.z(tile.corner[2] + tile_size);
 
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
+
+        let mut eval = handle.get_evaluator();
         let i = eval.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
         let fill = if i.upper() < 0.0 {
@@ -157,14 +164,11 @@ impl<const N: usize> Worker<N> {
             // Prepare for pixel-by-pixel evaluation
             let mut index = 0;
             for j in 0..tile_size {
-                let y = self.config.pixel_to_pos(tile.corner[1] + j)
-                    + self.config.dy;
+                let y = self.config.y(tile.corner[1] + j);
                 for i in 0..tile_size {
-                    let x = self.config.pixel_to_pos(tile.corner[0] + i)
-                        + self.config.dx;
+                    let x = self.config.x(tile.corner[0] + i);
                     for k in 0..tile_size {
-                        let z = self.config.pixel_to_pos(tile.corner[2] + k)
-                            + self.config.dz;
+                        let z = self.config.z(tile.corner[2] + k);
                         self.scratch.x[index] = x;
                         self.scratch.y[index] = y;
                         self.scratch.z[index] = z;

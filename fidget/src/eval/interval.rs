@@ -244,6 +244,9 @@ pub trait IntervalFuncT<'a>: Sync {
     type Evaluator: IntervalEvalT<'a>;
 
     /// Return the evaluator type, which may borrow from this `struct`
+    ///
+    /// This should be an O(1) operation; heavy lifting should have been
+    /// previously done when constructing the `IntervalFuncT` itself.
     fn get_evaluator(&self) -> Self::Evaluator;
 }
 
