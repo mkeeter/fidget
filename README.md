@@ -12,3 +12,12 @@ Right now, it includes a few fundamental building blocks:
     - SIMD evaluation (`f32 x 4`)
 
 These building blocks are used in an implementation of bitmap rendering.
+
+## Crate organization
+The project is split into multiple crates to improve compile times:
+
+- `fidget-core`: Construction and evaluation of expressions
+- `fidget-render`: 2D and 3D rendering
+- `fidget-rhai`: Rhai bindings
+
+All of these `crates` are re-exported by the `fidget` omnibus crate.
