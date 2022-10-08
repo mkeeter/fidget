@@ -61,7 +61,7 @@ where
 
     let cfg = fidget::render3d::RenderConfig {
         image_size: size as usize,
-        tile_sizes: [64, 4],
+        tile_sizes: [128, 8],
         threads: 8,
         interval_subdiv: 3,
 

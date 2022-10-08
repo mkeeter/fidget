@@ -258,6 +258,10 @@ pub struct IntervalFunc<'a, F> {
 }
 
 impl<'a, F: IntervalFuncT<'a>> IntervalFunc<'a, F> {
+    pub fn tape(&self) -> &Tape {
+        self.tape
+    }
+
     pub fn new(tape: &'a Tape, func: F) -> Self {
         Self { tape, func }
     }

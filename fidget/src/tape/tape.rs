@@ -16,6 +16,11 @@ pub struct Tape {
 }
 
 impl Tape {
+    /// Returns the length of the internal `AsmOp` tape
+    pub fn len(&self) -> usize {
+        self.asm.len()
+    }
+
     /// Returns the number of choice (min/max) nodes in the tape.
     ///
     /// This is required because some evaluators pre-allocated spaces for the

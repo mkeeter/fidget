@@ -1,6 +1,7 @@
 //! Bitmap rendering
 use crate::{
     eval::{
+        float_slice::FloatSliceFunc,
         interval::{Interval, IntervalFunc},
         EvalFamily,
     },
@@ -66,11 +67,10 @@ where
     for<'s> I: EvalFamily<'s>,
 {
     let mut out = vec![];
-    let mut pixels_rendered = 0;
 
     // Calculate maximum evaluation buffer size
-    let mt = config.tile_sizes.last().cloned().unwrap_or(0);
-    let mut scratch = Scratch::new(mt * mt * mt);
+    let buf_size = config.tile_sizes.last().cloned().unwrap_or(0);
+    let mut scratch = Scratch::new(buf_size * buf_size * buf_size);
 
     loop {
         let index = i.fetch_add(1, Ordering::Relaxed);
@@ -90,7 +90,7 @@ where
             &config.tile_sizes,
             tile,
             &mut scratch,
-            &mut pixels_rendered,
+            None,
         );
         out.push((tile, pixels));
     }
@@ -99,15 +99,18 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, I, const N: usize>(
-    handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
+fn render_tile_recurse<'a, 'b, I, const N: usize>(
+    handle: &'b IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
     out: &mut [f32],
     config: &RenderConfig<N>,
     tile_sizes: &[usize],
     tile: Tile,
     scratch: &mut Scratch,
-    pixels_rendered: &mut usize,
-) where
+    float_handle: Option<
+        &FloatSliceFunc<'b, <I as EvalFamily<'b>>::FloatSliceFunc>,
+    >,
+) -> Option<FloatSliceFunc<'b, <I as EvalFamily<'b>>::FloatSliceFunc>>
+where
     for<'s> I: EvalFamily<'s>,
 {
     let mut eval = handle.get_evaluator();
@@ -128,7 +131,7 @@ fn render_tile_recurse<'a, I, const N: usize>(
         Some(z_max)
     } else if i.lower() > 0.0 {
         // Return early if this tile is completely empty
-        return;
+        return None;
     } else {
         None
     };
@@ -140,14 +143,16 @@ fn render_tile_recurse<'a, I, const N: usize>(
                 out[i] = out[i].max(fill);
             }
         }
+        None
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify(I::REG_LIMIT);
         let sub_jit = I::from_tape_i(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
+        let mut float_handle = None;
         for j in 0..n {
             for i in 0..n {
                 for k in 0..n {
-                    render_tile_recurse::<I, N>(
+                    let r = render_tile_recurse::<I, N>(
                         &sub_jit,
                         out,
                         config,
@@ -160,15 +165,17 @@ fn render_tile_recurse<'a, I, const N: usize>(
                             ],
                         },
                         scratch,
-                        pixels_rendered,
+                        float_handle.as_ref(),
                     );
+                    if r.is_some() {
+                        float_handle = r;
+                    }
                 }
             }
         }
+        None
     } else {
-        let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = I::from_tape_s(&sub_tape);
-
+        // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
         for j in 0..tile_sizes[0] {
             let y = config.pixel_to_pos(tile.corner[1] + j) + config.dy;
@@ -183,12 +190,40 @@ fn render_tile_recurse<'a, I, const N: usize>(
                 }
             }
         }
-        *pixels_rendered += tile_sizes[0] * tile_sizes[0] * tile_sizes[0];
         assert_eq!(index, scratch.x.len());
 
-        let mut eval = sub_jit.get_evaluator();
-        eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+        let sub_tape = eval.simplify(I::REG_LIMIT);
 
+        // This gets a little messy in terms of lifetimes.
+        //
+        // In some cases, the shortened tape isn't actually any shorter, so it's
+        // a waste of time to rebuild it.  Instead, we we want to use a
+        // float-slice evaluator that's bound to the *parent* tape.  Luckily,
+        // such a thing _may_ be passed into this function.  If not, we build it
+        // here and then pass it out, so future calls can use it.
+        //
+        // (this matters most for the JIT compiler, which is _expensive_)
+        let ret = if sub_tape.len() < handle.tape().len() {
+            let sub_jit = I::from_tape_s(&sub_tape);
+
+            let mut eval = sub_jit.get_evaluator();
+            eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+
+            None
+        } else if let Some(r) = float_handle {
+            // Reuse the FloatSliceFunc handle passed in
+            let mut eval = r.get_evaluator();
+            eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+            None
+        } else {
+            // Build our own FloatSliceFunc handle, then return it
+            let func = I::from_tape_s(handle.tape());
+            let mut eval = func.get_evaluator();
+            eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+            Some(func)
+        };
+
+        // Copy from the scratch buffer to the output tile
         let mut index = 0;
         for j in 0..tile_sizes[0] {
             for i in 0..tile_sizes[0] {
@@ -202,6 +237,7 @@ fn render_tile_recurse<'a, I, const N: usize>(
                 }
             }
         }
+        ret
     }
 }
 
