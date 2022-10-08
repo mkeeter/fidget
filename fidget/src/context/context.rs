@@ -336,8 +336,7 @@ impl Context {
         self.op_unary(a, UnaryOpcode::Square)
     }
 
-    /// Builds a node which performs subtraction. Under the hood, `a - b` is
-    /// converted to `a + (-b)`
+    /// Builds a node which performs subtraction.
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
@@ -365,7 +364,7 @@ impl Context {
         self.mul(a, b)
     }
 
-    ////////////////////////////////////////////////////////////////////////////
+    /// Flattens a subtree of the graph into straight-line code
     pub fn get_tape(&self, root: Node, reg_limit: u8) -> Tape {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();
@@ -407,6 +406,9 @@ impl Context {
     ////////////////////////////////////////////////////////////////////////////
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
+    /// This is extremely inefficient; consider calling
+    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
+    ///
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
@@ -432,6 +434,9 @@ impl Context {
     }
 
     /// Evaluates the given node with a generic set of variables
+    ///
+    /// This is extremely inefficient; consider calling
+    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
     pub fn eval(
         &self,
         root: Node,

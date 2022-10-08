@@ -49,6 +49,7 @@ fn dot_color_to_rgb(s: &str) -> &'static str {
 }
 
 impl Op {
+    /// Returns the color to be used in a GraphViz drawing for this node
     pub fn dot_node_color(&self) -> &str {
         match self {
             Op::Const(..) => "green",
@@ -59,6 +60,8 @@ impl Op {
             Op::Binary(..) | Op::Unary(..) => "goldenrod",
         }
     }
+
+    /// Returns the shape to be used in a GraphViz drawing for this node
     pub fn dot_node_shape(&self) -> &str {
         match self {
             Op::Const(..) => "oval",
@@ -67,6 +70,7 @@ impl Op {
         }
     }
 
+    /// Iterates over children, producing 0, 1, or 2 values
     pub fn iter_children(&self) -> impl Iterator<Item = Node> {
         let out = match self {
             Op::Binary(_, a, b) => [Some(*a), Some(*b)],
@@ -75,9 +79,8 @@ impl Op {
         };
         out.into_iter().flatten()
     }
-}
 
-impl Op {
+    /// Returns a GraphViz string of edges from this node to its children
     pub fn dot_edges(&self, i: Node) -> String {
         let mut out = String::new();
         for c in self.iter_children() {
@@ -86,6 +89,7 @@ impl Op {
         out
     }
 
+    /// Returns a single edge with user-specified transparency
     pub fn dot_edge(&self, a: Node, b: Node, alpha: &str) -> String {
         let color = dot_color_to_rgb(self.dot_node_color()).to_owned() + alpha;
         format!("n{} -> n{} [color = \"{color}\"]\n", a.get(), b.get(),)
