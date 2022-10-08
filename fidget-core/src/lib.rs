@@ -1,7 +1,7 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{eval::{AsmFamily, EvalFamily}, context::Context};
+//! use fidget_core::{eval::{AsmFamily, EvalFamily}, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();

@@ -91,17 +91,21 @@ impl<const N: usize> Worker<'_, N> {
     {
         let tile_size = self.config.tile_sizes[depth];
 
+        // Brute-force way to find the (interval) bounding box of the region
         let mut x_min = f32::INFINITY;
         let mut x_max = f32::NEG_INFINITY;
         let mut y_min = f32::INFINITY;
         let mut y_max = f32::NEG_INFINITY;
         let mut z_min = f32::INFINITY;
         let mut z_max = f32::NEG_INFINITY;
+        let base = Vector3::from(tile.corner);
         for i in 0..8 {
-            let x = tile.corner[0] + if (i & 1) == 0 { 0 } else { tile_size };
-            let y = tile.corner[1] + if (i & 2) == 0 { 0 } else { tile_size };
-            let z = tile.corner[2] + if (i & 4) == 0 { 0 } else { tile_size };
-            let p = self.config.vec3_to_pos(Vector3::new(x, y, z));
+            let offset = Vector3::new(
+                if (i & 1) == 0 { 0 } else { tile_size },
+                if (i & 2) == 0 { 0 } else { tile_size },
+                if (i & 4) == 0 { 0 } else { tile_size },
+            );
+            let p = self.config.vec3_to_pos(base + offset);
             x_min = x_min.min(p.x);
             x_max = x_max.max(p.x);
             y_min = y_min.min(p.y);
