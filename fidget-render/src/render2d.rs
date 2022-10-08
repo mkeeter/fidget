@@ -135,6 +135,22 @@ pub struct RenderConfig {
     pub scale: f32,
 }
 
+impl Default for RenderConfig {
+    fn default() -> Self {
+        Self {
+            image_size: 1024,
+            tile_size: 256,
+            subtile_size: 64,
+            threads: 8,
+            interval_subdiv: 3,
+
+            dx: 0.0,
+            dy: 0.0,
+            scale: 1.0,
+        }
+    }
+}
+
 impl RenderConfig {
     fn pixel_to_pos(&self, p: usize) -> f32 {
         (2.0 * (p as f32) / (self.image_size as f32) - 1.0) * self.scale

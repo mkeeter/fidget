@@ -62,6 +62,7 @@ impl Engine {
         Self { engine, context }
     }
 
+    /// Executes a full script
     pub fn run(
         &mut self,
         script: &str,
@@ -75,6 +76,35 @@ impl Engine {
         std::mem::swap(&mut next, &mut lock);
 
         Ok(next)
+    }
+
+    /// Evaluates a single expression, in terms of `x`, `y`, and `z`
+    pub fn eval(
+        &mut self,
+        script: &str,
+    ) -> Result<(Node, Context), Box<rhai::EvalAltResult>> {
+        let mut scope = {
+            let mut ctx = self.context.lock().unwrap();
+            ctx.clear();
+
+            // Create initialized scope with x/y/z
+            let mut scope = rhai::Scope::new();
+            scope.push("x", ctx.context.x());
+            scope.push("y", ctx.context.y());
+            scope.push("z", ctx.context.z());
+            scope
+        };
+
+        let out = self
+            .engine
+            .eval_expression_with_scope::<Node>(&mut scope, script)?;
+
+        // Steal the ScriptContext's contents
+        let mut next = ScriptContext::new();
+        let mut lock = self.context.lock().unwrap();
+        std::mem::swap(&mut next, &mut lock);
+
+        Ok((out, next.context))
     }
 }
 
@@ -127,7 +157,7 @@ impl FidgetContext for rhai::NativeCallContext<'_> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
+// Functions injected into the Rhai context
 fn var_x(ctx: rhai::NativeCallContext) -> Node {
     ctx.with_fidget_context(|c| c.x())
 }
@@ -220,6 +250,13 @@ define_unary_fns!(neg);
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub fn eval(s: &str) -> Result<(Node, Context), Box<rhai::EvalAltResult>> {
+    let mut engine = Engine::new();
+    engine.eval(s)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -229,5 +266,12 @@ mod test {
         let mut engine = Engine::new();
         let out = engine.run("draw(|x, y| x + y)").unwrap();
         assert_eq!(out.shapes.len(), 1);
+    }
+
+    #[test]
+    fn test_eval() {
+        let mut engine = Engine::new();
+        let (sum, ctx) = engine.eval("x + y").unwrap();
+        assert_eq!(ctx.eval_xyz(sum, 1.0, 2.0, 0.0).unwrap(), 3.0);
     }
 }

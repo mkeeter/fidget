@@ -1,4 +1,4 @@
-//! Infrastructure and algorithms for complex closed-form implicit surfaces.
+//! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
 //! ```
 //! use fidget::{eval::{AsmFamily, EvalFamily}, context::Context};

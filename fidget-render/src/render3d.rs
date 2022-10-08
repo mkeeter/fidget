@@ -7,35 +7,26 @@ use fidget_core::{
     },
     tape::Tape,
 };
+
+use nalgebra::{Transform3, Vector3};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Copy, Clone, Debug)]
 pub struct RenderConfig<const N: usize> {
     pub image_size: usize,
     pub tile_sizes: [usize; N],
     pub interval_subdiv: usize,
     pub threads: usize,
 
-    pub dx: f32,
-    pub dy: f32,
-    pub dz: f32,
-    pub scale: f32,
+    pub mat: Transform3<f32>,
 }
 
 impl<const N: usize> RenderConfig<N> {
-    fn pixel_to_pos(&self, p: usize) -> f32 {
-        (2.0 * (p as f32) / (self.image_size as f32) - 1.0) * self.scale
-    }
-    fn x(&self, p: usize) -> f32 {
-        self.pixel_to_pos(p) + self.dx
-    }
-    fn y(&self, p: usize) -> f32 {
-        self.pixel_to_pos(p) + self.dy
-    }
-    fn z(&self, p: usize) -> f32 {
-        self.pixel_to_pos(p) + self.dz
+    fn vec3_to_pos(&self, p: Vector3<usize>) -> Vector3<f32> {
+        let p = 2.0 * (p.cast::<f32>() / self.image_size as f32)
+            - Vector3::new(1.0, 1.0, 1.0);
+        self.mat.transform_vector(&p)
     }
     fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
         let x = tile.corner[0] % self.tile_sizes[0] + x;
@@ -79,13 +70,13 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<const N: usize> {
-    config: RenderConfig<N>,
+struct Worker<'a, const N: usize> {
+    config: &'a RenderConfig<N>,
     scratch: Scratch,
-    out: Vec<f32>,
+    out: Vec<usize>,
 }
 
-impl<const N: usize> Worker<N> {
+impl<const N: usize> Worker<'_, N> {
     fn render_tile_recurse<'a, 'b, I>(
         &mut self,
         handle: &'b IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
@@ -100,12 +91,24 @@ impl<const N: usize> Worker<N> {
     {
         let tile_size = self.config.tile_sizes[depth];
 
-        let x_min = self.config.x(tile.corner[0]);
-        let x_max = self.config.x(tile.corner[0] + tile_size);
-        let y_min = self.config.y(tile.corner[1]);
-        let y_max = self.config.y(tile.corner[1] + tile_size);
-        let z_min = self.config.z(tile.corner[2]);
-        let z_max = self.config.z(tile.corner[2] + tile_size);
+        let mut x_min = f32::INFINITY;
+        let mut x_max = f32::NEG_INFINITY;
+        let mut y_min = f32::INFINITY;
+        let mut y_max = f32::NEG_INFINITY;
+        let mut z_min = f32::INFINITY;
+        let mut z_max = f32::NEG_INFINITY;
+        for i in 0..8 {
+            let x = tile.corner[0] + if (i & 1) == 0 { 0 } else { tile_size };
+            let y = tile.corner[1] + if (i & 2) == 0 { 0 } else { tile_size };
+            let z = tile.corner[2] + if (i & 4) == 0 { 0 } else { tile_size };
+            let p = self.config.vec3_to_pos(Vector3::new(x, y, z));
+            x_min = x_min.min(p.x);
+            x_max = x_max.max(p.x);
+            y_min = y_min.min(p.y);
+            y_max = y_max.max(p.y);
+            z_min = z_min.min(p.z);
+            z_max = z_max.max(p.z);
+        }
 
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
@@ -115,7 +118,7 @@ impl<const N: usize> Worker<N> {
         let i = eval.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
         let fill = if i.upper() < 0.0 {
-            Some(z_max)
+            Some(tile.corner[0] + tile_size + 1)
         } else if i.lower() > 0.0 {
             // Return early if this tile is completely empty
             return None;
@@ -164,14 +167,16 @@ impl<const N: usize> Worker<N> {
             // Prepare for pixel-by-pixel evaluation
             let mut index = 0;
             for j in 0..tile_size {
-                let y = self.config.y(tile.corner[1] + j);
                 for i in 0..tile_size {
-                    let x = self.config.x(tile.corner[0] + i);
                     for k in 0..tile_size {
-                        let z = self.config.z(tile.corner[2] + k);
-                        self.scratch.x[index] = x;
-                        self.scratch.y[index] = y;
-                        self.scratch.z[index] = z;
+                        let v = self.config.vec3_to_pos(Vector3::new(
+                            tile.corner[0] + i,
+                            tile.corner[1] + j,
+                            tile.corner[2] + k,
+                        ));
+                        self.scratch.x[index] = v.x;
+                        self.scratch.y[index] = v.y;
+                        self.scratch.z[index] = v.z;
                         index += 1;
                     }
                 }
@@ -214,8 +219,7 @@ impl<const N: usize> Worker<N> {
             for j in 0..tile_size {
                 for i in 0..tile_size {
                     for k in 0..tile_size {
-                        let z = self.config.pixel_to_pos(tile.corner[2] + k)
-                            + self.config.dz;
+                        let z = tile.corner[2] + k + 1;
                         let o = self.config.tile_to_offset(tile, i, j);
                         if self.scratch.out[index] < 0.0 {
                             self.out[o] = self.out[o].max(z);
@@ -236,7 +240,7 @@ fn worker<'a, I, const N: usize>(
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig<N>,
-) -> Vec<(Tile, Vec<f32>)>
+) -> Vec<(Tile, Vec<usize>)>
 where
     for<'s> I: EvalFamily<'s>,
 {
@@ -248,7 +252,7 @@ where
     let mut w = Worker {
         scratch,
         out: vec![],
-        config: *config,
+        config,
     };
     loop {
         let index = i.fetch_add(1, Ordering::Relaxed);
@@ -257,12 +261,11 @@ where
         }
         let tile = tiles[index];
 
-        w.out = vec![
-            f32::NEG_INFINITY;
-            config.tile_sizes[0] * config.tile_sizes[0]
-        ];
+        // Prepare to render, allocating space for a tile
+        w.out = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
         w.render_tile_recurse::<I>(i_handle, 0, tile, None);
 
+        // Steal the tile, replacing it with an empty vec
         let mut pixels = vec![];
         std::mem::swap(&mut pixels, &mut w.out);
         out.push((tile, pixels));
@@ -275,7 +278,7 @@ where
 pub fn render<I, const N: usize>(
     tape: Tape,
     config: &RenderConfig<N>,
-) -> Vec<f32>
+) -> Vec<usize>
 where
     for<'s> I: EvalFamily<'s>,
 {
@@ -315,8 +318,7 @@ where
         out
     });
 
-    let mut image =
-        vec![f32::NEG_INFINITY; config.image_size * config.image_size];
+    let mut image = vec![0; config.image_size * config.image_size];
     for (tile, data) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {

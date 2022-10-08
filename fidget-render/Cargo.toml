@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 fidget-core = { path = "../fidget-core" }
+nalgebra = "0.31"

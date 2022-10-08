@@ -65,10 +65,7 @@ where
         threads: 8,
         interval_subdiv: 3,
 
-        dx: 0.0,
-        dy: 0.0,
-        dz: 0.0,
-        scale: 1.0,
+        mat: nalgebra::Transform3::identity(),
     };
 
     let start = Instant::now();
@@ -77,24 +74,12 @@ where
         image = fidget::render::render3d::render::<I, 2>(tape.clone(), &cfg);
     }
 
-    let mut z_min = f32::INFINITY;
-    let mut z_max = f32::NEG_INFINITY;
-    for &z in image.iter().filter(|p| p.is_finite()) {
-        z_min = z_min.min(z);
-        z_max = z_max.max(z);
-    }
-    let dz = if z_min.is_finite() && z_max.is_finite() {
-        z_max - z_min
-    } else {
-        1.0
-    };
-
+    let z_max = image.iter().max().cloned().unwrap_or(1);
     let out = image
         .into_iter()
         .flat_map(|p| {
-            if p.is_finite() {
-                let z = (p - z_min) / dz;
-                let z = (z * 255.0) as u8;
+            if p > 0 {
+                let z = (p * 255 / z_max) as u8;
                 [z, z, z, 255]
             } else {
                 [0, 0, 0, 0]
@@ -164,10 +149,10 @@ where
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..n {
-            image = fidget::render::render2d::render::<I, fidget::render::render2d::DebugRenderMode>(
-                tape.clone(),
-                &cfg,
-            );
+            image = fidget::render::render2d::render::<
+                I,
+                fidget::render::render2d::DebugRenderMode,
+            >(tape.clone(), &cfg);
         }
         let out = image
             .into_iter()
