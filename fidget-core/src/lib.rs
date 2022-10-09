@@ -4,7 +4,7 @@
 //! omnibus library instead.
 //!
 //! ```
-//! use fidget_core::{eval::{AsmFamily, EvalFamily}, context::Context};
+//! use fidget_core::{eval::{point::PointFunc, asm::AsmFunc}, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -15,16 +15,16 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
-//! assert_eq!(eval.eval_f(0.0, 0.0, 0.0), -1.0);
-//! assert_eq!(eval.eval_f(1.0, 0.0, 0.0), 0.0);
+//! let mut eval = PointFunc::<AsmFunc>::new(&tape).get_evaluator();
+//! assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
+//! assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
 //!
 //! const N: usize = 15;
 //! for i in 0..N {
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let v = eval.eval_f(x, y, 0.0);
+//!         let v = eval.eval_p(x, y, 0.0);
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();

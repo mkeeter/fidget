@@ -1,7 +1,7 @@
 //! Infrastructure and algorithms for complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{eval::{AsmFamily, EvalFamily}, context::Context};
+//! use fidget::context::Context;
 //! use fidget::bind::eval;
 //! use fidget::render::render2d::{render, RenderConfig};
 //!
