@@ -1,5 +1,8 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
+//! It's uncommon to use this library directly; consider using the `fidget`
+//! omnibus library instead.
+//!
 //! ```
 //! use fidget_core::{eval::{AsmFamily, EvalFamily}, context::Context};
 //! let mut ctx = Context::new();
