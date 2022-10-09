@@ -122,7 +122,7 @@ impl<const N: usize> Worker<'_, N> {
         let i = eval.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
         let fill = if i.upper() < 0.0 {
-            Some(tile.corner[0] + tile_size + 1)
+            Some(tile.corner[2] + tile_size + 1)
         } else if i.lower() > 0.0 {
             // Return early if this tile is completely empty
             return None;
@@ -172,7 +172,7 @@ impl<const N: usize> Worker<'_, N> {
             let mut index = 0;
             for j in 0..tile_size {
                 for i in 0..tile_size {
-                    for k in 0..tile_size {
+                    for k in (0..tile_size).rev() {
                         let v = self.config.vec3_to_pos(Vector3::new(
                             tile.corner[0] + i,
                             tile.corner[1] + j,
@@ -222,11 +222,13 @@ impl<const N: usize> Worker<'_, N> {
             let mut index = 0;
             for j in 0..tile_size {
                 for i in 0..tile_size {
-                    for k in 0..tile_size {
+                    for k in (0..tile_size).rev() {
                         let z = tile.corner[2] + k + 1;
                         let o = self.config.tile_to_offset(tile, i, j);
-                        if self.scratch.out[index] < 0.0 {
-                            self.out[o] = self.out[o].max(z);
+                        if self.scratch.out[index] < 0.0 && self.out[o] < z {
+                            self.out[o] = z;
+                            //index += k + 1;
+                            //break;
                         }
                         index += 1;
                     }

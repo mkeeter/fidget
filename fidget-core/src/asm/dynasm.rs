@@ -1,7 +1,7 @@
 //! Infrastructure for compiling down to native machine code
 use dynasmrt::{
-    aarch64::Assembler, dynasm, AssemblyOffset, DynasmApi, DynasmLabelApi,
-    ExecutableBuffer,
+    aarch64::Aarch64Relocation, dynasm, AssemblyOffset, DynasmApi,
+    DynasmLabelApi, VecAssembler as DynasmVecAssembler,
 };
 
 use crate::{
@@ -69,13 +69,13 @@ trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
-    fn finalize(self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset);
+    fn finalize(self, out_reg: u8) -> (Vec<u8>, AssemblyOffset);
 }
 
 struct FloatAssembler(AssemblerData<f32>);
 
 struct AssemblerData<T> {
-    ops: Assembler,
+    ops: DynasmVecAssembler<Aarch64Relocation>,
     shape_fn: AssemblyOffset,
 
     /// Current offset of the stack pointer, in bytes
@@ -107,7 +107,7 @@ impl<T> AssemblerData<T> {
 
 impl AssemblerT for FloatAssembler {
     fn init() -> Self {
-        let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
+        let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
             ; -> shape_fn:
         );
@@ -208,7 +208,7 @@ impl AssemblerT for FloatAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
@@ -263,7 +263,7 @@ struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
 impl AssemblerT for IntervalAssembler {
     fn init() -> Self {
-        let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
+        let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
             ; -> shape_fn:
         );
@@ -567,7 +567,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value
             ; mov  s0, V(reg(out_reg)).s[0]
@@ -591,7 +591,7 @@ impl AssemblerT for IntervalAssembler {
 struct VecAssembler(AssemblerData<[f32; 4]>);
 impl AssemblerT for VecAssembler {
     fn init() -> Self {
-        let mut ops = dynasmrt::aarch64::Assembler::new().unwrap();
+        let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
             ; -> shape_fn:
         );
@@ -740,7 +740,7 @@ impl AssemblerT for VecAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (ExecutableBuffer, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x3
             // It's fine to overwrite X at this point in V0, since we're not
@@ -766,9 +766,7 @@ impl AssemblerT for VecAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn<A: AssemblerT>(
-    i: impl Iterator<Item = AsmOp>,
-) -> (ExecutableBuffer, *const u8) {
+fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
     let mut asm = A::init();
 
     for op in i {
@@ -847,17 +845,15 @@ fn build_asm_fn<A: AssemblerT>(
         }
     }
 
-    let (buf, shape_fn) = asm.finalize(0);
-    let fn_pointer = buf.ptr(shape_fn);
-    (buf, fn_pointer)
+    let (buf, _shape_fn) = asm.finalize(0);
+    buf
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
 pub struct JitFloatFunc {
-    _buf: dynasmrt::ExecutableBuffer,
-    fn_pointer: *const u8,
+    mmap: memmap2::Mmap,
 }
 
 impl<'a> PointFuncT<'a> for JitFloatFunc {
@@ -866,7 +862,7 @@ impl<'a> PointFuncT<'a> for JitFloatFunc {
     /// Returns an evaluator, bound to the lifetime of the `JitFloatFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
         JitFloatEval {
-            fn_float: unsafe { std::mem::transmute(self.fn_pointer) },
+            fn_float: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
             _p: std::marker::PhantomData,
         }
     }
@@ -874,11 +870,11 @@ impl<'a> PointFuncT<'a> for JitFloatFunc {
 
 impl JitFloatFunc {
     pub fn from_tape(t: &Tape) -> JitFloatFunc {
-        let (buf, fn_pointer) = build_asm_fn::<FloatAssembler>(t.iter_asm());
-        JitFloatFunc {
-            _buf: buf,
-            fn_pointer,
-        }
+        let buf = build_asm_fn::<FloatAssembler>(t.iter_asm());
+        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+        mmap.copy_from_slice(&buf);
+        let mmap = mmap.make_exec().unwrap();
+        Self { mmap }
     }
 }
 
@@ -887,18 +883,17 @@ impl JitFloatFunc {
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
 pub struct JitIntervalFunc {
-    _buf: dynasmrt::ExecutableBuffer,
-    fn_pointer: *const u8,
+    mmap: memmap2::Mmap,
 }
 unsafe impl Sync for JitIntervalFunc {}
 
 impl JitIntervalFunc {
     pub fn from_tape(t: &Tape) -> Self {
-        let (buf, fn_pointer) = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        JitIntervalFunc {
-            _buf: buf,
-            fn_pointer,
-        }
+        let buf = build_asm_fn::<IntervalAssembler>(t.iter_asm());
+        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+        mmap.copy_from_slice(&buf);
+        let mmap = mmap.make_exec().unwrap();
+        Self { mmap }
     }
 }
 
@@ -909,7 +904,7 @@ impl<'a> IntervalFuncT<'a> for JitIntervalFunc {
     /// `JitIntervalFunc`
     fn get_evaluator(&self) -> JitIntervalEval<'a> {
         JitIntervalEval {
-            fn_interval: unsafe { std::mem::transmute(self.fn_pointer) },
+            fn_interval: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
             _p: std::marker::PhantomData,
         }
     }
@@ -937,8 +932,7 @@ impl<'a> EvalFamily<'a> for JitEvalFamily {
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
 pub struct JitVecFunc {
-    _buf: dynasmrt::ExecutableBuffer,
-    fn_pointer: *const u8,
+    mmap: memmap2::Mmap,
 }
 
 impl<'a> FloatSliceFuncT<'a> for JitVecFunc {
@@ -947,7 +941,7 @@ impl<'a> FloatSliceFuncT<'a> for JitVecFunc {
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
         JitVecEval {
-            fn_vec: unsafe { std::mem::transmute(self.fn_pointer) },
+            fn_vec: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
             _p: std::marker::PhantomData,
         }
     }
@@ -955,11 +949,11 @@ impl<'a> FloatSliceFuncT<'a> for JitVecFunc {
 
 impl JitVecFunc {
     pub fn from_tape(t: &Tape) -> JitVecFunc {
-        let (buf, fn_pointer) = build_asm_fn::<VecAssembler>(t.iter_asm());
-        JitVecFunc {
-            _buf: buf,
-            fn_pointer,
-        }
+        let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
+        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+        mmap.copy_from_slice(&buf);
+        let mmap = mmap.make_exec().unwrap();
+        JitVecFunc { mmap }
     }
 }
 
