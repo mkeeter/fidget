@@ -13,16 +13,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct RenderConfig<const N: usize> {
+pub struct RenderConfig {
     pub image_size: usize,
-    pub tile_sizes: [usize; N],
+    pub tile_sizes: Vec<usize>,
     pub interval_subdiv: usize,
     pub threads: usize,
 
     pub mat: Transform3<f32>,
 }
 
-impl<const N: usize> RenderConfig<N> {
+impl RenderConfig {
     fn vec3_to_pos(&self, p: Vector3<usize>) -> Vector3<f32> {
         let p = 2.0 * (p.cast::<f32>() / self.image_size as f32)
             - Vector3::new(1.0, 1.0, 1.0);
@@ -70,13 +70,13 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, const N: usize> {
-    config: &'a RenderConfig<N>,
+struct Worker<'a> {
+    config: &'a RenderConfig,
     scratch: Scratch,
     out: Vec<usize>,
 }
 
-impl<const N: usize> Worker<'_, N> {
+impl Worker<'_> {
     fn render_tile_recurse<'a, 'b, I>(
         &mut self,
         handle: &'b IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
@@ -241,11 +241,11 @@ impl<const N: usize> Worker<'_, N> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, I, const N: usize>(
+fn worker<'a, I>(
     i_handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
     tiles: &[Tile],
     i: &AtomicUsize,
-    config: &RenderConfig<N>,
+    config: &RenderConfig,
 ) -> Vec<(Tile, Vec<usize>)>
 where
     for<'s> I: EvalFamily<'s>,
@@ -281,10 +281,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I, const N: usize>(
-    tape: Tape,
-    config: &RenderConfig<N>,
-) -> Vec<usize>
+pub fn render<I>(tape: Tape, config: &RenderConfig) -> Vec<usize>
 where
     for<'s> I: EvalFamily<'s>,
 {
@@ -314,7 +311,7 @@ where
         let mut handles = vec![];
         for _ in 0..config.threads {
             handles.push(
-                s.spawn(|| worker::<I, N>(&i_handle, &tiles, &index, config)),
+                s.spawn(|| worker::<I>(&i_handle, &tiles, &index, config)),
             );
         }
         let mut out = vec![];
