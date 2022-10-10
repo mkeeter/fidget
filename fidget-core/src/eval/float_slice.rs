@@ -42,10 +42,8 @@ impl<'a, F: FloatSliceFuncT> FloatSliceFunc<'a, F> {
     }
     pub fn get_evaluator(
         &self,
-    ) -> FloatSliceEval<
-        'a,
-        <<F as FloatSliceFuncT>::Recurse<'a> as FloatSliceFuncT>::Evaluator,
-    > {
+    ) -> FloatSliceEval<'a, <F::Recurse<'a> as FloatSliceFuncT>::Evaluator>
+    {
         FloatSliceEval {
             tape: self.tape,
             eval: self.func.get_evaluator(),

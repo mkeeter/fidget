@@ -10,7 +10,7 @@ use crate::{
         float_slice::{FloatSliceEvalT, FloatSliceFuncT},
         interval::{Interval, IntervalEvalT, IntervalFuncT},
         point::{PointEvalT, PointFuncT},
-        Choice,
+        Choice, EvalFamily,
     },
     tape::Tape,
 };
@@ -1056,6 +1056,21 @@ impl<'a> FloatSliceEvalT for JitVecEval<'a> {
             }
         }
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct JitEvalFamily<'a> {
+    _p: std::marker::PhantomData<&'a ()>,
+}
+impl<'a> EvalFamily for JitEvalFamily<'a> {
+    const REG_LIMIT: u8 = REGISTER_LIMIT;
+
+    type Recurse<'b> = JitEvalFamily<'b>;
+
+    type IntervalFunc = JitIntervalFunc<'a>;
+    type FloatSliceFunc = JitVecFunc<'a>;
+    type PointFunc = JitFloatFunc<'a>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

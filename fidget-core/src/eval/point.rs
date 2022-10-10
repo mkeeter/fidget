@@ -23,19 +23,21 @@ pub trait PointEvalT {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointFunc<'a, F> {
+pub struct PointFunc<'a, F: PointFuncT> {
     tape: &'a Tape,
-    func: F,
+    func: F::Recurse<'a>,
 }
 
-impl<'a, F: PointFuncT<Recurse<'a> = F>> PointFunc<'a, F> {
+impl<'a, F: PointFuncT> PointFunc<'a, F> {
     pub fn new(tape: &'a Tape) -> Self {
         Self {
             tape,
             func: F::from_tape(tape),
         }
     }
-    pub fn get_evaluator(&self) -> PointEval<'a, F::Evaluator> {
+    pub fn get_evaluator(
+        &self,
+    ) -> PointEval<'a, <F::Recurse<'a> as PointFuncT>::Evaluator> {
         PointEval {
             tape: self.tape,
             choices: vec![Choice::Unknown; self.tape.choice_count()],

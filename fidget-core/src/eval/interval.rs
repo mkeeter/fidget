@@ -277,10 +277,7 @@ impl<'a, F: IntervalFuncT> IntervalFunc<'a, F> {
 
     pub fn get_evaluator(
         &self,
-    ) -> IntervalEval<
-        'a,
-        <<F as IntervalFuncT>::Recurse<'a> as IntervalFuncT>::Evaluator,
-    > {
+    ) -> IntervalEval<'a, <F::Recurse<'a> as IntervalFuncT>::Evaluator> {
         IntervalEval {
             tape: self.tape,
             choices: vec![Choice::Unknown; self.tape.choice_count()],

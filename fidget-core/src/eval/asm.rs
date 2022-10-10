@@ -4,7 +4,7 @@ use crate::{
         float_slice::{FloatSliceEvalT, FloatSliceFuncT},
         interval::{Interval, IntervalEvalT, IntervalFuncT},
         point::{PointEvalT, PointFuncT},
-        Choice,
+        Choice, EvalFamily,
     },
     tape::Tape,
 };
@@ -14,6 +14,22 @@ use crate::{
 /// Generic `struct` which wraps a `Tape` and converts it to an `Asm*Eval`
 pub struct AsmFunc<'a> {
     tape: &'a Tape,
+}
+
+/// Family of evaluators that use a local interpreter
+pub struct AsmFamily<'a> {
+    _p: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> EvalFamily for AsmFamily<'a> {
+    /// This is interpreted, so we can use the maximum number of registers
+    const REG_LIMIT: u8 = u8::MAX;
+
+    type Recurse<'b> = AsmFamily<'b>;
+
+    type IntervalFunc = AsmFunc<'a>;
+    type FloatSliceFunc = AsmFunc<'a>;
+    type PointFunc = AsmFunc<'a>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
