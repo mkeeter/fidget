@@ -1,12 +1,14 @@
 //! Bitmap rendering
 use fidget_core::{
     eval::{
-        interval::{Interval, IntervalFunc},
-        EvalFamily,
+        float_slice::{FloatSliceFunc, FloatSliceFuncT},
+        interval::{Interval, IntervalFunc, IntervalFuncT},
     },
     tape::Tape,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+const REG_LIMIT: u8 = u8::MAX;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -182,15 +184,12 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, I, M: RenderMode>(
-    i_handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
-    tiles: &[Tile],
-    i: &AtomicUsize,
-    config: &RenderConfig,
-) -> Vec<(Tile, Vec<M::Output>)>
-where
-    for<'s> I: EvalFamily<'s>,
-{
+fn worker<'a, 'b, I: IntervalFuncT, F: FloatSliceFuncT, M: RenderMode>(
+    i_handle: &'a IntervalFunc<I>,
+    tiles: &'b [Tile],
+    i: &'b AtomicUsize,
+    config: &'b RenderConfig,
+) -> Vec<(Tile, Vec<M::Output>)> {
     let mut out = vec![];
     let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
     loop {
@@ -202,7 +201,7 @@ where
 
         let mut pixels =
             vec![M::Output::default(); config.tile_size * config.tile_size];
-        render_tile_recurse::<I, M>(
+        render_tile_recurse::<I, F, M>(
             i_handle,
             &mut pixels,
             config,
@@ -217,17 +216,21 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, I, M: RenderMode>(
-    handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
-    out: &mut [M::Output],
-    config: &RenderConfig,
-    tile_sizes: &[usize],
+fn render_tile_recurse<
+    'a,
+    'b,
+    I: IntervalFuncT,
+    F: FloatSliceFuncT,
+    M: RenderMode,
+>(
+    i_handle: &'a IntervalFunc<I>,
+    out: &'b mut [M::Output],
+    config: &'b RenderConfig,
+    tile_sizes: &'b [usize],
     tile: Tile,
-    scratch: &mut Scratch,
-) where
-    for<'s> I: EvalFamily<'s>,
-{
-    let mut eval = handle.get_evaluator();
+    scratch: &'b mut Scratch,
+) {
+    let mut eval = i_handle.get_evaluator();
 
     let x_min = config.pixel_to_pos(tile.corner[0]) + config.dx;
     let x_max = config.pixel_to_pos(tile.corner[0] + tile_sizes[0]) + config.dx;
@@ -248,12 +251,12 @@ fn render_tile_recurse<'a, I, M: RenderMode>(
             out[start..][..tile_sizes[0]].fill(fill);
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = I::from_tape_i(&sub_tape);
+        let sub_tape = eval.simplify(REG_LIMIT);
+        let sub_jit = IntervalFunc::new(&sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I, M>(
+                render_tile_recurse::<<I as IntervalFuncT>::Recurse<'_>, F, M>(
                     &sub_jit,
                     out,
                     config,
@@ -269,8 +272,8 @@ fn render_tile_recurse<'a, I, M: RenderMode>(
             }
         }
     } else {
-        let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = I::from_tape_s(&sub_tape);
+        let sub_tape = eval.simplify(REG_LIMIT);
+        let sub_jit = FloatSliceFunc::<F>::new(&sub_tape);
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -302,18 +305,15 @@ fn render_tile_recurse<'a, I, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I, M: RenderMode>(
+pub fn render<I: IntervalFuncT, F: FloatSliceFuncT, M: RenderMode>(
     tape: Tape,
     config: &RenderConfig,
-) -> Vec<M::Output>
-where
-    for<'s> I: EvalFamily<'s>,
-{
+) -> Vec<M::Output> {
     assert!(config.image_size % config.tile_size == 0);
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = I::from_tape_i(&tape);
+    let i_handle = IntervalFunc::new(&tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -327,9 +327,9 @@ where
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(
-                s.spawn(|| worker::<I, M>(&i_handle, &tiles, &index, config)),
-            );
+            handles.push(s.spawn(|| {
+                worker::<I, F, M>(&i_handle, &tiles, &index, config)
+            }));
         }
         let mut out = vec![];
         for h in handles {

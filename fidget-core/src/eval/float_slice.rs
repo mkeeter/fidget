@@ -28,19 +28,24 @@ pub trait FloatSliceEvalT {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `FloatSliceEval` objects, which actually do evaluation.
-pub struct FloatSliceFunc<'a, F> {
+pub struct FloatSliceFunc<'a, F: FloatSliceFuncT> {
     tape: &'a Tape,
-    func: F,
+    func: F::Recurse<'a>,
 }
 
-impl<'a, F: FloatSliceFuncT<Recurse<'a> = F>> FloatSliceFunc<'a, F> {
+impl<'a, F: FloatSliceFuncT> FloatSliceFunc<'a, F> {
     pub fn new(tape: &'a Tape) -> Self {
         Self {
             tape,
             func: F::from_tape(tape),
         }
     }
-    pub fn get_evaluator(&self) -> FloatSliceEval<'_, F::Evaluator> {
+    pub fn get_evaluator(
+        &self,
+    ) -> FloatSliceEval<
+        'a,
+        <<F as FloatSliceFuncT>::Recurse<'a> as FloatSliceFuncT>::Evaluator,
+    > {
         FloatSliceEval {
             tape: self.tape,
             eval: self.func.get_evaluator(),

@@ -258,12 +258,12 @@ pub trait IntervalFuncT: Sync {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `IntervalEval` objects, which actually do evaluation.
-pub struct IntervalFunc<'a, F> {
+pub struct IntervalFunc<'a, F: IntervalFuncT> {
     tape: &'a Tape,
-    func: F,
+    func: F::Recurse<'a>,
 }
 
-impl<'a, F: IntervalFuncT<Recurse<'a> = F>> IntervalFunc<'a, F> {
+impl<'a, F: IntervalFuncT> IntervalFunc<'a, F> {
     pub fn tape(&self) -> &Tape {
         self.tape
     }
@@ -275,7 +275,12 @@ impl<'a, F: IntervalFuncT<Recurse<'a> = F>> IntervalFunc<'a, F> {
         }
     }
 
-    pub fn get_evaluator(&self) -> IntervalEval<'a, F::Evaluator> {
+    pub fn get_evaluator(
+        &self,
+    ) -> IntervalEval<
+        'a,
+        <<F as IntervalFuncT>::Recurse<'a> as IntervalFuncT>::Evaluator,
+    > {
         IntervalEval {
             tape: self.tape,
             choices: vec![Choice::Unknown; self.tape.choice_count()],
