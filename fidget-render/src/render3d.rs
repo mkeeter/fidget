@@ -76,13 +76,11 @@ struct Worker<'a> {
 impl Worker<'_> {
     fn render_tile_recurse<'a, I: EvalFamily>(
         &mut self,
-        handle: &'a IntervalFunc<'_, <I as EvalFamily>::IntervalFunc>,
+        handle: &'a IntervalFunc<I::IntervalFunc>,
         depth: usize,
         tile: Tile,
-        float_handle: Option<
-            &FloatSliceFunc<'a, <I as EvalFamily>::FloatSliceFunc>,
-        >,
-    ) -> Option<FloatSliceFunc<'a, <I as EvalFamily>::FloatSliceFunc>> {
+        float_handle: Option<&FloatSliceFunc<'a, I::FloatSliceFunc>>,
+    ) -> Option<FloatSliceFunc<'a, I::FloatSliceFunc>> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Brute-force way to find the (interval) bounding box of the region
