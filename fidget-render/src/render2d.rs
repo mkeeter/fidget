@@ -183,11 +183,11 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, 'b, I: EvalFamily, M: RenderMode>(
-    i_handle: &'a IntervalFunc<I::IntervalFunc>,
-    tiles: &'b [Tile],
-    i: &'b AtomicUsize,
-    config: &'b RenderConfig,
+fn worker<I: EvalFamily, M: RenderMode>(
+    i_handle: &IntervalFunc<I::IntervalFunc>,
+    tiles: &[Tile],
+    i: &AtomicUsize,
+    config: &RenderConfig,
 ) -> Vec<(Tile, Vec<M::Output>)> {
     let mut out = vec![];
     let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
@@ -215,13 +215,13 @@ fn worker<'a, 'b, I: EvalFamily, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn render_tile_recurse<'a, 'b, I: EvalFamily, M: RenderMode>(
-    i_handle: &'a IntervalFunc<I::IntervalFunc>,
-    out: &'b mut [M::Output],
-    config: &'b RenderConfig,
-    tile_sizes: &'b [usize],
+fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
+    i_handle: &IntervalFunc<I::IntervalFunc>,
+    out: &mut [M::Output],
+    config: &RenderConfig,
+    tile_sizes: &[usize],
     tile: Tile,
-    scratch: &'b mut Scratch,
+    scratch: &mut Scratch,
 ) {
     let mut eval = i_handle.get_evaluator();
 
