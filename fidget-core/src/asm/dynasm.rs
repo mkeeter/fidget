@@ -1,7 +1,7 @@
 //! Infrastructure for compiling down to native machine code
 use dynasmrt::{
-    aarch64::Aarch64Relocation, dynasm, AssemblyOffset, DynasmApi,
-    DynasmLabelApi, VecAssembler as DynasmVecAssembler,
+    aarch64::Aarch64Relocation, dynasm, DynasmApi,
+    VecAssembler as DynasmVecAssembler,
 };
 
 use crate::{
@@ -69,14 +69,13 @@ trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
-    fn finalize(self, out_reg: u8) -> (Vec<u8>, AssemblyOffset);
+    fn finalize(self, out_reg: u8) -> Vec<u8>;
 }
 
 struct FloatAssembler(AssemblerData<f32>);
 
 struct AssemblerData<T> {
     ops: DynasmVecAssembler<Aarch64Relocation>,
-    shape_fn: AssemblyOffset,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -109,11 +108,6 @@ impl AssemblerT for FloatAssembler {
     fn init() -> Self {
         let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
-            ; -> shape_fn:
-        );
-        let shape_fn = ops.offset();
-
-        dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -127,7 +121,6 @@ impl AssemblerT for FloatAssembler {
 
         Self(AssemblerData {
             ops,
-            shape_fn,
             mem_offset: 0,
             _p: std::marker::PhantomData,
         })
@@ -208,7 +201,7 @@ impl AssemblerT for FloatAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
         dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
@@ -224,8 +217,16 @@ impl AssemblerT for FloatAssembler {
             ; ret
         );
 
-        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
+        self.0.ops.finalize().unwrap()
     }
+}
+
+#[link(name = "c")]
+extern "C" {
+    fn sys_icache_invalidate(
+        start: *const std::ffi::c_void,
+        size: libc::size_t,
+    );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -265,11 +266,6 @@ impl AssemblerT for IntervalAssembler {
     fn init() -> Self {
         let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
-            ; -> shape_fn:
-        );
-        let shape_fn = ops.offset();
-
-        dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -290,7 +286,6 @@ impl AssemblerT for IntervalAssembler {
 
         Self(AssemblerData {
             ops,
-            shape_fn,
             mem_offset: 0,
             _p: std::marker::PhantomData,
         })
@@ -390,7 +385,7 @@ impl AssemblerT for IntervalAssembler {
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
-            // Store lhs <= 0.0 in x8
+            // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
 
@@ -567,7 +562,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
         dynasm!(self.0.ops
             // Prepare our return value
             ; mov  s0, V(reg(out_reg)).s[0]
@@ -584,7 +579,7 @@ impl AssemblerT for IntervalAssembler {
             ; ret
         );
 
-        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
+        self.0.ops.finalize().unwrap()
     }
 }
 
@@ -592,11 +587,6 @@ struct VecAssembler(AssemblerData<[f32; 4]>);
 impl AssemblerT for VecAssembler {
     fn init() -> Self {
         let mut ops = dynasmrt::VecAssembler::new(0);
-        dynasm!(ops
-            ; -> shape_fn:
-        );
-        let shape_fn = ops.offset();
-
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -645,7 +635,6 @@ impl AssemblerT for VecAssembler {
 
         Self(AssemblerData {
             ops,
-            shape_fn,
             mem_offset: 0,
             _p: std::marker::PhantomData,
         })
@@ -740,7 +729,7 @@ impl AssemblerT for VecAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> (Vec<u8>, AssemblyOffset) {
+    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x3
             // It's fine to overwrite X at this point in V0, since we're not
@@ -760,7 +749,7 @@ impl AssemblerT for VecAssembler {
             ; ret
         );
 
-        (self.0.ops.finalize().unwrap(), self.0.shape_fn)
+        self.0.ops.finalize().unwrap()
     }
 }
 
@@ -845,8 +834,7 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
         }
     }
 
-    let (buf, _shape_fn) = asm.finalize(0);
-    buf
+    asm.finalize(0)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -925,6 +913,7 @@ pub struct JitVecFunc<'a> {
 impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
     type Evaluator = JitVecEval<'a>;
     type Recurse<'b> = JitVecFunc<'b>;
+    type Storage = memmap2::Mmap;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
@@ -934,15 +923,62 @@ impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
         }
     }
 
+    fn from_tape_give(
+        t: &Tape,
+        s: Self::Storage,
+    ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
+        let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
+        if buf.len() <= s.len() {
+            let p = s.as_ptr();
+            let mut mmap = s.make_mut().unwrap();
+            mmap[0..buf.len()].copy_from_slice(&buf);
+            let mmap = mmap.make_exec().unwrap();
+            unsafe {
+                sys_icache_invalidate(
+                    mmap.as_ptr() as *const std::ffi::c_void,
+                    buf.len(),
+                );
+            }
+            assert_eq!(mmap.as_ptr(), p);
+            (
+                JitVecFunc {
+                    mmap,
+                    _p: std::marker::PhantomData,
+                },
+                None,
+            )
+        } else {
+            let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+            mmap[0..buf.len()].copy_from_slice(&buf);
+            let mmap = mmap.make_exec().unwrap();
+            (
+                JitVecFunc {
+                    mmap,
+                    _p: std::marker::PhantomData,
+                },
+                Some(s),
+            )
+        }
+    }
+
+    fn take(self) -> Self::Storage {
+        self.mmap
+    }
+
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
         let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
-        mmap.copy_from_slice(&buf);
+        mmap[0..buf.len()].copy_from_slice(&buf);
         let mmap = mmap.make_exec().unwrap();
         JitVecFunc {
             mmap,
             _p: std::marker::PhantomData,
         }
+    }
+
+    /// Needed for lifetime erasure
+    fn lift(s: Self::Storage) -> Self::Storage {
+        s
     }
 }
 
@@ -1459,5 +1495,46 @@ mod tests {
             &mut out,
         );
         assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn test_give_take() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+
+        let tape_x = ctx.get_tape(x, REGISTER_LIMIT);
+        let tape_y = ctx.get_tape(y, REGISTER_LIMIT);
+
+        let jit = FloatSliceFunc::<JitVecFunc>::new(&tape_y);
+        let mut out = [0.0; 4];
+        let mut t = jit.take();
+
+        // This is a fuzz test for icache issues
+        for _ in 0..10000 {
+            let (jit, s) = FloatSliceFunc::<JitVecFunc>::new_give(&tape_x, t);
+            assert!(s.is_none());
+            let mut eval = jit.get_evaluator();
+            eval.eval_s(
+                &[0.0, 1.0, 2.0, 3.0],
+                &[3.0, 2.0, 1.0, 0.0],
+                &[0.0, 0.0, 0.0, 100.0],
+                &mut out,
+            );
+            assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
+            t = jit.take();
+
+            let (jit, s) = FloatSliceFunc::<JitVecFunc>::new_give(&tape_y, t);
+            assert!(s.is_none());
+            let mut eval = jit.get_evaluator();
+            eval.eval_s(
+                &[0.0, 1.0, 2.0, 3.0],
+                &[3.0, 2.0, 1.0, 0.0],
+                &[0.0, 0.0, 0.0, 100.0],
+                &mut out,
+            );
+            assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
+            t = jit.take();
+        }
     }
 }

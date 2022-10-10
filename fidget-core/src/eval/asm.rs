@@ -176,6 +176,7 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
 impl<'a> FloatSliceFuncT for AsmFunc<'a> {
     type Evaluator = AsmFloatSliceEval<'a>;
     type Recurse<'b> = AsmFunc<'b>;
+    type Storage = ();
 
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmFloatSliceEval::new(self.tape)
@@ -183,6 +184,22 @@ impl<'a> FloatSliceFuncT for AsmFunc<'a> {
 
     fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
         AsmFunc { tape }
+    }
+
+    fn from_tape_give(
+        tape: &Tape,
+        _s: Self::Storage,
+    ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
+        (AsmFunc { tape }, None)
+    }
+
+    fn take(self) {
+        // Nothing to do here
+    }
+
+    /// Needed for lifetime erasure
+    fn lift(_s: ()) {
+        // Nothing to do here
     }
 }
 

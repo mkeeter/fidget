@@ -1,7 +1,9 @@
 //! Bitmap rendering
 use fidget_core::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalT, FloatSliceFunc},
+        float_slice::{
+            FloatSliceEval, FloatSliceEvalT, FloatSliceFunc, FloatSliceFuncT,
+        },
         interval::{Interval, IntervalFunc},
         EvalFamily,
     },
@@ -67,14 +69,16 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a> {
+struct Worker<'a, I: EvalFamily> {
     config: &'a RenderConfig,
     scratch: Scratch,
     out: Vec<usize>,
+    buffers:
+        Vec<<<I as EvalFamily>::FloatSliceFunc as FloatSliceFuncT>::Storage>,
 }
 
-impl Worker<'_> {
-    fn render_tile_recurse<'a, I: EvalFamily>(
+impl<I: EvalFamily> Worker<'_, I> {
+    fn render_tile_recurse<'a>(
         &mut self,
         handle: &'a IntervalFunc<I::IntervalFunc>,
         depth: usize,
@@ -140,7 +144,7 @@ impl Worker<'_> {
             for j in 0..n {
                 for i in 0..n {
                     for k in 0..n {
-                        let r = self.render_tile_recurse::<I>(
+                        let r = self.render_tile_recurse(
                             &sub_jit,
                             depth + 1,
                             Tile {
@@ -191,11 +195,22 @@ impl Worker<'_> {
             // (this matters most for the JIT compiler, which is _expensive_)
             let sub_tape = eval.simplify(I::REG_LIMIT);
             let ret = if sub_tape.len() < handle.tape().len() {
-                let sub_jit =
-                    FloatSliceFunc::<I::FloatSliceFunc>::new(&sub_tape);
+                // Reuse FloatSliceFunc buffers if possible
+                let sub_jit = match self.buffers.pop() {
+                    Some(s) => {
+                        let (sub_jit, s) =
+                            FloatSliceFunc::<I::FloatSliceFunc>::new_give(
+                                &sub_tape, s,
+                            );
+                        self.buffers.extend(s);
+                        sub_jit
+                    }
+                    None => FloatSliceFunc::<I::FloatSliceFunc>::new(&sub_tape),
+                };
 
                 let mut eval = sub_jit.get_evaluator();
                 self.scratch.eval_s(&mut eval);
+                self.buffers.push(I::FloatSliceFunc::lift(sub_jit.take()));
 
                 None
             } else if let Some(r) = float_handle {
@@ -205,7 +220,22 @@ impl Worker<'_> {
                 None
             } else {
                 // Build our own FloatSliceFunc handle, then return it
-                let func = FloatSliceFunc::new(handle.tape());
+                // TODO: copy-pasta from the top case
+                let func = match self.buffers.pop() {
+                    Some(s) => {
+                        let (sub_jit, s) =
+                            FloatSliceFunc::<I::FloatSliceFunc>::new_give(
+                                handle.tape(),
+                                s,
+                            );
+                        self.buffers.extend(s);
+                        sub_jit
+                    }
+                    None => {
+                        FloatSliceFunc::<I::FloatSliceFunc>::new(handle.tape())
+                    }
+                };
+
                 let mut eval = func.get_evaluator();
                 self.scratch.eval_s(&mut eval);
                 Some(func)
@@ -245,10 +275,11 @@ fn worker<I: EvalFamily>(
     // Calculate maximum evaluation buffer size
     let buf_size = config.tile_sizes.last().cloned().unwrap_or(0);
     let scratch = Scratch::new(buf_size * buf_size * buf_size);
-    let mut w = Worker {
+    let mut w: Worker<I> = Worker {
         scratch,
         out: vec![],
         config,
+        buffers: vec![],
     };
     loop {
         let index = i.fetch_add(1, Ordering::Relaxed);
@@ -259,7 +290,7 @@ fn worker<I: EvalFamily>(
 
         // Prepare to render, allocating space for a tile
         w.out = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
-        w.render_tile_recurse::<I>(i_handle, 0, tile, None);
+        w.render_tile_recurse(i_handle, 0, tile, None);
 
         // Steal the tile, replacing it with an empty vec
         let mut pixels = vec![];
