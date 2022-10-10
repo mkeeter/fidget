@@ -60,10 +60,7 @@ impl Scratch {
             out: vec![0.0; size],
         }
     }
-    fn eval_s<'a, E>(&mut self, f: &mut FloatSliceEval<'a, E>)
-    where
-        E: FloatSliceEvalT<'a>,
-    {
+    fn eval_s<E: FloatSliceEvalT>(&mut self, f: &mut FloatSliceEval<E>) {
         f.eval_s(&self.x, &self.y, &self.z, &mut self.out);
     }
 }
@@ -77,18 +74,15 @@ struct Worker<'a> {
 }
 
 impl Worker<'_> {
-    fn render_tile_recurse<'a, 'b, I>(
+    fn render_tile_recurse<'a, I: EvalFamily>(
         &mut self,
-        handle: &'b IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
+        handle: &'a IntervalFunc<'_, <I as EvalFamily>::IntervalFunc>,
         depth: usize,
         tile: Tile,
         float_handle: Option<
-            &FloatSliceFunc<'b, <I as EvalFamily<'b>>::FloatSliceFunc>,
+            &FloatSliceFunc<'a, <I as EvalFamily>::FloatSliceFunc>,
         >,
-    ) -> Option<FloatSliceFunc<'b, <I as EvalFamily<'b>>::FloatSliceFunc>>
-    where
-        for<'s> I: EvalFamily<'s>,
-    {
+    ) -> Option<FloatSliceFunc<'a, <I as EvalFamily>::FloatSliceFunc>> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -142,7 +136,7 @@ impl Worker<'_> {
             self.config.tile_sizes.get(depth + 1).cloned()
         {
             let sub_tape = eval.simplify(I::REG_LIMIT);
-            let sub_jit = I::from_tape_i(&sub_tape);
+            let sub_jit = IntervalFunc::new(&sub_tape);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -199,7 +193,8 @@ impl Worker<'_> {
             // (this matters most for the JIT compiler, which is _expensive_)
             let sub_tape = eval.simplify(I::REG_LIMIT);
             let ret = if sub_tape.len() < handle.tape().len() {
-                let sub_jit = I::from_tape_s(&sub_tape);
+                let sub_jit =
+                    FloatSliceFunc::<I::FloatSliceFunc>::new(&sub_tape);
 
                 let mut eval = sub_jit.get_evaluator();
                 self.scratch.eval_s(&mut eval);
@@ -212,7 +207,7 @@ impl Worker<'_> {
                 None
             } else {
                 // Build our own FloatSliceFunc handle, then return it
-                let func = I::from_tape_s(handle.tape());
+                let func = FloatSliceFunc::new(handle.tape());
                 let mut eval = func.get_evaluator();
                 self.scratch.eval_s(&mut eval);
                 Some(func)
@@ -241,15 +236,12 @@ impl Worker<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<'a, I>(
-    i_handle: &IntervalFunc<'a, <I as EvalFamily<'a>>::IntervalFunc>,
+fn worker<I: EvalFamily>(
+    i_handle: &IntervalFunc<'_, <I as EvalFamily>::IntervalFunc>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
-) -> Vec<(Tile, Vec<usize>)>
-where
-    for<'s> I: EvalFamily<'s>,
-{
+) -> Vec<(Tile, Vec<usize>)> {
     let mut out = vec![];
 
     // Calculate maximum evaluation buffer size
@@ -281,16 +273,13 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I>(tape: Tape, config: &RenderConfig) -> Vec<usize>
-where
-    for<'s> I: EvalFamily<'s>,
-{
+pub fn render<I: EvalFamily>(tape: Tape, config: &RenderConfig) -> Vec<usize> {
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = I::from_tape_i(&tape);
+    let i_handle = IntervalFunc::new(&tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

@@ -46,16 +46,12 @@ struct Args {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/*
-fn run3d<I>(
+fn run3d<I: fidget::eval::EvalFamily>(
     ctx: &Context,
     node: Node,
     size: u32,
     n: usize,
-) -> (Vec<u8>, std::time::Instant)
-where
-    for<'s> I: fidget::eval::EvalFamily<'s>,
-{
+) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
@@ -89,7 +85,6 @@ where
         .collect();
     (out, start)
 }
-*/
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -176,10 +171,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                todo!()
-                /*
-                run3d::<fidget::eval::AsmFamily>(&ctx, root, args.size, args.n)
-                */
+                run3d::<fidget::eval::asm::AsmFamily>(
+                    &ctx, root, args.size, args.n,
+                )
             } else {
                 run::<fidget::eval::asm::AsmFamily>(
                     &ctx, root, args.brute, args.size, args.n,
@@ -187,12 +181,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else if args.jit {
             if args.threedee {
-                todo!()
-                /*
                 run3d::<fidget::asm::dynasm::JitEvalFamily>(
                     &ctx, root, args.size, args.n,
                 )
-                */
             } else {
                 run::<fidget::asm::dynasm::JitEvalFamily>(
                     &ctx, root, args.brute, args.size, args.n,
