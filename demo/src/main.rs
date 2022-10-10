@@ -152,7 +152,6 @@ fn run<I: fidget::eval::EvalFamily>(
         for _ in 0..n {
             image = fidget::render::render2d::render::<
                 I,
-                F,
                 fidget::render::render2d::DebugRenderMode,
             >(tape.clone(), &cfg);
         }
@@ -195,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 */
             } else {
-                run::<fidget::asm::dynasm::JitFamily>(
+                run::<fidget::asm::dynasm::JitEvalFamily>(
                     &ctx, root, args.brute, args.size, args.n,
                 )
             }
