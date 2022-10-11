@@ -140,7 +140,7 @@ pub struct IntervalEval<'a, E> {
     pub(crate) eval: E,
 }
 
-impl<'a, E: IntervalEvalT<'a>> IntervalEval<'a, E> {
+impl<'a, E: IntervalEvalT> IntervalEval<'a, E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self, reg_limit: u8) -> Tape {
@@ -240,8 +240,11 @@ impl<'a, E: IntervalEvalT<'a>> IntervalEval<'a, E> {
 }
 
 /// Trait for a function handle stored in a [`IntervalFunc`](IntervalFunc)
-pub trait IntervalFuncT<'a>: Sync {
-    type Evaluator: IntervalEvalT<'a>;
+pub trait IntervalFuncT: Sync {
+    type Evaluator: IntervalEvalT;
+    type Recurse<'a>: IntervalFuncT;
+
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
 
     /// Return the evaluator type, which may borrow from this `struct`
     ///
@@ -255,20 +258,26 @@ pub trait IntervalFuncT<'a>: Sync {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `IntervalEval` objects, which actually do evaluation.
-pub struct IntervalFunc<'a, F> {
+pub struct IntervalFunc<'a, F: IntervalFuncT> {
     tape: &'a Tape,
-    func: F,
+    func: F::Recurse<'a>,
 }
 
-impl<'a, F: IntervalFuncT<'a>> IntervalFunc<'a, F> {
+impl<'a, F: IntervalFuncT> IntervalFunc<'a, F> {
     pub fn tape(&self) -> &Tape {
         self.tape
     }
 
-    pub fn new(tape: &'a Tape, func: F) -> Self {
-        Self { tape, func }
+    pub fn new(tape: &'a Tape) -> Self {
+        Self {
+            tape,
+            func: F::from_tape(tape),
+        }
     }
-    pub fn get_evaluator(&self) -> IntervalEval<'a, F::Evaluator> {
+
+    pub fn get_evaluator(
+        &self,
+    ) -> IntervalEval<'a, <F::Recurse<'a> as IntervalFuncT>::Evaluator> {
         IntervalEval {
             tape: self.tape,
             choices: vec![Choice::Unknown; self.tape.choice_count()],
@@ -283,7 +292,7 @@ impl<'a, F: IntervalFuncT<'a>> IntervalFunc<'a, F> {
 /// The evaluator will likely have a lifetime bounded to its parent
 /// [`IntervalFuncT`](IntervalFuncT), and can generate
 /// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
-pub trait IntervalEvalT<'a> {
+pub trait IntervalEvalT {
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,

@@ -5,14 +5,16 @@ use crate::{eval::Choice, tape::Tape};
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub trait PointFuncT<'a> {
-    type Evaluator: PointEvalT<'a>;
+pub trait PointFuncT {
+    type Evaluator: PointEvalT;
+    type Recurse<'a>: PointFuncT;
 
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
     fn get_evaluator(&self) -> Self::Evaluator;
 }
 
 /// `f32` evaluator
-pub trait PointEvalT<'a> {
+pub trait PointEvalT {
     fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
 }
 
@@ -21,16 +23,21 @@ pub trait PointEvalT<'a> {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointFunc<'a, F> {
+pub struct PointFunc<'a, F: PointFuncT> {
     tape: &'a Tape,
-    func: F,
+    func: F::Recurse<'a>,
 }
 
-impl<'a, F: PointFuncT<'a>> PointFunc<'a, F> {
-    pub fn new(tape: &'a Tape, func: F) -> Self {
-        Self { tape, func }
+impl<'a, F: PointFuncT> PointFunc<'a, F> {
+    pub fn new(tape: &'a Tape) -> Self {
+        Self {
+            tape,
+            func: F::from_tape(tape),
+        }
     }
-    pub fn get_evaluator(&self) -> PointEval<'a, F::Evaluator> {
+    pub fn get_evaluator(
+        &self,
+    ) -> PointEval<'a, <F::Recurse<'a> as PointFuncT>::Evaluator> {
         PointEval {
             tape: self.tape,
             choices: vec![Choice::Unknown; self.tape.choice_count()],
@@ -45,7 +52,7 @@ pub struct PointEval<'a, E> {
     pub(crate) eval: E,
 }
 
-impl<'a, E: PointEvalT<'a>> PointEval<'a, E> {
+impl<'a, E: PointEvalT> PointEval<'a, E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self, reg_limit: u8) -> Tape {

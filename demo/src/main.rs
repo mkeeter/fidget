@@ -46,15 +46,12 @@ struct Args {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<I>(
+fn run3d<I: fidget::eval::EvalFamily>(
     ctx: &Context,
     node: Node,
     size: u32,
     n: usize,
-) -> (Vec<u8>, std::time::Instant)
-where
-    for<'s> I: fidget::eval::EvalFamily<'s>,
-{
+) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
@@ -91,23 +88,22 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run<I>(
+fn run<I: fidget::eval::EvalFamily>(
     ctx: &Context,
     node: Node,
     brute: bool,
     size: u32,
     n: usize,
-) -> (Vec<u8>, std::time::Instant)
-where
-    for<'s> I: fidget::eval::EvalFamily<'s>,
-{
+) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
 
     if brute {
-        use fidget::eval::{AsmFamily, EvalFamily};
-        let mut eval = AsmFamily::from_tape_s(&tape).get_evaluator();
+        let mut eval = fidget::eval::float_slice::FloatSliceFunc::<
+            I::FloatSliceFunc,
+        >::new(&tape)
+        .get_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
         for _ in 0..n {
@@ -175,9 +171,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(img) = args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                run3d::<fidget::eval::AsmFamily>(&ctx, root, args.size, args.n)
+                run3d::<fidget::eval::asm::AsmFamily>(
+                    &ctx, root, args.size, args.n,
+                )
             } else {
-                run::<fidget::eval::AsmFamily>(
+                run::<fidget::eval::asm::AsmFamily>(
                     &ctx, root, args.brute, args.size, args.n,
                 )
             }

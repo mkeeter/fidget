@@ -17,38 +17,32 @@ pub struct AsmFunc<'a> {
 }
 
 /// Family of evaluators that use a local interpreter
-pub enum AsmFamily {}
+pub struct AsmFamily<'a> {
+    _p: std::marker::PhantomData<&'a ()>,
+}
 
-impl<'a> EvalFamily<'a> for AsmFamily {
+impl<'a> EvalFamily for AsmFamily<'a> {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
+
+    type Recurse<'b> = AsmFamily<'b>;
 
     type IntervalFunc = AsmFunc<'a>;
     type FloatSliceFunc = AsmFunc<'a>;
     type PointFunc = AsmFunc<'a>;
-
-    fn from_tape_i_inner(t: &Tape) -> AsmFunc {
-        AsmFunc { tape: t }
-    }
-    fn from_tape_s_inner(t: &Tape) -> AsmFunc {
-        AsmFunc { tape: t }
-    }
-    fn from_tape_p_inner(t: &Tape) -> AsmFunc {
-        AsmFunc { tape: t }
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> IntervalFuncT<'a> for AsmFunc<'a> {
+impl<'a> IntervalFuncT for AsmFunc<'a> {
     type Evaluator = AsmIntervalEval<'a>;
+    type Recurse<'b> = AsmFunc<'b>;
+
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmIntervalEval::new(self.tape)
     }
-}
 
-impl<'a> AsmFunc<'a> {
-    pub fn from_tape(tape: &Tape) -> AsmFunc {
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
         AsmFunc { tape }
     }
 }
@@ -78,7 +72,7 @@ impl<'a> AsmIntervalEval<'a> {
     }
 }
 
-impl<'a> IntervalEvalT<'a> for AsmIntervalEval<'a> {
+impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -179,11 +173,33 @@ impl<'a> IntervalEvalT<'a> for AsmIntervalEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> FloatSliceFuncT<'a> for AsmFunc<'a> {
+impl<'a> FloatSliceFuncT for AsmFunc<'a> {
     type Evaluator = AsmFloatSliceEval<'a>;
+    type Recurse<'b> = AsmFunc<'b>;
+    type Storage = ();
 
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmFloatSliceEval::new(self.tape)
+    }
+
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+        AsmFunc { tape }
+    }
+
+    fn from_tape_give(
+        tape: &Tape,
+        _s: Self::Storage,
+    ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
+        (AsmFunc { tape }, None)
+    }
+
+    fn take(self) {
+        // Nothing to do here
+    }
+
+    /// Needed for lifetime erasure
+    fn lift(_s: ()) {
+        // Nothing to do here
     }
 }
 
@@ -217,7 +233,7 @@ impl<'a> AsmFloatSliceEval<'a> {
     }
 }
 
-impl<'a> FloatSliceEvalT<'a> for AsmFloatSliceEval<'a> {
+impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         self.slice_size = xs.len().min(ys.len()).min(zs.len()).min(out.len());
         for op in self.tape.iter_asm() {
@@ -338,11 +354,15 @@ impl<'a> FloatSliceEvalT<'a> for AsmFloatSliceEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> PointFuncT<'a> for AsmFunc<'a> {
+impl<'a> PointFuncT for AsmFunc<'a> {
     type Evaluator = AsmPointEval<'a>;
+    type Recurse<'b> = AsmFunc<'b>;
 
     fn get_evaluator(&self) -> Self::Evaluator {
         AsmPointEval::new(self.tape)
+    }
+    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+        AsmFunc { tape }
     }
 }
 
@@ -370,7 +390,7 @@ impl<'a> AsmPointEval<'a> {
     }
 }
 
-impl<'a> PointEvalT<'a> for AsmPointEval<'a> {
+impl<'a> PointEvalT for AsmPointEval<'a> {
     fn eval_p(
         &mut self,
         x: f32,
