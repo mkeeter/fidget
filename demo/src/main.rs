@@ -181,11 +181,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else if args.jit {
             if args.threedee {
-                run3d::<fidget::asm::dynasm::JitEvalFamily>(
+                run3d::<fidget::jit::JitEvalFamily>(
                     &ctx, root, args.size, args.n,
                 )
             } else {
-                run::<fidget::asm::dynasm::JitEvalFamily>(
+                run::<fidget::jit::JitEvalFamily>(
                     &ctx, root, args.brute, args.size, args.n,
                 )
             }

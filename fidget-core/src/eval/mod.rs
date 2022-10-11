@@ -8,7 +8,7 @@ pub mod interval;
 pub mod point;
 
 // Re-export a few things
-pub(crate) use choice::Choice;
+pub use choice::Choice;
 
 /// Represents a "family" of evaluators (JIT, interpreter, etc)
 pub trait EvalFamily {

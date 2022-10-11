@@ -148,9 +148,9 @@ impl eframe::App for MyApp {
             for s in script_ctx.shapes.iter() {
                 let tape = script_ctx
                     .context
-                    .get_tape(s.shape, fidget::asm::dynasm::REGISTER_LIMIT);
+                    .get_tape(s.shape, fidget::jit::REGISTER_LIMIT);
                 let image = fidget::render::render2d::render::<
-                    fidget::asm::dynasm::JitEvalFamily,
+                    fidget::jit::JitEvalFamily,
                     fidget::render::render2d::BitRenderMode,
                 >(
                     tape,

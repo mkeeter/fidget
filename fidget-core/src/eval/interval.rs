@@ -152,6 +152,10 @@ impl<'a, E: IntervalEvalT> IntervalEval<'a, E> {
         self.choices.fill(Choice::Unknown);
     }
 
+    pub fn choices(&self) -> &[Choice] {
+        &self.choices
+    }
+
     /// Performs interval evaluation
     pub fn eval_i<I: Into<Interval>>(&mut self, x: I, y: I, z: I) -> Interval {
         self.reset_choices();

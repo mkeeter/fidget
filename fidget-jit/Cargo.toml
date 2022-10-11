@@ -1,0 +1,10 @@
+[package]
+name = "fidget-jit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fidget-core = { path = "../fidget-core" }
+dynasmrt = "1.2.3"
+libc = "0.2"
+memmap2 = "0.5.7"

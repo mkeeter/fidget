@@ -4,7 +4,7 @@ use dynasmrt::{
     VecAssembler as DynasmVecAssembler,
 };
 
-use crate::{
+use fidget_core::{
     asm::AsmOp,
     eval::{
         float_slice::{FloatSliceEvalT, FloatSliceFuncT},
@@ -1114,7 +1114,7 @@ impl<'a> EvalFamily for JitEvalFamily<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
+    use fidget_core::{
         context::Context,
         eval::{float_slice::FloatSliceFunc, interval::IntervalFunc},
     };
@@ -1340,19 +1340,19 @@ mod tests {
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2]),
             [0.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Both]);
+        assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
             eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2]),
             [0.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left]);
+        assert_eq!(eval.choices(), &[Choice::Left]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2]),
             [0.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Right]);
+        assert_eq!(eval.choices(), &[Choice::Right]);
     }
 
     #[test]
@@ -1369,19 +1369,19 @@ mod tests {
             eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2]),
             [0.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Both]);
+        assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
             eval.eval_i([-1.0, 0.0], [0.0; 2], [0.0; 2]),
             [-1.0, 0.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left]);
+        assert_eq!(eval.choices(), &[Choice::Left]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0; 2], [0.0; 2]),
             [1.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Right]);
+        assert_eq!(eval.choices(), &[Choice::Right]);
     }
 
     #[test]
@@ -1398,19 +1398,19 @@ mod tests {
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2],),
             [0.5, 1.5].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Both]);
+        assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
             eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2]),
             [2.0, 3.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Right]);
+        assert_eq!(eval.choices(), &[Choice::Right]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2],),
             [2.0, 3.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left]);
+        assert_eq!(eval.choices(), &[Choice::Left]);
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
@@ -1421,19 +1421,19 @@ mod tests {
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]),
             [4.0, 5.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left, Choice::Right]);
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Right]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 4.0]),
             [2.0, 4.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left, Choice::Both]);
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Both]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]),
             [2.0, 3.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left, Choice::Left]);
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Left]);
     }
 
     #[test]
@@ -1450,19 +1450,19 @@ mod tests {
             eval.eval_i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]),
             [1.0, 2.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Both]);
+        assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
             eval.eval_i([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]),
             [1.0, 1.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Right]);
+        assert_eq!(eval.choices(), &[Choice::Right]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]),
             [2.0, 3.0].into()
         );
-        assert_eq!(&eval.choices, &[Choice::Left]);
+        assert_eq!(eval.choices(), &[Choice::Left]);
     }
 
     #[test]

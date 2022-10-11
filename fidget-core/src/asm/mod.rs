@@ -1,9 +1,7 @@
-//! Tools for working with virtual and machine assembly code
+//! Tools for working with virtual assembly code
 mod alloc;
 mod asm_op;
 mod lru;
-
-pub mod dynasm;
 
 pub(crate) use alloc::RegisterAllocator;
 

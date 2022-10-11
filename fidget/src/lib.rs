@@ -40,3 +40,8 @@ pub mod render {
 pub mod bind {
     pub use fidget_rhai::*;
 }
+
+/// JIT compilation to native code
+pub mod jit {
+    pub use fidget_jit::*;
+}

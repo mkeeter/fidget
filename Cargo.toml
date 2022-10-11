@@ -2,6 +2,7 @@
 members = [
     "fidget",
     "fidget-core",
+    "fidget-jit",
     "fidget-render",
     "fidget-rhai",
     "demo",

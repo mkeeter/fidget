@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 fidget-core = { path = "../fidget-core" }
+fidget-jit = { path = "../fidget-jit" }
 fidget-render = { path = "../fidget-render" }
 fidget-rhai = { path = "../fidget-rhai" }
