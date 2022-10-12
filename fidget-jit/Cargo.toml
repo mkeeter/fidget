@@ -7,4 +7,3 @@ edition = "2021"
 fidget-core = { path = "../fidget-core" }
 dynasmrt = "1.2.3"
 libc = "0.2"
-memmap2 = "0.5.7"

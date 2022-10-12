@@ -1,9 +1,12 @@
 //! Infrastructure for compiling down to native machine code
+mod mmap;
+
 use dynasmrt::{
     aarch64::Aarch64Relocation, dynasm, DynasmApi,
     VecAssembler as DynasmVecAssembler,
 };
 
+use crate::mmap::Mmap;
 use fidget_core::{
     asm::AsmOp,
     eval::{
@@ -219,14 +222,6 @@ impl AssemblerT for FloatAssembler {
 
         self.0.ops.finalize().unwrap()
     }
-}
-
-#[link(name = "c")]
-extern "C" {
-    fn sys_icache_invalidate(
-        start: *const std::ffi::c_void,
-        size: libc::size_t,
-    );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -841,7 +836,7 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
 
 /// Handle owning a JIT-compiled float function
 pub struct JitFloatFunc<'a> {
-    mmap: memmap2::Mmap,
+    mmap: Mmap,
     _p: std::marker::PhantomData<&'a ()>,
 }
 
@@ -859,9 +854,8 @@ impl<'a> PointFuncT for JitFloatFunc<'a> {
 
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let buf = build_asm_fn::<FloatAssembler>(t.iter_asm());
-        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+        let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
-        let mmap = mmap.make_exec().unwrap();
         Self::Recurse {
             mmap,
             _p: std::marker::PhantomData,
@@ -874,7 +868,7 @@ impl<'a> PointFuncT for JitFloatFunc<'a> {
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
 pub struct JitIntervalFunc<'a> {
-    mmap: memmap2::Mmap,
+    mmap: Mmap,
     _p: std::marker::PhantomData<&'a ()>,
 }
 unsafe impl Sync for JitIntervalFunc<'_> {}
@@ -894,9 +888,8 @@ impl<'a> IntervalFuncT for JitIntervalFunc<'a> {
 
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let buf = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
+        let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
-        let mmap = mmap.make_exec().unwrap();
         Self::Recurse {
             mmap,
             _p: std::marker::PhantomData,
@@ -906,14 +899,14 @@ impl<'a> IntervalFuncT for JitIntervalFunc<'a> {
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
 pub struct JitVecFunc<'a> {
-    mmap: memmap2::Mmap,
+    mmap: Mmap,
     _p: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
     type Evaluator = JitVecEval<'a>;
     type Recurse<'b> = JitVecFunc<'b>;
-    type Storage = memmap2::Mmap;
+    type Storage = Mmap;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
@@ -925,38 +918,27 @@ impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
 
     fn from_tape_give(
         t: &Tape,
-        s: Self::Storage,
+        mut prev: Self::Storage,
     ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
         let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
-        if buf.len() <= s.len() {
-            let p = s.as_ptr();
-            let mut mmap = s.make_mut().unwrap();
-            mmap[0..buf.len()].copy_from_slice(&buf);
-            let mmap = mmap.make_exec().unwrap();
-            unsafe {
-                sys_icache_invalidate(
-                    mmap.as_ptr() as *const std::ffi::c_void,
-                    buf.len(),
-                );
-            }
-            assert_eq!(mmap.as_ptr(), p);
+        if buf.len() <= prev.len() {
+            prev.copy_from_slice(&buf);
             (
                 JitVecFunc {
-                    mmap,
+                    mmap: prev,
                     _p: std::marker::PhantomData,
                 },
                 None,
             )
         } else {
-            let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
-            mmap[0..buf.len()].copy_from_slice(&buf);
-            let mmap = mmap.make_exec().unwrap();
+            let mut mmap = Mmap::new(buf.len()).unwrap();
+            mmap.copy_from_slice(&buf);
             (
                 JitVecFunc {
                     mmap,
                     _p: std::marker::PhantomData,
                 },
-                Some(s),
+                Some(prev),
             )
         }
     }
@@ -967,9 +949,8 @@ impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
 
     fn from_tape(t: &Tape) -> Self::Recurse<'_> {
         let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
-        let mut mmap = memmap2::MmapMut::map_anon(buf.len()).unwrap();
-        mmap[0..buf.len()].copy_from_slice(&buf);
-        let mmap = mmap.make_exec().unwrap();
+        let mut mmap = Mmap::new(buf.len()).unwrap();
+        mmap.copy_from_slice(&buf);
         JitVecFunc {
             mmap,
             _p: std::marker::PhantomData,
