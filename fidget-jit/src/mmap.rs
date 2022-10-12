@@ -1,3 +1,5 @@
+const PAGE_SIZE: usize = 4096;
+
 pub struct Mmap {
     ptr: *mut libc::c_void,
     len: usize,
@@ -5,6 +7,7 @@ pub struct Mmap {
 
 impl Mmap {
     pub fn new(len: usize) -> Result<Self, std::io::Error> {
+        let len = (len + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
