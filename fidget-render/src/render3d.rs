@@ -186,7 +186,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // This gets a little messy in terms of lifetimes.
             //
             // In some cases, the shortened tape isn't actually any shorter, so
-            // it's a waste of time to rebuild it.  Instead, we we want to use a
+            // it's a waste of time to rebuild it.  Instead, we want to use a
             // float-slice evaluator that's bound to the *parent* tape.
             // Luckily, such a thing _may_ be passed into this function.  If
             // not, we build it here and then pass it out, so future calls can
