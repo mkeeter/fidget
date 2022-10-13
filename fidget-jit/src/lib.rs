@@ -1033,44 +1033,55 @@ pub struct JitVecEval<'a> {
     _p: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> JitVecEval<'a> {
-    fn eval_v(&mut self, x: [f32; 4], y: [f32; 4], z: [f32; 4]) -> [f32; 4] {
-        let mut out = [0.0; 4];
-        unsafe {
-            (self.fn_vec)(x.as_ptr(), y.as_ptr(), z.as_ptr(), out.as_mut_ptr())
-        }
-        out
-    }
-}
-
 impl<'a> FloatSliceEvalT for JitVecEval<'a> {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
-        for i in 0.. {
-            let i = i * 4;
+        let n = [xs.len(), ys.len(), zs.len(), out.len()]
+            .into_iter()
+            .min()
+            .unwrap();
+
+        // Special case for < 4 items, in which case the input slices can't be
+        // used as workspace (because we need at least 4x f32)
+        if n < 4 {
             let mut x = [0.0; 4];
             let mut y = [0.0; 4];
             let mut z = [0.0; 4];
-            for j in 0..4 {
-                x[j] = match xs.get(i + j) {
-                    Some(x) => *x,
-                    None => return,
-                };
-                y[j] = match ys.get(i + j) {
-                    Some(y) => *y,
-                    None => return,
-                };
-                z[j] = match zs.get(i + j) {
-                    Some(z) => *z,
-                    None => return,
-                };
+            for i in 0..4 {
+                x[i] = xs.get(i).cloned().unwrap_or(0.0);
+                y[i] = ys.get(i).cloned().unwrap_or(0.0);
+                z[i] = zs.get(i).cloned().unwrap_or(0.0);
             }
-            let v = self.eval_v(x, y, z);
-            for (j, v) in v.iter().enumerate() {
-                match out.get_mut(i + j) {
-                    Some(o) => *o = *v,
-                    None => return,
+            let mut tmp = [std::f32::NAN; 4];
+            unsafe {
+                (self.fn_vec)(
+                    x.as_ptr(),
+                    y.as_ptr(),
+                    z.as_ptr(),
+                    tmp.as_mut_ptr(),
+                );
+            }
+            out[0..n].copy_from_slice(&tmp[0..n]);
+            out[n..].fill(std::f32::NAN);
+        } else {
+            let mut i = 0;
+            loop {
+                assert!(i + 4 <= n);
+                unsafe {
+                    (self.fn_vec)(
+                        xs.as_ptr().add(i),
+                        ys.as_ptr().add(i),
+                        zs.as_ptr().add(i),
+                        out.as_mut_ptr().add(i),
+                    )
+                }
+                i += 4;
+                if i == n {
+                    break;
+                } else if i + 4 > n {
+                    i = n - 4;
                 }
             }
+            out[n..].fill(std::f32::NAN);
         }
     }
 }

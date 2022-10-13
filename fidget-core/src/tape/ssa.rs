@@ -181,8 +181,8 @@ impl SsaTape {
         let mut data = self.data.iter();
         let mut choice_iter = choices.iter().rev();
 
-        let mut ops_out = vec![];
-        let mut data_out = vec![];
+        let mut ops_out = Vec::with_capacity(self.tape.len());
+        let mut data_out = Vec::with_capacity(self.data.len());
 
         for &op in self.tape.iter() {
             use TapeOp::*;

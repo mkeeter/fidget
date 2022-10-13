@@ -25,11 +25,13 @@ pub struct RenderConfig {
 }
 
 impl RenderConfig {
+    #[inline]
     fn vec3_to_pos(&self, p: Vector3<usize>) -> Vector3<f32> {
         let p = 2.0 * (p.cast::<f32>() / self.image_size as f32)
             - Vector3::new(1.0, 1.0, 1.0);
         self.mat.transform_vector(&p)
     }
+    #[inline]
     fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
         let x = tile.corner[0] % self.tile_sizes[0] + x;
         let y = tile.corner[1] % self.tile_sizes[0] + y;
@@ -127,8 +129,8 @@ impl<I: EvalFamily> Worker<'_, I> {
         };
 
         if let Some(fill) = fill {
-            for x in 0..tile_size {
-                for y in 0..tile_size {
+            for y in 0..tile_size {
+                for x in 0..tile_size {
                     let i = self.config.tile_to_offset(tile, x, y);
                     self.out[i] = self.out[i].max(fill);
                 }
@@ -249,9 +251,14 @@ impl<I: EvalFamily> Worker<'_, I> {
                         let z = tile.corner[2] + k + 1;
                         let o = self.config.tile_to_offset(tile, i, j);
                         if self.scratch.out[index] < 0.0 && self.out[o] < z {
+                            // Early exit on the first filled voxel
                             self.out[o] = z;
-                            //index += k + 1;
-                            //break;
+                            index += k + 1;
+                            break;
+                        } else if self.out[o] >= z {
+                            // Early exit if we end up behind the model
+                            index += k + 1;
+                            break;
                         }
                         index += 1;
                     }

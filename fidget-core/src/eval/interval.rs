@@ -12,13 +12,16 @@ pub struct Interval {
 }
 
 impl Interval {
+    #[inline]
     pub fn new(lower: f32, upper: f32) -> Self {
         assert!(upper >= lower || (lower.is_nan() && upper.is_nan()));
         Self { lower, upper }
     }
+    #[inline]
     pub fn lower(&self) -> f32 {
         self.lower
     }
+    #[inline]
     pub fn upper(&self) -> f32 {
         self.upper
     }
