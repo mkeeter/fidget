@@ -33,7 +33,7 @@ impl SsaTapeBuilder {
 
     pub fn finish(self) -> SsaTape {
         SsaTape {
-            tape: self.tape,
+            tape: self.tape.clone(),
             data: self.data,
             choice_count: self.choice_count,
         }

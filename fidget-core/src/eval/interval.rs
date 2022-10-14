@@ -168,13 +168,13 @@ impl std::ops::Neg for Interval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct IntervalEval<'a, E> {
-    pub(crate) tape: &'a Tape,
+pub struct IntervalEval<E> {
+    pub(crate) tape: Tape,
     pub(crate) choices: Vec<Choice>,
     pub(crate) eval: E,
 }
 
-impl<'a, E: IntervalEvalT> IntervalEval<'a, E> {
+impl<E: IntervalEvalT> IntervalEval<E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self, reg_limit: u8) -> Tape {
@@ -280,9 +280,8 @@ impl<'a, E: IntervalEvalT> IntervalEval<'a, E> {
 /// Trait for a function handle stored in a [`IntervalFunc`](IntervalFunc)
 pub trait IntervalFuncT: Sync {
     type Evaluator: IntervalEvalT;
-    type Recurse<'a>: IntervalFuncT;
 
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
+    fn from_tape(tape: Tape) -> Self;
 
     /// Return the evaluator type, which may borrow from this `struct`
     ///
@@ -296,28 +295,26 @@ pub trait IntervalFuncT: Sync {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `IntervalEval` objects, which actually do evaluation.
-pub struct IntervalFunc<'a, F: IntervalFuncT> {
-    tape: &'a Tape,
-    func: F::Recurse<'a>,
+pub struct IntervalFunc<F> {
+    tape: Tape,
+    func: F,
 }
 
-impl<'a, F: IntervalFuncT> IntervalFunc<'a, F> {
-    pub fn tape(&self) -> &Tape {
-        self.tape
+impl<F: IntervalFuncT> IntervalFunc<F> {
+    pub fn tape(&self) -> Tape {
+        self.tape.clone()
     }
 
-    pub fn new(tape: &'a Tape) -> Self {
+    pub fn from_tape(tape: Tape) -> Self {
         Self {
-            tape,
+            tape: tape.clone(),
             func: F::from_tape(tape),
         }
     }
 
-    pub fn get_evaluator(
-        &self,
-    ) -> IntervalEval<'a, <F::Recurse<'a> as IntervalFuncT>::Evaluator> {
+    pub fn get_evaluator(&self) -> IntervalEval<F::Evaluator> {
         IntervalEval {
-            tape: self.tape,
+            tape: self.tape.clone(),
             choices: vec![Choice::Unknown; self.tape.choice_count()],
             eval: self.func.get_evaluator(),
         }

@@ -6,6 +6,8 @@ use dynasmrt::{
     VecAssembler as DynasmVecAssembler,
 };
 
+use std::sync::Arc;
+
 use crate::mmap::Mmap;
 use fidget_core::{
     asm::AsmOp,
@@ -897,30 +899,29 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
-pub struct JitFloatFunc<'a> {
-    mmap: Mmap,
-    _p: std::marker::PhantomData<&'a ()>,
+pub struct JitFloatFunc {
+    /// The raw chunk of memory is in an `Arc` so that it won't outlive its
+    /// evaluators
+    mmap: Arc<Mmap>,
 }
 
-impl<'a> PointFuncT for JitFloatFunc<'a> {
-    type Evaluator = JitFloatEval<'a>;
-    type Recurse<'b> = JitFloatFunc<'b>;
+impl PointFuncT for JitFloatFunc {
+    type Evaluator = JitFloatEval;
 
-    /// Returns an evaluator, bound to the lifetime of the `JitFloatFunc`
+    /// Returns an evaluator
     fn get_evaluator(&self) -> Self::Evaluator {
         JitFloatEval {
+            _mmap: self.mmap.clone(),
             fn_float: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
-            _p: std::marker::PhantomData,
         }
     }
 
-    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(t: Tape) -> Self {
         let buf = build_asm_fn::<FloatAssembler>(t.iter_asm());
         let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
-        Self::Recurse {
-            mmap,
-            _p: std::marker::PhantomData,
+        Self {
+            mmap: Arc::new(mmap),
         }
     }
 }
@@ -929,66 +930,60 @@ impl<'a> PointFuncT for JitFloatFunc<'a> {
 ///
 /// This handle additionally borrows the input `Tape`, which allows us to
 /// compute simpler tapes based on interval evaluation results.
-pub struct JitIntervalFunc<'a> {
-    mmap: Mmap,
-    _p: std::marker::PhantomData<&'a ()>,
+pub struct JitIntervalFunc {
+    mmap: Arc<Mmap>,
 }
-unsafe impl Sync for JitIntervalFunc<'_> {}
+unsafe impl Sync for JitIntervalFunc {}
 
-impl<'a> IntervalFuncT for JitIntervalFunc<'a> {
-    type Evaluator = JitIntervalEval<'a>;
-    type Recurse<'b> = JitIntervalFunc<'b>;
+impl IntervalFuncT for JitIntervalFunc {
+    type Evaluator = JitIntervalEval;
 
     /// Returns an evaluator, bound to the lifetime of the
     /// `JitIntervalFunc`
-    fn get_evaluator(&self) -> JitIntervalEval<'a> {
+    fn get_evaluator(&self) -> JitIntervalEval {
         JitIntervalEval {
+            _mmap: self.mmap.clone(),
             fn_interval: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
-            _p: std::marker::PhantomData,
         }
     }
 
-    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(t: Tape) -> Self {
         let buf = build_asm_fn::<IntervalAssembler>(t.iter_asm());
         let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
-        Self::Recurse {
-            mmap,
-            _p: std::marker::PhantomData,
+        Self {
+            mmap: Arc::new(mmap),
         }
     }
 }
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
-pub struct JitVecFunc<'a> {
-    mmap: Mmap,
-    _p: std::marker::PhantomData<&'a ()>,
+pub struct JitVecFunc {
+    mmap: Arc<Mmap>,
 }
 
-impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
-    type Evaluator = JitVecEval<'a>;
-    type Recurse<'b> = JitVecFunc<'b>;
+impl FloatSliceFuncT for JitVecFunc {
+    type Evaluator = JitVecEval;
     type Storage = Mmap;
 
     /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
         JitVecEval {
+            _mmap: self.mmap.clone(),
             fn_vec: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
-            _p: std::marker::PhantomData,
         }
     }
 
     fn from_tape_give(
-        t: &Tape,
+        t: Tape,
         mut prev: Self::Storage,
-    ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
+    ) -> (Self, Option<Self::Storage>) {
         let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
         if buf.len() <= prev.len() {
             prev.copy_from_slice(&buf);
             (
                 JitVecFunc {
-                    mmap: prev,
-                    _p: std::marker::PhantomData,
+                    mmap: Arc::new(prev),
                 },
                 None,
             )
@@ -997,31 +992,27 @@ impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
             mmap.copy_from_slice(&buf);
             (
                 JitVecFunc {
-                    mmap,
-                    _p: std::marker::PhantomData,
+                    mmap: Arc::new(mmap),
                 },
                 Some(prev),
             )
         }
     }
 
-    fn take(self) -> Self::Storage {
-        self.mmap
+    fn take(mut self) -> Option<Self::Storage> {
+        let t = Arc::get_mut(&mut self.mmap)?;
+        let mut out = Mmap::empty();
+        std::mem::swap(&mut out, t);
+        Some(out)
     }
 
-    fn from_tape(t: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(t: Tape) -> Self {
         let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
         let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
         JitVecFunc {
-            mmap,
-            _p: std::marker::PhantomData,
+            mmap: Arc::new(mmap),
         }
-    }
-
-    /// Needed for lifetime erasure
-    fn lift(s: Self::Storage) -> Self::Storage {
-        s
     }
 }
 
@@ -1031,12 +1022,12 @@ impl<'a> FloatSliceFuncT for JitVecFunc<'a> {
 ///
 /// The lifetime of this `struct` is bound to an `JitFloatFunc`, which owns
 /// the underlying executable memory.
-pub struct JitFloatEval<'a> {
+pub struct JitFloatEval {
+    _mmap: Arc<Mmap>,
     fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
-    _p: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> PointEvalT for JitFloatEval<'a> {
+impl PointEvalT for JitFloatEval {
     fn eval_p(
         &mut self,
         x: f32,
@@ -1052,17 +1043,17 @@ impl<'a> PointEvalT for JitFloatEval<'a> {
 ///
 /// The lifetime of this `struct` is bound to an `JitIntervalFunc`, which
 /// owns the underlying executable memory.
-pub struct JitIntervalEval<'a> {
+pub struct JitIntervalEval {
+    _mmap: Arc<Mmap>,
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
         [f32; 2], // Z
         *mut u8,  // choices
     ) -> [f32; 2],
-    _p: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> IntervalEvalT for JitIntervalEval<'a> {
+impl IntervalEvalT for JitIntervalEval {
     /// Evaluates an interval
     fn eval_i<I: Into<Interval>>(
         &mut self,
@@ -1090,12 +1081,12 @@ impl<'a> IntervalEvalT for JitIntervalEval<'a> {
 ///
 /// The lifetime of this `struct` is bound to an `JitVecFunc`, which owns
 /// the underlying executable memory.
-pub struct JitVecEval<'a> {
+pub struct JitVecEval {
+    _mmap: Arc<Mmap>,
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
-    _p: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> FloatSliceEvalT for JitVecEval<'a> {
+impl FloatSliceEvalT for JitVecEval {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         let n = [xs.len(), ys.len(), zs.len(), out.len()]
             .into_iter()
@@ -1150,17 +1141,13 @@ impl<'a> FloatSliceEvalT for JitVecEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct JitEvalFamily<'a> {
-    _p: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> EvalFamily for JitEvalFamily<'a> {
+pub enum JitEvalFamily {}
+impl EvalFamily for JitEvalFamily {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
-    type Recurse<'b> = JitEvalFamily<'b>;
-
-    type IntervalFunc = JitIntervalFunc<'a>;
-    type FloatSliceFunc = JitVecFunc<'a>;
-    type PointFunc = JitFloatFunc<'a>;
+    type IntervalFunc = JitIntervalFunc;
+    type FloatSliceFunc = JitVecFunc;
+    type PointFunc = JitFloatFunc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1183,7 +1170,7 @@ mod tests {
         let sum = ctx.add(x, y2).unwrap();
 
         let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let jit = JitFloatFunc::from_tape(&tape);
+        let jit = JitFloatFunc::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &mut []), 6.0);
     }
@@ -1195,13 +1182,13 @@ mod tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0].into());
 
         let tape = ctx.get_tape(y, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0].into());
@@ -1214,7 +1201,7 @@ mod tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let tape = ctx.get_tape(abs_x, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([1.0, 5.0]), [1.0, 5.0].into());
@@ -1226,7 +1213,7 @@ mod tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0].into());
@@ -1240,7 +1227,7 @@ mod tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 2.0].into());
@@ -1257,7 +1244,7 @@ mod tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 16.0].into());
@@ -1275,7 +1262,7 @@ mod tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0].into());
@@ -1297,7 +1284,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [2.0, 4.0].into());
@@ -1305,7 +1292,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-3.0, 0.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-6.0, -3.0].into());
@@ -1319,7 +1306,7 @@ mod tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0].into());
@@ -1341,7 +1328,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-2.0, -1.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-1.0, 0.0].into());
@@ -1349,7 +1336,7 @@ mod tests {
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let tape = ctx.get_tape(sub, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-4.0, -3.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-5.0, -4.0].into());
@@ -1361,7 +1348,7 @@ mod tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let tape = ctx.get_tape(recip, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
 
         let nanan = eval.eval_i_x([0.0, 1.0]);
@@ -1387,7 +1374,7 @@ mod tests {
         let y = ctx.y();
         let div = ctx.div(x, y).unwrap();
         let tape = ctx.get_tape(div, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
 
         let nanan = eval.eval_i_xy([0.0, 1.0], [-1.0, 1.0]);
@@ -1423,7 +1410,7 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2]),
@@ -1452,7 +1439,7 @@ mod tests {
         let min = ctx.min(x, one).unwrap();
 
         let tape = ctx.get_tape(min, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2]),
@@ -1481,7 +1468,7 @@ mod tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape(max, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2],),
@@ -1504,7 +1491,7 @@ mod tests {
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = ctx.get_tape(max_xy_z, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]),
@@ -1533,7 +1520,7 @@ mod tests {
         let max = ctx.max(x, one).unwrap();
 
         let tape = ctx.get_tape(max, REGISTER_LIMIT);
-        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let jit = IntervalFunc::<JitIntervalFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(
             eval.eval_i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]),
@@ -1561,7 +1548,7 @@ mod tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let jit = FloatSliceFunc::<JitVecFunc>::new(&tape);
+        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         let mut out = [0.0; 4];
         eval.eval_s(
@@ -1575,7 +1562,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = FloatSliceFunc::<JitVecFunc>::new(&tape);
+        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],
@@ -1622,13 +1609,14 @@ mod tests {
         let tape_x = ctx.get_tape(x, REGISTER_LIMIT);
         let tape_y = ctx.get_tape(y, REGISTER_LIMIT);
 
-        let jit = FloatSliceFunc::<JitVecFunc>::new(&tape_y);
+        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape_y.clone());
         let mut out = [0.0; 4];
-        let mut t = jit.take();
+        let mut t = jit.take().unwrap();
 
         // This is a fuzz test for icache issues
         for _ in 0..10000 {
-            let (jit, s) = FloatSliceFunc::<JitVecFunc>::new_give(&tape_x, t);
+            let (jit, s) =
+                FloatSliceFunc::<JitVecFunc>::new_give(tape_x.clone(), t);
             assert!(s.is_none());
             let mut eval = jit.get_evaluator();
             eval.eval_s(
@@ -1638,9 +1626,11 @@ mod tests {
                 &mut out,
             );
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
-            t = jit.take();
+            drop(eval); // releases the mmap for reuse
+            t = jit.take().unwrap();
 
-            let (jit, s) = FloatSliceFunc::<JitVecFunc>::new_give(&tape_y, t);
+            let (jit, s) =
+                FloatSliceFunc::<JitVecFunc>::new_give(tape_y.clone(), t);
             assert!(s.is_none());
             let mut eval = jit.get_evaluator();
             eval.eval_s(
@@ -1650,7 +1640,8 @@ mod tests {
                 &mut out,
             );
             assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
-            t = jit.take();
+            drop(eval); // releases the mmap for reuse
+            t = jit.take().unwrap();
         }
     }
 }

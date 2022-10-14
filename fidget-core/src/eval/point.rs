@@ -7,9 +7,8 @@ use crate::{eval::Choice, tape::Tape};
 /// one or more `PointEval` objects, which actually do evaluation.
 pub trait PointFuncT {
     type Evaluator: PointEvalT;
-    type Recurse<'a>: PointFuncT;
 
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_>;
+    fn from_tape(tape: Tape) -> Self;
     fn get_evaluator(&self) -> Self::Evaluator;
 }
 
@@ -23,36 +22,34 @@ pub trait PointEvalT {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointFunc<'a, F: PointFuncT> {
-    tape: &'a Tape,
-    func: F::Recurse<'a>,
+pub struct PointFunc<F> {
+    tape: Tape,
+    func: F,
 }
 
-impl<'a, F: PointFuncT> PointFunc<'a, F> {
-    pub fn new(tape: &'a Tape) -> Self {
+impl<F: PointFuncT> PointFunc<F> {
+    pub fn from_tape(tape: Tape) -> Self {
         Self {
-            tape,
+            tape: tape.clone(),
             func: F::from_tape(tape),
         }
     }
-    pub fn get_evaluator(
-        &self,
-    ) -> PointEval<'a, <F::Recurse<'a> as PointFuncT>::Evaluator> {
+    pub fn get_evaluator(&self) -> PointEval<F::Evaluator> {
         PointEval {
-            tape: self.tape,
+            tape: self.tape.clone(),
             choices: vec![Choice::Unknown; self.tape.choice_count()],
             eval: self.func.get_evaluator(),
         }
     }
 }
 
-pub struct PointEval<'a, E> {
-    pub(crate) tape: &'a Tape,
+pub struct PointEval<E> {
+    pub(crate) tape: Tape,
     pub(crate) choices: Vec<Choice>,
     pub(crate) eval: E,
 }
 
-impl<'a, E: PointEvalT> PointEval<'a, E> {
+impl<E: PointEvalT> PointEval<E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self, reg_limit: u8) -> Tape {

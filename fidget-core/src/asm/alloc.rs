@@ -81,9 +81,9 @@ impl RegisterAllocator {
         out
     }
 
-    /// Claims the internal `Vec<AsmOp>`
-    pub fn take(self) -> Vec<AsmOp> {
-        self.out
+    /// Claims the internal `Vec<AsmOp>` and the number of slots
+    pub fn take(self) -> (Vec<AsmOp>, usize) {
+        (self.out, self.total_slots as usize)
     }
 
     /// Returns an available memory slot.

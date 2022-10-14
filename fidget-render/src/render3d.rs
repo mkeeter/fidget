@@ -80,13 +80,13 @@ struct Worker<'a, I: EvalFamily> {
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
-    fn render_tile_recurse<'a>(
+    fn render_tile_recurse(
         &mut self,
-        handle: &'a IntervalFunc<I::IntervalFunc>,
+        handle: &IntervalFunc<I::IntervalFunc>,
         depth: usize,
         tile: Tile,
-        float_handle: Option<&FloatSliceFunc<'a, I::FloatSliceFunc>>,
-    ) -> Option<FloatSliceFunc<'a, I::FloatSliceFunc>> {
+        float_handle: Option<&FloatSliceFunc<I::FloatSliceFunc>>,
+    ) -> Option<FloatSliceFunc<I::FloatSliceFunc>> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -140,7 +140,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             self.config.tile_sizes.get(depth + 1).cloned()
         {
             let sub_tape = eval.simplify(I::REG_LIMIT);
-            let sub_jit = IntervalFunc::new(&sub_tape);
+            let sub_jit = IntervalFunc::from_tape(sub_tape);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -202,17 +202,24 @@ impl<I: EvalFamily> Worker<'_, I> {
                     Some(s) => {
                         let (sub_jit, s) =
                             FloatSliceFunc::<I::FloatSliceFunc>::new_give(
-                                &sub_tape, s,
+                                sub_tape, s,
                             );
                         self.buffers.extend(s);
                         sub_jit
                     }
-                    None => FloatSliceFunc::<I::FloatSliceFunc>::new(&sub_tape),
+                    None => {
+                        FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape)
+                    }
                 };
 
                 let mut eval = sub_jit.get_evaluator();
                 self.scratch.eval_s(&mut eval);
-                self.buffers.push(I::FloatSliceFunc::lift(sub_jit.take()));
+                drop(eval);
+
+                // We just dropped the evaluator, so any reuse of memory between
+                // the FloatSliceFunc and FloatSliceEval should be cleared up
+                // and we should be able to reuse the working memory.
+                self.buffers.push(sub_jit.take().unwrap());
 
                 None
             } else if let Some(r) = float_handle {
@@ -233,9 +240,9 @@ impl<I: EvalFamily> Worker<'_, I> {
                         self.buffers.extend(s);
                         sub_jit
                     }
-                    None => {
-                        FloatSliceFunc::<I::FloatSliceFunc>::new(handle.tape())
-                    }
+                    None => FloatSliceFunc::<I::FloatSliceFunc>::from_tape(
+                        handle.tape(),
+                    ),
                 };
 
                 let mut eval = func.get_evaluator();
@@ -272,7 +279,7 @@ impl<I: EvalFamily> Worker<'_, I> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: EvalFamily>(
-    i_handle: &IntervalFunc<'_, <I as EvalFamily>::IntervalFunc>,
+    i_handle: &IntervalFunc<<I as EvalFamily>::IntervalFunc>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -315,7 +322,7 @@ pub fn render<I: EvalFamily>(tape: Tape, config: &RenderConfig) -> Vec<usize> {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = IntervalFunc::new(&tape);
+    let i_handle = IntervalFunc::from_tape(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

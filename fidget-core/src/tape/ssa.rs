@@ -1,5 +1,5 @@
 use crate::{
-    asm::{AsmOp, RegisterAllocator},
+    asm::{AsmTape, RegisterAllocator},
     eval::Choice,
     tape::TapeOp,
 };
@@ -129,7 +129,7 @@ impl SsaTape {
     /// Note that if you _also_ want to simplify the tape, it's more efficient
     /// to use [`simplify`](Self::simplify), which simultaneously simplifies
     /// **and** performs register allocation in a single pass.
-    pub fn get_asm(&self, reg_limit: u8) -> Vec<AsmOp> {
+    pub fn get_asm(&self, reg_limit: u8) -> AsmTape {
         let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
         let mut data = self.data.iter();
         for &op in self.tape.iter() {
@@ -163,14 +163,15 @@ impl SsaTape {
                 }
             }
         }
-        alloc.take()
+        let (asm_tape, num_slots) = alloc.take();
+        AsmTape::new(asm_tape, num_slots)
     }
 
     pub fn simplify(
         &self,
         choices: &[Choice],
         reg_limit: u8,
-    ) -> (Self, Vec<AsmOp>) {
+    ) -> (Self, AsmTape) {
         // If a node is active (i.e. has been used as an input, as we walk the
         // tape in reverse order), then store its new slot assignment here.
         let mut active = vec![None; self.tape.len()];
@@ -382,8 +383,8 @@ impl SsaTape {
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        let alloc = alloc.take();
-        assert!(ops_out.len() <= alloc.len());
+        let (asm_tape, num_slots) = alloc.take();
+        assert!(ops_out.len() <= asm_tape.len());
 
         (
             SsaTape {
@@ -391,7 +392,7 @@ impl SsaTape {
                 data: data_out,
                 choice_count,
             },
-            alloc,
+            AsmTape::new(asm_tape, num_slots),
         )
     }
 }

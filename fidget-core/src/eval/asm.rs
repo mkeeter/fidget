@@ -12,67 +12,81 @@ use crate::{
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Generic `struct` which wraps a `Tape` and converts it to an `Asm*Eval`
-pub struct AsmFunc<'a> {
-    tape: &'a Tape,
+pub struct AsmFunc {
+    tape: Tape,
 }
 
 /// Family of evaluators that use a local interpreter
-pub struct AsmFamily<'a> {
-    _p: std::marker::PhantomData<&'a ()>,
-}
+pub enum AsmFamily {}
 
-impl<'a> EvalFamily for AsmFamily<'a> {
+impl EvalFamily for AsmFamily {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
-    type Recurse<'b> = AsmFamily<'b>;
-
-    type IntervalFunc = AsmFunc<'a>;
-    type FloatSliceFunc = AsmFunc<'a>;
-    type PointFunc = AsmFunc<'a>;
+    type IntervalFunc = AsmFunc;
+    type FloatSliceFunc = AsmFunc;
+    type PointFunc = AsmFunc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> IntervalFuncT for AsmFunc<'a> {
-    type Evaluator = AsmIntervalEval<'a>;
-    type Recurse<'b> = AsmFunc<'b>;
+/// Helper struct to reduce boilerplate conversions
+struct SlotArray<'a, T>(&'a mut [T]);
+impl<T> std::ops::Index<u8> for SlotArray<'_, T> {
+    type Output = T;
+    fn index(&self, i: u8) -> &Self::Output {
+        &self.0[i as usize]
+    }
+}
+impl<T> std::ops::IndexMut<u8> for SlotArray<'_, T> {
+    fn index_mut(&mut self, i: u8) -> &mut T {
+        &mut self.0[i as usize]
+    }
+}
+impl<T> std::ops::Index<u32> for SlotArray<'_, T> {
+    type Output = T;
+    fn index(&self, i: u32) -> &Self::Output {
+        &self.0[i as usize]
+    }
+}
+impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
+    fn index_mut(&mut self, i: u32) -> &mut T {
+        &mut self.0[i as usize]
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+impl IntervalFuncT for AsmFunc {
+    type Evaluator = AsmIntervalEval;
 
     fn get_evaluator(&self) -> Self::Evaluator {
-        AsmIntervalEval::new(self.tape)
+        AsmIntervalEval::new(self.tape.clone())
     }
 
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(tape: Tape) -> Self {
         AsmFunc { tape }
     }
 }
 
 /// Interval evaluator for a slice of [`AsmOp`]
-pub struct AsmIntervalEval<'t> {
+pub struct AsmIntervalEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: &'t Tape,
+    tape: Tape,
     /// Workspace for data
     slots: Vec<Interval>,
 }
 
-impl<'a> AsmIntervalEval<'a> {
-    pub fn new(tape: &'a Tape) -> Self {
+impl AsmIntervalEval {
+    pub fn new(tape: Tape) -> Self {
         Self {
-            tape,
-            slots: vec![], // dynamically resized at runtime
+            tape: tape.clone(),
+            slots: vec![Interval::from(std::f32::NAN); tape.slot_count()],
         }
-    }
-
-    fn v<I: Into<usize>>(&mut self, i: I) -> &mut Interval {
-        let i: usize = i.into();
-        if i >= self.slots.len() {
-            self.slots.resize(i + 1, Interval::from(std::f32::NAN));
-        }
-        &mut self.slots[i]
     }
 }
 
-impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
+impl IntervalEvalT for AsmIntervalEval {
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -84,11 +98,12 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
         let y = y.into();
         let z = z.into();
         let mut choice_index = 0;
+        let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             use AsmOp::*;
             match op {
                 Input(out, i) => {
-                    *self.v(out) = match i {
+                    v[out] = match i {
                         0 => x,
                         1 => y,
                         2 => z,
@@ -96,84 +111,74 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
                     }
                 }
                 NegReg(out, arg) => {
-                    *self.v(out) = -*self.v(arg);
+                    v[out] = -v[arg];
                 }
                 AbsReg(out, arg) => {
-                    *self.v(out) = self.v(arg).abs();
+                    v[out] = v[arg].abs();
                 }
                 RecipReg(out, arg) => {
-                    *self.v(out) = self.v(arg).recip();
+                    v[out] = v[arg].recip();
                 }
                 SqrtReg(out, arg) => {
-                    *self.v(out) = self.v(arg).sqrt();
+                    v[out] = v[arg].sqrt();
                 }
-                SquareReg(out, arg) => {
-                    *self.v(out) = *self.v(arg) * *self.v(arg)
-                }
-                CopyReg(out, arg) => *self.v(out) = *self.v(arg),
+                SquareReg(out, arg) => v[out] = v[arg] * v[arg],
+                CopyReg(out, arg) => v[out] = v[arg],
                 AddRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) + imm.into();
+                    v[out] = v[arg] + imm.into();
                 }
                 MulRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) * imm.into();
+                    v[out] = v[arg] * imm.into();
                 }
                 DivRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) / imm.into();
+                    v[out] = v[arg] / imm.into();
                 }
                 DivImmReg(out, arg, imm) => {
                     let imm: Interval = imm.into();
-                    *self.v(out) = imm / *self.v(arg);
+                    v[out] = imm / v[arg];
                 }
                 SubImmReg(out, arg, imm) => {
-                    *self.v(out) = Interval::from(imm) - *self.v(arg);
+                    v[out] = Interval::from(imm) - v[arg];
                 }
                 SubRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) - imm.into();
+                    v[out] = v[arg] - imm.into();
                 }
                 MinRegImm(out, arg, imm) => {
-                    let (value, choice) = self.v(arg).min_choice(imm.into());
-                    *self.v(out) = value;
+                    let (value, choice) = v[arg].min_choice(imm.into());
+                    v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 MaxRegImm(out, arg, imm) => {
-                    let (value, choice) = self.v(arg).max_choice(imm.into());
-                    *self.v(out) = value;
+                    let (value, choice) = v[arg].max_choice(imm.into());
+                    v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
-                AddRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) + *self.v(rhs)
-                }
-                MulRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) * *self.v(rhs)
-                }
-                DivRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) / *self.v(rhs)
-                }
-                SubRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) - *self.v(rhs)
-                }
+                AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
+                MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
+                DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
+                SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
                 MinRegReg(out, lhs, rhs) => {
-                    let (value, choice) = self.v(lhs).min_choice(*self.v(rhs));
-                    *self.v(out) = value;
+                    let (value, choice) = v[lhs].min_choice(v[rhs]);
+                    v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 MaxRegReg(out, lhs, rhs) => {
-                    let (value, choice) = self.v(lhs).max_choice(*self.v(rhs));
-                    *self.v(out) = value;
+                    let (value, choice) = v[lhs].max_choice(v[rhs]);
+                    v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
                 CopyImm(out, imm) => {
-                    *self.v(out) = imm.into();
+                    v[out] = imm.into();
                 }
                 Load(out, mem) => {
-                    *self.v(out) = self.slots[mem as usize];
+                    v[out] = v[mem];
                 }
                 Store(out, mem) => {
-                    *self.v(mem as usize) = *self.v(out);
+                    v[mem] = v[out];
                 }
             }
         }
@@ -183,73 +188,69 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> FloatSliceFuncT for AsmFunc<'a> {
-    type Evaluator = AsmFloatSliceEval<'a>;
-    type Recurse<'b> = AsmFunc<'b>;
+impl FloatSliceFuncT for AsmFunc {
+    type Evaluator = AsmFloatSliceEval;
     type Storage = ();
 
     fn get_evaluator(&self) -> Self::Evaluator {
-        AsmFloatSliceEval::new(self.tape)
+        AsmFloatSliceEval::new(self.tape.clone())
     }
 
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(tape: Tape) -> Self {
         AsmFunc { tape }
     }
 
     fn from_tape_give(
-        tape: &Tape,
+        tape: Tape,
         _s: Self::Storage,
-    ) -> (Self::Recurse<'_>, Option<Self::Storage>) {
+    ) -> (Self, Option<Self::Storage>) {
         (AsmFunc { tape }, None)
     }
 
-    fn take(self) {
-        // Nothing to do here
-    }
-
-    /// Needed for lifetime erasure
-    fn lift(_s: ()) {
-        // Nothing to do here
+    fn take(self) -> Option<()> {
+        // There is no storage, so you can always take it
+        Some(())
     }
 }
 
 /// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
-pub struct AsmFloatSliceEval<'t> {
+pub struct AsmFloatSliceEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: &'t Tape,
+    tape: Tape,
     /// Workspace for data
     slots: Vec<Vec<f32>>,
     /// Current slice size in `self.slots`
     slice_size: usize,
 }
 
-impl<'a> AsmFloatSliceEval<'a> {
-    pub fn new(tape: &'a Tape) -> Self {
+impl AsmFloatSliceEval {
+    pub fn new(tape: Tape) -> Self {
         Self {
-            tape,
-            slots: vec![], // dynamically resized at runtime
+            tape: tape.clone(),
+            slots: vec![vec![]; tape.slot_count()],
             slice_size: 0,
         }
     }
-    fn v<I: Into<usize>>(&mut self, i: I) -> &mut [f32] {
-        let i: usize = i.into();
-        if i >= self.slots.len() {
-            self.slots.resize_with(i + 1, Vec::new);
-        }
-        if self.slots[i].len() < self.slice_size {
-            self.slots[i].resize(self.slice_size, std::f32::NAN);
-        }
-        &mut self.slots[i]
-    }
 }
 
-impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
+impl FloatSliceEvalT for AsmFloatSliceEval {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
-        self.slice_size = xs.len().min(ys.len()).min(zs.len()).min(out.len());
+        let size = [xs.len(), ys.len(), zs.len(), out.len()]
+            .into_iter()
+            .min()
+            .unwrap();
+        if size > self.slice_size {
+            for s in self.slots.iter_mut() {
+                s.resize(size, std::f32::NAN);
+            }
+            self.slice_size = size;
+        }
+
+        let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             use AsmOp::*;
             match op {
-                Input(out, i) => self.v(out).copy_from_slice(match i {
+                Input(out, i) => v[out].copy_from_slice(match i {
                     0 => xs,
                     1 => ys,
                     2 => zs,
@@ -257,118 +258,118 @@ impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
                 }),
                 NegReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = -self.v(arg)[i];
+                        v[out][i] = -v[arg][i];
                     }
                 }
                 AbsReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i].abs();
+                        v[out][i] = v[arg][i].abs();
                     }
                 }
                 RecipReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = 1.0 / self.v(arg)[i];
+                        v[out][i] = 1.0 / v[arg][i];
                     }
                 }
                 SqrtReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i].sqrt();
+                        v[out][i] = v[arg][i].sqrt();
                     }
                 }
                 SquareReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        let s = self.v(arg)[i];
-                        self.v(out)[i] = s * s;
+                        let s = v[arg][i];
+                        v[out][i] = s * s;
                     }
                 }
                 CopyReg(out, arg) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i];
+                        v[out][i] = v[arg][i];
                     }
                 }
                 AddRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i] + imm;
+                        v[out][i] = v[arg][i] + imm;
                     }
                 }
                 MulRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i] * imm;
+                        v[out][i] = v[arg][i] * imm;
                     }
                 }
                 DivRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i] / imm;
+                        v[out][i] = v[arg][i] / imm;
                     }
                 }
                 DivImmReg(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = imm / self.v(arg)[i];
+                        v[out][i] = imm / v[arg][i];
                     }
                 }
                 SubImmReg(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = imm - self.v(arg)[i];
+                        v[out][i] = imm - v[arg][i];
                     }
                 }
                 SubRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i] - imm;
+                        v[out][i] = v[arg][i] - imm;
                     }
                 }
                 MinRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i].min(imm);
+                        v[out][i] = v[arg][i].min(imm);
                     }
                 }
                 MaxRegImm(out, arg, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(arg)[i].max(imm);
+                        v[out][i] = v[arg][i].max(imm);
                     }
                 }
                 AddRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i] + self.v(rhs)[i];
+                        v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
                 MulRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i] * self.v(rhs)[i];
+                        v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
                 DivRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i] / self.v(rhs)[i];
+                        v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
                 SubRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i] - self.v(rhs)[i];
+                        v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
                 MinRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i].min(self.v(rhs)[i]);
+                        v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
                 MaxRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(lhs)[i].max(self.v(rhs)[i]);
+                        v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
                 CopyImm(out, imm) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = imm;
+                        v[out][i] = imm;
                     }
                 }
                 Load(out, mem) => {
                     for i in 0..self.slice_size {
-                        self.v(out)[i] = self.v(mem as usize)[i];
+                        v[out][i] = v[mem][i];
                     }
                 }
                 Store(out, mem) => {
                     for i in 0..self.slice_size {
-                        self.v(mem as usize)[i] = self.v(out)[i];
+                        v[mem][i] = v[out][i];
                     }
                 }
             }
@@ -379,43 +380,35 @@ impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<'a> PointFuncT for AsmFunc<'a> {
-    type Evaluator = AsmPointEval<'a>;
-    type Recurse<'b> = AsmFunc<'b>;
+impl PointFuncT for AsmFunc {
+    type Evaluator = AsmPointEval;
 
     fn get_evaluator(&self) -> Self::Evaluator {
-        AsmPointEval::new(self.tape)
+        AsmPointEval::new(self.tape.clone())
     }
-    fn from_tape(tape: &Tape) -> Self::Recurse<'_> {
+    fn from_tape(tape: Tape) -> Self {
         AsmFunc { tape }
     }
 }
 
 /// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
-pub struct AsmPointEval<'t> {
+pub struct AsmPointEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: &'t Tape,
+    tape: Tape,
     /// Workspace for data
     slots: Vec<f32>,
 }
 
-impl<'a> AsmPointEval<'a> {
-    pub fn new(tape: &'a Tape) -> Self {
+impl AsmPointEval {
+    pub fn new(tape: Tape) -> Self {
         Self {
-            tape,
-            slots: vec![], // dynamically resized at runtime
+            tape: tape.clone(),
+            slots: vec![std::f32::NAN; tape.slot_count()],
         }
-    }
-    fn v<I: Into<usize>>(&mut self, i: I) -> &mut f32 {
-        let i: usize = i.into();
-        if i >= self.slots.len() {
-            self.slots.resize(i + 1, std::f32::NAN);
-        }
-        &mut self.slots[i]
     }
 }
 
-impl<'a> PointEvalT for AsmPointEval<'a> {
+impl PointEvalT for AsmPointEval {
     fn eval_p(
         &mut self,
         x: f32,
@@ -424,11 +417,12 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
         choices: &mut [Choice],
     ) -> f32 {
         let mut choice_index = 0;
+        let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             use AsmOp::*;
             match op {
                 Input(out, i) => {
-                    *self.v(out) = match i {
+                    v[out] = match i {
                         0 => x,
                         1 => y,
                         2 => z,
@@ -436,45 +430,45 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                     }
                 }
                 NegReg(out, arg) => {
-                    *self.v(out) = -*self.v(arg);
+                    v[out] = -v[arg];
                 }
                 AbsReg(out, arg) => {
-                    *self.v(out) = self.v(arg).abs();
+                    v[out] = v[arg].abs();
                 }
                 RecipReg(out, arg) => {
-                    *self.v(out) = 1.0 / *self.v(arg);
+                    v[out] = 1.0 / v[arg];
                 }
                 SqrtReg(out, arg) => {
-                    *self.v(out) = self.v(arg).sqrt();
+                    v[out] = v[arg].sqrt();
                 }
                 SquareReg(out, arg) => {
-                    let s = *self.v(arg);
-                    *self.v(out) = s * s;
+                    let s = v[arg];
+                    v[out] = s * s;
                 }
                 CopyReg(out, arg) => {
-                    *self.v(out) = *self.v(arg);
+                    v[out] = v[arg];
                 }
                 AddRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) + imm;
+                    v[out] = v[arg] + imm;
                 }
                 MulRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) * imm;
+                    v[out] = v[arg] * imm;
                 }
                 DivRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) / imm;
+                    v[out] = v[arg] / imm;
                 }
                 DivImmReg(out, arg, imm) => {
-                    *self.v(out) = imm / *self.v(arg);
+                    v[out] = imm / v[arg];
                 }
                 SubImmReg(out, arg, imm) => {
-                    *self.v(out) = imm - *self.v(arg);
+                    v[out] = imm - v[arg];
                 }
                 SubRegImm(out, arg, imm) => {
-                    *self.v(out) = *self.v(arg) - imm;
+                    v[out] = v[arg] - imm;
                 }
                 MinRegImm(out, arg, imm) => {
-                    let a = *self.v(arg);
-                    *self.v(out) = if a < imm {
+                    let a = v[arg];
+                    v[out] = if a < imm {
                         choices[choice_index] |= Choice::Left;
                         a
                     } else if imm < a {
@@ -487,8 +481,8 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                     choice_index += 1;
                 }
                 MaxRegImm(out, arg, imm) => {
-                    let a = *self.v(arg);
-                    *self.v(out) = if a > imm {
+                    let a = v[arg];
+                    v[out] = if a > imm {
                         choices[choice_index] |= Choice::Left;
                         a
                     } else if imm > a {
@@ -501,21 +495,21 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                     choice_index += 1;
                 }
                 AddRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) + *self.v(rhs);
+                    v[out] = v[lhs] + v[rhs];
                 }
                 MulRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) * *self.v(rhs);
+                    v[out] = v[lhs] * v[rhs];
                 }
                 DivRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) / *self.v(rhs);
+                    v[out] = v[lhs] / v[rhs];
                 }
                 SubRegReg(out, lhs, rhs) => {
-                    *self.v(out) = *self.v(lhs) - *self.v(rhs);
+                    v[out] = v[lhs] - v[rhs];
                 }
                 MinRegReg(out, lhs, rhs) => {
-                    let a = *self.v(lhs);
-                    let b = *self.v(rhs);
-                    *self.v(out) = if a < b {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    v[out] = if a < b {
                         choices[choice_index] |= Choice::Left;
                         a
                     } else if b < a {
@@ -528,9 +522,9 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                     choice_index += 1;
                 }
                 MaxRegReg(out, lhs, rhs) => {
-                    let a = *self.v(lhs);
-                    let b = *self.v(rhs);
-                    *self.v(out) = if a > b {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    v[out] = if a > b {
                         choices[choice_index] |= Choice::Left;
                         a
                     } else if b > a {
@@ -543,13 +537,13 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                     choice_index += 1;
                 }
                 CopyImm(out, imm) => {
-                    *self.v(out) = imm;
+                    v[out] = imm;
                 }
                 Load(out, mem) => {
-                    *self.v(out) = *self.v(mem as usize);
+                    v[out] = v[mem];
                 }
                 Store(out, mem) => {
-                    *self.v(mem as usize) = *self.v(out);
+                    v[mem] = v[out];
                 }
             }
         }

@@ -102,7 +102,7 @@ fn run<I: fidget::eval::EvalFamily>(
     if brute {
         let mut eval = fidget::eval::float_slice::FloatSliceFunc::<
             I::FloatSliceFunc,
-        >::new(&tape)
+        >::from_tape(tape)
         .get_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();

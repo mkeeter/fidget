@@ -245,11 +245,11 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
         let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = IntervalFunc::new(&sub_tape);
+        let sub_jit = IntervalFunc::from_tape(sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
-                render_tile_recurse::<I::Recurse<'_>, M>(
+                render_tile_recurse::<I, M>(
                     &sub_jit,
                     out,
                     config,
@@ -266,7 +266,7 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
         }
     } else {
         let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = FloatSliceFunc::<I::FloatSliceFunc>::new(&sub_tape);
+        let sub_jit = FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape);
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -306,7 +306,7 @@ pub fn render<I: EvalFamily, M: RenderMode>(
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = IntervalFunc::new(&tape);
+    let i_handle = IntervalFunc::from_tape(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {

@@ -6,6 +6,13 @@ pub struct Mmap {
 }
 
 impl Mmap {
+    pub fn empty() -> Self {
+        Self {
+            ptr: std::ptr::null_mut::<libc::c_void>(),
+            len: 0,
+        }
+    }
+
     pub fn new(len: usize) -> Result<Self, std::io::Error> {
         let len = (len + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
         let ptr = unsafe {
@@ -54,15 +61,17 @@ impl Mmap {
 
 impl Drop for Mmap {
     fn drop(&mut self) {
-        unsafe {
-            libc::munmap(self.ptr, self.len as libc::size_t);
+        if self.len > 0 {
+            unsafe {
+                libc::munmap(self.ptr, self.len as libc::size_t);
+            }
         }
     }
 }
 
 #[link(name = "pthread")]
 extern "C" {
-    fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
+    fn pthread_jit_write_protect_np(enabled: libc::c_int);
 }
 
 #[link(name = "c")]

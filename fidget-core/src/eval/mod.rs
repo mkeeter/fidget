@@ -15,8 +15,6 @@ pub trait EvalFamily {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
 
-    type Recurse<'a>: EvalFamily;
-
     type IntervalFunc: interval::IntervalFuncT;
     type FloatSliceFunc: float_slice::FloatSliceFuncT;
     type PointFunc: point::PointFuncT;
