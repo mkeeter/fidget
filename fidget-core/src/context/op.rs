@@ -15,8 +15,9 @@ pub enum UnaryOpcode {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BinaryOpcode {
     Add,
-    Mul,
     Sub,
+    Mul,
+    Div,
     Min,
     Max,
 }

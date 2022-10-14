@@ -57,7 +57,13 @@ impl Interval {
         }
     }
     pub fn recip(self) -> Self {
-        todo!()
+        if self.lower > 0.0 {
+            Interval::new(1.0 / self.upper, 1.0 / self.lower)
+        } else if self.upper < 0.0 {
+            Interval::new(1.0 / self.lower, 1.0 / self.upper)
+        } else {
+            std::f32::NAN.into()
+        }
     }
     pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
         let choice = if self.upper < rhs.lower {
@@ -118,6 +124,31 @@ impl std::ops::Mul<Interval> for Interval {
             upper = upper.max(v);
         }
         Interval::new(lower, upper)
+    }
+}
+
+impl std::ops::Div<Interval> for Interval {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self {
+        if rhs.lower > 0.0 || rhs.upper < 0.0 {
+            let mut out = [0.0; 4];
+            let mut k = 0;
+            for i in [self.lower, self.upper] {
+                for j in [rhs.lower, rhs.upper] {
+                    out[k] = i * j;
+                    k += 1;
+                }
+            }
+            let mut lower = out[0];
+            let mut upper = out[0];
+            for &v in &out[1..] {
+                lower = lower.min(v);
+                upper = upper.max(v);
+            }
+            Interval::new(lower, upper)
+        } else {
+            std::f32::NAN.into()
+        }
     }
 }
 

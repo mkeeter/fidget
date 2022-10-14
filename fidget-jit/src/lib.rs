@@ -66,6 +66,7 @@ trait AssemblerT {
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
@@ -180,6 +181,11 @@ impl AssemblerT for FloatAssembler {
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fdiv S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -467,6 +473,48 @@ impl AssemblerT for IntervalAssembler {
             ; mov V(reg(out_reg)).s[1], v5.s[0]
         )
     }
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        let nan_u32 = f32::NAN.to_bits();
+        dynasm!(self.0.ops
+            // Store rhs > 0.0 in x15, then check rhs.lower > 0
+            ; fcmgt v4.s2, V(reg(rhs_reg)).s2, #0.0
+            ; fmov x15, d4
+            ; tst x15, #0x1
+            ; b.ne #36 // -> happy
+
+            // Store rhs < 0.0 in x15, then check rhs.upper < 0
+            ; fcmlt v4.s2, V(reg(rhs_reg)).s2, #0.0
+            ; fmov x15, d4
+            ; tst x15, #0x1_0000_0000
+            ; b.ne #20 // -> happy
+
+            // Sad path: rhs spans 0, so the output includes NaN
+            ; movz w9, #(nan_u32 >> 16), lsl 16
+            ; movk w9, #(nan_u32)
+            ; dup V(reg(out_reg)).s2, w9
+            ; b #32 // -> end
+
+            // >happy:
+            // Set up v4 to contain
+            //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
+            // and v5 to contain
+            //  [rhs.upper, rhs.lower, rhs.upper, rhs.upper]
+            //
+            // Dividing them out will hit all four possible
+            // combinations; then we extract the min and max
+            // with vector-reducing operations
+            ; rev64 v4.s2, V(reg(lhs_reg)).s2
+            ; mov v4.d[1], V(reg(lhs_reg)).d[0]
+            ; dup v5.d2, V(reg(rhs_reg)).d[0]
+
+            ; fdiv v4.s4, v4.s4, v5.s4
+            ; fminnmv S(reg(out_reg)), v4.s4
+            ; fmaxnmv s5, v4.s4
+            ; mov V(reg(out_reg)).s[1], v5.s[0]
+
+            // >end
+        )
+    }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Basically the same as MinRegReg
@@ -706,6 +754,9 @@ impl AssemblerT for VecAssembler {
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
     }
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+    }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops ; fmax V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
     }
@@ -789,6 +840,9 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
             MulRegReg(out, lhs, rhs) => {
                 asm.build_mul(out, lhs, rhs);
             }
+            DivRegReg(out, lhs, rhs) => {
+                asm.build_div(out, lhs, rhs);
+            }
             SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
@@ -805,6 +859,14 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
             MulRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_mul(out, arg, reg);
+            }
+            DivRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_div(out, arg, reg);
+            }
+            DivImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_div(out, reg, arg);
             }
             SubImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
@@ -1319,6 +1381,41 @@ mod tests {
     }
 
     #[test]
+    fn test_i_div() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let div = ctx.div(x, y).unwrap();
+        let tape = ctx.get_tape(div, REGISTER_LIMIT);
+        let jit = IntervalFunc::<JitIntervalFunc>::new(&tape);
+        let mut eval = jit.get_evaluator();
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [-1.0, 1.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [-2.0, 0.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [0.0, 4.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let out = eval.eval_i_xy([-1.0, 0.0], [1.0, 2.0]);
+        assert_eq!(out, [-1.0, 0.0].into());
+
+        let out = eval.eval_i_xy([-1.0, 4.0], [-1.0, -0.5]);
+        assert_eq!(out, [-8.0, 2.0].into());
+
+        let out = eval.eval_i_xy([1.0, 4.0], [-1.0, -0.5]);
+        assert_eq!(out, [-8.0, -1.0].into());
+
+        let out = eval.eval_i_xy([-1.0, 4.0], [0.5, 1.0]);
+        assert_eq!(out, [-2.0, 8.0].into());
+    }
+
+    #[test]
     fn test_i_min() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -1487,6 +1584,33 @@ mod tests {
             &mut out,
         );
         assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
+
+        eval.eval_s(
+            &[0.0, 1.0, 2.0],
+            &[1.0, 4.0, 8.0],
+            &[0.0, 0.0, 0.0],
+            &mut out[0..3],
+        );
+        assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
+
+        // out is longer than inputs
+        eval.eval_s(
+            &[0.0, 1.0, 2.0],
+            &[1.0, 4.0, 4.0],
+            &[0.0, 0.0, 0.0],
+            &mut out[0..4],
+        );
+        assert_eq!(&out[0..3], &[2.0, 8.0, 8.0]);
+        assert!(out[3].is_nan());
+
+        let mut out = [0.0; 7];
+        eval.eval_s(
+            &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
+            &[0.0; 7],
+            &mut out,
+        );
+        assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
 
     #[test]

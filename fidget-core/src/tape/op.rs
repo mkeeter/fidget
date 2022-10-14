@@ -24,6 +24,10 @@ pub enum TapeOp {
     AddRegImm,
     /// Multiply a register and an immediate
     MulRegImm,
+    /// Divides a register and an immediate
+    DivRegImm,
+    /// Divides an immediate by a register
+    DivImmReg,
     /// Subtract a register from an immediate
     SubImmReg,
     /// Subtract an immediate from a register
@@ -33,6 +37,8 @@ pub enum TapeOp {
     AddRegReg,
     /// Multiplies two registers
     MulRegReg,
+    /// Divides two registers
+    DivRegReg,
     /// Subtracts two registers
     SubRegReg,
 

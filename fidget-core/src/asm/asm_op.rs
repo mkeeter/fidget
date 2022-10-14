@@ -34,6 +34,10 @@ pub enum AsmOp {
     AddRegImm(u8, u8, f32),
     /// Multiply a register and an immediate
     MulRegImm(u8, u8, f32),
+    /// Divides a register and an immediate
+    DivRegImm(u8, u8, f32),
+    /// Divides an immediate by a register
+    DivImmReg(u8, u8, f32),
     /// Subtract a register from an immediate
     SubImmReg(u8, u8, f32),
     /// Subtract an immediate from a register
@@ -47,6 +51,8 @@ pub enum AsmOp {
     AddRegReg(u8, u8, u8),
     /// Multiply two registers
     MulRegReg(u8, u8, u8),
+    /// Divides two registers
+    DivRegReg(u8, u8, u8),
     /// Subtract one register from another
     SubRegReg(u8, u8, u8),
     /// Take the minimum of two registers

@@ -360,8 +360,7 @@ impl Context {
     /// assert_eq!(v, 1.5);
     /// ```
     pub fn div(&mut self, a: Node, b: Node) -> Result<Node, Error> {
-        let b = self.recip(b)?;
-        self.mul(a, b)
+        self.op_binary(a, b, BinaryOpcode::Div)
     }
 
     /// Flattens a subtree of the graph into straight-line code
@@ -468,8 +467,9 @@ impl Context {
                 let b = get(*b)?;
                 match op {
                     BinaryOpcode::Add => a + b,
-                    BinaryOpcode::Mul => a * b,
                     BinaryOpcode::Sub => a - b,
+                    BinaryOpcode::Mul => a * b,
+                    BinaryOpcode::Div => a / b,
                     BinaryOpcode::Min => a.min(b),
                     BinaryOpcode::Max => a.max(b),
                 }
@@ -584,8 +584,9 @@ impl Context {
             }
             Op::Binary(op, ..) => match op {
                 BinaryOpcode::Add => out += "add",
-                BinaryOpcode::Mul => out += "mul",
                 BinaryOpcode::Sub => out += "sub",
+                BinaryOpcode::Mul => out += "mul",
+                BinaryOpcode::Div => out += "div",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
             },

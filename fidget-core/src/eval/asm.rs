@@ -117,6 +117,13 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
                 MulRegImm(out, arg, imm) => {
                     *self.v(out) = *self.v(arg) * imm.into();
                 }
+                DivRegImm(out, arg, imm) => {
+                    *self.v(out) = *self.v(arg) / imm.into();
+                }
+                DivImmReg(out, arg, imm) => {
+                    let imm: Interval = imm.into();
+                    *self.v(out) = imm / *self.v(arg);
+                }
                 SubImmReg(out, arg, imm) => {
                     *self.v(out) = Interval::from(imm) - *self.v(arg);
                 }
@@ -140,6 +147,9 @@ impl<'a> IntervalEvalT for AsmIntervalEval<'a> {
                 }
                 MulRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) * *self.v(rhs)
+                }
+                DivRegReg(out, lhs, rhs) => {
+                    *self.v(out) = *self.v(lhs) / *self.v(rhs)
                 }
                 SubRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) - *self.v(rhs)
@@ -286,6 +296,16 @@ impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
                         self.v(out)[i] = self.v(arg)[i] * imm;
                     }
                 }
+                DivRegImm(out, arg, imm) => {
+                    for i in 0..self.slice_size {
+                        self.v(out)[i] = self.v(arg)[i] / imm;
+                    }
+                }
+                DivImmReg(out, arg, imm) => {
+                    for i in 0..self.slice_size {
+                        self.v(out)[i] = imm / self.v(arg)[i];
+                    }
+                }
                 SubImmReg(out, arg, imm) => {
                     for i in 0..self.slice_size {
                         self.v(out)[i] = imm - self.v(arg)[i];
@@ -314,6 +334,11 @@ impl<'a> FloatSliceEvalT for AsmFloatSliceEval<'a> {
                 MulRegReg(out, lhs, rhs) => {
                     for i in 0..self.slice_size {
                         self.v(out)[i] = self.v(lhs)[i] * self.v(rhs)[i];
+                    }
+                }
+                DivRegReg(out, lhs, rhs) => {
+                    for i in 0..self.slice_size {
+                        self.v(out)[i] = self.v(lhs)[i] / self.v(rhs)[i];
                     }
                 }
                 SubRegReg(out, lhs, rhs) => {
@@ -435,6 +460,12 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                 MulRegImm(out, arg, imm) => {
                     *self.v(out) = *self.v(arg) * imm;
                 }
+                DivRegImm(out, arg, imm) => {
+                    *self.v(out) = *self.v(arg) / imm;
+                }
+                DivImmReg(out, arg, imm) => {
+                    *self.v(out) = imm / *self.v(arg);
+                }
                 SubImmReg(out, arg, imm) => {
                     *self.v(out) = imm - *self.v(arg);
                 }
@@ -474,6 +505,9 @@ impl<'a> PointEvalT for AsmPointEval<'a> {
                 }
                 MulRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) * *self.v(rhs);
+                }
+                DivRegReg(out, lhs, rhs) => {
+                    *self.v(out) = *self.v(lhs) / *self.v(rhs);
                 }
                 SubRegReg(out, lhs, rhs) => {
                     *self.v(out) = *self.v(lhs) - *self.v(rhs);

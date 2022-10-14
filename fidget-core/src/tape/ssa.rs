@@ -68,6 +68,7 @@ impl SsaTape {
 
                 TapeOp::AddRegReg
                 | TapeOp::MulRegReg
+                | TapeOp::DivRegReg
                 | TapeOp::SubRegReg
                 | TapeOp::MinRegReg
                 | TapeOp::MaxRegReg => {
@@ -77,6 +78,7 @@ impl SsaTape {
                     let op = match op {
                         TapeOp::AddRegReg => "ADD",
                         TapeOp::MulRegReg => "MUL",
+                        TapeOp::DivRegReg => "DIV",
                         TapeOp::SubRegReg => "SUB",
                         TapeOp::MinRegReg => "MIN",
                         TapeOp::MaxRegReg => "MAX",
@@ -87,6 +89,8 @@ impl SsaTape {
 
                 TapeOp::AddRegImm
                 | TapeOp::MulRegImm
+                | TapeOp::DivRegImm
+                | TapeOp::DivImmReg
                 | TapeOp::SubImmReg
                 | TapeOp::SubRegImm
                 | TapeOp::MinRegImm
@@ -97,6 +101,8 @@ impl SsaTape {
                     let (op, swap) = match op {
                         TapeOp::AddRegImm => ("ADD", false),
                         TapeOp::MulRegImm => ("MUL", false),
+                        TapeOp::DivImmReg => ("DIV", true),
+                        TapeOp::DivRegImm => ("DIV", false),
                         TapeOp::SubImmReg => ("SUB", true),
                         TapeOp::SubRegImm => ("SUB", false),
                         TapeOp::MinRegImm => ("MIN", false),
@@ -143,13 +149,14 @@ impl SsaTape {
                     let arg = *data.next().unwrap();
                     alloc.op_reg(index, arg, op);
                 }
-                MinRegImm | MaxRegImm | AddRegImm | MulRegImm | SubRegImm
-                | SubImmReg => {
+                MinRegImm | MaxRegImm | AddRegImm | MulRegImm | DivRegImm
+                | DivImmReg | SubRegImm | SubImmReg => {
                     let arg = *data.next().unwrap();
                     let imm = f32::from_bits(*data.next().unwrap());
                     alloc.op_reg_imm(index, arg, imm, op);
                 }
-                AddRegReg | MulRegReg | SubRegReg | MinRegReg | MaxRegReg => {
+                AddRegReg | MulRegReg | DivRegReg | SubRegReg | MinRegReg
+                | MaxRegReg => {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     alloc.op_reg_reg(index, lhs, rhs, op);
@@ -194,7 +201,8 @@ impl SsaTape {
                         data.next().unwrap();
                     }
                     AddRegImm | MulRegImm | SubRegImm | SubImmReg
-                    | AddRegReg | MulRegReg | SubRegReg => {
+                    | AddRegReg | MulRegReg | SubRegReg | DivRegReg
+                    | DivRegImm | DivImmReg => {
                         data.next().unwrap();
                         data.next().unwrap();
                     }
@@ -346,7 +354,7 @@ impl SsaTape {
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                AddRegReg | MulRegReg | SubRegReg => {
+                AddRegReg | MulRegReg | SubRegReg | DivRegReg => {
                     let lhs = *active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     let rhs = *active[*data.next().unwrap() as usize]
@@ -358,7 +366,8 @@ impl SsaTape {
 
                     alloc.op_reg_reg(new_index, lhs, rhs, op);
                 }
-                AddRegImm | MulRegImm | SubRegImm | SubImmReg => {
+                AddRegImm | MulRegImm | SubRegImm | SubImmReg | DivRegImm
+                | DivImmReg => {
                     let arg = *active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     let imm = *data.next().unwrap();

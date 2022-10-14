@@ -96,15 +96,20 @@ impl SsaTapeBuilder {
                         TapeOp::AddRegImm,
                         TapeOp::AddRegImm,
                     ),
+                    BinaryOpcode::Sub => (
+                        TapeOp::SubRegReg,
+                        TapeOp::SubRegImm,
+                        TapeOp::SubImmReg,
+                    ),
                     BinaryOpcode::Mul => (
                         TapeOp::MulRegReg,
                         TapeOp::MulRegImm,
                         TapeOp::MulRegImm,
                     ),
-                    BinaryOpcode::Sub => (
-                        TapeOp::SubRegReg,
-                        TapeOp::SubRegImm,
-                        TapeOp::SubImmReg,
+                    BinaryOpcode::Div => (
+                        TapeOp::DivRegReg,
+                        TapeOp::DivRegImm,
+                        TapeOp::DivImmReg,
                     ),
                     BinaryOpcode::Min => (
                         TapeOp::MinRegReg,

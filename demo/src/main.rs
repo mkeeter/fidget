@@ -60,7 +60,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
         image_size: size as usize,
         tile_sizes: vec![128, 16],
         threads: 8,
-        interval_subdiv: 2,
+        interval_subdiv: 3,
 
         mat: nalgebra::Transform3::identity(),
     };
