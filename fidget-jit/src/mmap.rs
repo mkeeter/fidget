@@ -48,6 +48,8 @@ impl Mmap {
             let slice =
                 std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.len);
             slice[0..s.len()].copy_from_slice(s);
+            slice[0..s.len()].reverse();
+            slice[0..s.len()].reverse();
 
             sys_icache_invalidate(self.ptr, s.len());
             pthread_jit_write_protect_np(1);

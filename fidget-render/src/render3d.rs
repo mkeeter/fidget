@@ -164,6 +164,9 @@ impl<I: EvalFamily> Worker<'_, I> {
                     }
                 }
             }
+            if let Some(f) = float_handle {
+                self.buffers.push(f.take().unwrap());
+            }
             None
         } else {
             // Prepare for pixel-by-pixel evaluation
@@ -197,29 +200,16 @@ impl<I: EvalFamily> Worker<'_, I> {
             // (this matters most for the JIT compiler, which is _expensive_)
             let sub_tape = eval.simplify(I::REG_LIMIT);
             let ret = if sub_tape.len() < handle.tape().len() {
-                // Reuse FloatSliceFunc buffers if possible
-                let sub_jit = match self.buffers.pop() {
-                    Some(s) => {
-                        let (sub_jit, s) =
-                            FloatSliceFunc::<I::FloatSliceFunc>::new_give(
-                                sub_tape, s,
-                            );
-                        self.buffers.extend(s);
-                        sub_jit
-                    }
-                    None => {
-                        FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape)
-                    }
-                };
+                let func = self.get_float_slice_eval(sub_tape);
 
-                let mut eval = sub_jit.get_evaluator();
+                let mut eval = func.get_evaluator();
                 self.scratch.eval_s(&mut eval);
                 drop(eval);
 
                 // We just dropped the evaluator, so any reuse of memory between
                 // the FloatSliceFunc and FloatSliceEval should be cleared up
                 // and we should be able to reuse the working memory.
-                self.buffers.push(sub_jit.take().unwrap());
+                self.buffers.push(func.take().unwrap());
 
                 None
             } else if let Some(r) = float_handle {
@@ -228,22 +218,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 self.scratch.eval_s(&mut eval);
                 None
             } else {
-                // Build our own FloatSliceFunc handle, then return it
-                // TODO: copy-pasta from the top case
-                let func = match self.buffers.pop() {
-                    Some(s) => {
-                        let (sub_jit, s) =
-                            FloatSliceFunc::<I::FloatSliceFunc>::new_give(
-                                handle.tape(),
-                                s,
-                            );
-                        self.buffers.extend(s);
-                        sub_jit
-                    }
-                    None => FloatSliceFunc::<I::FloatSliceFunc>::from_tape(
-                        handle.tape(),
-                    ),
-                };
+                let func = self.get_float_slice_eval(handle.tape());
 
                 let mut eval = func.get_evaluator();
                 self.scratch.eval_s(&mut eval);
@@ -272,6 +247,20 @@ impl<I: EvalFamily> Worker<'_, I> {
                 }
             }
             ret
+        }
+    }
+    fn get_float_slice_eval(
+        &mut self,
+        sub_tape: Tape,
+    ) -> FloatSliceFunc<I::FloatSliceFunc> {
+        match self.buffers.pop() {
+            Some(s) => {
+                let (sub_jit, s) =
+                    FloatSliceFunc::<I::FloatSliceFunc>::new_give(sub_tape, s);
+                self.buffers.extend(s);
+                sub_jit
+            }
+            None => FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape),
         }
     }
 }

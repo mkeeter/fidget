@@ -40,7 +40,7 @@ pub trait FloatSliceEvalT {
     fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]);
 }
 
-/// Function handle for interval evaluation
+/// Function handle for float slice evaluation
 ///
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce

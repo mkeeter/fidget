@@ -10,6 +10,9 @@ pub struct Grad {
 }
 
 impl Grad {
+    pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
+        Self { v, dx, dy, dz }
+    }
     pub fn abs(self) -> Self {
         if self.v < 0.0 {
             Grad {
@@ -53,6 +56,17 @@ impl Grad {
             self
         } else {
             rhs
+        }
+    }
+}
+
+impl From<f32> for Grad {
+    fn from(v: f32) -> Self {
+        Grad {
+            v,
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
         }
     }
 }
