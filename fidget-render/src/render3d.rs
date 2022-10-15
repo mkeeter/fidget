@@ -53,6 +53,9 @@ struct Scratch {
     y: Vec<f32>,
     z: Vec<f32>,
     out: Vec<f32>,
+
+    /// Index and Z coordinate in the tile of the given point
+    u: Vec<(usize, usize)>,
 }
 
 impl Scratch {
@@ -62,10 +65,20 @@ impl Scratch {
             y: vec![0.0; size],
             z: vec![0.0; size],
             out: vec![0.0; size],
+            u: vec![(0, 0); size],
         }
     }
-    fn eval_s<E: FloatSliceEvalT>(&mut self, f: &mut FloatSliceEval<E>) {
-        f.eval_s(&self.x, &self.y, &self.z, &mut self.out);
+    fn eval_s<E: FloatSliceEvalT>(
+        &mut self,
+        f: &mut FloatSliceEval<E>,
+        size: usize,
+    ) {
+        f.eval_s(
+            &self.x[0..size],
+            &self.y[0..size],
+            &self.z[0..size],
+            &mut self.out[0..size],
+        );
     }
 }
 
@@ -145,7 +158,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             let mut float_handle = None;
             for j in 0..n {
                 for i in 0..n {
-                    for k in 0..n {
+                    for k in (0..n).rev() {
                         let r = self.render_tile_recurse(
                             &sub_jit,
                             depth + 1,
@@ -174,6 +187,12 @@ impl<I: EvalFamily> Worker<'_, I> {
             for j in 0..tile_size {
                 for i in 0..tile_size {
                     for k in (0..tile_size).rev() {
+                        let z = tile.corner[2] + k + 1;
+                        let o = self.config.tile_to_offset(tile, i, j);
+                        if self.out[o] >= z {
+                            break;
+                        }
+
                         let v = self.config.vec3_to_pos(Vector3::new(
                             tile.corner[0] + i,
                             tile.corner[1] + j,
@@ -182,11 +201,12 @@ impl<I: EvalFamily> Worker<'_, I> {
                         self.scratch.x[index] = v.x;
                         self.scratch.y[index] = v.y;
                         self.scratch.z[index] = v.z;
+                        self.scratch.u[index] = (o, z);
                         index += 1;
                     }
                 }
             }
-            assert_eq!(index, self.scratch.x.len());
+            let size = index;
 
             // This gets a little messy in terms of lifetimes.
             //
@@ -203,7 +223,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 let func = self.get_float_slice_eval(sub_tape);
 
                 let mut eval = func.get_evaluator();
-                self.scratch.eval_s(&mut eval);
+                self.scratch.eval_s(&mut eval, size);
                 drop(eval);
 
                 // We just dropped the evaluator, so any reuse of memory between
@@ -215,35 +235,26 @@ impl<I: EvalFamily> Worker<'_, I> {
             } else if let Some(r) = float_handle {
                 // Reuse the FloatSliceFunc handle passed in
                 let mut eval = r.get_evaluator();
-                self.scratch.eval_s(&mut eval);
+                self.scratch.eval_s(&mut eval, size);
                 None
             } else {
                 let func = self.get_float_slice_eval(handle.tape());
 
                 let mut eval = func.get_evaluator();
-                self.scratch.eval_s(&mut eval);
+                self.scratch.eval_s(&mut eval, size);
                 Some(func)
             };
 
-            // Copy from the scratch buffer to the output tile
             let mut index = 0;
-            for j in 0..tile_size {
-                for i in 0..tile_size {
-                    for k in (0..tile_size).rev() {
-                        let z = tile.corner[2] + k + 1;
-                        let o = self.config.tile_to_offset(tile, i, j);
-                        if self.scratch.out[index] < 0.0 && self.out[o] < z {
-                            // Early exit on the first filled voxel
-                            self.out[o] = z;
-                            index += k + 1;
-                            break;
-                        } else if self.out[o] >= z {
-                            // Early exit if we end up behind the model
-                            index += k + 1;
-                            break;
-                        }
+            while index < size {
+                let (o, z) = self.scratch.u[index];
+                if self.scratch.out[index] < 0.0 && self.out[o] <= z {
+                    self.out[o] = z;
+                    while index < size && self.scratch.u[index].0 == o {
                         index += 1;
                     }
+                } else {
+                    index += 1;
                 }
             }
             ret
