@@ -187,20 +187,26 @@ impl<I: EvalFamily> Worker<'_, I> {
                 let j = xy / tile_size;
                 let o = self.config.tile_to_offset(tile, i, j);
                 let prev_size = index;
+
+                // Precompute the XY part of the transform
+                let v = self.mat
+                    * nalgebra::Vector4::new(
+                        (tile.corner[0] + i) as f32,
+                        (tile.corner[1] + j) as f32,
+                        0.0,
+                        1.0,
+                    );
                 for k in (0..tile_size).rev() {
                     let z = tile.corner[2] + k + 1;
                     if self.out[o] >= z {
                         break;
                     }
 
-                    let v = self.mat.transform_point(&Point3::new(
-                        (tile.corner[0] + i) as f32,
-                        (tile.corner[1] + j) as f32,
-                        (tile.corner[2] + k) as f32,
-                    ));
-                    self.scratch.x[index] = v.x;
-                    self.scratch.y[index] = v.y;
-                    self.scratch.z[index] = v.z;
+                    let v =
+                        v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
+                    self.scratch.x[index] = v.x / v.w;
+                    self.scratch.y[index] = v.y / v.w;
+                    self.scratch.z[index] = v.z / v.w;
                     index += 1;
                 }
                 // Store the depth of this particular column
