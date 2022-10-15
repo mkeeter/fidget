@@ -182,11 +182,11 @@ impl<I: EvalFamily> Worker<'_, I> {
         } else {
             // Prepare for pixel-by-pixel evaluation
             let mut index = 0;
+            self.scratch.columns.clear();
             for xy in 0..(tile_size * tile_size) {
                 let i = xy % tile_size;
                 let j = xy / tile_size;
                 let o = self.config.tile_to_offset(tile, i, j);
-                let prev_size = index;
 
                 // Precompute the XY part of the transform
                 let v = self.mat
@@ -196,12 +196,13 @@ impl<I: EvalFamily> Worker<'_, I> {
                         0.0,
                         1.0,
                     );
-                for k in (0..tile_size).rev() {
-                    let z = tile.corner[2] + k + 1;
-                    if self.out[o] >= z {
-                        break;
-                    }
 
+                let zmax = tile.corner[2] + tile_size;
+                if self.out[o] >= zmax {
+                    continue;
+                }
+
+                for k in (0..tile_size).rev() {
                     let v =
                         v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
                     self.scratch.x[index] = v.x / v.w;
@@ -209,8 +210,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                     self.scratch.z[index] = v.z / v.w;
                     index += 1;
                 }
-                // Store the depth of this particular column
-                self.scratch.columns[xy] = index - prev_size;
+                self.scratch.columns.push(xy);
             }
             let size = index;
 
@@ -252,16 +252,15 @@ impl<I: EvalFamily> Worker<'_, I> {
             };
 
             let mut index = 0;
-            for xy in 0..(tile_size * tile_size) {
+            for xy in self.scratch.columns.iter() {
                 let i = xy % tile_size;
                 let j = xy / tile_size;
                 let o = self.config.tile_to_offset(tile, i, j);
-                let col_size = self.scratch.columns[xy];
-                for k in 0..col_size {
-                    let z = tile.corner[2] + tile_size - k;
+                for k in (0..tile_size).rev() {
+                    let z = tile.corner[2] + k + 1;
                     if self.scratch.out[index] < 0.0 && self.out[o] <= z {
                         self.out[o] = z;
-                        index += col_size - k;
+                        index += k + 1;
                         break;
                     }
                     index += 1;
