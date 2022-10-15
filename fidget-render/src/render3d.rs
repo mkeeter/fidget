@@ -48,18 +48,20 @@ struct Scratch {
     z: Vec<f32>,
     out: Vec<f32>,
 
-    /// Index and Z coordinate in the tile of the given point
-    u: Vec<(usize, usize)>,
+    /// Depth of each column
+    columns: Vec<usize>,
 }
 
 impl Scratch {
-    fn new(size: usize) -> Self {
+    fn new(tile_size: usize) -> Self {
+        let size2 = tile_size * tile_size * tile_size;
+        let size3 = size2 * tile_size;
         Self {
-            x: vec![0.0; size],
-            y: vec![0.0; size],
-            z: vec![0.0; size],
-            out: vec![0.0; size],
-            u: vec![(0, 0); size],
+            x: vec![0.0; size3],
+            y: vec![0.0; size3],
+            z: vec![0.0; size3],
+            out: vec![0.0; size3],
+            columns: vec![0; size2],
         }
     }
     fn eval_s<E: FloatSliceEvalT>(
@@ -180,27 +182,29 @@ impl<I: EvalFamily> Worker<'_, I> {
         } else {
             // Prepare for pixel-by-pixel evaluation
             let mut index = 0;
-            for j in 0..tile_size {
-                for i in 0..tile_size {
-                    for k in (0..tile_size).rev() {
-                        let z = tile.corner[2] + k + 1;
-                        let o = self.config.tile_to_offset(tile, i, j);
-                        if self.out[o] >= z {
-                            break;
-                        }
-
-                        let v = self.mat.transform_point(&Point3::new(
-                            (tile.corner[0] + i) as f32,
-                            (tile.corner[1] + j) as f32,
-                            (tile.corner[2] + k) as f32,
-                        ));
-                        self.scratch.x[index] = v.x;
-                        self.scratch.y[index] = v.y;
-                        self.scratch.z[index] = v.z;
-                        self.scratch.u[index] = (o, z);
-                        index += 1;
+            for xy in 0..(tile_size * tile_size) {
+                let i = xy % tile_size;
+                let j = xy / tile_size;
+                let o = self.config.tile_to_offset(tile, i, j);
+                let prev_size = index;
+                for k in (0..tile_size).rev() {
+                    let z = tile.corner[2] + k + 1;
+                    if self.out[o] >= z {
+                        break;
                     }
+
+                    let v = self.mat.transform_point(&Point3::new(
+                        (tile.corner[0] + i) as f32,
+                        (tile.corner[1] + j) as f32,
+                        (tile.corner[2] + k) as f32,
+                    ));
+                    self.scratch.x[index] = v.x;
+                    self.scratch.y[index] = v.y;
+                    self.scratch.z[index] = v.z;
+                    index += 1;
                 }
+                // Store the depth of this particular column
+                self.scratch.columns[xy] = index - prev_size;
             }
             let size = index;
 
@@ -242,17 +246,22 @@ impl<I: EvalFamily> Worker<'_, I> {
             };
 
             let mut index = 0;
-            while index < size {
-                let (o, z) = self.scratch.u[index];
-                if self.scratch.out[index] < 0.0 && self.out[o] <= z {
-                    self.out[o] = z;
-                    while index < size && self.scratch.u[index].0 == o {
-                        index += 1;
+            for xy in 0..(tile_size * tile_size) {
+                let i = xy % tile_size;
+                let j = xy / tile_size;
+                let o = self.config.tile_to_offset(tile, i, j);
+                let col_size = self.scratch.columns[xy];
+                for k in 0..col_size {
+                    let z = tile.corner[2] + tile_size - k;
+                    if self.scratch.out[index] < 0.0 && self.out[o] <= z {
+                        self.out[o] = z;
+                        index += col_size - k;
+                        break;
                     }
-                } else {
                     index += 1;
                 }
             }
+
             ret
         }
     }
@@ -288,8 +297,8 @@ fn worker<I: EvalFamily>(
             .append_translation(&Vector3::new(-1.0, -1.0, -1.0));
 
     // Calculate maximum evaluation buffer size
-    let buf_size = config.tile_sizes.last().cloned().unwrap_or(0);
-    let scratch = Scratch::new(buf_size * buf_size * buf_size);
+    let buf_size = *config.tile_sizes.last().unwrap();
+    let scratch = Scratch::new(buf_size);
     let mut w: Worker<I> = Worker {
         scratch,
         out: vec![],
