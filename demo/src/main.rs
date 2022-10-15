@@ -58,7 +58,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
 
     let cfg = fidget::render::render3d::RenderConfig {
         image_size: size as usize,
-        tile_sizes: vec![128, 16],
+        tile_sizes: vec![256, 64, 16],
         threads: 8,
         interval_subdiv: 3,
 
