@@ -4,6 +4,7 @@ pub mod asm;
 mod choice;
 
 pub mod float_slice;
+pub mod grad_slice;
 pub mod interval;
 pub mod point;
 
