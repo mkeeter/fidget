@@ -10,7 +10,7 @@ use fidget_core::{
     tape::Tape,
 };
 
-use nalgebra::{Transform3, Vector3};
+use nalgebra::{Matrix4, Point3, Transform3, Vector3};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -25,12 +25,6 @@ pub struct RenderConfig {
 }
 
 impl RenderConfig {
-    #[inline]
-    fn vec3_to_pos(&self, p: Vector3<usize>) -> Vector3<f32> {
-        let p = 2.0 * (p.cast::<f32>() / self.image_size as f32)
-            - Vector3::new(1.0, 1.0, 1.0);
-        self.mat.transform_vector(&p)
-    }
     #[inline]
     fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
         let x = tile.corner[0] % self.tile_sizes[0] + x;
@@ -86,6 +80,7 @@ impl Scratch {
 
 struct Worker<'a, I: EvalFamily> {
     config: &'a RenderConfig,
+    mat: Matrix4<f32>,
     scratch: Scratch,
     out: Vec<usize>,
     buffers:
@@ -109,14 +104,15 @@ impl<I: EvalFamily> Worker<'_, I> {
         let mut y_max = f32::NEG_INFINITY;
         let mut z_min = f32::INFINITY;
         let mut z_max = f32::NEG_INFINITY;
-        let base = Vector3::from(tile.corner);
+        let base = Point3::from(tile.corner);
         for i in 0..8 {
             let offset = Vector3::new(
                 if (i & 1) == 0 { 0 } else { tile_size },
                 if (i & 2) == 0 { 0 } else { tile_size },
                 if (i & 4) == 0 { 0 } else { tile_size },
             );
-            let p = self.config.vec3_to_pos(base + offset);
+            let p = (base + offset).cast::<f32>();
+            let p = self.mat.transform_point(&p);
             x_min = x_min.min(p.x);
             x_max = x_max.max(p.x);
             y_min = y_min.min(p.y);
@@ -193,10 +189,10 @@ impl<I: EvalFamily> Worker<'_, I> {
                             break;
                         }
 
-                        let v = self.config.vec3_to_pos(Vector3::new(
-                            tile.corner[0] + i,
-                            tile.corner[1] + j,
-                            tile.corner[2] + k,
+                        let v = self.mat.transform_point(&Point3::new(
+                            (tile.corner[0] + i) as f32,
+                            (tile.corner[1] + j) as f32,
+                            (tile.corner[2] + k) as f32,
                         ));
                         self.scratch.x[index] = v.x;
                         self.scratch.y[index] = v.y;
@@ -286,6 +282,11 @@ fn worker<I: EvalFamily>(
 ) -> Vec<(Tile, Vec<usize>)> {
     let mut out = vec![];
 
+    let mat = config.mat.matrix()
+        * nalgebra::Matrix4::identity()
+            .append_scaling(2.0 / config.image_size as f32)
+            .append_translation(&Vector3::new(-1.0, -1.0, -1.0));
+
     // Calculate maximum evaluation buffer size
     let buf_size = config.tile_sizes.last().cloned().unwrap_or(0);
     let scratch = Scratch::new(buf_size * buf_size * buf_size);
@@ -293,6 +294,7 @@ fn worker<I: EvalFamily>(
         scratch,
         out: vec![],
         config,
+        mat,
         buffers: vec![],
     };
     loop {
