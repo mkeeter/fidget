@@ -152,6 +152,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // Return early if this tile is completely empty
             return None;
         } else {
+            // Continue evaluating (this also includes the NaN case)
             None
         };
 
