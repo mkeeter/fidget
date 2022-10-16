@@ -602,6 +602,8 @@ impl AssemblerT for IntervalAssembler {
             // This lets us do two comparisons simultaneously
             ; zip2 v4.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
+
+            // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
             ; ldrb w16, [x0]
@@ -1551,6 +1553,10 @@ mod tests {
         let nanan = eval.eval_i_x([-2.0, -1.0]);
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
     }
 
     #[test]
@@ -1568,6 +1574,10 @@ mod tests {
         assert_eq!(eval.eval_i_x([-2.0, 4.0]), [0.0, 16.0].into());
         assert_eq!(eval.eval_i_x([-6.0, -2.0]), [4.0, 36.0].into());
         assert_eq!(eval.eval_i_x([-6.0, 1.0]), [0.0, 36.0].into());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
     }
 
     #[test]
@@ -1591,6 +1601,14 @@ mod tests {
             eval.eval_i_xy([-3.0, -1.0], [-2.0, 6.0]),
             [-18.0, 6.0].into()
         );
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
     }
 
     #[test]
@@ -1716,6 +1734,14 @@ mod tests {
 
         let out = eval.eval_i_xy([-1.0, 4.0], [0.5, 1.0]);
         assert_eq!(out, [-2.0, 8.0].into());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
     }
 
     #[test]
@@ -1745,6 +1771,16 @@ mod tests {
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Right]);
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
     #[test]
@@ -1803,6 +1839,16 @@ mod tests {
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left]);
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
