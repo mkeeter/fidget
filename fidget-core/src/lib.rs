@@ -15,7 +15,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = PointFunc::<AsmFunc>::new(&tape).get_evaluator();
+//! let mut eval = PointFunc::<AsmFunc>::from_tape(tape).get_evaluator();
 //! assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
 //!

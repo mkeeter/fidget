@@ -9,9 +9,8 @@
 //! - Interval evaluation passes 6x `f32` in `s0-5`, a choice array `*mut u8`
 //!   in `x0`, and returns 2x `f32` in `s0-1`.  Each pair represents an
 //!   interval.  During the function prelude, `s0-5` are packed into `v0-2`
-//! - Gradient slice evaluation passes 3x `f32` in `x0-2`, and an output
-//!   array `*mut f32` in `x3`.  The output array represents 4x `f32` in the
-//!   order `[v, dx, dy, dz]`
+//! - Gradient slice evaluation passes 3x `f32` in `s0-2`, and returns outputs
+//!   in `s0-3`, which represent `[v, dx, dy, dz]`.
 //!
 //! ## In this house, we obey the A64 calling convention.
 //! We dedicate 24 registers to tape data storage:
@@ -517,17 +516,14 @@ impl AssemblerT for IntervalAssembler {
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
-            // Store rhs > 0.0 in x15, then check rhs.lower > 0
-            ; fcmgt v4.s2, V(reg(rhs_reg)).s2, #0.0
-            ; fmov x15, d4
-            ; tst x15, #0x1
-            ; b.ne #36 // -> happy
+            // Store rhs.lower > 0.0 in x15, then check rhs.lower > 0
+            ; fcmp S(reg(rhs_reg)), #0.0
+            ; b.gt #32 // -> happy
 
-            // Store rhs < 0.0 in x15, then check rhs.upper < 0
-            ; fcmlt v4.s2, V(reg(rhs_reg)).s2, #0.0
-            ; fmov x15, d4
-            ; tst x15, #0x1_0000_0000
-            ; b.ne #20 // -> happy
+            // Store rhs.upper < 0.0 in x15, then check rhs.upper < 0
+            ; mov s4, V(reg(rhs_reg)).s[1]
+            ; fcmp s4, #0.0
+            ; b.lt #20
 
             // Sad path: rhs spans 0, so the output includes NaN
             ; movz w9, #(nan_u32 >> 16), lsl 16
@@ -1051,9 +1047,11 @@ impl AssemblerT for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Vec<u8> {
         dynasm!(self.0.ops
-            // Prepare our return value, writing into x0
-            ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x0]
+            // Prepare our return value, writing into s0-3
+            ; mov s0, V(reg(out_reg)).s[0]
+            ; mov s1, V(reg(out_reg)).s[1]
+            ; mov s2, V(reg(out_reg)).s[2]
+            ; mov s3, V(reg(out_reg)).s[3]
 
             // Restore stack space used for spills
             ; add   sp, sp, #(self.0.mem_offset as u32)
@@ -1076,7 +1074,7 @@ pub struct JitGradSliceEval {
     _mmap: Arc<Mmap>,
     /// X, Y, Z are passed by value; the output is written to an array of 4
     /// floats (allocated by the caller)
-    fn_grad: unsafe extern "C" fn(f32, f32, f32, *mut f32),
+    fn_grad: unsafe extern "C" fn(f32, f32, f32) -> [f32; 4],
 }
 
 impl GradSliceEvalT for JitGradSliceEval {
@@ -1087,14 +1085,8 @@ impl GradSliceEvalT for JitGradSliceEval {
             .unwrap();
 
         for i in 0..n {
-            unsafe {
-                (self.fn_grad)(
-                    xs[i],
-                    ys[i],
-                    zs[i],
-                    out.as_mut_ptr().add(i) as *mut f32,
-                )
-            }
+            let [v, x, y, z] = unsafe { (self.fn_grad)(xs[i], ys[i], zs[i]) };
+            out[i] = Grad::new(v, x, y, z);
         }
     }
 }
