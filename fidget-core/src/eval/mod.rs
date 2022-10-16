@@ -19,4 +19,5 @@ pub trait EvalFamily {
     type IntervalFunc: interval::IntervalFuncT;
     type FloatSliceFunc: float_slice::FloatSliceFuncT;
     type PointFunc: point::PointFuncT;
+    type GradSliceFunc: grad_slice::GradSliceFuncT;
 }

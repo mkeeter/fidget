@@ -30,6 +30,10 @@ struct Args {
     #[clap(short, long)]
     brute: bool,
 
+    /// Use brute-force (pixel-by-pixel) evaluation
+    #[clap(short, long, requires = "threedee")]
+    color: bool,
+
     /// Render in 3D
     #[clap(short, long, requires = "image", conflicts_with = "brute")]
     threedee: bool,
@@ -51,6 +55,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
     node: Node,
     size: u32,
     n: usize,
+    use_color: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
@@ -66,23 +71,40 @@ fn run3d<I: fidget::eval::EvalFamily>(
     };
 
     let start = Instant::now();
-    let mut image = vec![];
+    let mut depth = vec![];
+    let mut color = vec![];
     for _ in 0..n {
-        image = fidget::render::render3d::render::<I>(tape.clone(), &cfg);
+        (depth, color) =
+            fidget::render::render3d::render::<I>(tape.clone(), &cfg);
     }
 
-    let z_max = image.iter().max().cloned().unwrap_or(1);
-    let out = image
-        .into_iter()
-        .flat_map(|p| {
-            if p > 0 {
-                let z = (p * 255 / z_max) as u8;
-                [z, z, z, 255]
-            } else {
-                [0, 0, 0, 0]
-            }
-        })
-        .collect();
+    let out = if use_color {
+        depth
+            .into_iter()
+            .zip(color.into_iter())
+            .flat_map(|(d, p)| {
+                if d > 0 {
+                    [p[0], p[1], p[2], 255]
+                } else {
+                    [0, 0, 0, 0]
+                }
+            })
+            .collect()
+    } else {
+        let z_max = depth.iter().max().cloned().unwrap_or(1);
+        depth
+            .into_iter()
+            .flat_map(|p| {
+                if p > 0 {
+                    let z = (p * 255 / z_max) as u8;
+                    [z, z, z, 255]
+                } else {
+                    [0, 0, 0, 0]
+                }
+            })
+            .collect()
+    };
+
     (out, start)
 }
 
@@ -172,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
                 run3d::<fidget::eval::asm::AsmFamily>(
-                    &ctx, root, args.size, args.n,
+                    &ctx, root, args.size, args.n, args.color,
                 )
             } else {
                 run::<fidget::eval::asm::AsmFamily>(
@@ -182,7 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if args.jit {
             if args.threedee {
                 run3d::<fidget::jit::JitEvalFamily>(
-                    &ctx, root, args.size, args.n,
+                    &ctx, root, args.size, args.n, args.color,
                 )
             } else {
                 run::<fidget::jit::JitEvalFamily>(

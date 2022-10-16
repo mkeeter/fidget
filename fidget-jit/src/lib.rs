@@ -1,10 +1,7 @@
 //! Infrastructure for compiling down to native machine code
 mod mmap;
 
-use dynasmrt::{
-    aarch64::Aarch64Relocation, dynasm, DynasmApi,
-    VecAssembler as DynasmVecAssembler,
-};
+use dynasmrt::{aarch64::Aarch64Relocation, dynasm, DynasmApi, VecAssembler};
 
 use std::sync::Arc;
 
@@ -13,6 +10,7 @@ use fidget_core::{
     asm::AsmOp,
     eval::{
         float_slice::{FloatSliceEvalT, FloatSliceFuncT},
+        grad_slice::{Grad, GradSliceEvalT, GradSliceFuncT},
         interval::{Interval, IntervalEvalT, IntervalFuncT},
         point::{PointEvalT, PointFuncT},
         Choice, EvalFamily,
@@ -78,10 +76,10 @@ trait AssemblerT {
     fn finalize(self, out_reg: u8) -> Vec<u8>;
 }
 
-struct FloatAssembler(AssemblerData<f32>);
+/////////////////////////////////////////////////////////////////////////////////////////
 
 struct AssemblerData<T> {
-    ops: DynasmVecAssembler<Aarch64Relocation>,
+    ops: VecAssembler<Aarch64Relocation>,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -110,9 +108,13 @@ impl<T> AssemblerData<T> {
     }
 }
 
-impl AssemblerT for FloatAssembler {
+/////////////////////////////////////////////////////////////////////////////////////////
+
+struct PointAssembler(AssemblerData<f32>);
+
+impl AssemblerT for PointAssembler {
     fn init() -> Self {
-        let mut ops = dynasmrt::VecAssembler::new(0);
+        let mut ops = VecAssembler::new(0);
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -628,8 +630,10 @@ impl AssemblerT for IntervalAssembler {
     }
 }
 
-struct VecAssembler(AssemblerData<[f32; 4]>);
-impl AssemblerT for VecAssembler {
+////////////////////////////////////////////////////////////////////////////////
+
+struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
+impl AssemblerT for FloatSliceAssembler {
     fn init() -> Self {
         let mut ops = dynasmrt::VecAssembler::new(0);
         dynasm!(ops
@@ -651,31 +655,6 @@ impl AssemblerT for VecAssembler {
             ; mov v1.d[1], v2.d[0]
             ; ldp d2, d3, [x2]
             ; mov v2.d[1], v3.d[0]
-
-            ; fmov v8.s4, #1.0
-            ; fmov v9.s4, #1.0
-            ; fmov v10.s4, #1.0
-            ; fmov v11.s4, #1.0
-            ; fmov v12.s4, #1.0
-            ; fmov v13.s4, #1.0
-            ; fmov v14.s4, #1.0
-            ; fmov v15.s4, #1.0
-            ; fmov v16.s4, #1.0
-            ; fmov v17.s4, #1.0
-            ; fmov v18.s4, #1.0
-            ; fmov v19.s4, #1.0
-            ; fmov v20.s4, #1.0
-            ; fmov v21.s4, #1.0
-            ; fmov v22.s4, #1.0
-            ; fmov v23.s4, #1.0
-            ; fmov v24.s4, #1.0
-            ; fmov v25.s4, #1.0
-            ; fmov v26.s4, #1.0
-            ; fmov v27.s4, #1.0
-            ; fmov v28.s4, #1.0
-            ; fmov v29.s4, #1.0
-            ; fmov v30.s4, #1.0
-            ; fmov v31.s4, #1.0
         );
 
         Self(AssemblerData {
@@ -803,6 +782,222 @@ impl AssemblerT for VecAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct GradSliceAssembler(AssemblerData<f32>);
+
+impl AssemblerT for GradSliceAssembler {
+    fn init() -> Self {
+        let mut ops = VecAssembler::new(0);
+        dynasm!(ops
+            // Preserve frame and link register
+            ; stp   x29, x30, [sp, #-16]!
+            // Preserve sp
+            ; mov   x29, sp
+            // Preserve callee-saved floating-point registers
+            ; stp   d8, d9, [sp, #-16]!
+            ; stp   d10, d11, [sp, #-16]!
+            ; stp   d12, d13, [sp, #-16]!
+            ; stp   d14, d15, [sp, #-16]!
+        );
+
+        Self(AssemblerData {
+            ops,
+            mem_offset: 0,
+            _p: std::marker::PhantomData,
+        })
+    }
+    /// Reads from `src_mem` to `dst_reg`
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+        assert!(dst_reg < REGISTER_LIMIT);
+        let sp_offset = self.0.check_stack(src_mem);
+        assert!(sp_offset <= 16384);
+        dynasm!(self.0.ops ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
+    }
+    /// Writes from `src_reg` to `dst_mem`
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+        assert!(src_reg < REGISTER_LIMIT);
+        let sp_offset = self.0.check_stack(dst_mem);
+        assert!(sp_offset <= 16384);
+        dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
+    }
+    /// Copies the given input to `out_reg`
+    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(src_arg as u32));
+    }
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(reg(lhs_reg)))
+    }
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fneg S(reg(out_reg)), S(reg(lhs_reg)))
+    }
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fabs S(reg(out_reg)), S(reg(lhs_reg)))
+    }
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmov s7, #1.0
+            ; fdiv S(reg(out_reg)), s7, S(reg(lhs_reg))
+        )
+    }
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fsqrt S(reg(out_reg)), S(reg(lhs_reg)))
+    }
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
+        dynasm!(self.0.ops ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(lhs_reg)))
+    }
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fadd S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fsub S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fdiv S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+
+    /// Loads an immediate into register S4, using W9 as an intermediary
+    fn load_imm(&mut self, imm: f32) -> u8 {
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; movz w9, #(imm_u32 >> 16), lsl 16
+            ; movk w9, #(imm_u32)
+            ; fmov S(IMM_REG as u32), w9
+        );
+        IMM_REG.wrapping_sub(OFFSET)
+    }
+
+    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+        dynasm!(self.0.ops
+            // Prepare our return value
+            ; fmov  s0, S(reg(out_reg))
+            // Restore stack space used for spills
+            ; add   sp, sp, #(self.0.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+        );
+
+        self.0.ops.finalize().unwrap()
+    }
+}
+
+/// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
+///
+/// The lifetime of this `struct` is bound to an `JitGradSliceFunc`, which owns
+/// the underlying executable memory.
+pub struct JitGradSliceEval {
+    _mmap: Arc<Mmap>,
+    fn_grad: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
+}
+
+impl GradSliceEvalT for JitGradSliceEval {
+    fn eval_g(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [Grad]) {
+        /*
+        let n = [xs.len(), ys.len(), zs.len(), out.len()]
+            .into_iter()
+            .min()
+            .unwrap();
+
+        // Special case for < 4 items, in which case the input slices can't be
+        // used as workspace (because we need at least 4x f32)
+        if n < 4 {
+            let mut x = [0.0; 4];
+            let mut y = [0.0; 4];
+            let mut z = [0.0; 4];
+            for i in 0..4 {
+                x[i] = xs.get(i).cloned().unwrap_or(0.0);
+                y[i] = ys.get(i).cloned().unwrap_or(0.0);
+                z[i] = zs.get(i).cloned().unwrap_or(0.0);
+            }
+            let mut tmp = [std::f32::NAN; 4];
+            unsafe {
+                (self.fn_vec)(
+                    x.as_ptr(),
+                    y.as_ptr(),
+                    z.as_ptr(),
+                    tmp.as_mut_ptr(),
+                );
+            }
+            out[0..n].copy_from_slice(&tmp[0..n]);
+            out[n..].fill(std::f32::NAN);
+        } else {
+            let mut i = 0;
+            loop {
+                assert!(i + 4 <= n);
+                unsafe {
+                    (self.fn_vec)(
+                        xs.as_ptr().add(i),
+                        ys.as_ptr().add(i),
+                        zs.as_ptr().add(i),
+                        out.as_mut_ptr().add(i),
+                    )
+                }
+                i += 4;
+                if i == n {
+                    break;
+                } else if i + 4 > n {
+                    i = n - 4;
+                }
+            }
+            out[n..].fill(std::f32::NAN);
+        }
+        */
+        todo!()
+    }
+}
+
+/// Handle owning a JIT-compiled vectorized (4x) float function
+pub struct JitGradSliceFunc {
+    mmap: Arc<Mmap>,
+}
+
+impl GradSliceFuncT for JitGradSliceFunc {
+    type Evaluator = JitGradSliceEval;
+
+    /// Returns an evaluator, bound to the lifetime of the `JitGradSliceFunc`
+    fn get_evaluator(&self) -> Self::Evaluator {
+        JitGradSliceEval {
+            _mmap: self.mmap.clone(),
+            fn_grad: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
+        }
+    }
+
+    fn from_tape(t: Tape) -> Self {
+        let buf = build_asm_fn::<GradSliceAssembler>(t.iter_asm());
+        let mut mmap = Mmap::new(buf.len()).unwrap();
+        mmap.copy_from_slice(&buf);
+        JitGradSliceFunc {
+            mmap: Arc::new(mmap),
+        }
+    }
+}
+////////////////////////////////////////////////////////////////////////////////
+
 fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
     let mut asm = A::init();
 
@@ -899,25 +1094,25 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Handle owning a JIT-compiled float function
-pub struct JitFloatFunc {
+pub struct JitPointFunc {
     /// The raw chunk of memory is in an `Arc` so that it won't outlive its
     /// evaluators
     mmap: Arc<Mmap>,
 }
 
-impl PointFuncT for JitFloatFunc {
-    type Evaluator = JitFloatEval;
+impl PointFuncT for JitPointFunc {
+    type Evaluator = JitPointEval;
 
     /// Returns an evaluator
     fn get_evaluator(&self) -> Self::Evaluator {
-        JitFloatEval {
+        JitPointEval {
             _mmap: self.mmap.clone(),
             fn_float: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
         }
     }
 
     fn from_tape(t: Tape) -> Self {
-        let buf = build_asm_fn::<FloatAssembler>(t.iter_asm());
+        let buf = build_asm_fn::<PointAssembler>(t.iter_asm());
         let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
         Self {
@@ -958,17 +1153,17 @@ impl IntervalFuncT for JitIntervalFunc {
 }
 
 /// Handle owning a JIT-compiled vectorized (4x) float function
-pub struct JitVecFunc {
+pub struct JitFloatSliceFunc {
     mmap: Arc<Mmap>,
 }
 
-impl FloatSliceFuncT for JitVecFunc {
-    type Evaluator = JitVecEval;
+impl FloatSliceFuncT for JitFloatSliceFunc {
+    type Evaluator = JitFloatSliceEval;
     type Storage = Mmap;
 
-    /// Returns an evaluator, bound to the lifetime of the `JitVecFunc`
+    /// Returns an evaluator, bound to the lifetime of the `JitFloatSliceFunc`
     fn get_evaluator(&self) -> Self::Evaluator {
-        JitVecEval {
+        JitFloatSliceEval {
             _mmap: self.mmap.clone(),
             fn_vec: unsafe { std::mem::transmute(self.mmap.as_ptr()) },
         }
@@ -978,11 +1173,11 @@ impl FloatSliceFuncT for JitVecFunc {
         t: Tape,
         mut prev: Self::Storage,
     ) -> (Self, Option<Self::Storage>) {
-        let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
+        let buf = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
         if buf.len() <= prev.len() {
             prev.copy_from_slice(&buf);
             (
-                JitVecFunc {
+                JitFloatSliceFunc {
                     mmap: Arc::new(prev),
                 },
                 None,
@@ -991,7 +1186,7 @@ impl FloatSliceFuncT for JitVecFunc {
             let mut mmap = Mmap::new(buf.len()).unwrap();
             mmap.copy_from_slice(&buf);
             (
-                JitVecFunc {
+                JitFloatSliceFunc {
                     mmap: Arc::new(mmap),
                 },
                 Some(prev),
@@ -1007,10 +1202,10 @@ impl FloatSliceFuncT for JitVecFunc {
     }
 
     fn from_tape(t: Tape) -> Self {
-        let buf = build_asm_fn::<VecAssembler>(t.iter_asm());
+        let buf = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
         let mut mmap = Mmap::new(buf.len()).unwrap();
         mmap.copy_from_slice(&buf);
-        JitVecFunc {
+        JitFloatSliceFunc {
             mmap: Arc::new(mmap),
         }
     }
@@ -1020,14 +1215,14 @@ impl FloatSliceFuncT for JitVecFunc {
 
 /// Evaluator for a JIT-compiled function taking `f32` values
 ///
-/// The lifetime of this `struct` is bound to an `JitFloatFunc`, which owns
+/// The lifetime of this `struct` is bound to an `JitPointFunc`, which owns
 /// the underlying executable memory.
-pub struct JitFloatEval {
+pub struct JitPointEval {
     _mmap: Arc<Mmap>,
     fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
 }
 
-impl PointEvalT for JitFloatEval {
+impl PointEvalT for JitPointEval {
     fn eval_p(
         &mut self,
         x: f32,
@@ -1079,14 +1274,14 @@ impl IntervalEvalT for JitIntervalEval {
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 ///
-/// The lifetime of this `struct` is bound to an `JitVecFunc`, which owns
+/// The lifetime of this `struct` is bound to an `JitFloatSliceFunc`, which owns
 /// the underlying executable memory.
-pub struct JitVecEval {
+pub struct JitFloatSliceEval {
     _mmap: Arc<Mmap>,
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
 }
 
-impl FloatSliceEvalT for JitVecEval {
+impl FloatSliceEvalT for JitFloatSliceEval {
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         let n = [xs.len(), ys.len(), zs.len(), out.len()]
             .into_iter()
@@ -1146,8 +1341,9 @@ impl EvalFamily for JitEvalFamily {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
     type IntervalFunc = JitIntervalFunc;
-    type FloatSliceFunc = JitVecFunc;
-    type PointFunc = JitFloatFunc;
+    type FloatSliceFunc = JitFloatSliceFunc;
+    type GradSliceFunc = JitGradSliceFunc;
+    type PointFunc = JitPointFunc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1170,7 +1366,7 @@ mod tests {
         let sum = ctx.add(x, y2).unwrap();
 
         let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let jit = JitFloatFunc::from_tape(tape);
+        let jit = JitPointFunc::from_tape(tape);
         let mut eval = jit.get_evaluator();
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &mut []), 6.0);
     }
@@ -1548,7 +1744,7 @@ mod tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape);
+        let jit = FloatSliceFunc::<JitFloatSliceFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         let mut out = [0.0; 4];
         eval.eval_s(
@@ -1562,7 +1758,7 @@ mod tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
         let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape);
+        let jit = FloatSliceFunc::<JitFloatSliceFunc>::from_tape(tape);
         let mut eval = jit.get_evaluator();
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],
@@ -1609,14 +1805,17 @@ mod tests {
         let tape_x = ctx.get_tape(x, REGISTER_LIMIT);
         let tape_y = ctx.get_tape(y, REGISTER_LIMIT);
 
-        let jit = FloatSliceFunc::<JitVecFunc>::from_tape(tape_y.clone());
+        let jit =
+            FloatSliceFunc::<JitFloatSliceFunc>::from_tape(tape_y.clone());
         let mut out = [0.0; 4];
         let mut t = jit.take().unwrap();
 
         // This is a fuzz test for icache issues
         for _ in 0..10000 {
-            let (jit, s) =
-                FloatSliceFunc::<JitVecFunc>::new_give(tape_x.clone(), t);
+            let (jit, s) = FloatSliceFunc::<JitFloatSliceFunc>::new_give(
+                tape_x.clone(),
+                t,
+            );
             assert!(s.is_none());
             let mut eval = jit.get_evaluator();
             eval.eval_s(
@@ -1629,8 +1828,10 @@ mod tests {
             drop(eval); // releases the mmap for reuse
             t = jit.take().unwrap();
 
-            let (jit, s) =
-                FloatSliceFunc::<JitVecFunc>::new_give(tape_y.clone(), t);
+            let (jit, s) = FloatSliceFunc::<JitFloatSliceFunc>::new_give(
+                tape_y.clone(),
+                t,
+            );
             assert!(s.is_none());
             let mut eval = jit.get_evaluator();
             eval.eval_s(

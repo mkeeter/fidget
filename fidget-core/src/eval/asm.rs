@@ -27,6 +27,7 @@ impl EvalFamily for AsmFamily {
     type IntervalFunc = AsmFunc;
     type FloatSliceFunc = AsmFunc;
     type PointFunc = AsmFunc;
+    type GradSliceFunc = AsmFunc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -251,131 +252,131 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
         for op in self.tape.iter_asm() {
             use AsmOp::*;
             match op {
-                Input(out, i) => v[out].copy_from_slice(match i {
+                Input(out, i) => v[out][0..size].copy_from_slice(match i {
                     0 => xs,
                     1 => ys,
                     2 => zs,
                     _ => panic!("Invalid input: {}", i),
                 }),
                 NegReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
                 AbsReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
                 RecipReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = 1.0 / v[arg][i];
                     }
                 }
                 SqrtReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
                 SquareReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
                 CopyReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
                 AddRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] + imm;
                     }
                 }
                 MulRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] * imm;
                     }
                 }
                 DivRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] / imm;
                     }
                 }
                 DivImmReg(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
                 SubImmReg(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
                 SubRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
                 MinRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
                 MaxRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
                 AddRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
                 MulRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
                 DivRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
                 SubRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
                 MinRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
                 MaxRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
                 CopyImm(out, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm;
                     }
                 }
                 Load(out, mem) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[mem][i];
                     }
                 }
                 Store(out, mem) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[mem][i] = v[out][i];
                     }
                 }
             }
         }
-        out.copy_from_slice(&self.slots[0])
+        out.copy_from_slice(&self.slots[0][0..size])
     }
 }
 
@@ -601,7 +602,7 @@ impl GradSliceEvalT for AsmGradSliceEval {
             use AsmOp::*;
             match op {
                 Input(out, j) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = match j {
                             0 => Grad::new(xs[i], 1.0, 0.0, 0.0),
                             1 => Grad::new(ys[i], 0.0, 1.0, 0.0),
@@ -611,129 +612,130 @@ impl GradSliceEvalT for AsmGradSliceEval {
                     }
                 }
                 NegReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
                 AbsReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
                 RecipReg(out, arg) => {
                     let one: Grad = 1.0.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = one / v[arg][i];
                     }
                 }
                 SqrtReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
                 SquareReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
                 CopyReg(out, arg) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
                 AddRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] + imm.into();
                     }
                 }
                 MulRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] * imm.into();
                     }
                 }
                 DivRegImm(out, arg, imm) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] / imm.into();
                     }
                 }
                 DivImmReg(out, arg, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
                 SubImmReg(out, arg, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
                 SubRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
                 MinRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
                 MaxRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
                 AddRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
                 MulRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
                 DivRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
                 SubRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
                 MinRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
                 MaxRegReg(out, lhs, rhs) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
                 CopyImm(out, imm) => {
                     let imm: Grad = imm.into();
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = imm;
                     }
                 }
                 Load(out, mem) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[out][i] = v[mem][i];
                     }
                 }
                 Store(out, mem) => {
-                    for i in 0..self.slice_size {
+                    for i in 0..size {
                         v[mem][i] = v[out][i];
                     }
                 }
             }
         }
+        out.copy_from_slice(&self.slots[0][0..size])
     }
 }

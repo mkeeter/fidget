@@ -2,6 +2,7 @@ use crate::tape::Tape;
 
 /// Represents a point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[repr(C)]
 pub struct Grad {
     v: f32,
     dx: f32,
@@ -12,6 +13,22 @@ pub struct Grad {
 impl Grad {
     pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
         Self { v, dx, dy, dz }
+    }
+
+    /// Returns a normalized RGB color, or `None` if the gradient is 0
+    pub fn to_rgb(&self) -> Option<[u8; 3]> {
+        let s = (self.dx.powi(2) + self.dy.powi(2) + self.dz.powi(2)).sqrt();
+        if s != 0.0 {
+            let scale = u8::MAX as f32 / s;
+            let out = Some([
+                (self.dx.abs() * scale) as u8,
+                (self.dy.abs() * scale) as u8,
+                (self.dz.abs() * scale) as u8,
+            ]);
+            out
+        } else {
+            None
+        }
     }
     pub fn abs(self) -> Self {
         if self.v < 0.0 {

@@ -4,13 +4,14 @@ use fidget_core::{
         float_slice::{
             FloatSliceEval, FloatSliceEvalT, FloatSliceFunc, FloatSliceFuncT,
         },
+        grad_slice::{Grad, GradSliceEval, GradSliceEvalT, GradSliceFunc},
         interval::{Interval, IntervalFunc},
         EvalFamily,
     },
     tape::Tape,
 };
 
-use nalgebra::{Matrix4, Point3, Transform3, Vector3};
+use nalgebra::{Matrix4, Point3, Transform3, Vector3, Vector4};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -47,6 +48,7 @@ struct Scratch {
     y: Vec<f32>,
     z: Vec<f32>,
     out: Vec<f32>,
+    out_grad: Vec<Grad>,
 
     /// Depth of each column
     columns: Vec<usize>,
@@ -61,6 +63,7 @@ impl Scratch {
             y: vec![0.0; size3],
             z: vec![0.0; size3],
             out: vec![0.0; size3],
+            out_grad: vec![0.0.into(); size3],
             columns: vec![0; size2],
         }
     }
@@ -76,6 +79,18 @@ impl Scratch {
             &mut self.out[0..size],
         );
     }
+    fn eval_g<E: GradSliceEvalT>(
+        &mut self,
+        f: &mut GradSliceEval<E>,
+        size: usize,
+    ) {
+        f.eval_g(
+            &self.x[0..size],
+            &self.y[0..size],
+            &self.z[0..size],
+            &mut self.out_grad[0..size],
+        );
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -84,7 +99,8 @@ struct Worker<'a, I: EvalFamily> {
     config: &'a RenderConfig,
     mat: Matrix4<f32>,
     scratch: Scratch,
-    out: Vec<usize>,
+    depth: Vec<usize>,
+    color: Vec<[u8; 3]>,
     buffers:
         Vec<<<I as EvalFamily>::FloatSliceFunc as FloatSliceFuncT>::Storage>,
 }
@@ -143,9 +159,10 @@ impl<I: EvalFamily> Worker<'_, I> {
             for y in 0..tile_size {
                 for x in 0..tile_size {
                     let i = self.config.tile_to_offset(tile, x, y);
-                    self.out[i] = self.out[i].max(fill);
+                    self.depth[i] = self.depth[i].max(fill);
                 }
             }
+            // TODO: handle gradients here as well?
             None
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
@@ -190,7 +207,7 @@ impl<I: EvalFamily> Worker<'_, I> {
 
                 // Precompute the XY part of the transform
                 let v = self.mat
-                    * nalgebra::Vector4::new(
+                    * Vector4::new(
                         (tile.corner[0] + i) as f32,
                         (tile.corner[1] + j) as f32,
                         0.0,
@@ -198,7 +215,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                     );
 
                 let zmax = tile.corner[2] + tile_size;
-                if self.out[o] >= zmax {
+                if self.depth[o] >= zmax {
                     continue;
                 }
 
@@ -226,7 +243,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // (this matters most for the JIT compiler, which is _expensive_)
             let sub_tape = eval.simplify(I::REG_LIMIT);
             let ret = if sub_tape.len() < handle.tape().len() {
-                let func = self.get_float_slice_eval(sub_tape);
+                let func = self.get_float_slice_eval(sub_tape.clone());
 
                 let mut eval = func.get_evaluator();
                 self.scratch.eval_s(&mut eval, size);
@@ -251,19 +268,59 @@ impl<I: EvalFamily> Worker<'_, I> {
                 Some(func)
             };
 
+            // We're iterating over three different things simultaneously:
+            // - col refers to the xy position in the tile
+            // - index refers to the evaluation array, self.scratch.out
+            // - grad refers to points that we must do gradient evaluation on
+            let mut col = 0;
             let mut index = 0;
-            for xy in self.scratch.columns.iter() {
+            let mut grad = 0;
+            while col < self.scratch.columns.len() {
+                let xy = self.scratch.columns[col];
                 let i = xy % tile_size;
                 let j = xy / tile_size;
                 let o = self.config.tile_to_offset(tile, i, j);
                 for k in (0..tile_size).rev() {
                     let z = tile.corner[2] + k + 1;
-                    if self.scratch.out[index] < 0.0 && self.out[o] <= z {
-                        self.out[o] = z;
+                    // Early exit for the first pixel in the column
+                    if self.scratch.out[index] < 0.0 && self.depth[o] <= z {
+                        self.depth[o] = z;
                         index += k + 1;
+
+                        let p = self.mat.transform_vector(&Vector3::new(
+                            (tile.corner[0] + i) as f32,
+                            (tile.corner[1] + j) as f32,
+                            (tile.corner[2] + k) as f32,
+                        ));
+                        self.scratch.x[grad] = p.x;
+                        self.scratch.y[grad] = p.y;
+                        self.scratch.z[grad] = p.z;
+
+                        // This can only be called once per k loop, so we'll
+                        // never overwrite parts of columns that are still used
+                        // by the outer loop
+                        self.scratch.columns[grad] = o;
+                        grad += 1;
+
                         break;
                     }
                     index += 1;
+                }
+                col += 1;
+            }
+
+            if grad > 0 {
+                let func =
+                    GradSliceFunc::<I::GradSliceFunc>::from_tape(sub_tape);
+
+                let mut eval = func.get_evaluator();
+                self.scratch.eval_g(&mut eval, grad);
+                for (index, o) in
+                    self.scratch.columns[0..grad].iter().enumerate()
+                {
+                    self.color[*o] = self.scratch.out_grad[index]
+                        .to_rgb()
+                        .unwrap_or([255, 0, 0]);
                 }
             }
 
@@ -293,7 +350,7 @@ fn worker<I: EvalFamily>(
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
-) -> Vec<(Tile, Vec<usize>)> {
+) -> Vec<(Tile, Vec<usize>, Vec<[u8; 3]>)> {
     let mut out = vec![];
 
     let mat = config.mat.matrix()
@@ -306,7 +363,8 @@ fn worker<I: EvalFamily>(
     let scratch = Scratch::new(buf_size);
     let mut w: Worker<I> = Worker {
         scratch,
-        out: vec![],
+        depth: vec![],
+        color: vec![],
         config,
         mat,
         buffers: vec![],
@@ -319,20 +377,26 @@ fn worker<I: EvalFamily>(
         let tile = tiles[index];
 
         // Prepare to render, allocating space for a tile
-        w.out = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
+        w.depth = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
+        w.color = vec![[0; 3]; config.tile_sizes[0] * config.tile_sizes[0]];
         w.render_tile_recurse(i_handle, 0, tile, None);
 
         // Steal the tile, replacing it with an empty vec
-        let mut pixels = vec![];
-        std::mem::swap(&mut pixels, &mut w.out);
-        out.push((tile, pixels));
+        let mut depth = vec![];
+        let mut color = vec![];
+        std::mem::swap(&mut depth, &mut w.depth);
+        std::mem::swap(&mut color, &mut w.color);
+        out.push((tile, depth, color));
     }
     out
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: EvalFamily>(tape: Tape, config: &RenderConfig) -> Vec<usize> {
+pub fn render<I: EvalFamily>(
+    tape: Tape,
+    config: &RenderConfig,
+) -> (Vec<usize>, Vec<[u8; 3]>) {
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
@@ -369,18 +433,22 @@ pub fn render<I: EvalFamily>(tape: Tape, config: &RenderConfig) -> Vec<usize> {
         out
     });
 
-    let mut image = vec![0; config.image_size * config.image_size];
-    for (tile, data) in out.iter() {
+    let mut image_depth = vec![0; config.image_size * config.image_size];
+    let mut image_color = vec![[0; 3]; config.image_size * config.image_size];
+    for (tile, depth, color) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner[1];
             for i in 0..config.tile_sizes[0] {
                 let x = i + tile.corner[0];
                 let o = (config.image_size - y - 1) * config.image_size + x;
-                image[o] = image[o].max(data[index]);
+                if depth[index] >= image_depth[o] {
+                    image_color[o] = color[index];
+                    image_depth[o] = depth[index];
+                }
                 index += 1;
             }
         }
     }
-    image
+    (image_depth, image_color)
 }
