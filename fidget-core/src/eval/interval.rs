@@ -135,7 +135,7 @@ impl std::ops::Div<Interval> for Interval {
             let mut k = 0;
             for i in [self.lower, self.upper] {
                 for j in [rhs.lower, rhs.upper] {
-                    out[k] = i * j;
+                    out[k] = i / j;
                     k += 1;
                 }
             }
