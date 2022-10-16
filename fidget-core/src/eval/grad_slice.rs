@@ -20,20 +20,20 @@ impl Grad {
         let s = (self.dx.powi(2) + self.dy.powi(2) + self.dz.powi(2)).sqrt();
         if s != 0.0 {
             let scale = u8::MAX as f32 / s;
-            let out = Some([
+            Some([
                 (self.dx.abs() * scale) as u8,
                 (self.dy.abs() * scale) as u8,
                 (self.dz.abs() * scale) as u8,
-            ]);
-            out
+            ])
         } else {
             None
         }
     }
+
     pub fn abs(self) -> Self {
         if self.v < 0.0 {
             Grad {
-                v: self.v,
+                v: -self.v,
                 dx: -self.dx,
                 dy: -self.dy,
                 dz: -self.dz,
@@ -52,13 +52,12 @@ impl Grad {
         }
     }
     pub fn recip(self) -> Self {
-        let v = 1.0 / self.v;
-        let v2 = v * v;
+        let v2 = -self.v.powi(2);
         Grad {
-            v,
-            dx: -self.dx / v2,
-            dy: -self.dy / v2,
-            dz: -self.dz / v2,
+            v: 1.0 / self.v,
+            dx: self.dx / v2,
+            dy: self.dy / v2,
+            dz: self.dz / v2,
         }
     }
     pub fn min(self, rhs: Self) -> Self {
@@ -115,7 +114,7 @@ impl std::ops::Mul<Grad> for Grad {
 impl std::ops::Div<Grad> for Grad {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {
-        let d = rhs.v * rhs.v;
+        let d = rhs.v.powi(2);
         Self {
             v: self.v / rhs.v,
             dx: (rhs.v * self.dx - self.v * rhs.dx) / d,

@@ -1,4 +1,41 @@
 //! Infrastructure for compiling down to native machine code
+//!
+//! # So you want to write some assembly?
+//! There are four flavors of functions, with different signatures
+//! - Point-wise evaluation passes 3x `f32` in `s0-2`, and a choice array in
+//!   `x0`
+//! - Float slice evaluation passes 3x `*const f32` in `x0-2`, and an output
+//!   array `*mut f32` in `x3`.  Each pointer represents 4x `f32`
+//! - Interval evaluation passes 6x `f32` in `s0-5`, a choice array `*mut u8`
+//!   in `x0`, and returns 2x `f32` in `s0-1`.  Each pair represents an
+//!   interval.  During the function prelude, `s0-5` are packed into `v0-2`
+//! - Gradient slice evaluation passes 3x `f32` in `x0-2`, and an output
+//!   array `*mut f32` in `x3`.  The output array represents 4x `f32` in the
+//!   order `[v, dx, dy, dz]`
+//!
+//! ## In this house, we obey the A64 calling convention.
+//! We dedicate 24 registers to tape data storage:
+//! - Floating point registers `s8-15` (callee-saved, but only the lower 64
+//!   bits)
+//! - Floating-point registers `s16-31` (caller-saved)
+//!
+//! Right now, we never call anything, so don't worry about saving stuff.
+//!
+//! Register format depends on evaluation flavor:
+//! - Point-wise evaluation uses `sX`, i.e. a single float
+//! - Float slice evaluation uses `vX.s4`, i.e. an array of 4 floats
+//! - Interval evaluation uses the lower two floats in `vX.s4`: `s[0]` is the
+//!   lower bound, and `s[1]` is the upper.
+//! - Gradient evaluation uses `vX.s4` as `[v, dx, dy, dz]`
+//!
+//! ## Scratch registers
+//! Within a single operation, you'll often need to make use of scratch
+//! registers.  `s3` / `v3` is used when loading immediates, and should not be
+//! used as a scratch register.  `s4-7`/`v4-7` are all available.
+//!
+//! For general-purpose registers, `x9-15` (also called `w9-15`) are reasonable
+//! choices.
+
 mod mmap;
 
 use dynasmrt::{aarch64::Aarch64Relocation, dynasm, DynasmApi, VecAssembler};
@@ -30,7 +67,7 @@ const OFFSET: u8 = 8;
 ///
 /// `IMM_REG` is selected to avoid scratch registers used by other
 /// functions, e.g. interval mul / min / max
-const IMM_REG: u8 = 6;
+const IMM_REG: u8 = 3;
 
 /// Converts from a tape-local register to an AArch64 register
 ///
@@ -724,25 +761,39 @@ impl AssemblerT for FloatSliceAssembler {
         dynasm!(self.0.ops ; fsqrt V(reg(out_reg)).s4, V(reg(lhs_reg)).s4)
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(lhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(lhs_reg)).s4
+        )
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fmax V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fmax V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fmin V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4)
+        dynasm!(self.0.ops
+            ; fmin V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
     }
 
     /// Loads an immediate into register V4, using W9 as an intermediary
@@ -782,6 +833,10 @@ impl AssemblerT for FloatSliceAssembler {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Assembler for automatic differentiation / gradient evaluation
+///
+/// Each vector register is used to store `[value, dx, dy, dz]`; `value` is
+/// in the `s0` position for convenience.
 struct GradSliceAssembler(AssemblerData<f32>);
 
 impl AssemblerT for GradSliceAssembler {
@@ -797,6 +852,8 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
+
+            // Arguments are passed in V0-2, which is fine
         );
 
         Self(AssemblerData {
@@ -809,69 +866,175 @@ impl AssemblerT for GradSliceAssembler {
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(src_mem);
-        assert!(sp_offset <= 16384);
-        dynasm!(self.0.ops ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
+        if sp_offset >= 512 {
+            assert!(sp_offset < 4096);
+            dynasm!(self.0.ops
+                ; add x9, sp, #(sp_offset)
+                ; ldp D(reg(dst_reg)), d4, [x9]
+                ; mov V(reg(dst_reg)).d[1], v4.d[0]
+            )
+        } else {
+            dynasm!(self.0.ops
+                ; ldp D(reg(dst_reg)), d4, [sp, #(sp_offset)]
+                ; mov V(reg(dst_reg)).d[1], v4.d[0]
+            )
+        }
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
         let sp_offset = self.0.check_stack(dst_mem);
-        assert!(sp_offset <= 16384);
-        dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
+        if sp_offset >= 512 {
+            assert!(sp_offset < 4096);
+            dynasm!(self.0.ops
+                ; add x9, sp, #(sp_offset)
+                ; mov v4.d[0], V(reg(src_reg)).d[1]
+                ; stp D(reg(src_reg)), d4, [x9]
+            )
+        } else {
+            dynasm!(self.0.ops
+                ; mov v4.d[0], V(reg(src_reg)).d[1]
+                ; stp D(reg(src_reg)), d4, [sp, #(sp_offset)]
+            )
+        }
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(src_arg as u32));
+        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(reg(lhs_reg)))
+        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fneg S(reg(out_reg)), S(reg(lhs_reg)))
+        dynasm!(self.0.ops ; fneg V(reg(out_reg)).s4, V(reg(lhs_reg)).s4)
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fabs S(reg(out_reg)), S(reg(lhs_reg)))
+        // TODO: use two fcsel instead?
+        dynasm!(self.0.ops
+            ; fcmp S(reg(lhs_reg)), 0.0
+            ; b.lt #12 // -> neg
+            // Happy path: v >= 0, so we just copy the register
+            ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            ; b #8 // -> end
+            // neg:
+            ; fneg V(reg(out_reg)).s4, V(reg(lhs_reg)).s4
+            // end:
+        )
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmov s7, #1.0
-            ; fdiv S(reg(out_reg)), s7, S(reg(lhs_reg))
+            ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fneg s6, s6
+            ; fmov w9, s6
+            ; dup v6.s4, w9
+            ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v6.s4
+            ; fmov s6, #1.0
+            ; fdiv S(reg(out_reg)), s6, S(reg(lhs_reg))
         )
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fsqrt S(reg(out_reg)), S(reg(lhs_reg)))
+        dynasm!(self.0.ops
+            ; fsqrt s6, S(reg(lhs_reg))
+            ; fmov s7, #2.0
+            ; fmul s7, s6, s7
+            ; fmov w9, s7
+            ; dup v7.s4, w9
+            ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v7.s4
+            ; fmov S(reg(out_reg)), s6
+        )
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(lhs_reg)))
+        dynasm!(self.0.ops
+            ; fmov s7, #2.0
+            ; fmov w9, s7
+            ; dup v7.s4, w9
+            ; fmov s7, #1.0
+            // At this point, v7.s4 is [2.0, 2.0, 2.0, 1.0]
+            ; fmov w9, S(reg(lhs_reg))
+            ; dup v6.s4, w9
+            // Now, v6.s4 is [v, v, v, v]
+            ; fmul V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            // out is [v*v, v*dx, v*dy, v*dz]
+            ; fmul V(reg(out_reg)).s4, v7.s4, V(reg(out_reg)).s4
+            // out is [v*v, 2*v*dx, 2*v*dy, 2*v*dz]
+        )
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fadd S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fsub S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fmov w9, S(reg(lhs_reg))
+            ; dup v6.s4, w9
+            // v6.s4 is [lhs.v, lhs.v, lhs.v, lhs.v]
+            ; fmul V(reg(out_reg)).s4, v6.s4, V(reg(rhs_reg)).s4
+            // out = [lhs.v * rhs.v, lhs.v * rhs.dx, lhs.v * rhs.dy, ...]
+            ; fmov w9, S(reg(rhs_reg))
+            ; dup v6.s4, w9
+
+            // Store lhs.v * rhs.v in s7 for safekeeping
+            ; fmov s7, S(reg(out_reg))
+
+            // Accumulate
+            ; fmla V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+
+            // Restore lhs.v * rhs.v
+            ; fmov S(reg(out_reg)), s7
         )
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
+            ; fmov w9, S(reg(rhs_reg))
+            ; dup v6.s4, w9
+            ; fmul V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            // At this point, gradients are of the form
+            //      rhs.v * lhs.d
+
+            ; fmov w9, S(reg(lhs_reg))
+            ; dup v6.s4, w9
+            ; fmls V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            // At this point, gradients are of the form
+            //      rhs.v * lhs.d - lhs.v * rhs.d
+
+            // Divide by rhs.v**2
+            ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fmov w9, s6
+            ; dup v6.s4, w9
+            ; fdiv V(reg(out_reg)).s4, V(reg(out_reg)).s4, v6.s4
+
+            // Patch in the actual division value
             ; fdiv S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.gt #12 // -> lhs
+            // Happy path: v >= 0, so we just copy the register
+            ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
+            ; b #8 // -> end
+            // lhs:
+            ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            // end:
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.lt #12 // -> lhs
+            // Happy path: v >= 0, so we just copy the register
+            ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
+            ; b #8 // -> end
+            // lhs:
+            ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            // end:
         )
     }
 
@@ -888,8 +1051,10 @@ impl AssemblerT for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Vec<u8> {
         dynasm!(self.0.ops
-            // Prepare our return value
-            ; fmov  s0, S(reg(out_reg))
+            // Prepare our return value, writing into x0
+            ; mov v0.d[0], V(reg(out_reg)).d[1]
+            ; stp D(reg(out_reg)), d0, [x0]
+
             // Restore stack space used for spills
             ; add   sp, sp, #(self.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
@@ -906,68 +1071,31 @@ impl AssemblerT for GradSliceAssembler {
     }
 }
 
-/// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
-///
-/// The lifetime of this `struct` is bound to an `JitGradSliceFunc`, which owns
-/// the underlying executable memory.
+/// Evaluator for a JIT-compiled function performing gradient evaluation.
 pub struct JitGradSliceEval {
     _mmap: Arc<Mmap>,
-    fn_grad: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
+    /// X, Y, Z are passed by value; the output is written to an array of 4
+    /// floats (allocated by the caller)
+    fn_grad: unsafe extern "C" fn(f32, f32, f32, *mut f32),
 }
 
 impl GradSliceEvalT for JitGradSliceEval {
     fn eval_g(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [Grad]) {
-        /*
         let n = [xs.len(), ys.len(), zs.len(), out.len()]
             .into_iter()
             .min()
             .unwrap();
 
-        // Special case for < 4 items, in which case the input slices can't be
-        // used as workspace (because we need at least 4x f32)
-        if n < 4 {
-            let mut x = [0.0; 4];
-            let mut y = [0.0; 4];
-            let mut z = [0.0; 4];
-            for i in 0..4 {
-                x[i] = xs.get(i).cloned().unwrap_or(0.0);
-                y[i] = ys.get(i).cloned().unwrap_or(0.0);
-                z[i] = zs.get(i).cloned().unwrap_or(0.0);
-            }
-            let mut tmp = [std::f32::NAN; 4];
+        for i in 0..n {
             unsafe {
-                (self.fn_vec)(
-                    x.as_ptr(),
-                    y.as_ptr(),
-                    z.as_ptr(),
-                    tmp.as_mut_ptr(),
-                );
+                (self.fn_grad)(
+                    xs[i],
+                    ys[i],
+                    zs[i],
+                    out.as_mut_ptr().add(i) as *mut f32,
+                )
             }
-            out[0..n].copy_from_slice(&tmp[0..n]);
-            out[n..].fill(std::f32::NAN);
-        } else {
-            let mut i = 0;
-            loop {
-                assert!(i + 4 <= n);
-                unsafe {
-                    (self.fn_vec)(
-                        xs.as_ptr().add(i),
-                        ys.as_ptr().add(i),
-                        zs.as_ptr().add(i),
-                        out.as_mut_ptr().add(i),
-                    )
-                }
-                i += 4;
-                if i == n {
-                    break;
-                } else if i + 4 > n {
-                    i = n - 4;
-                }
-            }
-            out[n..].fill(std::f32::NAN);
         }
-        */
-        todo!()
     }
 }
 
