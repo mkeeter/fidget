@@ -28,15 +28,6 @@ impl Interval {
     pub fn has_nan(&self) -> bool {
         self.lower.is_nan() || self.upper.is_nan()
     }
-}
-
-impl From<[f32; 2]> for Interval {
-    fn from(i: [f32; 2]) -> Interval {
-        Interval::new(i[0], i[1])
-    }
-}
-
-impl Interval {
     pub fn abs(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
@@ -108,6 +99,12 @@ impl Interval {
             Interval::new(self.lower.max(rhs.lower), self.upper.max(rhs.upper)),
             choice,
         )
+    }
+}
+
+impl From<[f32; 2]> for Interval {
+    fn from(i: [f32; 2]) -> Interval {
+        Interval::new(i[0], i[1])
     }
 }
 
