@@ -287,7 +287,14 @@ impl<E: IntervalEvalT> IntervalEval<E> {
                     f(x, y, Interval::new(z_mid, z.upper())),
                 )
             };
-            Interval::new(a.lower().min(b.lower()), a.upper().max(b.upper()))
+            if a.has_nan() || b.has_nan() {
+                std::f32::NAN.into()
+            } else {
+                Interval::new(
+                    a.lower().min(b.lower()),
+                    a.upper().max(b.upper()),
+                )
+            }
         }
     }
 }

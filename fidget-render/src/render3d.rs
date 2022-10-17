@@ -328,6 +328,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             ret
         }
     }
+
     fn get_float_slice_eval(
         &mut self,
         sub_tape: Tape,
