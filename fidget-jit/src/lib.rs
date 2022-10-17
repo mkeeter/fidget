@@ -485,7 +485,9 @@ impl AssemblerT for IntervalAssembler {
         )
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops ; fadd V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2)
+        dynasm!(self.0.ops
+            ; fadd V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+        )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
