@@ -124,7 +124,16 @@ impl IntervalEvalT for AsmIntervalEval {
                 SqrtReg(out, arg) => {
                     v[out] = v[arg].sqrt();
                 }
-                SquareReg(out, arg) => v[out] = v[arg] * v[arg],
+                SquareReg(out, arg) => {
+                    let a = v[arg];
+                    v[out] = if a.upper() < 0.0 {
+                        Interval::new(a.upper().powi(2), a.lower().powi(2))
+                    } else if v[arg].lower() > 0.0 {
+                        Interval::new(a.lower().powi(2), a.upper().powi(2))
+                    } else {
+                        Interval::new(0.0, a.lower().max(a.upper()).powi(2))
+                    };
+                }
                 CopyReg(out, arg) => v[out] = v[arg],
                 AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();

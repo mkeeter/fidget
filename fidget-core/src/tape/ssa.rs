@@ -63,7 +63,7 @@ impl SsaTape {
                         TapeOp::CopyReg => "COPY",
                         _ => unreachable!(),
                     };
-                    println!("${out} {op} ${arg}");
+                    println!("${out} = {op} ${arg}");
                 }
 
                 TapeOp::AddRegReg
