@@ -128,10 +128,13 @@ impl IntervalEvalT for AsmIntervalEval {
                     let a = v[arg];
                     v[out] = if a.upper() < 0.0 {
                         Interval::new(a.upper().powi(2), a.lower().powi(2))
-                    } else if v[arg].lower() > 0.0 {
+                    } else if a.lower() > 0.0 {
                         Interval::new(a.lower().powi(2), a.upper().powi(2))
                     } else {
-                        Interval::new(0.0, a.lower().max(a.upper()).powi(2))
+                        Interval::new(
+                            0.0,
+                            a.lower().abs().max(a.upper().abs()).powi(2),
+                        )
                     };
                 }
                 CopyReg(out, arg) => v[out] = v[arg],
