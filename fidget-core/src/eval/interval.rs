@@ -48,6 +48,15 @@ impl Interval {
             self
         }
     }
+    pub fn square(self) -> Self {
+        if self.upper < 0.0 {
+            Interval::new(self.upper.powi(2), self.lower.powi(2))
+        } else if self.lower > 0.0 {
+            Interval::new(self.lower.powi(2), self.upper.powi(2))
+        } else {
+            Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
+        }
+    }
     pub fn sqrt(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
