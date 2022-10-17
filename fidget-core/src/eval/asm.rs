@@ -17,6 +17,12 @@ pub struct AsmFunc {
     tape: Tape,
 }
 
+impl AsmFunc {
+    fn from_tape(tape: Tape) -> Self {
+        Self { tape }
+    }
+}
+
 /// Family of evaluators that use a local interpreter
 pub enum AsmFamily {}
 
@@ -739,5 +745,41 @@ impl GradSliceEvalT for AsmGradSliceEval {
             }
         }
         out.copy_from_slice(&self.slots[0][0..size])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        context::Context,
+        eval::grad_slice::{GradSliceEval, GradSliceFunc},
+    };
+
+    #[test]
+    fn test_grad() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let tape = ctx.get_tape(x, u8::MAX);
+
+        let eval: GradSliceFunc<AsmFunc> = GradSliceFunc::from_tape(tape);
+        let mut handle = eval.get_evaluator();
+        assert_eq!(handle.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
+
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let sum = ctx.add(x2, y2).unwrap();
+        let sqrt = ctx.sqrt(sum).unwrap();
+        let half = ctx.constant(0.5);
+        let sub = ctx.sub(sqrt, half).unwrap();
+        let tape = ctx.get_tape(sub, u8::MAX);
+
+        let eval: GradSliceFunc<AsmFunc> = GradSliceFunc::from_tape(tape);
+        let mut handle = eval.get_evaluator();
+        assert_eq!(handle.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
+        assert_eq!(handle.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
+        assert_eq!(handle.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
+        assert_eq!(handle.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
     }
 }
