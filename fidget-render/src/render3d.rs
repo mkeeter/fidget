@@ -288,10 +288,14 @@ impl<I: EvalFamily> Worker<'_, I> {
                         self.depth[o] = z;
                         index += k + 1;
 
-                        let p = self.mat.transform_vector(&Vector3::new(
+                        // Prepare to do gradient rendering of this point.
+                        // We step one voxel above the surface to reduce
+                        // glitchiness on edges and corners, where rendering
+                        // inside the surface could pick the wrong normal.
+                        let p = self.mat.transform_point(&Point3::new(
                             (tile.corner[0] + i) as f32,
                             (tile.corner[1] + j) as f32,
-                            (tile.corner[2] + k) as f32,
+                            (tile.corner[2] + k + 1) as f32,
                         ));
                         self.scratch.x[grad] = p.x;
                         self.scratch.y[grad] = p.y;
