@@ -230,12 +230,54 @@ impl AssemblerT for PointAssembler {
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
+            ; ldrb w16, [x0]
+            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.mi #20 // -> RHS
+            ; b.gt #28 // -> LHS
+
+            // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; orr w16, w16, #CHOICE_BOTH
+            ; b #24 // -> end
+
+            // RHS
+            ; fmov S(reg(out_reg)), S(reg(rhs_reg))
+            ; orr w16, w16, #CHOICE_RIGHT
+            ; b #12
+
+            // LHS
+            ; fmov S(reg(out_reg)), S(reg(lhs_reg))
+            ; orr w16, w16, #CHOICE_LEFT
+            // fall-through to end
+
+            // <- end
+            ; strb w16, [x0], #1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
+            ; ldrb w16, [x0]
+            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.mi #20
+            ; b.gt #28
+
+            // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; orr w16, w16, #CHOICE_BOTH
+            ; b #24 // -> end
+
+            // LHS
+            ; fmov S(reg(out_reg)), S(reg(lhs_reg))
+            ; orr w16, w16, #CHOICE_LEFT
+            ; b #12
+
+            // RHS
+            ; fmov S(reg(out_reg)), S(reg(rhs_reg))
+            ; orr w16, w16, #CHOICE_RIGHT
+            // fall-through to end
+
+            // <- end
+            ; strb w16, [x0], #1 // post-increment
         )
     }
 
@@ -1201,7 +1243,7 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
 /// Handle owning a JIT-compiled float function
 pub struct JitPointEval {
     _mmap: Arc<Mmap>,
-    fn_float: unsafe extern "C" fn(f32, f32, f32) -> f32,
+    fn_float: unsafe extern "C" fn(f32, f32, f32, *mut u8) -> f32,
 }
 
 impl From<Tape> for JitPointEval {
@@ -1225,7 +1267,7 @@ impl PointEvalT for JitPointEval {
         z: f32,
         choices: &mut [Choice],
     ) -> f32 {
-        unsafe { (self.fn_float)(x, y, z) }
+        unsafe { (self.fn_float)(x, y, z, choices.as_mut_ptr() as *mut u8) }
     }
 }
 
@@ -1417,7 +1459,10 @@ mod tests {
     use super::*;
     use fidget_core::{
         context::Context,
-        eval::{float_slice::FloatSliceEval, interval::IntervalEval},
+        eval::{
+            float_slice::FloatSliceEval, interval::IntervalEval,
+            point::PointEval,
+        },
     };
 
     #[test]
@@ -1880,6 +1925,60 @@ mod tests {
             &mut out,
         );
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
+    }
+
+    #[test]
+    fn test_p_min() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let tape = ctx.get_tape(min, REGISTER_LIMIT);
+        let mut eval = PointEval::<JitPointEval>::from(tape);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 0.0);
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
+        assert!(v.is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
+        assert!(v.is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+    }
+
+    #[test]
+    fn test_p_max() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let max = ctx.max(x, y).unwrap();
+
+        let tape = ctx.get_tape(max, REGISTER_LIMIT);
+        let mut eval = PointEval::<JitPointEval>::from(tape);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 1.0);
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 2.0);
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
+        assert!(v.is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
+        assert!(v.is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
     #[test]

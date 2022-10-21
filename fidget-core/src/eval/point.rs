@@ -33,6 +33,10 @@ impl<E: PointEvalT> PointEval<E> {
         self.tape.simplify_with_reg_limit(&self.choices, reg_limit)
     }
 
+    pub fn choices(&self) -> &[Choice] {
+        &self.choices
+    }
+
     /// Resets the internal choice array to `Choice::Unknown`
     fn reset_choices(&mut self) {
         self.choices.fill(Choice::Unknown);
