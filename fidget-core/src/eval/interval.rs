@@ -189,13 +189,40 @@ impl std::ops::Neg for Interval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Trait for interval evaluation, usually wrapped in an
+/// [`IntervalEval`](IntervalEval)
+pub trait IntervalEvalT: Clone + Send + From<Tape> {
+    fn eval_i<I: Into<Interval>>(
+        &mut self,
+        x: I,
+        y: I,
+        z: I,
+        choices: &mut [Choice],
+    ) -> Interval;
+}
+
+#[derive(Clone)]
 pub struct IntervalEval<E> {
     pub(crate) tape: Tape,
     pub(crate) choices: Vec<Choice>,
     pub(crate) eval: E,
 }
 
+impl<E: IntervalEvalT> From<Tape> for IntervalEval<E> {
+    fn from(tape: Tape) -> Self {
+        Self {
+            tape: tape.clone(),
+            choices: vec![Choice::Unknown; tape.choice_count()],
+            eval: E::from(tape),
+        }
+    }
+}
+
 impl<E: IntervalEvalT> IntervalEval<E> {
+    pub fn tape(&self) -> Tape {
+        self.tape.clone()
+    }
+
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self, reg_limit: u8) -> Tape {
@@ -303,66 +330,6 @@ impl<E: IntervalEvalT> IntervalEval<E> {
             }
         }
     }
-}
-
-/// Trait for a function handle stored in a [`IntervalFunc`](IntervalFunc)
-pub trait IntervalFuncT: Sync {
-    type Evaluator: IntervalEvalT;
-
-    fn from_tape(tape: Tape) -> Self;
-
-    /// Return the evaluator type, which may borrow from this `struct`
-    ///
-    /// This should be an O(1) operation; heavy lifting should have been
-    /// previously done when constructing the `IntervalFuncT` itself.
-    fn get_evaluator(&self) -> Self::Evaluator;
-}
-
-/// Function handle for interval evaluation
-///
-/// This trait represents a `struct` that _owns_ a function, but does not have
-/// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
-/// one or more `IntervalEval` objects, which actually do evaluation.
-pub struct IntervalFunc<F> {
-    tape: Tape,
-    func: F,
-}
-
-impl<F: IntervalFuncT> IntervalFunc<F> {
-    pub fn tape(&self) -> Tape {
-        self.tape.clone()
-    }
-
-    pub fn from_tape(tape: Tape) -> Self {
-        Self {
-            tape: tape.clone(),
-            func: F::from_tape(tape),
-        }
-    }
-
-    pub fn get_evaluator(&self) -> IntervalEval<F::Evaluator> {
-        IntervalEval {
-            tape: self.tape.clone(),
-            choices: vec![Choice::Unknown; self.tape.choice_count()],
-            eval: self.func.get_evaluator(),
-        }
-    }
-}
-
-/// Trait for interval evaluation, usually wrapped in an
-/// [`IntervalEval`](IntervalEval)
-///
-/// The evaluator will likely have a lifetime bounded to its parent
-/// [`IntervalFuncT`](IntervalFuncT), and can generate
-/// a new [`Tape`](crate::tape::Tape) on demand after evaluation.
-pub trait IntervalEvalT {
-    fn eval_i<I: Into<Interval>>(
-        &mut self,
-        x: I,
-        y: I,
-        z: I,
-        choices: &mut [Choice],
-    ) -> Interval;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

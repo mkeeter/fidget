@@ -4,7 +4,7 @@
 //! omnibus library instead.
 //!
 //! ```
-//! use fidget_core::{eval::{point::PointFunc, asm::AsmFunc}, context::Context};
+//! use fidget_core::{eval::{point::PointEval, asm::AsmPointEval}, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -15,7 +15,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle, u8::MAX);
-//! let mut eval = PointFunc::<AsmFunc>::from_tape(tape).get_evaluator();
+//! let mut eval = PointEval::<AsmPointEval>::from(tape);
 //! assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
 //!

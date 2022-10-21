@@ -1,19 +1,7 @@
 use crate::{eval::Choice, tape::Tape};
 
 /// Function handle for `f32` evaluation
-///
-/// This trait represents a `struct` that _owns_ a function, but does not have
-/// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
-/// one or more `PointEval` objects, which actually do evaluation.
-pub trait PointFuncT {
-    type Evaluator: PointEvalT;
-
-    fn from_tape(tape: Tape) -> Self;
-    fn get_evaluator(&self) -> Self::Evaluator;
-}
-
-/// `f32` evaluator
-pub trait PointEvalT {
+pub trait PointEvalT: From<Tape> {
     fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
 }
 
@@ -22,31 +10,20 @@ pub trait PointEvalT {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointFunc<F> {
-    tape: Tape,
-    func: F,
-}
-
-impl<F: PointFuncT> PointFunc<F> {
-    pub fn from_tape(tape: Tape) -> Self {
-        Self {
-            tape: tape.clone(),
-            func: F::from_tape(tape),
-        }
-    }
-    pub fn get_evaluator(&self) -> PointEval<F::Evaluator> {
-        PointEval {
-            tape: self.tape.clone(),
-            choices: vec![Choice::Unknown; self.tape.choice_count()],
-            eval: self.func.get_evaluator(),
-        }
-    }
-}
-
 pub struct PointEval<E> {
     pub(crate) tape: Tape,
     pub(crate) choices: Vec<Choice>,
     pub(crate) eval: E,
+}
+
+impl<E: PointEvalT> From<Tape> for PointEval<E> {
+    fn from(tape: Tape) -> Self {
+        Self {
+            tape: tape.clone(),
+            choices: vec![Choice::Unknown; tape.choice_count()],
+            eval: E::from(tape),
+        }
+    }
 }
 
 impl<E: PointEvalT> PointEval<E> {

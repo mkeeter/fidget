@@ -1,11 +1,9 @@
 //! Bitmap rendering
 use fidget_core::{
     eval::{
-        float_slice::{
-            FloatSliceEval, FloatSliceEvalT, FloatSliceFunc, FloatSliceFuncT,
-        },
-        grad_slice::{Grad, GradSliceEval, GradSliceEvalT, GradSliceFunc},
-        interval::{Interval, IntervalFunc},
+        float_slice::{FloatSliceEval, FloatSliceEvalT},
+        grad::{Grad, GradEval, GradEvalT},
+        interval::{Interval, IntervalEval},
         EvalFamily,
     },
     tape::Tape,
@@ -79,11 +77,7 @@ impl Scratch {
             &mut self.out[0..size],
         );
     }
-    fn eval_g<E: GradSliceEvalT>(
-        &mut self,
-        f: &mut GradSliceEval<E>,
-        size: usize,
-    ) {
+    fn eval_g<E: GradEvalT>(&mut self, f: &mut GradEval<E>, size: usize) {
         f.eval_g(
             &self.x[0..size],
             &self.y[0..size],
@@ -102,17 +96,17 @@ struct Worker<'a, I: EvalFamily> {
     depth: Vec<usize>,
     color: Vec<[u8; 3]>,
     buffers:
-        Vec<<<I as EvalFamily>::FloatSliceFunc as FloatSliceFuncT>::Storage>,
+        Vec<<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage>,
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
-        handle: &IntervalFunc<I::IntervalFunc>,
+        handle: &mut IntervalEval<I::IntervalEval>,
         depth: usize,
         tile: Tile,
-        float_handle: Option<&FloatSliceFunc<I::FloatSliceFunc>>,
-    ) -> Option<FloatSliceFunc<I::FloatSliceFunc>> {
+        float_handle: Option<&mut FloatSliceEval<I::FloatSliceEval>>,
+    ) -> Option<FloatSliceEval<I::FloatSliceEval>> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -143,8 +137,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let mut eval = handle.get_evaluator();
-        let i = eval.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
+        let i = handle.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
         let fill = if i.upper() < 0.0 {
             Some(tile.corner[2] + tile_size + 1)
@@ -168,15 +161,15 @@ impl<I: EvalFamily> Worker<'_, I> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
-            let sub_tape = eval.simplify(I::REG_LIMIT);
-            let sub_jit = IntervalFunc::from_tape(sub_tape);
+            let sub_tape = handle.simplify(I::REG_LIMIT);
+            let mut sub_jit = IntervalEval::from(sub_tape);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
                 for i in 0..n {
                     for k in (0..n).rev() {
                         let r = self.render_tile_recurse(
-                            &sub_jit,
+                            &mut sub_jit,
                             depth + 1,
                             Tile {
                                 corner: [
@@ -185,7 +178,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                                     tile.corner[2] + k * next_tile_size,
                                 ],
                             },
-                            float_handle.as_ref(),
+                            float_handle.as_mut(),
                         );
                         if r.is_some() {
                             float_handle = r;
@@ -242,30 +235,26 @@ impl<I: EvalFamily> Worker<'_, I> {
             // use it.
             //
             // (this matters most for the JIT compiler, which is _expensive_)
-            let sub_tape = eval.simplify(I::REG_LIMIT);
+            let sub_tape = handle.simplify(I::REG_LIMIT);
             let ret = if sub_tape.len() < handle.tape().len() {
-                let func = self.get_float_slice_eval(sub_tape.clone());
+                let mut func = self.get_float_slice_eval(sub_tape.clone());
 
-                let mut eval = func.get_evaluator();
-                self.scratch.eval_s(&mut eval, size);
-                drop(eval);
+                self.scratch.eval_s(&mut func, size);
 
-                // We just dropped the evaluator, so any reuse of memory between
-                // the FloatSliceFunc and FloatSliceEval should be cleared up
-                // and we should be able to reuse the working memory.
+                // We consume the evaluator, so any reuse of memory between the
+                // FloatSliceFunc and FloatSliceEval should be cleared up and we
+                // should be able to reuse the working memory.
                 self.buffers.push(func.take().unwrap());
 
                 None
             } else if let Some(r) = float_handle {
                 // Reuse the FloatSliceFunc handle passed in
-                let mut eval = r.get_evaluator();
-                self.scratch.eval_s(&mut eval, size);
+                self.scratch.eval_s(r, size);
                 None
             } else {
-                let func = self.get_float_slice_eval(handle.tape());
+                let mut func = self.get_float_slice_eval(handle.tape());
 
-                let mut eval = func.get_evaluator();
-                self.scratch.eval_s(&mut eval, size);
+                self.scratch.eval_s(&mut func, size);
                 Some(func)
             };
 
@@ -315,11 +304,8 @@ impl<I: EvalFamily> Worker<'_, I> {
             }
 
             if grad > 0 {
-                let func =
-                    GradSliceFunc::<I::GradSliceFunc>::from_tape(sub_tape);
-
-                let mut eval = func.get_evaluator();
-                self.scratch.eval_g(&mut eval, grad);
+                let mut func = GradEval::<I::GradEval>::from(sub_tape);
+                self.scratch.eval_g(&mut func, grad);
                 for (index, o) in
                     self.scratch.columns[0..grad].iter().enumerate()
                 {
@@ -336,15 +322,15 @@ impl<I: EvalFamily> Worker<'_, I> {
     fn get_float_slice_eval(
         &mut self,
         sub_tape: Tape,
-    ) -> FloatSliceFunc<I::FloatSliceFunc> {
+    ) -> FloatSliceEval<I::FloatSliceEval> {
         match self.buffers.pop() {
             Some(s) => {
                 let (sub_jit, s) =
-                    FloatSliceFunc::<I::FloatSliceFunc>::new_give(sub_tape, s);
+                    FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s);
                 self.buffers.extend(s);
                 sub_jit
             }
-            None => FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape),
+            None => FloatSliceEval::<I::FloatSliceEval>::from(sub_tape),
         }
     }
 }
@@ -352,7 +338,7 @@ impl<I: EvalFamily> Worker<'_, I> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: EvalFamily>(
-    i_handle: &IntervalFunc<<I as EvalFamily>::IntervalFunc>,
+    mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -385,7 +371,7 @@ fn worker<I: EvalFamily>(
         // Prepare to render, allocating space for a tile
         w.depth = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
         w.color = vec![[0; 3]; config.tile_sizes[0] * config.tile_sizes[0]];
-        w.render_tile_recurse(i_handle, 0, tile, None);
+        w.render_tile_recurse(&mut i_handle, 0, tile, None);
 
         // Steal the tile, replacing it with an empty vec
         let mut depth = vec![];
@@ -408,7 +394,7 @@ pub fn render<I: EvalFamily>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = IntervalFunc::from_tape(tape);
+    let i_handle = IntervalEval::from(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
@@ -428,9 +414,8 @@ pub fn render<I: EvalFamily>(
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(
-                s.spawn(|| worker::<I>(&i_handle, &tiles, &index, config)),
-            );
+            let i = i_handle.clone();
+            handles.push(s.spawn(|| worker::<I>(i, &tiles, &index, config)));
         }
         let mut out = vec![];
         for h in handles {

@@ -150,51 +150,35 @@ impl std::ops::Neg for Grad {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub trait GradSliceFuncT {
-    type Evaluator: GradSliceEvalT;
-
-    fn from_tape(tape: Tape) -> Self;
-    fn get_evaluator(&self) -> Self::Evaluator;
-}
-
-pub trait GradSliceEvalT {
-    fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]);
-}
-
-/// Function handle for gradient slice evaluation
-///
-/// This trait represents a `struct` that _owns_ a function, but does not have
-/// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
-/// one or more `GradSliceEval` objects, which actually do evaluation.
-pub struct GradSliceFunc<F> {
-    tape: Tape,
-    func: F,
-}
-
-impl<F: GradSliceFuncT> GradSliceFunc<F> {
-    pub fn from_tape(tape: Tape) -> Self {
-        Self {
-            tape: tape.clone(),
-            func: F::from_tape(tape),
-        }
-    }
-    pub fn get_evaluator(
-        &self,
-    ) -> GradSliceEval<<F as GradSliceFuncT>::Evaluator> {
-        GradSliceEval {
-            tape: self.tape.clone(),
-            eval: self.func.get_evaluator(),
+pub trait GradEvalT: From<Tape> {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad;
+    fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]) {
+        let len = [x.len(), y.len(), z.len(), out.len()]
+            .into_iter()
+            .min()
+            .unwrap();
+        for i in 0..len {
+            out[i] = self.eval_f(x[i], y[i], z[i]);
         }
     }
 }
 
-pub struct GradSliceEval<E> {
+pub struct GradEval<E> {
     #[allow(dead_code)]
     pub(crate) tape: Tape,
     pub(crate) eval: E,
 }
 
-impl<E: GradSliceEvalT> GradSliceEval<E> {
+impl<E: GradEvalT> From<Tape> for GradEval<E> {
+    fn from(tape: Tape) -> Self {
+        Self {
+            tape: tape.clone(),
+            eval: E::from(tape),
+        }
+    }
+}
+
+impl<E: GradEvalT> GradEval<E> {
     pub fn eval_g(
         &mut self,
         x: &[f32],
@@ -205,8 +189,6 @@ impl<E: GradSliceEvalT> GradSliceEval<E> {
         self.eval.eval_g(x, y, z, out)
     }
     pub fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
-        let mut out = [Grad::default()];
-        self.eval_g(&[x], &[y], &[z], &mut out);
-        out[0]
+        self.eval.eval_f(x, y, z)
     }
 }

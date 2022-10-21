@@ -1,8 +1,8 @@
 //! Bitmap rendering
 use fidget_core::{
     eval::{
-        float_slice::FloatSliceFunc,
-        interval::{Interval, IntervalFunc},
+        float_slice::FloatSliceEval,
+        interval::{Interval, IntervalEval},
         EvalFamily,
     },
     tape::Tape,
@@ -184,7 +184,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: EvalFamily, M: RenderMode>(
-    i_handle: &IntervalFunc<I::IntervalFunc>,
+    mut i_handle: IntervalEval<I::IntervalEval>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
@@ -201,7 +201,7 @@ fn worker<I: EvalFamily, M: RenderMode>(
         let mut pixels =
             vec![M::Output::default(); config.tile_size * config.tile_size];
         render_tile_recurse::<I, M>(
-            i_handle,
+            &mut i_handle,
             &mut pixels,
             config,
             &[config.tile_size, config.subtile_size],
@@ -216,15 +216,13 @@ fn worker<I: EvalFamily, M: RenderMode>(
 ////////////////////////////////////////////////////////////////////////////////
 
 fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
-    i_handle: &IntervalFunc<I::IntervalFunc>,
+    i_handle: &mut IntervalEval<I::IntervalEval>,
     out: &mut [M::Output],
     config: &RenderConfig,
     tile_sizes: &[usize],
     tile: Tile,
     scratch: &mut Scratch,
 ) {
-    let mut eval = i_handle.get_evaluator();
-
     let x_min = config.pixel_to_pos(tile.corner[0]) + config.dx;
     let x_max = config.pixel_to_pos(tile.corner[0] + tile_sizes[0]) + config.dx;
     let y_min = config.pixel_to_pos(tile.corner[1]) + config.dy;
@@ -233,7 +231,7 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
     let x = Interval::new(x_min, x_max);
     let y = Interval::new(y_min, y_max);
     let z = Interval::new(0.0, 0.0);
-    let i = eval.eval_i_subdiv(x, y, z, config.interval_subdiv);
+    let i = i_handle.eval_i_subdiv(x, y, z, config.interval_subdiv);
 
     let fill = M::interval(i, tile_sizes.len());
 
@@ -244,13 +242,13 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
             out[start..][..tile_sizes[0]].fill(fill);
         }
     } else if let Some(next_tile_size) = tile_sizes.get(1) {
-        let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = IntervalFunc::from_tape(sub_tape);
+        let sub_tape = i_handle.simplify(I::REG_LIMIT);
+        let mut sub_jit = IntervalEval::from(sub_tape);
         let n = tile_sizes[0] / next_tile_size;
         for j in 0..n {
             for i in 0..n {
                 render_tile_recurse::<I, M>(
-                    &sub_jit,
+                    &mut sub_jit,
                     out,
                     config,
                     &tile_sizes[1..],
@@ -265,8 +263,8 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
             }
         }
     } else {
-        let sub_tape = eval.simplify(I::REG_LIMIT);
-        let sub_jit = FloatSliceFunc::<I::FloatSliceFunc>::from_tape(sub_tape);
+        let sub_tape = i_handle.simplify(I::REG_LIMIT);
+        let mut sub_jit = FloatSliceEval::<I::FloatSliceEval>::from(sub_tape);
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -279,8 +277,7 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
             }
         }
 
-        let mut eval = sub_jit.get_evaluator();
-        eval.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
+        sub_jit.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
 
         let mut index = 0;
         for j in 0..tile_sizes[0] {
@@ -306,7 +303,7 @@ pub fn render<I: EvalFamily, M: RenderMode>(
     assert!(config.tile_size % config.subtile_size == 0);
     assert!(config.subtile_size % 4 == 0);
 
-    let i_handle = IntervalFunc::from_tape(tape);
+    let i_handle = IntervalEval::from(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_size {
         for j in 0..config.image_size / config.tile_size {
@@ -320,9 +317,8 @@ pub fn render<I: EvalFamily, M: RenderMode>(
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles.push(
-                s.spawn(|| worker::<I, M>(&i_handle, &tiles, &index, config)),
-            );
+            let i = i_handle.clone();
+            handles.push(s.spawn(|| worker::<I, M>(i, &tiles, &index, config)));
         }
         let mut out = vec![];
         for h in handles {

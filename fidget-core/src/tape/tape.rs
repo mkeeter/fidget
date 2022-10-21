@@ -108,7 +108,7 @@ mod tests {
     use super::*;
     use crate::{
         context::Context,
-        eval::{asm::AsmFunc, point::PointFunc},
+        eval::{asm::AsmPointEval, point::PointEval},
     };
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(tape).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(tape);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(1.0, 3.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(3.0, 3.5, 0.0), 3.5);
@@ -134,36 +134,34 @@ mod tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval =
-            PointFunc::<AsmFunc>::from_tape(tape.clone()).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(tape.clone());
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(t).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(t);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(t).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(t);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
         let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval =
-            PointFunc::<AsmFunc>::from_tape(tape.clone()).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(tape.clone());
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
 
         let t = tape.simplify(&[Choice::Left]);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(t).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(t);
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 3.0);
 
         let t = tape.simplify(&[Choice::Right]);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(t).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(t);
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
     }
@@ -210,7 +208,7 @@ mod tests {
         let circle = ctx.sub(radius, one).unwrap();
 
         let tape = ctx.get_tape(circle, u8::MAX);
-        let mut eval = PointFunc::<AsmFunc>::from_tape(tape).get_evaluator();
+        let mut eval = PointEval::<AsmPointEval>::from(tape);
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
         assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
     }

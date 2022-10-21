@@ -1,27 +1,16 @@
 use crate::{
     asm::AsmOp,
     eval::{
-        float_slice::{FloatSliceEvalT, FloatSliceFuncT},
-        grad_slice::{Grad, GradSliceEvalT, GradSliceFuncT},
-        interval::{Interval, IntervalEvalT, IntervalFuncT},
-        point::{PointEvalT, PointFuncT},
+        float_slice::FloatSliceEvalT,
+        grad::{Grad, GradEvalT},
+        interval::{Interval, IntervalEvalT},
+        point::PointEvalT,
         Choice, EvalFamily,
     },
     tape::Tape,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/// Generic `struct` which wraps a `Tape` and converts it to an `Asm*Eval`
-pub struct AsmFunc {
-    tape: Tape,
-}
-
-impl AsmFunc {
-    fn from_tape(tape: Tape) -> Self {
-        Self { tape }
-    }
-}
 
 /// Family of evaluators that use a local interpreter
 pub enum AsmFamily {}
@@ -30,10 +19,10 @@ impl EvalFamily for AsmFamily {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
-    type IntervalFunc = AsmFunc;
-    type FloatSliceFunc = AsmFunc;
-    type PointFunc = AsmFunc;
-    type GradSliceFunc = AsmFunc;
+    type IntervalEval = AsmIntervalEval;
+    type FloatSliceEval = AsmFloatSliceEval;
+    type PointEval = AsmPointEval;
+    type GradEval = AsmGradEval;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -65,19 +54,8 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl IntervalFuncT for AsmFunc {
-    type Evaluator = AsmIntervalEval;
-
-    fn get_evaluator(&self) -> Self::Evaluator {
-        AsmIntervalEval::new(self.tape.clone())
-    }
-
-    fn from_tape(tape: Tape) -> Self {
-        AsmFunc { tape }
-    }
-}
-
 /// Interval evaluator for a slice of [`AsmOp`]
+#[derive(Clone)]
 pub struct AsmIntervalEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape,
@@ -85,11 +63,12 @@ pub struct AsmIntervalEval {
     slots: Vec<Interval>,
 }
 
-impl AsmIntervalEval {
-    pub fn new(tape: Tape) -> Self {
+impl From<Tape> for AsmIntervalEval {
+    fn from(tape: Tape) -> Self {
+        let slot_count = tape.slot_count();
         Self {
-            tape: tape.clone(),
-            slots: vec![Interval::from(std::f32::NAN); tape.slot_count()],
+            tape,
+            slots: vec![Interval::from(std::f32::NAN); slot_count],
         }
     }
 }
@@ -198,31 +177,6 @@ impl IntervalEvalT for AsmIntervalEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl FloatSliceFuncT for AsmFunc {
-    type Evaluator = AsmFloatSliceEval;
-    type Storage = ();
-
-    fn get_evaluator(&self) -> Self::Evaluator {
-        AsmFloatSliceEval::new(self.tape.clone())
-    }
-
-    fn from_tape(tape: Tape) -> Self {
-        AsmFunc { tape }
-    }
-
-    fn from_tape_give(
-        tape: Tape,
-        _s: Self::Storage,
-    ) -> (Self, Option<Self::Storage>) {
-        (AsmFunc { tape }, None)
-    }
-
-    fn take(self) -> Option<()> {
-        // There is no storage, so you can always take it
-        Some(())
-    }
-}
-
 /// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
 pub struct AsmFloatSliceEval {
     /// Instruction tape, in reverse-evaluation order
@@ -233,17 +187,27 @@ pub struct AsmFloatSliceEval {
     slice_size: usize,
 }
 
-impl AsmFloatSliceEval {
-    pub fn new(tape: Tape) -> Self {
-        Self {
-            tape: tape.clone(),
-            slots: vec![vec![]; tape.slot_count()],
-            slice_size: 0,
-        }
+impl From<Tape> for AsmFloatSliceEval {
+    fn from(tape: Tape) -> Self {
+        Self::new(tape)
     }
 }
 
 impl FloatSliceEvalT for AsmFloatSliceEval {
+    type Storage = ();
+
+    fn from_tape_give(
+        tape: Tape,
+        _s: Self::Storage,
+    ) -> (Self, Option<Self::Storage>) {
+        (Self::from(tape), None)
+    }
+
+    fn take(self) -> Option<()> {
+        // There is no storage, so you can always take it
+        Some(())
+    }
+
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         let size = [xs.len(), ys.len(), zs.len(), out.len()]
             .into_iter()
@@ -388,18 +352,18 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-impl PointFuncT for AsmFunc {
-    type Evaluator = AsmPointEval;
-
-    fn get_evaluator(&self) -> Self::Evaluator {
-        AsmPointEval::new(self.tape.clone())
-    }
-    fn from_tape(tape: Tape) -> Self {
-        AsmFunc { tape }
+impl AsmFloatSliceEval {
+    pub fn new(tape: Tape) -> Self {
+        let slot_count = tape.slot_count();
+        Self {
+            tape,
+            slots: vec![vec![]; slot_count],
+            slice_size: 0,
+        }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
 pub struct AsmPointEval {
@@ -409,11 +373,12 @@ pub struct AsmPointEval {
     slots: Vec<f32>,
 }
 
-impl AsmPointEval {
-    pub fn new(tape: Tape) -> Self {
+impl From<Tape> for AsmPointEval {
+    fn from(tape: Tape) -> Self {
+        let slot_count = tape.slot_count();
         Self {
-            tape: tape.clone(),
-            slots: vec![std::f32::NAN; tape.slot_count()],
+            tape,
+            slots: vec![std::f32::NAN; slot_count],
         }
     }
 }
@@ -563,19 +528,8 @@ impl PointEvalT for AsmPointEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl GradSliceFuncT for AsmFunc {
-    type Evaluator = AsmGradSliceEval;
-
-    fn get_evaluator(&self) -> Self::Evaluator {
-        AsmGradSliceEval::new(self.tape.clone())
-    }
-    fn from_tape(tape: Tape) -> Self {
-        AsmFunc { tape }
-    }
-}
-
 /// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
-pub struct AsmGradSliceEval {
+pub struct AsmGradEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape,
     /// Workspace for data
@@ -583,17 +537,24 @@ pub struct AsmGradSliceEval {
     slice_size: usize,
 }
 
-impl AsmGradSliceEval {
-    pub fn new(tape: Tape) -> Self {
+impl From<Tape> for AsmGradEval {
+    fn from(tape: Tape) -> Self {
+        let slot_count = tape.slot_count();
         Self {
-            tape: tape.clone(),
-            slots: vec![vec![]; tape.slot_count()],
+            tape,
+            slots: vec![vec![]; slot_count],
             slice_size: 0,
         }
     }
 }
 
-impl GradSliceEvalT for AsmGradSliceEval {
+impl GradEvalT for AsmGradEval {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
+        let mut out = [Grad::default()];
+        self.eval_g(&[x], &[y], &[z], out.as_mut_slice());
+        out[0]
+    }
+
     fn eval_g(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [Grad]) {
         let size = [xs.len(), ys.len(), zs.len(), out.len()]
             .into_iter()
@@ -751,10 +712,7 @@ impl GradSliceEvalT for AsmGradSliceEval {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        context::Context,
-        eval::grad_slice::{GradSliceEval, GradSliceFunc},
-    };
+    use crate::{context::Context, eval::grad::GradEval};
 
     #[test]
     fn test_grad() {
@@ -763,9 +721,8 @@ mod tests {
         let y = ctx.y();
         let tape = ctx.get_tape(x, u8::MAX);
 
-        let eval: GradSliceFunc<AsmFunc> = GradSliceFunc::from_tape(tape);
-        let mut handle = eval.get_evaluator();
-        assert_eq!(handle.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
+        let mut eval = GradEval::<AsmGradEval>::from(tape);
+        assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
 
         let x2 = ctx.square(x).unwrap();
         let y2 = ctx.square(y).unwrap();
@@ -775,11 +732,10 @@ mod tests {
         let sub = ctx.sub(sqrt, half).unwrap();
         let tape = ctx.get_tape(sub, u8::MAX);
 
-        let eval: GradSliceFunc<AsmFunc> = GradSliceFunc::from_tape(tape);
-        let mut handle = eval.get_evaluator();
-        assert_eq!(handle.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
-        assert_eq!(handle.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
-        assert_eq!(handle.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
-        assert_eq!(handle.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
+        let mut eval = GradEval::<AsmGradEval>::from(tape);
+        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
+        assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
+        assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
+        assert_eq!(eval.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
     }
 }
