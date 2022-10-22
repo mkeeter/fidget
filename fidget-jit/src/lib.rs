@@ -988,9 +988,9 @@ impl AssemblerT for GradAssembler {
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmov s7, #2.0
-            ; fmov w9, s7
-            ; dup v7.s4, w9
-            ; fmov s7, #1.0
+            ; dup v7.s4, v7.s[0]
+            ; fmov s6, #1.0
+            ; mov v7.S[0], v6.S[0]
             // At this point, v7.s4 is [2.0, 2.0, 2.0, 1.0]
             ; fmov w9, S(reg(lhs_reg))
             ; dup v6.s4, w9
