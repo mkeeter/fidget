@@ -1012,22 +1012,28 @@ impl AssemblerT for GradAssembler {
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmov w9, S(reg(lhs_reg))
-            ; dup v6.s4, w9
-            // v6.s4 is [lhs.v, lhs.v, lhs.v, lhs.v]
-            ; fmul V(reg(out_reg)).s4, v6.s4, V(reg(rhs_reg)).s4
-            // out = [lhs.v * rhs.v, lhs.v * rhs.dx, lhs.v * rhs.dy, ...]
-            ; fmov w9, S(reg(rhs_reg))
-            ; dup v6.s4, w9
+            // v6.s4 = [lhs.v, lhs.v, lhs.v, lhs.v]
+            ; dup v6.s4, V(reg(lhs_reg)).s[0]
 
-            // Store lhs.v * rhs.v in s7 for safekeeping
-            ; fmov s7, S(reg(out_reg))
+            // v5 = [lhs.v * rhs.v, lhs.v * rhs.dx, lhs.v * rhs.dy, ...]
+            ; fmul v5.s4, v6.s4, V(reg(rhs_reg)).s4
 
-            // Accumulate
-            ; fmla V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            // s7 = lhs.v * rhs.v (copied from v5.s[0])
+            ; fmov s7, s5
 
-            // Restore lhs.v * rhs.v
-            ; fmov S(reg(out_reg)), s7
+            // v6.s4 = [rhs.v, rhs.v, rhs.v, rhs.v]
+            ; dup v6.s4, V(reg(rhs_reg)).s[0]
+
+            // v5.s4 = [lhs.v * rhs.v + rhs.v * lhs.v,
+            //          lhs.v * rhs.dx + rhs.v * lhs.dx,
+            //          lhs.v * rhs.dy + rhs.v * lhs.dy,
+            //          lhs.v * rhs.dz + rhs.v * lhs.dz]
+            // (i.e. everything is right except out.s[0])
+            ; fmla v5.s4, v6.s4, V(reg(lhs_reg)).s4
+
+            // Copy stuff into the output register
+            ; mov V(reg(out_reg)).b16, v5.b16
+            ; mov V(reg(out_reg)).s[0], v7.s[0]
         )
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
