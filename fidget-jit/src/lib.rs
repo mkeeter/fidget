@@ -891,7 +891,11 @@ impl AssemblerT for GradAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
 
-            // Arguments are passed in V0-2, which is fine
+            // Arguments are passed in S0-2; inject the derivatives here
+            ; fmov s6, #1.0
+            ; mov v0.S[1], v6.S[0]
+            ; mov v1.S[2], v6.S[0]
+            ; mov v2.S[3], v6.S[0]
         );
 
         Self(AssemblerData {
