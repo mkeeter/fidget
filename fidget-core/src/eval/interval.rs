@@ -47,6 +47,8 @@ impl Interval {
             Interval::new(self.upper.powi(2), self.lower.powi(2))
         } else if self.lower > 0.0 {
             Interval::new(self.lower.powi(2), self.upper.powi(2))
+        } else if self.has_nan() {
+            std::f32::NAN.into()
         } else {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
@@ -63,10 +65,8 @@ impl Interval {
         }
     }
     pub fn recip(self) -> Self {
-        if self.lower > 0.0 {
+        if self.lower > 0.0 || self.upper < 0.0 {
             Interval::new(1.0 / self.upper, 1.0 / self.lower)
-        } else if self.upper < 0.0 {
-            Interval::new(1.0 / self.lower, 1.0 / self.upper)
         } else {
             std::f32::NAN.into()
         }
