@@ -438,17 +438,13 @@ impl AssemblerT for IntervalAssembler {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
-            ; fcmgt s4, S(reg(lhs_reg)), 0.0
-            ; fmov w15, s4
-            ; tst w15, #0x1
-            ; b.ne #40 // -> okay
+            ; fcmp S(reg(lhs_reg)), 0.0
+            ; b.gt #32 // -> okay
 
             // Check whether lhs.upper < 0.0
             ; mov s4, V(reg(lhs_reg)).s[1]
-            ; fcmlt s4, s4, 0.0
-            ; fmov w15, s4
-            ; tst w15, #0x1
-            ; b.ne #20 // -> okay
+            ; fcmp s4, 0.0
+            ; b.mi #20 // -> okay
 
             // Bad case: the division spans 0, so return NaN
             ; movz w15, #(nan_u32 >> 16), lsl 16
