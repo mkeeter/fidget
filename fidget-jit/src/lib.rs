@@ -967,11 +967,12 @@ impl AssemblerT for GradAssembler {
         dynasm!(self.0.ops
             ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
             ; fneg s6, s6
-            ; fmov w9, s6
-            ; dup v6.s4, w9
-            ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v6.s4
+            ; dup v6.s4, v6.s[0]
+            ; fdiv v7.s4, V(reg(lhs_reg)).s4, v6.s4
             ; fmov s6, #1.0
-            ; fdiv S(reg(out_reg)), s6, S(reg(lhs_reg))
+            ; fdiv s6, s6, S(reg(lhs_reg))
+            ; mov V(reg(out_reg)).b16, v7.b16
+            ; mov V(reg(out_reg)).s[0], v6.s[0]
         )
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -1040,13 +1041,13 @@ impl AssemblerT for GradAssembler {
         dynasm!(self.0.ops
             ; fmov w9, S(reg(rhs_reg))
             ; dup v6.s4, w9
-            ; fmul V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            ; fmul v5.s4, v6.s4, V(reg(lhs_reg)).s4
             // At this point, gradients are of the form
             //      rhs.v * lhs.d
 
             ; fmov w9, S(reg(lhs_reg))
             ; dup v6.s4, w9
-            ; fmls V(reg(out_reg)).s4, v6.s4, V(reg(lhs_reg)).s4
+            ; fmls v5.s4, v6.s4, V(reg(lhs_reg)).s4
             // At this point, gradients are of the form
             //      rhs.v * lhs.d - lhs.v * rhs.d
 
@@ -1054,10 +1055,12 @@ impl AssemblerT for GradAssembler {
             ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
             ; fmov w9, s6
             ; dup v6.s4, w9
-            ; fdiv V(reg(out_reg)).s4, V(reg(out_reg)).s4, v6.s4
+            ; fdiv v5.s4, V(reg(out_reg)).s4, v6.s4
 
             // Patch in the actual division value
-            ; fdiv S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; mov V(reg(out_reg)).b16, v5.b16
+            ; fdiv s5, S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; mov V(reg(out_reg)).s[0], v5.s[0]
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
