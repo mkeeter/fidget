@@ -162,10 +162,6 @@ pub trait GradEvalT: From<Tape> {
             out[i] = self.eval_f(x[i], y[i], z[i]);
         }
     }
-
-    fn new(tape: Tape) -> GradEval<Self> {
-        GradEval::from(tape)
-    }
 }
 
 pub struct GradEval<E> {
@@ -203,14 +199,19 @@ pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
-    pub fn test_grad<I: GradEvalT>() {
+    pub fn test_g_x<I: GradEvalT>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let y = ctx.y();
         let tape = ctx.get_tape(x, I::Family::REG_LIMIT);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
+    }
+
+    pub fn test_g_circle<I: GradEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
 
         let x2 = ctx.square(x).unwrap();
         let y2 = ctx.square(y).unwrap();
@@ -240,7 +241,8 @@ pub mod eval_tests {
     #[macro_export]
     macro_rules! grad_tests {
         ($t:ty) => {
-            $crate::grad_test!(test_grad, $t);
+            $crate::grad_test!(test_g_circle, $t);
+            $crate::grad_test!(test_g_x, $t);
         };
     }
 }
