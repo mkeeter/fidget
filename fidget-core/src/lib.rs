@@ -57,7 +57,7 @@ mod error;
 pub use error::Error;
 
 #[cfg(test)]
-mod tests {
+mod test {
     use crate::context::*;
 
     #[test]

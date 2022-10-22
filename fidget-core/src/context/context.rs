@@ -615,7 +615,7 @@ impl Context {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     // This can't be in a doctest, because it uses a pub(crate) function

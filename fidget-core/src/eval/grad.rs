@@ -1,4 +1,4 @@
-use crate::tape::Tape;
+use crate::{eval::EvalFamily, tape::Tape};
 
 /// Represents a point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -151,6 +151,7 @@ impl std::ops::Neg for Grad {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub trait GradEvalT: From<Tape> {
+    type Family: EvalFamily;
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad;
     fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]) {
         let len = [x.len(), y.len(), z.len(), out.len()]
@@ -194,5 +195,51 @@ impl<E: GradEvalT> GradEval<E> {
     }
     pub fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         self.eval.eval_f(x, y, z)
+    }
+}
+
+pub mod tests {
+    use super::*;
+    use crate::context::Context;
+
+    pub fn test_grad<I: GradEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let tape = ctx.get_tape(x, I::Family::REG_LIMIT);
+
+        let mut eval = GradEval::<I>::from(tape);
+        assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
+
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let sum = ctx.add(x2, y2).unwrap();
+        let sqrt = ctx.sqrt(sum).unwrap();
+        let half = ctx.constant(0.5);
+        let sub = ctx.sub(sqrt, half).unwrap();
+        let tape = ctx.get_tape(sub, u8::MAX);
+
+        let mut eval = GradEval::<I>::from(tape);
+        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
+        assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
+        assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
+        assert_eq!(eval.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
+    }
+
+    #[macro_export]
+    macro_rules! grad_test {
+        ($i:ident, $t:ty) => {
+            #[test]
+            fn $i() {
+                $crate::eval::grad::tests::$i::<$t>()
+            }
+        };
+    }
+
+    #[macro_export]
+    macro_rules! grad_tests {
+        ($t:ty) => {
+            $crate::grad_test!(test_grad, $t);
+        };
     }
 }

@@ -74,6 +74,7 @@ impl From<Tape> for AsmIntervalEval {
 }
 
 impl IntervalEvalT for AsmIntervalEval {
+    type Family = AsmFamily;
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -567,6 +568,8 @@ impl From<Tape> for AsmGradEval {
 }
 
 impl GradEvalT for AsmGradEval {
+    type Family = AsmFamily;
+
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let mut out = [Grad::default()];
         self.eval_g(&[x], &[y], &[z], out.as_mut_slice());
@@ -728,37 +731,10 @@ impl GradEvalT for AsmGradEval {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod test {
     use super::*;
-    use crate::{
-        context::Context, eval::grad::GradEval, eval::point::PointEval,
-    };
-
-    #[test]
-    fn test_grad() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let tape = ctx.get_tape(x, u8::MAX);
-
-        let mut eval = AsmGradEval::new(tape);
-        assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
-
-        let x2 = ctx.square(x).unwrap();
-        let y2 = ctx.square(y).unwrap();
-        let sum = ctx.add(x2, y2).unwrap();
-        let sqrt = ctx.sqrt(sum).unwrap();
-        let half = ctx.constant(0.5);
-        let sub = ctx.sub(sqrt, half).unwrap();
-        let tape = ctx.get_tape(sub, u8::MAX);
-
-        let mut eval = AsmGradEval::new(tape);
-        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
-        assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
-        assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
-        assert_eq!(eval.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
-    }
-
+    crate::grad_tests!(AsmGradEval);
+    crate::interval_tests!(AsmIntervalEval);
     crate::float_slice_tests!(AsmFloatSliceEval);
     crate::point_tests!(AsmPointEval);
 }

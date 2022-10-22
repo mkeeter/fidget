@@ -1,4 +1,7 @@
-use crate::{eval::Choice, tape::Tape};
+use crate::{
+    eval::{Choice, EvalFamily},
+    tape::Tape,
+};
 
 /// Represents a range, with conservative calculations to guarantee that it
 /// always contains the actual value.
@@ -192,6 +195,8 @@ impl std::ops::Neg for Interval {
 /// Trait for interval evaluation, usually wrapped in an
 /// [`IntervalEval`](IntervalEval)
 pub trait IntervalEvalT: Clone + Send + From<Tape> {
+    type Family: EvalFamily;
+
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -345,5 +350,419 @@ mod test {
         let (v, c) = a.min_choice(b);
         assert_eq!(v, [0.0, 1.0].into());
         assert_eq!(c, Choice::Both);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub mod tests {
+    use super::*;
+    use crate::context::Context;
+
+    pub fn test_interval<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+
+        let tape = ctx.get_tape(x, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0].into());
+        assert_eq!(eval.eval_i_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0].into());
+
+        let tape = ctx.get_tape(y, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0].into());
+        assert_eq!(eval.eval_i_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0].into());
+    }
+
+    pub fn test_i_abs<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let abs_x = ctx.abs(x).unwrap();
+
+        let tape = ctx.get_tape(abs_x, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
+        assert_eq!(eval.eval_i_x([1.0, 5.0]), [1.0, 5.0].into());
+        assert_eq!(eval.eval_i_x([-2.0, 5.0]), [0.0, 5.0].into());
+        assert_eq!(eval.eval_i_x([-6.0, 5.0]), [0.0, 6.0].into());
+        assert_eq!(eval.eval_i_x([-6.0, -1.0]), [1.0, 6.0].into());
+
+        let y = ctx.y();
+        let abs_y = ctx.abs(y).unwrap();
+        let sum = ctx.add(abs_x, abs_y).unwrap();
+        let tape = ctx.get_tape(sum, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0].into());
+        assert_eq!(eval.eval_i_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0].into());
+        assert_eq!(eval.eval_i_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0].into());
+    }
+
+    pub fn test_i_sqrt<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let sqrt_x = ctx.sqrt(x).unwrap();
+
+        let tape = ctx.get_tape(sqrt_x, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
+        assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 2.0].into());
+        assert_eq!(eval.eval_i_x([-2.0, 4.0]), [0.0, 2.0].into());
+        let nanan = eval.eval_i_x([-2.0, -1.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_square<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let sqrt_x = ctx.square(x).unwrap();
+
+        let tape = ctx.get_tape(sqrt_x, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
+        assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 16.0].into());
+        assert_eq!(eval.eval_i_x([2.0, 4.0]), [4.0, 16.0].into());
+        assert_eq!(eval.eval_i_x([-2.0, 4.0]), [0.0, 16.0].into());
+        assert_eq!(eval.eval_i_x([-6.0, -2.0]), [4.0, 36.0].into());
+        assert_eq!(eval.eval_i_x([-6.0, 1.0]), [0.0, 36.0].into());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_mul<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let mul = ctx.mul(x, y).unwrap();
+
+        let tape = ctx.get_tape(mul, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0].into());
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0].into());
+        assert_eq!(eval.eval_i_xy([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0].into());
+        assert_eq!(
+            eval.eval_i_xy([-2.0, -1.0], [-5.0, -4.0]),
+            [4.0, 10.0].into()
+        );
+        assert_eq!(
+            eval.eval_i_xy([-3.0, -1.0], [-2.0, 6.0]),
+            [-18.0, 6.0].into()
+        );
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_mul_imm<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let two = ctx.constant(2.0);
+        let mul = ctx.mul(x, two).unwrap();
+        let tape = ctx.get_tape(mul, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 2.0].into());
+        assert_eq!(eval.eval_i_x([1.0, 2.0]), [2.0, 4.0].into());
+
+        let neg_three = ctx.constant(-3.0);
+        let mul = ctx.mul(x, neg_three).unwrap();
+        let tape = ctx.get_tape(mul, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [-3.0, 0.0].into());
+        assert_eq!(eval.eval_i_x([1.0, 2.0]), [-6.0, -3.0].into());
+    }
+
+    pub fn test_i_sub<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let sub = ctx.sub(x, y).unwrap();
+
+        let tape = ctx.get_tape(sub, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0].into());
+        assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0].into());
+        assert_eq!(eval.eval_i_xy([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0].into());
+        assert_eq!(
+            eval.eval_i_xy([-2.0, -1.0], [-5.0, -4.0]),
+            [2.0, 4.0].into()
+        );
+        assert_eq!(
+            eval.eval_i_xy([-3.0, -1.0], [-2.0, 6.0]),
+            [-9.0, 1.0].into()
+        );
+    }
+
+    pub fn test_i_sub_imm<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let two = ctx.constant(2.0);
+        let sub = ctx.sub(x, two).unwrap();
+        let tape = ctx.get_tape(sub, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [-2.0, -1.0].into());
+        assert_eq!(eval.eval_i_x([1.0, 2.0]), [-1.0, 0.0].into());
+
+        let neg_three = ctx.constant(-3.0);
+        let sub = ctx.sub(neg_three, x).unwrap();
+        let tape = ctx.get_tape(sub, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(eval.eval_i_x([0.0, 1.0]), [-4.0, -3.0].into());
+        assert_eq!(eval.eval_i_x([1.0, 2.0]), [-5.0, -4.0].into());
+    }
+
+    pub fn test_i_recip<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let recip = ctx.recip(x).unwrap();
+        let tape = ctx.get_tape(recip, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+
+        let nanan = eval.eval_i_x([0.0, 1.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_x([-1.0, 0.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_x([-2.0, 3.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        assert_eq!(eval.eval_i_x([-2.0, -1.0]), [-1.0, -0.5].into());
+        assert_eq!(eval.eval_i_x([1.0, 2.0]), [0.5, 1.0].into());
+    }
+
+    pub fn test_i_div<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let div = ctx.div(x, y).unwrap();
+        let tape = ctx.get_tape(div, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [-1.0, 1.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [-2.0, 0.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let nanan = eval.eval_i_xy([0.0, 1.0], [0.0, 4.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        let out = eval.eval_i_xy([-1.0, 0.0], [1.0, 2.0]);
+        assert_eq!(out, [-1.0, 0.0].into());
+
+        let out = eval.eval_i_xy([-1.0, 4.0], [-1.0, -0.5]);
+        assert_eq!(out, [-8.0, 2.0].into());
+
+        let out = eval.eval_i_xy([1.0, 4.0], [-1.0, -0.5]);
+        assert_eq!(out, [-8.0, -1.0].into());
+
+        let out = eval.eval_i_xy([-1.0, 4.0], [0.5, 1.0]);
+        assert_eq!(out, [-2.0, 8.0].into());
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_min<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let min = ctx.min(x, y).unwrap();
+
+        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(
+            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2]),
+            [0.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(
+            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2]),
+            [0.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2]),
+            [0.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+    }
+
+    pub fn test_i_min_imm<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let one = ctx.constant(1.0);
+        let min = ctx.min(x, one).unwrap();
+
+        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(
+            eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2]),
+            [0.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(
+            eval.eval_i([-1.0, 0.0], [0.0; 2], [0.0; 2]),
+            [-1.0, 0.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0; 2], [0.0; 2]),
+            [1.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Right]);
+    }
+
+    pub fn test_i_max<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let max = ctx.max(x, y).unwrap();
+
+        let tape = ctx.get_tape(max, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(
+            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2],),
+            [0.5, 1.5].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(
+            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2]),
+            [2.0, 3.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2],),
+            [2.0, 3.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        let v = eval.eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let v = eval.eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2]);
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let z = ctx.z();
+        let max_xy_z = ctx.max(max, z).unwrap();
+        let tape = ctx.get_tape(max_xy_z, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]),
+            [4.0, 5.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Right]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 4.0]),
+            [2.0, 4.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Both]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]),
+            [2.0, 3.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left, Choice::Left]);
+    }
+
+    pub fn test_i_max_imm<I: IntervalEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let one = ctx.constant(1.0);
+        let max = ctx.max(x, one).unwrap();
+
+        let tape = ctx.get_tape(max, I::Family::REG_LIMIT);
+        let mut eval = IntervalEval::<I>::from(tape);
+        assert_eq!(
+            eval.eval_i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]),
+            [1.0, 2.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        assert_eq!(
+            eval.eval_i([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0]),
+            [1.0, 1.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        assert_eq!(
+            eval.eval_i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0]),
+            [2.0, 3.0].into()
+        );
+        assert_eq!(eval.choices(), &[Choice::Left]);
+    }
+
+    #[macro_export]
+    macro_rules! interval_test {
+        ($i:ident, $t:ty) => {
+            #[test]
+            fn $i() {
+                $crate::eval::interval::tests::$i::<$t>()
+            }
+        };
+    }
+
+    #[macro_export]
+    macro_rules! interval_tests {
+        ($t:ty) => {
+            $crate::interval_test!(test_interval, $t);
+            $crate::interval_test!(test_i_abs, $t);
+            $crate::interval_test!(test_i_sqrt, $t);
+            $crate::interval_test!(test_i_square, $t);
+            $crate::interval_test!(test_i_mul, $t);
+            $crate::interval_test!(test_i_mul_imm, $t);
+            $crate::interval_test!(test_i_sub, $t);
+            $crate::interval_test!(test_i_sub_imm, $t);
+            $crate::interval_test!(test_i_recip, $t);
+            $crate::interval_test!(test_i_div, $t);
+            $crate::interval_test!(test_i_min, $t);
+            $crate::interval_test!(test_i_min_imm, $t);
+            $crate::interval_test!(test_i_max, $t);
+            $crate::interval_test!(test_i_max_imm, $t);
+        };
     }
 }
