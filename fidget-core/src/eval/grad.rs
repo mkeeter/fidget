@@ -161,6 +161,10 @@ pub trait GradEvalT: From<Tape> {
             out[i] = self.eval_f(x[i], y[i], z[i]);
         }
     }
+
+    fn new(tape: Tape) -> GradEval<Self> {
+        GradEval::from(tape)
+    }
 }
 
 pub struct GradEval<E> {
