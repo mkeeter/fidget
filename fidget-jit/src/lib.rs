@@ -979,10 +979,9 @@ impl AssemblerT for GradAssembler {
             ; fsqrt s6, S(reg(lhs_reg))
             ; fmov s7, #2.0
             ; fmul s7, s6, s7
-            ; fmov w9, s7
-            ; dup v7.s4, w9
+            ; dup v7.s4, v7.s[0]
             ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v7.s4
-            ; fmov S(reg(out_reg)), s6
+            ; mov V(reg(out_reg)).S[0], v6.S[0]
         )
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {

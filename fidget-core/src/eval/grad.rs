@@ -221,6 +221,17 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(3.0, 0.0, 0.0), Grad::new(9.0, 6.0, 0.0, 0.0));
     }
 
+    pub fn test_g_sqrt<I: GradEvalT>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sqrt(x).unwrap();
+        let tape = ctx.get_tape(s, I::Family::REG_LIMIT);
+
+        let mut eval = GradEval::<I>::from(tape);
+        assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, 0.5, 0.0, 0.0));
+        assert_eq!(eval.eval_f(4.0, 0.0, 0.0), Grad::new(2.0, 0.25, 0.0, 0.0));
+    }
+
     pub fn test_g_circle<I: GradEvalT>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -257,6 +268,7 @@ pub mod eval_tests {
             $crate::grad_test!(test_g_circle, $t);
             $crate::grad_test!(test_g_x, $t);
             $crate::grad_test!(test_g_square, $t);
+            $crate::grad_test!(test_g_sqrt, $t);
         };
     }
 }
