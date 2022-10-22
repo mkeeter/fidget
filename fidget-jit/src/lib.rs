@@ -1298,6 +1298,7 @@ impl From<Tape> for JitFloatSliceEval {
 
 impl FloatSliceEvalT for JitFloatSliceEval {
     type Storage = Mmap;
+    type Family = JitEvalFamily;
 
     fn from_tape_give(
         t: Tape,
@@ -1362,7 +1363,6 @@ impl FloatSliceEvalT for JitFloatSliceEval {
                 );
             }
             out[0..n].copy_from_slice(&tmp[0..n]);
-            out[n..].fill(std::f32::NAN);
         } else {
             let mut i = 0;
             loop {
@@ -1382,7 +1382,6 @@ impl FloatSliceEvalT for JitFloatSliceEval {
                     i = n - 4;
                 }
             }
-            out[n..].fill(std::f32::NAN);
         }
     }
 }
@@ -1854,107 +1853,6 @@ mod tests {
         assert_eq!(eval.choices(), &[Choice::Left]);
     }
 
-    #[test]
-    fn test_vectorized() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-
-        let tape = ctx.get_tape(x, REGISTER_LIMIT);
-        let mut eval = FloatSliceEval::<JitFloatSliceEval>::from(tape);
-        let mut out = [0.0; 4];
-        eval.eval_s(
-            &[0.0, 1.0, 2.0, 3.0],
-            &[3.0, 2.0, 1.0, 0.0],
-            &[0.0, 0.0, 0.0, 100.0],
-            &mut out,
-        );
-        assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
-
-        let two = ctx.constant(2.0);
-        let mul = ctx.mul(y, two).unwrap();
-        let tape = ctx.get_tape(mul, REGISTER_LIMIT);
-        let mut eval = FloatSliceEval::<JitFloatSliceEval>::from(tape);
-        eval.eval_s(
-            &[0.0, 1.0, 2.0, 3.0],
-            &[3.0, 2.0, 1.0, 0.0],
-            &[0.0, 0.0, 0.0, 100.0],
-            &mut out,
-        );
-        assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
-
-        eval.eval_s(
-            &[0.0, 1.0, 2.0],
-            &[1.0, 4.0, 8.0],
-            &[0.0, 0.0, 0.0],
-            &mut out[0..3],
-        );
-        assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
-
-        // out is longer than inputs
-        eval.eval_s(
-            &[0.0, 1.0, 2.0],
-            &[1.0, 4.0, 4.0],
-            &[0.0, 0.0, 0.0],
-            &mut out[0..4],
-        );
-        assert_eq!(&out[0..3], &[2.0, 8.0, 8.0]);
-        assert!(out[3].is_nan());
-
-        let mut out = [0.0; 7];
-        eval.eval_s(
-            &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
-            &[0.0; 7],
-            &mut out,
-        );
-        assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
-    }
-
-    #[test]
-    fn test_give_take() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-
-        let tape_x = ctx.get_tape(x, REGISTER_LIMIT);
-        let tape_y = ctx.get_tape(y, REGISTER_LIMIT);
-
-        let eval = FloatSliceEval::<JitFloatSliceEval>::from(tape_y.clone());
-        let mut out = [0.0; 4];
-        let mut t = eval.take().unwrap();
-
-        // This is a fuzz test for icache issues
-        for _ in 0..10000 {
-            let (mut eval, s) = FloatSliceEval::<JitFloatSliceEval>::new_give(
-                tape_x.clone(),
-                t,
-            );
-            assert!(s.is_none());
-            eval.eval_s(
-                &[0.0, 1.0, 2.0, 3.0],
-                &[3.0, 2.0, 1.0, 0.0],
-                &[0.0, 0.0, 0.0, 100.0],
-                &mut out,
-            );
-            assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
-            t = eval.take().unwrap();
-
-            let (mut eval, s) = FloatSliceEval::<JitFloatSliceEval>::new_give(
-                tape_y.clone(),
-                t,
-            );
-            assert!(s.is_none());
-            eval.eval_s(
-                &[0.0, 1.0, 2.0, 3.0],
-                &[3.0, 2.0, 1.0, 0.0],
-                &[0.0, 0.0, 0.0, 100.0],
-                &mut out,
-            );
-            assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
-            t = eval.take().unwrap();
-        }
-    }
-
-    fidget_core::eval::point::tests::point_tests!(JitPointEval);
+    fidget_core::float_slice_tests!(JitFloatSliceEval);
+    fidget_core::point_tests!(JitPointEval);
 }

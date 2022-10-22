@@ -197,7 +197,7 @@ pub mod tests {
     }
 
     #[macro_export]
-    macro_rules! tt {
+    macro_rules! point_test {
         ($i:ident, $t:ty) => {
             #[test]
             fn $i() {
@@ -209,13 +209,12 @@ pub mod tests {
     #[macro_export]
     macro_rules! point_tests {
         ($t:ty) => {
-            $crate::tt!(test_circle, $t);
-            $crate::tt!(test_p_max, $t);
-            $crate::tt!(test_p_min, $t);
-            $crate::tt!(basic_interpreter, $t);
-            $crate::tt!(test_push, $t);
-            $crate::tt!(test_basic, $t);
+            $crate::point_test!(test_circle, $t);
+            $crate::point_test!(test_p_max, $t);
+            $crate::point_test!(test_p_min, $t);
+            $crate::point_test!(basic_interpreter, $t);
+            $crate::point_test!(test_push, $t);
+            $crate::point_test!(test_basic, $t);
         };
     }
-    pub use point_tests;
 }

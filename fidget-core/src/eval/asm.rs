@@ -195,6 +195,7 @@ impl From<Tape> for AsmFloatSliceEval {
 
 impl FloatSliceEvalT for AsmFloatSliceEval {
     type Storage = ();
+    type Family = AsmFamily;
 
     fn from_tape_give(
         tape: Tape,
@@ -348,7 +349,7 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
                 }
             }
         }
-        out.copy_from_slice(&self.slots[0][0..size])
+        out[0..size].copy_from_slice(&self.slots[0][0..size])
     }
 }
 
@@ -758,5 +759,6 @@ pub mod tests {
         assert_eq!(eval.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
     }
 
-    crate::eval::point::tests::point_tests!(AsmPointEval);
+    crate::float_slice_tests!(AsmFloatSliceEval);
+    crate::point_tests!(AsmPointEval);
 }
