@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "fidget",
     "fidget-core",
@@ -8,5 +9,6 @@ members = [
     "demo",
     "gui",
 ]
+
 [profile.release]
 debug = true

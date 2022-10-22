@@ -7,3 +7,10 @@ edition = "2021"
 fidget-core = { path = "../fidget-core" }
 dynasmrt = "1.2.3"
 libc = "0.2"
+
+[features]
+eval-tests = []
+
+[dev-dependencies]
+fidget-core = { path = "../fidget-core", features = ["eval-tests"] }
+fidget-jit = { path = ".", features = ["eval-tests"] }

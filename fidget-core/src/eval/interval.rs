@@ -355,7 +355,8 @@ mod test {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub mod tests {
+#[cfg(feature = "eval-tests")]
+pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
@@ -741,7 +742,7 @@ pub mod tests {
         ($i:ident, $t:ty) => {
             #[test]
             fn $i() {
-                $crate::eval::interval::tests::$i::<$t>()
+                $crate::eval::interval::eval_tests::$i::<$t>()
             }
         };
     }

@@ -198,7 +198,8 @@ impl<E: GradEvalT> GradEval<E> {
     }
 }
 
-pub mod tests {
+#[cfg(feature = "eval-tests")]
+pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
@@ -231,7 +232,7 @@ pub mod tests {
         ($i:ident, $t:ty) => {
             #[test]
             fn $i() {
-                $crate::eval::grad::tests::$i::<$t>()
+                $crate::eval::grad::eval_tests::$i::<$t>()
             }
         };
     }

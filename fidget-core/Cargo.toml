@@ -3,9 +3,15 @@ name = "fidget-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+eval-tests = []
+
 [dependencies]
 arrayvec = "0.7"
 num-derive = "0.3"
 num-traits = "0.2"
 ordered-float = "3"
 thiserror = "1"
+
+[dev-dependencies]
+fidget-core = { path = ".", features = ["eval-tests"] }
