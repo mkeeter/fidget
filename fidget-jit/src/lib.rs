@@ -1260,6 +1260,7 @@ impl From<Tape> for JitPointEval {
 }
 
 impl PointEvalT for JitPointEval {
+    type Family = JitEvalFamily;
     fn eval_p(
         &mut self,
         x: f32,
@@ -1459,25 +1460,8 @@ mod tests {
     use super::*;
     use fidget_core::{
         context::Context,
-        eval::{
-            float_slice::FloatSliceEval, interval::IntervalEval,
-            point::PointEval,
-        },
+        eval::{float_slice::FloatSliceEval, interval::IntervalEval},
     };
-
-    #[test]
-    fn test_dynasm() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let two = ctx.constant(2.5);
-        let y2 = ctx.mul(y, two).unwrap();
-        let sum = ctx.add(x, y2).unwrap();
-
-        let tape = ctx.get_tape(sum, REGISTER_LIMIT);
-        let mut eval = JitPointEval::from(tape);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &mut []), 6.0);
-    }
 
     #[test]
     fn test_interval() {
@@ -1928,60 +1912,6 @@ mod tests {
     }
 
     #[test]
-    fn test_p_min() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let min = ctx.min(x, y).unwrap();
-
-        let tape = ctx.get_tape(min, REGISTER_LIMIT);
-        let mut eval = PointEval::<JitPointEval>::from(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
-        assert_eq!(eval.choices(), &[Choice::Both]);
-
-        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 0.0);
-        assert_eq!(eval.choices(), &[Choice::Left]);
-
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 0.0);
-        assert_eq!(eval.choices(), &[Choice::Right]);
-
-        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
-        assert!(v.is_nan());
-        assert_eq!(eval.choices(), &[Choice::Both]);
-
-        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
-        assert!(v.is_nan());
-        assert_eq!(eval.choices(), &[Choice::Both]);
-    }
-
-    #[test]
-    fn test_p_max() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let max = ctx.max(x, y).unwrap();
-
-        let tape = ctx.get_tape(max, REGISTER_LIMIT);
-        let mut eval = PointEval::<JitPointEval>::from(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
-        assert_eq!(eval.choices(), &[Choice::Both]);
-
-        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 1.0);
-        assert_eq!(eval.choices(), &[Choice::Right]);
-
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 2.0);
-        assert_eq!(eval.choices(), &[Choice::Left]);
-
-        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
-        assert!(v.is_nan());
-        assert_eq!(eval.choices(), &[Choice::Both]);
-
-        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
-        assert!(v.is_nan());
-        assert_eq!(eval.choices(), &[Choice::Both]);
-    }
-
-    #[test]
     fn test_give_take() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -2025,4 +1955,6 @@ mod tests {
             t = eval.take().unwrap();
         }
     }
+
+    fidget_core::eval::point::tests::point_tests!(JitPointEval);
 }

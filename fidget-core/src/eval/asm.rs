@@ -384,6 +384,7 @@ impl From<Tape> for AsmPointEval {
 }
 
 impl PointEvalT for AsmPointEval {
+    type Family = AsmFamily;
     fn eval_p(
         &mut self,
         x: f32,
@@ -451,7 +452,11 @@ impl PointEvalT for AsmPointEval {
                         imm
                     } else {
                         choices[choice_index] |= Choice::Both;
-                        imm
+                        if a.is_nan() || imm.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            imm
+                        }
                     };
                     choice_index += 1;
                 }
@@ -465,7 +470,11 @@ impl PointEvalT for AsmPointEval {
                         imm
                     } else {
                         choices[choice_index] |= Choice::Both;
-                        imm
+                        if a.is_nan() || imm.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            imm
+                        }
                     };
                     choice_index += 1;
                 }
@@ -492,7 +501,11 @@ impl PointEvalT for AsmPointEval {
                         b
                     } else {
                         choices[choice_index] |= Choice::Both;
-                        b
+                        if a.is_nan() || b.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            b
+                        }
                     };
                     choice_index += 1;
                 }
@@ -507,7 +520,11 @@ impl PointEvalT for AsmPointEval {
                         b
                     } else {
                         choices[choice_index] |= Choice::Both;
-                        b
+                        if a.is_nan() || b.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            b
+                        }
                     };
                     choice_index += 1;
                 }
@@ -710,7 +727,7 @@ impl GradEvalT for AsmGradEval {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::{
         context::Context, eval::grad::GradEval, eval::point::PointEval,
@@ -734,112 +751,12 @@ mod tests {
         let sub = ctx.sub(sqrt, half).unwrap();
         let tape = ctx.get_tape(sub, u8::MAX);
 
-        let mut eval = GradEval::<AsmGradEval>::from(tape);
+        let mut eval = AsmGradEval::new(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
         assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(0.0, 2.0, 0.0), Grad::new(1.5, 0.0, 1.0, 0.0));
     }
 
-    #[test]
-    fn basic_interpreter() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let one = ctx.constant(1.0);
-        let sum = ctx.add(x, one).unwrap();
-        let min = ctx.min(sum, y).unwrap();
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = PointEval::<AsmPointEval>::from(tape);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(1.0, 3.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(3.0, 3.5, 0.0), 3.5);
-    }
-
-    #[test]
-    fn test_push() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let min = ctx.min(x, y).unwrap();
-
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = PointEval::<AsmPointEval>::from(tape.clone());
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
-
-        let t = tape.simplify(&[Choice::Left]);
-        let mut eval = PointEval::<AsmPointEval>::from(t);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 3.0);
-
-        let t = tape.simplify(&[Choice::Right]);
-        let mut eval = PointEval::<AsmPointEval>::from(t);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
-
-        let one = ctx.constant(1.0);
-        let min = ctx.min(x, one).unwrap();
-        let tape = ctx.get_tape(min, u8::MAX);
-        let mut eval = PointEval::<AsmPointEval>::from(tape.clone());
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
-
-        let t = tape.simplify(&[Choice::Left]);
-        let mut eval = PointEval::<AsmPointEval>::from(t);
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 3.0);
-
-        let t = tape.simplify(&[Choice::Right]);
-        let mut eval = PointEval::<AsmPointEval>::from(t);
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
-    }
-
-    #[test]
-    fn test_ring() {
-        let mut ctx = Context::new();
-        let c0 = ctx.constant(0.5);
-        let x = ctx.x();
-        let y = ctx.y();
-        let x2 = ctx.square(x).unwrap();
-        let y2 = ctx.square(y).unwrap();
-        let r = ctx.add(x2, y2).unwrap();
-        let c6 = ctx.sub(r, c0).unwrap();
-        let c7 = ctx.constant(0.25);
-        let c8 = ctx.sub(c7, r).unwrap();
-        let c9 = ctx.max(c8, c6).unwrap();
-
-        let tape = ctx.get_tape(c9, u8::MAX);
-        assert_eq!(tape.len(), 8);
-    }
-
-    #[test]
-    fn test_dupe() {
-        use crate::context::Context;
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let x_squared = ctx.mul(x, x).unwrap();
-
-        let tape = ctx.get_tape(x_squared, u8::MAX);
-        assert_eq!(tape.len(), 2);
-    }
-
-    #[test]
-    fn test_circle() {
-        use crate::context::Context;
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let x_squared = ctx.mul(x, x).unwrap();
-        let y_squared = ctx.mul(y, y).unwrap();
-        let radius = ctx.add(x_squared, y_squared).unwrap();
-        let one = ctx.constant(1.0);
-        let circle = ctx.sub(radius, one).unwrap();
-
-        let tape = ctx.get_tape(circle, u8::MAX);
-        let mut eval = PointEval::<AsmPointEval>::from(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
-        assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
-    }
+    crate::eval::point::tests::point_tests!(AsmPointEval);
 }

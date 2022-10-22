@@ -626,4 +626,33 @@ mod tests {
         let op_x = ctx.get_op(x).unwrap();
         assert!(matches!(op_x, Op::Var(_)));
     }
+
+    #[test]
+    fn test_ring() {
+        let mut ctx = Context::new();
+        let c0 = ctx.constant(0.5);
+        let x = ctx.x();
+        let y = ctx.y();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let r = ctx.add(x2, y2).unwrap();
+        let c6 = ctx.sub(r, c0).unwrap();
+        let c7 = ctx.constant(0.25);
+        let c8 = ctx.sub(c7, r).unwrap();
+        let c9 = ctx.max(c8, c6).unwrap();
+
+        let tape = ctx.get_tape(c9, u8::MAX);
+        assert_eq!(tape.len(), 8);
+    }
+
+    #[test]
+    fn test_dupe() {
+        use crate::context::Context;
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let x_squared = ctx.mul(x, x).unwrap();
+
+        let tape = ctx.get_tape(x_squared, u8::MAX);
+        assert_eq!(tape.len(), 2);
+    }
 }
