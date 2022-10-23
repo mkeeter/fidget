@@ -281,19 +281,16 @@ impl<E: IntervalEvalT> IntervalEval<E> {
         subdiv: usize,
     ) -> Interval {
         self.reset_choices();
-        self.eval_subdiv_recurse(x, y, z, subdiv)
+        self.eval_subdiv_recurse(x.into(), y.into(), z.into(), subdiv)
     }
 
-    fn eval_subdiv_recurse<I: Into<Interval>>(
+    fn eval_subdiv_recurse(
         &mut self,
-        x: I,
-        y: I,
-        z: I,
+        x: Interval,
+        y: Interval,
+        z: Interval,
         subdiv: usize,
     ) -> Interval {
-        let x = x.into();
-        let y = y.into();
-        let z = z.into();
         if subdiv == 0 {
             self.eval.eval_i(x, y, z, self.choices.as_mut_slice())
         } else {
