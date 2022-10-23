@@ -11,6 +11,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
+//! // TODO: actually render stuff here
 //!
 //! // This will print
 //! //           XXXXXXXXXX
