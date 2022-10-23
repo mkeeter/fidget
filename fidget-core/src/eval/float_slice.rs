@@ -29,8 +29,8 @@ pub trait FloatSliceEvalT: From<Tape> {
 
 pub struct FloatSliceEval<E> {
     #[allow(dead_code)]
-    pub(crate) tape: Tape,
-    pub(crate) eval: E,
+    tape: Tape,
+    eval: E,
 }
 
 impl<E: FloatSliceEvalT> From<Tape> for FloatSliceEval<E> {

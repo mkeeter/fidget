@@ -166,8 +166,8 @@ pub trait GradEvalT: From<Tape> {
 
 pub struct GradEval<E> {
     #[allow(dead_code)]
-    pub(crate) tape: Tape,
-    pub(crate) eval: E,
+    tape: Tape,
+    eval: E,
 }
 
 impl<E: GradEvalT> From<Tape> for GradEval<E> {

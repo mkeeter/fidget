@@ -208,9 +208,9 @@ pub trait IntervalEvalT: Clone + Send + From<Tape> {
 
 #[derive(Clone)]
 pub struct IntervalEval<E> {
-    pub(crate) tape: Tape,
-    pub(crate) choices: Vec<Choice>,
-    pub(crate) eval: E,
+    tape: Tape,
+    choices: Vec<Choice>,
+    eval: E,
 }
 
 impl<E: IntervalEvalT> From<Tape> for IntervalEval<E> {

@@ -15,9 +15,9 @@ pub trait PointEvalT: From<Tape> {
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
 pub struct PointEval<E> {
-    pub(crate) tape: Tape,
-    pub(crate) choices: Vec<Choice>,
-    pub(crate) eval: E,
+    tape: Tape,
+    choices: Vec<Choice>,
+    eval: E,
 }
 
 impl<E: PointEvalT> From<Tape> for PointEval<E> {

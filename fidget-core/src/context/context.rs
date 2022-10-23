@@ -609,7 +609,7 @@ impl Context {
     }
 
     /// Looks up an operation by `Node` handle
-    pub(crate) fn get_op(&self, node: Node) -> Option<&Op> {
+    fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
     }
 }
@@ -618,7 +618,7 @@ impl Context {
 mod test {
     use super::*;
 
-    // This can't be in a doctest, because it uses a pub(crate) function
+    // This can't be in a doctest, because it uses a private function
     #[test]
     fn test_get_op() {
         let mut ctx = Context::new();
