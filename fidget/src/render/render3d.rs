@@ -109,6 +109,19 @@ impl<I: EvalFamily> Worker<'_, I> {
     ) -> Option<FloatSliceEval<I::FloatSliceEval>> {
         let tile_size = self.config.tile_sizes[depth];
 
+        // Early exit if every single pixel is filled
+        let fill_z = tile.corner[2] + tile_size + 1;
+        let mut all_blocked = true;
+        for y in 0..tile_size {
+            for x in 0..tile_size {
+                let i = self.config.tile_to_offset(tile, x, y);
+                all_blocked &= self.depth[i] >= fill_z;
+            }
+        }
+        if all_blocked {
+            return None;
+        }
+
         // Brute-force way to find the (interval) bounding box of the region
         let mut x_min = f32::INFINITY;
         let mut x_max = f32::NEG_INFINITY;
@@ -140,7 +153,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         let i = handle.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
         let fill = if i.upper() < 0.0 {
-            Some(tile.corner[2] + tile_size + 1)
+            Some(fill_z)
         } else if i.lower() > 0.0 {
             // Return early if this tile is completely empty
             return None;
@@ -224,6 +237,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 self.scratch.columns.push(xy);
             }
             let size = index;
+            assert!(size > 0);
 
             // This gets a little messy in terms of lifetimes.
             //
