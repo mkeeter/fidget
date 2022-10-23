@@ -2,7 +2,7 @@
 //!
 //! ```
 //! use fidget::context::Context;
-//! use fidget::bind::eval;
+//! use fidget::rhai::eval;
 //! use fidget::render::render2d::{render, RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
@@ -30,19 +30,16 @@
 //! //       XXXXXXXXXXXXXXXXXX
 //! //           XXXXXXXXXX
 //! ```
-pub use fidget_core::*;
 
-/// 2D and 3D rendering
-pub mod render {
-    pub use fidget_render::*;
-}
+// Re-export everything from fidget_core into the top-level namespace
+mod core;
+pub use crate::core::*;
 
-/// Rhai bindings
-pub mod bind {
-    pub use fidget_rhai::*;
-}
+#[cfg(feature = "render")]
+pub mod render;
 
-/// JIT compilation to native code
-pub mod jit {
-    pub use fidget_jit::*;
-}
+#[cfg(feature = "rhai")]
+pub mod rhai;
+
+#[cfg(feature = "jit")]
+pub mod jit;

@@ -1,5 +1,5 @@
 //! Bitmap rendering
-use fidget_core::{
+use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         grad::{Grad, GradEval, GradEvalT},

@@ -102,7 +102,7 @@ impl Context {
     // Primitives
     /// Constructs or finds a variable node named "X"
     /// ```
-    /// # use fidget_core::context::Context;
+    /// # use fidget::context::Context;
     /// let mut ctx = Context::new();
     /// let x = ctx.x();
     /// let v = ctx.eval_xyz(x, 1.0, 0.0, 0.0).unwrap();
@@ -127,7 +127,7 @@ impl Context {
 
     /// Returns a node representing the given constant value.
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let v = ctx.constant(3.0);
     /// assert_eq!(ctx.eval_xyz(v, 0.0, 0.0, 0.0).unwrap(), 3.0);
     /// ```
@@ -198,7 +198,7 @@ impl Context {
 
     /// Builds an addition node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let num = ctx.constant(1.0);
     /// let op = ctx.add(x, num).unwrap();
@@ -220,7 +220,7 @@ impl Context {
 
     /// Builds an multiplication node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let num = ctx.constant(5.0);
     /// let op = ctx.mul(x, num).unwrap();
@@ -241,7 +241,7 @@ impl Context {
 
     /// Builds an `min` node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let num = ctx.constant(5.0);
     /// let op = ctx.min(x, num).unwrap();
@@ -257,7 +257,7 @@ impl Context {
     }
     /// Builds an `max` node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let num = ctx.constant(5.0);
     /// let op = ctx.max(x, num).unwrap();
@@ -274,7 +274,7 @@ impl Context {
 
     /// Builds a unary negation node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.neg(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -286,7 +286,7 @@ impl Context {
 
     /// Builds a reciprocal node
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.recip(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -298,7 +298,7 @@ impl Context {
 
     /// Builds a node which calculates the absolute value of its input
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.abs(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -312,7 +312,7 @@ impl Context {
 
     /// Builds a node which calculates the square root of its input
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.sqrt(x).unwrap();
     /// let v = ctx.eval_xyz(op, 4.0, 0.0, 0.0).unwrap();
@@ -326,7 +326,7 @@ impl Context {
     // Derived functions
     /// Builds a node which squares its input
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let op = ctx.square(x).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
@@ -338,7 +338,7 @@ impl Context {
 
     /// Builds a node which performs subtraction.
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.sub(x, y).unwrap();
@@ -352,7 +352,7 @@ impl Context {
     /// Builds a node which performs division. Under the hood, `a / b` is
     /// converted into `a * (1 / b)`.
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.div(x, y).unwrap();
@@ -409,7 +409,7 @@ impl Context {
     /// [`get_tape`](Self::get_tape) and building an evaluator instead.
     ///
     /// ```
-    /// # let mut ctx = fidget_core::context::Context::new();
+    /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let z = ctx.z();
@@ -495,7 +495,7 @@ impl Context {
     /// Parses a flat text representation of a math tree. For example, the
     /// circle `(- (+ (square x) (square y)) 1)` can be parsed from
     /// ```
-    /// # use fidget_core::context::Context;
+    /// # use fidget::context::Context;
     /// let txt = "
     /// 0x600000b90000 var-x
     /// 0x600000b900a0 square 0x600000b90000

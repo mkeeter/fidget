@@ -1,8 +1,0 @@
-[package]
-name = "fidget-render"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-fidget-core = { path = "../fidget-core" }
-nalgebra = "0.31"

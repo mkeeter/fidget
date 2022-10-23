@@ -194,7 +194,7 @@ impl<E: GradEvalT> GradEval<E> {
     }
 }
 
-#[cfg(feature = "eval-tests")]
+#[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
     use crate::context::Context;

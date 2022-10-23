@@ -58,7 +58,7 @@ impl<E: PointEvalT> PointEval<E> {
 
 // This module exports a standard test suite for any point evaluator, which can
 // be included as `point_tests!(ty)`.
-#[cfg(feature = "eval-tests")]
+#[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
     use crate::context::Context;

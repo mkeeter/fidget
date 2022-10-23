@@ -1,8 +1,0 @@
-[package]
-name = "fidget-rhai"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-rhai = "1.10"
-fidget-core = { path = "../fidget-core" }

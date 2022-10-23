@@ -4,7 +4,7 @@
 //! omnibus library instead.
 //!
 //! ```
-//! use fidget_core::{eval::{point::PointEval, asm::AsmPointEval}, context::Context};
+//! use fidget::{eval::{point::PointEval, asm::AsmPointEval}, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -52,9 +52,8 @@ pub mod context;
 pub mod eval;
 pub mod tape;
 
-mod error;
-
-pub use error::Error;
+// TODO make this top-level?
+pub mod error;
 
 #[cfg(test)]
 mod test {

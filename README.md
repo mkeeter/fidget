@@ -14,12 +14,18 @@ Right now, it includes a few fundamental building blocks:
 
 These building blocks are used in an implementation of bitmap rendering.
 
-## Crate organization
-The project is split into multiple crates to improve compile times:
+## Crate features
+The project is based on the `fidget` crate, with three relevant features
 
-- `fidget-core`: Construction and evaluation of expressions
-- `fidget-jit`: JIT compilation (AArch64 only)
-- `fidget-render`: 2D and 3D rendering
-- `fidget-rhai`: Rhai bindings
+- `render` builds `fidget::render`, which includes functions to render 2D and
+  3D images.
+- `rhai` builds [Rhai](https://rhai.rs/) bindings
+- `jit` builds the JIT compiler
 
-All of these `crates` are re-exported by the `fidget` omnibus crate.
+By default, all of these features are enabled.
+
+## Platforms
+At the moment, only macOS (AArch64) is fully supported.
+
+Disabling the `jit` feature should allow for cross-platform rendering
+(albeit without the JIT compiler), but this is untested.

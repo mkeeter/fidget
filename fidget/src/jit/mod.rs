@@ -41,8 +41,7 @@ use dynasmrt::{aarch64::Aarch64Relocation, dynasm, DynasmApi, VecAssembler};
 
 use std::sync::Arc;
 
-use crate::mmap::Mmap;
-use fidget_core::{
+use crate::{
     asm::AsmOp,
     eval::{
         float_slice::FloatSliceEvalT,
@@ -51,6 +50,7 @@ use fidget_core::{
         point::PointEvalT,
         Choice, EvalFamily,
     },
+    jit::mmap::Mmap,
     tape::Tape,
 };
 
@@ -1467,8 +1467,8 @@ impl EvalFamily for JitEvalFamily {
 #[cfg(test)]
 mod test {
     use super::*;
-    fidget_core::grad_tests!(JitGradEval);
-    fidget_core::interval_tests!(JitIntervalEval);
-    fidget_core::float_slice_tests!(JitFloatSliceEval);
-    fidget_core::point_tests!(JitPointEval);
+    crate::grad_tests!(JitGradEval);
+    crate::interval_tests!(JitIntervalEval);
+    crate::float_slice_tests!(JitFloatSliceEval);
+    crate::point_tests!(JitPointEval);
 }

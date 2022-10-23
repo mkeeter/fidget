@@ -16,21 +16,21 @@ struct MyApp {
     label_height: Option<f32>,
     texture: Option<egui::TextureHandle>,
 
-    engine: fidget::bind::Engine,
+    engine: fidget::rhai::Engine,
 
     scale: f32,
     offset: egui::Vec2,
     drag_start: Option<egui::Vec2>,
 
     script: String,
-    out: Result<fidget::bind::ScriptContext, String>,
+    out: Result<fidget::rhai::ScriptContext, String>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 impl Default for MyApp {
     fn default() -> Self {
-        let engine = fidget::bind::Engine::new();
+        let engine = fidget::rhai::Engine::new();
 
         Self {
             texture: None,
