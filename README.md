@@ -1,7 +1,14 @@
 # Fidget
 Fidget is experimental infrastructure for complex closed-form implicit surfaces.
 
-Right now, it includes a few fundamental building blocks:
+It is **not ready for public use**, but is published to
+[crates.io](https://crates.io) to claim the package name.
+
+(As such, I'd appreciate if people didn't share it to news aggregators or post
+about it on Twitter.  If you feel an overwhelming urge to talk about it, feel
+free to [reach out directly](https://mattkeeter.com/about))
+
+That being said, it already includes a bunch of functionality:
 
 - Manipulation and deduplication of math expressions
 - Conversion from graphs into straight-line code ("tapes") for evaluation
