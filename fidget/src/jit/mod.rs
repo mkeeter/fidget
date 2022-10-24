@@ -1460,6 +1460,10 @@ impl EvalFamily for JitEvalFamily {
     type FloatSliceEval = JitFloatSliceEval;
     type GradEval = JitGradEval;
     type PointEval = JitPointEval;
+
+    fn tile_sizes_3d() -> &'static [usize] {
+        &[256, 64, 16]
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

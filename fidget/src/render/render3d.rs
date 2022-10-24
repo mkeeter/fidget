@@ -206,6 +206,9 @@ impl<I: EvalFamily> Worker<'_, I> {
         } else {
             // Prepare for pixel-by-pixel evaluation
             let mut index = 0;
+            assert!(self.scratch.x.len() >= tile_size.pow(3));
+            assert!(self.scratch.y.len() >= tile_size.pow(3));
+            assert!(self.scratch.z.len() >= tile_size.pow(3));
             self.scratch.columns.clear();
             for xy in 0..(tile_size * tile_size) {
                 let i = xy % tile_size;
@@ -229,9 +232,19 @@ impl<I: EvalFamily> Worker<'_, I> {
                 for k in (0..tile_size).rev() {
                     let v =
                         v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
-                    self.scratch.x[index] = v.x / v.w;
-                    self.scratch.y[index] = v.y / v.w;
-                    self.scratch.z[index] = v.z / v.w;
+
+                    // SAFETY:
+                    // Index cannot exceed tile_size**3, which is (a) the size
+                    // that we allocated in `Scratch::new` and (b) checked by
+                    // assertions above.
+                    //
+                    // Using unsafe indexing here is a roughly 2.5% speedup,
+                    // since this is the hottest loop.
+                    unsafe {
+                        *self.scratch.x.get_unchecked_mut(index) = v.x / v.w;
+                        *self.scratch.y.get_unchecked_mut(index) = v.y / v.w;
+                        *self.scratch.z.get_unchecked_mut(index) = v.z / v.w;
+                    }
                     index += 1;
                 }
                 self.scratch.columns.push(xy);

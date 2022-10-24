@@ -25,4 +25,7 @@ pub trait EvalFamily {
     type FloatSliceEval: FloatSliceEvalT;
     type PointEval: PointEvalT;
     type GradEval: GradEvalT;
+
+    /// Recommended tile sizes for 3D rendering
+    fn tile_sizes_3d() -> &'static [usize];
 }

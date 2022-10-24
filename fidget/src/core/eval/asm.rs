@@ -23,6 +23,10 @@ impl EvalFamily for AsmFamily {
     type FloatSliceEval = AsmFloatSliceEval;
     type PointEval = AsmPointEval;
     type GradEval = AsmGradEval;
+
+    fn tile_sizes_3d() -> &'static [usize] {
+        &[256, 128, 64, 32, 16, 8]
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
