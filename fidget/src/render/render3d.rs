@@ -9,7 +9,7 @@ use crate::{
     tape::Tape,
 };
 
-use nalgebra::{Matrix4, Point3, Transform3, Vector3, Vector4};
+use nalgebra::{Matrix4, Point3, Transform3, Vector3};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -204,145 +204,152 @@ impl<I: EvalFamily> Worker<'_, I> {
             }
             None
         } else {
-            // Prepare for pixel-by-pixel evaluation
-            let mut index = 0;
-            assert!(self.scratch.x.len() >= tile_size.pow(3));
-            assert!(self.scratch.y.len() >= tile_size.pow(3));
-            assert!(self.scratch.z.len() >= tile_size.pow(3));
-            self.scratch.columns.clear();
-            for xy in 0..(tile_size * tile_size) {
-                let i = xy % tile_size;
-                let j = xy / tile_size;
-                let o = self.config.tile_to_offset(tile, i, j);
-
-                // The matrix transformation is separable until the final
-                // division by w.  We can precompute the XY-1 portion of the
-                // multiplication here, since it's shared by every voxel in this
-                // column of the image.
-                let v = ((tile.corner[0] + i) as f32) * self.mat.column(0)
-                    + ((tile.corner[1] + j) as f32) * self.mat.column(1)
-                    + self.mat.column(3);
-
-                let zmax = tile.corner[2] + tile_size;
-                if self.depth[o] >= zmax {
-                    continue;
-                }
-
-                for k in (0..tile_size).rev() {
-                    let v =
-                        v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
-
-                    // SAFETY:
-                    // Index cannot exceed tile_size**3, which is (a) the size
-                    // that we allocated in `Scratch::new` and (b) checked by
-                    // assertions above.
-                    //
-                    // Using unsafe indexing here is a roughly 2.5% speedup,
-                    // since this is the hottest loop.
-                    unsafe {
-                        *self.scratch.x.get_unchecked_mut(index) = v.x / v.w;
-                        *self.scratch.y.get_unchecked_mut(index) = v.y / v.w;
-                        *self.scratch.z.get_unchecked_mut(index) = v.z / v.w;
-                    }
-                    index += 1;
-                }
-                self.scratch.columns.push(xy);
-            }
-            let size = index;
-            assert!(size > 0);
-
-            // This gets a little messy in terms of lifetimes.
-            //
-            // In some cases, the shortened tape isn't actually any shorter, so
-            // it's a waste of time to rebuild it.  Instead, we want to use a
-            // float-slice evaluator that's bound to the *parent* tape.
-            // Luckily, such a thing _may_ be passed into this function.  If
-            // not, we build it here and then pass it out, so future calls can
-            // use it.
-            //
-            // (this matters most for the JIT compiler, which is _expensive_)
-            let sub_tape = handle.simplify(I::REG_LIMIT);
-            let ret = if sub_tape.len() < handle.tape().len() {
-                let mut func = self.get_float_slice_eval(sub_tape.clone());
-
-                self.scratch.eval_s(&mut func, size);
-
-                // We consume the evaluator, so any reuse of memory between the
-                // FloatSliceFunc and FloatSliceEval should be cleared up and we
-                // should be able to reuse the working memory.
-                self.buffers.push(func.take().unwrap());
-
-                None
-            } else if let Some(r) = float_handle {
-                // Reuse the FloatSliceFunc handle passed in
-                self.scratch.eval_s(r, size);
-                None
-            } else {
-                let mut func = self.get_float_slice_eval(handle.tape());
-
-                self.scratch.eval_s(&mut func, size);
-                Some(func)
-            };
-
-            // We're iterating over three different things simultaneously:
-            // - col refers to the xy position in the tile
-            // - index refers to the evaluation array, self.scratch.out
-            // - grad refers to points that we must do gradient evaluation on
-            let mut col = 0;
-            let mut index = 0;
-            let mut grad = 0;
-            while col < self.scratch.columns.len() {
-                let xy = self.scratch.columns[col];
-                let i = xy % tile_size;
-                let j = xy / tile_size;
-                let o = self.config.tile_to_offset(tile, i, j);
-                for k in (0..tile_size).rev() {
-                    let z = tile.corner[2] + k + 1;
-                    // Early exit for the first pixel in the column
-                    if self.scratch.out[index] < 0.0 && self.depth[o] <= z {
-                        self.depth[o] = z;
-                        index += k + 1;
-
-                        // Prepare to do gradient rendering of this point.
-                        // We step one voxel above the surface to reduce
-                        // glitchiness on edges and corners, where rendering
-                        // inside the surface could pick the wrong normal.
-                        let p = self.mat.transform_point(&Point3::new(
-                            (tile.corner[0] + i) as f32,
-                            (tile.corner[1] + j) as f32,
-                            (tile.corner[2] + k + 1) as f32,
-                        ));
-                        self.scratch.x[grad] = p.x;
-                        self.scratch.y[grad] = p.y;
-                        self.scratch.z[grad] = p.z;
-
-                        // This can only be called once per k loop, so we'll
-                        // never overwrite parts of columns that are still used
-                        // by the outer loop
-                        self.scratch.columns[grad] = o;
-                        grad += 1;
-
-                        break;
-                    }
-                    index += 1;
-                }
-                col += 1;
-            }
-
-            if grad > 0 {
-                let mut func = GradEval::<I::GradEval>::from(sub_tape);
-                self.scratch.eval_g(&mut func, grad);
-                for (index, o) in
-                    self.scratch.columns[0..grad].iter().enumerate()
-                {
-                    self.color[*o] = self.scratch.out_grad[index]
-                        .to_rgb()
-                        .unwrap_or([255, 0, 0]);
-                }
-            }
-
-            ret
+            self.render_tile_pixels(handle, tile_size, tile, float_handle)
         }
+    }
+
+    fn render_tile_pixels(
+        &mut self,
+        handle: &mut IntervalEval<I::IntervalEval>,
+        tile_size: usize,
+        tile: Tile,
+        float_handle: Option<&mut FloatSliceEval<I::FloatSliceEval>>,
+    ) -> Option<FloatSliceEval<I::FloatSliceEval>> {
+        // Prepare for pixel-by-pixel evaluation
+        let mut index = 0;
+        assert!(self.scratch.x.len() >= tile_size.pow(3));
+        assert!(self.scratch.y.len() >= tile_size.pow(3));
+        assert!(self.scratch.z.len() >= tile_size.pow(3));
+        self.scratch.columns.clear();
+        for xy in 0..(tile_size * tile_size) {
+            let i = xy % tile_size;
+            let j = xy / tile_size;
+            let o = self.config.tile_to_offset(tile, i, j);
+
+            // The matrix transformation is separable until the final
+            // division by w.  We can precompute the XY-1 portion of the
+            // multiplication here, since it's shared by every voxel in this
+            // column of the image.
+            let v = ((tile.corner[0] + i) as f32) * self.mat.column(0)
+                + ((tile.corner[1] + j) as f32) * self.mat.column(1)
+                + self.mat.column(3);
+
+            let zmax = tile.corner[2] + tile_size;
+            if self.depth[o] >= zmax {
+                continue;
+            }
+
+            for k in (0..tile_size).rev() {
+                let v = v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
+
+                // SAFETY:
+                // Index cannot exceed tile_size**3, which is (a) the size
+                // that we allocated in `Scratch::new` and (b) checked by
+                // assertions above.
+                //
+                // Using unsafe indexing here is a roughly 2.5% speedup,
+                // since this is the hottest loop.
+                unsafe {
+                    *self.scratch.x.get_unchecked_mut(index) = v.x / v.w;
+                    *self.scratch.y.get_unchecked_mut(index) = v.y / v.w;
+                    *self.scratch.z.get_unchecked_mut(index) = v.z / v.w;
+                }
+                index += 1;
+            }
+            self.scratch.columns.push(xy);
+        }
+        let size = index;
+        assert!(size > 0);
+
+        // This gets a little messy in terms of lifetimes.
+        //
+        // In some cases, the shortened tape isn't actually any shorter, so
+        // it's a waste of time to rebuild it.  Instead, we want to use a
+        // float-slice evaluator that's bound to the *parent* tape.
+        // Luckily, such a thing _may_ be passed into this function.  If
+        // not, we build it here and then pass it out, so future calls can
+        // use it.
+        //
+        // (this matters most for the JIT compiler, which is _expensive_)
+        let sub_tape = handle.simplify(I::REG_LIMIT);
+        let ret = if sub_tape.len() < handle.tape().len() {
+            let mut func = self.get_float_slice_eval(sub_tape.clone());
+
+            self.scratch.eval_s(&mut func, size);
+
+            // We consume the evaluator, so any reuse of memory between the
+            // FloatSliceFunc and FloatSliceEval should be cleared up and we
+            // should be able to reuse the working memory.
+            self.buffers.push(func.take().unwrap());
+
+            None
+        } else if let Some(r) = float_handle {
+            // Reuse the FloatSliceFunc handle passed in
+            self.scratch.eval_s(r, size);
+            None
+        } else {
+            let mut func = self.get_float_slice_eval(handle.tape());
+
+            self.scratch.eval_s(&mut func, size);
+            Some(func)
+        };
+
+        // We're iterating over three different things simultaneously:
+        // - col refers to the xy position in the tile
+        // - index refers to the evaluation array, self.scratch.out
+        // - grad refers to points that we must do gradient evaluation on
+        let mut col = 0;
+        let mut index = 0;
+        let mut grad = 0;
+        while col < self.scratch.columns.len() {
+            let xy = self.scratch.columns[col];
+            let i = xy % tile_size;
+            let j = xy / tile_size;
+            let o = self.config.tile_to_offset(tile, i, j);
+            for k in (0..tile_size).rev() {
+                let z = tile.corner[2] + k + 1;
+                // Early exit for the first pixel in the column
+                if self.scratch.out[index] < 0.0 && self.depth[o] <= z {
+                    self.depth[o] = z;
+                    index += k + 1;
+
+                    // Prepare to do gradient rendering of this point.
+                    // We step one voxel above the surface to reduce
+                    // glitchiness on edges and corners, where rendering
+                    // inside the surface could pick the wrong normal.
+                    let p = self.mat.transform_point(&Point3::new(
+                        (tile.corner[0] + i) as f32,
+                        (tile.corner[1] + j) as f32,
+                        (tile.corner[2] + k + 1) as f32,
+                    ));
+                    self.scratch.x[grad] = p.x;
+                    self.scratch.y[grad] = p.y;
+                    self.scratch.z[grad] = p.z;
+
+                    // This can only be called once per k loop, so we'll
+                    // never overwrite parts of columns that are still used
+                    // by the outer loop
+                    self.scratch.columns[grad] = o;
+                    grad += 1;
+
+                    break;
+                }
+                index += 1;
+            }
+            col += 1;
+        }
+
+        if grad > 0 {
+            let mut func = GradEval::<I::GradEval>::from(sub_tape);
+            self.scratch.eval_g(&mut func, grad);
+            for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
+                self.color[*o] = self.scratch.out_grad[index]
+                    .to_rgb()
+                    .unwrap_or([255, 0, 0]);
+            }
+        }
+
+        ret
     }
 
     fn get_float_slice_eval(
