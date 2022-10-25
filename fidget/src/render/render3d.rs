@@ -215,14 +215,13 @@ impl<I: EvalFamily> Worker<'_, I> {
                 let j = xy / tile_size;
                 let o = self.config.tile_to_offset(tile, i, j);
 
-                // Precompute the XY part of the transform
-                let v = self.mat
-                    * Vector4::new(
-                        (tile.corner[0] + i) as f32,
-                        (tile.corner[1] + j) as f32,
-                        0.0,
-                        1.0,
-                    );
+                // The matrix transformation is separable until the final
+                // division by w.  We can precompute the XY-1 portion of the
+                // multiplication here, since it's shared by every voxel in this
+                // column of the image.
+                let v = ((tile.corner[0] + i) as f32) * self.mat.column(0)
+                    + ((tile.corner[1] + j) as f32) * self.mat.column(1)
+                    + self.mat.column(3);
 
                 let zmax = tile.corner[2] + tile_size;
                 if self.depth[o] >= zmax {
