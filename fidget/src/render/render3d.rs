@@ -54,8 +54,8 @@ struct Scratch {
 
 impl Scratch {
     fn new(tile_size: usize) -> Self {
-        let size2 = tile_size * tile_size * tile_size;
-        let size3 = size2 * tile_size;
+        let size2 = tile_size.pow(2);
+        let size3 = tile_size.pow(3);
         Self {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
@@ -221,7 +221,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         assert!(self.scratch.y.len() >= tile_size.pow(3));
         assert!(self.scratch.z.len() >= tile_size.pow(3));
         self.scratch.columns.clear();
-        for xy in 0..(tile_size * tile_size) {
+        for xy in 0..tile_size.pow(2) {
             let i = xy % tile_size;
             let j = xy / tile_size;
             let o = self.config.tile_to_offset(tile, i, j);
@@ -402,8 +402,8 @@ fn worker<I: EvalFamily>(
         let tile = tiles[index];
 
         // Prepare to render, allocating space for a tile
-        w.depth = vec![0; config.tile_sizes[0] * config.tile_sizes[0]];
-        w.color = vec![[0; 3]; config.tile_sizes[0] * config.tile_sizes[0]];
+        w.depth = vec![0; config.tile_sizes[0].pow(2)];
+        w.color = vec![[0; 3]; config.tile_sizes[0].pow(2)];
         w.render_tile_recurse(&mut i_handle, 0, tile, None);
 
         // Steal the tile, replacing it with an empty vec
@@ -457,8 +457,8 @@ pub fn render<I: EvalFamily>(
         out
     });
 
-    let mut image_depth = vec![0; config.image_size * config.image_size];
-    let mut image_color = vec![[0; 3]; config.image_size * config.image_size];
+    let mut image_depth = vec![0; config.image_size.pow(2)];
+    let mut image_color = vec![[0; 3]; config.image_size.pow(2)];
     for (tile, depth, color) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
