@@ -105,8 +105,8 @@ impl<I: EvalFamily> Worker<'_, I> {
         handle: &mut IntervalEval<I::IntervalEval>,
         depth: usize,
         tile: Tile,
-        float_handle: Option<&mut FloatSliceEval<I::FloatSliceEval>>,
-    ) -> Option<FloatSliceEval<I::FloatSliceEval>> {
+        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+    ) {
         let tile_size = self.config.tile_sizes[depth];
 
         // Early exit if every single pixel is filled
@@ -119,7 +119,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             }
         }
         if all_blocked {
-            return None;
+            return;
         }
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -152,26 +152,21 @@ impl<I: EvalFamily> Worker<'_, I> {
 
         let i = handle.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
 
-        let fill = if i.upper() < 0.0 {
-            Some(fill_z)
-        } else if i.lower() > 0.0 {
-            // Return early if this tile is completely empty
-            return None;
-        } else {
-            // Continue evaluating (this also includes the NaN case)
-            None
-        };
-
-        if let Some(fill) = fill {
+        if i.upper() < 0.0 {
             for y in 0..tile_size {
                 for x in 0..tile_size {
                     let i = self.config.tile_to_offset(tile, x, y);
-                    self.depth[i] = self.depth[i].max(fill);
+                    self.depth[i] = self.depth[i].max(fill_z);
                 }
             }
             // TODO: handle gradients here as well?
-            None
-        } else if let Some(next_tile_size) =
+            return;
+        } else if i.lower() > 0.0 {
+            // Return early if this tile is completely empty
+            return;
+        };
+
+        if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
             let sub_tape = handle.simplify(I::REG_LIMIT);
@@ -181,7 +176,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             for j in 0..n {
                 for i in 0..n {
                     for k in (0..n).rev() {
-                        let r = self.render_tile_recurse(
+                        self.render_tile_recurse(
                             &mut sub_jit,
                             depth + 1,
                             Tile {
@@ -191,18 +186,14 @@ impl<I: EvalFamily> Worker<'_, I> {
                                     tile.corner[2] + k * next_tile_size,
                                 ],
                             },
-                            float_handle.as_mut(),
+                            &mut float_handle,
                         );
-                        if r.is_some() {
-                            float_handle = r;
-                        }
                     }
                 }
             }
             if let Some(f) = float_handle {
                 self.buffers.push(f.take().unwrap());
             }
-            None
         } else {
             self.render_tile_pixels(handle, tile_size, tile, float_handle)
         }
@@ -213,8 +204,8 @@ impl<I: EvalFamily> Worker<'_, I> {
         handle: &mut IntervalEval<I::IntervalEval>,
         tile_size: usize,
         tile: Tile,
-        float_handle: Option<&mut FloatSliceEval<I::FloatSliceEval>>,
-    ) -> Option<FloatSliceEval<I::FloatSliceEval>> {
+        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+    ) {
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
         assert!(self.scratch.x.len() >= tile_size.pow(3));
@@ -272,7 +263,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         //
         // (this matters most for the JIT compiler, which is _expensive_)
         let sub_tape = handle.simplify(I::REG_LIMIT);
-        let ret = if sub_tape.len() < handle.tape().len() {
+        if sub_tape.len() < handle.tape().len() {
             let mut func = self.get_float_slice_eval(sub_tape.clone());
 
             self.scratch.eval_s(&mut func, size);
@@ -281,18 +272,14 @@ impl<I: EvalFamily> Worker<'_, I> {
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
             self.buffers.push(func.take().unwrap());
-
-            None
-        } else if let Some(r) = float_handle {
-            // Reuse the FloatSliceFunc handle passed in
-            self.scratch.eval_s(r, size);
-            None
         } else {
-            let mut func = self.get_float_slice_eval(handle.tape());
-
-            self.scratch.eval_s(&mut func, size);
-            Some(func)
-        };
+            // Reuse the FloatSliceFunc handle passed in, or build one if it
+            // wasn't already available (which makes it available to siblings)
+            let mut func = float_handle.get_or_insert_with(|| {
+                self.get_float_slice_eval(handle.tape())
+            });
+            self.scratch.eval_s(func, size);
+        }
 
         // We're iterating over three different things simultaneously:
         // - col refers to the xy position in the tile
@@ -348,8 +335,6 @@ impl<I: EvalFamily> Worker<'_, I> {
                     .unwrap_or([255, 0, 0]);
             }
         }
-
-        ret
     }
 
     fn get_float_slice_eval(
@@ -404,7 +389,7 @@ fn worker<I: EvalFamily>(
         // Prepare to render, allocating space for a tile
         w.depth = vec![0; config.tile_sizes[0].pow(2)];
         w.color = vec![[0; 3]; config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut i_handle, 0, tile, None);
+        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
 
         // Steal the tile, replacing it with an empty vec
         let mut depth = vec![];
