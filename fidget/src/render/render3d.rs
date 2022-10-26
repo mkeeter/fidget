@@ -45,7 +45,7 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out: Vec<f32>,
+    out_float: Vec<f32>,
     out_grad: Vec<Grad>,
 
     /// Depth of each column
@@ -60,7 +60,7 @@ impl Scratch {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
-            out: vec![0.0; size3],
+            out_float: vec![0.0; size3],
             out_grad: vec![0.0.into(); size3],
             columns: vec![0; size2],
         }
@@ -74,7 +74,7 @@ impl Scratch {
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
-            &mut self.out[0..size],
+            &mut self.out_float[0..size],
         );
     }
     fn eval_g<E: GradEvalT>(&mut self, f: &mut GradEval<E>, size: usize) {
@@ -289,14 +289,16 @@ impl<I: EvalFamily> Worker<'_, I> {
         let mut index = 0;
         let mut grad = 0;
         while col < self.scratch.columns.len() {
-            let xy = self.scratch.columns[col];
-            let i = xy % tile_size;
-            let j = xy / tile_size;
-            let o = self.config.tile_to_offset(tile, i, j);
             for k in (0..tile_size).rev() {
-                let z = tile.corner[2] + k + 1;
                 // Early exit for the first pixel in the column
-                if self.scratch.out[index] < 0.0 && self.depth[o] <= z {
+                if self.scratch.out_float[index] < 0.0 {
+                    let xy = self.scratch.columns[col];
+                    let i = xy % tile_size;
+                    let j = xy / tile_size;
+                    let o = self.config.tile_to_offset(tile, i, j);
+
+                    let z = tile.corner[2] + k + 1;
+                    assert!(self.depth[o] < z);
                     self.depth[o] = z;
                     index += k + 1;
 
