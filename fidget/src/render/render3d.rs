@@ -275,7 +275,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
-            let mut func = float_handle.get_or_insert_with(|| {
+            let func = float_handle.get_or_insert_with(|| {
                 self.get_float_slice_eval(handle.tape())
             });
             self.scratch.eval_s(func, size);
