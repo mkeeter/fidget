@@ -217,6 +217,12 @@ impl<I: EvalFamily> Worker<'_, I> {
             let j = xy / tile_size;
             let o = self.config.tile_to_offset(tile, i, j);
 
+            // Skip pixels which are behind the image
+            let zmax = tile.corner[2] + tile_size;
+            if self.depth[o] >= zmax {
+                continue;
+            }
+
             // The matrix transformation is separable until the final
             // division by w.  We can precompute the XY-1 portion of the
             // multiplication here, since it's shared by every voxel in this
