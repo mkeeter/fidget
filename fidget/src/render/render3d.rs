@@ -10,6 +10,7 @@ use crate::{
 };
 
 use nalgebra::{Matrix4, Point3, Transform3, Vector3};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -231,11 +232,6 @@ impl<I: EvalFamily> Worker<'_, I> {
                 + ((tile.corner[1] + j) as f32) * self.mat.column(1)
                 + self.mat.column(3);
 
-            let zmax = tile.corner[2] + tile_size;
-            if self.depth[o] >= zmax {
-                continue;
-            }
-
             for k in (0..tile_size).rev() {
                 let v = v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
 
@@ -363,13 +359,28 @@ impl<I: EvalFamily> Worker<'_, I> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Default)]
+struct Image {
+    depth: Vec<usize>,
+    color: Vec<[u8; 3]>,
+}
+
+impl Image {
+    fn new(size: usize) -> Self {
+        Self {
+            depth: vec![0; size.pow(2)],
+            color: vec![[0; 3]; size.pow(2)],
+        }
+    }
+}
+
 fn worker<I: EvalFamily>(
     mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
     tiles: &[Tile],
     i: &AtomicUsize,
     config: &RenderConfig,
-) -> Vec<(Tile, Vec<usize>, Vec<[u8; 3]>)> {
-    let mut out = vec![];
+) -> BTreeMap<[usize; 2], Image> {
+    let mut out = BTreeMap::new();
 
     let mat = config.mat.matrix()
         * nalgebra::Matrix4::identity()
@@ -393,10 +404,13 @@ fn worker<I: EvalFamily>(
             break;
         }
         let tile = tiles[index];
+        let image = out
+            .remove(&[tile.corner[0], tile.corner[1]])
+            .unwrap_or_else(|| Image::new(config.tile_sizes[0]));
 
         // Prepare to render, allocating space for a tile
-        w.depth = vec![0; config.tile_sizes[0].pow(2)];
-        w.color = vec![[0; 3]; config.tile_sizes[0].pow(2)];
+        w.depth = image.depth;
+        w.color = image.color;
         w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
 
         // Steal the tile, replacing it with an empty vec
@@ -404,7 +418,7 @@ fn worker<I: EvalFamily>(
         let mut color = vec![];
         std::mem::swap(&mut depth, &mut w.depth);
         std::mem::swap(&mut color, &mut w.color);
-        out.push((tile, depth, color));
+        out.insert([tile.corner[0], tile.corner[1]], Image { depth, color });
     }
     out
 }
@@ -452,16 +466,16 @@ pub fn render<I: EvalFamily>(
 
     let mut image_depth = vec![0; config.image_size.pow(2)];
     let mut image_color = vec![[0; 3]; config.image_size.pow(2)];
-    for (tile, depth, color) in out.iter() {
+    for (tile, patch) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
-            let y = j + tile.corner[1];
+            let y = j + tile[1];
             for i in 0..config.tile_sizes[0] {
-                let x = i + tile.corner[0];
+                let x = i + tile[0];
                 let o = (config.image_size - y - 1) * config.image_size + x;
-                if depth[index] >= image_depth[o] {
-                    image_color[o] = color[index];
-                    image_depth[o] = depth[index];
+                if patch.depth[index] >= image_depth[o] {
+                    image_color[o] = patch.color[index];
+                    image_depth[o] = patch.depth[index];
                 }
                 index += 1;
             }
