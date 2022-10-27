@@ -374,10 +374,32 @@ impl Image {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+/// Worker queue
+struct Queue {
+    index: AtomicUsize,
+    tiles: Vec<Tile>,
+}
+
+impl Queue {
+    fn new(tiles: Vec<Tile>) -> Self {
+        Self {
+            index: AtomicUsize::new(0),
+            tiles,
+        }
+    }
+    fn next(&self) -> Option<Tile> {
+        let index = self.index.fetch_add(1, Ordering::Relaxed);
+        self.tiles.get(index).cloned()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 fn worker<I: EvalFamily>(
     mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
-    tiles: &[Tile],
-    i: &AtomicUsize,
+    queue: &Queue,
     config: &RenderConfig,
 ) -> BTreeMap<[usize; 2], Image> {
     let mut out = BTreeMap::new();
@@ -398,12 +420,7 @@ fn worker<I: EvalFamily>(
         mat,
         buffers: vec![],
     };
-    loop {
-        let index = i.fetch_add(1, Ordering::Relaxed);
-        if index >= tiles.len() {
-            break;
-        }
-        let tile = tiles[index];
+    while let Some(tile) = queue.next() {
         let image = out
             .remove(&[tile.corner[0], tile.corner[1]])
             .unwrap_or_else(|| Image::new(config.tile_sizes[0]));
@@ -449,13 +466,12 @@ pub fn render<I: EvalFamily>(
             }
         }
     }
-
-    let index = AtomicUsize::new(0);
+    let queue = Queue::new(tiles);
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
             let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I>(i, &tiles, &index, config)));
+            handles.push(s.spawn(|| worker::<I>(i, &queue, config)));
         }
         let mut out = vec![];
         for h in handles {
