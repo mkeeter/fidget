@@ -10,16 +10,14 @@ pub trait FloatSliceEvalT: From<Tape> {
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
-    /// If the `storage` argument is used, then it's consumed; otherwise, it's
-    /// returned as part of the tuple.
-    fn from_tape_give(
-        tape: Tape,
-        storage: Self::Storage,
-    ) -> (Self, Option<Self::Storage>)
+    /// The incoming `Storage` is consumed, though it may not necessarily be
+    /// used to construct the new tape (e.g. if it's a mmap region and is too
+    /// small).
+    fn from_tape_give(tape: Tape, storage: Self::Storage) -> Self
     where
         Self: Sized;
 
-    /// Extract the internal storage for reuse
+    /// Extract the internal storage for reuse, if possible
     fn take(self) -> Option<Self::Storage>;
 
     /// Evaluates float slices
@@ -43,9 +41,9 @@ impl<E: FloatSliceEvalT> From<Tape> for FloatSliceEval<E> {
 }
 
 impl<F: FloatSliceEvalT> FloatSliceEval<F> {
-    pub fn new_give(tape: Tape, s: F::Storage) -> (Self, Option<F::Storage>) {
-        let (eval, out) = F::from_tape_give(tape.clone(), s);
-        (Self { tape, eval }, out)
+    pub fn new_give(tape: Tape, s: F::Storage) -> Self {
+        let eval = F::from_tape_give(tape.clone(), s);
+        Self { tape, eval }
     }
 
     pub fn take(self) -> Option<F::Storage> {

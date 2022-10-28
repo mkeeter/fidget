@@ -152,6 +152,7 @@ impl std::ops::Neg for Grad {
 
 pub trait GradEvalT: From<Tape> {
     type Family: EvalFamily;
+
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad;
     fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]) {
         let len = [x.len(), y.len(), z.len(), out.len()]

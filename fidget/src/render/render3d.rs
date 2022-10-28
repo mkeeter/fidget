@@ -343,10 +343,7 @@ impl<I: EvalFamily> Worker<'_, I> {
     ) -> FloatSliceEval<I::FloatSliceEval> {
         match self.buffers.pop() {
             Some(s) => {
-                let (sub_jit, s) =
-                    FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s);
-                self.buffers.extend(s);
-                sub_jit
+                FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s)
             }
             None => FloatSliceEval::<I::FloatSliceEval>::from(sub_tape),
         }

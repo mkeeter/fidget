@@ -202,11 +202,8 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
     type Storage = ();
     type Family = AsmFamily;
 
-    fn from_tape_give(
-        tape: Tape,
-        _s: Self::Storage,
-    ) -> (Self, Option<Self::Storage>) {
-        (Self::from(tape), None)
+    fn from_tape_give(tape: Tape, _s: Self::Storage) -> Self {
+        Self::from(tape)
     }
 
     fn take(self) -> Option<()> {

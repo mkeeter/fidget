@@ -1309,32 +1309,19 @@ impl FloatSliceEvalT for JitFloatSliceEval {
     type Storage = Mmap;
     type Family = JitEvalFamily;
 
-    fn from_tape_give(
-        t: Tape,
-        mut prev: Self::Storage,
-    ) -> (Self, Option<Self::Storage>) {
+    fn from_tape_give(t: Tape, prev: Self::Storage) -> Self {
         let buf = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
-        if buf.len() <= prev.len() {
-            prev.copy_from_slice(&buf);
-            let ptr = prev.as_ptr();
-            (
-                JitFloatSliceEval {
-                    mmap: Arc::new(prev),
-                    fn_vec: unsafe { std::mem::transmute(ptr) },
-                },
-                None,
-            )
+        let mut mmap = if buf.len() <= prev.len() {
+            prev
         } else {
-            let mut mmap = Mmap::new(buf.len()).unwrap();
-            mmap.copy_from_slice(&buf);
-            let ptr = mmap.as_ptr();
-            (
-                JitFloatSliceEval {
-                    mmap: Arc::new(mmap),
-                    fn_vec: unsafe { std::mem::transmute(ptr) },
-                },
-                Some(prev),
-            )
+            Mmap::new(buf.len()).unwrap()
+        };
+
+        mmap.copy_from_slice(&buf);
+        let ptr = mmap.as_ptr();
+        JitFloatSliceEval {
+            mmap: Arc::new(mmap),
+            fn_vec: unsafe { std::mem::transmute(ptr) },
         }
     }
 
