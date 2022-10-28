@@ -94,7 +94,7 @@ struct Worker<'a, I: EvalFamily> {
     config: &'a RenderConfig,
     mat: Matrix4<f32>,
     scratch: Scratch,
-    depth: Vec<usize>,
+    depth: Vec<u32>,
     color: Vec<[u8; 3]>,
 
     /// Storage for float slice evaluators
@@ -119,7 +119,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Early exit if every single pixel is filled
-        let fill_z = tile.corner[2] + tile_size + 1;
+        let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
             let i = self.config.tile_to_offset(tile, 0, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
@@ -223,7 +223,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             let o = self.config.tile_to_offset(tile, i, j);
 
             // Skip pixels which are behind the image
-            let zmax = tile.corner[2] + tile_size;
+            let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
             if self.depth[o] >= zmax {
                 continue;
             }
@@ -308,7 +308,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                     let j = xy / tile_size;
                     let o = self.config.tile_to_offset(tile, i, j);
 
-                    let z = tile.corner[2] + k + 1;
+                    let z = (tile.corner[2] + k + 1).try_into().unwrap();
                     assert!(self.depth[o] < z);
                     self.depth[o] = z;
                     index += k + 1;
@@ -358,7 +358,7 @@ impl<I: EvalFamily> Worker<'_, I> {
 
 #[derive(Default)]
 struct Image {
-    depth: Vec<usize>,
+    depth: Vec<u32>,
     color: Vec<[u8; 3]>,
 }
 
@@ -458,7 +458,7 @@ fn worker<I: EvalFamily>(
 pub fn render<I: EvalFamily>(
     tape: Tape,
     config: &RenderConfig,
-) -> (Vec<usize>, Vec<[u8; 3]>) {
+) -> (Vec<u32>, Vec<[u8; 3]>) {
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
