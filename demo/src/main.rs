@@ -30,7 +30,7 @@ struct Args {
     #[clap(short, long)]
     brute: bool,
 
-    /// Use brute-force (pixel-by-pixel) evaluation
+    /// Render in color
     #[clap(short, long, requires = "threedee")]
     color: bool,
 
@@ -65,7 +65,6 @@ fn run3d<I: fidget::eval::EvalFamily>(
         image_size: size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
         threads: 8,
-        interval_subdiv: 0,
 
         mat: nalgebra::Transform3::identity(),
     };

@@ -18,7 +18,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub struct RenderConfig {
     pub image_size: usize,
     pub tile_sizes: Vec<usize>,
-    pub interval_subdiv: usize,
     pub threads: usize,
 
     pub mat: Transform3<f32>,
@@ -27,9 +26,17 @@ pub struct RenderConfig {
 impl RenderConfig {
     #[inline]
     fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
-        let x = tile.corner[0] % self.tile_sizes[0] + x;
-        let y = tile.corner[1] % self.tile_sizes[0] + y;
-        x + self.tile_sizes[0] * y
+        tile.offset + x + y * self.tile_sizes[0]
+    }
+
+    #[inline]
+    fn new_tile(&self, corner: [usize; 3]) -> Tile {
+        let x = corner[0] % self.tile_sizes[0];
+        let y = corner[1] % self.tile_sizes[0];
+        Tile {
+            corner,
+            offset: x + y * self.tile_sizes[0],
+        }
     }
 }
 
@@ -38,6 +45,7 @@ impl RenderConfig {
 #[derive(Copy, Clone, Debug)]
 struct Tile {
     corner: [usize; 3],
+    offset: usize,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -155,7 +163,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let i = handle.eval_i_subdiv(x, y, z, self.config.interval_subdiv);
+        let i = handle.eval_i(x, y, z);
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {
@@ -184,13 +192,11 @@ impl<I: EvalFamily> Worker<'_, I> {
                         self.render_tile_recurse(
                             &mut sub_jit,
                             depth + 1,
-                            Tile {
-                                corner: [
-                                    tile.corner[0] + i * next_tile_size,
-                                    tile.corner[1] + j * next_tile_size,
-                                    tile.corner[2] + k * next_tile_size,
-                                ],
-                            },
+                            self.config.new_tile([
+                                tile.corner[0] + i * next_tile_size,
+                                tile.corner[1] + j * next_tile_size,
+                                tile.corner[2] + k * next_tile_size,
+                            ]),
                             &mut float_handle,
                         );
                     }
@@ -292,51 +298,53 @@ impl<I: EvalFamily> Worker<'_, I> {
             self.scratch.eval_s(func, size);
         }
 
-        // We're iterating over three different things simultaneously:
+        // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile
-        // - index refers to the evaluation array, self.scratch.out
         // - grad refers to points that we must do gradient evaluation on
-        let mut col = 0;
-        let mut index = 0;
         let mut grad = 0;
-        while col < self.scratch.columns.len() {
-            for k in (0..tile_size).rev() {
-                // Early exit for the first pixel in the column
-                if self.scratch.out_float[index] < 0.0 {
-                    let xy = self.scratch.columns[col];
-                    let i = xy % tile_size;
-                    let j = xy / tile_size;
-                    let o = self.config.tile_to_offset(tile, i, j);
+        let mut depth = self.scratch.out_float.chunks(tile_size);
+        for col in 0..self.scratch.columns.len() {
+            // Find the first set pixel in the column
+            let depth = depth.next().unwrap();
+            let k = match depth.iter().enumerate().find(|(_, d)| **d < 0.0) {
+                Some((i, _)) => i,
+                None => continue,
+            };
 
-                    let z = (tile.corner[2] + k + 1).try_into().unwrap();
-                    assert!(self.depth[o] < z);
-                    self.depth[o] = z;
-                    index += k + 1;
+            // Get X and Y values from the `columns` array.  Note that we can't
+            // iterate over the array directly because we're also modifying it
+            // (below)
+            let xy = self.scratch.columns[col];
+            let i = xy % tile_size;
+            let j = xy / tile_size;
 
-                    // Prepare to do gradient rendering of this point.
-                    // We step one voxel above the surface to reduce
-                    // glitchiness on edges and corners, where rendering
-                    // inside the surface could pick the wrong normal.
-                    let p = self.mat.transform_point(&Point3::new(
-                        (tile.corner[0] + i) as f32,
-                        (tile.corner[1] + j) as f32,
-                        (tile.corner[2] + k + 1) as f32,
-                    ));
-                    self.scratch.x[grad] = p.x;
-                    self.scratch.y[grad] = p.y;
-                    self.scratch.z[grad] = p.z;
+            // Flip Z value, since voxels are packed front-to-back
+            let k = tile_size - 1 - k;
 
-                    // This can only be called once per k loop, so we'll
-                    // never overwrite parts of columns that are still used
-                    // by the outer loop
-                    self.scratch.columns[grad] = o;
-                    grad += 1;
+            // Set the depth of the pixel
+            let o = self.config.tile_to_offset(tile, i, j);
+            let z = (tile.corner[2] + k + 1).try_into().unwrap();
+            assert!(self.depth[o] < z);
+            self.depth[o] = z;
 
-                    break;
-                }
-                index += 1;
-            }
-            col += 1;
+            // Prepare to do gradient rendering of this point.
+            // We step one voxel above the surface to reduce
+            // glitchiness on edges and corners, where rendering
+            // inside the surface could pick the wrong normal.
+            let p = self.mat.transform_point(&Point3::new(
+                (tile.corner[0] + i) as f32,
+                (tile.corner[1] + j) as f32,
+                (tile.corner[2] + k + 1) as f32,
+            ));
+            self.scratch.x[grad] = p.x;
+            self.scratch.y[grad] = p.y;
+            self.scratch.z[grad] = p.z;
+
+            // This can only be called once per iteration, so we'll
+            // never overwrite parts of columns that are still used
+            // by the outer loop
+            self.scratch.columns[grad] = o;
+            grad += 1;
         }
 
         if grad > 0 {
@@ -469,13 +477,11 @@ pub fn render<I: EvalFamily>(
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
             for k in (0..config.image_size / config.tile_sizes[0]).rev() {
-                tiles.push(Tile {
-                    corner: [
-                        i * config.tile_sizes[0],
-                        j * config.tile_sizes[0],
-                        k * config.tile_sizes[0],
-                    ],
-                });
+                tiles.push(config.new_tile([
+                    i * config.tile_sizes[0],
+                    j * config.tile_sizes[0],
+                    k * config.tile_sizes[0],
+                ]));
             }
         }
     }
