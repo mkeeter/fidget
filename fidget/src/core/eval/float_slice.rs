@@ -3,7 +3,7 @@ use crate::{eval::EvalFamily, tape::Tape};
 /// Function handle for evaluation of many points simultaneously.
 pub trait FloatSliceEvalT: From<Tape> {
     /// Storage used by the type
-    type Storage;
+    type Storage: Default;
 
     /// Parent family (used to get `REG_LIMIT`)
     type Family: EvalFamily;

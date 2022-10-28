@@ -96,9 +96,16 @@ struct Worker<'a, I: EvalFamily> {
     scratch: Scratch,
     depth: Vec<usize>,
     color: Vec<[u8; 3]>,
+
+    /// Storage for float slice evaluators
+    ///
+    /// We can have up to two float slice evaluators simultaneously:
+    /// - A leaf evaluator for per-voxel evaluation
+    /// - An evaluator for the tape _just above_ the leaf, for per-voxel
+    ///   evaluation when the leaf tape isn't an improvement
     float_storage:
-        Vec<<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage>,
-    grad_storage: Vec<<<I as EvalFamily>::GradEval as GradEvalT>::Storage>,
+        [<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+    grad_storage: <<I as EvalFamily>::GradEval as GradEvalT>::Storage,
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
@@ -190,7 +197,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 }
             }
             if let Some(f) = float_handle {
-                self.float_storage.push(f.take().unwrap());
+                self.float_storage[0] = f.take().unwrap();
             }
         } else {
             self.render_tile_pixels(handle, tile_size, tile, float_handle)
@@ -263,19 +270,24 @@ impl<I: EvalFamily> Worker<'_, I> {
         // (this matters most for the JIT compiler, which is _expensive_)
         let sub_tape = handle.simplify(I::REG_LIMIT);
         if sub_tape.len() < handle.tape().len() {
-            let mut func = self.get_float_slice_eval(sub_tape.clone());
+            let s = std::mem::take(&mut self.float_storage[1]);
+            let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
+                sub_tape.clone(),
+                s,
+            );
 
             self.scratch.eval_s(&mut func, size);
 
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
-            self.float_storage.push(func.take().unwrap());
+            self.float_storage[1] = func.take().unwrap();
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
-                self.get_float_slice_eval(handle.tape())
+                let s = std::mem::take(&mut self.float_storage[0]);
+                FloatSliceEval::<I::FloatSliceEval>::new_give(handle.tape(), s)
             });
             self.scratch.eval_s(func, size);
         }
@@ -328,29 +340,16 @@ impl<I: EvalFamily> Worker<'_, I> {
         }
 
         if grad > 0 {
-            let mut func = match self.grad_storage.pop() {
-                Some(s) => GradEval::<I::GradEval>::new_give(sub_tape, s),
-                None => GradEval::<I::GradEval>::from(sub_tape),
-            };
+            let s = std::mem::take(&mut self.grad_storage);
+            let mut func = GradEval::<I::GradEval>::new_give(sub_tape, s);
+
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
                 self.color[*o] = self.scratch.out_grad[index]
                     .to_rgb()
                     .unwrap_or([255, 0, 0]);
             }
-            self.grad_storage.push(func.take().unwrap());
-        }
-    }
-
-    fn get_float_slice_eval(
-        &mut self,
-        sub_tape: Tape,
-    ) -> FloatSliceEval<I::FloatSliceEval> {
-        match self.float_storage.pop() {
-            Some(s) => {
-                FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s)
-            }
-            None => FloatSliceEval::<I::FloatSliceEval>::from(sub_tape),
+            self.grad_storage = func.take().unwrap();
         }
     }
 }
@@ -417,8 +416,8 @@ fn worker<I: EvalFamily>(
         color: vec![],
         config,
         mat,
-        float_storage: vec![],
-        grad_storage: vec![],
+        float_storage: Default::default(),
+        grad_storage: Default::default(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted
@@ -438,10 +437,8 @@ fn worker<I: EvalFamily>(
             w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
 
             // Steal the tile, replacing it with an empty vec
-            let mut depth = vec![];
-            let mut color = vec![];
-            std::mem::swap(&mut depth, &mut w.depth);
-            std::mem::swap(&mut color, &mut w.color);
+            let depth = std::mem::take(&mut w.depth);
+            let color = std::mem::take(&mut w.color);
             out.insert(
                 [tile.corner[0], tile.corner[1]],
                 Image { depth, color },

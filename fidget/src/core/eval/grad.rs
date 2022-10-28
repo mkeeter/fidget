@@ -152,7 +152,7 @@ impl std::ops::Neg for Grad {
 
 pub trait GradEvalT: From<Tape> {
     type Family: EvalFamily;
-    type Storage;
+    type Storage: Default;
 
     /// Constructs the `GradEvalT`, giving it a chance to reuse storage
     ///

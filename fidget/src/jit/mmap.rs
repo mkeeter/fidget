@@ -5,6 +5,12 @@ pub struct Mmap {
     len: usize,
 }
 
+impl Default for Mmap {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 impl Mmap {
     pub fn empty() -> Self {
         Self {
