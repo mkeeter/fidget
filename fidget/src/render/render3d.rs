@@ -112,14 +112,10 @@ impl<I: EvalFamily> Worker<'_, I> {
 
         // Early exit if every single pixel is filled
         let fill_z = tile.corner[2] + tile_size + 1;
-        let mut all_blocked = true;
-        for y in 0..tile_size {
-            for x in 0..tile_size {
-                let i = self.config.tile_to_offset(tile, x, y);
-                all_blocked &= self.depth[i] >= fill_z;
-            }
-        }
-        if all_blocked {
+        if (0..tile_size).all(|y| {
+            let i = self.config.tile_to_offset(tile, 0, y);
+            (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
+        }) {
             return;
         }
 
@@ -155,9 +151,9 @@ impl<I: EvalFamily> Worker<'_, I> {
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {
+                let i = self.config.tile_to_offset(tile, 0, y);
                 for x in 0..tile_size {
-                    let i = self.config.tile_to_offset(tile, x, y);
-                    self.depth[i] = self.depth[i].max(fill_z);
+                    self.depth[i + x] = self.depth[i + x].max(fill_z);
                 }
             }
             // TODO: handle gradients here as well?
@@ -399,7 +395,8 @@ impl Queue {
 
 fn worker<I: EvalFamily>(
     mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
-    queue: &Queue,
+    queues: &[Queue],
+    mut index: usize,
     config: &RenderConfig,
 ) -> BTreeMap<[usize; 2], Image> {
     let mut out = BTreeMap::new();
@@ -420,22 +417,38 @@ fn worker<I: EvalFamily>(
         mat,
         buffers: vec![],
     };
-    while let Some(tile) = queue.next() {
-        let image = out
-            .remove(&[tile.corner[0], tile.corner[1]])
-            .unwrap_or_else(|| Image::new(config.tile_sizes[0]));
 
-        // Prepare to render, allocating space for a tile
-        w.depth = image.depth;
-        w.color = image.color;
-        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
+    // Every thread has a set of tiles assigned to it, which are in Z-sorted
+    // order (to encourage culling).  Once the thread finishes its tiles, it
+    // begins stealing from other thread queues; if every single thread queue is
+    // empty, then we return.
+    let start = index;
+    loop {
+        while let Some(tile) = queues[index].next() {
+            let image = out
+                .remove(&[tile.corner[0], tile.corner[1]])
+                .unwrap_or_else(|| Image::new(config.tile_sizes[0]));
 
-        // Steal the tile, replacing it with an empty vec
-        let mut depth = vec![];
-        let mut color = vec![];
-        std::mem::swap(&mut depth, &mut w.depth);
-        std::mem::swap(&mut color, &mut w.color);
-        out.insert([tile.corner[0], tile.corner[1]], Image { depth, color });
+            // Prepare to render, allocating space for a tile
+            w.depth = image.depth;
+            w.color = image.color;
+            w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
+
+            // Steal the tile, replacing it with an empty vec
+            let mut depth = vec![];
+            let mut color = vec![];
+            std::mem::swap(&mut depth, &mut w.depth);
+            std::mem::swap(&mut color, &mut w.color);
+            out.insert(
+                [tile.corner[0], tile.corner[1]],
+                Image { depth, color },
+            );
+        }
+        // Move on to the next thread's queue
+        index = (index + 1) % queues.len();
+        if index == start {
+            break;
+        }
     }
     out
 }
@@ -455,7 +468,7 @@ pub fn render<I: EvalFamily>(
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
-            for k in 0..config.image_size / config.tile_sizes[0] {
+            for k in (0..config.image_size / config.tile_sizes[0]).rev() {
                 tiles.push(Tile {
                     corner: [
                         i * config.tile_sizes[0],
@@ -466,12 +479,18 @@ pub fn render<I: EvalFamily>(
             }
         }
     }
-    let queue = Queue::new(tiles);
+    let tiles_per_thread = (tiles.len() / config.threads).max(1);
+    let mut tile_queues = vec![];
+    for ts in tiles.chunks(tiles_per_thread) {
+        tile_queues.push(Queue::new(ts.to_vec()));
+    }
+
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
-        for _ in 0..config.threads {
-            let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I>(i, &queue, config)));
+        for i in 0..config.threads {
+            let handle = i_handle.clone();
+            let r = tile_queues.as_slice();
+            handles.push(s.spawn(move || worker::<I>(handle, r, i, config)));
         }
         let mut out = vec![];
         for h in handles {
