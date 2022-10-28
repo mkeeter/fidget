@@ -1462,7 +1462,7 @@ impl EvalFamily for JitEvalFamily {
     type PointEval = JitPointEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
-        &[256, 64, 16]
+        &[64, 16]
     }
 }
 
