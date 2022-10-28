@@ -79,9 +79,7 @@ pub mod eval_tests {
 
         // This is a fuzz test for icache issues
         for _ in 0..10000 {
-            let (mut eval, s) =
-                FloatSliceEval::<I>::new_give(tape_x.clone(), t);
-            assert!(s.is_none());
+            let mut eval = FloatSliceEval::<I>::new_give(tape_x.clone(), t);
             eval.eval_s(
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
@@ -91,9 +89,7 @@ pub mod eval_tests {
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
             t = eval.take().unwrap();
 
-            let (mut eval, s) =
-                FloatSliceEval::<I>::new_give(tape_y.clone(), t);
-            assert!(s.is_none());
+            let mut eval = FloatSliceEval::<I>::new_give(tape_y.clone(), t);
             eval.eval_s(
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
