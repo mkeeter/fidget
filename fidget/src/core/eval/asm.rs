@@ -569,7 +569,16 @@ impl From<Tape> for AsmGradEval {
 }
 
 impl GradEvalT for AsmGradEval {
+    type Storage = ();
     type Family = AsmFamily;
+
+    fn take(self) -> Option<Self::Storage> {
+        Some(())
+    }
+
+    fn from_tape_give(tape: Tape, _prev: Self::Storage) -> Self {
+        tape.into()
+    }
 
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let mut out = [Grad::default()];

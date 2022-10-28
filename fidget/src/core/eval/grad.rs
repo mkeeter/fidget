@@ -152,6 +152,19 @@ impl std::ops::Neg for Grad {
 
 pub trait GradEvalT: From<Tape> {
     type Family: EvalFamily;
+    type Storage;
+
+    /// Constructs the `GradEvalT`, giving it a chance to reuse storage
+    ///
+    /// The incoming `Storage` is consumed, though it may not necessarily be
+    /// used to construct the new tape (e.g. if it's a mmap region and is too
+    /// small).
+    fn from_tape_give(tape: Tape, storage: Self::Storage) -> Self
+    where
+        Self: Sized;
+
+    /// Extract the internal storage for reuse, if possible
+    fn take(self) -> Option<Self::Storage>;
 
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad;
     fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]) {
@@ -181,6 +194,15 @@ impl<E: GradEvalT> From<Tape> for GradEval<E> {
 }
 
 impl<E: GradEvalT> GradEval<E> {
+    pub fn new_give(tape: Tape, s: E::Storage) -> Self {
+        let eval = E::from_tape_give(tape.clone(), s);
+        Self { tape, eval }
+    }
+
+    pub fn take(self) -> Option<E::Storage> {
+        self.eval.take()
+    }
+
     pub fn eval_g(
         &mut self,
         x: &[f32],

@@ -96,8 +96,9 @@ struct Worker<'a, I: EvalFamily> {
     scratch: Scratch,
     depth: Vec<usize>,
     color: Vec<[u8; 3]>,
-    buffers:
+    float_storage:
         Vec<<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage>,
+    grad_storage: Vec<<<I as EvalFamily>::GradEval as GradEvalT>::Storage>,
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
@@ -189,7 +190,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 }
             }
             if let Some(f) = float_handle {
-                self.buffers.push(f.take().unwrap());
+                self.float_storage.push(f.take().unwrap());
             }
         } else {
             self.render_tile_pixels(handle, tile_size, tile, float_handle)
@@ -269,7 +270,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
-            self.buffers.push(func.take().unwrap());
+            self.float_storage.push(func.take().unwrap());
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
@@ -327,13 +328,17 @@ impl<I: EvalFamily> Worker<'_, I> {
         }
 
         if grad > 0 {
-            let mut func = GradEval::<I::GradEval>::from(sub_tape);
+            let mut func = match self.grad_storage.pop() {
+                Some(s) => GradEval::<I::GradEval>::new_give(sub_tape, s),
+                None => GradEval::<I::GradEval>::from(sub_tape),
+            };
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
                 self.color[*o] = self.scratch.out_grad[index]
                     .to_rgb()
                     .unwrap_or([255, 0, 0]);
             }
+            self.grad_storage.push(func.take().unwrap());
         }
     }
 
@@ -341,7 +346,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         &mut self,
         sub_tape: Tape,
     ) -> FloatSliceEval<I::FloatSliceEval> {
-        match self.buffers.pop() {
+        match self.float_storage.pop() {
             Some(s) => {
                 FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s)
             }
@@ -412,7 +417,8 @@ fn worker<I: EvalFamily>(
         color: vec![],
         config,
         mat,
-        buffers: vec![],
+        float_storage: vec![],
+        grad_storage: vec![],
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted

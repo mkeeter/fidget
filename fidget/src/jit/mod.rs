@@ -1125,7 +1125,7 @@ impl AssemblerT for GradAssembler {
 
 /// Evaluator for a JIT-compiled function performing gradient evaluation.
 pub struct JitGradEval {
-    _mmap: Arc<Mmap>,
+    mmap: Arc<Mmap>,
     /// X, Y, Z are passed by value; the output is written to an array of 4
     /// floats (allocated by the caller)
     fn_grad: unsafe extern "C" fn(f32, f32, f32) -> [f32; 4],
@@ -1138,7 +1138,7 @@ impl From<Tape> for JitGradEval {
         mmap.copy_from_slice(&buf);
         let ptr = mmap.as_ptr();
         Self {
-            _mmap: Arc::new(mmap),
+            mmap: Arc::new(mmap),
             fn_grad: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1146,6 +1146,29 @@ impl From<Tape> for JitGradEval {
 
 impl GradEvalT for JitGradEval {
     type Family = JitEvalFamily;
+    type Storage = Mmap;
+
+    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
+        let buf = build_asm_fn::<GradAssembler>(tape.iter_asm());
+        let mut mmap = if buf.len() <= prev.len() {
+            prev
+        } else {
+            Mmap::new(buf.len()).unwrap()
+        };
+
+        mmap.copy_from_slice(&buf);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            fn_grad: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+    fn take(mut self) -> Option<Self::Storage> {
+        let t = Arc::get_mut(&mut self.mmap)?;
+        let mut out = Mmap::empty();
+        std::mem::swap(&mut out, t);
+        Some(out)
+    }
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z) };
         Grad::new(v, x, y, z)
