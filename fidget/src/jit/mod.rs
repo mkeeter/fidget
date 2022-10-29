@@ -128,19 +128,21 @@ impl<T> AssemblerData<T> {
         assert!(mem_slot >= REGISTER_LIMIT as u32);
         let mem = (mem_slot as usize - REGISTER_LIMIT as usize)
             * std::mem::size_of::<T>();
+        // Round up to the nearest multiple of 16 bytes, for alignment
+        let mem_end = (((mem + std::mem::size_of::<T>()) + 15) / 16) * 16;
 
-        if mem > self.mem_offset {
-            // Round up to the nearest multiple of 16 bytes, for alignment
-            let mem_aligned = ((mem + 15) / 16) * 16;
-            let addr = u32::try_from(mem_aligned - self.mem_offset).unwrap();
+        if mem_end > self.mem_offset {
+            let addr = u32::try_from(mem_end - self.mem_offset).unwrap();
             dynasm!(self.ops
                 ; sub sp, sp, #(addr)
             );
-            self.mem_offset = mem_aligned;
+            self.mem_offset = mem_end;
         }
+
         // Return the offset of the given slot, computed based on the new stack
         // pointer location in memory.
-        u32::try_from(self.mem_offset - mem).unwrap()
+        u32::try_from(self.mem_offset - (mem + std::mem::size_of::<T>()))
+            .unwrap()
     }
 }
 
