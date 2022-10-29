@@ -5,8 +5,10 @@ use crate::{
         interval::{Interval, IntervalEval},
         EvalFamily,
     },
+    render::config::{RenderConfig, Tile},
     tape::Tape,
 };
+use nalgebra::{Matrix3, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -124,45 +126,6 @@ impl RenderMode for BitRenderMode {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct RenderConfig {
-    pub image_size: usize,
-    pub tile_size: usize,
-    pub subtile_size: usize,
-    pub interval_subdiv: usize,
-    pub threads: usize,
-
-    pub dx: f32,
-    pub dy: f32,
-    pub scale: f32,
-}
-
-impl Default for RenderConfig {
-    fn default() -> Self {
-        Self {
-            image_size: 1024,
-            tile_size: 256,
-            subtile_size: 64,
-            threads: 8,
-            interval_subdiv: 3,
-
-            dx: 0.0,
-            dy: 0.0,
-            scale: 1.0,
-        }
-    }
-}
-
-impl RenderConfig {
-    fn pixel_to_pos(&self, p: usize) -> f32 {
-        (2.0 * (p as f32) / (self.image_size as f32) - 1.0) * self.scale
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-struct Tile {
-    corner: [usize; 2],
-}
-
 struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
@@ -185,12 +148,18 @@ impl Scratch {
 
 fn worker<I: EvalFamily, M: RenderMode>(
     mut i_handle: IntervalEval<I::IntervalEval>,
-    tiles: &[Tile],
+    tiles: &[Tile<2>],
     i: &AtomicUsize,
-    config: &RenderConfig,
-) -> Vec<(Tile, Vec<M::Output>)> {
+    config: &RenderConfig<2>,
+) -> Vec<(Tile<2>, Vec<M::Output>)> {
+    let mat = config.mat.matrix()
+        * nalgebra::Matrix3::identity()
+            .append_scaling(2.0 / config.image_size as f32)
+            .append_translation(&Vector2::new(-1.0, -1.0));
+
     let mut out = vec![];
-    let mut scratch = Scratch::new(config.subtile_size * config.subtile_size);
+    let mut scratch =
+        Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
     loop {
         let index = i.fetch_add(1, Ordering::Relaxed);
         if index >= tiles.len() {
@@ -199,12 +168,13 @@ fn worker<I: EvalFamily, M: RenderMode>(
         let tile = tiles[index];
 
         let mut pixels =
-            vec![M::Output::default(); config.tile_size * config.tile_size];
+            vec![M::Output::default(); config.tile_sizes[0].pow(2)];
         render_tile_recurse::<I, M>(
             &mut i_handle,
             &mut pixels,
+            mat,
             config,
-            &[config.tile_size, config.subtile_size],
+            0,
             tile,
             &mut scratch,
         );
@@ -215,49 +185,64 @@ fn worker<I: EvalFamily, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[inline(never)]
 fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
     i_handle: &mut IntervalEval<I::IntervalEval>,
     out: &mut [M::Output],
-    config: &RenderConfig,
-    tile_sizes: &[usize],
-    tile: Tile,
+    mat: Matrix3<f32>,
+    config: &RenderConfig<2>,
+    depth: usize,
+    tile: Tile<2>,
     scratch: &mut Scratch,
 ) {
-    let x_min = config.pixel_to_pos(tile.corner[0]) + config.dx;
-    let x_max = config.pixel_to_pos(tile.corner[0] + tile_sizes[0]) + config.dx;
-    let y_min = config.pixel_to_pos(tile.corner[1]) + config.dy;
-    let y_max = config.pixel_to_pos(tile.corner[1] + tile_sizes[0]) + config.dy;
+    let tile_size = config.tile_sizes[depth];
 
+    // Brute-force way to find the (interval) bounding box of the region
+    let mut x_min = f32::INFINITY;
+    let mut x_max = f32::NEG_INFINITY;
+    let mut y_min = f32::INFINITY;
+    let mut y_max = f32::NEG_INFINITY;
+    let base = Point2::from(tile.corner);
+    for i in 0..4 {
+        let offset = Vector2::new(
+            if (i & 1) == 0 { 0 } else { tile_size },
+            if (i & 2) == 0 { 0 } else { tile_size },
+        );
+        let p = (base + offset).cast::<f32>();
+        let p = mat.transform_point(&p);
+        x_min = x_min.min(p.x);
+        x_max = x_max.max(p.x);
+        y_min = y_min.min(p.y);
+        y_max = y_max.max(p.y);
+    }
     let x = Interval::new(x_min, x_max);
     let y = Interval::new(y_min, y_max);
     let z = Interval::new(0.0, 0.0);
-    let i = i_handle.eval_i_subdiv(x, y, z, config.interval_subdiv);
+    let i = i_handle.eval_i(x, y, z);
 
-    let fill = M::interval(i, tile_sizes.len());
+    let fill = M::interval(i, depth);
 
     if let Some(fill) = fill {
-        for y in 0..tile_sizes[0] {
-            let start = (tile.corner[0] % config.tile_size)
-                + (y + (tile.corner[1] % config.tile_size)) * config.tile_size;
-            out[start..][..tile_sizes[0]].fill(fill);
+        for y in 0..tile_size {
+            let start = config.tile_to_offset(tile, 0, y);
+            out[start..][..tile_size].fill(fill);
         }
-    } else if let Some(next_tile_size) = tile_sizes.get(1) {
+    } else if let Some(next_tile_size) = config.tile_sizes.get(depth + 1) {
         let sub_tape = i_handle.simplify(I::REG_LIMIT);
         let mut sub_jit = IntervalEval::from(sub_tape);
-        let n = tile_sizes[0] / next_tile_size;
+        let n = tile_size / next_tile_size;
         for j in 0..n {
             for i in 0..n {
                 render_tile_recurse::<I, M>(
                     &mut sub_jit,
                     out,
+                    mat,
                     config,
-                    &tile_sizes[1..],
-                    Tile {
-                        corner: [
-                            tile.corner[0] + i * next_tile_size,
-                            tile.corner[1] + j * next_tile_size,
-                        ],
-                    },
+                    depth + 1,
+                    config.new_tile([
+                        tile.corner[0] + i * next_tile_size,
+                        tile.corner[1] + j * next_tile_size,
+                    ]),
                     scratch,
                 );
             }
@@ -267,12 +252,14 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
         let mut sub_jit = FloatSliceEval::<I::FloatSliceEval>::from(sub_tape);
 
         let mut index = 0;
-        for j in 0..tile_sizes[0] {
-            let y = config.pixel_to_pos(tile.corner[1] + j) + config.dy;
-            for i in 0..tile_sizes[0] {
-                scratch.x[index] =
-                    config.pixel_to_pos(tile.corner[0] + i) + config.dx;
-                scratch.y[index] = y;
+        for j in 0..tile_size {
+            for i in 0..tile_size {
+                let p = mat.transform_point(&Point2::new(
+                    (tile.corner[0] + i) as f32,
+                    (tile.corner[1] + j) as f32,
+                ));
+                scratch.x[index] = p.x;
+                scratch.y[index] = p.y;
                 index += 1;
             }
         }
@@ -280,13 +267,10 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
         sub_jit.eval_s(&scratch.x, &scratch.y, &scratch.z, &mut scratch.out);
 
         let mut index = 0;
-        for j in 0..tile_sizes[0] {
-            for i in 0..tile_sizes[0] {
-                let p = M::pixel(scratch.out[index]);
-                out[tile.corner[0] % config.tile_size
-                    + i
-                    + ((tile.corner[1] % config.tile_size) + j)
-                        * config.tile_size] = p;
+        for j in 0..tile_size {
+            let o = config.tile_to_offset(tile, 0, j);
+            for i in 0..tile_size {
+                out[o + i] = M::pixel(scratch.out[index]);
                 index += 1;
             }
         }
@@ -297,19 +281,21 @@ fn render_tile_recurse<I: EvalFamily, M: RenderMode>(
 
 pub fn render<I: EvalFamily, M: RenderMode>(
     tape: Tape,
-    config: &RenderConfig,
+    config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
-    assert!(config.image_size % config.tile_size == 0);
-    assert!(config.tile_size % config.subtile_size == 0);
-    assert!(config.subtile_size % 4 == 0);
+    assert!(config.image_size % config.tile_sizes[0] == 0);
+    for i in 0..config.tile_sizes.len() - 1 {
+        assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
+    }
 
     let i_handle = IntervalEval::from(tape);
     let mut tiles = vec![];
-    for i in 0..config.image_size / config.tile_size {
-        for j in 0..config.image_size / config.tile_size {
-            tiles.push(Tile {
-                corner: [i * config.tile_size, j * config.tile_size],
-            });
+    for i in 0..config.image_size / config.tile_sizes[0] {
+        for j in 0..config.image_size / config.tile_sizes[0] {
+            tiles.push(config.new_tile([
+                i * config.tile_sizes[0],
+                j * config.tile_sizes[0],
+            ]));
         }
     }
 
@@ -330,12 +316,12 @@ pub fn render<I: EvalFamily, M: RenderMode>(
     let mut image =
         vec![M::Output::default(); config.image_size * config.image_size];
     for (tile, data) in out.iter() {
-        for j in 0..config.tile_size {
+        for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner[1];
             let offset = (config.image_size - y - 1) * config.image_size
                 + tile.corner[0];
-            image[offset..][..config.tile_size].copy_from_slice(
-                &data[(j * config.tile_size)..][..config.tile_size],
+            image[offset..][..config.tile_sizes[0]].copy_from_slice(
+                &data[(j * config.tile_sizes[0])..][..config.tile_sizes[0]],
             );
         }
     }

@@ -61,7 +61,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
 
-    let cfg = fidget::render::render3d::RenderConfig {
+    let cfg = fidget::render::config::RenderConfig {
         image_size: size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
         threads: 8,
@@ -153,14 +153,10 @@ fn run<I: fidget::eval::EvalFamily>(
     } else {
         let cfg = fidget::render::config::RenderConfig {
             image_size: size as usize,
-            tile_size: 256,
-            subtile_size: 64,
+            tile_sizes: vec![128, 16],
             threads: 8,
-            interval_subdiv: 3,
 
-            dx: 0.0,
-            dy: 0.0,
-            scale: 1.0,
+            mat: nalgebra::Transform2::identity(),
         };
         let start = Instant::now();
         let mut image = vec![];

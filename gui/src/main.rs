@@ -1,5 +1,6 @@
 use eframe::egui;
-use fidget::render::render2d::RenderConfig;
+use fidget::render::config::RenderConfig;
+use nalgebra::{Transform2, Vector2};
 
 mod highlight;
 
@@ -156,14 +157,18 @@ impl eframe::App for MyApp {
                     tape,
                     &RenderConfig {
                         image_size,
-                        tile_size,
-                        subtile_size: tile_size / 8,
+                        tile_sizes: vec![tile_size, tile_size / 8],
                         threads: 8,
-                        interval_subdiv: 3,
 
-                        dx: self.offset.x,
-                        dy: self.offset.y,
-                        scale: self.scale,
+                        mat: Transform2::from_matrix_unchecked(
+                            Transform2::identity()
+                                .matrix()
+                                .append_scaling(self.scale)
+                                .append_translation(&Vector2::new(
+                                    self.offset.x,
+                                    self.offset.y,
+                                )),
+                        ),
                     },
                 );
                 for i in 0..pixels.len() {

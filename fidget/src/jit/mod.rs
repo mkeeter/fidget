@@ -128,19 +128,21 @@ impl<T> AssemblerData<T> {
         assert!(mem_slot >= REGISTER_LIMIT as u32);
         let mem = (mem_slot as usize - REGISTER_LIMIT as usize)
             * std::mem::size_of::<T>();
+        // Round up to the nearest multiple of 16 bytes, for alignment
+        let mem_end = (((mem + std::mem::size_of::<T>()) + 15) / 16) * 16;
 
-        if mem > self.mem_offset {
-            // Round up to the nearest multiple of 16 bytes, for alignment
-            let mem_aligned = ((mem + 15) / 16) * 16;
-            let addr = u32::try_from(mem_aligned - self.mem_offset).unwrap();
+        if mem_end > self.mem_offset {
+            let addr = u32::try_from(mem_end - self.mem_offset).unwrap();
             dynasm!(self.ops
                 ; sub sp, sp, #(addr)
             );
-            self.mem_offset = mem_aligned;
+            self.mem_offset = mem_end;
         }
+
         // Return the offset of the given slot, computed based on the new stack
         // pointer location in memory.
-        u32::try_from(self.mem_offset - mem).unwrap()
+        u32::try_from(self.mem_offset - (mem + std::mem::size_of::<T>()))
+            .unwrap()
     }
 }
 
@@ -230,54 +232,54 @@ impl AssemblerT for PointAssembler {
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w16, [x0]
+            ; ldrb w14, [x0]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20 // -> RHS
             ; b.gt #28 // -> LHS
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_BOTH
+            ; orr w14, w14, #CHOICE_BOTH
             ; b #24 // -> end
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; b #12
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
-            ; orr w16, w16, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_LEFT
             // fall-through to end
 
             // <- end
-            ; strb w16, [x0], #1 // post-increment
+            ; strb w14, [x0], #1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w16, [x0]
+            ; ldrb w14, [x0]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20
             ; b.gt #28
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_BOTH
+            ; orr w14, w14, #CHOICE_BOTH
             ; b #24 // -> end
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
-            ; orr w16, w16, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_LEFT
             ; b #12
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_RIGHT
             // fall-through to end
 
             // <- end
-            ; strb w16, [x0], #1 // post-increment
+            ; strb w14, [x0], #1 // post-increment
         )
     }
 
@@ -599,7 +601,7 @@ impl AssemblerT for IntervalAssembler {
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w16, [x0]
+            ; ldrb w14, [x0]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> lhs
@@ -609,20 +611,20 @@ impl AssemblerT for IntervalAssembler {
 
             // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; b #24 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w16, w16, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_LEFT
             ; b #12 // -> end
 
             // <- both
             ; fmax V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w16, w16, #CHOICE_BOTH
+            ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
-            ; strb w16, [x0], #1 // post-increment
+            ; strb w14, [x0], #1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -646,7 +648,7 @@ impl AssemblerT for IntervalAssembler {
             // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w16, [x0]
+            ; ldrb w14, [x0]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> rhs
@@ -656,20 +658,20 @@ impl AssemblerT for IntervalAssembler {
 
             // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w16, w16, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_LEFT
             ; b #24 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w16, w16, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; b #12
 
             // <- both
             ; fmin V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w16, w16, #CHOICE_BOTH
+            ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
-            ; strb w16, [x0], #1 // post-increment
+            ; strb w14, [x0], #1 // post-increment
         )
     }
 
