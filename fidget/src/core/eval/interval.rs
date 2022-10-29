@@ -196,6 +196,10 @@ impl std::ops::Neg for Interval {
 /// [`IntervalEval`](IntervalEval)
 pub trait IntervalEvalT: Clone + Send + From<Tape> {
     type Family: EvalFamily;
+    type Storage: Default;
+
+    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self;
+    fn take(self) -> Option<Self::Storage>;
 
     fn eval_i<I: Into<Interval>>(
         &mut self,
@@ -224,6 +228,19 @@ impl<E: IntervalEvalT> From<Tape> for IntervalEval<E> {
 }
 
 impl<E: IntervalEvalT> IntervalEval<E> {
+    pub fn new_give(tape: Tape, s: E::Storage) -> Self {
+        let choice_count = tape.choice_count();
+        let eval = E::from_tape_give(tape.clone(), s);
+        Self {
+            tape,
+            choices: vec![Choice::Unknown; choice_count],
+            eval,
+        }
+    }
+
+    pub fn take(self) -> Option<E::Storage> {
+        self.eval.take()
+    }
     pub fn tape(&self) -> Tape {
         self.tape.clone()
     }

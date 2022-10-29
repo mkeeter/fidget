@@ -78,7 +78,17 @@ impl From<Tape> for AsmIntervalEval {
 }
 
 impl IntervalEvalT for AsmIntervalEval {
+    type Storage = ();
     type Family = AsmFamily;
+
+    fn take(self) -> Option<Self::Storage> {
+        Some(())
+    }
+
+    fn from_tape_give(tape: Tape, _prev: Self::Storage) -> Self {
+        tape.into()
+    }
+
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,

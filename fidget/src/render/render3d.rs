@@ -3,7 +3,7 @@ use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         grad::{Grad, GradEval, GradEvalT},
-        interval::{Interval, IntervalEval},
+        interval::{Interval, IntervalEval, IntervalEvalT},
         EvalFamily,
     },
     tape::Tape,
@@ -113,7 +113,14 @@ struct Worker<'a, I: EvalFamily> {
     ///   evaluation when the leaf tape isn't an improvement
     float_storage:
         [<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+
+    /// We can only have one gradient evaluator alive at a time
+    ///
+    /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
     grad_storage: <<I as EvalFamily>::GradEval as GradEvalT>::Storage,
+
+    interval_storage:
+        Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
@@ -183,7 +190,8 @@ impl<I: EvalFamily> Worker<'_, I> {
             self.config.tile_sizes.get(depth + 1).cloned()
         {
             let sub_tape = handle.simplify(I::REG_LIMIT);
-            let mut sub_jit = IntervalEval::from(sub_tape);
+            let s = std::mem::take(&mut self.interval_storage[depth]);
+            let mut sub_jit = IntervalEval::new_give(sub_tape, s);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -202,6 +210,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                     }
                 }
             }
+            self.interval_storage[0] = sub_jit.take().unwrap();
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
@@ -426,6 +435,9 @@ fn worker<I: EvalFamily>(
         mat,
         float_storage: Default::default(),
         grad_storage: Default::default(),
+        interval_storage: (0..config.tile_sizes.len())
+            .map(|_| Default::default())
+            .collect(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted

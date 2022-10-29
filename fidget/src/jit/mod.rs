@@ -1406,7 +1406,7 @@ impl FloatSliceEvalT for JitFloatSliceEval {
 /// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
 #[derive(Clone)]
 pub struct JitIntervalEval {
-    _mmap: Arc<Mmap>,
+    mmap: Arc<Mmap>,
     fn_interval: unsafe extern "C" fn(
         [f32; 2], // X
         [f32; 2], // Y
@@ -1424,7 +1424,7 @@ impl From<Tape> for JitIntervalEval {
         mmap.copy_from_slice(&buf);
         let ptr = mmap.as_ptr();
         Self {
-            _mmap: Arc::new(mmap),
+            mmap: Arc::new(mmap),
             fn_interval: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1433,6 +1433,29 @@ impl From<Tape> for JitIntervalEval {
 /// Handle owning a JIT-compiled interval function
 impl IntervalEvalT for JitIntervalEval {
     type Family = JitEvalFamily;
+    type Storage = Mmap;
+
+    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
+        let buf = build_asm_fn::<IntervalAssembler>(tape.iter_asm());
+        let mut mmap = if buf.len() <= prev.len() {
+            prev
+        } else {
+            Mmap::new(buf.len()).unwrap()
+        };
+
+        mmap.copy_from_slice(&buf);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            fn_interval: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+
+    fn take(mut self) -> Option<Self::Storage> {
+        let t = Arc::get_mut(&mut self.mmap)?;
+        Some(std::mem::take(t))
+    }
+
     /// Evaluates an interval
     fn eval_i<I: Into<Interval>>(
         &mut self,
