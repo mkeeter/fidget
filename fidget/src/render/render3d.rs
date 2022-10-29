@@ -6,47 +6,13 @@ use crate::{
         interval::{Interval, IntervalEval, IntervalEvalT},
         EvalFamily,
     },
+    render::config::{RenderConfig, Tile},
     tape::Tape,
 };
 
-use nalgebra::{Matrix4, Point3, Transform3, Vector3};
+use nalgebra::{Matrix4, Point3, Vector3};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct RenderConfig {
-    pub image_size: usize,
-    pub tile_sizes: Vec<usize>,
-    pub threads: usize,
-
-    pub mat: Transform3<f32>,
-}
-
-impl RenderConfig {
-    #[inline]
-    fn tile_to_offset(&self, tile: Tile, x: usize, y: usize) -> usize {
-        tile.offset + x + y * self.tile_sizes[0]
-    }
-
-    #[inline]
-    fn new_tile(&self, corner: [usize; 3]) -> Tile {
-        let x = corner[0] % self.tile_sizes[0];
-        let y = corner[1] % self.tile_sizes[0];
-        Tile {
-            corner,
-            offset: x + y * self.tile_sizes[0],
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Copy, Clone, Debug)]
-struct Tile {
-    corner: [usize; 3],
-    offset: usize,
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -70,7 +36,7 @@ impl Scratch {
             y: vec![0.0; size3],
             z: vec![0.0; size3],
             out_float: vec![0.0; size3],
-            out_grad: vec![0.0.into(); size3],
+            out_grad: vec![0.0.into(); size2],
             columns: vec![0; size2],
         }
     }
@@ -99,7 +65,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, I: EvalFamily> {
-    config: &'a RenderConfig,
+    config: &'a RenderConfig<3>,
     mat: Matrix4<f32>,
     scratch: Scratch,
     depth: Vec<u32>,
@@ -128,7 +94,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         &mut self,
         handle: &mut IntervalEval<I::IntervalEval>,
         depth: usize,
-        tile: Tile,
+        tile: Tile<3>,
         float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
     ) {
         let tile_size = self.config.tile_sizes[depth];
@@ -223,7 +189,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         &mut self,
         handle: &mut IntervalEval<I::IntervalEval>,
         tile_size: usize,
-        tile: Tile,
+        tile: Tile<3>,
         float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
     ) {
         // Prepare for pixel-by-pixel evaluation
@@ -391,19 +357,19 @@ impl Image {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Worker queue
-struct Queue {
+struct Queue<const N: usize> {
     index: AtomicUsize,
-    tiles: Vec<Tile>,
+    tiles: Vec<Tile<N>>,
 }
 
-impl Queue {
-    fn new(tiles: Vec<Tile>) -> Self {
+impl<const N: usize> Queue<N> {
+    fn new(tiles: Vec<Tile<N>>) -> Self {
         Self {
             index: AtomicUsize::new(0),
             tiles,
         }
     }
-    fn next(&self) -> Option<Tile> {
+    fn next(&self) -> Option<Tile<N>> {
         let index = self.index.fetch_add(1, Ordering::Relaxed);
         self.tiles.get(index).cloned()
     }
@@ -413,9 +379,9 @@ impl Queue {
 
 fn worker<I: EvalFamily>(
     mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
-    queues: &[Queue],
+    queues: &[Queue<3>],
     mut index: usize,
-    config: &RenderConfig,
+    config: &RenderConfig<3>,
 ) -> BTreeMap<[usize; 2], Image> {
     let mut out = BTreeMap::new();
 
@@ -477,7 +443,7 @@ fn worker<I: EvalFamily>(
 
 pub fn render<I: EvalFamily>(
     tape: Tape,
-    config: &RenderConfig,
+    config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {

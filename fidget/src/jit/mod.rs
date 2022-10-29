@@ -685,6 +685,7 @@ impl AssemblerT for IntervalAssembler {
     }
 
     fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+        assert!(self.0.mem_offset < 4096);
         dynasm!(self.0.ops
             // Prepare our return value
             ; mov  s0, V(reg(out_reg)).s[0]

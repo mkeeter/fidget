@@ -151,7 +151,7 @@ fn run<I: fidget::eval::EvalFamily>(
             .collect();
         (out, start)
     } else {
-        let cfg = fidget::render::render2d::RenderConfig {
+        let cfg = fidget::render::config::RenderConfig {
             image_size: size as usize,
             tile_size: 256,
             subtile_size: 64,
