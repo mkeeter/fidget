@@ -2,6 +2,7 @@ use nalgebra::{
     allocator::Allocator, geometry::Transform, Const, DefaultAllocator,
     DimNameSum, U1,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct RenderConfig<const N: usize>
 where
@@ -43,3 +44,24 @@ pub struct Tile<const N: usize> {
     pub corner: [usize; N],
     offset: usize,
 }
+
+/// Worker queue
+pub struct Queue<const N: usize> {
+    index: AtomicUsize,
+    tiles: Vec<Tile<N>>,
+}
+
+impl<const N: usize> Queue<N> {
+    pub fn new(tiles: Vec<Tile<N>>) -> Self {
+        Self {
+            index: AtomicUsize::new(0),
+            tiles,
+        }
+    }
+    pub fn next(&self) -> Option<Tile<N>> {
+        let index = self.index.fetch_add(1, Ordering::Relaxed);
+        self.tiles.get(index).cloned()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////

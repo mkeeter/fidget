@@ -6,13 +6,12 @@ use crate::{
         interval::{Interval, IntervalEval, IntervalEvalT},
         EvalFamily,
     },
-    render::config::{RenderConfig, Tile},
+    render::config::{Queue, RenderConfig, Tile},
     tape::Tape,
 };
 
 use nalgebra::{Matrix4, Point3, Vector3};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -176,7 +175,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                     }
                 }
             }
-            self.interval_storage[0] = sub_jit.take().unwrap();
+            self.interval_storage[depth] = sub_jit.take().unwrap();
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
@@ -239,8 +238,6 @@ impl<I: EvalFamily> Worker<'_, I> {
         let size = index;
         assert!(size > 0);
 
-        // This gets a little messy in terms of lifetimes.
-        //
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
         // float-slice evaluator that's bound to the *parent* tape.
@@ -268,7 +265,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let s = std::mem::take(&mut self.float_storage[0]);
-                FloatSliceEval::<I::FloatSliceEval>::new_give(handle.tape(), s)
+                FloatSliceEval::new_give(handle.tape(), s)
             });
             self.scratch.eval_s(func, size);
         }
@@ -351,27 +348,6 @@ impl Image {
             depth: vec![0; size.pow(2)],
             color: vec![[0; 3]; size.pow(2)],
         }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Worker queue
-struct Queue<const N: usize> {
-    index: AtomicUsize,
-    tiles: Vec<Tile<N>>,
-}
-
-impl<const N: usize> Queue<N> {
-    fn new(tiles: Vec<Tile<N>>) -> Self {
-        Self {
-            index: AtomicUsize::new(0),
-            tiles,
-        }
-    }
-    fn next(&self) -> Option<Tile<N>> {
-        let index = self.index.fetch_add(1, Ordering::Relaxed);
-        self.tiles.get(index).cloned()
     }
 }
 
