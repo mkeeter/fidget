@@ -19,7 +19,7 @@ pub struct RegisterAllocator {
     allocations: Vec<u32>,
 
     /// Map from a particular register to the index in the original tape that's
-    /// using that register, or `usize::MAX` if the register is currently unused.
+    /// using that register, or `u32::MAX` if the register is currently unused.
     ///
     /// The inner `u32` here is an index into the original (SSA) tape
     ///
