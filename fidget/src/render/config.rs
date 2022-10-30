@@ -17,6 +17,25 @@ where
     pub mat: Transform<f32, nalgebra::TGeneral, N>,
 }
 
+impl<const N: usize> Default for RenderConfig<N>
+where
+    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
+    DefaultAllocator:
+        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+{
+    fn default() -> Self {
+        Self {
+            image_size: 512,
+            tile_sizes: match N {
+                2 => vec![128, 32, 8],
+                _ => vec![128, 64, 32, 16, 8],
+            },
+            threads: 8,
+            mat: Transform::identity(),
+        }
+    }
+}
+
 impl<const N: usize> RenderConfig<N>
 where
     nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,

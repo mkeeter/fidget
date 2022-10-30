@@ -3,11 +3,11 @@
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
-//! use fidget::render::render2d::{render, RenderConfig};
+//! use fidget::render::{render2d::render, config::RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
 //! let tape = ctx.get_tape(shape, u8::MAX);
-//! let cfg = RenderConfig {
+//! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
