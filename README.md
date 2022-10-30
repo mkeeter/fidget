@@ -21,6 +21,12 @@ That being said, it already includes a bunch of functionality:
 
 These building blocks are used in an implementation of bitmap rendering.
 
+If this all sounds oddly familiar, it's because you've read
+[Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://www.mattkeeter.com/research/mpr/).
+Fidget includes all of the building blocks from that paper, but with an emphasis
+on (native) evaluation on the CPU, rather than (interpreted) evaluation on the
+GPU.
+
 ## Crate features
 The project is based on the `fidget` crate, with three relevant features
 
@@ -30,6 +36,16 @@ The project is based on the `fidget` crate, with three relevant features
 - `jit` builds the JIT compiler
 
 By default, all of these features are enabled.
+
+In the [repository on Github](https://github.com/mkeeter/fidget), there are
+two demo applications:
+
+- `demo` does bitmap rendering and unscientific benchmarking from the command
+  line
+- `gui` is a minimal GUI for interactive exploration
+
+These are deliberately not published to [https://crates.io](crates.io), because
+they're both demo applications and not complete end-user tools.
 
 ## Platforms
 At the moment, only macOS (AArch64) is fully supported.
