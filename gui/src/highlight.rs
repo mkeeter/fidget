@@ -1,5 +1,8 @@
 // Based on the egui demo library:
 // https://github.com/emilk/egui/blob/master/crates/egui_demo_lib/src/syntax_highlighting.rs
+//
+// The original source is released under MIT OR Apache-2.0,
+// and copyright (c) 2018-2021 Emil Ernerfeldt.
 use eframe::egui::{self, text::LayoutJob, Color32, FontId, Response, Vec2};
 
 const THEME_NAME: &str = "Solarized (dark)";
