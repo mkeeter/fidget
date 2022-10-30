@@ -28,4 +28,7 @@ pub trait EvalFamily {
 
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
+
+    /// Recommended tile sizes for 2D rendering
+    fn tile_sizes_2d() -> &'static [usize];
 }

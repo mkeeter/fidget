@@ -11,6 +11,11 @@ where
         Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
 {
     pub image_size: usize,
+
+    /// Tile sizes to use during evaluation.
+    ///
+    /// You'll likely want to use [`EvalFamily::tile_sizes_2d`] or
+    /// [`EvalFamily::tile_sizes_3d`] to select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
     pub threads: usize,
 

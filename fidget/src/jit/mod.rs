@@ -1496,6 +1496,10 @@ impl EvalFamily for JitEvalFamily {
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16]
     }
+
+    fn tile_sizes_2d() -> &'static [usize] {
+        &[128, 16]
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
