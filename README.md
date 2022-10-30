@@ -45,7 +45,7 @@ two demo applications:
 - `gui` is a minimal GUI for interactive exploration
 
 These are deliberately not published to [https://crates.io](crates.io), because
-they're both demo applications and not complete end-user tools.
+they're demo applications and not complete end-user tools.
 
 ## Platforms
 At the moment, only macOS (AArch64) is fully supported.
