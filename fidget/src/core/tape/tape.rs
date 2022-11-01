@@ -16,15 +16,6 @@ impl Tape {
         Self(Arc::new(t))
     }
 
-    pub fn simplify_with_reg_limit(
-        &self,
-        choices: &[Choice],
-        reg_limit: u8,
-    ) -> Self {
-        let t = self.0.simplify_with_reg_limit(choices, reg_limit);
-        Self(Arc::new(t))
-    }
-
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         let t = self.0.simplify(choices);
         Self(Arc::new(t))
@@ -78,15 +69,7 @@ impl TapeData {
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
-        self.simplify_with_reg_limit(choices, u8::MAX)
-    }
-
-    pub fn simplify_with_reg_limit(
-        &self,
-        choices: &[Choice],
-        reg_limit: u8,
-    ) -> Self {
-        let (ssa, asm) = self.ssa.simplify(choices, reg_limit);
+        let (ssa, asm) = self.ssa.simplify(choices, self.asm.reg_limit());
         Self { ssa, asm }
     }
 

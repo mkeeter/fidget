@@ -36,6 +36,10 @@ pub struct SsaTape {
 }
 
 impl SsaTape {
+    /// Returns the number of opcodes in the tape
+    pub fn len(&self) -> usize {
+        self.tape.len()
+    }
     pub fn pretty_print(&self) {
         let mut data = self.data.iter().rev();
         let mut next = || *data.next().unwrap();
@@ -163,8 +167,7 @@ impl SsaTape {
                 }
             }
         }
-        let (asm_tape, num_slots) = alloc.take();
-        AsmTape::new(asm_tape, num_slots)
+        alloc.take()
     }
 
     pub fn simplify(
@@ -193,26 +196,13 @@ impl SsaTape {
         let mut data_out = Vec::with_capacity(self.data.len());
 
         for &op in self.tape.iter() {
-            use TapeOp::*;
             let index = *data.next().unwrap();
             if active[index as usize].is_none() {
-                match op {
-                    Input | CopyImm | NegReg | AbsReg | RecipReg | SqrtReg
-                    | SquareReg | CopyReg => {
-                        data.next().unwrap();
-                    }
-                    AddRegImm | MulRegImm | SubRegImm | SubImmReg
-                    | AddRegReg | MulRegReg | SubRegReg | DivRegReg
-                    | DivRegImm | DivImmReg => {
-                        data.next().unwrap();
-                        data.next().unwrap();
-                    }
-
-                    MinRegImm | MaxRegImm | MinRegReg | MaxRegReg => {
-                        data.next().unwrap();
-                        data.next().unwrap();
-                        choice_iter.next().unwrap();
-                    }
+                for _ in 0..op.data_count() {
+                    data.next().unwrap();
+                }
+                for _ in 0..op.choice_count() {
+                    choice_iter.next().unwrap();
                 }
                 continue;
             }
@@ -223,23 +213,27 @@ impl SsaTape {
             let new_index = active[index as usize].unwrap();
 
             match op {
-                Input | CopyImm => {
+                TapeOp::Input | TapeOp::CopyImm => {
                     let i = *data.next().unwrap();
                     data_out.push(new_index);
                     data_out.push(i);
                     ops_out.push(op);
 
                     match op {
-                        Input => {
+                        TapeOp::Input => {
                             alloc.op_input(new_index, i.try_into().unwrap())
                         }
-                        CopyImm => {
+                        TapeOp::CopyImm => {
                             alloc.op_copy_imm(new_index, f32::from_bits(i))
                         }
                         _ => unreachable!(),
                     }
                 }
-                NegReg | AbsReg | RecipReg | SqrtReg | SquareReg => {
+                TapeOp::NegReg
+                | TapeOp::AbsReg
+                | TapeOp::RecipReg
+                | TapeOp::SqrtReg
+                | TapeOp::SquareReg => {
                     let arg = *active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     data_out.push(new_index);
@@ -248,7 +242,7 @@ impl SsaTape {
 
                     alloc.op_reg(new_index, arg, op);
                 }
-                CopyReg => {
+                TapeOp::CopyReg => {
                     // CopyReg effectively does
                     //      dst <= src
                     // If src has not yet been used (as we iterate backwards
@@ -261,14 +255,14 @@ impl SsaTape {
                             data_out.push(new_src);
                             ops_out.push(op);
 
-                            alloc.op_reg(new_index, new_src, CopyReg);
+                            alloc.op_reg(new_index, new_src, TapeOp::CopyReg);
                         }
                         None => {
                             active[src as usize] = Some(new_index);
                         }
                     }
                 }
-                MinRegImm | MaxRegImm => {
+                TapeOp::MinRegImm | TapeOp::MaxRegImm => {
                     let arg = *data.next().unwrap();
                     let imm = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
@@ -276,9 +270,13 @@ impl SsaTape {
                             Some(new_arg) => {
                                 data_out.push(new_index);
                                 data_out.push(new_arg);
-                                ops_out.push(CopyReg);
+                                ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(new_index, new_arg, CopyReg);
+                                alloc.op_reg(
+                                    new_index,
+                                    new_arg,
+                                    TapeOp::CopyReg,
+                                );
                             }
                             None => {
                                 active[arg as usize] = Some(new_index);
@@ -287,7 +285,7 @@ impl SsaTape {
                         Choice::Right => {
                             data_out.push(new_index);
                             data_out.push(imm);
-                            ops_out.push(CopyImm);
+                            ops_out.push(TapeOp::CopyImm);
 
                             alloc.op_copy_imm(new_index, f32::from_bits(imm));
                         }
@@ -311,7 +309,7 @@ impl SsaTape {
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                MinRegReg | MaxRegReg => {
+                TapeOp::MinRegReg | TapeOp::MaxRegReg => {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
@@ -319,9 +317,13 @@ impl SsaTape {
                             Some(new_lhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_lhs);
-                                ops_out.push(CopyReg);
+                                ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(new_index, new_lhs, CopyReg);
+                                alloc.op_reg(
+                                    new_index,
+                                    new_lhs,
+                                    TapeOp::CopyReg,
+                                );
                             }
                             None => {
                                 active[lhs as usize] = Some(new_index);
@@ -331,9 +333,13 @@ impl SsaTape {
                             Some(new_rhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_rhs);
-                                ops_out.push(CopyReg);
+                                ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(new_index, new_rhs, CopyReg);
+                                alloc.op_reg(
+                                    new_index,
+                                    new_rhs,
+                                    TapeOp::CopyReg,
+                                );
                             }
                             None => {
                                 active[rhs as usize] = Some(new_index);
@@ -355,7 +361,10 @@ impl SsaTape {
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                AddRegReg | MulRegReg | SubRegReg | DivRegReg => {
+                TapeOp::AddRegReg
+                | TapeOp::MulRegReg
+                | TapeOp::SubRegReg
+                | TapeOp::DivRegReg => {
                     let lhs = *active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     let rhs = *active[*data.next().unwrap() as usize]
@@ -367,8 +376,12 @@ impl SsaTape {
 
                     alloc.op_reg_reg(new_index, lhs, rhs, op);
                 }
-                AddRegImm | MulRegImm | SubRegImm | SubImmReg | DivRegImm
-                | DivImmReg => {
+                TapeOp::AddRegImm
+                | TapeOp::MulRegImm
+                | TapeOp::SubRegImm
+                | TapeOp::SubImmReg
+                | TapeOp::DivRegImm
+                | TapeOp::DivImmReg => {
                     let arg = *active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     let imm = *data.next().unwrap();
@@ -383,7 +396,7 @@ impl SsaTape {
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        let (asm_tape, num_slots) = alloc.take();
+        let asm_tape = alloc.take();
         assert!(ops_out.len() <= asm_tape.len());
 
         (
@@ -392,7 +405,7 @@ impl SsaTape {
                 data: data_out,
                 choice_count,
             },
-            AsmTape::new(asm_tape, num_slots),
+            asm_tape,
         )
     }
 }

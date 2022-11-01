@@ -51,3 +51,60 @@ pub enum TapeOp {
     /// Compute the maximum of two registers
     MaxRegReg,
 }
+
+impl TapeOp {
+    /// Returns the number of data fields associated with this opcode
+    pub fn data_count(&self) -> usize {
+        match self {
+            TapeOp::Input
+            | TapeOp::CopyImm
+            | TapeOp::NegReg
+            | TapeOp::AbsReg
+            | TapeOp::RecipReg
+            | TapeOp::SqrtReg
+            | TapeOp::SquareReg
+            | TapeOp::CopyReg => 1,
+
+            TapeOp::AddRegImm
+            | TapeOp::MulRegImm
+            | TapeOp::SubRegImm
+            | TapeOp::SubImmReg
+            | TapeOp::AddRegReg
+            | TapeOp::MulRegReg
+            | TapeOp::SubRegReg
+            | TapeOp::DivRegReg
+            | TapeOp::DivRegImm
+            | TapeOp::DivImmReg
+            | TapeOp::MinRegImm
+            | TapeOp::MaxRegImm
+            | TapeOp::MinRegReg
+            | TapeOp::MaxRegReg => 2,
+        }
+    }
+    pub fn choice_count(&self) -> usize {
+        match self {
+            TapeOp::Input
+            | TapeOp::CopyImm
+            | TapeOp::NegReg
+            | TapeOp::AbsReg
+            | TapeOp::RecipReg
+            | TapeOp::SqrtReg
+            | TapeOp::SquareReg
+            | TapeOp::CopyReg
+            | TapeOp::AddRegImm
+            | TapeOp::MulRegImm
+            | TapeOp::SubRegImm
+            | TapeOp::SubImmReg
+            | TapeOp::AddRegReg
+            | TapeOp::MulRegReg
+            | TapeOp::SubRegReg
+            | TapeOp::DivRegReg
+            | TapeOp::DivRegImm
+            | TapeOp::DivImmReg => 0,
+            TapeOp::MinRegImm
+            | TapeOp::MaxRegImm
+            | TapeOp::MinRegReg
+            | TapeOp::MaxRegReg => 1,
+        }
+    }
+}

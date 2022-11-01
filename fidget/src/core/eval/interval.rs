@@ -247,8 +247,8 @@ impl<E: IntervalEvalT> IntervalEval<E> {
 
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
-    pub fn simplify(&self, reg_limit: u8) -> Tape {
-        self.tape.simplify_with_reg_limit(&self.choices, reg_limit)
+    pub fn simplify(&self) -> Tape {
+        self.tape.simplify(&self.choices)
     }
 
     /// Resets the internal choice array to `Choice::Unknown`

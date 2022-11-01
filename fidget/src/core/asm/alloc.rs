@@ -1,5 +1,5 @@
 use crate::{
-    asm::{lru::Lru, AsmOp},
+    asm::{lru::Lru, AsmOp, AsmTape},
     tape::TapeOp,
 };
 
@@ -48,14 +48,8 @@ pub struct RegisterAllocator {
     /// The most recently available is at the back of the `Vec`
     spare_memory: Vec<u32>,
 
-    /// Total allocated slots
-    ///
-    /// This will be <= the number of clauses in the tape, because we can often
-    /// reuse slots.
-    total_slots: u32,
-
     /// Output slots, assembled in reverse order
-    out: Vec<AsmOp>,
+    out: AsmTape,
 }
 
 impl RegisterAllocator {
@@ -74,16 +68,16 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
-            total_slots: 1,
-            out: Vec::with_capacity(1024),
+            out: AsmTape::new(reg_limit),
         };
+        out.out.slot_count = 1;
         out.bind_register(0, 0);
         out
     }
 
     /// Claims the internal `Vec<AsmOp>` and the number of slots
-    pub fn take(self) -> (Vec<AsmOp>, usize) {
-        (self.out, self.total_slots as usize)
+    pub fn take(self) -> AsmTape {
+        self.out
     }
 
     /// Returns an available memory slot.
@@ -99,8 +93,9 @@ impl RegisterAllocator {
         if let Some(p) = self.spare_memory.pop() {
             p
         } else {
-            let out = self.total_slots;
-            self.total_slots += 1;
+            let out = self.out.slot_count;
+            self.out.slot_count += 1;
+            assert!(out >= self.out.reg_limit.into());
             out
         }
     }
@@ -131,10 +126,10 @@ impl RegisterAllocator {
     /// Return an unoccupied register, if available
     fn get_spare_register(&mut self) -> Option<u8> {
         self.spare_registers.pop().or_else(|| {
-            if self.total_slots < self.reg_limit as u32 {
-                let reg = self.total_slots;
+            if self.out.slot_count < self.reg_limit as u32 {
+                let reg = self.out.slot_count;
                 assert!(self.registers[reg as usize] == u32::MAX);
-                self.total_slots += 1;
+                self.out.slot_count += 1;
                 Some(reg.try_into().unwrap())
             } else {
                 None

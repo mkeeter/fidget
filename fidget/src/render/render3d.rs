@@ -154,7 +154,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
-            let sub_tape = handle.simplify(I::REG_LIMIT);
+            let sub_tape = handle.simplify();
             let s = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = IntervalEval::new_give(sub_tape, s);
             let n = tile_size / next_tile_size;
@@ -246,7 +246,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let sub_tape = handle.simplify(I::REG_LIMIT);
+        let sub_tape = handle.simplify();
         if sub_tape.len() < handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
             let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(

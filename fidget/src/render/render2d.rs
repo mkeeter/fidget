@@ -204,7 +204,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = i_handle.simplify(I::REG_LIMIT);
+            let sub_tape = i_handle.simplify();
             let s = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = IntervalEval::new_give(sub_tape, s);
             let n = tile_size / next_tile_size;
@@ -250,7 +250,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = i_handle.simplify(I::REG_LIMIT);
+        let sub_tape = i_handle.simplify();
 
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a

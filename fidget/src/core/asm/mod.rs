@@ -11,23 +11,43 @@ pub use asm_op::AsmOp;
 #[derive(Clone)]
 pub struct AsmTape {
     tape: Vec<AsmOp>,
-    slot_count: usize,
+
+    /// Total allocated slots
+    slot_count: u32,
+
+    /// Number of registers, before we fall back to Load/Store operations
+    reg_limit: u8,
 }
 
 impl AsmTape {
+    pub fn new(reg_limit: u8) -> Self {
+        Self {
+            tape: Vec::with_capacity(512),
+            slot_count: 1,
+            reg_limit,
+        }
+    }
+    pub fn reg_limit(&self) -> u8 {
+        self.reg_limit
+    }
+    #[inline]
     pub fn slot_count(&self) -> usize {
-        self.slot_count
+        self.slot_count as usize
     }
-    pub fn new(tape: Vec<AsmOp>, slot_count: usize) -> Self {
-        Self { tape, slot_count }
-    }
+    #[inline]
     pub fn len(&self) -> usize {
         self.tape.len()
     }
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.tape.is_empty()
     }
+    #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, AsmOp> {
         self.tape.iter()
+    }
+    #[inline]
+    pub fn push(&mut self, op: AsmOp) {
+        self.tape.push(op)
     }
 }
