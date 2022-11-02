@@ -1,7 +1,7 @@
 use crate::{
     asm::{AsmOp, AsmTape},
     eval::Choice,
-    tape::SsaTape,
+    tape::{SsaTape, Workspace},
 };
 use std::sync::Arc;
 
@@ -18,6 +18,15 @@ impl Tape {
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         let t = self.0.simplify(choices);
+        Self(Arc::new(t))
+    }
+
+    pub fn simplify_with(
+        &self,
+        choices: &[Choice],
+        workspace: &mut Workspace,
+    ) -> Self {
+        let t = self.0.simplify_with(choices, workspace);
         Self(Arc::new(t))
     }
 }
@@ -70,6 +79,17 @@ impl TapeData {
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         let (ssa, asm) = self.ssa.simplify(choices, self.asm.reg_limit());
+        Self { ssa, asm }
+    }
+
+    pub fn simplify_with(
+        &self,
+        choices: &[Choice],
+        workspace: &mut Workspace,
+    ) -> Self {
+        let (ssa, asm) =
+            self.ssa
+                .simplify_with(choices, self.asm.reg_limit(), workspace);
         Self { ssa, asm }
     }
 

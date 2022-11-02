@@ -1,6 +1,6 @@
 use crate::{
     eval::{Choice, EvalFamily},
-    tape::Tape,
+    tape::{Tape, Workspace},
 };
 
 /// Represents a range, with conservative calculations to guarantee that it
@@ -249,6 +249,12 @@ impl<E: IntervalEvalT> IntervalEval<E> {
     /// evaluation.
     pub fn simplify(&self) -> Tape {
         self.tape.simplify(&self.choices)
+    }
+
+    /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
+    /// evaluation.
+    pub fn simplify_with(&self, workspace: &mut Workspace) -> Tape {
+        self.tape.simplify_with(&self.choices, workspace)
     }
 
     /// Resets the internal choice array to `Choice::Unknown`

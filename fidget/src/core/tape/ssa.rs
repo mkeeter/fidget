@@ -170,23 +170,18 @@ impl SsaTape {
         alloc.take()
     }
 
-    pub fn simplify(
+    pub fn simplify_with(
         &self,
         choices: &[Choice],
         reg_limit: u8,
+        workspace: &mut Workspace,
     ) -> (Self, AsmTape) {
-        // If a node is active (i.e. has been used as an input, as we walk the
-        // tape in reverse order), then store its new slot assignment here.
-        let mut active = vec![None; self.tape.len()];
+        workspace.reset(reg_limit, self.tape.len());
         let mut count = 0..;
         let mut choice_count = 0;
 
-        // At this point, we don't know how long the shortened tape will be, but
-        // we can be sure that it's <= our current tape length.
-        let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
-
         // The tape is constructed so that the output slot is first
-        active[self.data[0] as usize] = Some(count.next().unwrap());
+        workspace.active[self.data[0] as usize] = Some(count.next().unwrap());
 
         // Other iterators to consume various arrays in order
         let mut data = self.data.iter();
@@ -197,7 +192,7 @@ impl SsaTape {
 
         for &op in self.tape.iter() {
             let index = *data.next().unwrap();
-            if active[index as usize].is_none() {
+            if workspace.active[index as usize].is_none() {
                 for _ in 0..op.data_count() {
                     data.next().unwrap();
                 }
@@ -210,7 +205,7 @@ impl SsaTape {
             // Because we reassign nodes when they're used as an *input*
             // (while walking the tape in reverse), this node must have been
             // assigned already.
-            let new_index = active[index as usize].unwrap();
+            let new_index = workspace.active[index as usize].unwrap();
 
             match op {
                 TapeOp::Input | TapeOp::CopyImm => {
@@ -220,12 +215,12 @@ impl SsaTape {
                     ops_out.push(op);
 
                     match op {
-                        TapeOp::Input => {
-                            alloc.op_input(new_index, i.try_into().unwrap())
-                        }
-                        TapeOp::CopyImm => {
-                            alloc.op_copy_imm(new_index, f32::from_bits(i))
-                        }
+                        TapeOp::Input => workspace
+                            .alloc
+                            .op_input(new_index, i.try_into().unwrap()),
+                        TapeOp::CopyImm => workspace
+                            .alloc
+                            .op_copy_imm(new_index, f32::from_bits(i)),
                         _ => unreachable!(),
                     }
                 }
@@ -234,13 +229,13 @@ impl SsaTape {
                 | TapeOp::RecipReg
                 | TapeOp::SqrtReg
                 | TapeOp::SquareReg => {
-                    let arg = *active[*data.next().unwrap() as usize]
+                    let arg = *workspace.active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     data_out.push(new_index);
                     data_out.push(arg);
                     ops_out.push(op);
 
-                    alloc.op_reg(new_index, arg, op);
+                    workspace.alloc.op_reg(new_index, arg, op);
                 }
                 TapeOp::CopyReg => {
                     // CopyReg effectively does
@@ -249,16 +244,20 @@ impl SsaTape {
                     // through the tape), then we can replace it with dst
                     // everywhere!
                     let src = *data.next().unwrap();
-                    match active[src as usize] {
+                    match workspace.active[src as usize] {
                         Some(new_src) => {
                             data_out.push(new_index);
                             data_out.push(new_src);
                             ops_out.push(op);
 
-                            alloc.op_reg(new_index, new_src, TapeOp::CopyReg);
+                            workspace.alloc.op_reg(
+                                new_index,
+                                new_src,
+                                TapeOp::CopyReg,
+                            );
                         }
                         None => {
-                            active[src as usize] = Some(new_index);
+                            workspace.active[src as usize] = Some(new_index);
                         }
                     }
                 }
@@ -266,20 +265,21 @@ impl SsaTape {
                     let arg = *data.next().unwrap();
                     let imm = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match active[arg as usize] {
+                        Choice::Left => match workspace.active[arg as usize] {
                             Some(new_arg) => {
                                 data_out.push(new_index);
                                 data_out.push(new_arg);
                                 ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(
+                                workspace.alloc.op_reg(
                                     new_index,
                                     new_arg,
                                     TapeOp::CopyReg,
                                 );
                             }
                             None => {
-                                active[arg as usize] = Some(new_index);
+                                workspace.active[arg as usize] =
+                                    Some(new_index);
                             }
                         },
                         Choice::Right => {
@@ -287,11 +287,13 @@ impl SsaTape {
                             data_out.push(imm);
                             ops_out.push(TapeOp::CopyImm);
 
-                            alloc.op_copy_imm(new_index, f32::from_bits(imm));
+                            workspace
+                                .alloc
+                                .op_copy_imm(new_index, f32::from_bits(imm));
                         }
                         Choice::Both => {
                             choice_count += 1;
-                            let arg = *active[arg as usize]
+                            let arg = *workspace.active[arg as usize]
                                 .get_or_insert_with(|| count.next().unwrap());
 
                             data_out.push(new_index);
@@ -299,7 +301,7 @@ impl SsaTape {
                             data_out.push(imm);
                             ops_out.push(op);
 
-                            alloc.op_reg_imm(
+                            workspace.alloc.op_reg_imm(
                                 new_index,
                                 arg,
                                 f32::from_bits(imm),
@@ -313,50 +315,52 @@ impl SsaTape {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match active[lhs as usize] {
+                        Choice::Left => match workspace.active[lhs as usize] {
                             Some(new_lhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_lhs);
                                 ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(
+                                workspace.alloc.op_reg(
                                     new_index,
                                     new_lhs,
                                     TapeOp::CopyReg,
                                 );
                             }
                             None => {
-                                active[lhs as usize] = Some(new_index);
+                                workspace.active[lhs as usize] =
+                                    Some(new_index);
                             }
                         },
-                        Choice::Right => match active[rhs as usize] {
+                        Choice::Right => match workspace.active[rhs as usize] {
                             Some(new_rhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_rhs);
                                 ops_out.push(TapeOp::CopyReg);
 
-                                alloc.op_reg(
+                                workspace.alloc.op_reg(
                                     new_index,
                                     new_rhs,
                                     TapeOp::CopyReg,
                                 );
                             }
                             None => {
-                                active[rhs as usize] = Some(new_index);
+                                workspace.active[rhs as usize] =
+                                    Some(new_index);
                             }
                         },
                         Choice::Both => {
                             choice_count += 1;
-                            let lhs = *active[lhs as usize]
+                            let lhs = *workspace.active[lhs as usize]
                                 .get_or_insert_with(|| count.next().unwrap());
-                            let rhs = *active[rhs as usize]
+                            let rhs = *workspace.active[rhs as usize]
                                 .get_or_insert_with(|| count.next().unwrap());
                             data_out.push(new_index);
                             data_out.push(lhs);
                             data_out.push(rhs);
                             ops_out.push(op);
 
-                            alloc.op_reg_reg(new_index, lhs, rhs, op);
+                            workspace.alloc.op_reg_reg(new_index, lhs, rhs, op);
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
@@ -365,16 +369,16 @@ impl SsaTape {
                 | TapeOp::MulRegReg
                 | TapeOp::SubRegReg
                 | TapeOp::DivRegReg => {
-                    let lhs = *active[*data.next().unwrap() as usize]
+                    let lhs = *workspace.active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
-                    let rhs = *active[*data.next().unwrap() as usize]
+                    let rhs = *workspace.active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     data_out.push(new_index);
                     data_out.push(lhs);
                     data_out.push(rhs);
                     ops_out.push(op);
 
-                    alloc.op_reg_reg(new_index, lhs, rhs, op);
+                    workspace.alloc.op_reg_reg(new_index, lhs, rhs, op);
                 }
                 TapeOp::AddRegImm
                 | TapeOp::MulRegImm
@@ -382,7 +386,7 @@ impl SsaTape {
                 | TapeOp::SubImmReg
                 | TapeOp::DivRegImm
                 | TapeOp::DivImmReg => {
-                    let arg = *active[*data.next().unwrap() as usize]
+                    let arg = *workspace.active[*data.next().unwrap() as usize]
                         .get_or_insert_with(|| count.next().unwrap());
                     let imm = *data.next().unwrap();
                     data_out.push(new_index);
@@ -390,13 +394,18 @@ impl SsaTape {
                     data_out.push(imm);
                     ops_out.push(op);
 
-                    alloc.op_reg_imm(new_index, arg, f32::from_bits(imm), op);
+                    workspace.alloc.op_reg_imm(
+                        new_index,
+                        arg,
+                        f32::from_bits(imm),
+                        op,
+                    );
                 }
             }
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        let asm_tape = alloc.take();
+        let asm_tape = workspace.alloc.take();
         assert!(ops_out.len() <= asm_tape.len());
 
         (
@@ -407,5 +416,35 @@ impl SsaTape {
             },
             asm_tape,
         )
+    }
+
+    pub fn simplify(
+        &self,
+        choices: &[Choice],
+        reg_limit: u8,
+    ) -> (Self, AsmTape) {
+        self.simplify_with(choices, reg_limit, &mut Default::default())
+    }
+}
+
+pub struct Workspace {
+    alloc: RegisterAllocator,
+    active: Vec<Option<u32>>,
+}
+
+impl Default for Workspace {
+    fn default() -> Self {
+        Self {
+            alloc: RegisterAllocator::new(1, 1),
+            active: vec![],
+        }
+    }
+}
+
+impl Workspace {
+    fn reset(&mut self, num_registers: u8, tape_len: usize) {
+        self.alloc.reset(num_registers, tape_len);
+        self.active.fill(None);
+        self.active.resize(tape_len, None);
     }
 }

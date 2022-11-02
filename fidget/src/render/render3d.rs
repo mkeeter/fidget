@@ -7,7 +7,7 @@ use crate::{
         EvalFamily,
     },
     render::config::{Queue, RenderConfig, Tile},
-    tape::Tape,
+    tape::{Tape, Workspace},
 };
 
 use nalgebra::{Matrix4, Point3, Vector3};
@@ -86,6 +86,8 @@ struct Worker<'a, I: EvalFamily> {
 
     interval_storage:
         Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
+
+    workspace: Workspace,
 }
 
 impl<I: EvalFamily> Worker<'_, I> {
@@ -154,7 +156,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
-            let sub_tape = handle.simplify();
+            let sub_tape = handle.simplify_with(&mut self.workspace);
             let s = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = IntervalEval::new_give(sub_tape, s);
             let n = tile_size / next_tile_size;
@@ -246,7 +248,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let sub_tape = handle.simplify();
+        let sub_tape = handle.simplify_with(&mut self.workspace);
         if sub_tape.len() < handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
             let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
@@ -380,6 +382,7 @@ fn worker<I: EvalFamily>(
         interval_storage: (0..config.tile_sizes.len())
             .map(|_| Default::default())
             .collect(),
+        workspace: Workspace::default(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted

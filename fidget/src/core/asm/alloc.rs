@@ -70,14 +70,26 @@ impl RegisterAllocator {
 
             out: AsmTape::new(reg_limit),
         };
-        out.out.slot_count = 1;
         out.bind_register(0, 0);
         out
     }
 
+    /// Resets the internal state, reusing allocations if possible
+    pub fn reset(&mut self, reg_limit: u8, size: usize) {
+        self.allocations.fill(u32::MAX);
+        self.allocations.resize(size, u32::MAX);
+        self.registers.fill(u32::MAX);
+        self.register_lru = Lru::new(reg_limit);
+        self.reg_limit = reg_limit;
+        self.spare_registers.clear();
+        self.spare_memory.clear();
+        self.out = AsmTape::new(reg_limit);
+        self.bind_register(0, 0);
+    }
+
     /// Claims the internal `Vec<AsmOp>` and the number of slots
-    pub fn take(self) -> AsmTape {
-        self.out
+    pub fn take(&mut self) -> AsmTape {
+        std::mem::take(&mut self.out)
     }
 
     /// Returns an available memory slot.

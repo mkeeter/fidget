@@ -8,7 +8,7 @@ pub(super) use alloc::RegisterAllocator;
 pub use asm_op::AsmOp;
 
 // TODO move this to its own file, rename to VmTape?
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AsmTape {
     tape: Vec<AsmOp>,
 
