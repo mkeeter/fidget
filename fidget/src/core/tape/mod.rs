@@ -8,5 +8,4 @@ pub(super) use builder::SsaTapeBuilder;
 pub(super) use op::TapeOp;
 pub(super) use ssa::SsaTape;
 
-pub use ssa::Workspace;
-pub use tape::Tape;
+pub use tape::{Tape, Workspace};
