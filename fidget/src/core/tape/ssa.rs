@@ -137,30 +137,44 @@ impl SsaTape {
         let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
         let mut data = self.data.iter();
         for &op in self.tape.iter() {
-            use TapeOp::*;
             let index = *data.next().unwrap();
 
             match op {
-                Input => {
+                TapeOp::Input => {
                     let i = *data.next().unwrap();
                     alloc.op_input(index, i.try_into().unwrap());
                 }
-                CopyImm => {
+                TapeOp::CopyImm => {
                     let imm = f32::from_bits(*data.next().unwrap());
                     alloc.op_copy_imm(index, imm);
                 }
-                CopyReg | NegReg | AbsReg | RecipReg | SqrtReg | SquareReg => {
+                TapeOp::CopyReg
+                | TapeOp::NegReg
+                | TapeOp::AbsReg
+                | TapeOp::RecipReg
+                | TapeOp::SqrtReg
+                | TapeOp::SquareReg => {
                     let arg = *data.next().unwrap();
                     alloc.op_reg(index, arg, op);
                 }
-                MinRegImm | MaxRegImm | AddRegImm | MulRegImm | DivRegImm
-                | DivImmReg | SubRegImm | SubImmReg => {
+                TapeOp::MinRegImm
+                | TapeOp::MaxRegImm
+                | TapeOp::AddRegImm
+                | TapeOp::MulRegImm
+                | TapeOp::DivRegImm
+                | TapeOp::DivImmReg
+                | TapeOp::SubRegImm
+                | TapeOp::SubImmReg => {
                     let arg = *data.next().unwrap();
                     let imm = f32::from_bits(*data.next().unwrap());
                     alloc.op_reg_imm(index, arg, imm, op);
                 }
-                AddRegReg | MulRegReg | DivRegReg | SubRegReg | MinRegReg
-                | MaxRegReg => {
+                TapeOp::AddRegReg
+                | TapeOp::MulRegReg
+                | TapeOp::DivRegReg
+                | TapeOp::SubRegReg
+                | TapeOp::MinRegReg
+                | TapeOp::MaxRegReg => {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     alloc.op_reg_reg(index, lhs, rhs, op);

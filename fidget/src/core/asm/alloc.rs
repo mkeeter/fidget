@@ -247,10 +247,9 @@ impl RegisterAllocator {
     /// evict the oldest register using `Self::get_register`, with the
     /// appropriate set of LOAD/STORE operations.
     fn get_out_reg(&mut self, out: u32) -> u8 {
-        use Allocation::*;
         match self.get_allocation(out) {
-            Register(r_x) => r_x,
-            Memory(m_x) => {
+            Allocation::Register(r_x) => r_x,
+            Allocation::Memory(m_x) => {
                 // TODO: this could be more efficient with a Swap instruction,
                 // since we know that we're about to free a memory slot.
                 let r_a = self.get_register();
@@ -259,7 +258,7 @@ impl RegisterAllocator {
                 self.bind_register(out, r_a);
                 r_a
             }
-            Unassigned => panic!("Cannot have unassigned output"),
+            Allocation::Unassigned => panic!("Cannot have unassigned output"),
         }
     }
 
@@ -305,21 +304,20 @@ impl RegisterAllocator {
         //       |     | Afterwards, r_a points to the arg, m_x is free,
         //       |     | [and m_a points to the former r_a]
         //  -----|-----|----------------------------------------------------
-        use Allocation::*;
         let r_x = self.get_out_reg(out);
         match self.get_allocation(arg) {
-            Register(r_y) => {
+            Allocation::Register(r_y) => {
                 assert!(r_x != r_y);
                 self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
-            Memory(m_y) => {
+            Allocation::Memory(m_y) => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
 
                 self.push_store(r_x, m_y);
             }
-            Unassigned => {
+            Allocation::Unassigned => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
             }
@@ -454,26 +452,25 @@ impl RegisterAllocator {
             TapeOp::MaxRegReg => AsmOp::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
-        use Allocation::*;
         let r_x = self.get_out_reg(out);
         match (self.get_allocation(lhs), self.get_allocation(rhs)) {
-            (Register(r_y), Register(r_z)) => {
+            (Allocation::Register(r_y), Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
-            (Memory(m_y), Register(r_z)) => {
+            (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
 
                 self.push_store(r_x, m_y);
             }
-            (Register(r_y), Memory(m_z)) => {
+            (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
 
                 self.push_store(r_x, m_z);
             }
-            (Memory(m_y), Memory(m_z)) => {
+            (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
@@ -488,15 +485,15 @@ impl RegisterAllocator {
                     self.push_store(r_a, m_z);
                 }
             }
-            (Unassigned, Register(r_z)) => {
+            (Allocation::Unassigned, Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
-            (Register(r_y), Unassigned) => {
+            (Allocation::Register(r_y), Allocation::Unassigned) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
-            (Unassigned, Unassigned) => {
+            (Allocation::Unassigned, Allocation::Unassigned) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
                 self.out.push(op(r_x, r_x, r_a));
@@ -505,7 +502,7 @@ impl RegisterAllocator {
                     self.bind_register(rhs, r_a);
                 }
             }
-            (Unassigned, Memory(m_z)) => {
+            (Allocation::Unassigned, Allocation::Memory(m_z)) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 
@@ -517,7 +514,7 @@ impl RegisterAllocator {
 
                 self.push_store(r_a, m_z);
             }
-            (Memory(m_y), Unassigned) => {
+            (Allocation::Memory(m_y), Allocation::Unassigned) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
 

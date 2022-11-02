@@ -1182,86 +1182,85 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
     let mut asm = A::init();
 
     for op in i {
-        use AsmOp::*;
         match op {
-            Load(reg, mem) => {
+            AsmOp::Load(reg, mem) => {
                 asm.build_load(reg, mem);
             }
-            Store(reg, mem) => {
+            AsmOp::Store(reg, mem) => {
                 asm.build_store(mem, reg);
             }
-            Input(out, i) => {
+            AsmOp::Input(out, i) => {
                 asm.build_input(out, i);
             }
-            NegReg(out, arg) => {
+            AsmOp::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
             }
-            AbsReg(out, arg) => {
+            AsmOp::AbsReg(out, arg) => {
                 asm.build_abs(out, arg);
             }
-            RecipReg(out, arg) => {
+            AsmOp::RecipReg(out, arg) => {
                 asm.build_recip(out, arg);
             }
-            SqrtReg(out, arg) => {
+            AsmOp::SqrtReg(out, arg) => {
                 asm.build_sqrt(out, arg);
             }
-            CopyReg(out, arg) => {
+            AsmOp::CopyReg(out, arg) => {
                 asm.build_copy(out, arg);
             }
-            SquareReg(out, arg) => {
+            AsmOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
             }
-            AddRegReg(out, lhs, rhs) => {
+            AsmOp::AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
-            MulRegReg(out, lhs, rhs) => {
+            AsmOp::MulRegReg(out, lhs, rhs) => {
                 asm.build_mul(out, lhs, rhs);
             }
-            DivRegReg(out, lhs, rhs) => {
+            AsmOp::DivRegReg(out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
             }
-            SubRegReg(out, lhs, rhs) => {
+            AsmOp::SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
-            MinRegReg(out, lhs, rhs) => {
+            AsmOp::MinRegReg(out, lhs, rhs) => {
                 asm.build_min(out, lhs, rhs);
             }
-            MaxRegReg(out, lhs, rhs) => {
+            AsmOp::MaxRegReg(out, lhs, rhs) => {
                 asm.build_max(out, lhs, rhs);
             }
-            AddRegImm(out, arg, imm) => {
+            AsmOp::AddRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_add(out, arg, reg);
             }
-            MulRegImm(out, arg, imm) => {
+            AsmOp::MulRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_mul(out, arg, reg);
             }
-            DivRegImm(out, arg, imm) => {
+            AsmOp::DivRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            DivImmReg(out, arg, imm) => {
+            AsmOp::DivImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            SubImmReg(out, arg, imm) => {
+            AsmOp::SubImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out, reg, arg);
             }
-            SubRegImm(out, arg, imm) => {
+            AsmOp::SubRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out, arg, reg);
             }
-            MinRegImm(out, arg, imm) => {
+            AsmOp::MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            MaxRegImm(out, arg, imm) => {
+            AsmOp::MaxRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            CopyImm(out, imm) => {
+            AsmOp::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }
