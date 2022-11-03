@@ -328,7 +328,7 @@ impl TapeData {
         }
 
         assert_eq!(count.next().unwrap() as usize, ops_out.len());
-        let asm_tape = workspace.alloc.take();
+        let asm_tape = workspace.alloc.finalize();
         assert!(ops_out.len() <= asm_tape.len());
 
         TapeData {

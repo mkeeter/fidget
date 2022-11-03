@@ -110,8 +110,8 @@ impl RegisterAllocator {
         self.out.reset(reg_limit);
     }
 
-    /// Claims the internal `Vec<AsmOp>` and the number of slots
-    pub fn take(&mut self) -> AsmTape {
+    /// Claims the internal `Vec<AsmOp>`, leaving it empty
+    pub fn finalize(&mut self) -> AsmTape {
         std::mem::take(&mut self.out)
     }
 

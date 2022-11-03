@@ -186,6 +186,6 @@ impl SsaTape {
                 }
             }
         }
-        alloc.take()
+        alloc.finalize()
     }
 }
