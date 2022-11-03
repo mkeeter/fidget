@@ -7,7 +7,7 @@ use crate::{
         EvalFamily,
     },
     render::config::{Queue, RenderConfig, Tile},
-    tape::{Tape, Workspace},
+    tape::{Tape, TapeData, Workspace},
 };
 
 use nalgebra::{Matrix4, Point3, Vector3};
@@ -87,6 +87,7 @@ struct Worker<'a, I: EvalFamily> {
     interval_storage:
         Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
 
+    spare_tapes: Vec<TapeData>,
     workspace: Workspace,
 }
 
@@ -156,9 +157,12 @@ impl<I: EvalFamily> Worker<'_, I> {
         if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
-            let sub_tape = handle.simplify_with(&mut self.workspace);
+            let sub_tape = handle.simplify_with(
+                &mut self.workspace,
+                std::mem::take(&mut self.spare_tapes[depth]),
+            );
             let s = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = IntervalEval::new_give(sub_tape, s);
+            let mut sub_jit = IntervalEval::new_give(sub_tape.clone(), s);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -181,6 +185,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
+            self.spare_tapes[depth] = sub_tape.take().unwrap();
         } else {
             self.render_tile_pixels(handle, tile_size, tile, float_handle)
         }
@@ -248,7 +253,10 @@ impl<I: EvalFamily> Worker<'_, I> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let sub_tape = handle.simplify_with(&mut self.workspace);
+        let sub_tape = handle.simplify_with(
+            &mut self.workspace,
+            std::mem::take(self.spare_tapes.last_mut().unwrap()),
+        );
         if sub_tape.len() < handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
             let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
@@ -323,7 +331,8 @@ impl<I: EvalFamily> Worker<'_, I> {
 
         if grad > 0 {
             let s = std::mem::take(&mut self.grad_storage);
-            let mut func = GradEval::<I::GradEval>::new_give(sub_tape, s);
+            let mut func =
+                GradEval::<I::GradEval>::new_give(sub_tape.clone(), s);
 
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
@@ -333,6 +342,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             }
             self.grad_storage = func.take().unwrap();
         }
+        *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
     }
 }
 
@@ -383,6 +393,9 @@ fn worker<I: EvalFamily>(
             .map(|_| Default::default())
             .collect(),
         workspace: Workspace::default(),
+        spare_tapes: (0..config.tile_sizes.len())
+            .map(|_| Default::default())
+            .collect(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted

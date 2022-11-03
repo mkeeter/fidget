@@ -17,17 +17,22 @@ impl Tape {
     }
 
     pub fn simplify(&self, choices: &[Choice]) -> Self {
-        let t = self.0.simplify(choices);
-        Self(Arc::new(t))
+        self.simplify_with(choices, &mut Default::default(), Default::default())
     }
 
+    /// Simplifies a tape, reusing workspace and allocations
     pub fn simplify_with(
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
+        prev: TapeData,
     ) -> Self {
-        let t = self.0.simplify_with(choices, workspace);
+        let t = self.0.simplify_with(choices, workspace, prev);
         Self(Arc::new(t))
+    }
+
+    pub fn take(mut self) -> Option<TapeData> {
+        Arc::get_mut(&mut self.0).map(std::mem::take)
     }
 }
 
@@ -47,12 +52,17 @@ impl std::ops::Deref for Tape {
 ///
 /// We keep both because SSA form makes tape shortening easier, while the `asm`
 /// data already has registers assigned for lowering into machine assembly.
+#[derive(Default)]
 pub struct TapeData {
     ssa: SsaTape,
     asm: AsmTape,
 }
 
 impl TapeData {
+    pub fn reset(&mut self) {
+        self.ssa.reset();
+        self.asm.reset(self.asm.reg_limit());
+    }
     /// Returns the length of the internal `AsmOp` tape
     pub fn len(&self) -> usize {
         self.asm.len()
@@ -77,17 +87,18 @@ impl TapeData {
         self.asm.slot_count()
     }
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
-        self.simplify_with(choices, &mut Default::default())
-    }
-
     pub fn simplify_with(
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
+        mut tape: TapeData,
     ) -> Self {
         let reg_limit = self.asm.reg_limit();
-        workspace.reset(reg_limit, self.ssa.tape.len());
+        tape.reset();
+
+        // Steal `tape.asm` and hand it to the workspace for use in allocator
+        workspace.reset_give(reg_limit, self.ssa.tape.len(), tape.asm);
+
         let mut count = 0..;
         let mut choice_count = 0;
 
@@ -99,8 +110,8 @@ impl TapeData {
         let mut data = self.ssa.data.iter();
         let mut choice_iter = choices.iter().rev();
 
-        let mut ops_out = Vec::with_capacity(self.ssa.tape.len());
-        let mut data_out = Vec::with_capacity(self.ssa.data.len());
+        let mut ops_out = tape.ssa.tape;
+        let mut data_out = tape.ssa.data;
 
         for &op in self.ssa.tape.iter() {
             let index = *data.next().unwrap();
@@ -351,7 +362,7 @@ pub struct Workspace {
 impl Default for Workspace {
     fn default() -> Self {
         Self {
-            alloc: RegisterAllocator::new(1, 1),
+            alloc: RegisterAllocator::empty(),
             active: vec![],
         }
     }
@@ -360,6 +371,16 @@ impl Default for Workspace {
 impl Workspace {
     pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
         self.alloc.reset(num_registers, tape_len);
+        self.active.fill(None);
+        self.active.resize(tape_len, None);
+    }
+    pub fn reset_give(
+        &mut self,
+        num_registers: u8,
+        tape_len: usize,
+        tape: AsmTape,
+    ) {
+        self.alloc.reset_give(num_registers, tape_len, tape);
         self.active.fill(None);
         self.active.resize(tape_len, None);
     }

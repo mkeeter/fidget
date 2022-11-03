@@ -1167,8 +1167,7 @@ impl GradEvalT for JitGradEval {
         }
     }
     fn take(mut self) -> Option<Self::Storage> {
-        let t = Arc::get_mut(&mut self.mmap)?;
-        Some(std::mem::take(t))
+        Arc::get_mut(&mut self.mmap).map(std::mem::take)
     }
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z) };
@@ -1349,8 +1348,7 @@ impl FloatSliceEvalT for JitFloatSliceEval {
     }
 
     fn take(mut self) -> Option<Self::Storage> {
-        let t = Arc::get_mut(&mut self.mmap)?;
-        Some(std::mem::take(t))
+        Arc::get_mut(&mut self.mmap).map(std::mem::take)
     }
 
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
@@ -1454,8 +1452,7 @@ impl IntervalEvalT for JitIntervalEval {
     }
 
     fn take(mut self) -> Option<Self::Storage> {
-        let t = Arc::get_mut(&mut self.mmap)?;
-        Some(std::mem::take(t))
+        Arc::get_mut(&mut self.mmap).map(std::mem::take)
     }
 
     /// Evaluates an interval

@@ -14,7 +14,7 @@ use crate::{
 /// Outputs, arguments, and immediates are packed into the `data` array
 ///
 /// All register addressing is absolute.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SsaTape {
     /// The tape is stored in reverse order, such that the root of the tree is
     /// the first item in the tape.
@@ -38,6 +38,12 @@ impl SsaTape {
     /// Returns the number of opcodes in the tape
     pub fn len(&self) -> usize {
         self.tape.len()
+    }
+    /// Resets to an empty tape, preserving allocations
+    pub fn reset(&mut self) {
+        self.data.clear();
+        self.tape.clear();
+        self.choice_count = 0;
     }
     pub fn pretty_print(&self) {
         let mut data = self.data.iter().rev();

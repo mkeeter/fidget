@@ -27,6 +27,11 @@ impl AsmTape {
             reg_limit,
         }
     }
+    pub fn reset(&mut self, reg_limit: u8) {
+        self.tape.clear();
+        self.slot_count = 1;
+        self.reg_limit = reg_limit;
+    }
     pub fn reg_limit(&self) -> u8 {
         self.reg_limit
     }

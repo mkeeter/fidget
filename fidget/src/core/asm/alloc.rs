@@ -74,6 +74,21 @@ impl RegisterAllocator {
         out
     }
 
+    pub fn empty() -> Self {
+        Self {
+            allocations: vec![],
+
+            registers: [u32::MAX; u8::MAX as usize],
+            register_lru: Lru::new(0),
+
+            reg_limit: 0,
+            spare_registers: ArrayVec::new(),
+            spare_memory: vec![],
+
+            out: AsmTape::new(0),
+        }
+    }
+
     /// Resets the internal state, reusing allocations if possible
     pub fn reset(&mut self, reg_limit: u8, size: usize) {
         self.allocations.fill(u32::MAX);
@@ -85,6 +100,14 @@ impl RegisterAllocator {
         self.spare_memory.clear();
         self.out = AsmTape::new(reg_limit);
         self.bind_register(0, 0);
+    }
+
+    /// Resets internal state, reusing allocations and the provided tape
+    pub fn reset_give(&mut self, reg_limit: u8, size: usize, tape: AsmTape) {
+        assert!(self.out.is_empty());
+        self.reset(reg_limit, size);
+        self.out = tape;
+        self.out.reset(reg_limit);
     }
 
     /// Claims the internal `Vec<AsmOp>` and the number of slots

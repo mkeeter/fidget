@@ -6,7 +6,7 @@ use crate::{
         EvalFamily,
     },
     render::config::{Queue, RenderConfig, Tile},
-    tape::Tape,
+    tape::{Tape, TapeData, Workspace},
 };
 use nalgebra::{Matrix3, Point2, Vector2};
 
@@ -159,6 +159,9 @@ struct Worker<'a, I: EvalFamily, M: RenderMode> {
     /// Storage for interval evaluators, based on recursion depth
     interval_storage:
         Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
+
+    spare_tapes: Vec<TapeData>,
+    workspace: Workspace,
 }
 
 impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
@@ -204,9 +207,12 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = i_handle.simplify();
+            let sub_tape = i_handle.simplify_with(
+                &mut self.workspace,
+                std::mem::take(&mut self.spare_tapes[depth]),
+            );
             let s = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = IntervalEval::new_give(sub_tape, s);
+            let mut sub_jit = IntervalEval::new_give(sub_tape.clone(), s);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -226,6 +232,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
+            self.spare_tapes[depth] = sub_tape.take().unwrap();
         } else {
             self.render_tile_pixels(i_handle, tile_size, tile, float_handle)
         }
@@ -250,7 +257,10 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = i_handle.simplify();
+        let sub_tape = i_handle.simplify_with(
+            &mut self.workspace,
+            std::mem::take(self.spare_tapes.last_mut().unwrap()),
+        );
 
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
@@ -262,8 +272,10 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
         // (this matters most for the JIT compiler, which is _expensive_)
         if sub_tape.len() < i_handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func =
-                FloatSliceEval::<I::FloatSliceEval>::new_give(sub_tape, s);
+            let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
+                sub_tape.clone(),
+                s,
+            );
 
             func.eval_s(
                 &self.scratch.x,
@@ -303,6 +315,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
                 index += 1;
             }
         }
+        *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
     }
 }
 
@@ -330,6 +343,10 @@ fn worker<I: EvalFamily, M: RenderMode>(
         interval_storage: (0..config.tile_sizes.len())
             .map(|_| Default::default())
             .collect(),
+        spare_tapes: (0..config.tile_sizes.len())
+            .map(|_| Default::default())
+            .collect(),
+        workspace: Default::default(),
     };
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
