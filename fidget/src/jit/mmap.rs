@@ -19,8 +19,12 @@ impl Mmap {
         }
     }
 
+    /// Builds a new `Mmap` that can hold at least `len` bytes.
+    ///
+    /// If `len == 0`, this will return an `Mmap` of size `PAGE_SIZE`; for a
+    /// empty `Mmap` (which makes no system calls), use `Mmap::empty` instead.
     pub fn new(len: usize) -> Result<Self, std::io::Error> {
-        let len = (len + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+        let len = (len.max(1) + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -39,31 +43,60 @@ impl Mmap {
         }
     }
 
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// Copies the given slice into the memory-mapped region
-    ///
-    /// Unlike [`std::slice::copy_from_slice`], this function will allow cases
-    /// where `self.len > s.len()`, and will simply copy into a prefix of the
-    /// region.
-    pub fn copy_from_slice(&mut self, s: &[u8]) {
-        unsafe {
-            pthread_jit_write_protect_np(0);
-            let slice =
-                std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.len);
-            slice[0..s.len()].copy_from_slice(s);
-            slice[0..s.len()].reverse();
-            slice[0..s.len()].reverse();
+    #[inline(always)]
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.len) }
+    }
 
-            sys_icache_invalidate(self.ptr, s.len());
-            pthread_jit_write_protect_np(1);
+    /// Writes to the given offset in the memory map
+    ///
+    /// # Panics
+    /// If `index >= self.len`
+    #[inline(always)]
+    pub fn write(&mut self, index: usize, byte: u8) {
+        assert!(index < self.len);
+        unsafe {
+            *(self.ptr as *mut u8).add(index) = byte;
         }
     }
 
+    /// Treats the memory-mapped data as a slice
+    #[inline(always)]
+    pub fn as_slice(&mut self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr as *mut u8, self.len) }
+    }
+
+    /// Returns the inner pointer
     pub fn as_ptr(&self) -> *mut libc::c_void {
         self.ptr
+    }
+
+    /// Invalidates the caches for the first `size` bytes of the mmap
+    ///
+    /// Note that you will still need to change the global W^X mode before
+    /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
+    pub fn flush(&self, size: usize) {
+        unsafe {
+            sys_icache_invalidate(self.ptr, size);
+        }
+    }
+
+    /// Modifies the **per-thread** W^X state to allow writing of memory-mapped
+    /// regions.
+    ///
+    /// The fact that this occurs on a per-thread (rather than per-page) basis
+    /// is _very strange_, and means this APIs must be used with caution.
+    /// Returns a `WriteGuard`, which restores execute mode when dropped.
+    pub fn thread_mode_write() -> WriteGuard {
+        unsafe {
+            pthread_jit_write_protect_np(0);
+        }
+        WriteGuard
     }
 }
 
@@ -73,6 +106,15 @@ impl Drop for Mmap {
             unsafe {
                 libc::munmap(self.ptr, self.len as libc::size_t);
             }
+        }
+    }
+}
+
+pub struct WriteGuard;
+impl Drop for WriteGuard {
+    fn drop(&mut self) {
+        unsafe {
+            pthread_jit_write_protect_np(1);
         }
     }
 }

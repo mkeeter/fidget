@@ -37,7 +37,7 @@
 
 mod mmap;
 
-use dynasmrt::{aarch64::Aarch64Relocation, dynasm, DynasmApi, VecAssembler};
+use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
 
 use std::sync::Arc;
 
@@ -87,7 +87,7 @@ const CHOICE_RIGHT: u32 = Choice::Right as u32;
 const CHOICE_BOTH: u32 = Choice::Both as u32;
 
 trait AssemblerT {
-    fn init() -> Self;
+    fn init(m: Mmap) -> Self;
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
 
@@ -109,13 +109,13 @@ trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
-    fn finalize(self, out_reg: u8) -> Vec<u8>;
+    fn finalize(self, out_reg: u8) -> Mmap;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
 struct AssemblerData<T> {
-    ops: VecAssembler<Aarch64Relocation>,
+    ops: MmapAssembler,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -146,13 +146,101 @@ impl<T> AssemblerData<T> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+struct MmapAssembler {
+    mmap: Mmap,
+    len: usize,
+}
+
+impl Extend<u8> for MmapAssembler {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = u8>,
+    {
+        for c in iter.into_iter() {
+            self.push(c);
+        }
+    }
+}
+
+impl<'a> Extend<&'a u8> for MmapAssembler {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = &'a u8>,
+    {
+        for c in iter.into_iter() {
+            self.push(*c);
+        }
+    }
+}
+
+impl DynasmApi for MmapAssembler {
+    #[inline(always)]
+    fn offset(&self) -> AssemblyOffset {
+        AssemblyOffset(self.len)
+    }
+
+    #[inline(always)]
+    fn push(&mut self, byte: u8) {
+        // Resize to fit the next byte, if needed
+        if self.len >= self.mmap.len() {
+            self.expand_mmap();
+        }
+        self.mmap.write(self.len, byte);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn align(&mut self, alignment: usize, with: u8) {
+        let offset = self.offset().0 % alignment;
+        if offset != 0 {
+            for _ in offset..alignment {
+                self.push(with);
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn push_u32(&mut self, value: u32) {
+        if self.len + 3 >= self.mmap.len() {
+            self.expand_mmap();
+        }
+        for (i, b) in value.to_le_bytes().iter().enumerate() {
+            self.mmap.write(self.len + i, *b);
+        }
+        self.len += 4;
+    }
+}
+
+impl MmapAssembler {
+    fn finalize(self) -> Mmap {
+        self.mmap.flush(self.len);
+        self.mmap
+    }
+
+    /// Doubles the size of the internal `Mmap` and copies over data
+    #[inline(never)]
+    fn expand_mmap(&mut self) {
+        let mut next = Mmap::new(self.mmap.len() * 2).unwrap();
+        next.as_mut_slice()[0..self.len].copy_from_slice(self.mmap.as_slice());
+        std::mem::swap(&mut self.mmap, &mut next);
+    }
+}
+
+impl From<Mmap> for MmapAssembler {
+    fn from(mmap: Mmap) -> Self {
+        Self { mmap, len: 0 }
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 
 struct PointAssembler(AssemblerData<f32>);
 
 impl AssemblerT for PointAssembler {
-    fn init() -> Self {
-        let mut ops = VecAssembler::new(0);
+    fn init(mmap: Mmap) -> Self {
+        let mut ops = MmapAssembler::from(mmap);
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -294,7 +382,7 @@ impl AssemblerT for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+    fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
@@ -310,7 +398,7 @@ impl AssemblerT for PointAssembler {
             ; ret
         );
 
-        self.0.ops.finalize().unwrap()
+        self.0.ops.finalize()
     }
 }
 
@@ -348,8 +436,8 @@ impl AssemblerT for PointAssembler {
 struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
 impl AssemblerT for IntervalAssembler {
-    fn init() -> Self {
-        let mut ops = dynasmrt::VecAssembler::new(0);
+    fn init(mmap: Mmap) -> Self {
+        let mut ops = MmapAssembler::from(mmap);
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -686,7 +774,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+    fn finalize(mut self, out_reg: u8) -> Mmap {
         assert!(self.0.mem_offset < 4096);
         dynasm!(self.0.ops
             // Prepare our return value
@@ -704,7 +792,7 @@ impl AssemblerT for IntervalAssembler {
             ; ret
         );
 
-        self.0.ops.finalize().unwrap()
+        self.0.ops.finalize()
     }
 }
 
@@ -712,8 +800,8 @@ impl AssemblerT for IntervalAssembler {
 
 struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 impl AssemblerT for FloatSliceAssembler {
-    fn init() -> Self {
-        let mut ops = dynasmrt::VecAssembler::new(0);
+    fn init(mmap: Mmap) -> Self {
+        let mut ops = MmapAssembler::from(mmap);
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -848,7 +936,7 @@ impl AssemblerT for FloatSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+    fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x3
             // It's fine to overwrite X at this point in V0, since we're not
@@ -868,7 +956,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; ret
         );
 
-        self.0.ops.finalize().unwrap()
+        self.0.ops.finalize()
     }
 }
 
@@ -881,8 +969,8 @@ impl AssemblerT for FloatSliceAssembler {
 struct GradAssembler(AssemblerData<f32>);
 
 impl AssemblerT for GradAssembler {
-    fn init() -> Self {
-        let mut ops = VecAssembler::new(0);
+    fn init(mmap: Mmap) -> Self {
+        let mut ops = MmapAssembler::from(mmap);
         dynasm!(ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -1102,7 +1190,7 @@ impl AssemblerT for GradAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Vec<u8> {
+    fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
             // Prepare our return value, writing into s0-3
             ; mov s0, V(reg(out_reg)).s[0]
@@ -1122,7 +1210,7 @@ impl AssemblerT for GradAssembler {
             ; ret
         );
 
-        self.0.ops.finalize().unwrap()
+        self.0.ops.finalize()
     }
 }
 
@@ -1136,9 +1224,7 @@ pub struct JitGradEval {
 
 impl From<Tape> for JitGradEval {
     fn from(t: Tape) -> Self {
-        let buf = build_asm_fn::<GradAssembler>(t.iter_asm());
-        let mut mmap = Mmap::new(buf.len()).unwrap();
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn::<GradAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1152,14 +1238,7 @@ impl GradEvalT for JitGradEval {
     type Storage = Mmap;
 
     fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
-        let buf = build_asm_fn::<GradAssembler>(tape.iter_asm());
-        let mut mmap = if buf.len() <= prev.len() {
-            prev
-        } else {
-            Mmap::new(buf.len()).unwrap()
-        };
-
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn_give::<GradAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1177,8 +1256,16 @@ impl GradEvalT for JitGradEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
-    let mut asm = A::init();
+fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Mmap {
+    build_asm_fn_give::<A>(i, Mmap::new(1).unwrap())
+}
+
+fn build_asm_fn_give<A: AssemblerT>(
+    i: impl Iterator<Item = AsmOp>,
+    s: Mmap,
+) -> Mmap {
+    let _guard = Mmap::thread_mode_write();
+    let mut asm = A::init(s);
 
     for op in i {
         match op {
@@ -1267,6 +1354,7 @@ fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Vec<u8> {
     }
 
     asm.finalize(0)
+    // JIT execute mode is restored here when the _guard is dropped
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1279,9 +1367,7 @@ pub struct JitPointEval {
 
 impl From<Tape> for JitPointEval {
     fn from(t: Tape) -> Self {
-        let buf = build_asm_fn::<PointAssembler>(t.iter_asm());
-        let mut mmap = Mmap::new(buf.len()).unwrap();
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn::<PointAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
             _mmap: Arc::new(mmap),
@@ -1316,9 +1402,7 @@ pub struct JitFloatSliceEval {
 
 impl From<Tape> for JitFloatSliceEval {
     fn from(t: Tape) -> Self {
-        let buf = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
-        let mut mmap = Mmap::new(buf.len()).unwrap();
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1332,14 +1416,7 @@ impl FloatSliceEvalT for JitFloatSliceEval {
     type Family = JitEvalFamily;
 
     fn from_tape_give(t: Tape, prev: Self::Storage) -> Self {
-        let buf = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
-        let mut mmap = if buf.len() <= prev.len() {
-            prev
-        } else {
-            Mmap::new(buf.len()).unwrap()
-        };
-
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn_give::<FloatSliceAssembler>(t.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         JitFloatSliceEval {
             mmap: Arc::new(mmap),
@@ -1419,9 +1496,7 @@ unsafe impl Send for JitIntervalEval {}
 
 impl From<Tape> for JitIntervalEval {
     fn from(t: Tape) -> Self {
-        let buf = build_asm_fn::<IntervalAssembler>(t.iter_asm());
-        let mut mmap = Mmap::new(buf.len()).unwrap();
-        mmap.copy_from_slice(&buf);
+        let mmap = build_asm_fn::<IntervalAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1436,14 +1511,8 @@ impl IntervalEvalT for JitIntervalEval {
     type Storage = Mmap;
 
     fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
-        let buf = build_asm_fn::<IntervalAssembler>(tape.iter_asm());
-        let mut mmap = if buf.len() <= prev.len() {
-            prev
-        } else {
-            Mmap::new(buf.len()).unwrap()
-        };
-
-        mmap.copy_from_slice(&buf);
+        let mmap =
+            build_asm_fn_give::<IntervalAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
