@@ -472,7 +472,6 @@ pub fn render<I: EvalFamily>(
         out
     });
 
-    println!("{:?}", config);
     let mut image_depth = vec![0; config.orig_image_size.pow(2)];
     let mut image_color = vec![[0; 3]; config.orig_image_size.pow(2)];
     for (tile, patch) in out.iter() {
