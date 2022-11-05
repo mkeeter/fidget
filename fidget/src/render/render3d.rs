@@ -6,11 +6,11 @@ use crate::{
         interval::{Interval, IntervalEval, IntervalEvalT},
         EvalFamily,
     },
-    render::config::{Queue, RenderConfig, Tile},
+    render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
     tape::{Tape, TapeData, Workspace},
 };
 
-use nalgebra::{Matrix4, Point3, Vector3};
+use nalgebra::{Point3, Vector3};
 use std::collections::BTreeMap;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -64,8 +64,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, I: EvalFamily> {
-    config: &'a RenderConfig<3>,
-    mat: Matrix4<f32>,
+    config: &'a AlignedRenderConfig<3>,
     scratch: Scratch,
     depth: Vec<u32>,
     color: Vec<[u8; 3]>,
@@ -125,7 +124,7 @@ impl<I: EvalFamily> Worker<'_, I> {
                 if (i & 4) == 0 { 0 } else { tile_size },
             );
             let p = (base + offset).cast::<f32>();
-            let p = self.mat.transform_point(&p);
+            let p = self.config.mat.transform_point(&p);
             x_min = x_min.min(p.x);
             x_max = x_max.max(p.x);
             y_min = y_min.min(p.y);
@@ -219,12 +218,13 @@ impl<I: EvalFamily> Worker<'_, I> {
             // division by w.  We can precompute the XY-1 portion of the
             // multiplication here, since it's shared by every voxel in this
             // column of the image.
-            let v = ((tile.corner[0] + i) as f32) * self.mat.column(0)
-                + ((tile.corner[1] + j) as f32) * self.mat.column(1)
-                + self.mat.column(3);
+            let v = ((tile.corner[0] + i) as f32) * self.config.mat.column(0)
+                + ((tile.corner[1] + j) as f32) * self.config.mat.column(1)
+                + self.config.mat.column(3);
 
             for k in (0..tile_size).rev() {
-                let v = v + ((tile.corner[2] + k) as f32) * self.mat.column(2);
+                let v = v
+                    + ((tile.corner[2] + k) as f32) * self.config.mat.column(2);
 
                 // SAFETY:
                 // Index cannot exceed tile_size**3, which is (a) the size
@@ -313,7 +313,7 @@ impl<I: EvalFamily> Worker<'_, I> {
             // We step one voxel above the surface to reduce
             // glitchiness on edges and corners, where rendering
             // inside the surface could pick the wrong normal.
-            let p = self.mat.transform_point(&Point3::new(
+            let p = self.config.mat.transform_point(&Point3::new(
                 (tile.corner[0] + i) as f32,
                 (tile.corner[1] + j) as f32,
                 (tile.corner[2] + k + 1) as f32,
@@ -369,14 +369,9 @@ fn worker<I: EvalFamily>(
     mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
     queues: &[Queue<3>],
     mut index: usize,
-    config: &RenderConfig<3>,
+    config: &AlignedRenderConfig<3>,
 ) -> BTreeMap<[usize; 2], Image> {
     let mut out = BTreeMap::new();
-
-    let mat = config.mat.matrix()
-        * nalgebra::Matrix4::identity()
-            .append_scaling(2.0 / config.image_size as f32)
-            .append_translation(&Vector3::new(-1.0, -1.0, -1.0));
 
     // Calculate maximum evaluation buffer size
     let buf_size = *config.tile_sizes.last().unwrap();
@@ -386,7 +381,6 @@ fn worker<I: EvalFamily>(
         depth: vec![],
         color: vec![],
         config,
-        mat,
         float_storage: Default::default(),
         grad_storage: Default::default(),
         interval_storage: (0..config.tile_sizes.len())
@@ -437,6 +431,7 @@ pub fn render<I: EvalFamily>(
     tape: Tape,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
+    let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
@@ -461,12 +456,14 @@ pub fn render<I: EvalFamily>(
         tile_queues.push(Queue::new(ts.to_vec()));
     }
 
+    let config_ref = &config;
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for i in 0..config.threads {
             let handle = i_handle.clone();
             let r = tile_queues.as_slice();
-            handles.push(s.spawn(move || worker::<I>(handle, r, i, config)));
+            handles
+                .push(s.spawn(move || worker::<I>(handle, r, i, config_ref)));
         }
         let mut out = vec![];
         for h in handles {
@@ -475,18 +472,23 @@ pub fn render<I: EvalFamily>(
         out
     });
 
-    let mut image_depth = vec![0; config.image_size.pow(2)];
-    let mut image_color = vec![[0; 3]; config.image_size.pow(2)];
+    println!("{:?}", config);
+    let mut image_depth = vec![0; config.orig_image_size.pow(2)];
+    let mut image_color = vec![[0; 3]; config.orig_image_size.pow(2)];
     for (tile, patch) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile[1];
             for i in 0..config.tile_sizes[0] {
                 let x = i + tile[0];
-                let o = (config.image_size - y - 1) * config.image_size + x;
-                if patch.depth[index] >= image_depth[o] {
-                    image_color[o] = patch.color[index];
-                    image_depth[o] = patch.depth[index];
+                if x < config.orig_image_size && y < config.orig_image_size {
+                    let o = (config.orig_image_size - y - 1)
+                        * config.orig_image_size
+                        + x;
+                    if patch.depth[index] >= image_depth[o] {
+                        image_color[o] = patch.color[index];
+                        image_depth[o] = patch.depth[index];
+                    }
                 }
                 index += 1;
             }

@@ -5,7 +5,7 @@ use crate::{
 };
 use nalgebra::{
     allocator::Allocator, geometry::Transform, Const, DefaultAllocator,
-    DimNameSum, U1,
+    DimNameAdd, DimNameSub, DimNameSum, U1,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -19,8 +19,10 @@ where
 
     /// Tile sizes to use during evaluation.
     ///
-    /// You'll likely want to use [`EvalFamily::tile_sizes_2d`] or
-    /// [`EvalFamily::tile_sizes_3d`] to select this based on evaluator type.
+    /// You'll likely want to use
+    /// [`EvalFamily::tile_sizes_2d`](crate::eval::EvalFamily::tile_sizes_2d) or
+    /// [`EvalFamily::tile_sizes_3d`](crate::eval::EvalFamily::tile_sizes_3d) to
+    /// select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
     pub threads: usize,
 
@@ -51,6 +53,102 @@ where
     nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
     DefaultAllocator:
         Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator:
+        nalgebra::allocator::Allocator<
+            f32,
+            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
+                Const<1>,
+            >>::Output,
+        >,
+    <nalgebra::Const<N> as DimNameAdd<nalgebra::Const<1>>>::Output:
+        DimNameSub<nalgebra::Const<1>>,
+{
+    /// Returns a modified `RenderConfig` where `mat` is adjusted based on image
+    /// size, and the image size is padded to an even multiple of `tile_size`.
+    pub(crate) fn align(&self) -> AlignedRenderConfig<N> {
+        let mut tile_sizes: Vec<usize> = self
+            .tile_sizes
+            .iter()
+            .skip_while(|t| **t > self.image_size)
+            .cloned()
+            .collect();
+        if tile_sizes.is_empty() {
+            tile_sizes.push(8);
+        }
+        // Pad image size to an even multiple of tile size.
+        let image_size = (self.image_size + tile_sizes[0] - 1) / tile_sizes[0]
+            * tile_sizes[0];
+
+        // Compensate for the image size change
+        let scale = image_size as f32 / self.image_size as f32;
+
+        // Look, I'm not any happier about this than you are.
+        let v = nalgebra::Vector::<
+            f32,
+            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
+                Const<1>,
+            >>::Output,
+            <DefaultAllocator as nalgebra::allocator::Allocator<
+                f32,
+                <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
+                    Const<1>,
+                >>::Output,
+                U1,
+            >>::Buffer,
+        >::from_element(-1.0);
+        let mat = self.mat.matrix()
+            * nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
+                .matrix()
+                .append_scaling(2.0 / self.image_size as f32)
+                .append_scaling(scale)
+                .append_translation(&v);
+
+        AlignedRenderConfig {
+            image_size,
+            orig_image_size: self.image_size,
+            tile_sizes,
+            threads: self.threads,
+            mat,
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub(crate) struct AlignedRenderConfig<const N: usize>
+where
+    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
+    DefaultAllocator:
+        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+{
+    pub image_size: usize,
+    pub orig_image_size: usize,
+
+    pub tile_sizes: Vec<usize>,
+    pub threads: usize,
+
+    pub mat: NPlusOneMatrix<N>,
+}
+
+/// Type for a static `f32` matrix of size `N + 1`
+type NPlusOneMatrix<const N: usize> = nalgebra::Matrix<
+    f32,
+    <Const<N> as DimNameAdd<Const<1>>>::Output,
+    <Const<N> as DimNameAdd<Const<1>>>::Output,
+    <DefaultAllocator as nalgebra::allocator::Allocator<
+        f32,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+    >>::Buffer,
+>;
+
+impl<const N: usize> AlignedRenderConfig<N>
+where
+    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
+    DefaultAllocator:
+        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
 {
     #[inline]
     pub fn tile_to_offset(&self, tile: Tile<N>, x: usize, y: usize) -> usize {

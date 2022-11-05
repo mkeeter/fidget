@@ -5,10 +5,10 @@ use crate::{
         interval::{Interval, IntervalEval, IntervalEvalT},
         EvalFamily,
     },
-    render::config::{Queue, RenderConfig, Tile},
+    render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
     tape::{Tape, TapeData, Workspace},
 };
-use nalgebra::{Matrix3, Point2, Vector2};
+use nalgebra::{Point2, Vector2};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -146,8 +146,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, I: EvalFamily, M: RenderMode> {
-    config: &'a RenderConfig<2>,
-    mat: Matrix3<f32>,
+    config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
     image: Vec<M::Output>,
@@ -186,7 +185,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
                 if (i & 2) == 0 { 0 } else { tile_size },
             );
             let p = (base + offset).cast::<f32>();
-            let p = self.mat.transform_point(&p);
+            let p = self.config.mat.transform_point(&p);
             x_min = x_min.min(p.x);
             x_max = x_max.max(p.x);
             y_min = y_min.min(p.y);
@@ -247,7 +246,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
         let mut index = 0;
         for j in 0..tile_size {
             for i in 0..tile_size {
-                let p = self.mat.transform_point(&Point2::new(
+                let p = self.config.mat.transform_point(&Point2::new(
                     (tile.corner[0] + i) as f32,
                     (tile.corner[1] + j) as f32,
                 ));
@@ -324,13 +323,8 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
 fn worker<I: EvalFamily, M: RenderMode>(
     mut i_handle: IntervalEval<I::IntervalEval>,
     queue: &Queue<2>,
-    config: &RenderConfig<2>,
+    config: &AlignedRenderConfig<2>,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
-    let mat = config.mat.matrix()
-        * nalgebra::Matrix3::identity()
-            .append_scaling(2.0 / config.image_size as f32)
-            .append_translation(&Vector2::new(-1.0, -1.0));
-
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
 
@@ -338,7 +332,6 @@ fn worker<I: EvalFamily, M: RenderMode>(
         scratch,
         image: vec![],
         config,
-        mat,
         float_storage: Default::default(),
         interval_storage: (0..config.tile_sizes.len())
             .map(|_| Default::default())
@@ -363,6 +356,7 @@ pub fn render<I: EvalFamily, M: RenderMode>(
     tape: Tape,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
+    let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
@@ -384,7 +378,7 @@ pub fn render<I: EvalFamily, M: RenderMode>(
         let mut handles = vec![];
         for _ in 0..config.threads {
             let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I, M>(i, &queue, config)));
+            handles.push(s.spawn(|| worker::<I, M>(i, &queue, &config)));
         }
         let mut out = vec![];
         for h in handles {
@@ -393,16 +387,21 @@ pub fn render<I: EvalFamily, M: RenderMode>(
         out
     });
 
-    let mut image =
-        vec![M::Output::default(); config.image_size * config.image_size];
+    let mut image = vec![M::Output::default(); config.orig_image_size.pow(2)];
     for (tile, data) in out.iter() {
+        let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner[1];
-            let offset = (config.image_size - y - 1) * config.image_size
-                + tile.corner[0];
-            image[offset..][..config.tile_sizes[0]].copy_from_slice(
-                &data[(j * config.tile_sizes[0])..][..config.tile_sizes[0]],
-            );
+            for i in 0..config.tile_sizes[0] {
+                let x = i + tile.corner[0];
+                if y < config.orig_image_size && x < config.orig_image_size {
+                    let o = (config.orig_image_size - y - 1)
+                        * config.orig_image_size
+                        + x;
+                    image[o] = data[index];
+                }
+                index += 1;
+            }
         }
     }
     image
