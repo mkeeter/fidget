@@ -88,4 +88,36 @@ impl<const N: usize> Queue<N> {
     }
 }
 
+impl RenderConfig<2> {
+    /// High-level API for rendering shapes in 2D
+    ///
+    /// Under the hood, this delegates to
+    /// [`fidget::render::render2d::render`](crate::render::render2d::render)
+    pub fn run<M: RenderMode, I: EvalFamily>(
+        &self,
+        root: Node,
+        context: Context,
+    ) -> Vec<<M as RenderMode>::Output> {
+        let tape = context.get_tape(root, I::REG_LIMIT);
+        crate::render::render2d::render::<I, M>(tape, self)
+    }
+}
+
+impl RenderConfig<3> {
+    /// High-level API for rendering shapes in 2D
+    ///
+    /// Under the hood, this delegates to
+    /// [`fidget::render::render3d::render`](crate::render::render3d::render)
+    ///
+    /// Returns a tuple of heightmap, RGB image.
+    pub fn run<I: EvalFamily>(
+        &self,
+        root: Node,
+        context: Context,
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        let tape = context.get_tape(root, I::REG_LIMIT);
+        crate::render::render3d::render::<I>(tape, self)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
