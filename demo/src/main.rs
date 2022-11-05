@@ -153,7 +153,7 @@ fn run<I: fidget::eval::EvalFamily>(
         let cfg = fidget::render::config::RenderConfig {
             image_size: args.size as usize,
             tile_sizes: I::tile_sizes_2d().to_vec(),
-            threads: 8,
+            threads: args.threads,
 
             mat: nalgebra::Transform2::identity(),
         };
