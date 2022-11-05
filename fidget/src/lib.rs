@@ -3,7 +3,7 @@
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
-//! use fidget::eval::asm::AsmFamily;
+//! use fidget::vm;
 //! use fidget::render::{render2d::{BitRenderMode}, config::RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
@@ -11,7 +11,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<BitRenderMode, AsmFamily>(shape, ctx);
+//! let out = cfg.run::<BitRenderMode, vm::Eval>(shape, ctx);
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

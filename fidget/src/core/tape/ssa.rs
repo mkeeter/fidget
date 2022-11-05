@@ -1,6 +1,6 @@
 use crate::{
-    asm::{AsmTape, RegisterAllocator},
     tape::TapeOp,
+    vm::{AsmTape, RegisterAllocator},
 };
 
 /// Instruction tape, storing [`TapeOp`](crate::tape::TapeOp) in SSA form

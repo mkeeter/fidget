@@ -42,16 +42,16 @@ use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
 use std::sync::Arc;
 
 use crate::{
-    asm::AsmOp,
     eval::{
         float_slice::FloatSliceEvalT,
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        Choice, EvalFamily,
+        Choice, Eval as EvalT,
     },
     jit::mmap::Mmap,
     tape::Tape,
+    vm::Op,
 };
 
 /// Number of registers available when executing natively
@@ -1234,7 +1234,6 @@ impl From<Tape> for JitGradEval {
 }
 
 impl GradEvalT for JitGradEval {
-    type Family = JitEvalFamily;
     type Storage = Mmap;
 
     fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
@@ -1256,12 +1255,12 @@ impl GradEvalT for JitGradEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = AsmOp>) -> Mmap {
+fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = Op>) -> Mmap {
     build_asm_fn_give::<A>(i, Mmap::new(1).unwrap())
 }
 
 fn build_asm_fn_give<A: AssemblerT>(
-    i: impl Iterator<Item = AsmOp>,
+    i: impl Iterator<Item = Op>,
     s: Mmap,
 ) -> Mmap {
     let _guard = Mmap::thread_mode_write();
@@ -1269,84 +1268,84 @@ fn build_asm_fn_give<A: AssemblerT>(
 
     for op in i {
         match op {
-            AsmOp::Load(reg, mem) => {
+            Op::Load(reg, mem) => {
                 asm.build_load(reg, mem);
             }
-            AsmOp::Store(reg, mem) => {
+            Op::Store(reg, mem) => {
                 asm.build_store(mem, reg);
             }
-            AsmOp::Input(out, i) => {
+            Op::Input(out, i) => {
                 asm.build_input(out, i);
             }
-            AsmOp::NegReg(out, arg) => {
+            Op::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
             }
-            AsmOp::AbsReg(out, arg) => {
+            Op::AbsReg(out, arg) => {
                 asm.build_abs(out, arg);
             }
-            AsmOp::RecipReg(out, arg) => {
+            Op::RecipReg(out, arg) => {
                 asm.build_recip(out, arg);
             }
-            AsmOp::SqrtReg(out, arg) => {
+            Op::SqrtReg(out, arg) => {
                 asm.build_sqrt(out, arg);
             }
-            AsmOp::CopyReg(out, arg) => {
+            Op::CopyReg(out, arg) => {
                 asm.build_copy(out, arg);
             }
-            AsmOp::SquareReg(out, arg) => {
+            Op::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
             }
-            AsmOp::AddRegReg(out, lhs, rhs) => {
+            Op::AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
-            AsmOp::MulRegReg(out, lhs, rhs) => {
+            Op::MulRegReg(out, lhs, rhs) => {
                 asm.build_mul(out, lhs, rhs);
             }
-            AsmOp::DivRegReg(out, lhs, rhs) => {
+            Op::DivRegReg(out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
             }
-            AsmOp::SubRegReg(out, lhs, rhs) => {
+            Op::SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
-            AsmOp::MinRegReg(out, lhs, rhs) => {
+            Op::MinRegReg(out, lhs, rhs) => {
                 asm.build_min(out, lhs, rhs);
             }
-            AsmOp::MaxRegReg(out, lhs, rhs) => {
+            Op::MaxRegReg(out, lhs, rhs) => {
                 asm.build_max(out, lhs, rhs);
             }
-            AsmOp::AddRegImm(out, arg, imm) => {
+            Op::AddRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_add(out, arg, reg);
             }
-            AsmOp::MulRegImm(out, arg, imm) => {
+            Op::MulRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_mul(out, arg, reg);
             }
-            AsmOp::DivRegImm(out, arg, imm) => {
+            Op::DivRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            AsmOp::DivImmReg(out, arg, imm) => {
+            Op::DivImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            AsmOp::SubImmReg(out, arg, imm) => {
+            Op::SubImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out, reg, arg);
             }
-            AsmOp::SubRegImm(out, arg, imm) => {
+            Op::SubRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_sub(out, arg, reg);
             }
-            AsmOp::MinRegImm(out, arg, imm) => {
+            Op::MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            AsmOp::MaxRegImm(out, arg, imm) => {
+            Op::MaxRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            AsmOp::CopyImm(out, imm) => {
+            Op::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }
@@ -1377,7 +1376,6 @@ impl From<Tape> for JitPointEval {
 }
 
 impl PointEvalT for JitPointEval {
-    type Family = JitEvalFamily;
     fn eval_p(
         &mut self,
         x: f32,
@@ -1413,7 +1411,6 @@ impl From<Tape> for JitFloatSliceEval {
 
 impl FloatSliceEvalT for JitFloatSliceEval {
     type Storage = Mmap;
-    type Family = JitEvalFamily;
 
     fn from_tape_give(t: Tape, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_give::<FloatSliceAssembler>(t.iter_asm(), prev);
@@ -1507,7 +1504,6 @@ impl From<Tape> for JitIntervalEval {
 
 /// Handle owning a JIT-compiled interval function
 impl IntervalEvalT for JitIntervalEval {
-    type Family = JitEvalFamily;
     type Storage = Mmap;
 
     fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
@@ -1549,8 +1545,9 @@ impl IntervalEvalT for JitIntervalEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub enum JitEvalFamily {}
-impl EvalFamily for JitEvalFamily {
+#[derive(Clone)]
+pub enum Eval {}
+impl EvalT for Eval {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
     type IntervalEval = JitIntervalEval;

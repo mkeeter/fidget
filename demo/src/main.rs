@@ -22,7 +22,7 @@ struct Args {
     #[clap(long, requires = "image")]
     interpreter: bool,
 
-    /// Render using the `dynasm`-compiled function
+    /// Render using the `dynvm`-compiled function
     #[clap(short, long, requires = "image", conflicts_with = "interpreter")]
     jit: bool,
 
@@ -53,7 +53,7 @@ struct Args {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<I: fidget::eval::EvalFamily>(
+fn run3d<I: fidget::eval::Eval>(
     ctx: &Context,
     node: Node,
     args: &Args,
@@ -110,7 +110,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run<I: fidget::eval::EvalFamily>(
+fn run<I: fidget::eval::Eval>(
     ctx: &Context,
     node: Node,
     args: &Args,
@@ -186,15 +186,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(img) = &args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                run3d::<fidget::eval::asm::AsmFamily>(&ctx, root, &args)
+                run3d::<fidget::vm::Eval>(&ctx, root, &args)
             } else {
-                run::<fidget::eval::asm::AsmFamily>(&ctx, root, &args)
+                run::<fidget::vm::Eval>(&ctx, root, &args)
             }
         } else if args.jit {
             if args.threedee {
-                run3d::<fidget::jit::JitEvalFamily>(&ctx, root, &args)
+                run3d::<fidget::jit::Eval>(&ctx, root, &args)
             } else {
-                run::<fidget::jit::JitEvalFamily>(&ctx, root, &args)
+                run::<fidget::jit::Eval>(&ctx, root, &args)
             }
         } else {
             let start = Instant::now();

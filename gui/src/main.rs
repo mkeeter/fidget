@@ -144,18 +144,17 @@ impl eframe::App for MyApp {
         let render_start = std::time::Instant::now();
 
         if let Ok(script_ctx) = &self.out {
-            use fidget::eval::EvalFamily;
+            use fidget::eval::Eval;
             for s in script_ctx.shapes.iter() {
                 let tape = script_ctx.context.get_tape(s.shape);
                 let image = fidget::render::render2d::render::<
-                    fidget::jit::JitEvalFamily,
+                    fidget::jit::Eval,
                     fidget::render::render2d::BitRenderMode,
                 >(
                     tape,
                     &RenderConfig {
                         image_size,
-                        tile_sizes: fidget::jit::JitEvalFamily::tile_sizes_2d()
-                            .to_vec(),
+                        tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
                         threads: 8,
 
                         mat: Transform2::from_matrix_unchecked(

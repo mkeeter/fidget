@@ -3,7 +3,7 @@ use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         interval::{Interval, IntervalEval, IntervalEvalT},
-        EvalFamily,
+        Eval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
     tape::{Tape, TapeData, Workspace},
@@ -145,7 +145,7 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, I: EvalFamily, M: RenderMode> {
+struct Worker<'a, I: Eval, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
@@ -153,23 +153,23 @@ struct Worker<'a, I: EvalFamily, M: RenderMode> {
 
     /// Storage for float slice evaluators
     float_storage:
-        [<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
 
     /// Storage for interval evaluators, based on recursion depth
     interval_storage:
-        Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
+        Vec<<<I as Eval>::IntervalEval as IntervalEvalT>::Storage>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
 }
 
-impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
+impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
     fn render_tile_recurse(
         &mut self,
-        i_handle: &mut IntervalEval<I::IntervalEval>,
+        i_handle: &mut IntervalEval<I>,
         depth: usize,
         tile: Tile<2>,
-        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+        float_handle: &mut Option<FloatSliceEval<I>>,
     ) {
         let tile_size = self.config.tile_sizes[depth];
 
@@ -238,10 +238,10 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
     }
     fn render_tile_pixels(
         &mut self,
-        i_handle: &mut IntervalEval<I::IntervalEval>,
+        i_handle: &mut IntervalEval<I>,
         tile_size: usize,
         tile: Tile<2>,
-        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+        float_handle: &mut Option<FloatSliceEval<I>>,
     ) {
         let mut index = 0;
         for j in 0..tile_size {
@@ -271,10 +271,7 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
         // (this matters most for the JIT compiler, which is _expensive_)
         if sub_tape.len() < i_handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
-                sub_tape.clone(),
-                s,
-            );
+            let mut func = FloatSliceEval::<I>::new_give(sub_tape.clone(), s);
 
             func.eval_s(
                 &self.scratch.x,
@@ -320,8 +317,8 @@ impl<I: EvalFamily, M: RenderMode> Worker<'_, I, M> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: EvalFamily, M: RenderMode>(
-    mut i_handle: IntervalEval<I::IntervalEval>,
+fn worker<I: Eval, M: RenderMode>(
+    mut i_handle: IntervalEval<I>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
@@ -352,7 +349,7 @@ fn worker<I: EvalFamily, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: EvalFamily, M: RenderMode>(
+pub fn render<I: Eval, M: RenderMode>(
     tape: Tape,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {

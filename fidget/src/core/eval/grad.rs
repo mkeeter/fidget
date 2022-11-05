@@ -1,4 +1,4 @@
-use crate::{eval::EvalFamily, tape::Tape};
+use crate::{eval::Eval, tape::Tape};
 
 /// Represents a point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -151,7 +151,6 @@ impl std::ops::Neg for Grad {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub trait GradEvalT: From<Tape> {
-    type Family: EvalFamily;
     type Storage: Default;
 
     /// Constructs the `GradEvalT`, giving it a chance to reuse storage
@@ -178,29 +177,32 @@ pub trait GradEvalT: From<Tape> {
     }
 }
 
-pub struct GradEval<E> {
+pub struct GradEval<E: Eval> {
     #[allow(dead_code)]
     tape: Tape,
-    eval: E,
+    eval: E::GradEval,
 }
 
-impl<E: GradEvalT> From<Tape> for GradEval<E> {
+impl<E: Eval> From<Tape> for GradEval<E> {
     fn from(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
+        let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
-            eval: E::from(tape),
+            eval: E::GradEval::from(tape),
         }
     }
 }
 
-impl<E: GradEvalT> GradEval<E> {
-    pub fn new_give(tape: Tape, s: E::Storage) -> Self {
-        let eval = E::from_tape_give(tape.clone(), s);
+impl<E: Eval> GradEval<E> {
+    pub fn new_give(
+        tape: Tape,
+        s: <<E as Eval>::GradEval as GradEvalT>::Storage,
+    ) -> Self {
+        let eval = E::GradEval::from_tape_give(tape.clone(), s);
         Self { tape, eval }
     }
 
-    pub fn take(self) -> Option<E::Storage> {
+    pub fn take(self) -> Option<<<E as Eval>::GradEval as GradEvalT>::Storage> {
         self.eval.take()
     }
 
@@ -223,7 +225,7 @@ pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
-    pub fn test_g_x<I: GradEvalT>() {
+    pub fn test_g_x<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let tape = ctx.get_tape(x);
@@ -232,7 +234,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
     }
 
-    pub fn test_g_square<I: GradEvalT>() {
+    pub fn test_g_square<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
@@ -245,7 +247,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(3.0, 0.0, 0.0), Grad::new(9.0, 6.0, 0.0, 0.0));
     }
 
-    pub fn test_g_sqrt<I: GradEvalT>() {
+    pub fn test_g_sqrt<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
@@ -256,7 +258,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(4.0, 0.0, 0.0), Grad::new(2.0, 0.25, 0.0, 0.0));
     }
 
-    pub fn test_g_mul<I: GradEvalT>() {
+    pub fn test_g_mul<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -270,7 +272,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(4.0, 2.0, 0.0), Grad::new(8.0, 2.0, 4.0, 0.0));
     }
 
-    pub fn test_g_recip<I: GradEvalT>() {
+    pub fn test_g_recip<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
@@ -281,7 +283,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(0.5, -0.25, 0.0, 0.0));
     }
 
-    pub fn test_g_circle<I: GradEvalT>() {
+    pub fn test_g_circle<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();

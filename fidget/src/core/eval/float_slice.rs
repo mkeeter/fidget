@@ -1,12 +1,9 @@
-use crate::{eval::EvalFamily, tape::Tape};
+use crate::{eval::Eval, tape::Tape};
 
 /// Function handle for evaluation of many points simultaneously.
 pub trait FloatSliceEvalT: From<Tape> {
     /// Storage used by the type
     type Storage: Default;
-
-    /// Parent family (used to get `REG_LIMIT`)
-    type Family: EvalFamily;
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
@@ -25,29 +22,34 @@ pub trait FloatSliceEvalT: From<Tape> {
     fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]);
 }
 
-pub struct FloatSliceEval<E> {
+pub struct FloatSliceEval<E: Eval> {
     #[allow(dead_code)]
     tape: Tape,
-    eval: E,
+    eval: E::FloatSliceEval,
 }
 
-impl<E: FloatSliceEvalT> From<Tape> for FloatSliceEval<E> {
+impl<E: Eval> From<Tape> for FloatSliceEval<E> {
     fn from(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
+        let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
-            eval: E::from(tape),
+            eval: E::FloatSliceEval::from(tape),
         }
     }
 }
 
-impl<F: FloatSliceEvalT> FloatSliceEval<F> {
-    pub fn new_give(tape: Tape, s: F::Storage) -> Self {
-        let eval = F::from_tape_give(tape.clone(), s);
+impl<F: Eval> FloatSliceEval<F> {
+    pub fn new_give(
+        tape: Tape,
+        s: <<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage,
+    ) -> Self {
+        let eval = F::FloatSliceEval::from_tape_give(tape.clone(), s);
         Self { tape, eval }
     }
 
-    pub fn take(self) -> Option<F::Storage> {
+    pub fn take(
+        self,
+    ) -> Option<<<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage> {
         self.eval.take()
     }
 
@@ -66,7 +68,7 @@ pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
-    pub fn test_give_take<I: FloatSliceEvalT>() {
+    pub fn test_give_take<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -102,7 +104,7 @@ pub mod eval_tests {
         }
     }
 
-    pub fn test_vectorized<I: FloatSliceEvalT>() {
+    pub fn test_vectorized<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();

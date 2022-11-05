@@ -1,6 +1,5 @@
 //! Evaluation, both generically and with a small local interpreter
 
-pub mod asm;
 mod choice;
 
 pub mod float_slice;
@@ -17,11 +16,11 @@ use interval::IntervalEvalT;
 use point::PointEvalT;
 
 /// Represents a "family" of evaluators (JIT, interpreter, etc)
-pub trait EvalFamily {
+pub trait Eval: Clone {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
 
-    type IntervalEval: IntervalEvalT;
+    type IntervalEval: IntervalEvalT + Clone;
     type FloatSliceEval: FloatSliceEvalT;
     type PointEval: PointEvalT;
     type GradEval: GradEvalT;

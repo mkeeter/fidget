@@ -1,7 +1,7 @@
 use crate::{
-    asm::{AsmOp, AsmTape, RegisterAllocator},
     eval::Choice,
     tape::{SsaTape, TapeOp},
+    vm::{AsmTape, Op, RegisterAllocator},
 };
 use std::sync::Arc;
 
@@ -59,7 +59,7 @@ impl std::ops::Deref for Tape {
 ///
 /// Under the hood, [`Tape`](Self) stores two different representations:
 /// - A tape in SSA form, suitable for use during tape simplification
-/// - A [`Vec<AsmOp>`](crate::asm::AsmOp), ready to be fed into an assembler,
+/// - A [`Vec<Op>`](crate::asm::Op), ready to be fed into an assembler,
 ///   (e.g. [`dynasm`](crate::asm::dynasm)).
 ///
 /// We keep both because SSA form makes tape shortening easier, while the `asm`
@@ -75,7 +75,7 @@ impl TapeData {
         self.ssa.reset();
         self.asm.reset(self.asm.reg_limit());
     }
-    /// Returns the length of the internal `AsmOp` tape
+    /// Returns the length of the internal `Op` tape
     pub fn len(&self) -> usize {
         self.asm.len()
     }
@@ -353,9 +353,9 @@ impl TapeData {
         }
     }
 
-    /// Produces an iterator that visits [`AsmOp`](crate::asm::AsmOp) values in
+    /// Produces an iterator that visits [`Op`](crate::asm::Op) values in
     /// evaluation order.
-    pub fn iter_asm(&self) -> impl Iterator<Item = AsmOp> + '_ {
+    pub fn iter_asm(&self) -> impl Iterator<Item = Op> + '_ {
         self.asm.iter().cloned().rev()
     }
 

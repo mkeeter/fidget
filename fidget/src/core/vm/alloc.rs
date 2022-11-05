@@ -1,6 +1,6 @@
 use crate::{
-    asm::{lru::Lru, AsmOp, AsmTape},
     tape::TapeOp,
+    vm::{lru::Lru, AsmTape, Op},
 };
 
 use arrayvec::ArrayVec;
@@ -110,7 +110,7 @@ impl RegisterAllocator {
         self.out.reset(reg_limit);
     }
 
-    /// Claims the internal `Vec<AsmOp>`, leaving it empty
+    /// Claims the internal `Vec<Op>`, leaving it empty
     pub fn finalize(&mut self) -> AsmTape {
         std::mem::take(&mut self.out)
     }
@@ -191,7 +191,7 @@ impl RegisterAllocator {
             // This register is now unassigned
             self.registers[reg as usize] = u32::MAX;
 
-            self.out.push(AsmOp::Load(reg, mem));
+            self.out.push(Op::Load(reg, mem));
             reg
         }
     }
@@ -242,25 +242,25 @@ impl RegisterAllocator {
     }
 
     /// Lowers an operation that uses a single register into an
-    /// [`AsmOp`](crate::asm::AsmOp), pushing it to the internal tape.
+    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
     ///
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
     pub fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
-        let op: fn(u8, u8) -> AsmOp = match op {
-            TapeOp::NegReg => AsmOp::NegReg,
-            TapeOp::AbsReg => AsmOp::AbsReg,
-            TapeOp::RecipReg => AsmOp::RecipReg,
-            TapeOp::SqrtReg => AsmOp::SqrtReg,
-            TapeOp::SquareReg => AsmOp::SquareReg,
-            TapeOp::CopyReg => AsmOp::CopyReg,
+        let op: fn(u8, u8) -> Op = match op {
+            TapeOp::NegReg => Op::NegReg,
+            TapeOp::AbsReg => Op::AbsReg,
+            TapeOp::RecipReg => Op::RecipReg,
+            TapeOp::SqrtReg => Op::SqrtReg,
+            TapeOp::SquareReg => Op::SquareReg,
+            TapeOp::CopyReg => Op::CopyReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
     }
 
     fn push_store(&mut self, reg: u8, mem: u32) {
-        self.out.push(AsmOp::Store(reg, mem));
+        self.out.push(Op::Store(reg, mem));
         self.release_mem(mem);
     }
 
@@ -285,7 +285,7 @@ impl RegisterAllocator {
         }
     }
 
-    fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> AsmOp) {
+    fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> Op) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
         // unassigned.  This gives us six unique situations.
@@ -347,7 +347,7 @@ impl RegisterAllocator {
         }
     }
 
-    /// Lowers a two-register operation into an [`AsmOp`](crate::asm::AsmOp),
+    /// Lowers a two-register operation into an [`Op`](crate::asm::Op),
     /// pushing it to the internal tape.
     ///
     /// Inputs are SSA registers from a [`Tape`](crate::tape::Tape), i.e.
@@ -466,13 +466,13 @@ impl RegisterAllocator {
         //       |      |      | former r_a], [m_b points to the former r_b]
         //  -----|------|------|----------------------------------------------
         //   m_x  | U   | m_z  | ibid
-        let op: fn(u8, u8, u8) -> AsmOp = match op {
-            TapeOp::AddRegReg => AsmOp::AddRegReg,
-            TapeOp::SubRegReg => AsmOp::SubRegReg,
-            TapeOp::MulRegReg => AsmOp::MulRegReg,
-            TapeOp::DivRegReg => AsmOp::DivRegReg,
-            TapeOp::MinRegReg => AsmOp::MinRegReg,
-            TapeOp::MaxRegReg => AsmOp::MaxRegReg,
+        let op: fn(u8, u8, u8) -> Op = match op {
+            TapeOp::AddRegReg => Op::AddRegReg,
+            TapeOp::SubRegReg => Op::SubRegReg,
+            TapeOp::MulRegReg => Op::MulRegReg,
+            TapeOp::DivRegReg => Op::DivRegReg,
+            TapeOp::MinRegReg => Op::MinRegReg,
+            TapeOp::MaxRegReg => Op::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
@@ -553,35 +553,35 @@ impl RegisterAllocator {
     }
 
     /// Lowers a function taking one register and one immediate into an
-    /// [`AsmOp`](crate::asm::AsmOp), pushing it to the internal tape.
+    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
     pub fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: TapeOp) {
-        let op: fn(u8, u8, f32) -> AsmOp = match op {
-            TapeOp::AddRegImm => AsmOp::AddRegImm,
-            TapeOp::SubRegImm => AsmOp::SubRegImm,
-            TapeOp::SubImmReg => AsmOp::SubImmReg,
-            TapeOp::MulRegImm => AsmOp::MulRegImm,
-            TapeOp::DivRegImm => AsmOp::DivRegImm,
-            TapeOp::DivImmReg => AsmOp::DivImmReg,
-            TapeOp::MinRegImm => AsmOp::MinRegImm,
-            TapeOp::MaxRegImm => AsmOp::MaxRegImm,
+        let op: fn(u8, u8, f32) -> Op = match op {
+            TapeOp::AddRegImm => Op::AddRegImm,
+            TapeOp::SubRegImm => Op::SubRegImm,
+            TapeOp::SubImmReg => Op::SubImmReg,
+            TapeOp::MulRegImm => Op::MulRegImm,
+            TapeOp::DivRegImm => Op::DivRegImm,
+            TapeOp::DivImmReg => Op::DivImmReg,
+            TapeOp::MinRegImm => Op::MinRegImm,
+            TapeOp::MaxRegImm => Op::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
     }
 
-    fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> AsmOp) {
+    fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> Op) {
         let r_x = self.get_out_reg(out);
         self.out.push(op(r_x));
         self.release_reg(r_x);
     }
 
-    /// Pushes a [`CopyImm`](crate::asm::AsmOp::CopyImm) operation to the tape
+    /// Pushes a [`CopyImm`](crate::asm::Op::CopyImm) operation to the tape
     pub fn op_copy_imm(&mut self, out: u32, imm: f32) {
-        self.op_out_only(out, |out| AsmOp::CopyImm(out, imm));
+        self.op_out_only(out, |out| Op::CopyImm(out, imm));
     }
 
-    /// Pushes an [`Input`](crate::asm::AsmOp::Input) operation to the tape
+    /// Pushes an [`Input`](crate::asm::Op::Input) operation to the tape
     pub fn op_input(&mut self, out: u32, i: u8) {
-        self.op_out_only(out, |out| AsmOp::Input(out, i));
+        self.op_out_only(out, |out| Op::Input(out, i));
     }
 }

@@ -4,7 +4,7 @@ use crate::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         grad::{Grad, GradEval, GradEvalT},
         interval::{Interval, IntervalEval, IntervalEvalT},
-        EvalFamily,
+        Eval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
     tape::{Tape, TapeData, Workspace},
@@ -39,11 +39,7 @@ impl Scratch {
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: FloatSliceEvalT>(
-        &mut self,
-        f: &mut FloatSliceEval<E>,
-        size: usize,
-    ) {
+    fn eval_s<E: Eval>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
         f.eval_s(
             &self.x[0..size],
             &self.y[0..size],
@@ -51,7 +47,7 @@ impl Scratch {
             &mut self.out_float[0..size],
         );
     }
-    fn eval_g<E: GradEvalT>(&mut self, f: &mut GradEval<E>, size: usize) {
+    fn eval_g<E: Eval>(&mut self, f: &mut GradEval<E>, size: usize) {
         f.eval_g(
             &self.x[0..size],
             &self.y[0..size],
@@ -63,7 +59,7 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, I: EvalFamily> {
+struct Worker<'a, I: Eval> {
     config: &'a AlignedRenderConfig<3>,
     scratch: Scratch,
     depth: Vec<u32>,
@@ -76,27 +72,27 @@ struct Worker<'a, I: EvalFamily> {
     /// - An evaluator for the tape _just above_ the leaf, for per-voxel
     ///   evaluation when the leaf tape isn't an improvement
     float_storage:
-        [<<I as EvalFamily>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
 
     /// We can only have one gradient evaluator alive at a time
     ///
     /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
-    grad_storage: <<I as EvalFamily>::GradEval as GradEvalT>::Storage,
+    grad_storage: <<I as Eval>::GradEval as GradEvalT>::Storage,
 
     interval_storage:
-        Vec<<<I as EvalFamily>::IntervalEval as IntervalEvalT>::Storage>,
+        Vec<<<I as Eval>::IntervalEval as IntervalEvalT>::Storage>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
 }
 
-impl<I: EvalFamily> Worker<'_, I> {
+impl<I: Eval> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
-        handle: &mut IntervalEval<I::IntervalEval>,
+        handle: &mut IntervalEval<I>,
         depth: usize,
         tile: Tile<3>,
-        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+        float_handle: &mut Option<FloatSliceEval<I>>,
     ) {
         let tile_size = self.config.tile_sizes[depth];
 
@@ -192,10 +188,10 @@ impl<I: EvalFamily> Worker<'_, I> {
 
     fn render_tile_pixels(
         &mut self,
-        handle: &mut IntervalEval<I::IntervalEval>,
+        handle: &mut IntervalEval<I>,
         tile_size: usize,
         tile: Tile<3>,
-        float_handle: &mut Option<FloatSliceEval<I::FloatSliceEval>>,
+        float_handle: &mut Option<FloatSliceEval<I>>,
     ) {
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
@@ -259,10 +255,7 @@ impl<I: EvalFamily> Worker<'_, I> {
         );
         if sub_tape.len() < handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func = FloatSliceEval::<I::FloatSliceEval>::new_give(
-                sub_tape.clone(),
-                s,
-            );
+            let mut func = FloatSliceEval::<I>::new_give(sub_tape.clone(), s);
 
             self.scratch.eval_s(&mut func, size);
 
@@ -331,8 +324,7 @@ impl<I: EvalFamily> Worker<'_, I> {
 
         if grad > 0 {
             let s = std::mem::take(&mut self.grad_storage);
-            let mut func =
-                GradEval::<I::GradEval>::new_give(sub_tape.clone(), s);
+            let mut func = GradEval::<I>::new_give(sub_tape.clone(), s);
 
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
@@ -365,8 +357,8 @@ impl Image {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: EvalFamily>(
-    mut i_handle: IntervalEval<<I as EvalFamily>::IntervalEval>,
+fn worker<I: Eval>(
+    mut i_handle: IntervalEval<I>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
@@ -427,7 +419,7 @@ fn worker<I: EvalFamily>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: EvalFamily>(
+pub fn render<I: Eval>(
     tape: Tape,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {

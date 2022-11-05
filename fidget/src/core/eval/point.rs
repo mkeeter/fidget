@@ -1,11 +1,10 @@
 use crate::{
-    eval::{Choice, EvalFamily},
+    eval::{Choice, Eval},
     tape::Tape,
 };
 
 /// Function handle for `f32` evaluation
 pub trait PointEvalT: From<Tape> {
-    type Family: EvalFamily;
     fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
 }
 
@@ -14,24 +13,24 @@ pub trait PointEvalT: From<Tape> {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointEval<E> {
+pub struct PointEval<E: Eval> {
     tape: Tape,
     choices: Vec<Choice>,
-    eval: E,
+    eval: E::PointEval,
 }
 
-impl<E: PointEvalT> From<Tape> for PointEval<E> {
+impl<E: Eval> From<Tape> for PointEval<E> {
     fn from(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
+        let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
             choices: vec![Choice::Unknown; tape.choice_count()],
-            eval: E::from(tape),
+            eval: E::PointEval::from(tape),
         }
     }
 }
 
-impl<E: PointEvalT> PointEval<E> {
+impl<E: Eval> PointEval<E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape {
@@ -64,7 +63,7 @@ pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
-    pub fn test_circle<I: PointEvalT>() {
+    pub fn test_circle<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -80,7 +79,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
     }
 
-    pub fn test_p_min<I: PointEvalT>() {
+    pub fn test_p_min<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -106,7 +105,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
-    pub fn test_p_max<I: PointEvalT>() {
+    pub fn test_p_max<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -132,7 +131,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
-    pub fn basic_interpreter<I: PointEvalT>() {
+    pub fn basic_interpreter<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -146,7 +145,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(3.0, 3.5, 0.0), 3.5);
     }
 
-    pub fn test_push<I: PointEvalT>() {
+    pub fn test_push<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -185,7 +184,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
     }
 
-    pub fn test_basic<I: PointEvalT>() {
+    pub fn test_basic<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();

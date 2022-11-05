@@ -5,10 +5,10 @@
 ///
 /// Arguments, in order, are
 /// - Output register
-/// - LHS register (or input slot for [`Input`](AsmOp::Input))
+/// - LHS register (or input slot for [`Input`](Op::Input))
 /// - RHS register (or immediate for `*Imm`)
 #[derive(Copy, Clone, Debug)]
-pub enum AsmOp {
+pub enum Op {
     /// Read one of the inputs (X, Y, Z)
     Input(u8, u8),
 

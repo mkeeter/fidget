@@ -1,21 +1,22 @@
 use crate::{
-    asm::AsmOp,
     eval::{
         float_slice::FloatSliceEvalT,
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        Choice, EvalFamily,
+        Choice, Eval as EvalT,
     },
     tape::Tape,
+    vm::Op,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Family of evaluators that use a local interpreter
-pub enum AsmFamily {}
+#[derive(Clone)]
+pub enum Eval {}
 
-impl EvalFamily for AsmFamily {
+impl EvalT for Eval {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
@@ -62,7 +63,7 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Interval evaluator for a slice of [`AsmOp`]
+/// Interval evaluator for a slice of [`Op`]
 #[derive(Clone)]
 pub struct AsmIntervalEval {
     /// Instruction tape, in reverse-evaluation order
@@ -83,7 +84,6 @@ impl From<Tape> for AsmIntervalEval {
 
 impl IntervalEvalT for AsmIntervalEval {
     type Storage = ();
-    type Family = AsmFamily;
 
     fn take(self) -> Option<Self::Storage> {
         Some(())
@@ -107,7 +107,7 @@ impl IntervalEvalT for AsmIntervalEval {
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             match op {
-                AsmOp::Input(out, i) => {
+                Op::Input(out, i) => {
                     v[out] = match i {
                         0 => x,
                         1 => y,
@@ -115,76 +115,76 @@ impl IntervalEvalT for AsmIntervalEval {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
-                AsmOp::NegReg(out, arg) => {
+                Op::NegReg(out, arg) => {
                     v[out] = -v[arg];
                 }
-                AsmOp::AbsReg(out, arg) => {
+                Op::AbsReg(out, arg) => {
                     v[out] = v[arg].abs();
                 }
-                AsmOp::RecipReg(out, arg) => {
+                Op::RecipReg(out, arg) => {
                     v[out] = v[arg].recip();
                 }
-                AsmOp::SqrtReg(out, arg) => {
+                Op::SqrtReg(out, arg) => {
                     v[out] = v[arg].sqrt();
                 }
-                AsmOp::SquareReg(out, arg) => {
+                Op::SquareReg(out, arg) => {
                     v[out] = v[arg].square();
                 }
-                AsmOp::CopyReg(out, arg) => v[out] = v[arg],
-                AsmOp::AddRegImm(out, arg, imm) => {
+                Op::CopyReg(out, arg) => v[out] = v[arg],
+                Op::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
                 }
-                AsmOp::MulRegImm(out, arg, imm) => {
+                Op::MulRegImm(out, arg, imm) => {
                     v[out] = v[arg] * imm.into();
                 }
-                AsmOp::DivRegImm(out, arg, imm) => {
+                Op::DivRegImm(out, arg, imm) => {
                     v[out] = v[arg] / imm.into();
                 }
-                AsmOp::DivImmReg(out, arg, imm) => {
+                Op::DivImmReg(out, arg, imm) => {
                     let imm: Interval = imm.into();
                     v[out] = imm / v[arg];
                 }
-                AsmOp::SubImmReg(out, arg, imm) => {
+                Op::SubImmReg(out, arg, imm) => {
                     v[out] = Interval::from(imm) - v[arg];
                 }
-                AsmOp::SubRegImm(out, arg, imm) => {
+                Op::SubRegImm(out, arg, imm) => {
                     v[out] = v[arg] - imm.into();
                 }
-                AsmOp::MinRegImm(out, arg, imm) => {
+                Op::MinRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
-                AsmOp::MaxRegImm(out, arg, imm) => {
+                Op::MaxRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
-                AsmOp::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
-                AsmOp::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
-                AsmOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
-                AsmOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
-                AsmOp::MinRegReg(out, lhs, rhs) => {
+                Op::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
+                Op::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
+                Op::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
+                Op::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
+                Op::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
-                AsmOp::MaxRegReg(out, lhs, rhs) => {
+                Op::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                 }
-                AsmOp::CopyImm(out, imm) => {
+                Op::CopyImm(out, imm) => {
                     v[out] = imm.into();
                 }
-                AsmOp::Load(out, mem) => {
+                Op::Load(out, mem) => {
                     v[out] = v[mem];
                 }
-                AsmOp::Store(out, mem) => {
+                Op::Store(out, mem) => {
                     v[mem] = v[out];
                 }
             }
@@ -195,7 +195,7 @@ impl IntervalEvalT for AsmIntervalEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
+/// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmFloatSliceEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape,
@@ -213,7 +213,6 @@ impl From<Tape> for AsmFloatSliceEval {
 
 impl FloatSliceEvalT for AsmFloatSliceEval {
     type Storage = ();
-    type Family = AsmFamily;
 
     fn from_tape_give(tape: Tape, _s: Self::Storage) -> Self {
         Self::from(tape)
@@ -239,126 +238,124 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             match op {
-                AsmOp::Input(out, i) => {
-                    v[out][0..size].copy_from_slice(match i {
-                        0 => xs,
-                        1 => ys,
-                        2 => zs,
-                        _ => panic!("Invalid input: {}", i),
-                    })
-                }
-                AsmOp::NegReg(out, arg) => {
+                Op::Input(out, i) => v[out][0..size].copy_from_slice(match i {
+                    0 => xs,
+                    1 => ys,
+                    2 => zs,
+                    _ => panic!("Invalid input: {}", i),
+                }),
+                Op::NegReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                AsmOp::AbsReg(out, arg) => {
+                Op::AbsReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                AsmOp::RecipReg(out, arg) => {
+                Op::RecipReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = 1.0 / v[arg][i];
                     }
                 }
-                AsmOp::SqrtReg(out, arg) => {
+                Op::SqrtReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                AsmOp::SquareReg(out, arg) => {
+                Op::SquareReg(out, arg) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                AsmOp::CopyReg(out, arg) => {
+                Op::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                AsmOp::AddRegImm(out, arg, imm) => {
+                Op::AddRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm;
                     }
                 }
-                AsmOp::MulRegImm(out, arg, imm) => {
+                Op::MulRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm;
                     }
                 }
-                AsmOp::DivRegImm(out, arg, imm) => {
+                Op::DivRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm;
                     }
                 }
-                AsmOp::DivImmReg(out, arg, imm) => {
+                Op::DivImmReg(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                AsmOp::SubImmReg(out, arg, imm) => {
+                Op::SubImmReg(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                AsmOp::SubRegImm(out, arg, imm) => {
+                Op::SubRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                AsmOp::MinRegImm(out, arg, imm) => {
+                Op::MinRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                AsmOp::MaxRegImm(out, arg, imm) => {
+                Op::MaxRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                AsmOp::AddRegReg(out, lhs, rhs) => {
+                Op::AddRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                AsmOp::MulRegReg(out, lhs, rhs) => {
+                Op::MulRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                AsmOp::DivRegReg(out, lhs, rhs) => {
+                Op::DivRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                AsmOp::SubRegReg(out, lhs, rhs) => {
+                Op::SubRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                AsmOp::MinRegReg(out, lhs, rhs) => {
+                Op::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                AsmOp::MaxRegReg(out, lhs, rhs) => {
+                Op::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
-                AsmOp::CopyImm(out, imm) => {
+                Op::CopyImm(out, imm) => {
                     for i in 0..size {
                         v[out][i] = imm;
                     }
                 }
-                AsmOp::Load(out, mem) => {
+                Op::Load(out, mem) => {
                     for i in 0..size {
                         v[out][i] = v[mem][i];
                     }
                 }
-                AsmOp::Store(out, mem) => {
+                Op::Store(out, mem) => {
                     for i in 0..size {
                         v[mem][i] = v[out][i];
                     }
@@ -382,7 +379,7 @@ impl AsmFloatSliceEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
+/// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmPointEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape,
@@ -401,7 +398,6 @@ impl From<Tape> for AsmPointEval {
 }
 
 impl PointEvalT for AsmPointEval {
-    type Family = AsmFamily;
     fn eval_p(
         &mut self,
         x: f32,
@@ -413,7 +409,7 @@ impl PointEvalT for AsmPointEval {
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             match op {
-                AsmOp::Input(out, i) => {
+                Op::Input(out, i) => {
                     v[out] = match i {
                         0 => x,
                         1 => y,
@@ -421,44 +417,44 @@ impl PointEvalT for AsmPointEval {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
-                AsmOp::NegReg(out, arg) => {
+                Op::NegReg(out, arg) => {
                     v[out] = -v[arg];
                 }
-                AsmOp::AbsReg(out, arg) => {
+                Op::AbsReg(out, arg) => {
                     v[out] = v[arg].abs();
                 }
-                AsmOp::RecipReg(out, arg) => {
+                Op::RecipReg(out, arg) => {
                     v[out] = 1.0 / v[arg];
                 }
-                AsmOp::SqrtReg(out, arg) => {
+                Op::SqrtReg(out, arg) => {
                     v[out] = v[arg].sqrt();
                 }
-                AsmOp::SquareReg(out, arg) => {
+                Op::SquareReg(out, arg) => {
                     let s = v[arg];
                     v[out] = s * s;
                 }
-                AsmOp::CopyReg(out, arg) => {
+                Op::CopyReg(out, arg) => {
                     v[out] = v[arg];
                 }
-                AsmOp::AddRegImm(out, arg, imm) => {
+                Op::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm;
                 }
-                AsmOp::MulRegImm(out, arg, imm) => {
+                Op::MulRegImm(out, arg, imm) => {
                     v[out] = v[arg] * imm;
                 }
-                AsmOp::DivRegImm(out, arg, imm) => {
+                Op::DivRegImm(out, arg, imm) => {
                     v[out] = v[arg] / imm;
                 }
-                AsmOp::DivImmReg(out, arg, imm) => {
+                Op::DivImmReg(out, arg, imm) => {
                     v[out] = imm / v[arg];
                 }
-                AsmOp::SubImmReg(out, arg, imm) => {
+                Op::SubImmReg(out, arg, imm) => {
                     v[out] = imm - v[arg];
                 }
-                AsmOp::SubRegImm(out, arg, imm) => {
+                Op::SubRegImm(out, arg, imm) => {
                     v[out] = v[arg] - imm;
                 }
-                AsmOp::MinRegImm(out, arg, imm) => {
+                Op::MinRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a < imm {
                         choices[choice_index] |= Choice::Left;
@@ -476,7 +472,7 @@ impl PointEvalT for AsmPointEval {
                     };
                     choice_index += 1;
                 }
-                AsmOp::MaxRegImm(out, arg, imm) => {
+                Op::MaxRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a > imm {
                         choices[choice_index] |= Choice::Left;
@@ -494,19 +490,19 @@ impl PointEvalT for AsmPointEval {
                     };
                     choice_index += 1;
                 }
-                AsmOp::AddRegReg(out, lhs, rhs) => {
+                Op::AddRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] + v[rhs];
                 }
-                AsmOp::MulRegReg(out, lhs, rhs) => {
+                Op::MulRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] * v[rhs];
                 }
-                AsmOp::DivRegReg(out, lhs, rhs) => {
+                Op::DivRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] / v[rhs];
                 }
-                AsmOp::SubRegReg(out, lhs, rhs) => {
+                Op::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
                 }
-                AsmOp::MinRegReg(out, lhs, rhs) => {
+                Op::MinRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a < b {
@@ -525,7 +521,7 @@ impl PointEvalT for AsmPointEval {
                     };
                     choice_index += 1;
                 }
-                AsmOp::MaxRegReg(out, lhs, rhs) => {
+                Op::MaxRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a > b {
@@ -544,13 +540,13 @@ impl PointEvalT for AsmPointEval {
                     };
                     choice_index += 1;
                 }
-                AsmOp::CopyImm(out, imm) => {
+                Op::CopyImm(out, imm) => {
                     v[out] = imm;
                 }
-                AsmOp::Load(out, mem) => {
+                Op::Load(out, mem) => {
                     v[out] = v[mem];
                 }
-                AsmOp::Store(out, mem) => {
+                Op::Store(out, mem) => {
                     v[mem] = v[out];
                 }
             }
@@ -561,7 +557,7 @@ impl PointEvalT for AsmPointEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`AsmOp`]
+/// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmGradEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape,
@@ -583,7 +579,6 @@ impl From<Tape> for AsmGradEval {
 
 impl GradEvalT for AsmGradEval {
     type Storage = ();
-    type Family = AsmFamily;
 
     fn take(self) -> Option<Self::Storage> {
         Some(())
@@ -613,7 +608,7 @@ impl GradEvalT for AsmGradEval {
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
             match op {
-                AsmOp::Input(out, j) => {
+                Op::Input(out, j) => {
                     for i in 0..size {
                         v[out][i] = match j {
                             0 => Grad::new(xs[i], 1.0, 0.0, 0.0),
@@ -623,125 +618,125 @@ impl GradEvalT for AsmGradEval {
                         }
                     }
                 }
-                AsmOp::NegReg(out, arg) => {
+                Op::NegReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                AsmOp::AbsReg(out, arg) => {
+                Op::AbsReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                AsmOp::RecipReg(out, arg) => {
+                Op::RecipReg(out, arg) => {
                     let one: Grad = 1.0.into();
                     for i in 0..size {
                         v[out][i] = one / v[arg][i];
                     }
                 }
-                AsmOp::SqrtReg(out, arg) => {
+                Op::SqrtReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                AsmOp::SquareReg(out, arg) => {
+                Op::SquareReg(out, arg) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                AsmOp::CopyReg(out, arg) => {
+                Op::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                AsmOp::AddRegImm(out, arg, imm) => {
+                Op::AddRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm.into();
                     }
                 }
-                AsmOp::MulRegImm(out, arg, imm) => {
+                Op::MulRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm.into();
                     }
                 }
-                AsmOp::DivRegImm(out, arg, imm) => {
+                Op::DivRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm.into();
                     }
                 }
-                AsmOp::DivImmReg(out, arg, imm) => {
+                Op::DivImmReg(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                AsmOp::SubImmReg(out, arg, imm) => {
+                Op::SubImmReg(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                AsmOp::SubRegImm(out, arg, imm) => {
+                Op::SubRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                AsmOp::MinRegImm(out, arg, imm) => {
+                Op::MinRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                AsmOp::MaxRegImm(out, arg, imm) => {
+                Op::MaxRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                AsmOp::AddRegReg(out, lhs, rhs) => {
+                Op::AddRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                AsmOp::MulRegReg(out, lhs, rhs) => {
+                Op::MulRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                AsmOp::DivRegReg(out, lhs, rhs) => {
+                Op::DivRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                AsmOp::SubRegReg(out, lhs, rhs) => {
+                Op::SubRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                AsmOp::MinRegReg(out, lhs, rhs) => {
+                Op::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                AsmOp::MaxRegReg(out, lhs, rhs) => {
+                Op::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
-                AsmOp::CopyImm(out, imm) => {
+                Op::CopyImm(out, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm;
                     }
                 }
-                AsmOp::Load(out, mem) => {
+                Op::Load(out, mem) => {
                     for i in 0..size {
                         v[out][i] = v[mem][i];
                     }
                 }
-                AsmOp::Store(out, mem) => {
+                Op::Store(out, mem) => {
                     for i in 0..size {
                         v[mem][i] = v[out][i];
                     }

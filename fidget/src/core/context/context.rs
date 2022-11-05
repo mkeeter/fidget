@@ -375,7 +375,7 @@ impl Context {
     ///
     /// The resulting tape uses `reg_limit` registers; if more memory is
     /// required, it includes
-    /// [`AsmOp::Load` / `AsmOp::Store`](crate::asm::op::AsmOp) operations.
+    /// [`vm::Op::Load` / `vm::Op::Store`](crate::vm::Op) operations.
     pub fn get_tape_with_reg_limit(&self, root: Node, reg_limit: u8) -> Tape {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();

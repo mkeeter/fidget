@@ -1,16 +1,19 @@
 //! Tools for working with virtual assembly code
 mod alloc;
-mod asm_op;
+mod eval;
 mod lru;
+mod op;
+
+pub use eval::Eval;
 
 pub(super) use alloc::RegisterAllocator;
 
-pub use asm_op::AsmOp;
+pub use op::Op;
 
 // TODO move this to its own file, rename to VmTape?
 #[derive(Clone, Default)]
 pub struct AsmTape {
-    tape: Vec<AsmOp>,
+    tape: Vec<Op>,
 
     /// Total allocated slots
     slot_count: u32,
@@ -48,11 +51,11 @@ impl AsmTape {
         self.tape.is_empty()
     }
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, AsmOp> {
+    pub fn iter(&self) -> std::slice::Iter<'_, Op> {
         self.tape.iter()
     }
     #[inline]
-    pub fn push(&mut self, op: AsmOp) {
+    pub fn push(&mut self, op: Op) {
         self.tape.push(op)
     }
 }
