@@ -49,6 +49,7 @@
 //! ```
 pub mod context;
 pub mod eval;
+pub mod ssa;
 pub mod tape;
 pub mod vm;
 

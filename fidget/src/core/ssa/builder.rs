@@ -1,12 +1,12 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op, UnaryOpcode},
-    tape::{SsaTape, TapeOp},
+    ssa::{Op as SsaOp, Tape},
 };
 
 use std::collections::BTreeMap;
 
-pub struct SsaTapeBuilder {
-    tape: Vec<TapeOp>,
+pub struct Builder {
+    tape: Vec<SsaOp>,
     data: Vec<u32>,
 
     mapping: BTreeMap<Node, u32>,
@@ -20,7 +20,7 @@ enum Location {
     Immediate(f32),
 }
 
-impl SsaTapeBuilder {
+impl Builder {
     pub fn new() -> Self {
         Self {
             tape: vec![],
@@ -31,8 +31,8 @@ impl SsaTapeBuilder {
         }
     }
 
-    pub fn finish(self) -> SsaTape {
-        SsaTape {
+    pub fn finish(self) -> Tape {
+        Tape {
             tape: self.tape,
             data: self.data,
             choice_count: self.choice_count,
@@ -76,7 +76,7 @@ impl SsaTapeBuilder {
                 };
                 self.data.push(index.unwrap());
                 self.data.push(arg);
-                Some(TapeOp::Input)
+                Some(SsaOp::Input)
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
@@ -91,36 +91,24 @@ impl SsaTapeBuilder {
                 let index = index.unwrap();
 
                 let f = match op {
-                    BinaryOpcode::Add => (
-                        TapeOp::AddRegReg,
-                        TapeOp::AddRegImm,
-                        TapeOp::AddRegImm,
-                    ),
-                    BinaryOpcode::Sub => (
-                        TapeOp::SubRegReg,
-                        TapeOp::SubRegImm,
-                        TapeOp::SubImmReg,
-                    ),
-                    BinaryOpcode::Mul => (
-                        TapeOp::MulRegReg,
-                        TapeOp::MulRegImm,
-                        TapeOp::MulRegImm,
-                    ),
-                    BinaryOpcode::Div => (
-                        TapeOp::DivRegReg,
-                        TapeOp::DivRegImm,
-                        TapeOp::DivImmReg,
-                    ),
-                    BinaryOpcode::Min => (
-                        TapeOp::MinRegReg,
-                        TapeOp::MinRegImm,
-                        TapeOp::MinRegImm,
-                    ),
-                    BinaryOpcode::Max => (
-                        TapeOp::MaxRegReg,
-                        TapeOp::MaxRegImm,
-                        TapeOp::MaxRegImm,
-                    ),
+                    BinaryOpcode::Add => {
+                        (SsaOp::AddRegReg, SsaOp::AddRegImm, SsaOp::AddRegImm)
+                    }
+                    BinaryOpcode::Sub => {
+                        (SsaOp::SubRegReg, SsaOp::SubRegImm, SsaOp::SubImmReg)
+                    }
+                    BinaryOpcode::Mul => {
+                        (SsaOp::MulRegReg, SsaOp::MulRegImm, SsaOp::MulRegImm)
+                    }
+                    BinaryOpcode::Div => {
+                        (SsaOp::DivRegReg, SsaOp::DivRegImm, SsaOp::DivImmReg)
+                    }
+                    BinaryOpcode::Min => {
+                        (SsaOp::MinRegReg, SsaOp::MinRegImm, SsaOp::MinRegImm)
+                    }
+                    BinaryOpcode::Max => {
+                        (SsaOp::MaxRegReg, SsaOp::MaxRegImm, SsaOp::MaxRegImm)
+                    }
                 };
 
                 if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
@@ -161,11 +149,11 @@ impl SsaTapeBuilder {
                 };
                 let index = index.unwrap();
                 let op = match op {
-                    UnaryOpcode::Neg => TapeOp::NegReg,
-                    UnaryOpcode::Abs => TapeOp::AbsReg,
-                    UnaryOpcode::Recip => TapeOp::RecipReg,
-                    UnaryOpcode::Sqrt => TapeOp::SqrtReg,
-                    UnaryOpcode::Square => TapeOp::SquareReg,
+                    UnaryOpcode::Neg => SsaOp::NegReg,
+                    UnaryOpcode::Abs => SsaOp::AbsReg,
+                    UnaryOpcode::Recip => SsaOp::RecipReg,
+                    UnaryOpcode::Sqrt => SsaOp::SqrtReg,
+                    UnaryOpcode::Square => SsaOp::SquareReg,
                 };
                 self.data.push(index);
                 self.data.push(lhs);
@@ -179,7 +167,7 @@ impl SsaTapeBuilder {
     }
 }
 
-impl Default for SsaTapeBuilder {
+impl Default for Builder {
     fn default() -> Self {
         Self::new()
     }

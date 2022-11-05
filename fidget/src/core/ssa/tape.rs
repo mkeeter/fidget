@@ -1,9 +1,9 @@
 use crate::{
-    tape::TapeOp,
-    vm::{AsmTape, RegisterAllocator},
+    ssa::Op,
+    vm::{RegisterAllocator, Tape as VmTape},
 };
 
-/// Instruction tape, storing [`TapeOp`](crate::tape::TapeOp) in SSA form
+/// Instruction tape, storing [`Op`](crate::ssa::Op) in SSA form
 ///
 /// Each operation has the following parameters
 /// - 4-byte opcode (required)
@@ -15,10 +15,10 @@ use crate::{
 ///
 /// All register addressing is absolute.
 #[derive(Clone, Debug, Default)]
-pub struct SsaTape {
+pub struct Tape {
     /// The tape is stored in reverse order, such that the root of the tree is
     /// the first item in the tape.
-    pub tape: Vec<TapeOp>,
+    pub tape: Vec<Op>,
 
     /// Variable-length data for tape clauses.
     ///
@@ -34,7 +34,7 @@ pub struct SsaTape {
     pub choice_count: usize,
 }
 
-impl SsaTape {
+impl Tape {
     /// Returns the number of opcodes in the tape
     pub fn len(&self) -> usize {
         self.tape.len()
@@ -50,72 +50,72 @@ impl SsaTape {
         let mut next = || *data.next().unwrap();
         for &op in self.tape.iter().rev() {
             match op {
-                TapeOp::Input => {
+                Op::Input => {
                     let i = next();
                     let out = next();
                     println!("${out} = %{i}");
                 }
-                TapeOp::NegReg
-                | TapeOp::AbsReg
-                | TapeOp::RecipReg
-                | TapeOp::SqrtReg
-                | TapeOp::CopyReg
-                | TapeOp::SquareReg => {
+                Op::NegReg
+                | Op::AbsReg
+                | Op::RecipReg
+                | Op::SqrtReg
+                | Op::CopyReg
+                | Op::SquareReg => {
                     let arg = next();
                     let out = next();
                     let op = match op {
-                        TapeOp::NegReg => "NEG",
-                        TapeOp::AbsReg => "ABS",
-                        TapeOp::RecipReg => "RECIP",
-                        TapeOp::SqrtReg => "SQRT",
-                        TapeOp::SquareReg => "SQUARE",
-                        TapeOp::CopyReg => "COPY",
+                        Op::NegReg => "NEG",
+                        Op::AbsReg => "ABS",
+                        Op::RecipReg => "RECIP",
+                        Op::SqrtReg => "SQRT",
+                        Op::SquareReg => "SQUARE",
+                        Op::CopyReg => "COPY",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${arg}");
                 }
 
-                TapeOp::AddRegReg
-                | TapeOp::MulRegReg
-                | TapeOp::DivRegReg
-                | TapeOp::SubRegReg
-                | TapeOp::MinRegReg
-                | TapeOp::MaxRegReg => {
+                Op::AddRegReg
+                | Op::MulRegReg
+                | Op::DivRegReg
+                | Op::SubRegReg
+                | Op::MinRegReg
+                | Op::MaxRegReg => {
                     let rhs = next();
                     let lhs = next();
                     let out = next();
                     let op = match op {
-                        TapeOp::AddRegReg => "ADD",
-                        TapeOp::MulRegReg => "MUL",
-                        TapeOp::DivRegReg => "DIV",
-                        TapeOp::SubRegReg => "SUB",
-                        TapeOp::MinRegReg => "MIN",
-                        TapeOp::MaxRegReg => "MAX",
+                        Op::AddRegReg => "ADD",
+                        Op::MulRegReg => "MUL",
+                        Op::DivRegReg => "DIV",
+                        Op::SubRegReg => "SUB",
+                        Op::MinRegReg => "MIN",
+                        Op::MaxRegReg => "MAX",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
                 }
 
-                TapeOp::AddRegImm
-                | TapeOp::MulRegImm
-                | TapeOp::DivRegImm
-                | TapeOp::DivImmReg
-                | TapeOp::SubImmReg
-                | TapeOp::SubRegImm
-                | TapeOp::MinRegImm
-                | TapeOp::MaxRegImm => {
+                Op::AddRegImm
+                | Op::MulRegImm
+                | Op::DivRegImm
+                | Op::DivImmReg
+                | Op::SubImmReg
+                | Op::SubRegImm
+                | Op::MinRegImm
+                | Op::MaxRegImm => {
                     let imm = f32::from_bits(next());
                     let arg = next();
                     let out = next();
                     let (op, swap) = match op {
-                        TapeOp::AddRegImm => ("ADD", false),
-                        TapeOp::MulRegImm => ("MUL", false),
-                        TapeOp::DivImmReg => ("DIV", true),
-                        TapeOp::DivRegImm => ("DIV", false),
-                        TapeOp::SubImmReg => ("SUB", true),
-                        TapeOp::SubRegImm => ("SUB", false),
-                        TapeOp::MinRegImm => ("MIN", false),
-                        TapeOp::MaxRegImm => ("MAX", false),
+                        Op::AddRegImm => ("ADD", false),
+                        Op::MulRegImm => ("MUL", false),
+                        Op::DivImmReg => ("DIV", true),
+                        Op::DivRegImm => ("DIV", false),
+                        Op::SubImmReg => ("SUB", true),
+                        Op::SubRegImm => ("SUB", false),
+                        Op::MinRegImm => ("MIN", false),
+                        Op::MaxRegImm => ("MAX", false),
                         _ => unreachable!(),
                     };
                     if swap {
@@ -124,7 +124,7 @@ impl SsaTape {
                         println!("${out} = {op} ${arg} {imm}");
                     }
                 }
-                TapeOp::CopyImm => {
+                Op::CopyImm => {
                     let imm = f32::from_bits(next());
                     let out = next();
                     println!("${out} = COPY {imm}");
@@ -138,48 +138,48 @@ impl SsaTape {
     /// Note that if you _also_ want to simplify the tape, it's more efficient
     /// to use [`simplify`](Self::simplify), which simultaneously simplifies
     /// **and** performs register allocation in a single pass.
-    pub fn get_asm(&self, reg_limit: u8) -> AsmTape {
+    pub fn get_asm(&self, reg_limit: u8) -> VmTape {
         let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
         let mut data = self.data.iter();
         for &op in self.tape.iter() {
             let index = *data.next().unwrap();
 
             match op {
-                TapeOp::Input => {
+                Op::Input => {
                     let i = *data.next().unwrap();
                     alloc.op_input(index, i.try_into().unwrap());
                 }
-                TapeOp::CopyImm => {
+                Op::CopyImm => {
                     let imm = f32::from_bits(*data.next().unwrap());
                     alloc.op_copy_imm(index, imm);
                 }
-                TapeOp::CopyReg
-                | TapeOp::NegReg
-                | TapeOp::AbsReg
-                | TapeOp::RecipReg
-                | TapeOp::SqrtReg
-                | TapeOp::SquareReg => {
+                Op::CopyReg
+                | Op::NegReg
+                | Op::AbsReg
+                | Op::RecipReg
+                | Op::SqrtReg
+                | Op::SquareReg => {
                     let arg = *data.next().unwrap();
                     alloc.op_reg(index, arg, op);
                 }
-                TapeOp::MinRegImm
-                | TapeOp::MaxRegImm
-                | TapeOp::AddRegImm
-                | TapeOp::MulRegImm
-                | TapeOp::DivRegImm
-                | TapeOp::DivImmReg
-                | TapeOp::SubRegImm
-                | TapeOp::SubImmReg => {
+                Op::MinRegImm
+                | Op::MaxRegImm
+                | Op::AddRegImm
+                | Op::MulRegImm
+                | Op::DivRegImm
+                | Op::DivImmReg
+                | Op::SubRegImm
+                | Op::SubImmReg => {
                     let arg = *data.next().unwrap();
                     let imm = f32::from_bits(*data.next().unwrap());
                     alloc.op_reg_imm(index, arg, imm, op);
                 }
-                TapeOp::AddRegReg
-                | TapeOp::MulRegReg
-                | TapeOp::DivRegReg
-                | TapeOp::SubRegReg
-                | TapeOp::MinRegReg
-                | TapeOp::MaxRegReg => {
+                Op::AddRegReg
+                | Op::MulRegReg
+                | Op::DivRegReg
+                | Op::SubRegReg
+                | Op::MinRegReg
+                | Op::MaxRegReg => {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     alloc.op_reg_reg(index, lhs, rhs, op);

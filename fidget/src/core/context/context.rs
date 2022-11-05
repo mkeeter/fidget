@@ -4,7 +4,8 @@ use crate::{
         BinaryOpcode, Op, UnaryOpcode,
     },
     error::Error,
-    tape::{SsaTapeBuilder, Tape},
+    ssa::Builder,
+    tape::Tape,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -380,7 +381,7 @@ impl Context {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut todo = vec![root];
-        let mut builder = SsaTapeBuilder::new();
+        let mut builder = Builder::new();
 
         // Accumulate parent counts and declare all the nodes into the builder
         while let Some(node) = todo.pop() {

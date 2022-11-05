@@ -1,6 +1,6 @@
 use crate::{
-    tape::TapeOp,
-    vm::{lru::Lru, AsmTape, Op},
+    ssa::Op as SsaOp,
+    vm::{lru::Lru, Op, Tape},
 };
 
 use arrayvec::ArrayVec;
@@ -49,7 +49,7 @@ pub struct RegisterAllocator {
     spare_memory: Vec<u32>,
 
     /// Output slots, assembled in reverse order
-    out: AsmTape,
+    out: Tape,
 }
 
 impl RegisterAllocator {
@@ -68,7 +68,7 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
-            out: AsmTape::new(reg_limit),
+            out: Tape::new(reg_limit),
         };
         out.bind_register(0, 0);
         out
@@ -85,7 +85,7 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: vec![],
 
-            out: AsmTape::new(0),
+            out: Tape::new(0),
         }
     }
 
@@ -98,12 +98,12 @@ impl RegisterAllocator {
         self.reg_limit = reg_limit;
         self.spare_registers.clear();
         self.spare_memory.clear();
-        self.out = AsmTape::new(reg_limit);
+        self.out = Tape::new(reg_limit);
         self.bind_register(0, 0);
     }
 
     /// Resets internal state, reusing allocations and the provided tape
-    pub fn reset_give(&mut self, reg_limit: u8, size: usize, tape: AsmTape) {
+    pub fn reset_give(&mut self, reg_limit: u8, size: usize, tape: Tape) {
         assert!(self.out.is_empty());
         self.reset(reg_limit, size);
         self.out = tape;
@@ -111,7 +111,7 @@ impl RegisterAllocator {
     }
 
     /// Claims the internal `Vec<Op>`, leaving it empty
-    pub fn finalize(&mut self) -> AsmTape {
+    pub fn finalize(&mut self) -> Tape {
         std::mem::take(&mut self.out)
     }
 
@@ -246,14 +246,14 @@ impl RegisterAllocator {
     ///
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
-    pub fn op_reg(&mut self, out: u32, arg: u32, op: TapeOp) {
+    pub fn op_reg(&mut self, out: u32, arg: u32, op: SsaOp) {
         let op: fn(u8, u8) -> Op = match op {
-            TapeOp::NegReg => Op::NegReg,
-            TapeOp::AbsReg => Op::AbsReg,
-            TapeOp::RecipReg => Op::RecipReg,
-            TapeOp::SqrtReg => Op::SqrtReg,
-            TapeOp::SquareReg => Op::SquareReg,
-            TapeOp::CopyReg => Op::CopyReg,
+            SsaOp::NegReg => Op::NegReg,
+            SsaOp::AbsReg => Op::AbsReg,
+            SsaOp::RecipReg => Op::RecipReg,
+            SsaOp::SqrtReg => Op::SqrtReg,
+            SsaOp::SquareReg => Op::SquareReg,
+            SsaOp::CopyReg => Op::CopyReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
@@ -357,7 +357,7 @@ impl RegisterAllocator {
     /// `Store` instructions to the internal tape.  It's trickier than it
     /// sounds; look at the source code for a table showing all 18 (!) possible
     /// configurations.
-    pub fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: TapeOp) {
+    pub fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: SsaOp) {
         // Looking at this horrific table, you may be tempted to think "surely
         // there's a clean abstraction that wraps this up in a few functions".
         // You may be right, but I spent a few days chasing down terrible memory
@@ -467,12 +467,12 @@ impl RegisterAllocator {
         //  -----|------|------|----------------------------------------------
         //   m_x  | U   | m_z  | ibid
         let op: fn(u8, u8, u8) -> Op = match op {
-            TapeOp::AddRegReg => Op::AddRegReg,
-            TapeOp::SubRegReg => Op::SubRegReg,
-            TapeOp::MulRegReg => Op::MulRegReg,
-            TapeOp::DivRegReg => Op::DivRegReg,
-            TapeOp::MinRegReg => Op::MinRegReg,
-            TapeOp::MaxRegReg => Op::MaxRegReg,
+            SsaOp::AddRegReg => Op::AddRegReg,
+            SsaOp::SubRegReg => Op::SubRegReg,
+            SsaOp::MulRegReg => Op::MulRegReg,
+            SsaOp::DivRegReg => Op::DivRegReg,
+            SsaOp::MinRegReg => Op::MinRegReg,
+            SsaOp::MaxRegReg => Op::MaxRegReg,
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
@@ -554,16 +554,16 @@ impl RegisterAllocator {
 
     /// Lowers a function taking one register and one immediate into an
     /// [`Op`](crate::asm::Op), pushing it to the internal tape.
-    pub fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: TapeOp) {
+    pub fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: SsaOp) {
         let op: fn(u8, u8, f32) -> Op = match op {
-            TapeOp::AddRegImm => Op::AddRegImm,
-            TapeOp::SubRegImm => Op::SubRegImm,
-            TapeOp::SubImmReg => Op::SubImmReg,
-            TapeOp::MulRegImm => Op::MulRegImm,
-            TapeOp::DivRegImm => Op::DivRegImm,
-            TapeOp::DivImmReg => Op::DivImmReg,
-            TapeOp::MinRegImm => Op::MinRegImm,
-            TapeOp::MaxRegImm => Op::MaxRegImm,
+            SsaOp::AddRegImm => Op::AddRegImm,
+            SsaOp::SubRegImm => Op::SubRegImm,
+            SsaOp::SubImmReg => Op::SubImmReg,
+            SsaOp::MulRegImm => Op::MulRegImm,
+            SsaOp::DivRegImm => Op::DivRegImm,
+            SsaOp::DivImmReg => Op::DivImmReg,
+            SsaOp::MinRegImm => Op::MinRegImm,
+            SsaOp::MaxRegImm => Op::MaxRegImm,
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));

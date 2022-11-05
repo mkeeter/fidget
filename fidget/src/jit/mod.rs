@@ -1569,8 +1569,8 @@ impl EvalT for Eval {
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_tests!(JitGradEval);
-    crate::interval_tests!(JitIntervalEval);
-    crate::float_slice_tests!(JitFloatSliceEval);
-    crate::point_tests!(JitPointEval);
+    crate::grad_tests!(Eval);
+    crate::interval_tests!(Eval);
+    crate::float_slice_tests!(Eval);
+    crate::point_tests!(Eval);
 }

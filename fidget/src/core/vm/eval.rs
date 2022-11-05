@@ -750,8 +750,8 @@ impl GradEvalT for AsmGradEval {
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_tests!(AsmGradEval);
-    crate::interval_tests!(AsmIntervalEval);
-    crate::float_slice_tests!(AsmFloatSliceEval);
-    crate::point_tests!(AsmPointEval);
+    crate::grad_tests!(Eval);
+    crate::interval_tests!(Eval);
+    crate::float_slice_tests!(Eval);
+    crate::point_tests!(Eval);
 }

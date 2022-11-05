@@ -1,6 +1,6 @@
 /// Opcode for use in a [`Tape`](super::Tape)
 #[derive(Copy, Clone, Debug)]
-pub enum TapeOp {
+pub enum Op {
     /// Reads one of the inputs (X, Y, Z)
     Input,
     /// Copy an immediate to a register
@@ -52,59 +52,56 @@ pub enum TapeOp {
     MaxRegReg,
 }
 
-impl TapeOp {
+impl Op {
     /// Returns the number of data fields associated with this opcode
     pub fn data_count(&self) -> usize {
         match self {
-            TapeOp::Input
-            | TapeOp::CopyImm
-            | TapeOp::NegReg
-            | TapeOp::AbsReg
-            | TapeOp::RecipReg
-            | TapeOp::SqrtReg
-            | TapeOp::SquareReg
-            | TapeOp::CopyReg => 1,
+            Op::Input
+            | Op::CopyImm
+            | Op::NegReg
+            | Op::AbsReg
+            | Op::RecipReg
+            | Op::SqrtReg
+            | Op::SquareReg
+            | Op::CopyReg => 1,
 
-            TapeOp::AddRegImm
-            | TapeOp::MulRegImm
-            | TapeOp::SubRegImm
-            | TapeOp::SubImmReg
-            | TapeOp::AddRegReg
-            | TapeOp::MulRegReg
-            | TapeOp::SubRegReg
-            | TapeOp::DivRegReg
-            | TapeOp::DivRegImm
-            | TapeOp::DivImmReg
-            | TapeOp::MinRegImm
-            | TapeOp::MaxRegImm
-            | TapeOp::MinRegReg
-            | TapeOp::MaxRegReg => 2,
+            Op::AddRegImm
+            | Op::MulRegImm
+            | Op::SubRegImm
+            | Op::SubImmReg
+            | Op::AddRegReg
+            | Op::MulRegReg
+            | Op::SubRegReg
+            | Op::DivRegReg
+            | Op::DivRegImm
+            | Op::DivImmReg
+            | Op::MinRegImm
+            | Op::MaxRegImm
+            | Op::MinRegReg
+            | Op::MaxRegReg => 2,
         }
     }
     pub fn choice_count(&self) -> usize {
         match self {
-            TapeOp::Input
-            | TapeOp::CopyImm
-            | TapeOp::NegReg
-            | TapeOp::AbsReg
-            | TapeOp::RecipReg
-            | TapeOp::SqrtReg
-            | TapeOp::SquareReg
-            | TapeOp::CopyReg
-            | TapeOp::AddRegImm
-            | TapeOp::MulRegImm
-            | TapeOp::SubRegImm
-            | TapeOp::SubImmReg
-            | TapeOp::AddRegReg
-            | TapeOp::MulRegReg
-            | TapeOp::SubRegReg
-            | TapeOp::DivRegReg
-            | TapeOp::DivRegImm
-            | TapeOp::DivImmReg => 0,
-            TapeOp::MinRegImm
-            | TapeOp::MaxRegImm
-            | TapeOp::MinRegReg
-            | TapeOp::MaxRegReg => 1,
+            Op::Input
+            | Op::CopyImm
+            | Op::NegReg
+            | Op::AbsReg
+            | Op::RecipReg
+            | Op::SqrtReg
+            | Op::SquareReg
+            | Op::CopyReg
+            | Op::AddRegImm
+            | Op::MulRegImm
+            | Op::SubRegImm
+            | Op::SubImmReg
+            | Op::AddRegReg
+            | Op::MulRegReg
+            | Op::SubRegReg
+            | Op::DivRegReg
+            | Op::DivRegImm
+            | Op::DivImmReg => 0,
+            Op::MinRegImm | Op::MaxRegImm | Op::MinRegReg | Op::MaxRegReg => 1,
         }
     }
 }
