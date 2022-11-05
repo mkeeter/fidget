@@ -3,15 +3,26 @@
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
-//! use fidget::render::{render2d::render, config::RenderConfig};
+//! use fidget::eval::asm::AsmFamily;
+//! use fidget::render::{render2d::{BitRenderMode}, config::RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
-//! let tape = ctx.get_tape(shape, u8::MAX);
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! // TODO: actually render stuff here
+//! let out = cfg.run::<BitRenderMode, AsmFamily>(shape, ctx);
+//! let mut iter = out.iter();
+//! for y in 0..cfg.image_size {
+//!     for x in 0..cfg.image_size {
+//!         if *iter.next().unwrap() {
+//!             print!("XX");
+//!         } else {
+//!             print!("  ");
+//!         }
+//!     }
+//!     println!();
+//! }
 //!
 //! // This will print
 //! //           XXXXXXXXXX
