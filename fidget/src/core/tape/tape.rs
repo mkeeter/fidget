@@ -16,6 +16,18 @@ impl Tape {
         Self(Arc::new(t))
     }
 
+    /// Modifies the register limit of the inner `AsmTape`
+    ///
+    /// This will clone `self.ssa`, so should be avoided in hot loops.
+    pub fn with_reg_limit(&self, reg_limit: u8) -> Self {
+        if self.asm.reg_limit() == reg_limit {
+            self.clone()
+        } else {
+            let t = TapeData::from_ssa(self.ssa.clone(), reg_limit);
+            Self(Arc::new(t))
+        }
+    }
+
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         self.simplify_with(choices, &mut Default::default(), Default::default())
     }

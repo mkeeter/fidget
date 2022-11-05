@@ -364,7 +364,19 @@ impl Context {
     }
 
     /// Flattens a subtree of the graph into straight-line code
-    pub fn get_tape(&self, root: Node, reg_limit: u8) -> Tape {
+    ///
+    /// The resulting tape is planned with `u8::MAX` (i.e. 255) registers;
+    /// for JIT compilation, we construct a reduced-register tape when needed.
+    pub fn get_tape(&self, root: Node) -> Tape {
+        self.get_tape_with_reg_limit(root, u8::MAX)
+    }
+
+    /// Flattens a subtree of the graph into straight-line code.
+    ///
+    /// The resulting tape uses `reg_limit` registers; if more memory is
+    /// required, it includes
+    /// [`AsmOp::Load` / `AsmOp::Store`](crate::asm::op::AsmOp) operations.
+    pub fn get_tape_with_reg_limit(&self, root: Node, reg_limit: u8) -> Tape {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut todo = vec![root];
@@ -641,7 +653,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = ctx.get_tape(c9, u8::MAX);
+        let tape = ctx.get_tape(c9);
         assert_eq!(tape.len(), 8);
     }
 
@@ -652,7 +664,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = ctx.get_tape(x_squared, u8::MAX);
+        let tape = ctx.get_tape(x_squared);
         assert_eq!(tape.len(), 2);
     }
 }

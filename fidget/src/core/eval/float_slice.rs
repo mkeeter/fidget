@@ -33,6 +33,7 @@ pub struct FloatSliceEval<E> {
 
 impl<E: FloatSliceEvalT> From<Tape> for FloatSliceEval<E> {
     fn from(tape: Tape) -> Self {
+        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
         Self {
             tape: tape.clone(),
             eval: E::from(tape),
@@ -70,8 +71,8 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape_x = ctx.get_tape(x, I::Family::REG_LIMIT);
-        let tape_y = ctx.get_tape(y, I::Family::REG_LIMIT);
+        let tape_x = ctx.get_tape(x);
+        let tape_y = ctx.get_tape(y);
 
         let eval = FloatSliceEval::<I>::from(tape_y.clone());
         let mut out = [0.0; 4];
@@ -106,7 +107,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape = ctx.get_tape(x, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(x);
         let mut eval = FloatSliceEval::<I>::from(tape);
         let mut out = [0.0; 4];
         eval.eval_s(
@@ -119,7 +120,7 @@ pub mod eval_tests {
 
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
-        let tape = ctx.get_tape(mul, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(mul);
         let mut eval = FloatSliceEval::<I>::from(tape);
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],

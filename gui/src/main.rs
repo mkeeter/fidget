@@ -146,9 +146,7 @@ impl eframe::App for MyApp {
         if let Ok(script_ctx) = &self.out {
             use fidget::eval::EvalFamily;
             for s in script_ctx.shapes.iter() {
-                let tape = script_ctx
-                    .context
-                    .get_tape(s.shape, fidget::jit::REGISTER_LIMIT);
+                let tape = script_ctx.context.get_tape(s.shape);
                 let image = fidget::render::render2d::render::<
                     fidget::jit::JitEvalFamily,
                     fidget::render::render2d::BitRenderMode,

@@ -22,6 +22,7 @@ pub struct PointEval<E> {
 
 impl<E: PointEvalT> From<Tape> for PointEval<E> {
     fn from(tape: Tape) -> Self {
+        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
         Self {
             tape: tape.clone(),
             choices: vec![Choice::Unknown; tape.choice_count()],
@@ -73,7 +74,7 @@ pub mod eval_tests {
         let one = ctx.constant(1.0);
         let circle = ctx.sub(radius, one).unwrap();
 
-        let tape = ctx.get_tape(circle, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(circle);
         let mut eval = PointEval::<I>::from(tape);
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
         assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
@@ -85,7 +86,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(min);
         let mut eval = PointEval::<I>::from(tape);
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
         assert_eq!(eval.choices(), &[Choice::Both]);
@@ -111,7 +112,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let tape = ctx.get_tape(max, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(max);
         let mut eval = PointEval::<I>::from(tape);
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
         assert_eq!(eval.choices(), &[Choice::Both]);
@@ -138,7 +139,7 @@ pub mod eval_tests {
         let one = ctx.constant(1.0);
         let sum = ctx.add(x, one).unwrap();
         let min = ctx.min(sum, y).unwrap();
-        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(min);
         let mut eval = PointEval::<I>::from(tape);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(1.0, 3.0, 0.0), 2.0);
@@ -151,7 +152,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(min);
         let mut eval = PointEval::<I>::from(tape.clone());
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
@@ -168,7 +169,7 @@ pub mod eval_tests {
 
         let one = ctx.constant(1.0);
         let min = ctx.min(x, one).unwrap();
-        let tape = ctx.get_tape(min, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(min);
         let mut eval = PointEval::<I>::from(tape.clone());
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
@@ -192,7 +193,7 @@ pub mod eval_tests {
         let y2 = ctx.mul(y, two).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
-        let tape = ctx.get_tape(sum, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(sum);
         let mut eval = PointEval::<I>::from(tape);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 6.0);
     }

@@ -59,7 +59,7 @@ fn run3d<I: fidget::eval::EvalFamily>(
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node, I::REG_LIMIT);
+    let tape = ctx.get_tape(node);
     info!("Built tape in {:?}", start.elapsed());
 
     let cfg = fidget::render::config::RenderConfig {
@@ -116,7 +116,7 @@ fn run<I: fidget::eval::EvalFamily>(
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node, I::REG_LIMIT);
+    let tape = ctx.get_tape(node);
     info!("Built tape in {:?}", start.elapsed());
 
     if args.brute {

@@ -186,6 +186,7 @@ pub struct GradEval<E> {
 
 impl<E: GradEvalT> From<Tape> for GradEval<E> {
     fn from(tape: Tape) -> Self {
+        let tape = tape.with_reg_limit(E::Family::REG_LIMIT);
         Self {
             tape: tape.clone(),
             eval: E::from(tape),
@@ -225,7 +226,7 @@ pub mod eval_tests {
     pub fn test_g_x<I: GradEvalT>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let tape = ctx.get_tape(x, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(x);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
@@ -235,7 +236,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let tape = ctx.get_tape(s, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(s);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 0.0, 0.0, 0.0));
@@ -248,7 +249,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let tape = ctx.get_tape(s, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(s);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, 0.5, 0.0, 0.0));
@@ -260,7 +261,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let tape = ctx.get_tape(s, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(s);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.0, 0.0, 1.0, 0.0));
@@ -273,7 +274,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let tape = ctx.get_tape(s, I::Family::REG_LIMIT);
+        let tape = ctx.get_tape(s);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, -1.0, 0.0, 0.0));
@@ -291,7 +292,7 @@ pub mod eval_tests {
         let sqrt = ctx.sqrt(sum).unwrap();
         let half = ctx.constant(0.5);
         let sub = ctx.sub(sqrt, half).unwrap();
-        let tape = ctx.get_tape(sub, u8::MAX);
+        let tape = ctx.get_tape(sub);
 
         let mut eval = GradEval::<I>::from(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));

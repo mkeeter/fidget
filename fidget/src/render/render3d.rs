@@ -431,6 +431,7 @@ pub fn render<I: EvalFamily>(
     tape: Tape,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
+    let tape = tape.with_reg_limit(I::REG_LIMIT);
     let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
