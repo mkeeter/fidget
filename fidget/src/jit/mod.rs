@@ -966,7 +966,7 @@ impl AssemblerT for FloatSliceAssembler {
 ///
 /// Each vector register is used to store `[value, dx, dy, dz]`; `value` is
 /// in the `s0` position for convenience.
-struct GradAssembler(AssemblerData<f32>);
+struct GradAssembler(AssemblerData<[f32; 4]>);
 
 impl AssemblerT for GradAssembler {
     fn init(mmap: Mmap) -> Self {
