@@ -130,8 +130,6 @@ impl eframe::App for MyApp {
         let size = rect.max - rect.min;
         let max_size = size.x.max(size.y);
         let image_size = (max_size * ctx.pixels_per_point()) as usize;
-        let tile_size = 256;
-        let image_size = (image_size + tile_size - 1) / tile_size * tile_size;
 
         let mut image = egui::ImageData::Color(egui::ColorImage::new(
             [image_size; 2],
@@ -146,6 +144,7 @@ impl eframe::App for MyApp {
         let render_start = std::time::Instant::now();
 
         if let Ok(script_ctx) = &self.out {
+            use fidget::eval::EvalFamily;
             for s in script_ctx.shapes.iter() {
                 let tape = script_ctx
                     .context
@@ -157,7 +156,8 @@ impl eframe::App for MyApp {
                     tape,
                     &RenderConfig {
                         image_size,
-                        tile_sizes: vec![tile_size, tile_size / 8],
+                        tile_sizes: fidget::jit::JitEvalFamily::tile_sizes_2d()
+                            .to_vec(),
                         threads: 8,
 
                         mat: Transform2::from_matrix_unchecked(
