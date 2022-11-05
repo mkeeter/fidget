@@ -30,12 +30,15 @@ struct Args {
     #[clap(short, long)]
     brute: bool,
 
+    #[clap(short, long, requires = "image", default_value = "8")]
+    threads: usize,
+
     /// Render in color
     #[clap(short, long, requires = "threedee")]
     color: bool,
 
     /// Render in 3D
-    #[clap(short, long, requires = "image", conflicts_with = "brute")]
+    #[clap(long, requires = "image", conflicts_with = "brute")]
     threedee: bool,
 
     #[clap(short = 'N', default_value = "1", requires = "image")]
@@ -53,18 +56,16 @@ struct Args {
 fn run3d<I: fidget::eval::EvalFamily>(
     ctx: &Context,
     node: Node,
-    size: u32,
-    n: usize,
-    use_color: bool,
+    args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
 
     let cfg = fidget::render::config::RenderConfig {
-        image_size: size as usize,
+        image_size: args.size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
-        threads: 8,
+        threads: args.threads,
 
         mat: nalgebra::Transform3::identity(),
     };
@@ -72,12 +73,12 @@ fn run3d<I: fidget::eval::EvalFamily>(
     let start = Instant::now();
     let mut depth = vec![];
     let mut color = vec![];
-    for _ in 0..n {
+    for _ in 0..args.n {
         (depth, color) =
             fidget::render::render3d::render::<I>(tape.clone(), &cfg);
     }
 
-    let out = if use_color {
+    let out = if args.color {
         depth
             .into_iter()
             .zip(color.into_iter())
@@ -112,27 +113,25 @@ fn run3d<I: fidget::eval::EvalFamily>(
 fn run<I: fidget::eval::EvalFamily>(
     ctx: &Context,
     node: Node,
-    brute: bool,
-    size: u32,
-    n: usize,
+    args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node, I::REG_LIMIT);
     info!("Built tape in {:?}", start.elapsed());
 
-    if brute {
+    if args.brute {
         let mut eval = fidget::eval::float_slice::FloatSliceEval::<
             I::FloatSliceEval,
         >::from(tape);
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
-        for _ in 0..n {
+        for _ in 0..args.n {
             let mut xs = vec![];
             let mut ys = vec![];
-            let div = (size - 1) as f64;
-            for i in 0..size {
+            let div = (args.size - 1) as f64;
+            for i in 0..args.size {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..size {
+                for j in 0..args.size {
                     let x = -1.0 + 2.0 * (j as f64) / div;
                     xs.push(x as f32);
                     ys.push(y as f32);
@@ -152,7 +151,7 @@ fn run<I: fidget::eval::EvalFamily>(
         (out, start)
     } else {
         let cfg = fidget::render::config::RenderConfig {
-            image_size: size as usize,
+            image_size: args.size as usize,
             tile_sizes: I::tile_sizes_2d().to_vec(),
             threads: 8,
 
@@ -160,7 +159,7 @@ fn run<I: fidget::eval::EvalFamily>(
         };
         let start = Instant::now();
         let mut image = vec![];
-        for _ in 0..n {
+        for _ in 0..args.n {
             image = fidget::render::render2d::render::<
                 I,
                 fidget::render::render2d::DebugRenderMode,
@@ -180,30 +179,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let now = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(args.filename)?;
+    let mut file = std::fs::File::open(&args.filename)?;
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
-    if let Some(img) = args.image {
+    if let Some(img) = &args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                run3d::<fidget::eval::asm::AsmFamily>(
-                    &ctx, root, args.size, args.n, args.color,
-                )
+                run3d::<fidget::eval::asm::AsmFamily>(&ctx, root, &args)
             } else {
-                run::<fidget::eval::asm::AsmFamily>(
-                    &ctx, root, args.brute, args.size, args.n,
-                )
+                run::<fidget::eval::asm::AsmFamily>(&ctx, root, &args)
             }
         } else if args.jit {
             if args.threedee {
-                run3d::<fidget::jit::JitEvalFamily>(
-                    &ctx, root, args.size, args.n, args.color,
-                )
+                run3d::<fidget::jit::JitEvalFamily>(&ctx, root, &args)
             } else {
-                run::<fidget::jit::JitEvalFamily>(
-                    &ctx, root, args.brute, args.size, args.n,
-                )
+                run::<fidget::jit::JitEvalFamily>(&ctx, root, &args)
             }
         } else {
             let start = Instant::now();
