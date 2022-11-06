@@ -58,12 +58,10 @@ impl std::ops::Deref for Tape {
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
 /// Under the hood, [`Tape`](Self) stores two different representations:
-/// - A tape in SSA form, suitable for use during tape simplification
-/// - A [`Vec<Op>`](crate::asm::Op), ready to be fed into an assembler,
-///   (e.g. [`dynasm`](crate::asm::dynasm)).
-///
-/// We keep both because SSA form makes tape shortening easier, while the `asm`
-/// data already has registers assigned for lowering into machine assembly.
+/// - A tape in single static assignment form ([`ssa::Tape`}(crate::ssa::Tape)),
+///   which is suitable for use during tape simplification
+/// - A tape in register-allocated form ([`vm::Tape`](crate::vm::Tape)), which
+///   can be efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
 pub struct TapeData {
     ssa: SsaTape,

@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::context::{Context, Node};
 
+/// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
     engine: rhai::Engine,
     context: Arc<Mutex<ScriptContext>>,
@@ -15,6 +16,14 @@ impl Default for Engine {
 }
 
 impl Engine {
+    /// Constructs a script evaluation engine with Fidget bindings
+    ///
+    /// The context includes a variety of functions that operate on
+    /// [`Node`](crate::context::Node) handles, using a global
+    /// [`Context`](crate::context::Context).
+    ///
+    /// In addition, it includes everything in `core.rhai`, which is effectively
+    /// our standard library.
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
         engine.register_type_with_name::<Node>("Node");
@@ -110,11 +119,16 @@ impl Engine {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Shape to render
 pub struct DrawShape {
     pub shape: Node,
     pub color_rgb: [u8; 3],
 }
 
+/// Context for shape evaluation
+///
+/// This object includes a [`Context`](crate::context::Context) and a set of
+/// shapes (written with `draw` or `draw_rgb`).
 pub struct ScriptContext {
     pub context: Context,
     pub shapes: Vec<DrawShape>,
@@ -158,6 +172,7 @@ impl FidgetContext for rhai::NativeCallContext<'_> {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Functions injected into the Rhai context
+
 fn var_x(ctx: rhai::NativeCallContext) -> Node {
     ctx.with_fidget_context(|c| c.x())
 }
