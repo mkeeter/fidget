@@ -15,7 +15,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle);
-//! let mut eval = PointEval::<vm::Eval::PointEval>::from(tape);
+//! let mut eval = PointEval::<vm::Eval>::from(tape);
 //! assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
 //!
