@@ -45,7 +45,8 @@ impl Scratch {
             &self.y[0..size],
             &self.z[0..size],
             &mut self.out_float[0..size],
-        );
+        )
+        .unwrap();
     }
     fn eval_g<E: Eval>(&mut self, f: &mut GradEval<E>, size: usize) {
         f.eval_g(
