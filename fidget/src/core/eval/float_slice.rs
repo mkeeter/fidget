@@ -1,27 +1,45 @@
-use crate::{eval::Eval, tape::Tape};
+//! Float slice evaluation (i.e. `&[f32]`)
+use crate::{eval::Eval, tape::Tape, Error};
 
 /// Function handle for evaluation of many points simultaneously.
 pub trait FloatSliceEvalT: From<Tape> {
-    /// Storage used by the type
+    /// Storage used by the evaluator, provided to minimize allocation churn
     type Storage: Default;
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
+    /// In the default implementation, `_storage` is ignored; override this
+    /// function if it would be useful.
+    ///
     /// The incoming `Storage` is consumed, though it may not necessarily be
-    /// used to construct the new tape (e.g. if it's a mmap region and is too
-    /// small).
-    fn from_tape_give(tape: Tape, storage: Self::Storage) -> Self
+    /// used to construct the new tape (e.g. if it's a memory-mapped region and
+    /// is too small).
+    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Self::from(tape)
+    }
 
     /// Extract the internal storage for reuse, if possible
-    fn take(self) -> Option<Self::Storage>;
+    ///
+    /// In the default implementation, this returns a default-constructed
+    /// `Storage`; override this function if it would be useful
+    fn take(self) -> Option<Self::Storage> {
+        Some(Default::default())
+    }
 
     /// Evaluates float slices
-    // TODO: make this return an error if sizes are mismatched?
+    ///
+    /// # Panics
+    /// This function may assume that the slices are of equal length and
+    /// panic otherwise; higher-level calls (e.g.
+    /// [`FloatSliceEval::eval_s`](`FloatSliceEval::eval_s`)) should maintain
+    /// that invariant.
     fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]);
 }
 
+/// Evaluator for float slices, parameterized by evaluator family
 pub struct FloatSliceEval<E: Eval> {
     #[allow(dead_code)]
     tape: Tape,
@@ -39,6 +57,7 @@ impl<E: Eval> From<Tape> for FloatSliceEval<E> {
 }
 
 impl<F: Eval> FloatSliceEval<F> {
+    /// Builds a new [`FloatSliceEval`](Self), reusing storage to minimize churn
     pub fn new_give(
         tape: Tape,
         s: <<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage,
@@ -47,18 +66,31 @@ impl<F: Eval> FloatSliceEval<F> {
         Self { tape, eval }
     }
 
+    /// Extracts the storage from the inner [`FloatSliceEvalT`](FloatSliceEvalT)
     pub fn take(
         self,
     ) -> Option<<<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage> {
         self.eval.take()
     }
 
-    pub fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]) {
-        self.eval.eval_s(x, y, z, out)
+    /// Evaluates float slices, writing results into `out`
+    pub fn eval_s(
+        &mut self,
+        x: &[f32],
+        y: &[f32],
+        z: &[f32],
+        out: &mut [f32],
+    ) -> Result<(), Error> {
+        if x.len() != y.len() || x.len() != z.len() || x.len() != out.len() {
+            Err(Error::MismatchedSlices)
+        } else {
+            self.eval.eval_s(x, y, z, out);
+            Ok(())
+        }
     }
     pub fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32 {
         let mut out = [std::f32::NAN];
-        self.eval_s(&[x], &[y], &[z], &mut out);
+        self.eval_s(&[x], &[y], &[z], &mut out).unwrap();
         out[0]
     }
 }
@@ -88,7 +120,8 @@ pub mod eval_tests {
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
                 &mut out,
-            );
+            )
+            .unwrap();
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
             t = eval.take().unwrap();
 
@@ -98,7 +131,8 @@ pub mod eval_tests {
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
                 &mut out,
-            );
+            )
+            .unwrap();
             assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
             t = eval.take().unwrap();
         }
@@ -117,7 +151,8 @@ pub mod eval_tests {
             &[3.0, 2.0, 1.0, 0.0],
             &[0.0, 0.0, 0.0, 100.0],
             &mut out,
-        );
+        )
+        .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
 
         let two = ctx.constant(2.0);
@@ -129,7 +164,8 @@ pub mod eval_tests {
             &[3.0, 2.0, 1.0, 0.0],
             &[0.0, 0.0, 0.0, 100.0],
             &mut out,
-        );
+        )
+        .unwrap();
         assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
 
         eval.eval_s(
@@ -137,17 +173,20 @@ pub mod eval_tests {
             &[1.0, 4.0, 8.0],
             &[0.0, 0.0, 0.0],
             &mut out[0..3],
-        );
+        )
+        .unwrap();
         assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
 
         // out is longer than inputs
-        eval.eval_s(
-            &[0.0, 1.0, 2.0],
-            &[1.0, 4.0, 4.0],
-            &[0.0, 0.0, 0.0],
-            &mut out[0..4],
-        );
-        assert_eq!(&out[0..3], &[2.0, 8.0, 8.0]);
+        assert!(matches!(
+            eval.eval_s(
+                &[0.0, 1.0, 2.0],
+                &[1.0, 4.0, 4.0],
+                &[0.0, 0.0, 0.0],
+                &mut out[0..4],
+            ),
+            Err(Error::MismatchedSlices)
+        ));
 
         let mut out = [0.0; 7];
         eval.eval_s(
@@ -155,7 +194,8 @@ pub mod eval_tests {
             &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
             &[0.0; 7],
             &mut out,
-        );
+        )
+        .unwrap();
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
 

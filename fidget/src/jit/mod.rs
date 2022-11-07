@@ -1390,9 +1390,6 @@ impl PointEvalT for JitPointEval {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
-///
-/// The lifetime of this `struct` is bound to an `JitFloatSliceFunc`, which owns
-/// the underlying executable memory.
 pub struct JitFloatSliceEval {
     mmap: Arc<Mmap>,
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),

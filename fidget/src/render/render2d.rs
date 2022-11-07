@@ -278,7 +278,8 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 &self.scratch.y,
                 &self.scratch.z,
                 &mut self.scratch.out,
-            );
+            )
+            .unwrap();
 
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
@@ -297,7 +298,8 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 &self.scratch.y,
                 &self.scratch.z,
                 &mut self.scratch.out,
-            );
+            )
+            .unwrap();
 
             // Don't release func to self.float_storage[0] here; it's done by
             // the parent caller at the end of subtile iteration.

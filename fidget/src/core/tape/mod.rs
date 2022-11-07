@@ -1,11 +1,14 @@
+//! Flexible tapes for use during evaluation or further compilation
 use crate::{
     eval::Choice,
     ssa::{Op as SsaOp, Tape as SsaTape},
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
+    Error,
 };
 use std::sync::Arc;
 
-/// Light-weight handle for tape data
+/// Light-weight handle for tape data, which deferences to
+/// [`TapeData`](TapeData).
 ///
 /// This can be passed by value and cloned.
 #[derive(Clone)]
@@ -28,7 +31,12 @@ impl Tape {
         }
     }
 
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+    /// Simplifies a tape based on the array of choices
+    ///
+    /// The choice slice must be the same size as
+    /// [`self.choice_count()`](TapeData::choice_count),
+    /// which should be ensured by the caller.
+    pub fn simplify(&self, choices: &[Choice]) -> Result<Self, Error> {
         self.simplify_with(choices, &mut Default::default(), Default::default())
     }
 
@@ -38,9 +46,11 @@ impl Tape {
         choices: &[Choice],
         workspace: &mut Workspace,
         prev: TapeData,
-    ) -> Self {
-        let t = self.0.simplify_with(choices, workspace, prev);
-        Self(Arc::new(t))
+    ) -> Result<Self, Error> {
+        self.0
+            .simplify_with(choices, workspace, prev)
+            .map(Arc::new)
+            .map(Self)
     }
 
     pub fn take(mut self) -> Option<TapeData> {
@@ -57,7 +67,7 @@ impl std::ops::Deref for Tape {
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
-/// Under the hood, [`Tape`](Self) stores two different representations:
+/// Under the hood, [`TapeData`](Self) stores two different representations:
 /// - A tape in single static assignment form ([`ssa::Tape`}(crate::ssa::Tape)),
 ///   which is suitable for use during tape simplification
 /// - A tape in register-allocated form ([`vm::Tape`](crate::vm::Tape)), which
@@ -69,10 +79,12 @@ pub struct TapeData {
 }
 
 impl TapeData {
+    /// Empties out the inner tapes, retaining their allocations
     pub fn reset(&mut self) {
         self.ssa.reset();
         self.asm.reset(self.asm.reg_limit());
     }
+
     /// Returns the length of the internal `vm::Op` tape
     pub fn len(&self) -> usize {
         self.asm.len()
@@ -83,26 +95,37 @@ impl TapeData {
 
     /// Returns the number of choice (min/max) nodes in the tape.
     ///
-    /// This is required because some evaluators pre-allocated spaces for the
+    /// This is required because some evaluators pre-allocate spaces for the
     /// choice array.
     pub fn choice_count(&self) -> usize {
         self.ssa.choice_count
     }
+
+    /// Performs register allocation on a [`ssa::Tape`](SsaTape), building a
+    /// complete [`TapeData`](Self).
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let asm = ssa.get_asm(reg_limit);
         Self { ssa, asm }
     }
 
+    /// Returns the number of slots used by the inner VM tape
     pub fn slot_count(&self) -> usize {
         self.asm.slot_count()
     }
 
+    /// Simplifies both inner tapes, using the provided choice array
+    ///
+    /// To minimize allocations, this function takes a [`Workspace`](Workspace)
+    /// _and_ spare [`TapeData`](TapeData); it will reuse those allocations.
     pub fn simplify_with(
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
         mut tape: TapeData,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        if choices.len() != self.choice_count() {
+            return Err(Error::BadChoiceSlice);
+        }
         let reg_limit = self.asm.reg_limit();
         tape.reset();
 
@@ -341,14 +364,14 @@ impl TapeData {
         let asm_tape = workspace.alloc.finalize();
         assert!(ops_out.len() <= asm_tape.len());
 
-        TapeData {
+        Ok(TapeData {
             ssa: SsaTape {
                 tape: ops_out,
                 data: data_out,
                 choice_count,
             },
             asm: asm_tape,
-        }
+        })
     }
 
     /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
@@ -357,6 +380,7 @@ impl TapeData {
         self.asm.iter().cloned().rev()
     }
 
+    /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
         self.ssa.pretty_print()
     }
@@ -364,6 +388,9 @@ impl TapeData {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Data structures used during [`Tape::simplify`]
+///
+/// This is exposed to minimize reallocations in hot loops.
 pub struct Workspace {
     pub alloc: RegisterAllocator,
     pub active: Vec<Option<u32>>,
@@ -379,11 +406,15 @@ impl Default for Workspace {
 }
 
 impl Workspace {
+    /// Resets the workspace, preserving allocations
     pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
         self.alloc.reset(num_registers, tape_len);
         self.active.fill(None);
         self.active.resize(tape_len, None);
     }
+
+    /// Resets the workspace, preserving allocations and claiming the given
+    /// [`vm::Tape`](crate::vm::Tape).
     pub fn reset_give(
         &mut self,
         num_registers: u8,

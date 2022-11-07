@@ -136,8 +136,8 @@ impl Tape {
     /// Lowers the tape to assembly with a particular register limit
     ///
     /// Note that if you _also_ want to simplify the tape, it's more efficient
-    /// to use [`simplify`](Self::simplify), which simultaneously simplifies
-    /// **and** performs register allocation in a single pass.
+    /// to use [`simplify`](crate::tape::Tape::simplify), which simultaneously
+    /// simplifies **and** performs register allocation in a single pass.
     pub fn get_asm(&self, reg_limit: u8) -> VmTape {
         let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
         let mut data = self.data.iter();

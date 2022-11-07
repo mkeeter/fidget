@@ -85,14 +85,6 @@ impl From<Tape> for AsmIntervalEval {
 impl IntervalEvalT for AsmIntervalEval {
     type Storage = ();
 
-    fn take(self) -> Option<Self::Storage> {
-        Some(())
-    }
-
-    fn from_tape_give(tape: Tape, _prev: Self::Storage) -> Self {
-        tape.into()
-    }
-
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -213,15 +205,6 @@ impl From<Tape> for AsmFloatSliceEval {
 
 impl FloatSliceEvalT for AsmFloatSliceEval {
     type Storage = ();
-
-    fn from_tape_give(tape: Tape, _s: Self::Storage) -> Self {
-        Self::from(tape)
-    }
-
-    fn take(self) -> Option<()> {
-        // There is no storage, so you can always take it
-        Some(())
-    }
 
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         let size = [xs.len(), ys.len(), zs.len(), out.len()]
@@ -579,14 +562,6 @@ impl From<Tape> for AsmGradEval {
 
 impl GradEvalT for AsmGradEval {
     type Storage = ();
-
-    fn take(self) -> Option<Self::Storage> {
-        Some(())
-    }
-
-    fn from_tape_give(tape: Tape, _prev: Self::Storage) -> Self {
-        tape.into()
-    }
 
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let mut out = [Grad::default()];

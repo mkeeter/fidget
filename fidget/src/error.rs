@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// Universal error type for `fidget`
+/// Universal error type for Fidget
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("node is not present in this `Context`")]
@@ -20,6 +20,12 @@ pub enum Error {
 
     #[error("empty file")]
     EmptyFile,
+
+    #[error("provided slice does not match choice count")]
+    BadChoiceSlice,
+
+    #[error("slice lengths are mismatched")]
+    MismatchedSlices,
 
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),

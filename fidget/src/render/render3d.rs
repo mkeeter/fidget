@@ -53,7 +53,8 @@ impl Scratch {
             &self.y[0..size],
             &self.z[0..size],
             &mut self.out_grad[0..size],
-        );
+        )
+        .unwrap();
     }
 }
 

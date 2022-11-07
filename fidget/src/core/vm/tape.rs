@@ -1,3 +1,4 @@
+//! Tape used for evaluation
 use crate::vm::Op;
 
 #[derive(Clone, Default)]
@@ -14,11 +15,12 @@ pub struct Tape {
 impl Tape {
     pub fn new(reg_limit: u8) -> Self {
         Self {
-            tape: Vec::with_capacity(512),
+            tape: vec![],
             slot_count: 1,
             reg_limit,
         }
     }
+    /// Resets this tape, retaining its allocations
     pub fn reset(&mut self, reg_limit: u8) {
         self.tape.clear();
         self.slot_count = 1;

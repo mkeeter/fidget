@@ -46,6 +46,9 @@
 mod core;
 pub use crate::core::*;
 
+mod error;
+pub use error::Error;
+
 #[cfg(feature = "render")]
 pub mod render;
 

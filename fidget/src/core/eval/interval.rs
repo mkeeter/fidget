@@ -1,3 +1,4 @@
+//! Interval evaluation
 use crate::{
     eval::{Choice, Eval},
     tape::{Tape, TapeData, Workspace},
@@ -197,9 +198,30 @@ impl std::ops::Neg for Interval {
 pub trait IntervalEvalT: Clone + Send + From<Tape> {
     type Storage: Default;
 
-    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self;
-    fn take(self) -> Option<Self::Storage>;
+    /// Constructs the `IntervalEvalT`, giving it a chance to reuse storage
+    ///
+    /// In the default implementation, `_storage` is ignored; override this
+    /// function if it would be useful.
+    ///
+    /// The incoming `Storage` is consumed, though it may not necessarily be
+    /// used to construct the new tape (e.g. if it's a memory-mapped region and
+    /// is too small).
+    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from(tape)
+    }
 
+    /// Extract the internal storage for reuse, if possible
+    ///
+    /// In the default implementation, this returns a default-constructed
+    /// `Storage`; override this function if it would be useful
+    fn take(self) -> Option<Self::Storage> {
+        Some(Default::default())
+    }
+
+    /// Performs interval evaluation, writing choices to the given array
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -253,7 +275,7 @@ impl<E: Eval> IntervalEval<E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape {
-        self.tape.simplify(&self.choices)
+        self.tape.simplify(&self.choices).unwrap()
     }
 
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
@@ -263,7 +285,9 @@ impl<E: Eval> IntervalEval<E> {
         workspace: &mut Workspace,
         data: TapeData,
     ) -> Tape {
-        self.tape.simplify_with(&self.choices, workspace, data)
+        self.tape
+            .simplify_with(&self.choices, workspace, data)
+            .unwrap()
     }
 
     /// Resets the internal choice array to `Choice::Unknown`

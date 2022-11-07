@@ -53,9 +53,6 @@ pub mod ssa;
 pub mod tape;
 pub mod vm;
 
-// TODO make this top-level?
-pub mod error;
-
 #[cfg(test)]
 mod test {
     use crate::context::*;

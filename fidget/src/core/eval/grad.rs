@@ -1,4 +1,5 @@
-use crate::{eval::Eval, tape::Tape};
+//! Evaluation of partial derivatives
+use crate::{eval::Eval, tape::Tape, Error};
 
 /// Represents a point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -150,33 +151,48 @@ impl std::ops::Neg for Grad {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Trait used for gradient evaluation
 pub trait GradEvalT: From<Tape> {
     type Storage: Default;
 
     /// Constructs the `GradEvalT`, giving it a chance to reuse storage
     ///
+    /// In the default implementation, `_storage` is ignored; override this
+    /// function if it would be useful.
+    ///
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a mmap region and is too
     /// small).
-    fn from_tape_give(tape: Tape, storage: Self::Storage) -> Self
+    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Self::from(tape)
+    }
 
     /// Extract the internal storage for reuse, if possible
-    fn take(self) -> Option<Self::Storage>;
+    ///
+    /// In the default implementation, this returns a default-constructed
+    /// `Storage`; override this function if it would be useful
+    fn take(self) -> Option<Self::Storage> {
+        Some(Default::default())
+    }
 
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad;
+
+    /// Performs gradient evaluation on many points
+    ///
+    /// # Panics
+    /// The input slices must be of the same length, otherwise, this function
+    /// may panic (depending on implementation).
     fn eval_g(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [Grad]) {
-        let len = [x.len(), y.len(), z.len(), out.len()]
-            .into_iter()
-            .min()
-            .unwrap();
-        for i in 0..len {
-            out[i] = self.eval_f(x[i], y[i], z[i]);
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = self.eval_f(x[i], y[i], z[i]);
         }
     }
 }
 
+/// Evaluator for gradients, parameterized by evaluator family
 pub struct GradEval<E: Eval> {
     #[allow(dead_code)]
     tape: Tape,
@@ -212,8 +228,13 @@ impl<E: Eval> GradEval<E> {
         y: &[f32],
         z: &[f32],
         out: &mut [Grad],
-    ) {
-        self.eval.eval_g(x, y, z, out)
+    ) -> Result<(), Error> {
+        if x.len() != y.len() || x.len() != z.len() || x.len() != out.len() {
+            Err(Error::MismatchedSlices)
+        } else {
+            self.eval.eval_g(x, y, z, out);
+            Ok(())
+        }
     }
     pub fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         self.eval.eval_f(x, y, z)

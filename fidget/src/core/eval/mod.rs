@@ -1,4 +1,4 @@
-//! Evaluation, both generically and with a small local interpreter
+//! Traits and generic `struct`s for evaluation
 
 mod choice;
 

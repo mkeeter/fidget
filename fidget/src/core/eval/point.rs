@@ -1,3 +1,4 @@
+//! Single-point evaluation
 use crate::{
     eval::{Choice, Eval},
     tape::Tape,
@@ -34,7 +35,7 @@ impl<E: Eval> PointEval<E> {
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape {
-        self.tape.simplify(&self.choices)
+        self.tape.simplify(&self.choices).unwrap()
     }
 
     pub fn choices(&self) -> &[Choice] {
@@ -156,12 +157,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
 
-        let t = tape.simplify(&[Choice::Left]);
+        let t = tape.simplify(&[Choice::Left]).unwrap();
         let mut eval = PointEval::<I>::from(t);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 3.0);
 
-        let t = tape.simplify(&[Choice::Right]);
+        let t = tape.simplify(&[Choice::Right]).unwrap();
         let mut eval = PointEval::<I>::from(t);
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
@@ -173,12 +174,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
 
-        let t = tape.simplify(&[Choice::Left]);
+        let t = tape.simplify(&[Choice::Left]).unwrap();
         let mut eval = PointEval::<I>::from(t);
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 3.0);
 
-        let t = tape.simplify(&[Choice::Right]);
+        let t = tape.simplify(&[Choice::Right]).unwrap();
         let mut eval = PointEval::<I>::from(t);
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 1.0);
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);

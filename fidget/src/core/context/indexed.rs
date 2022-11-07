@@ -1,5 +1,5 @@
 //! Container types with strongly-typed indexes.
-use crate::error::Error;
+use crate::Error;
 use std::collections::HashMap;
 
 /// Stores a set of `(V, I)` tuples, with lookup in both directions.
@@ -144,6 +144,12 @@ impl<V, I> From<Vec<V>> for IndexVec<V, I> {
             data,
             _phantom: std::marker::PhantomData,
         }
+    }
+}
+
+impl<V, I> IndexVec<V, I> {
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 }
 
