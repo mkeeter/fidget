@@ -1,4 +1,4 @@
-//! Flexible tapes for use during evaluation or further compilation
+//! Dual-use tapes for use during evaluation or further compilation
 use crate::{
     eval::Choice,
     ssa::{Op as SsaOp, Tape as SsaTape},
