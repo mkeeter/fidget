@@ -233,6 +233,14 @@ pub trait IntervalEvalT: Clone + Send {
     ) -> Interval;
 }
 
+/// Handle for an interval evaluator, parameterized with an evaluator family.
+///
+/// This includes an inner type implementing [`IntervalEvalT`](IntervalEvalT)
+/// a vector of [`Choice`](Choice) to be written during evaluation, and a stored
+/// [`Tape`](Tape).
+///
+/// The internal `tape` is planned with
+/// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
 #[derive(Clone)]
 pub struct IntervalEval<E: Eval> {
     tape: Tape,
@@ -241,6 +249,12 @@ pub struct IntervalEval<E: Eval> {
 }
 
 impl<E: Eval> IntervalEval<E> {
+    /// Build a interval evaluator handle from the given tape
+    ///
+    /// If the incoming tape is planned with the correct number of registers,
+    /// we simply make a copy (which is cheap, since it's wrapping an
+    /// `Arc<TapeData>`); otherwise, we replan it, which is slightly more
+    /// expensive.
     pub fn new(tape: Tape) -> Self {
         let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
@@ -249,6 +263,9 @@ impl<E: Eval> IntervalEval<E> {
             eval: E::IntervalEval::new(tape),
         }
     }
+
+    /// Build a interval evaluator handle from the given tape, reusing evaluator
+    /// storage if possible.
     pub fn new_with_storage(
         tape: Tape,
         s: <<E as Eval>::IntervalEval as IntervalEvalT>::Storage,
@@ -262,11 +279,14 @@ impl<E: Eval> IntervalEval<E> {
         }
     }
 
+    /// Extract evaluator storage, consuming the evaluator
     pub fn take(
         self,
     ) -> Option<<<E as Eval>::IntervalEval as IntervalEvalT>::Storage> {
         self.eval.take()
     }
+
+    /// Returns a copy of the inner tape
     pub fn tape(&self) -> Tape {
         self.tape.clone()
     }
@@ -294,6 +314,9 @@ impl<E: Eval> IntervalEval<E> {
         self.choices.fill(Choice::Unknown);
     }
 
+    /// Returns a read-only view into the [`Choice`](Choice) slice.
+    ///
+    /// This is a convenience function for unit testing.
     pub fn choices(&self) -> &[Choice] {
         &self.choices
     }

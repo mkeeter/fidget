@@ -199,7 +199,13 @@ pub trait GradEvalT {
     }
 }
 
-/// Evaluator for gradients, parameterized by evaluator family
+/// Handle for a gradient evaluator, parameterized with an evaluator family.
+///
+/// This includes an inner type implementing [`GradEvalT`](GradEvalT) and a
+/// stored [`Tape`](Tape).
+///
+/// The internal `tape` is planned with
+/// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
 pub struct GradEval<E: Eval> {
     #[allow(dead_code)]
     tape: Tape,
