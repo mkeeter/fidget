@@ -1236,7 +1236,8 @@ impl GradEvalT for JitGradEval {
     }
 
     fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_give::<GradAssembler>(tape.iter_asm(), prev);
+        let mmap =
+            build_asm_fn_with_storage::<GradAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1256,10 +1257,10 @@ impl GradEvalT for JitGradEval {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = Op>) -> Mmap {
-    build_asm_fn_give::<A>(i, Mmap::new(1).unwrap())
+    build_asm_fn_with_storage::<A>(i, Mmap::new(1).unwrap())
 }
 
-fn build_asm_fn_give<A: AssemblerT>(
+fn build_asm_fn_with_storage<A: AssemblerT>(
     i: impl Iterator<Item = Op>,
     s: Mmap,
 ) -> Mmap {
@@ -1405,7 +1406,10 @@ impl FloatSliceEvalT for JitFloatSliceEval {
     }
 
     fn new_with_storage(t: Tape, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_give::<FloatSliceAssembler>(t.iter_asm(), prev);
+        let mmap = build_asm_fn_with_storage::<FloatSliceAssembler>(
+            t.iter_asm(),
+            prev,
+        );
         let ptr = mmap.as_ptr();
         JitFloatSliceEval {
             mmap: Arc::new(mmap),
@@ -1499,8 +1503,10 @@ impl IntervalEvalT for JitIntervalEval {
 
     fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
         assert!(tape.reg_limit() == REGISTER_LIMIT);
-        let mmap =
-            build_asm_fn_give::<IntervalAssembler>(tape.iter_asm(), prev);
+        let mmap = build_asm_fn_with_storage::<IntervalAssembler>(
+            tape.iter_asm(),
+            prev,
+        );
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),

@@ -135,7 +135,7 @@ impl TapeData {
         tape.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset_give(reg_limit, self.ssa.tape.len(), tape.asm);
+        workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
 
         let mut count = 0..;
         let mut choice_count = 0;
@@ -420,13 +420,13 @@ impl Workspace {
 
     /// Resets the workspace, preserving allocations and claiming the given
     /// [`vm::Tape`](crate::vm::Tape).
-    pub fn reset_give(
+    pub fn reset_with_storage(
         &mut self,
         num_registers: u8,
         tape_len: usize,
         tape: VmTape,
     ) {
-        self.alloc.reset_give(num_registers, tape_len, tape);
+        self.alloc.reset_with_storage(num_registers, tape_len, tape);
         self.active.fill(None);
         self.active.resize(tape_len, None);
     }
