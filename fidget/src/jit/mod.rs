@@ -1222,8 +1222,11 @@ pub struct JitGradEval {
     fn_grad: unsafe extern "C" fn(f32, f32, f32) -> [f32; 4],
 }
 
-impl From<Tape> for JitGradEval {
-    fn from(t: Tape) -> Self {
+impl GradEvalT for JitGradEval {
+    type Storage = Mmap;
+
+    fn new(t: Tape) -> Self {
+        assert_eq!(t.reg_limit(), REGISTER_LIMIT);
         let mmap = build_asm_fn::<GradAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1231,12 +1234,8 @@ impl From<Tape> for JitGradEval {
             fn_grad: unsafe { std::mem::transmute(ptr) },
         }
     }
-}
 
-impl GradEvalT for JitGradEval {
-    type Storage = Mmap;
-
-    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
+    fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_give::<GradAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         Self {
@@ -1244,6 +1243,7 @@ impl GradEvalT for JitGradEval {
             fn_grad: unsafe { std::mem::transmute(ptr) },
         }
     }
+
     fn take(mut self) -> Option<Self::Storage> {
         Arc::get_mut(&mut self.mmap).map(std::mem::take)
     }
@@ -1364,8 +1364,8 @@ pub struct JitPointEval {
     fn_float: unsafe extern "C" fn(f32, f32, f32, *mut u8) -> f32,
 }
 
-impl From<Tape> for JitPointEval {
-    fn from(t: Tape) -> Self {
+impl PointEvalT for JitPointEval {
+    fn new(t: Tape) -> Self {
         let mmap = build_asm_fn::<PointAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1373,9 +1373,6 @@ impl From<Tape> for JitPointEval {
             fn_float: unsafe { std::mem::transmute(ptr) },
         }
     }
-}
-
-impl PointEvalT for JitPointEval {
     fn eval_p(
         &mut self,
         x: f32,
@@ -1395,8 +1392,10 @@ pub struct JitFloatSliceEval {
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
 }
 
-impl From<Tape> for JitFloatSliceEval {
-    fn from(t: Tape) -> Self {
+impl FloatSliceEvalT for JitFloatSliceEval {
+    type Storage = Mmap;
+
+    fn new(t: Tape) -> Self {
         let mmap = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1404,12 +1403,8 @@ impl From<Tape> for JitFloatSliceEval {
             fn_vec: unsafe { std::mem::transmute(ptr) },
         }
     }
-}
 
-impl FloatSliceEvalT for JitFloatSliceEval {
-    type Storage = Mmap;
-
-    fn from_tape_give(t: Tape, prev: Self::Storage) -> Self {
+    fn new_with_storage(t: Tape, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_give::<FloatSliceAssembler>(t.iter_asm(), prev);
         let ptr = mmap.as_ptr();
         JitFloatSliceEval {
@@ -1488,22 +1483,22 @@ pub struct JitIntervalEval {
 
 unsafe impl Send for JitIntervalEval {}
 
-impl From<Tape> for JitIntervalEval {
-    fn from(t: Tape) -> Self {
-        let mmap = build_asm_fn::<IntervalAssembler>(t.iter_asm());
+/// Handle owning a JIT-compiled interval function
+impl IntervalEvalT for JitIntervalEval {
+    type Storage = Mmap;
+
+    fn new(tape: Tape) -> Self {
+        assert!(tape.reg_limit() == REGISTER_LIMIT);
+        let mmap = build_asm_fn::<IntervalAssembler>(tape.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
             fn_interval: unsafe { std::mem::transmute(ptr) },
         }
     }
-}
 
-/// Handle owning a JIT-compiled interval function
-impl IntervalEvalT for JitIntervalEval {
-    type Storage = Mmap;
-
-    fn from_tape_give(tape: Tape, prev: Self::Storage) -> Self {
+    fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
+        assert!(tape.reg_limit() == REGISTER_LIMIT);
         let mmap =
             build_asm_fn_give::<IntervalAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();

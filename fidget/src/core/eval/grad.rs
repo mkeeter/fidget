@@ -152,8 +152,12 @@ impl std::ops::Neg for Grad {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait used for gradient evaluation
-pub trait GradEvalT: From<Tape> {
+pub trait GradEvalT {
     type Storage: Default;
+
+    fn new(tape: Tape) -> Self
+    where
+        Self: Sized;
 
     /// Constructs the `GradEvalT`, giving it a chance to reuse storage
     ///
@@ -163,18 +167,21 @@ pub trait GradEvalT: From<Tape> {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a mmap region and is too
     /// small).
-    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
-        Self::from(tape)
+        Self::new(tape)
     }
 
     /// Extract the internal storage for reuse, if possible
     ///
     /// In the default implementation, this returns a default-constructed
     /// `Storage`; override this function if it would be useful
-    fn take(self) -> Option<Self::Storage> {
+    fn take(self) -> Option<Self::Storage>
+    where
+        Self: Sized,
+    {
         Some(Default::default())
     }
 
@@ -199,22 +206,20 @@ pub struct GradEval<E: Eval> {
     eval: E::GradEval,
 }
 
-impl<E: Eval> From<Tape> for GradEval<E> {
-    fn from(tape: Tape) -> Self {
+impl<E: Eval> GradEval<E> {
+    pub fn new(tape: Tape) -> Self {
         let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
-            eval: E::GradEval::from(tape),
+            eval: E::GradEval::new(tape),
         }
     }
-}
 
-impl<E: Eval> GradEval<E> {
-    pub fn new_give(
+    pub fn new_with_storage(
         tape: Tape,
         s: <<E as Eval>::GradEval as GradEvalT>::Storage,
     ) -> Self {
-        let eval = E::GradEval::from_tape_give(tape.clone(), s);
+        let eval = E::GradEval::new_with_storage(tape.clone(), s);
         Self { tape, eval }
     }
 
@@ -251,7 +256,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let tape = ctx.get_tape(x);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
     }
 
@@ -261,7 +266,7 @@ pub mod eval_tests {
         let s = ctx.square(x).unwrap();
         let tape = ctx.get_tape(s);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0), Grad::new(0.0, 0.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, 2.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(4.0, 4.0, 0.0, 0.0));
@@ -274,7 +279,7 @@ pub mod eval_tests {
         let s = ctx.sqrt(x).unwrap();
         let tape = ctx.get_tape(s);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, 0.5, 0.0, 0.0));
         assert_eq!(eval.eval_f(4.0, 0.0, 0.0), Grad::new(2.0, 0.25, 0.0, 0.0));
     }
@@ -286,7 +291,7 @@ pub mod eval_tests {
         let s = ctx.mul(x, y).unwrap();
         let tape = ctx.get_tape(s);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.0, 0.0, 1.0, 0.0));
         assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.0, 1.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(4.0, 1.0, 0.0), Grad::new(4.0, 1.0, 4.0, 0.0));
@@ -299,7 +304,7 @@ pub mod eval_tests {
         let s = ctx.recip(x).unwrap();
         let tape = ctx.get_tape(s);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(1.0, -1.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(0.5, -0.25, 0.0, 0.0));
     }
@@ -317,7 +322,7 @@ pub mod eval_tests {
         let sub = ctx.sub(sqrt, half).unwrap();
         let tape = ctx.get_tape(sub);
 
-        let mut eval = GradEval::<I>::from(tape);
+        let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(1.0, 0.0, 0.0), Grad::new(0.5, 1.0, 0.0, 0.0));
         assert_eq!(eval.eval_f(0.0, 1.0, 0.0), Grad::new(0.5, 0.0, 1.0, 0.0));
         assert_eq!(eval.eval_f(2.0, 0.0, 0.0), Grad::new(1.5, 1.0, 0.0, 0.0));

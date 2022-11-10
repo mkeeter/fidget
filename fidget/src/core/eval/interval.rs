@@ -195,8 +195,10 @@ impl std::ops::Neg for Interval {
 
 /// Trait for interval evaluation, usually wrapped in an
 /// [`IntervalEval`](IntervalEval)
-pub trait IntervalEvalT: Clone + Send + From<Tape> {
+pub trait IntervalEvalT: Clone + Send {
     type Storage: Default;
+
+    fn new(tape: Tape) -> Self;
 
     /// Constructs the `IntervalEvalT`, giving it a chance to reuse storage
     ///
@@ -206,11 +208,11 @@ pub trait IntervalEvalT: Clone + Send + From<Tape> {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
-        Self::from(tape)
+        Self::new(tape)
     }
 
     /// Extract the internal storage for reuse, if possible
@@ -238,24 +240,21 @@ pub struct IntervalEval<E: Eval> {
     eval: E::IntervalEval,
 }
 
-impl<E: Eval> From<Tape> for IntervalEval<E> {
-    fn from(tape: Tape) -> Self {
+impl<E: Eval> IntervalEval<E> {
+    pub fn new(tape: Tape) -> Self {
         let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
             choices: vec![Choice::Unknown; tape.choice_count()],
-            eval: E::IntervalEval::from(tape),
+            eval: E::IntervalEval::new(tape),
         }
     }
-}
-
-impl<E: Eval> IntervalEval<E> {
-    pub fn new_give(
+    pub fn new_with_storage(
         tape: Tape,
         s: <<E as Eval>::IntervalEval as IntervalEvalT>::Storage,
     ) -> Self {
         let choice_count = tape.choice_count();
-        let eval = E::IntervalEval::from_tape_give(tape.clone(), s);
+        let eval = E::IntervalEval::new_with_storage(tape.clone(), s);
         Self {
             tape,
             choices: vec![Choice::Unknown; choice_count],
@@ -419,12 +418,12 @@ pub mod eval_tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0].into());
 
         let tape = ctx.get_tape(y);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0].into());
     }
@@ -435,7 +434,7 @@ pub mod eval_tests {
         let abs_x = ctx.abs(x).unwrap();
 
         let tape = ctx.get_tape(abs_x);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([1.0, 5.0]), [1.0, 5.0].into());
         assert_eq!(eval.eval_i_x([-2.0, 5.0]), [0.0, 5.0].into());
@@ -446,7 +445,7 @@ pub mod eval_tests {
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
         let tape = ctx.get_tape(sum);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0].into());
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0].into());
@@ -458,7 +457,7 @@ pub mod eval_tests {
         let sqrt_x = ctx.sqrt(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_x([-2.0, 4.0]), [0.0, 2.0].into());
@@ -477,7 +476,7 @@ pub mod eval_tests {
         let sqrt_x = ctx.square(x).unwrap();
 
         let tape = ctx.get_tape(sqrt_x);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_x([0.0, 4.0]), [0.0, 16.0].into());
         assert_eq!(eval.eval_i_x([2.0, 4.0]), [4.0, 16.0].into());
@@ -497,7 +496,7 @@ pub mod eval_tests {
         let mul = ctx.mul(x, y).unwrap();
 
         let tape = ctx.get_tape(mul);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_xy([-2.0, 1.0], [0.0, 1.0]), [-2.0, 1.0].into());
@@ -525,14 +524,14 @@ pub mod eval_tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(x, two).unwrap();
         let tape = ctx.get_tape(mul);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [2.0, 4.0].into());
 
         let neg_three = ctx.constant(-3.0);
         let mul = ctx.mul(x, neg_three).unwrap();
         let tape = ctx.get_tape(mul);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-3.0, 0.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-6.0, -3.0].into());
     }
@@ -544,7 +543,7 @@ pub mod eval_tests {
         let sub = ctx.sub(x, y).unwrap();
 
         let tape = ctx.get_tape(sub);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0].into());
         assert_eq!(eval.eval_i_xy([-2.0, 1.0], [0.0, 1.0]), [-3.0, 1.0].into());
@@ -564,14 +563,14 @@ pub mod eval_tests {
         let two = ctx.constant(2.0);
         let sub = ctx.sub(x, two).unwrap();
         let tape = ctx.get_tape(sub);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-2.0, -1.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-1.0, 0.0].into());
 
         let neg_three = ctx.constant(-3.0);
         let sub = ctx.sub(neg_three, x).unwrap();
         let tape = ctx.get_tape(sub);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-4.0, -3.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-5.0, -4.0].into());
     }
@@ -581,7 +580,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
         let tape = ctx.get_tape(recip);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
 
         let nanan = eval.eval_i_x([0.0, 1.0]);
         assert!(nanan.lower().is_nan());
@@ -605,7 +604,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let div = ctx.div(x, y).unwrap();
         let tape = ctx.get_tape(div);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
 
         let nanan = eval.eval_i_xy([0.0, 1.0], [-1.0, 1.0]);
         assert!(nanan.lower().is_nan());
@@ -647,7 +646,7 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape(min);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2]),
             [0.0, 1.0].into()
@@ -684,7 +683,7 @@ pub mod eval_tests {
         let min = ctx.min(x, one).unwrap();
 
         let tape = ctx.get_tape(min);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2]),
             [0.0, 1.0].into()
@@ -711,7 +710,7 @@ pub mod eval_tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape(max);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2],),
             [0.5, 1.5].into()
@@ -743,7 +742,7 @@ pub mod eval_tests {
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = ctx.get_tape(max_xy_z);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]),
             [4.0, 5.0].into()
@@ -770,7 +769,7 @@ pub mod eval_tests {
         let max = ctx.max(x, one).unwrap();
 
         let tape = ctx.get_tape(max);
-        let mut eval = IntervalEval::<I>::from(tape);
+        let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0]),
             [1.0, 2.0].into()

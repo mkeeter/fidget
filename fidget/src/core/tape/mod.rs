@@ -113,6 +113,11 @@ impl TapeData {
         self.asm.slot_count()
     }
 
+    /// Returns the register limit of the VM tape
+    pub fn reg_limit(&self) -> u8 {
+        self.asm.reg_limit()
+    }
+
     /// Simplifies both inner tapes, using the provided choice array
     ///
     /// To minimize allocations, this function takes a [`Workspace`](Workspace)

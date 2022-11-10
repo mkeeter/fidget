@@ -4,7 +4,7 @@
 //! omnibus library instead.
 //!
 //! ```
-//! use fidget::{eval::{point::PointEval}, vm, context::Context};
+//! use fidget::{eval::Eval, vm, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -15,7 +15,7 @@
 //! let circle = ctx.sub(radius, one).unwrap();
 //!
 //! let tape = ctx.get_tape(circle);
-//! let mut eval = PointEval::<vm::Eval>::from(tape);
+//! let mut eval = vm::Eval::new_point_evaluator(tape);
 //! assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
 //! assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
 //!

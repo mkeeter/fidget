@@ -159,7 +159,8 @@ impl<I: Eval> Worker<'_, I> {
                 std::mem::take(&mut self.spare_tapes[depth]),
             );
             let s = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = IntervalEval::new_give(sub_tape.clone(), s);
+            let mut sub_jit =
+                I::new_interval_evaluator_with_storage(sub_tape.clone(), s);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -257,7 +258,8 @@ impl<I: Eval> Worker<'_, I> {
         );
         if sub_tape.len() < handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func = FloatSliceEval::<I>::new_give(sub_tape.clone(), s);
+            let mut func =
+                I::new_float_slice_evaluator_with_storage(sub_tape.clone(), s);
 
             self.scratch.eval_s(&mut func, size);
 
@@ -270,7 +272,7 @@ impl<I: Eval> Worker<'_, I> {
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let s = std::mem::take(&mut self.float_storage[0]);
-                FloatSliceEval::new_give(handle.tape(), s)
+                I::new_float_slice_evaluator_with_storage(handle.tape(), s)
             });
             self.scratch.eval_s(func, size);
         }
@@ -326,7 +328,8 @@ impl<I: Eval> Worker<'_, I> {
 
         if grad > 0 {
             let s = std::mem::take(&mut self.grad_storage);
-            let mut func = GradEval::<I>::new_give(sub_tape.clone(), s);
+            let mut func =
+                I::new_grad_evaluator_with_storage(sub_tape.clone(), s);
 
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
@@ -432,7 +435,7 @@ pub fn render<I: Eval>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = IntervalEval::from(tape);
+    let i_handle = I::new_interval_evaluator(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

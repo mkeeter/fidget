@@ -211,7 +211,8 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 std::mem::take(&mut self.spare_tapes[depth]),
             );
             let s = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = IntervalEval::new_give(sub_tape.clone(), s);
+            let mut sub_jit =
+                I::new_interval_evaluator_with_storage(sub_tape.clone(), s);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -271,7 +272,8 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
         // (this matters most for the JIT compiler, which is _expensive_)
         if sub_tape.len() < i_handle.tape().len() {
             let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func = FloatSliceEval::<I>::new_give(sub_tape.clone(), s);
+            let mut func =
+                I::new_float_slice_evaluator_with_storage(sub_tape.clone(), s);
 
             func.eval_s(
                 &self.scratch.x,
@@ -290,7 +292,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let s = std::mem::take(&mut self.float_storage[0]);
-                FloatSliceEval::new_give(i_handle.tape(), s)
+                I::new_float_slice_evaluator_with_storage(i_handle.tape(), s)
             });
 
             func.eval_s(
@@ -362,7 +364,7 @@ pub fn render<I: Eval, M: RenderMode>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = IntervalEval::from(tape);
+    let i_handle = I::new_interval_evaluator(tape);
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

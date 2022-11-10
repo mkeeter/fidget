@@ -2,9 +2,11 @@
 use crate::{eval::Eval, tape::Tape, Error};
 
 /// Function handle for evaluation of many points simultaneously.
-pub trait FloatSliceEvalT: From<Tape> {
+pub trait FloatSliceEvalT {
     /// Storage used by the evaluator, provided to minimize allocation churn
     type Storage: Default;
+
+    fn new(tape: Tape) -> Self;
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
@@ -14,18 +16,21 @@ pub trait FloatSliceEvalT: From<Tape> {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn from_tape_give(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
-        Self::from(tape)
+        Self::new(tape)
     }
 
     /// Extract the internal storage for reuse, if possible
     ///
     /// In the default implementation, this returns a default-constructed
     /// `Storage`; override this function if it would be useful
-    fn take(self) -> Option<Self::Storage> {
+    fn take(self) -> Option<Self::Storage>
+    where
+        Self: Sized,
+    {
         Some(Default::default())
     }
 
@@ -46,30 +51,28 @@ pub struct FloatSliceEval<E: Eval> {
     eval: E::FloatSliceEval,
 }
 
-impl<E: Eval> From<Tape> for FloatSliceEval<E> {
-    fn from(tape: Tape) -> Self {
+impl<E: Eval> FloatSliceEval<E> {
+    pub fn new(tape: Tape) -> Self {
         let tape = tape.with_reg_limit(E::REG_LIMIT);
         Self {
             tape: tape.clone(),
-            eval: E::FloatSliceEval::from(tape),
+            eval: E::FloatSliceEval::new(tape),
         }
     }
-}
 
-impl<F: Eval> FloatSliceEval<F> {
     /// Builds a new [`FloatSliceEval`](Self), reusing storage to minimize churn
-    pub fn new_give(
+    pub fn new_with_storage(
         tape: Tape,
-        s: <<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage,
+        s: <<E as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage,
     ) -> Self {
-        let eval = F::FloatSliceEval::from_tape_give(tape.clone(), s);
+        let eval = E::FloatSliceEval::new_with_storage(tape.clone(), s);
         Self { tape, eval }
     }
 
     /// Extracts the storage from the inner [`FloatSliceEvalT`](FloatSliceEvalT)
     pub fn take(
         self,
-    ) -> Option<<<F as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage> {
+    ) -> Option<<<E as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage> {
         self.eval.take()
     }
 
@@ -108,13 +111,14 @@ pub mod eval_tests {
         let tape_x = ctx.get_tape(x);
         let tape_y = ctx.get_tape(y);
 
-        let eval = FloatSliceEval::<I>::from(tape_y.clone());
+        let eval = FloatSliceEval::<I>::new(tape_y.clone());
         let mut out = [0.0; 4];
         let mut t = eval.take().unwrap();
 
         // This is a fuzz test for icache issues
         for _ in 0..10000 {
-            let mut eval = FloatSliceEval::<I>::new_give(tape_x.clone(), t);
+            let mut eval =
+                FloatSliceEval::<I>::new_with_storage(tape_x.clone(), t);
             eval.eval_s(
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
@@ -125,7 +129,8 @@ pub mod eval_tests {
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
             t = eval.take().unwrap();
 
-            let mut eval = FloatSliceEval::<I>::new_give(tape_y.clone(), t);
+            let mut eval =
+                FloatSliceEval::<I>::new_with_storage(tape_y.clone(), t);
             eval.eval_s(
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
@@ -144,7 +149,7 @@ pub mod eval_tests {
         let y = ctx.y();
 
         let tape = ctx.get_tape(x);
-        let mut eval = FloatSliceEval::<I>::from(tape);
+        let mut eval = FloatSliceEval::<I>::new(tape);
         let mut out = [0.0; 4];
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],
@@ -158,7 +163,7 @@ pub mod eval_tests {
         let two = ctx.constant(2.0);
         let mul = ctx.mul(y, two).unwrap();
         let tape = ctx.get_tape(mul);
-        let mut eval = FloatSliceEval::<I>::from(tape);
+        let mut eval = FloatSliceEval::<I>::new(tape);
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],
             &[3.0, 2.0, 1.0, 0.0],

@@ -72,18 +72,17 @@ pub struct AsmIntervalEval {
     slots: Vec<Interval>,
 }
 
-impl From<Tape> for AsmIntervalEval {
-    fn from(tape: Tape) -> Self {
+impl IntervalEvalT for AsmIntervalEval {
+    type Storage = ();
+
+    fn new(tape: Tape) -> Self {
+        assert!(tape.reg_limit() == u8::MAX);
         let slot_count = tape.slot_count();
         Self {
             tape,
             slots: vec![Interval::from(std::f32::NAN); slot_count],
         }
     }
-}
-
-impl IntervalEvalT for AsmIntervalEval {
-    type Storage = ();
 
     fn eval_i<I: Into<Interval>>(
         &mut self,
@@ -197,14 +196,17 @@ pub struct AsmFloatSliceEval {
     slice_size: usize,
 }
 
-impl From<Tape> for AsmFloatSliceEval {
-    fn from(tape: Tape) -> Self {
-        Self::new(tape)
-    }
-}
-
 impl FloatSliceEvalT for AsmFloatSliceEval {
     type Storage = ();
+
+    fn new(tape: Tape) -> Self {
+        let slot_count = tape.slot_count();
+        Self {
+            tape,
+            slots: vec![vec![]; slot_count],
+            slice_size: 0,
+        }
+    }
 
     fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
         let size = [xs.len(), ys.len(), zs.len(), out.len()]
@@ -349,17 +351,6 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
     }
 }
 
-impl AsmFloatSliceEval {
-    pub fn new(tape: Tape) -> Self {
-        let slot_count = tape.slot_count();
-        Self {
-            tape,
-            slots: vec![vec![]; slot_count],
-            slice_size: 0,
-        }
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
@@ -370,17 +361,14 @@ pub struct AsmPointEval {
     slots: Vec<f32>,
 }
 
-impl From<Tape> for AsmPointEval {
-    fn from(tape: Tape) -> Self {
+impl PointEvalT for AsmPointEval {
+    fn new(tape: Tape) -> Self {
         let slot_count = tape.slot_count();
         Self {
             tape,
             slots: vec![std::f32::NAN; slot_count],
         }
     }
-}
-
-impl PointEvalT for AsmPointEval {
     fn eval_p(
         &mut self,
         x: f32,
@@ -549,8 +537,10 @@ pub struct AsmGradEval {
     slice_size: usize,
 }
 
-impl From<Tape> for AsmGradEval {
-    fn from(tape: Tape) -> Self {
+impl GradEvalT for AsmGradEval {
+    type Storage = ();
+
+    fn new(tape: Tape) -> Self {
         let slot_count = tape.slot_count();
         Self {
             tape,
@@ -558,10 +548,6 @@ impl From<Tape> for AsmGradEval {
             slice_size: 0,
         }
     }
-}
-
-impl GradEvalT for AsmGradEval {
-    type Storage = ();
 
     fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
         let mut out = [Grad::default()];
