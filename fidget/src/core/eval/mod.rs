@@ -1,6 +1,7 @@
 //! Traits and generic `struct`s for evaluation
 
 mod choice;
+mod reg_limit;
 
 pub mod float_slice;
 pub mod grad;
@@ -10,6 +11,7 @@ pub mod tape;
 
 // Re-export a few things
 pub use choice::Choice;
+pub use reg_limit::{ConstRegLimit, RegLimit};
 
 use float_slice::FloatSliceEvalT;
 use grad::GradEvalT;
@@ -78,5 +80,12 @@ pub trait Eval: Clone {
         storage: <<Self as Eval>::GradEval as GradEvalT>::Storage,
     ) -> grad::GradEval<Self> {
         grad::GradEval::new_with_storage(tape, storage)
+    }
+}
+
+/// Every evaluator family can be used as a [`RegLimit`](RegLimit) type
+impl<E: Eval> RegLimit for E {
+    fn reg_limit() -> u8 {
+        E::REG_LIMIT
     }
 }
