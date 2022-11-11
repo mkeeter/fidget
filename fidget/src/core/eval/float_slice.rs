@@ -1,5 +1,8 @@
 //! Float slice evaluation (i.e. `&[f32]`)
-use crate::{eval::Eval, tape::Tape, Error};
+use crate::{
+    eval::{tape::Tape, Eval},
+    Error,
+};
 
 /// Function handle for evaluation of many points simultaneously.
 pub trait FloatSliceEvalT {

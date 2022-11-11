@@ -47,10 +47,10 @@ use crate::{
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
+        tape::Tape,
         Choice, Eval as EvalT,
     },
     jit::mmap::Mmap,
-    tape::Tape,
     vm::Op,
 };
 

@@ -3,10 +3,10 @@ use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         interval::{Interval, IntervalEval, IntervalEvalT},
+        tape::{Tape, TapeData, Workspace},
         Eval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
-    tape::{Tape, TapeData, Workspace},
 };
 use nalgebra::{Point2, Vector2};
 

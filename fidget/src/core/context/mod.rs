@@ -5,7 +5,7 @@ mod op;
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
-use crate::{ssa::Builder, tape::Tape, Error};
+use crate::{eval::tape::Tape, ssa::Builder, Error};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;

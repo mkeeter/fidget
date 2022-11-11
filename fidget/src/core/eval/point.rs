@@ -1,8 +1,5 @@
 //! Single-point evaluation
-use crate::{
-    eval::{Choice, Eval},
-    tape::Tape,
-};
+use crate::eval::{tape::Tape, Choice, Eval};
 
 /// Function handle for `f32` evaluation
 pub trait PointEvalT {

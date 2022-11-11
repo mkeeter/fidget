@@ -1,5 +1,8 @@
 //! Evaluation of partial derivatives
-use crate::{eval::Eval, tape::Tape, Error};
+use crate::{
+    eval::{tape::Tape, Eval},
+    Error,
+};
 
 /// Represents a point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]

@@ -1,7 +1,7 @@
 //! Interval evaluation
-use crate::{
-    eval::{Choice, Eval},
+use crate::eval::{
     tape::{Tape, TapeData, Workspace},
+    Choice, Eval,
 };
 
 /// Represents a range, with conservative calculations to guarantee that it
