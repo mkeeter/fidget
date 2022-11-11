@@ -195,10 +195,10 @@ impl std::ops::Neg for Interval {
 
 /// Trait for interval evaluation, usually wrapped in an
 /// [`IntervalEval`](IntervalEval)
-pub trait IntervalEvalT: Clone + Send {
+pub trait IntervalEvalT<R>: Clone + Send {
     type Storage: Default;
 
-    fn new(tape: Tape) -> Self;
+    fn new(tape: Tape<R>) -> Self;
 
     /// Constructs the `IntervalEvalT`, giving it a chance to reuse storage
     ///
@@ -208,7 +208,7 @@ pub trait IntervalEvalT: Clone + Send {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -243,7 +243,7 @@ pub trait IntervalEvalT: Clone + Send {
 /// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
 #[derive(Clone)]
 pub struct IntervalEval<E: Eval> {
-    tape: Tape,
+    tape: Tape<E>,
     choices: Vec<Choice>,
     eval: E::IntervalEval,
 }
@@ -255,8 +255,7 @@ impl<E: Eval> IntervalEval<E> {
     /// we simply make a copy (which is cheap, since it's wrapping an
     /// `Arc<TapeData>`); otherwise, we replan it, which is slightly more
     /// expensive.
-    pub fn new(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::REG_LIMIT);
+    pub fn new(tape: Tape<E>) -> Self {
         Self {
             tape: tape.clone(),
             choices: vec![Choice::Unknown; tape.choice_count()],
@@ -267,8 +266,8 @@ impl<E: Eval> IntervalEval<E> {
     /// Build a interval evaluator handle from the given tape, reusing evaluator
     /// storage if possible.
     pub fn new_with_storage(
-        tape: Tape,
-        s: <<E as Eval>::IntervalEval as IntervalEvalT>::Storage,
+        tape: Tape<E>,
+        s: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
     ) -> Self {
         let choice_count = tape.choice_count();
         let eval = E::IntervalEval::new_with_storage(tape.clone(), s);
@@ -282,18 +281,18 @@ impl<E: Eval> IntervalEval<E> {
     /// Extract evaluator storage, consuming the evaluator
     pub fn take(
         self,
-    ) -> Option<<<E as Eval>::IntervalEval as IntervalEvalT>::Storage> {
+    ) -> Option<<<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage> {
         self.eval.take()
     }
 
     /// Returns a copy of the inner tape
-    pub fn tape(&self) -> Tape {
+    pub fn tape(&self) -> Tape<E> {
         self.tape.clone()
     }
 
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
-    pub fn simplify(&self) -> Tape {
+    pub fn simplify(&self) -> Tape<E> {
         self.tape.simplify(&self.choices).unwrap()
     }
 
@@ -303,7 +302,7 @@ impl<E: Eval> IntervalEval<E> {
         &self,
         workspace: &mut Workspace,
         data: TapeData,
-    ) -> Tape {
+    ) -> Tape<E> {
         self.tape
             .simplify_with(&self.choices, workspace, data)
             .unwrap()

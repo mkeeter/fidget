@@ -1222,10 +1222,10 @@ pub struct JitGradEval {
     fn_grad: unsafe extern "C" fn(f32, f32, f32) -> [f32; 4],
 }
 
-impl GradEvalT for JitGradEval {
+impl GradEvalT<Eval> for JitGradEval {
     type Storage = Mmap;
 
-    fn new(t: Tape) -> Self {
+    fn new(t: Tape<Eval>) -> Self {
         assert_eq!(t.reg_limit(), REGISTER_LIMIT);
         let mmap = build_asm_fn::<GradAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
@@ -1235,7 +1235,7 @@ impl GradEvalT for JitGradEval {
         }
     }
 
-    fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
+    fn new_with_storage(tape: Tape<Eval>, prev: Self::Storage) -> Self {
         let mmap =
             build_asm_fn_with_storage::<GradAssembler>(tape.iter_asm(), prev);
         let ptr = mmap.as_ptr();
@@ -1365,8 +1365,8 @@ pub struct JitPointEval {
     fn_float: unsafe extern "C" fn(f32, f32, f32, *mut u8) -> f32,
 }
 
-impl PointEvalT for JitPointEval {
-    fn new(t: Tape) -> Self {
+impl PointEvalT<Eval> for JitPointEval {
+    fn new(t: Tape<Eval>) -> Self {
         let mmap = build_asm_fn::<PointAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1393,10 +1393,10 @@ pub struct JitFloatSliceEval {
     fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
 }
 
-impl FloatSliceEvalT for JitFloatSliceEval {
+impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
     type Storage = Mmap;
 
-    fn new(t: Tape) -> Self {
+    fn new(t: Tape<Eval>) -> Self {
         let mmap = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1405,7 +1405,7 @@ impl FloatSliceEvalT for JitFloatSliceEval {
         }
     }
 
-    fn new_with_storage(t: Tape, prev: Self::Storage) -> Self {
+    fn new_with_storage(t: Tape<Eval>, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_with_storage::<FloatSliceAssembler>(
             t.iter_asm(),
             prev,
@@ -1488,11 +1488,10 @@ pub struct JitIntervalEval {
 unsafe impl Send for JitIntervalEval {}
 
 /// Handle owning a JIT-compiled interval function
-impl IntervalEvalT for JitIntervalEval {
+impl IntervalEvalT<Eval> for JitIntervalEval {
     type Storage = Mmap;
 
-    fn new(tape: Tape) -> Self {
-        assert!(tape.reg_limit() == REGISTER_LIMIT);
+    fn new(tape: Tape<Eval>) -> Self {
         let mmap = build_asm_fn::<IntervalAssembler>(tape.iter_asm());
         let ptr = mmap.as_ptr();
         Self {
@@ -1501,8 +1500,7 @@ impl IntervalEvalT for JitIntervalEval {
         }
     }
 
-    fn new_with_storage(tape: Tape, prev: Self::Storage) -> Self {
-        assert!(tape.reg_limit() == REGISTER_LIMIT);
+    fn new_with_storage(tape: Tape<Eval>, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_with_storage::<IntervalAssembler>(
             tape.iter_asm(),
             prev,

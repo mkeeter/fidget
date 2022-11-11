@@ -1,6 +1,6 @@
 //! Dual-use tapes for use during evaluation or further compilation
 use crate::{
-    eval::Choice,
+    eval::{Choice, Eval},
     ssa::{Op as SsaOp, Tape as SsaTape},
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
     Error,
@@ -12,23 +12,17 @@ use std::sync::Arc;
 ///
 /// This can be passed by value and cloned.
 #[derive(Clone)]
-pub struct Tape(Arc<TapeData>);
-impl Tape {
-    pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
-        let t = TapeData::from_ssa(ssa, reg_limit);
-        Self(Arc::new(t))
-    }
+pub struct Tape<R>(Arc<TapeData>, std::marker::PhantomData<*const R>);
 
-    /// Modifies the register limit of the inner `vm::Tape`
-    ///
-    /// This will clone `self.ssa`, so should be avoided in hot loops.
-    pub fn with_reg_limit(&self, reg_limit: u8) -> Self {
-        if self.asm.reg_limit() == reg_limit {
-            self.clone()
-        } else {
-            let t = TapeData::from_ssa(self.ssa.clone(), reg_limit);
-            Self(Arc::new(t))
-        }
+/// Safety:
+/// The `Tape` contains an `Arc`; the only reason this can't be derived
+/// automatically is because it also contains a `PhantomData`.
+unsafe impl<R> Send for Tape<R> {}
+
+impl<E: Eval> Tape<E> {
+    pub fn from_ssa(ssa: SsaTape) -> Self {
+        let t = TapeData::from_ssa(ssa, E::REG_LIMIT);
+        Self(Arc::new(t), std::marker::PhantomData)
     }
 
     /// Simplifies a tape based on the array of choices
@@ -50,7 +44,7 @@ impl Tape {
         self.0
             .simplify_with(choices, workspace, prev)
             .map(Arc::new)
-            .map(Self)
+            .map(|t| Tape(t, std::marker::PhantomData))
     }
 
     pub fn take(mut self) -> Option<TapeData> {
@@ -58,7 +52,7 @@ impl Tape {
     }
 }
 
-impl std::ops::Deref for Tape {
+impl<E> std::ops::Deref for Tape<E> {
     type Target = TapeData;
     fn deref(&self) -> &Self::Target {
         &self.0

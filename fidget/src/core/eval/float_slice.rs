@@ -5,11 +5,11 @@ use crate::{
 };
 
 /// Function handle for evaluation of many points simultaneously.
-pub trait FloatSliceEvalT {
+pub trait FloatSliceEvalT<R> {
     /// Storage used by the evaluator, provided to minimize allocation churn
     type Storage: Default;
 
-    fn new(tape: Tape) -> Self;
+    fn new(tape: Tape<R>) -> Self;
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
@@ -19,7 +19,7 @@ pub trait FloatSliceEvalT {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -50,13 +50,12 @@ pub trait FloatSliceEvalT {
 /// Evaluator for float slices, parameterized by evaluator family
 pub struct FloatSliceEval<E: Eval> {
     #[allow(dead_code)]
-    tape: Tape,
+    tape: Tape<E>,
     eval: E::FloatSliceEval,
 }
 
 impl<E: Eval> FloatSliceEval<E> {
-    pub fn new(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::REG_LIMIT);
+    pub fn new(tape: Tape<E>) -> Self {
         Self {
             tape: tape.clone(),
             eval: E::FloatSliceEval::new(tape),
@@ -65,8 +64,8 @@ impl<E: Eval> FloatSliceEval<E> {
 
     /// Builds a new [`FloatSliceEval`](Self), reusing storage to minimize churn
     pub fn new_with_storage(
-        tape: Tape,
-        s: <<E as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage,
+        tape: Tape<E>,
+        s: <<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
     ) -> Self {
         let eval = E::FloatSliceEval::new_with_storage(tape.clone(), s);
         Self { tape, eval }
@@ -75,7 +74,8 @@ impl<E: Eval> FloatSliceEval<E> {
     /// Extracts the storage from the inner [`FloatSliceEvalT`](FloatSliceEvalT)
     pub fn take(
         self,
-    ) -> Option<<<E as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage> {
+    ) -> Option<<<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage>
+    {
         self.eval.take()
     }
 

@@ -153,11 +153,11 @@ struct Worker<'a, I: Eval, M: RenderMode> {
 
     /// Storage for float slice evaluators
     float_storage:
-        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT<I>>::Storage; 2],
 
     /// Storage for interval evaluators, based on recursion depth
     interval_storage:
-        Vec<<<I as Eval>::IntervalEval as IntervalEvalT>::Storage>,
+        Vec<<<I as Eval>::IntervalEval as IntervalEvalT<I>>::Storage>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
@@ -354,10 +354,9 @@ fn worker<I: Eval, M: RenderMode>(
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn render<I: Eval, M: RenderMode>(
-    tape: Tape,
+    tape: Tape<I>,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
-    let tape = tape.with_reg_limit(I::REG_LIMIT);
     let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {

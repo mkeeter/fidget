@@ -2,8 +2,8 @@
 use crate::eval::{tape::Tape, Choice, Eval};
 
 /// Function handle for `f32` evaluation
-pub trait PointEvalT {
-    fn new(tape: Tape) -> Self;
+pub trait PointEvalT<R> {
+    fn new(tape: Tape<R>) -> Self;
     fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
 }
 
@@ -13,14 +13,13 @@ pub trait PointEvalT {
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
 pub struct PointEval<E: Eval> {
-    tape: Tape,
+    tape: Tape<E>,
     choices: Vec<Choice>,
     eval: E::PointEval,
 }
 
 impl<E: Eval> PointEval<E> {
-    pub fn new(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::REG_LIMIT);
+    pub fn new(tape: Tape<E>) -> Self {
         Self {
             tape: tape.clone(),
             choices: vec![Choice::Unknown; tape.choice_count()],
@@ -29,7 +28,7 @@ impl<E: Eval> PointEval<E> {
     }
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
-    pub fn simplify(&self) -> Tape {
+    pub fn simplify(&self) -> Tape<E> {
         self.tape.simplify(&self.choices).unwrap()
     }
 

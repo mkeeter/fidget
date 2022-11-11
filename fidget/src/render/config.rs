@@ -201,7 +201,7 @@ impl RenderConfig<2> {
         root: Node,
         context: Context,
     ) -> Vec<<M as RenderMode>::Output> {
-        let tape = context.get_tape_with_reg_limit(root, I::REG_LIMIT);
+        let tape = context.get_tape(root);
         crate::render::render2d::render::<I, M>(tape, self)
     }
 }
@@ -218,7 +218,7 @@ impl RenderConfig<3> {
         root: Node,
         context: Context,
     ) -> (Vec<u32>, Vec<[u8; 3]>) {
-        let tape = context.get_tape_with_reg_limit(root, I::REG_LIMIT);
+        let tape = context.get_tape(root);
         crate::render::render3d::render::<I>(tape, self)
     }
 }

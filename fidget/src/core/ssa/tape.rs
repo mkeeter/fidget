@@ -35,10 +35,6 @@ pub struct Tape {
 }
 
 impl Tape {
-    /// Returns the number of opcodes in the tape
-    pub fn len(&self) -> usize {
-        self.tape.len()
-    }
     /// Resets to an empty tape, preserving allocations
     pub fn reset(&mut self) {
         self.data.clear();

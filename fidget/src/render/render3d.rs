@@ -74,15 +74,15 @@ struct Worker<'a, I: Eval> {
     /// - An evaluator for the tape _just above_ the leaf, for per-voxel
     ///   evaluation when the leaf tape isn't an improvement
     float_storage:
-        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT>::Storage; 2],
+        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT<I>>::Storage; 2],
 
     /// We can only have one gradient evaluator alive at a time
     ///
     /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
-    grad_storage: <<I as Eval>::GradEval as GradEvalT>::Storage,
+    grad_storage: <<I as Eval>::GradEval as GradEvalT<I>>::Storage,
 
     interval_storage:
-        Vec<<<I as Eval>::IntervalEval as IntervalEvalT>::Storage>,
+        Vec<<<I as Eval>::IntervalEval as IntervalEvalT<I>>::Storage>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
@@ -425,10 +425,9 @@ fn worker<I: Eval>(
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn render<I: Eval>(
-    tape: Tape,
+    tape: Tape<I>,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
-    let tape = tape.with_reg_limit(I::REG_LIMIT);
     let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {

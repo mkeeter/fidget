@@ -5,7 +5,11 @@ mod op;
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
-use crate::{eval::tape::Tape, ssa::Builder, Error};
+use crate::{
+    eval::{tape::Tape, Eval},
+    ssa::Builder,
+    Error,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -382,20 +386,12 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Div)
     }
 
-    /// Flattens a subtree of the graph into straight-line code
-    ///
-    /// The resulting tape is planned with `u8::MAX` (i.e. 255) registers;
-    /// for JIT compilation, we construct a reduced-register tape when needed.
-    pub fn get_tape(&self, root: Node) -> Tape {
-        self.get_tape_with_reg_limit(root, u8::MAX)
-    }
-
     /// Flattens a subtree of the graph into straight-line code.
     ///
-    /// The resulting tape uses `reg_limit` registers; if more memory is
+    /// The resulting tape uses `E::REG_LIMIT` registers; if more memory is
     /// required, it includes
     /// [`vm::Op::Load` / `vm::Op::Store`](crate::vm::Op) operations.
-    pub fn get_tape_with_reg_limit(&self, root: Node, reg_limit: u8) -> Tape {
+    pub fn get_tape<E: Eval>(&self, root: Node) -> Tape<E> {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut todo = vec![root];
@@ -430,7 +426,7 @@ impl Context {
             builder.step(node, *op, self);
         }
         let ssa_tape = builder.finish();
-        Tape::from_ssa(ssa_tape, reg_limit)
+        Tape::from_ssa(ssa_tape)
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -675,7 +671,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = ctx.get_tape(c9);
+        let tape = ctx.get_tape::<crate::vm::Eval>(c9);
         assert_eq!(tape.len(), 8);
     }
 
@@ -686,7 +682,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = ctx.get_tape(x_squared);
+        let tape = ctx.get_tape::<crate::vm::Eval>(x_squared);
         assert_eq!(tape.len(), 2);
     }
 }

@@ -155,10 +155,10 @@ impl std::ops::Neg for Grad {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Trait used for gradient evaluation
-pub trait GradEvalT {
+pub trait GradEvalT<R> {
     type Storage: Default;
 
-    fn new(tape: Tape) -> Self
+    fn new(tape: Tape<R>) -> Self
     where
         Self: Sized;
 
@@ -170,7 +170,7 @@ pub trait GradEvalT {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a mmap region and is too
     /// small).
-    fn new_with_storage(tape: Tape, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -211,13 +211,12 @@ pub trait GradEvalT {
 /// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
 pub struct GradEval<E: Eval> {
     #[allow(dead_code)]
-    tape: Tape,
+    tape: Tape<E>,
     eval: E::GradEval,
 }
 
 impl<E: Eval> GradEval<E> {
-    pub fn new(tape: Tape) -> Self {
-        let tape = tape.with_reg_limit(E::REG_LIMIT);
+    pub fn new(tape: Tape<E>) -> Self {
         Self {
             tape: tape.clone(),
             eval: E::GradEval::new(tape),
@@ -225,14 +224,16 @@ impl<E: Eval> GradEval<E> {
     }
 
     pub fn new_with_storage(
-        tape: Tape,
-        s: <<E as Eval>::GradEval as GradEvalT>::Storage,
+        tape: Tape<E>,
+        s: <<E as Eval>::GradEval as GradEvalT<E>>::Storage,
     ) -> Self {
         let eval = E::GradEval::new_with_storage(tape.clone(), s);
         Self { tape, eval }
     }
 
-    pub fn take(self) -> Option<<<E as Eval>::GradEval as GradEvalT>::Storage> {
+    pub fn take(
+        self,
+    ) -> Option<<<E as Eval>::GradEval as GradEvalT<E>>::Storage> {
         self.eval.take()
     }
 

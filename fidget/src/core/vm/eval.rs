@@ -67,15 +67,15 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 #[derive(Clone)]
 pub struct AsmIntervalEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: Tape,
+    tape: Tape<Eval>,
     /// Workspace for data
     slots: Vec<Interval>,
 }
 
-impl IntervalEvalT for AsmIntervalEval {
+impl IntervalEvalT<Eval> for AsmIntervalEval {
     type Storage = ();
 
-    fn new(tape: Tape) -> Self {
+    fn new(tape: Tape<Eval>) -> Self {
         assert!(tape.reg_limit() == u8::MAX);
         let slot_count = tape.slot_count();
         Self {
@@ -189,17 +189,17 @@ impl IntervalEvalT for AsmIntervalEval {
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmFloatSliceEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: Tape,
+    tape: Tape<Eval>,
     /// Workspace for data
     slots: Vec<Vec<f32>>,
     /// Current slice size in `self.slots`
     slice_size: usize,
 }
 
-impl FloatSliceEvalT for AsmFloatSliceEval {
+impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
     type Storage = ();
 
-    fn new(tape: Tape) -> Self {
+    fn new(tape: Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
             tape,
@@ -356,13 +356,13 @@ impl FloatSliceEvalT for AsmFloatSliceEval {
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmPointEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: Tape,
+    tape: Tape<Eval>,
     /// Workspace for data
     slots: Vec<f32>,
 }
 
-impl PointEvalT for AsmPointEval {
-    fn new(tape: Tape) -> Self {
+impl PointEvalT<Eval> for AsmPointEval {
+    fn new(tape: Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
             tape,
@@ -531,16 +531,16 @@ impl PointEvalT for AsmPointEval {
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
 pub struct AsmGradEval {
     /// Instruction tape, in reverse-evaluation order
-    tape: Tape,
+    tape: Tape<Eval>,
     /// Workspace for data
     slots: Vec<Vec<Grad>>,
     slice_size: usize,
 }
 
-impl GradEvalT for AsmGradEval {
+impl GradEvalT<Eval> for AsmGradEval {
     type Storage = ();
 
-    fn new(tape: Tape) -> Self {
+    fn new(tape: Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
             tape,
