@@ -11,6 +11,9 @@ use std::sync::Arc;
 /// [`TapeData`](TapeData).
 ///
 /// This can be passed by value and cloned.
+///
+/// It is parameterized by an [`Eval`](Eval) type, which sets the register
+/// count of the inner VM tape.
 #[derive(Clone)]
 pub struct Tape<R>(Arc<TapeData>, std::marker::PhantomData<*const R>);
 
@@ -47,8 +50,8 @@ impl<E: Eval> Tape<E> {
             .map(|t| Tape(t, std::marker::PhantomData))
     }
 
-    pub fn take(mut self) -> Option<TapeData> {
-        Arc::get_mut(&mut self.0).map(std::mem::take)
+    pub fn take(self) -> Option<TapeData> {
+        Arc::try_unwrap(self.0).ok()
     }
 }
 
