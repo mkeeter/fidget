@@ -75,11 +75,11 @@ pub struct AsmIntervalEval {
 impl IntervalEvalT<Eval> for AsmIntervalEval {
     type Storage = ();
 
-    fn new(tape: Tape<Eval>) -> Self {
+    fn new(tape: &Tape<Eval>) -> Self {
         assert!(tape.reg_limit() == u8::MAX);
         let slot_count = tape.slot_count();
         Self {
-            tape,
+            tape: tape.clone(),
             slots: vec![Interval::from(std::f32::NAN); slot_count],
         }
     }
@@ -199,10 +199,10 @@ pub struct AsmFloatSliceEval {
 impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
     type Storage = ();
 
-    fn new(tape: Tape<Eval>) -> Self {
+    fn new(tape: &Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
-            tape,
+            tape: tape.clone(),
             slots: vec![vec![]; slot_count],
             slice_size: 0,
         }
@@ -362,10 +362,10 @@ pub struct AsmPointEval {
 }
 
 impl PointEvalT<Eval> for AsmPointEval {
-    fn new(tape: Tape<Eval>) -> Self {
+    fn new(tape: &Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
-            tape,
+            tape: tape.clone(),
             slots: vec![std::f32::NAN; slot_count],
         }
     }
@@ -540,10 +540,10 @@ pub struct AsmGradEval {
 impl GradEvalT<Eval> for AsmGradEval {
     type Storage = ();
 
-    fn new(tape: Tape<Eval>) -> Self {
+    fn new(tape: &Tape<Eval>) -> Self {
         let slot_count = tape.slot_count();
         Self {
-            tape,
+            tape: tape.clone(),
             slots: vec![vec![]; slot_count],
             slice_size: 0,
         }

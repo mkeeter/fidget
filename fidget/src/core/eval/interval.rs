@@ -198,7 +198,7 @@ impl std::ops::Neg for Interval {
 pub trait IntervalEvalT<R>: Clone + Send {
     type Storage: Default;
 
-    fn new(tape: Tape<R>) -> Self;
+    fn new(tape: &Tape<R>) -> Self;
 
     /// Constructs the `IntervalEvalT`, giving it a chance to reuse storage
     ///
@@ -208,7 +208,7 @@ pub trait IntervalEvalT<R>: Clone + Send {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: &Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -256,10 +256,12 @@ impl<E: Eval> IntervalEval<E> {
     /// `Arc<TapeData>`); otherwise, we replan it, which is slightly more
     /// expensive.
     pub fn new(tape: Tape<E>) -> Self {
+        let eval = E::IntervalEval::new(&tape);
+        let choices = vec![Choice::Unknown; tape.choice_count()];
         Self {
-            tape: tape.clone(),
-            choices: vec![Choice::Unknown; tape.choice_count()],
-            eval: E::IntervalEval::new(tape),
+            tape,
+            choices,
+            eval,
         }
     }
 
@@ -269,11 +271,11 @@ impl<E: Eval> IntervalEval<E> {
         tape: Tape<E>,
         s: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
     ) -> Self {
-        let choice_count = tape.choice_count();
-        let eval = E::IntervalEval::new_with_storage(tape.clone(), s);
+        let eval = E::IntervalEval::new_with_storage(&tape, s);
+        let choices = vec![Choice::Unknown; tape.choice_count()];
         Self {
             tape,
-            choices: vec![Choice::Unknown; choice_count],
+            choices,
             eval,
         }
     }

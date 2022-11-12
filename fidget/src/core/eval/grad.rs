@@ -158,7 +158,7 @@ impl std::ops::Neg for Grad {
 pub trait GradEvalT<R> {
     type Storage: Default;
 
-    fn new(tape: Tape<R>) -> Self
+    fn new(tape: &Tape<R>) -> Self
     where
         Self: Sized;
 
@@ -170,7 +170,7 @@ pub trait GradEvalT<R> {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a mmap region and is too
     /// small).
-    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: &Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -217,17 +217,15 @@ pub struct GradEval<E: Eval> {
 
 impl<E: Eval> GradEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
-        Self {
-            tape: tape.clone(),
-            eval: E::GradEval::new(tape),
-        }
+        let eval = E::GradEval::new(&tape);
+        Self { tape, eval }
     }
 
     pub fn new_with_storage(
         tape: Tape<E>,
         s: <<E as Eval>::GradEval as GradEvalT<E>>::Storage,
     ) -> Self {
-        let eval = E::GradEval::new_with_storage(tape.clone(), s);
+        let eval = E::GradEval::new_with_storage(&tape, s);
         Self { tape, eval }
     }
 

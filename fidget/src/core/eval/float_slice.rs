@@ -9,7 +9,7 @@ pub trait FloatSliceEvalT<R> {
     /// Storage used by the evaluator, provided to minimize allocation churn
     type Storage: Default;
 
-    fn new(tape: Tape<R>) -> Self;
+    fn new(tape: &Tape<R>) -> Self;
 
     /// Constructs the `FloatSliceT`, giving it a chance to reuse storage
     ///
@@ -19,7 +19,7 @@ pub trait FloatSliceEvalT<R> {
     /// The incoming `Storage` is consumed, though it may not necessarily be
     /// used to construct the new tape (e.g. if it's a memory-mapped region and
     /// is too small).
-    fn new_with_storage(tape: Tape<R>, _storage: Self::Storage) -> Self
+    fn new_with_storage(tape: &Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
     {
@@ -56,10 +56,8 @@ pub struct FloatSliceEval<E: Eval> {
 
 impl<E: Eval> FloatSliceEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
-        Self {
-            tape: tape.clone(),
-            eval: E::FloatSliceEval::new(tape),
-        }
+        let eval = E::FloatSliceEval::new(&tape);
+        Self { tape, eval }
     }
 
     /// Builds a new [`FloatSliceEval`](Self), reusing storage to minimize churn
@@ -67,7 +65,7 @@ impl<E: Eval> FloatSliceEval<E> {
         tape: Tape<E>,
         s: <<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
     ) -> Self {
-        let eval = E::FloatSliceEval::new_with_storage(tape.clone(), s);
+        let eval = E::FloatSliceEval::new_with_storage(&tape, s);
         Self { tape, eval }
     }
 

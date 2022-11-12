@@ -3,7 +3,7 @@ use crate::eval::{tape::Tape, Choice, Eval};
 
 /// Function handle for `f32` evaluation
 pub trait PointEvalT<R> {
-    fn new(tape: Tape<R>) -> Self;
+    fn new(tape: &Tape<R>) -> Self;
     fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
 }
 
@@ -20,10 +20,12 @@ pub struct PointEval<E: Eval> {
 
 impl<E: Eval> PointEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
+        let eval = E::PointEval::new(&tape);
+        let choices = vec![Choice::Unknown; tape.choice_count()];
         Self {
-            tape: tape.clone(),
-            choices: vec![Choice::Unknown; tape.choice_count()],
-            eval: E::PointEval::new(tape),
+            tape,
+            choices,
+            eval,
         }
     }
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
