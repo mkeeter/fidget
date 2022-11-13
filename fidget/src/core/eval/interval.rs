@@ -248,6 +248,20 @@ pub struct IntervalEval<E: Eval> {
     eval: E::IntervalEval,
 }
 
+pub struct IntervalEvalStorage<E: Eval> {
+    choices: Vec<Choice>,
+    inner: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
+}
+
+impl<E: Eval> Default for IntervalEvalStorage<E> {
+    fn default() -> Self {
+        Self {
+            choices: vec![],
+            inner: Default::default(),
+        }
+    }
+}
+
 impl<E: Eval> IntervalEval<E> {
     /// Build a interval evaluator handle from the given tape
     ///
@@ -267,12 +281,10 @@ impl<E: Eval> IntervalEval<E> {
 
     /// Build a interval evaluator handle from the given tape, reusing evaluator
     /// storage if possible.
-    pub fn new_with_storage(
-        tape: Tape<E>,
-        s: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
-    ) -> Self {
-        let eval = E::IntervalEval::new_with_storage(&tape, s);
-        let choices = vec![Choice::Unknown; tape.choice_count()];
+    pub fn new_with_storage(tape: Tape<E>, s: IntervalEvalStorage<E>) -> Self {
+        let eval = E::IntervalEval::new_with_storage(&tape, s.inner);
+        let mut choices = s.choices;
+        choices.resize(tape.choice_count(), Choice::Unknown);
         Self {
             tape,
             choices,
@@ -281,10 +293,11 @@ impl<E: Eval> IntervalEval<E> {
     }
 
     /// Extract evaluator storage, consuming the evaluator
-    pub fn take(
-        self,
-    ) -> Option<<<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage> {
-        self.eval.take()
+    pub fn take(self) -> Option<IntervalEvalStorage<E>> {
+        self.eval.take().map(|inner| IntervalEvalStorage {
+            choices: self.choices,
+            inner,
+        })
     }
 
     /// Returns a copy of the inner tape

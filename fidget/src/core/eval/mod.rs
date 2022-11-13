@@ -47,7 +47,7 @@ pub trait Eval: Clone {
     /// Builds an interval evaluator from the given `Tape`, reusing storage
     fn new_interval_evaluator_with_storage(
         tape: tape::Tape<Self>,
-        storage: <<Self as Eval>::IntervalEval as IntervalEvalT<Self>>::Storage,
+        storage: interval::IntervalEvalStorage<Self>,
     ) -> interval::IntervalEval<Self> {
         interval::IntervalEval::new_with_storage(tape, storage)
     }

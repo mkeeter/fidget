@@ -3,7 +3,7 @@ use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalT},
         grad::{Grad, GradEval, GradEvalT},
-        interval::{Interval, IntervalEval, IntervalEvalT},
+        interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Tape, TapeData, Workspace},
         Eval,
     },
@@ -82,8 +82,7 @@ struct Worker<'a, I: Eval> {
     /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
     grad_storage: Option<<<I as Eval>::GradEval as GradEvalT<I>>::Storage>,
 
-    interval_storage:
-        Vec<<<I as Eval>::IntervalEval as IntervalEvalT<I>>::Storage>,
+    interval_storage: Vec<IntervalEvalStorage<I>>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
