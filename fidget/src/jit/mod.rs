@@ -47,7 +47,7 @@ use crate::{
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        tape::Tape,
+        tape::{Tape, TapeData},
         Choice, Eval as EvalT,
     },
     jit::mmap::Mmap,
@@ -87,7 +87,7 @@ const CHOICE_RIGHT: u32 = Choice::Right as u32;
 const CHOICE_BOTH: u32 = Choice::Both as u32;
 
 trait AssemblerT {
-    fn init(m: Mmap) -> Self;
+    fn init(m: Mmap, slot_count: usize) -> Self;
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
 
@@ -124,25 +124,29 @@ struct AssemblerData<T> {
 }
 
 impl<T> AssemblerData<T> {
-    fn check_stack(&mut self, mem_slot: u32) -> u32 {
-        assert!(mem_slot >= REGISTER_LIMIT as u32);
-        let mem = (mem_slot as usize - REGISTER_LIMIT as usize)
-            * std::mem::size_of::<T>();
-        // Round up to the nearest multiple of 16 bytes, for alignment
-        let mem_end = (((mem + std::mem::size_of::<T>()) + 15) / 16) * 16;
-
-        if mem_end > self.mem_offset {
-            let addr = u32::try_from(mem_end - self.mem_offset).unwrap();
-            dynasm!(self.ops
-                ; sub sp, sp, #(addr)
-            );
-            self.mem_offset = mem_end;
+    fn new(mmap: Mmap) -> Self {
+        Self {
+            ops: MmapAssembler::from(mmap),
+            mem_offset: 0,
+            _p: std::marker::PhantomData,
         }
+    }
+    fn prepare_stack(&mut self, slot_count: usize) {
+        if slot_count < REGISTER_LIMIT as usize {
+            return;
+        }
+        let stack_slots = slot_count - REGISTER_LIMIT as usize;
+        let mem = (stack_slots + 1) * std::mem::size_of::<T>();
 
-        // Return the offset of the given slot, computed based on the new stack
-        // pointer location in memory.
-        u32::try_from(self.mem_offset - (mem + std::mem::size_of::<T>()))
-            .unwrap()
+        // Round up to the nearest multiple of 16 bytes, for alignment
+        self.mem_offset = ((mem + 15) / 16) * 16;
+        dynasm!(self.ops
+            ; sub sp, sp, #(self.mem_offset as u32)
+        );
+    }
+    fn stack_pos(&self, slot: u32) -> u32 {
+        assert!(slot >= REGISTER_LIMIT as u32);
+        (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
     }
 }
 
@@ -239,9 +243,9 @@ impl From<Mmap> for MmapAssembler {
 struct PointAssembler(AssemblerData<f32>);
 
 impl AssemblerT for PointAssembler {
-    fn init(mmap: Mmap) -> Self {
-        let mut ops = MmapAssembler::from(mmap);
-        dynasm!(ops
+    fn init(mmap: Mmap, slot_count: usize) -> Self {
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -252,24 +256,21 @@ impl AssemblerT for PointAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
         );
+        out.prepare_stack(slot_count);
 
-        Self(AssemblerData {
-            ops,
-            mem_offset: 0,
-            _p: std::marker::PhantomData,
-        })
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
     }
@@ -436,9 +437,9 @@ impl AssemblerT for PointAssembler {
 struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
 impl AssemblerT for IntervalAssembler {
-    fn init(mmap: Mmap) -> Self {
-        let mut ops = MmapAssembler::from(mmap);
-        dynasm!(ops
+    fn init(mmap: Mmap, slot_count: usize) -> Self {
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -456,24 +457,20 @@ impl AssemblerT for IntervalAssembler {
             ; mov v2.s[0], v4.s[0]
             ; mov v2.s[1], v5.s[0]
         );
-
-        Self(AssemblerData {
-            ops,
-            mem_offset: 0,
-            _p: std::marker::PhantomData,
-        })
+        out.prepare_stack(slot_count);
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
     }
@@ -800,9 +797,9 @@ impl AssemblerT for IntervalAssembler {
 
 struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 impl AssemblerT for FloatSliceAssembler {
-    fn init(mmap: Mmap) -> Self {
-        let mut ops = MmapAssembler::from(mmap);
-        dynasm!(ops
+    fn init(mmap: Mmap, slot_count: usize) -> Self {
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -822,17 +819,13 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldp d2, d3, [x2]
             ; mov v2.d[1], v3.d[0]
         );
-
-        Self(AssemblerData {
-            ops,
-            mem_offset: 0,
-            _p: std::marker::PhantomData,
-        })
+        out.prepare_stack(slot_count);
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
@@ -851,7 +844,7 @@ impl AssemblerT for FloatSliceAssembler {
     /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
@@ -969,9 +962,9 @@ impl AssemblerT for FloatSliceAssembler {
 struct GradAssembler(AssemblerData<[f32; 4]>);
 
 impl AssemblerT for GradAssembler {
-    fn init(mmap: Mmap) -> Self {
-        let mut ops = MmapAssembler::from(mmap);
-        dynasm!(ops
+    fn init(mmap: Mmap, slot_count: usize) -> Self {
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -988,17 +981,14 @@ impl AssemblerT for GradAssembler {
             ; mov v1.S[2], v6.S[0]
             ; mov v2.S[3], v6.S[0]
         );
+        out.prepare_stack(slot_count);
 
-        Self(AssemblerData {
-            ops,
-            mem_offset: 0,
-            _p: std::marker::PhantomData,
-        })
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
@@ -1016,7 +1006,7 @@ impl AssemblerT for GradAssembler {
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
-        let sp_offset = self.0.check_stack(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem);
         if sp_offset >= 512 {
             assert!(sp_offset < 4096);
             dynasm!(self.0.ops
@@ -1227,7 +1217,7 @@ impl GradEvalT<Eval> for JitGradEval {
 
     fn new(t: &Tape<Eval>) -> Self {
         assert_eq!(t.reg_limit(), REGISTER_LIMIT);
-        let mmap = build_asm_fn::<GradAssembler>(t.iter_asm());
+        let mmap = build_asm_fn::<GradAssembler>(t);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1235,9 +1225,8 @@ impl GradEvalT<Eval> for JitGradEval {
         }
     }
 
-    fn new_with_storage(tape: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap =
-            build_asm_fn_with_storage::<GradAssembler>(tape.iter_asm(), prev);
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<GradAssembler>(t, prev);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1256,18 +1245,15 @@ impl GradEvalT<Eval> for JitGradEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn<A: AssemblerT>(i: impl Iterator<Item = Op>) -> Mmap {
-    build_asm_fn_with_storage::<A>(i, Mmap::new(1).unwrap())
+fn build_asm_fn<A: AssemblerT>(t: &TapeData) -> Mmap {
+    build_asm_fn_with_storage::<A>(t, Mmap::new(1).unwrap())
 }
 
-fn build_asm_fn_with_storage<A: AssemblerT>(
-    i: impl Iterator<Item = Op>,
-    s: Mmap,
-) -> Mmap {
+fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
     let _guard = Mmap::thread_mode_write();
-    let mut asm = A::init(s);
+    let mut asm = A::init(s, t.slot_count());
 
-    for op in i {
+    for op in t.iter_asm() {
         match op {
             Op::Load(reg, mem) => {
                 asm.build_load(reg, mem);
@@ -1367,7 +1353,7 @@ pub struct JitPointEval {
 
 impl PointEvalT<Eval> for JitPointEval {
     fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<PointAssembler>(t.iter_asm());
+        let mmap = build_asm_fn::<PointAssembler>(t);
         let ptr = mmap.as_ptr();
         Self {
             _mmap: Arc::new(mmap),
@@ -1397,7 +1383,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
     type Storage = Mmap;
 
     fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<FloatSliceAssembler>(t.iter_asm());
+        let mmap = build_asm_fn::<FloatSliceAssembler>(t);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1406,10 +1392,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
     }
 
     fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<FloatSliceAssembler>(
-            t.iter_asm(),
-            prev,
-        );
+        let mmap = build_asm_fn_with_storage::<FloatSliceAssembler>(t, prev);
         let ptr = mmap.as_ptr();
         JitFloatSliceEval {
             mmap: Arc::new(mmap),
@@ -1491,8 +1474,8 @@ unsafe impl Send for JitIntervalEval {}
 impl IntervalEvalT<Eval> for JitIntervalEval {
     type Storage = Mmap;
 
-    fn new(tape: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<IntervalAssembler>(tape.iter_asm());
+    fn new(t: &Tape<Eval>) -> Self {
+        let mmap = build_asm_fn::<IntervalAssembler>(t);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
@@ -1500,11 +1483,8 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         }
     }
 
-    fn new_with_storage(tape: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<IntervalAssembler>(
-            tape.iter_asm(),
-            prev,
-        );
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<IntervalAssembler>(t, prev);
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
