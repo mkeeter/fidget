@@ -35,6 +35,7 @@ impl Lru {
     }
 
     /// Remove a node from the linked list
+    #[inline]
     fn remove(&mut self, i: u8) {
         let node = self.data[i as usize];
         self.data[node.prev as usize].next = self.data[i as usize].next;
@@ -42,6 +43,7 @@ impl Lru {
     }
 
     /// Inserts node `i` before location `next`
+    #[inline]
     fn insert_before(&mut self, i: u8, next: u8) {
         let prev = self.data[next as usize].prev;
         self.data[prev as usize].next = i;
@@ -50,6 +52,7 @@ impl Lru {
     }
 
     /// Mark the given node as newest
+    #[inline]
     pub fn poke(&mut self, i: u8) {
         let prev_newest = self.head;
         if prev_newest == i {
@@ -64,6 +67,7 @@ impl Lru {
     }
 
     /// Look up the oldest node in the list, marking it as newest
+    #[inline]
     pub fn pop(&mut self) -> u8 {
         let out = self.data[self.head as usize].prev;
         self.head = out; // rotate
