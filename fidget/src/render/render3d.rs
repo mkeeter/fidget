@@ -1,8 +1,8 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalT},
-        grad::{Grad, GradEval, GradEvalT},
+        float_slice::{FloatSliceEval, FloatSliceEvalStorage},
+        grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Tape, TapeData, Workspace},
         Eval,
@@ -73,14 +73,12 @@ struct Worker<'a, I: Eval> {
     /// - A leaf evaluator for per-voxel evaluation
     /// - An evaluator for the tape _just above_ the leaf, for per-voxel
     ///   evaluation when the leaf tape isn't an improvement
-    float_storage: [Option<
-        <<I as Eval>::FloatSliceEval as FloatSliceEvalT<I>>::Storage,
-    >; 2],
+    float_storage: [Option<FloatSliceEvalStorage<I>>; 2],
 
     /// We can only have one gradient evaluator alive at a time
     ///
     /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
-    grad_storage: Option<<<I as Eval>::GradEval as GradEvalT<I>>::Storage>,
+    grad_storage: Option<GradEvalStorage<I>>,
 
     interval_storage: Vec<IntervalEvalStorage<I>>,
 
@@ -158,9 +156,11 @@ impl<I: Eval> Worker<'_, I> {
                 &mut self.workspace,
                 std::mem::take(&mut self.spare_tapes[depth]),
             );
-            let s = self.interval_storage.pop().unwrap_or_default();
-            let mut sub_jit =
-                I::new_interval_evaluator_with_storage(sub_tape.clone(), s);
+            let storage = self.interval_storage.pop().unwrap_or_default();
+            let mut sub_jit = I::new_interval_evaluator_with_storage(
+                sub_tape.clone(),
+                storage,
+            );
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -258,9 +258,11 @@ impl<I: Eval> Worker<'_, I> {
             std::mem::take(self.spare_tapes.last_mut().unwrap()),
         );
         if sub_tape.len() < handle.tape().len() {
-            let s = self.float_storage[1].take().unwrap_or_default();
-            let mut func =
-                I::new_float_slice_evaluator_with_storage(sub_tape.clone(), s);
+            let storage = self.float_storage[1].take().unwrap_or_default();
+            let mut func = I::new_float_slice_evaluator_with_storage(
+                sub_tape.clone(),
+                storage,
+            );
 
             self.scratch.eval_s(&mut func, size);
 
@@ -272,8 +274,11 @@ impl<I: Eval> Worker<'_, I> {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
-                let s = self.float_storage[0].take().unwrap_or_default();
-                I::new_float_slice_evaluator_with_storage(handle.tape(), s)
+                let storage = self.float_storage[0].take().unwrap_or_default();
+                I::new_float_slice_evaluator_with_storage(
+                    handle.tape(),
+                    storage,
+                )
             });
             self.scratch.eval_s(func, size);
         }
@@ -328,9 +333,9 @@ impl<I: Eval> Worker<'_, I> {
         }
 
         if grad > 0 {
-            let s = self.grad_storage.take().unwrap_or_default();
+            let storage = self.grad_storage.take().unwrap_or_default();
             let mut func =
-                I::new_grad_evaluator_with_storage(sub_tape.clone(), s);
+                I::new_grad_evaluator_with_storage(sub_tape.clone(), storage);
 
             self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {

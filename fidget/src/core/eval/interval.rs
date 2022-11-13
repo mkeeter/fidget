@@ -248,20 +248,6 @@ pub struct IntervalEval<E: Eval> {
     eval: E::IntervalEval,
 }
 
-pub struct IntervalEvalStorage<E: Eval> {
-    choices: Vec<Choice>,
-    inner: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
-}
-
-impl<E: Eval> Default for IntervalEvalStorage<E> {
-    fn default() -> Self {
-        Self {
-            choices: vec![],
-            inner: Default::default(),
-        }
-    }
-}
-
 impl<E: Eval> IntervalEval<E> {
     /// Build a interval evaluator handle from the given tape
     ///
@@ -422,6 +408,21 @@ impl<E: Eval> IntervalEval<E> {
                     a.upper().max(b.upper()),
                 )
             }
+        }
+    }
+}
+
+/// Helper `struct` to reuse storage from an [`IntervalEval`](IntervalEval)
+pub struct IntervalEvalStorage<E: Eval> {
+    choices: Vec<Choice>,
+    inner: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
+}
+
+impl<E: Eval> Default for IntervalEvalStorage<E> {
+    fn default() -> Self {
+        Self {
+            choices: vec![],
+            inner: Default::default(),
         }
     }
 }

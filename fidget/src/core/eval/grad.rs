@@ -221,18 +221,13 @@ impl<E: Eval> GradEval<E> {
         Self { tape, eval }
     }
 
-    pub fn new_with_storage(
-        tape: Tape<E>,
-        s: <<E as Eval>::GradEval as GradEvalT<E>>::Storage,
-    ) -> Self {
-        let eval = E::GradEval::new_with_storage(&tape, s);
+    pub fn new_with_storage(tape: Tape<E>, s: GradEvalStorage<E>) -> Self {
+        let eval = E::GradEval::new_with_storage(&tape, s.inner);
         Self { tape, eval }
     }
 
-    pub fn take(
-        self,
-    ) -> Option<<<E as Eval>::GradEval as GradEvalT<E>>::Storage> {
-        self.eval.take()
+    pub fn take(self) -> Option<GradEvalStorage<E>> {
+        self.eval.take().map(|inner| GradEvalStorage { inner })
     }
 
     pub fn eval_g(
@@ -253,6 +248,21 @@ impl<E: Eval> GradEval<E> {
         self.eval.eval_f(x, y, z)
     }
 }
+
+/// Helper `struct` to reuse storage from an [`GradEval`](GradEval)
+pub struct GradEvalStorage<E: Eval> {
+    inner: <<E as Eval>::GradEval as GradEvalT<E>>::Storage,
+}
+
+impl<E: Eval> Default for GradEvalStorage<E> {
+    fn default() -> Self {
+        Self {
+            inner: Default::default(),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {

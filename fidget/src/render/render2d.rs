@@ -1,7 +1,7 @@
 //! Bitmap rendering
 use crate::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalT},
+        float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Tape, TapeData, Workspace},
         Eval,
@@ -152,8 +152,7 @@ struct Worker<'a, I: Eval, M: RenderMode> {
     image: Vec<M::Output>,
 
     /// Storage for float slice evaluators
-    float_storage:
-        [<<I as Eval>::FloatSliceEval as FloatSliceEvalT<I>>::Storage; 2],
+    float_storage: [FloatSliceEvalStorage<I>; 2],
 
     /// Storage for interval evaluators, based on recursion depth
     interval_storage: Vec<IntervalEvalStorage<I>>,
@@ -209,9 +208,11 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 &mut self.workspace,
                 std::mem::take(&mut self.spare_tapes[depth]),
             );
-            let s = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit =
-                I::new_interval_evaluator_with_storage(sub_tape.clone(), s);
+            let storage = std::mem::take(&mut self.interval_storage[depth]);
+            let mut sub_jit = I::new_interval_evaluator_with_storage(
+                sub_tape.clone(),
+                storage,
+            );
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -236,6 +237,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
             self.render_tile_pixels(i_handle, tile_size, tile, float_handle)
         }
     }
+
     fn render_tile_pixels(
         &mut self,
         i_handle: &mut IntervalEval<I>,
@@ -270,9 +272,11 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
         //
         // (this matters most for the JIT compiler, which is _expensive_)
         if sub_tape.len() < i_handle.tape().len() {
-            let s = std::mem::take(&mut self.float_storage[1]);
-            let mut func =
-                I::new_float_slice_evaluator_with_storage(sub_tape.clone(), s);
+            let storage = std::mem::take(&mut self.float_storage[1]);
+            let mut func = I::new_float_slice_evaluator_with_storage(
+                sub_tape.clone(),
+                storage,
+            );
 
             func.eval_s(
                 &self.scratch.x,
@@ -290,8 +294,11 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
-                let s = std::mem::take(&mut self.float_storage[0]);
-                I::new_float_slice_evaluator_with_storage(i_handle.tape(), s)
+                let storage = std::mem::take(&mut self.float_storage[0]);
+                I::new_float_slice_evaluator_with_storage(
+                    i_handle.tape(),
+                    storage,
+                )
             });
 
             func.eval_s(

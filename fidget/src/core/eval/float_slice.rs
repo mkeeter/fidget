@@ -63,18 +63,17 @@ impl<E: Eval> FloatSliceEval<E> {
     /// Builds a new [`FloatSliceEval`](Self), reusing storage to minimize churn
     pub fn new_with_storage(
         tape: Tape<E>,
-        s: <<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
+        s: FloatSliceEvalStorage<E>,
     ) -> Self {
-        let eval = E::FloatSliceEval::new_with_storage(&tape, s);
+        let eval = E::FloatSliceEval::new_with_storage(&tape, s.inner);
         Self { tape, eval }
     }
 
     /// Extracts the storage from the inner [`FloatSliceEvalT`](FloatSliceEvalT)
-    pub fn take(
-        self,
-    ) -> Option<<<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage>
-    {
-        self.eval.take()
+    pub fn take(self) -> Option<FloatSliceEvalStorage<E>> {
+        self.eval
+            .take()
+            .map(|inner| FloatSliceEvalStorage { inner })
     }
 
     /// Evaluates float slices, writing results into `out`
@@ -98,6 +97,21 @@ impl<E: Eval> FloatSliceEval<E> {
         out[0]
     }
 }
+
+/// Helper `struct` to reuse storage from an [`FloatSliceEval`](FloatSliceEval)
+pub struct FloatSliceEvalStorage<E: Eval> {
+    inner: <<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
+}
+
+impl<E: Eval> Default for FloatSliceEvalStorage<E> {
+    fn default() -> Self {
+        Self {
+            inner: Default::default(),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {

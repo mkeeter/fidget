@@ -62,7 +62,7 @@ pub trait Eval: Clone {
     /// Builds a float slice evaluator from the given `Tape`, reusing storage
     fn new_float_slice_evaluator_with_storage(
         tape: tape::Tape<Self>,
-        storage: <<Self as Eval>::FloatSliceEval as FloatSliceEvalT<Self>>::Storage,
+        storage: float_slice::FloatSliceEvalStorage<Self>,
     ) -> float_slice::FloatSliceEval<Self> {
         float_slice::FloatSliceEval::new_with_storage(tape, storage)
     }
@@ -75,7 +75,7 @@ pub trait Eval: Clone {
     /// Builds a float slice evaluator from the given `Tape`, reusing storage
     fn new_grad_evaluator_with_storage(
         tape: tape::Tape<Self>,
-        storage: <<Self as Eval>::GradEval as GradEvalT<Self>>::Storage,
+        storage: grad::GradEvalStorage<Self>,
     ) -> grad::GradEval<Self> {
         grad::GradEval::new_with_storage(tape, storage)
     }
