@@ -68,6 +68,22 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 1.5);
     }
 
+    pub fn test_constant_push<I: Eval>() {
+        let mut ctx = Context::new();
+        let a = ctx.constant(1.5);
+        let x = ctx.x();
+        let min = ctx.min(a, x).unwrap();
+        let tape = ctx.get_tape(min);
+        let mut eval = I::new_point_evaluator(tape);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 1.5);
+
+        let next = eval.simplify();
+        assert_eq!(next.len(), 1);
+        let mut eval = I::new_point_evaluator(next);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 1.5);
+        assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 1.5);
+    }
+
     pub fn test_circle<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -216,6 +232,7 @@ pub mod eval_tests {
     macro_rules! point_tests {
         ($t:ty) => {
             $crate::point_test!(test_constant, $t);
+            $crate::point_test!(test_constant_push, $t);
             $crate::point_test!(test_circle, $t);
             $crate::point_test!(test_p_max, $t);
             $crate::point_test!(test_p_min, $t);
