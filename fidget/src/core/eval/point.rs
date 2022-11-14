@@ -60,6 +60,14 @@ pub mod eval_tests {
     use super::*;
     use crate::context::Context;
 
+    pub fn test_constant<I: Eval>() {
+        let mut ctx = Context::new();
+        let p = ctx.constant(1.5);
+        let tape = ctx.get_tape(p);
+        let mut eval = I::new_point_evaluator(tape);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 1.5);
+    }
+
     pub fn test_circle<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -207,6 +215,7 @@ pub mod eval_tests {
     #[macro_export]
     macro_rules! point_tests {
         ($t:ty) => {
+            $crate::point_test!(test_constant, $t);
             $crate::point_test!(test_circle, $t);
             $crate::point_test!(test_p_max, $t);
             $crate::point_test!(test_p_min, $t);

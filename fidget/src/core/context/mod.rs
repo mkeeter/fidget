@@ -425,7 +425,16 @@ impl Context {
             }
             builder.step(node, *op, self);
         }
-        let ssa_tape = builder.finish();
+        let mut ssa_tape = builder.finish();
+
+        // Special case if the Node is a single constant, which isn't usually
+        // recorded in the tape
+        if ssa_tape.tape.is_empty() {
+            let c = self.const_value(root).unwrap().unwrap() as f32;
+            ssa_tape.tape.push(crate::ssa::Op::CopyImm);
+            ssa_tape.data.push(0); // out register
+            ssa_tape.data.push(c.to_bits());
+        }
         Tape::from_ssa(ssa_tape)
     }
 
