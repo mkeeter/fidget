@@ -11,8 +11,7 @@
 //! let x_squared = ctx.mul(x, x).unwrap();
 //! let y_squared = ctx.mul(y, y).unwrap();
 //! let radius = ctx.add(x_squared, y_squared).unwrap();
-//! let one = ctx.constant(1.0);
-//! let circle = ctx.sub(radius, one).unwrap();
+//! let circle = ctx.sub(radius, 1.0).unwrap();
 //!
 //! let tape = ctx.get_tape(circle);
 //! let mut eval = vm::Eval::new_point_evaluator(tape);

@@ -91,8 +91,7 @@ pub mod eval_tests {
         let x_squared = ctx.mul(x, x).unwrap();
         let y_squared = ctx.mul(y, y).unwrap();
         let radius = ctx.add(x_squared, y_squared).unwrap();
-        let one = ctx.constant(1.0);
-        let circle = ctx.sub(radius, one).unwrap();
+        let circle = ctx.sub(radius, 1.0).unwrap();
 
         let tape = ctx.get_tape(circle);
         let mut eval = I::new_point_evaluator(tape);
@@ -156,8 +155,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
-        let one = ctx.constant(1.0);
-        let sum = ctx.add(x, one).unwrap();
+        let sum = ctx.add(x, 1.0).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape);
@@ -187,8 +185,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
         assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
 
-        let one = ctx.constant(1.0);
-        let min = ctx.min(x, one).unwrap();
+        let min = ctx.min(x, 1.0).unwrap();
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape.clone());
         assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
@@ -209,8 +206,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
-        let two = ctx.constant(2.5);
-        let y2 = ctx.mul(y, two).unwrap();
+        let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
         let tape = ctx.get_tape(sum);

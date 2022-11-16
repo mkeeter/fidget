@@ -175,8 +175,7 @@ pub mod eval_tests {
         .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
 
-        let two = ctx.constant(2.0);
-        let mul = ctx.mul(y, two).unwrap();
+        let mul = ctx.mul(y, 2.0).unwrap();
         let tape = ctx.get_tape(mul);
         let mut eval = FloatSliceEval::<I>::new(tape);
         eval.eval_s(

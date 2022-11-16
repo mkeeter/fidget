@@ -559,15 +559,13 @@ pub mod eval_tests {
     pub fn test_i_mul_imm<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let two = ctx.constant(2.0);
-        let mul = ctx.mul(x, two).unwrap();
+        let mul = ctx.mul(x, 2.0).unwrap();
         let tape = ctx.get_tape(mul);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [2.0, 4.0].into());
 
-        let neg_three = ctx.constant(-3.0);
-        let mul = ctx.mul(x, neg_three).unwrap();
+        let mul = ctx.mul(x, -3.0).unwrap();
         let tape = ctx.get_tape(mul);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-3.0, 0.0].into());
@@ -598,15 +596,13 @@ pub mod eval_tests {
     pub fn test_i_sub_imm<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let two = ctx.constant(2.0);
-        let sub = ctx.sub(x, two).unwrap();
+        let sub = ctx.sub(x, 2.0).unwrap();
         let tape = ctx.get_tape(sub);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-2.0, -1.0].into());
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-1.0, 0.0].into());
 
-        let neg_three = ctx.constant(-3.0);
-        let sub = ctx.sub(neg_three, x).unwrap();
+        let sub = ctx.sub(-3.0, x).unwrap();
         let tape = ctx.get_tape(sub);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(eval.eval_i_x([0.0, 1.0]), [-4.0, -3.0].into());
@@ -717,8 +713,7 @@ pub mod eval_tests {
     pub fn test_i_min_imm<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let one = ctx.constant(1.0);
-        let min = ctx.min(x, one).unwrap();
+        let min = ctx.min(x, 1.0).unwrap();
 
         let tape = ctx.get_tape(min);
         let mut eval = I::new_interval_evaluator(tape);
@@ -803,8 +798,7 @@ pub mod eval_tests {
     pub fn test_i_max_imm<I: Eval>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let one = ctx.constant(1.0);
-        let max = ctx.max(x, one).unwrap();
+        let max = ctx.max(x, 1.0).unwrap();
 
         let tape = ctx.get_tape(max);
         let mut eval = I::new_interval_evaluator(tape);

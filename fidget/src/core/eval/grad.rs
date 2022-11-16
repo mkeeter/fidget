@@ -336,8 +336,7 @@ pub mod eval_tests {
         let y2 = ctx.square(y).unwrap();
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
-        let half = ctx.constant(0.5);
-        let sub = ctx.sub(sqrt, half).unwrap();
+        let sub = ctx.sub(sqrt, 0.5).unwrap();
         let tape = ctx.get_tape(sub);
 
         let mut eval = I::new_grad_evaluator(tape);

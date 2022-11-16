@@ -75,6 +75,14 @@ impl Context {
         self.ops.is_empty()
     }
 
+    /// Checks whether the given [`Node`](Node) is valid in this context
+    fn check_node(&self, node: Node) -> Result<(), Error> {
+        self.ops
+            .get_by_index(node)
+            .ok_or(Error::BadNode)
+            .map(|_| ())
+    }
+
     /// Erases the most recently added node from the tree.
     ///
     /// A few caveats apply, so this must be used with caution:
@@ -223,12 +231,17 @@ impl Context {
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
-    /// let num = ctx.constant(1.0);
-    /// let op = ctx.add(x, num).unwrap();
+    /// let op = ctx.add(x, 1.0).unwrap();
     /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn add(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn add<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a: Node = a.into_node(self)?;
+        let b: Node = b.into_node(self)?;
         if a == b {
             let two = self.constant(2.0);
             self.mul(a, two)
@@ -245,12 +258,17 @@ impl Context {
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
-    /// let num = ctx.constant(5.0);
-    /// let op = ctx.mul(x, num).unwrap();
+    /// let op = ctx.mul(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 10.0);
     /// ```
-    pub fn mul(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn mul<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
         if a == b {
             self.square(a)
         } else {
@@ -266,12 +284,17 @@ impl Context {
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
-    /// let num = ctx.constant(5.0);
-    /// let op = ctx.min(x, num).unwrap();
+    /// let op = ctx.min(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn min(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn min<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
         if a == b {
             Ok(a)
         } else {
@@ -282,12 +305,17 @@ impl Context {
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
-    /// let num = ctx.constant(5.0);
-    /// let op = ctx.max(x, num).unwrap();
+    /// let op = ctx.max(x, 5.0).unwrap();
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 5.0);
     /// ```
-    pub fn max(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn max<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
         if a == b {
             Ok(a)
         } else {
@@ -303,7 +331,8 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, -2.0);
     /// ```
-    pub fn neg(&mut self, a: Node) -> Result<Node, Error> {
+    pub fn neg<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Neg)
     }
 
@@ -315,7 +344,8 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 0.5);
     /// ```
-    pub fn recip(&mut self, a: Node) -> Result<Node, Error> {
+    pub fn recip<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Recip)
     }
 
@@ -329,7 +359,8 @@ impl Context {
     /// let v = ctx.eval_xyz(op, -2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn abs(&mut self, a: Node) -> Result<Node, Error> {
+    pub fn abs<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Abs)
     }
 
@@ -341,7 +372,8 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 4.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 2.0);
     /// ```
-    pub fn sqrt(&mut self, a: Node) -> Result<Node, Error> {
+    pub fn sqrt<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Sqrt)
     }
 
@@ -355,7 +387,8 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 4.0);
     /// ```
-    pub fn square(&mut self, a: Node) -> Result<Node, Error> {
+    pub fn square<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
         self.op_unary(a, UnaryOpcode::Square)
     }
 
@@ -368,7 +401,13 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 3.0, 2.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
     /// ```
-    pub fn sub(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn sub<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
         self.op_binary(a, b, BinaryOpcode::Sub)
     }
 
@@ -382,7 +421,13 @@ impl Context {
     /// let v = ctx.eval_xyz(op, 3.0, 2.0, 0.0).unwrap();
     /// assert_eq!(v, 1.5);
     /// ```
-    pub fn div(&mut self, a: Node, b: Node) -> Result<Node, Error> {
+    pub fn div<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
         self.op_binary(a, b, BinaryOpcode::Div)
     }
 
@@ -652,6 +697,48 @@ impl Context {
         self.ops.get_by_index(node)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Helper trait for things that can be converted into a [`Node`](Node given a
+/// [`Context`](Context).
+///
+/// This trait allows you to write
+/// ```
+/// # let mut ctx = fidget::context::Context::new();
+/// let x = ctx.x();
+/// let sum = ctx.add(x, 1.0).unwrap();
+/// ```
+/// instead of the more verbose
+/// ```
+/// # let mut ctx = fidget::context::Context::new();
+/// let x = ctx.x();
+/// let num = ctx.constant(1.0);
+/// let sum = ctx.add(x, num).unwrap();
+/// ```
+pub trait IntoNode {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, Error>;
+}
+
+impl IntoNode for Node {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+        ctx.check_node(self)?;
+        Ok(self)
+    }
+}
+
+impl IntoNode for f32 {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+        Ok(ctx.constant(self as f64))
+    }
+}
+
+impl IntoNode for f64 {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+        Ok(ctx.constant(self))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
