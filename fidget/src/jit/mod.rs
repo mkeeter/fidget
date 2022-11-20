@@ -810,16 +810,61 @@ impl AssemblerT for FloatSliceAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
 
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
-            ; ldp d0, d1, [x0]
-            ; mov v0.d[1], v1.d[0]
-            ; ldp d1, d2, [x1]
-            ; mov v1.d[1], v2.d[0]
-            ; ldp d2, d3, [x2]
-            ; mov v2.d[1], v3.d[0]
         );
         out.prepare_stack(slot_count);
+
+        dynasm!(out.ops
+            ; b #8 // Skip the call in favor of setup
+
+            // call:
+            ; bl #72 // -> func
+
+            // The function returns here, and we check whether we need to loop
+            // Remember, at this point we have
+            //  x0: x input array pointer
+            //  x1: y input array pointer
+            //  x2: z input array pointer
+            //  x3: output array pointer
+            //  x4: number of points to evaluate
+            //
+            // We'll be advancing x0, x1, x2 here (and decrementing x4 by 4);
+            // x3 is advanced in finalize().
+
+            ; cmp x4, #0
+            ; b.eq #36 // -> fini
+            ; sub x4, x4, #4 // We handle 4 items at a time
+
+            // Load V0/1/2.S4 with X/Y/Z values, post-increment
+            //
+            // We're actually loading two f32s, but we can pretend they're
+            // doubles in order to move 64 bits at a time
+            ; ldp d0, d1, [x0], #16
+            ; mov v0.d[1], v1.d[0]
+            ; ldp d1, d2, [x1], #16
+            ; mov v1.d[1], v2.d[0]
+            ; ldp d2, d3, [x2], #16
+            ; mov v2.d[1], v3.d[0]
+
+            ; b #-40 // -> call
+
+            // fini:
+            // This is our finalization code, which happens after all evaluation
+            // is complete.
+            //
+            // Restore stack space used for spills
+            ; add   sp, sp, #(out.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+
+            // func:
+        );
+
         Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
@@ -935,17 +980,7 @@ impl AssemblerT for FloatSliceAssembler {
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x3]
-
-            // Restore stack space used for spills
-            ; add   sp, sp, #(self.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
+            ; stp D(reg(out_reg)), d0, [x3], #16
             ; ret
         );
 
@@ -1376,7 +1411,8 @@ impl PointEvalT<Eval> for JitPointEval {
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 pub struct JitFloatSliceEval {
     mmap: Arc<Mmap>,
-    fn_vec: unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32),
+    fn_vec:
+        unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32, u64),
 }
 
 impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
@@ -1416,11 +1452,9 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
             let mut x = [0.0; 4];
             let mut y = [0.0; 4];
             let mut z = [0.0; 4];
-            for i in 0..4 {
-                x[i] = xs.get(i).cloned().unwrap_or(0.0);
-                y[i] = ys.get(i).cloned().unwrap_or(0.0);
-                z[i] = zs.get(i).cloned().unwrap_or(0.0);
-            }
+            x[0..n].copy_from_slice(xs);
+            y[0..n].copy_from_slice(ys);
+            z[0..n].copy_from_slice(zs);
             let mut tmp = [std::f32::NAN; 4];
             unsafe {
                 (self.fn_vec)(
@@ -1428,26 +1462,37 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
                     y.as_ptr(),
                     z.as_ptr(),
                     tmp.as_mut_ptr(),
+                    4,
                 );
             }
             out[0..n].copy_from_slice(&tmp[0..n]);
         } else {
-            let mut i = 0;
-            loop {
-                assert!(i + 4 <= n);
+            // Our vectorized function only accepts set of 4 values, so we'll
+            // find the biggest multiple of four, then do an extra operation
+            // to process any remainders.
+
+            let m = (n / 4) * 4; // Round down
+            unsafe {
+                (self.fn_vec)(
+                    xs.as_ptr(),
+                    ys.as_ptr(),
+                    zs.as_ptr(),
+                    out.as_mut_ptr(),
+                    m as u64,
+                );
+            }
+            // If we weren't given a multiple of 4, then we'll handle the
+            // remaining 1-3 items by simply evaluating the *last* 4 items
+            // in the array again.
+            if n != m {
                 unsafe {
                     (self.fn_vec)(
-                        xs.as_ptr().add(i),
-                        ys.as_ptr().add(i),
-                        zs.as_ptr().add(i),
-                        out.as_mut_ptr().add(i),
-                    )
-                }
-                i += 4;
-                if i == n {
-                    break;
-                } else if i + 4 > n {
-                    i = n - 4;
+                        xs.as_ptr().add(n - 4),
+                        ys.as_ptr().add(n - 4),
+                        zs.as_ptr().add(n - 4),
+                        out.as_mut_ptr().add(n - 4),
+                        4,
+                    );
                 }
             }
         }
