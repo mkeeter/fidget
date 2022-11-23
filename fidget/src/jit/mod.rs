@@ -1272,6 +1272,7 @@ impl AssemblerT for GradAssembler {
 /// Evaluator for a JIT-compiled function performing gradient evaluation.
 pub struct JitGradEval {
     mmap: Arc<Mmap>,
+    var_count: usize,
     /// X, Y, Z are passed by value; the output is written to an array of 4
     /// floats (allocated by the caller)
     fn_grad: unsafe extern "C" fn(f32, f32, f32, *const f32) -> [f32; 4],
@@ -1286,6 +1287,7 @@ impl GradEvalT<Eval> for JitGradEval {
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_grad: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1295,6 +1297,7 @@ impl GradEvalT<Eval> for JitGradEval {
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_grad: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1303,6 +1306,7 @@ impl GradEvalT<Eval> for JitGradEval {
         Arc::try_unwrap(self.mmap).ok()
     }
     fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad {
+        assert_eq!(vars.len(), self.var_count);
         let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z, vars.as_ptr()) };
         Grad::new(v, x, y, z)
     }
@@ -1416,6 +1420,7 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
 /// Handle owning a JIT-compiled float function
 pub struct JitPointEval {
     _mmap: Arc<Mmap>,
+    var_count: usize,
     fn_float: unsafe extern "C" fn(f32, f32, f32, *const f32, *mut u8) -> f32,
 }
 
@@ -1425,6 +1430,7 @@ impl PointEvalT<Eval> for JitPointEval {
         let ptr = mmap.as_ptr();
         Self {
             _mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_float: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1436,6 +1442,7 @@ impl PointEvalT<Eval> for JitPointEval {
         vars: &[f32],
         choices: &mut [Choice],
     ) -> f32 {
+        assert_eq!(vars.len(), self.var_count);
         unsafe {
             (self.fn_float)(
                 x,
@@ -1453,6 +1460,7 @@ impl PointEvalT<Eval> for JitPointEval {
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 pub struct JitFloatSliceEval {
     mmap: Arc<Mmap>,
+    var_count: usize,
     fn_vec: unsafe extern "C" fn(
         *const f32, // X
         *const f32, // Y
@@ -1471,6 +1479,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_vec: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1480,6 +1489,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
         let ptr = mmap.as_ptr();
         JitFloatSliceEval {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_vec: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1499,7 +1509,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        // TODO: check on var count
+        assert_eq!(vars.len(), self.var_count);
 
         let n = xs.len();
 
@@ -1565,6 +1575,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
 #[derive(Clone)]
 pub struct JitIntervalEval {
     mmap: Arc<Mmap>,
+    var_count: usize,
     fn_interval: unsafe extern "C" fn(
         [f32; 2],   // X
         [f32; 2],   // Y
@@ -1585,6 +1596,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_interval: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1594,6 +1606,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         let ptr = mmap.as_ptr();
         Self {
             mmap: Arc::new(mmap),
+            var_count: t.var_count(),
             fn_interval: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -1614,6 +1627,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         let x: Interval = x.into();
         let y: Interval = y.into();
         let z: Interval = z.into();
+        assert_eq!(vars.len(), self.var_count);
         let out = unsafe {
             (self.fn_interval)(
                 [x.lower(), x.upper()],
