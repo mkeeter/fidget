@@ -498,6 +498,60 @@ impl Context {
     }
 
     ////////////////////////////////////////////////////////////////////////////
+
+    /// Remaps the X, Y, Z nodes to the given values
+    pub fn remap_xyz(
+        &mut self,
+        root: Node,
+        x: Node,
+        y: Node,
+        z: Node,
+    ) -> Result<Node, Error> {
+        self.check_node(root)?;
+        self.check_node(x)?;
+        self.check_node(y)?;
+        self.check_node(z)?;
+        // TODO: make this iterative instead of recursive, to avoid the
+        // potential for stack overflows.
+        Ok(self.remap_xyz_recurse(root, x, y, z, &mut BTreeMap::new()))
+    }
+
+    pub fn remap_xyz_recurse(
+        &mut self,
+        root: Node,
+        x: Node,
+        y: Node,
+        z: Node,
+        done: &mut BTreeMap<Node, Node>,
+    ) -> Node {
+        if let Some(e) = done.get(&root) {
+            return *e;
+        }
+        let m = match root {
+            r if r == self.x() => x,
+            r if r == self.y() => y,
+            r if r == self.z() => z,
+            _ => {
+                let op = *self.ops.get_by_index(root).unwrap();
+                match op {
+                    Op::Var(..) | Op::Input(..) | Op::Const(..) => root,
+                    Op::Unary(op, v) => {
+                        let v = self.remap_xyz_recurse(v, x, y, z, done);
+                        self.op_unary(v, op).unwrap()
+                    }
+                    Op::Binary(op, a, b) => {
+                        let a = self.remap_xyz_recurse(a, x, y, z, done);
+                        let b = self.remap_xyz_recurse(b, x, y, z, done);
+                        self.op_binary(a, b, op).unwrap()
+                    }
+                }
+            }
+        };
+        done.insert(root, m);
+        m
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
     /// This is extremely inefficient; consider calling
@@ -802,5 +856,22 @@ mod test {
 
         assert!(ctx.var("a").is_ok()); // inserts the var in the map
         assert!(ctx.var("a").is_err());
+    }
+
+    #[test]
+    fn test_remap_xyz() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+
+        let s = ctx.add(x, 1.0).unwrap();
+
+        let v = ctx.remap_xyz(s, y, y, z).unwrap();
+        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        let one = ctx.constant(3.0);
+        let v = ctx.remap_xyz(s, one, y, z).unwrap();
+        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }
