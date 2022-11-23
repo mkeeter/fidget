@@ -77,10 +77,7 @@ impl Context {
 
     /// Checks whether the given [`Node`](Node) is valid in this context
     fn check_node(&self, node: Node) -> Result<(), Error> {
-        self.ops
-            .get_by_index(node)
-            .ok_or(Error::BadNode)
-            .map(|_| ())
+        self.get_op(node).ok_or(Error::BadNode).map(|_| ())
     }
 
     /// Erases the most recently added node from the tree.
@@ -102,7 +99,7 @@ impl Context {
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not a constant, returns `Ok(None)`.
     pub fn const_value(&self, n: Node) -> Result<Option<f64>, Error> {
-        match self.ops.get_by_index(n) {
+        match self.get_op(n) {
             Some(Op::Const(c)) => Ok(Some(c.0)),
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
@@ -112,9 +109,9 @@ impl Context {
     /// Looks up the variable name associated with the given node.
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
-    /// not a `Op::Var`, returns `Ok(None)`.
+    /// not a `Op::Var` or `Op::Input`, returns `Ok(None)`.
     pub fn var_name(&self, n: Node) -> Result<Option<&str>, Error> {
-        match self.ops.get_by_index(n) {
+        match self.get_op(n) {
             Some(Op::Var(c) | Op::Input(c)) => {
                 self.get_var_by_index(*c).map(Some)
             }
@@ -158,16 +155,20 @@ impl Context {
         self.ops.insert(Op::Input(v))
     }
 
+    /// Returns a variable with the provided name.
+    ///
+    /// If a variable already exists with this name, then it is returned.
     pub fn var(&mut self, name: &str) -> Result<Node, Error> {
+        let name = self.check_var_name(name)?;
+        let v = self.vars.insert(name);
+        Ok(self.ops.insert(Op::Var(v)))
+    }
+
+    fn check_var_name(&self, name: &str) -> Result<String, Error> {
         if matches!(name, "X" | "Y" | "Z") {
             return Err(Error::ReservedName);
         }
-        let name = String::from(name);
-        if self.vars.contains_key(&name) {
-            return Err(Error::DuplicateName);
-        }
-        let v = self.vars.insert(name);
-        Ok(self.ops.insert(Op::Var(v)))
+        Ok(String::from(name))
     }
 
     /// Returns a node representing the given constant value.
@@ -185,7 +186,7 @@ impl Context {
     /// Find or create a [Node] for the given unary operation, with constant
     /// folding.
     fn op_unary(&mut self, a: Node, op: UnaryOpcode) -> Result<Node, Error> {
-        let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
+        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
         let n = self.ops.insert(Op::Unary(op, a));
         let out = if matches!(op_a, Op::Const(_)) {
             let v = self.eval(n, &BTreeMap::new())?;
@@ -213,8 +214,8 @@ impl Context {
     where
         F: Fn(Node, Node) -> Op,
     {
-        let op_a = *self.ops.get_by_index(a).ok_or(Error::BadNode)?;
-        let op_b = *self.ops.get_by_index(b).ok_or(Error::BadNode)?;
+        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
+        let op_b = *self.get_op(b).ok_or(Error::BadNode)?;
 
         // This call to `insert` should always insert the node, because we
         // don't permanently store operations in the tree that could be
@@ -503,45 +504,40 @@ impl Context {
     pub fn remap_xyz(
         &mut self,
         root: Node,
-        x: Node,
-        y: Node,
-        z: Node,
+        xyz: [Node; 3],
     ) -> Result<Node, Error> {
         self.check_node(root)?;
-        self.check_node(x)?;
-        self.check_node(y)?;
-        self.check_node(z)?;
+        xyz.iter().try_for_each(|x| self.check_node(*x))?;
+
         // TODO: make this iterative instead of recursive, to avoid the
         // potential for stack overflows.
-        Ok(self.remap_xyz_recurse(root, x, y, z, &mut BTreeMap::new()))
+        Ok(self.remap_xyz_recurse(root, xyz, &mut BTreeMap::new()))
     }
 
     pub fn remap_xyz_recurse(
         &mut self,
         root: Node,
-        x: Node,
-        y: Node,
-        z: Node,
+        xyz: [Node; 3],
         done: &mut BTreeMap<Node, Node>,
     ) -> Node {
         if let Some(e) = done.get(&root) {
             return *e;
         }
         let m = match root {
-            r if r == self.x() => x,
-            r if r == self.y() => y,
-            r if r == self.z() => z,
+            r if r == self.x() => xyz[0],
+            r if r == self.y() => xyz[1],
+            r if r == self.z() => xyz[2],
             _ => {
-                let op = *self.ops.get_by_index(root).unwrap();
+                let op = *self.get_op(root).unwrap();
                 match op {
                     Op::Var(..) | Op::Input(..) | Op::Const(..) => root,
                     Op::Unary(op, v) => {
-                        let v = self.remap_xyz_recurse(v, x, y, z, done);
+                        let v = self.remap_xyz_recurse(v, xyz, done);
                         self.op_unary(v, op).unwrap()
                     }
                     Op::Binary(op, a, b) => {
-                        let a = self.remap_xyz_recurse(a, x, y, z, done);
-                        let b = self.remap_xyz_recurse(b, x, y, z, done);
+                        let a = self.remap_xyz_recurse(a, xyz, done);
+                        let b = self.remap_xyz_recurse(b, xyz, done);
                         self.op_binary(a, b, op).unwrap()
                     }
                 }
@@ -607,7 +603,7 @@ impl Context {
             return Ok(v);
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
-        let v = match self.ops.get_by_index(node).ok_or(Error::BadNode)? {
+        let v = match self.get_op(node).ok_or(Error::BadNode)? {
             Op::Var(v) | Op::Input(v) => {
                 let var_name = self.vars.get_by_index(*v).unwrap();
                 *vars.get(var_name).unwrap()
@@ -713,7 +709,7 @@ impl Context {
     pub fn dot(&self) -> String {
         let mut out = "digraph mygraph{\n".to_owned();
         for node in self.ops.keys() {
-            let op = self.ops.get_by_index(node).unwrap();
+            let op = self.get_op(node).unwrap();
             out += &self.dot_node(node);
             out += &op.dot_edges(node);
         }
@@ -727,7 +723,7 @@ impl Context {
     ///  requires looking up variables by name)
     fn dot_node(&self, i: Node) -> String {
         let mut out = format!(r#"n{} [label = ""#, i.get());
-        let op = self.ops.get_by_index(i).unwrap();
+        let op = self.get_op(i).unwrap();
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
             Op::Var(v) | Op::Input(v) => {
@@ -867,11 +863,11 @@ mod test {
 
         let s = ctx.add(x, 1.0).unwrap();
 
-        let v = ctx.remap_xyz(s, y, y, z).unwrap();
+        let v = ctx.remap_xyz(s, [y, y, z]).unwrap();
         assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 2.0);
 
         let one = ctx.constant(3.0);
-        let v = ctx.remap_xyz(s, one, y, z).unwrap();
+        let v = ctx.remap_xyz(s, [one, y, z]).unwrap();
         assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }

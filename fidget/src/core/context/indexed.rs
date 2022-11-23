@@ -38,10 +38,6 @@ where
     V: Eq + std::hash::Hash + Clone,
     I: Eq + std::hash::Hash + Copy + Index,
 {
-    pub fn contains_key(&self, v: &V) -> bool {
-        self.map.contains_key(v)
-    }
-
     pub fn clear(&mut self) {
         self.data.clear();
         self.map.clear();
