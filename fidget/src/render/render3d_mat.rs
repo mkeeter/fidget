@@ -1,11 +1,12 @@
 //! Bitmap rendering
 use crate::{
+    context::{Context, Node},
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
-        tape::{Tape, TapeData, Workspace},
-        Eval,
+        tape::{TapeData, Workspace},
+        Eval, Vars,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -39,22 +40,32 @@ impl Scratch {
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: Eval>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
+    fn eval_s<E: Eval>(
+        &mut self,
+        f: &mut FloatSliceEval<E>,
+        size: usize,
+        vars: &[f32],
+    ) {
         f.eval_s(
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
-            &[],
+            vars,
             &mut self.out_float[0..size],
         )
         .unwrap();
     }
-    fn eval_g<E: Eval>(&mut self, f: &mut GradEval<E>, size: usize) {
+    fn eval_g<E: Eval>(
+        &mut self,
+        f: &mut GradEval<E>,
+        size: usize,
+        vars: &[f32],
+    ) {
         f.eval_g(
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
-            &[],
+            vars,
             &mut self.out_grad[0..size],
         )
         .unwrap();
@@ -65,6 +76,7 @@ impl Scratch {
 
 struct Worker<'a, I: Eval> {
     config: &'a AlignedRenderConfig<3>,
+    vars: &'a [f32],
     scratch: Scratch,
     depth: Vec<u32>,
     color: Vec<[u8; 3]>,
@@ -107,35 +119,15 @@ impl<I: Eval> Worker<'_, I> {
             return;
         }
 
-        // Brute-force way to find the (interval) bounding box of the region
-        let mut x_min = f32::INFINITY;
-        let mut x_max = f32::NEG_INFINITY;
-        let mut y_min = f32::INFINITY;
-        let mut y_max = f32::NEG_INFINITY;
-        let mut z_min = f32::INFINITY;
-        let mut z_max = f32::NEG_INFINITY;
-        let base = Point3::from(tile.corner);
-        for i in 0..8 {
-            let offset = Vector3::new(
-                if (i & 1) == 0 { 0 } else { tile_size },
-                if (i & 2) == 0 { 0 } else { tile_size },
-                if (i & 4) == 0 { 0 } else { tile_size },
-            );
-            let p = (base + offset).cast::<f32>();
-            let p = self.config.mat.transform_point(&p);
-            x_min = x_min.min(p.x);
-            x_max = x_max.max(p.x);
-            y_min = y_min.min(p.y);
-            y_max = y_max.max(p.y);
-            z_min = z_min.min(p.z);
-            z_max = z_max.max(p.z);
-        }
+        let lower = Point3::from(tile.corner);
+        let upper = lower + Vector3::new(tile_size, tile_size, tile_size);
 
-        let x = Interval::new(x_min, x_max);
-        let y = Interval::new(y_min, y_max);
-        let z = Interval::new(z_min, z_max);
+        let x = Interval::new(lower.x as f32, upper.x as f32);
+        let y = Interval::new(lower.y as f32, upper.y as f32);
+        let z = Interval::new(lower.z as f32, upper.z as f32);
 
-        let i = handle.eval_i(x, y, z, &[]).unwrap();
+        let i = handle.eval_i(x, y, z, self.vars).unwrap();
+        println!("Got i: {i:?}");
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {
@@ -205,12 +197,6 @@ impl<I: Eval> Worker<'_, I> {
         assert!(self.scratch.y.len() >= tile_size.pow(3));
         assert!(self.scratch.z.len() >= tile_size.pow(3));
         self.scratch.columns.clear();
-
-        let mut lol = Vec::with_capacity(tile_size);
-        for k in 0..tile_size {
-            lol.push(((tile.corner[2] + k) as f32) * self.config.mat.column(2));
-        }
-
         for xy in 0..tile_size.pow(2) {
             let i = xy % tile_size;
             let j = xy / tile_size;
@@ -222,28 +208,15 @@ impl<I: Eval> Worker<'_, I> {
                 continue;
             }
 
-            // The matrix transformation is separable until the final
-            // division by w.  We can precompute the XY-1 portion of the
-            // multiplication here, since it's shared by every voxel in this
-            // column of the image.
-            let v = ((tile.corner[0] + i) as f32) * self.config.mat.column(0)
-                + ((tile.corner[1] + j) as f32) * self.config.mat.column(1)
-                + self.config.mat.column(3);
-
             for k in (0..tile_size).rev() {
-                let v = v + lol[k];
-
-                // SAFETY:
-                // Index cannot exceed tile_size**3, which is (a) the size
-                // that we allocated in `Scratch::new` and (b) checked by
-                // assertions above.
-                //
-                // Using unsafe indexing here is a roughly 2.5% speedup,
-                // since this is the hottest loop.
+                // TODO: check if this is still an optimization
                 unsafe {
-                    *self.scratch.x.get_unchecked_mut(index) = v.x / v.w;
-                    *self.scratch.y.get_unchecked_mut(index) = v.y / v.w;
-                    *self.scratch.z.get_unchecked_mut(index) = v.z / v.w;
+                    *self.scratch.x.get_unchecked_mut(index) =
+                        (tile.corner[0] + i) as f32;
+                    *self.scratch.y.get_unchecked_mut(index) =
+                        (tile.corner[1] + j) as f32;
+                    *self.scratch.z.get_unchecked_mut(index) =
+                        (tile.corner[2] + k) as f32;
                 }
                 index += 1;
             }
@@ -271,7 +244,7 @@ impl<I: Eval> Worker<'_, I> {
                 storage,
             );
 
-            self.scratch.eval_s(&mut func, size);
+            self.scratch.eval_s(&mut func, size, self.vars);
 
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
@@ -287,7 +260,7 @@ impl<I: Eval> Worker<'_, I> {
                     storage,
                 )
             });
-            self.scratch.eval_s(func, size);
+            self.scratch.eval_s(func, size, self.vars);
         }
 
         // We're iterating over a few things simultaneously
@@ -323,14 +296,9 @@ impl<I: Eval> Worker<'_, I> {
             // We step one voxel above the surface to reduce
             // glitchiness on edges and corners, where rendering
             // inside the surface could pick the wrong normal.
-            let p = self.config.mat.transform_point(&Point3::new(
-                (tile.corner[0] + i) as f32,
-                (tile.corner[1] + j) as f32,
-                (tile.corner[2] + k + 1) as f32,
-            ));
-            self.scratch.x[grad] = p.x;
-            self.scratch.y[grad] = p.y;
-            self.scratch.z[grad] = p.z;
+            self.scratch.x[grad] = (tile.corner[0] + i) as f32;
+            self.scratch.y[grad] = (tile.corner[1] + j) as f32;
+            self.scratch.z[grad] = (tile.corner[2] + k + 1) as f32;
 
             // This can only be called once per iteration, so we'll
             // never overwrite parts of columns that are still used
@@ -344,7 +312,7 @@ impl<I: Eval> Worker<'_, I> {
             let mut func =
                 I::new_grad_evaluator_with_storage(sub_tape.clone(), storage);
 
-            self.scratch.eval_g(&mut func, grad);
+            self.scratch.eval_g(&mut func, grad, self.vars);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
                 self.color[*o] = self.scratch.out_grad[index]
                     .to_rgb()
@@ -381,6 +349,7 @@ fn worker<I: Eval>(
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
+    vars: &[f32],
 ) -> BTreeMap<[usize; 2], Image> {
     let mut out = BTreeMap::new();
 
@@ -392,6 +361,7 @@ fn worker<I: Eval>(
         depth: vec![],
         color: vec![],
         config,
+        vars,
         float_storage: Default::default(),
         grad_storage: Default::default(),
         interval_storage: (0..config.tile_sizes.len())
@@ -439,7 +409,8 @@ fn worker<I: Eval>(
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn render<I: Eval>(
-    tape: Tape<I>,
+    ctx: &mut Context,
+    root: Node,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let config = config.align();
@@ -447,6 +418,17 @@ pub fn render<I: Eval>(
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
+
+    let root = inject_transform_matrix(ctx, root);
+    let tape = ctx.get_tape(root);
+
+    let mut vars = Vars::new(&tape);
+    for r in 0..4 {
+        for c in 0..4 {
+            vars.set(&format!("__v{r}{c}"), *config.mat.get((r, c)).unwrap());
+        }
+    }
+    let vars = vars.as_slice();
 
     let i_handle = I::new_interval_evaluator(tape);
     let mut tiles = vec![];
@@ -473,8 +455,9 @@ pub fn render<I: Eval>(
         for i in 0..config.threads {
             let handle = i_handle.clone();
             let r = tile_queues.as_slice();
-            handles
-                .push(s.spawn(move || worker::<I>(handle, r, i, config_ref)));
+            handles.push(
+                s.spawn(move || worker::<I>(handle, r, i, config_ref, vars)),
+            );
         }
         let mut out = vec![];
         for h in handles {
@@ -505,4 +488,27 @@ pub fn render<I: Eval>(
         }
     }
     (image_depth, image_color)
+}
+
+fn inject_transform_matrix(ctx: &mut Context, root: Node) -> Node {
+    let v = [ctx.x(), ctx.y(), ctx.z(), ctx.constant(1.0)];
+    let mut out = vec![];
+    let mut rows = vec![];
+    for r in 0..4 {
+        let mut col = vec![];
+        let mut sum = ctx.constant(0.0);
+        for (c, v) in v.iter().enumerate() {
+            let var = ctx.var(&format!("__v{r}{c}")).unwrap();
+            let p = ctx.mul(var, *v).unwrap();
+            sum = ctx.add(sum, p).unwrap();
+            col.push(var);
+        }
+        out.push(sum);
+        rows.push(col);
+    }
+    let x = ctx.div(out[0], out[3]).unwrap();
+    let y = ctx.div(out[1], out[3]).unwrap();
+    let z = ctx.div(out[2], out[3]).unwrap();
+
+    ctx.remap_xyz(root, [x, y, z]).unwrap()
 }

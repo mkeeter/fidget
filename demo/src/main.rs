@@ -37,6 +37,10 @@ struct Args {
     #[clap(short, long, requires = "threedee")]
     color: bool,
 
+    /// Injects the matrix transform into the math
+    #[clap(short, long, requires = "threedee")]
+    mat: bool,
+
     /// Render in 3D
     #[clap(long, requires = "image", conflicts_with = "brute")]
     threedee: bool,
@@ -54,7 +58,7 @@ struct Args {
 
 ////////////////////////////////////////////////////////////////////////////////
 fn run3d<I: fidget::eval::Eval>(
-    ctx: &Context,
+    ctx: &mut Context,
     node: Node,
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
@@ -74,8 +78,13 @@ fn run3d<I: fidget::eval::Eval>(
     let mut depth = vec![];
     let mut color = vec![];
     for _ in 0..args.n {
-        (depth, color) =
-            fidget::render::render3d::render::<I>(tape.clone(), &cfg);
+        if args.mat {
+            (depth, color) =
+                fidget::render::render3d_mat::render::<I>(ctx, node, &cfg);
+        } else {
+            (depth, color) =
+                fidget::render::render3d::render::<I>(tape.clone(), &cfg);
+        }
     }
 
     let out = if args.color {
@@ -178,19 +187,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(&args.filename)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
+    let (mut ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
     if let Some(img) = &args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                run3d::<fidget::vm::Eval>(&ctx, root, &args)
+                run3d::<fidget::vm::Eval>(&mut ctx, root, &args)
             } else {
                 run::<fidget::vm::Eval>(&ctx, root, &args)
             }
         } else if args.jit {
             if args.threedee {
-                run3d::<fidget::jit::Eval>(&ctx, root, &args)
+                run3d::<fidget::jit::Eval>(&mut ctx, root, &args)
             } else {
                 run::<fidget::jit::Eval>(&ctx, root, &args)
             }
