@@ -589,4 +589,9 @@ impl RegisterAllocator {
     pub fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| Op::Input(out, i));
     }
+
+    /// Pushes an [`Var`](crate::asm::Op::Var) operation to the tape
+    pub fn op_var(&mut self, out: u32, i: u32) {
+        self.op_out_only(out, |out| Op::Var(out, i));
+    }
 }

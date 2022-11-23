@@ -89,11 +89,14 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
         x: I,
         y: I,
         z: I,
+        vars: &[f32],
         choices: &mut [Choice],
     ) -> Interval {
         let x = x.into();
         let y = y.into();
         let z = z.into();
+        assert_eq!(vars.len(), self.tape.var_count());
+
         let mut choice_index = 0;
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
@@ -105,6 +108,9 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
                         2 => z,
                         _ => panic!("Invalid input: {}", i),
                     }
+                }
+                Op::Var(out, i) => {
+                    v[out] = vars[i as usize].into();
                 }
                 Op::NegReg(out, arg) => {
                     v[out] = -v[arg];
@@ -208,11 +214,20 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
         }
     }
 
-    fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
-        let size = [xs.len(), ys.len(), zs.len(), out.len()]
-            .into_iter()
-            .min()
-            .unwrap();
+    fn eval_s(
+        &mut self,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+        out: &mut [f32],
+    ) {
+        assert_eq!(xs.len(), ys.len());
+        assert_eq!(ys.len(), zs.len());
+        assert_eq!(zs.len(), out.len());
+        assert_eq!(vars.len(), self.tape.var_count());
+
+        let size = xs.len();
         if size > self.slice_size {
             for s in self.slots.iter_mut() {
                 s.resize(size, std::f32::NAN);
@@ -229,6 +244,7 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
                     2 => zs,
                     _ => panic!("Invalid input: {}", i),
                 }),
+                Op::Var(out, i) => v[out][0..size].fill(vars[i as usize]),
                 Op::NegReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
@@ -374,8 +390,10 @@ impl PointEvalT<Eval> for AsmPointEval {
         x: f32,
         y: f32,
         z: f32,
+        vars: &[f32],
         choices: &mut [Choice],
     ) -> f32 {
+        assert_eq!(vars.len(), self.tape.var_count());
         let mut choice_index = 0;
         let mut v = SlotArray(&mut self.slots);
         for op in self.tape.iter_asm() {
@@ -388,6 +406,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
+                Op::Var(out, i) => v[out] = vars[i as usize],
                 Op::NegReg(out, arg) => {
                     v[out] = -v[arg];
                 }
@@ -549,17 +568,26 @@ impl GradEvalT<Eval> for AsmGradEval {
         }
     }
 
-    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
+    fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad {
         let mut out = [Grad::default()];
-        self.eval_g(&[x], &[y], &[z], out.as_mut_slice());
+        self.eval_g(&[x], &[y], &[z], vars, out.as_mut_slice());
         out[0]
     }
 
-    fn eval_g(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [Grad]) {
-        let size = [xs.len(), ys.len(), zs.len(), out.len()]
-            .into_iter()
-            .min()
-            .unwrap();
+    fn eval_g(
+        &mut self,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+        out: &mut [Grad],
+    ) {
+        assert_eq!(xs.len(), ys.len());
+        assert_eq!(ys.len(), zs.len());
+        assert_eq!(zs.len(), out.len());
+        assert_eq!(vars.len(), self.tape.var_count());
+
+        let size = xs.len();
         if size > self.slice_size {
             for s in self.slots.iter_mut() {
                 s.resize(size, Grad::default());
@@ -578,6 +606,15 @@ impl GradEvalT<Eval> for AsmGradEval {
                             _ => panic!("Invalid input: {}", i),
                         }
                     }
+                }
+                Op::Var(out, j) => {
+                    // TODO: error handling?
+                    v[out][0..size].fill(Grad::new(
+                        vars[j as usize],
+                        0.0,
+                        0.0,
+                        0.0,
+                    ));
                 }
                 Op::NegReg(out, arg) => {
                     for i in 0..size {

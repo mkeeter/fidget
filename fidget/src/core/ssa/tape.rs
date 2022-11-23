@@ -3,6 +3,8 @@ use crate::{
     vm::{RegisterAllocator, Tape as VmTape},
 };
 
+use std::{collections::BTreeMap, sync::Arc};
+
 /// Instruction tape, storing [`Op`](crate::ssa::Op) in SSA form
 ///
 /// Each operation has the following parameters
@@ -32,6 +34,14 @@ pub struct Tape {
 
     /// Number of choice operations in the tape
     pub choice_count: usize,
+
+    /// Mapping from variable names (in the original
+    /// [`Context`](crate::context::Context)) to indexes in the variable array
+    /// used during evaluation.
+    ///
+    /// This is an `Arc` so it can be trivially shared by all of the tape's
+    /// descendents, since the variable array order does not change.
+    pub vars: Arc<BTreeMap<String, u32>>,
 }
 
 impl Tape {
@@ -49,7 +59,12 @@ impl Tape {
                 Op::Input => {
                     let i = next();
                     let out = next();
-                    println!("${out} = %{i}");
+                    println!("${out} = INPUT {i}");
+                }
+                Op::Var => {
+                    let i = next();
+                    let out = next();
+                    println!("${out} = VAR {i}");
                 }
                 Op::NegReg
                 | Op::AbsReg
@@ -144,6 +159,10 @@ impl Tape {
                 Op::Input => {
                     let i = *data.next().unwrap();
                     alloc.op_input(index, i.try_into().unwrap());
+                }
+                Op::Var => {
+                    let i = *data.next().unwrap();
+                    alloc.op_var(index, i);
                 }
                 Op::CopyImm => {
                     let imm = f32::from_bits(*data.next().unwrap());

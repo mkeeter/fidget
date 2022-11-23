@@ -1,8 +1,13 @@
 /// Opcode for use in a [`Tape`](super::Tape)
 #[derive(Copy, Clone, Debug)]
 pub enum Op {
-    /// Reads one of the inputs (X, Y, Z)
+    /// Reads one of the inputs (X, Y, Z).  This is the most flexible variable,
+    /// and may vary between terms in vector / SIMD evaluation.
     Input,
+    /// Represents a variable.  Unlike `Input`, this node is assumed to remain
+    /// constant across all terms in vector / SIMD evaluation, but may be edited
+    /// by the user in between evaluation.
+    Var,
     /// Copy an immediate to a register
     CopyImm,
 
@@ -57,6 +62,7 @@ impl Op {
     pub fn data_count(&self) -> usize {
         match self {
             Op::Input
+            | Op::Var
             | Op::CopyImm
             | Op::NegReg
             | Op::AbsReg
@@ -84,6 +90,7 @@ impl Op {
     pub fn choice_count(&self) -> usize {
         match self {
             Op::Input
+            | Op::Var
             | Op::CopyImm
             | Op::NegReg
             | Op::AbsReg

@@ -2,13 +2,15 @@
 //!
 //! # So you want to write some assembly?
 //! There are four flavors of functions, with different signatures
-//! - Point-wise evaluation passes 3x `f32` in `s0-2`, and a choice array in
-//!   `x0`
-//! - Float slice evaluation passes 3x `*const f32` in `x0-2`, and an output
-//!   array `*mut f32` in `x3`.  Each pointer represents 4x `f32`
-//! - Interval evaluation passes 6x `f32` in `s0-5`, a choice array `*mut u8`
-//!   in `x0`, and returns 2x `f32` in `s0-1`.  Each pair represents an
-//!   interval.  During the function prelude, `s0-5` are packed into `v0-2`
+//! - Point-wise evaluation passes 3x `f32` in `s0-2`, a variable array in `x0`,
+//!   and a choice array in `x1`
+//! - Float slice evaluation passes 3x `*const f32` in `x0-2`, a var array in
+//!   `x3`, and an output array `*mut f32` in `x4`.  Each pointer in the input
+//!   and output arrays represents 4x `f32`; the var array is single `f32`s
+//! - Interval evaluation passes 6x `f32` in `s0-5`, a variable array in `x0`, a
+//!   choice array `*mut u8` in `x1`, and returns 2x `f32` in `s0-1`.  Each pair
+//!   represents an interval.  During the function prelude, `s0-5` are packed
+//!   into `v0-2`
 //! - Gradient slice evaluation passes 3x `f32` in `s0-2`, and returns outputs
 //!   in `s0-3`, which represent `[v, dx, dy, dz]`.
 //!
@@ -93,6 +95,7 @@ trait AssemblerT {
 
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8);
+    fn build_var(&mut self, out_reg: u8, src_arg: u32);
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8);
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8);
@@ -278,6 +281,12 @@ impl AssemblerT for PointAssembler {
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(src_arg as u32));
     }
+    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg * 4 < 16384);
+        dynasm!(self.0.ops
+            ; ldr S(reg(out_reg)), [x0, #(src_arg * 4)]
+        );
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(reg(lhs_reg)))
     }
@@ -321,7 +330,7 @@ impl AssemblerT for PointAssembler {
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20 // -> RHS
             ; b.gt #28 // -> LHS
@@ -342,12 +351,12 @@ impl AssemblerT for PointAssembler {
             // fall-through to end
 
             // <- end
-            ; strb w14, [x0], #1 // post-increment
+            ; strb w14, [x1], #1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20
             ; b.gt #28
@@ -368,7 +377,7 @@ impl AssemblerT for PointAssembler {
             // fall-through to end
 
             // <- end
-            ; strb w14, [x0], #1 // post-increment
+            ; strb w14, [x1], #1 // post-increment
         )
     }
 
@@ -477,6 +486,13 @@ impl AssemblerT for IntervalAssembler {
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(src_arg as u32));
+    }
+    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg * 4 < 16384);
+        dynasm!(self.0.ops
+            ; ldr w15, [x0, #(src_arg * 4)]
+            ; dup V(reg(out_reg)).s2, w15
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
@@ -686,7 +702,7 @@ impl AssemblerT for IntervalAssembler {
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> lhs
@@ -709,7 +725,7 @@ impl AssemblerT for IntervalAssembler {
             ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
-            ; strb w14, [x0], #1 // post-increment
+            ; strb w14, [x1], #1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -733,7 +749,7 @@ impl AssemblerT for IntervalAssembler {
             // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
             ; b.ne #24 // -> rhs
@@ -756,7 +772,7 @@ impl AssemblerT for IntervalAssembler {
             ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
-            ; strb w14, [x0], #1 // post-increment
+            ; strb w14, [x1], #1 // post-increment
         )
     }
 
@@ -824,15 +840,16 @@ impl AssemblerT for FloatSliceAssembler {
             //  x0: x input array pointer
             //  x1: y input array pointer
             //  x2: z input array pointer
-            //  x3: output array pointer
-            //  x4: number of points to evaluate
+            //  x3: vars input array pointer (non-advancing)
+            //  x4: output array pointer
+            //  x5: number of points to evaluate
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x4 by 4);
+            // We'll be advancing x0, x1, x2 here (and decrementing x5 by 4);
             // x3 is advanced in finalize().
 
-            ; cmp x4, #0
+            ; cmp x5, #0
             ; b.eq #36 // -> fini
-            ; sub x4, x4, #4 // We handle 4 items at a time
+            ; sub x5, x5, #4 // We handle 4 items at a time
 
             // Load V0/1/2.S4 with X/Y/Z values, post-increment
             //
@@ -908,6 +925,13 @@ impl AssemblerT for FloatSliceAssembler {
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
     }
+    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg * 4 < 16384);
+        dynasm!(self.0.ops
+            ; ldr w15, [x3, #(src_arg * 4)]
+            ; dup V(reg(out_reg)).s4, w15
+        );
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }
@@ -980,7 +1004,7 @@ impl AssemblerT for FloatSliceAssembler {
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x3], #16
+            ; stp D(reg(out_reg)), d0, [x4], #16
             ; ret
         );
 
@@ -1059,6 +1083,12 @@ impl AssemblerT for GradAssembler {
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
+    }
+    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg * 4 < 16384);
+        dynasm!(self.0.ops
+            ; ldr S(reg(out_reg)), [x0, #(src_arg * 4)]
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
@@ -1163,20 +1193,20 @@ impl AssemblerT for GradAssembler {
 
             ; fmov w9, S(reg(lhs_reg))
             ; dup v6.s4, w9
-            ; fmls v5.s4, v6.s4, V(reg(lhs_reg)).s4
+            ; fmls v5.s4, v6.s4, V(reg(rhs_reg)).s4
             // At this point, gradients are of the form
             //      rhs.v * lhs.d - lhs.v * rhs.d
 
             // Divide by rhs.v**2
-            ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fmul s6, S(reg(rhs_reg)), S(reg(rhs_reg))
             ; fmov w9, s6
             ; dup v6.s4, w9
-            ; fdiv v5.s4, V(reg(out_reg)).s4, v6.s4
+            ; fdiv v5.s4, v5.s4, v6.s4
 
             // Patch in the actual division value
+            ; fdiv s6, S(reg(lhs_reg)), S(reg(rhs_reg))
             ; mov V(reg(out_reg)).b16, v5.b16
-            ; fdiv s5, S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; mov V(reg(out_reg)).s[0], v5.s[0]
+            ; mov V(reg(out_reg)).s[0], v6.s[0]
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -1244,7 +1274,7 @@ pub struct JitGradEval {
     mmap: Arc<Mmap>,
     /// X, Y, Z are passed by value; the output is written to an array of 4
     /// floats (allocated by the caller)
-    fn_grad: unsafe extern "C" fn(f32, f32, f32) -> [f32; 4],
+    fn_grad: unsafe extern "C" fn(f32, f32, f32, *const f32) -> [f32; 4],
 }
 
 impl GradEvalT<Eval> for JitGradEval {
@@ -1272,8 +1302,8 @@ impl GradEvalT<Eval> for JitGradEval {
     fn take(self) -> Option<Self::Storage> {
         Arc::try_unwrap(self.mmap).ok()
     }
-    fn eval_f(&mut self, x: f32, y: f32, z: f32) -> Grad {
-        let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z) };
+    fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad {
+        let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z, vars.as_ptr()) };
         Grad::new(v, x, y, z)
     }
 }
@@ -1298,6 +1328,9 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
             }
             Op::Input(out, i) => {
                 asm.build_input(out, i);
+            }
+            Op::Var(out, i) => {
+                asm.build_var(out, i);
             }
             Op::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
@@ -1383,7 +1416,7 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
 /// Handle owning a JIT-compiled float function
 pub struct JitPointEval {
     _mmap: Arc<Mmap>,
-    fn_float: unsafe extern "C" fn(f32, f32, f32, *mut u8) -> f32,
+    fn_float: unsafe extern "C" fn(f32, f32, f32, *const f32, *mut u8) -> f32,
 }
 
 impl PointEvalT<Eval> for JitPointEval {
@@ -1400,9 +1433,18 @@ impl PointEvalT<Eval> for JitPointEval {
         x: f32,
         y: f32,
         z: f32,
+        vars: &[f32],
         choices: &mut [Choice],
     ) -> f32 {
-        unsafe { (self.fn_float)(x, y, z, choices.as_mut_ptr() as *mut u8) }
+        unsafe {
+            (self.fn_float)(
+                x,
+                y,
+                z,
+                vars.as_ptr(),
+                choices.as_mut_ptr() as *mut u8,
+            )
+        }
     }
 }
 
@@ -1411,8 +1453,14 @@ impl PointEvalT<Eval> for JitPointEval {
 /// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
 pub struct JitFloatSliceEval {
     mmap: Arc<Mmap>,
-    fn_vec:
-        unsafe extern "C" fn(*const f32, *const f32, *const f32, *mut f32, u64),
+    fn_vec: unsafe extern "C" fn(
+        *const f32, // X
+        *const f32, // Y
+        *const f32, // Z
+        *const f32, // vars
+        *mut f32,   // out
+        u64,        // size
+    ),
 }
 
 impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
@@ -1440,11 +1488,20 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
         Arc::try_unwrap(self.mmap).ok()
     }
 
-    fn eval_s(&mut self, xs: &[f32], ys: &[f32], zs: &[f32], out: &mut [f32]) {
-        let n = [xs.len(), ys.len(), zs.len(), out.len()]
-            .into_iter()
-            .min()
-            .unwrap();
+    fn eval_s(
+        &mut self,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+        out: &mut [f32],
+    ) {
+        assert_eq!(xs.len(), ys.len());
+        assert_eq!(ys.len(), zs.len());
+        assert_eq!(zs.len(), out.len());
+        // TODO: check on var count
+
+        let n = xs.len();
 
         // Special case for < 4 items, in which case the input slices can't be
         // used as workspace (because we need at least 4x f32)
@@ -1461,6 +1518,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
                     x.as_ptr(),
                     y.as_ptr(),
                     z.as_ptr(),
+                    vars.as_ptr(),
                     tmp.as_mut_ptr(),
                     4,
                 );
@@ -1477,6 +1535,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
                     xs.as_ptr(),
                     ys.as_ptr(),
                     zs.as_ptr(),
+                    vars.as_ptr(),
                     out.as_mut_ptr(),
                     m as u64,
                 );
@@ -1490,6 +1549,7 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
                         xs.as_ptr().add(n - 4),
                         ys.as_ptr().add(n - 4),
                         zs.as_ptr().add(n - 4),
+                        vars.as_ptr(),
                         out.as_mut_ptr().add(n - 4),
                         4,
                     );
@@ -1506,10 +1566,11 @@ impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
 pub struct JitIntervalEval {
     mmap: Arc<Mmap>,
     fn_interval: unsafe extern "C" fn(
-        [f32; 2], // X
-        [f32; 2], // Y
-        [f32; 2], // Z
-        *mut u8,  // choices
+        [f32; 2],   // X
+        [f32; 2],   // Y
+        [f32; 2],   // Z
+        *const f32, // vars
+        *mut u8,    // choices
     ) -> [f32; 2],
 }
 
@@ -1547,6 +1608,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         x: I,
         y: I,
         z: I,
+        vars: &[f32],
         choices: &mut [Choice],
     ) -> Interval {
         let x: Interval = x.into();
@@ -1557,6 +1619,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
                 [x.lower(), x.upper()],
                 [y.lower(), y.upper()],
                 [z.lower(), z.upper()],
+                vars.as_ptr(),
                 choices.as_mut_ptr() as *mut u8,
             )
         };

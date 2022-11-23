@@ -1,15 +1,20 @@
 use crate::{
-    context::{BinaryOpcode, Context, Node, Op, UnaryOpcode},
+    context::{BinaryOpcode, Context, Node, Op, UnaryOpcode, VarNode},
     ssa::{Op as SsaOp, Tape},
 };
 
-use std::collections::BTreeMap;
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    sync::Arc,
+};
 
 pub struct Builder {
     tape: Vec<SsaOp>,
     data: Vec<u32>,
 
     mapping: BTreeMap<Node, u32>,
+    vars: BTreeMap<VarNode, u32>,
+    var_names: BTreeMap<String, u32>,
     constants: BTreeMap<Node, f32>,
     choice_count: usize,
 }
@@ -26,6 +31,8 @@ impl Builder {
             tape: vec![],
             data: vec![],
             mapping: BTreeMap::new(),
+            vars: BTreeMap::new(),
+            var_names: BTreeMap::new(),
             constants: BTreeMap::new(),
             choice_count: 0,
         }
@@ -36,6 +43,7 @@ impl Builder {
             tape: self.tape,
             data: self.data,
             choice_count: self.choice_count,
+            vars: Arc::new(self.var_names),
         }
     }
 
@@ -67,7 +75,7 @@ impl Builder {
     pub fn step(&mut self, node: Node, op: Op, ctx: &Context) {
         let index = self.mapping.get(&node).cloned();
         let op = match op {
-            Op::Var(v) => {
+            Op::Input(v) => {
                 let arg = match ctx.get_var_by_index(v).unwrap() {
                     "X" => 0,
                     "Y" => 1,
@@ -77,6 +85,21 @@ impl Builder {
                 self.data.push(index.unwrap());
                 self.data.push(arg);
                 Some(SsaOp::Input)
+            }
+            Op::Var(v) => {
+                let next_var = self.vars.len().try_into().unwrap();
+                let arg = match self.vars.entry(v) {
+                    Entry::Vacant(e) => {
+                        e.insert(next_var);
+                        let name = ctx.get_var_by_index(v).unwrap().to_owned();
+                        self.var_names.insert(name, next_var);
+                        next_var
+                    }
+                    Entry::Occupied(a) => *a.get(),
+                };
+                self.data.push(index.unwrap());
+                self.data.push(arg);
+                Some(SsaOp::Var)
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),

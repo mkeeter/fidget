@@ -33,6 +33,7 @@ pub enum BinaryOpcode {
 /// which generated it, and will not be valid for a different `Context`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Op {
+    Input(VarNode),
     Var(VarNode),
     Const(OrderedFloat<f64>),
     Binary(BinaryOpcode, Node, Node),
@@ -54,7 +55,7 @@ impl Op {
     pub fn dot_node_color(&self) -> &str {
         match self {
             Op::Const(..) => "green",
-            Op::Var(..) => "red",
+            Op::Var(..) | Op::Input(..) => "red",
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..) => {
                 "dodgerblue"
             }
@@ -66,7 +67,7 @@ impl Op {
     pub fn dot_node_shape(&self) -> &str {
         match self {
             Op::Const(..) => "oval",
-            Op::Var(..) => "circle",
+            Op::Var(..) | Op::Input(..) => "circle",
             Op::Binary(..) | Op::Unary(..) => "box",
         }
     }
@@ -76,7 +77,7 @@ impl Op {
         let out = match self {
             Op::Binary(_, a, b) => [Some(*a), Some(*b)],
             Op::Unary(_, a) => [Some(*a), None],
-            Op::Var(..) | Op::Const(..) => [None, None],
+            Op::Var(..) | Op::Input(..) | Op::Const(..) => [None, None],
         };
         out.into_iter().flatten()
     }

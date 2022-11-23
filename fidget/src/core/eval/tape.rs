@@ -5,7 +5,7 @@ use crate::{
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
     Error,
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Light-weight handle for tape data, which deferences to
 /// [`TapeData`](TapeData).
@@ -82,6 +82,10 @@ impl TapeData {
         self.asm.reset(self.asm.reg_limit());
     }
 
+    pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
+        self.ssa.vars.clone()
+    }
+
     /// Returns the length of the internal `vm::Op` tape
     pub fn len(&self) -> usize {
         self.asm.len()
@@ -110,6 +114,10 @@ impl TapeData {
         self.asm.slot_count()
     }
 
+    pub fn var_count(&self) -> usize {
+        self.ssa.vars.len()
+    }
+
     /// Returns the register limit of the VM tape
     pub fn reg_limit(&self) -> u8 {
         self.asm.reg_limit()
@@ -126,7 +134,10 @@ impl TapeData {
         mut tape: TapeData,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
-            return Err(Error::BadChoiceSlice);
+            return Err(Error::BadChoiceSlice(
+                choices.len(),
+                self.choice_count(),
+            ));
         }
         let reg_limit = self.asm.reg_limit();
         tape.reset();
@@ -166,7 +177,7 @@ impl TapeData {
             let new_index = workspace.active[index as usize].unwrap();
 
             match op {
-                SsaOp::Input | SsaOp::CopyImm => {
+                SsaOp::Input | SsaOp::CopyImm | SsaOp::Var => {
                     let i = *data.next().unwrap();
                     data_out.push(new_index);
                     data_out.push(i);
@@ -176,6 +187,7 @@ impl TapeData {
                         SsaOp::Input => workspace
                             .alloc
                             .op_input(new_index, i.try_into().unwrap()),
+                        SsaOp::Var => workspace.alloc.op_var(new_index, i),
                         SsaOp::CopyImm => workspace
                             .alloc
                             .op_copy_imm(new_index, f32::from_bits(i)),
@@ -371,6 +383,7 @@ impl TapeData {
                 tape: ops_out,
                 data: data_out,
                 choice_count,
+                vars: self.ssa.vars.clone(),
             },
             asm: asm_tape,
         })

@@ -40,11 +40,21 @@ pub trait FloatSliceEvalT<R> {
     /// Evaluates float slices
     ///
     /// # Panics
-    /// This function may assume that the slices are of equal length and
-    /// panic otherwise; higher-level calls (e.g.
+    /// This function may assume that the `x`, `y`, `z`, and `out` slices are of
+    /// equal length and panic otherwise; higher-level calls (e.g.
     /// [`FloatSliceEval::eval_s`](`FloatSliceEval::eval_s`)) should maintain
     /// that invariant.
-    fn eval_s(&mut self, x: &[f32], y: &[f32], z: &[f32], out: &mut [f32]);
+    ///
+    /// This function may also assume that `vars` is correctly sized for the
+    /// number of variables in the tape.
+    fn eval_s(
+        &mut self,
+        x: &[f32],
+        y: &[f32],
+        z: &[f32],
+        vars: &[f32],
+        out: &mut [f32],
+    );
 }
 
 /// Evaluator for float slices, parameterized by evaluator family
@@ -82,19 +92,28 @@ impl<E: Eval> FloatSliceEval<E> {
         x: &[f32],
         y: &[f32],
         z: &[f32],
+        vars: &[f32],
         out: &mut [f32],
     ) -> Result<(), Error> {
         if x.len() != y.len() || x.len() != z.len() || x.len() != out.len() {
             Err(Error::MismatchedSlices)
+        } else if vars.len() != self.tape.var_count() {
+            Err(Error::BadVarSlice(vars.len(), self.tape.var_count()))
         } else {
-            self.eval.eval_s(x, y, z, out);
+            self.eval.eval_s(x, y, z, vars, out);
             Ok(())
         }
     }
-    pub fn eval_f(&mut self, x: f32, y: f32, z: f32) -> f32 {
+    pub fn eval_f(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        vars: &[f32],
+    ) -> Result<f32, Error> {
         let mut out = [std::f32::NAN];
-        self.eval_s(&[x], &[y], &[z], &mut out).unwrap();
-        out[0]
+        self.eval_s(&[x], &[y], &[z], vars, &mut out)?;
+        Ok(out[0])
     }
 }
 
@@ -116,7 +135,7 @@ impl<E: Eval> Default for FloatSliceEvalStorage<E> {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::context::Context;
+    use crate::{context::Context, eval::Vars};
 
     pub fn test_give_take<I: Eval>() {
         let mut ctx = Context::new();
@@ -138,6 +157,7 @@ pub mod eval_tests {
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
+                &[],
                 &mut out,
             )
             .unwrap();
@@ -150,6 +170,7 @@ pub mod eval_tests {
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
+                &[],
                 &mut out,
             )
             .unwrap();
@@ -170,6 +191,7 @@ pub mod eval_tests {
             &[0.0, 1.0, 2.0, 3.0],
             &[3.0, 2.0, 1.0, 0.0],
             &[0.0, 0.0, 0.0, 100.0],
+            &[],
             &mut out,
         )
         .unwrap();
@@ -182,6 +204,7 @@ pub mod eval_tests {
             &[0.0, 1.0, 2.0, 3.0],
             &[3.0, 2.0, 1.0, 0.0],
             &[0.0, 0.0, 0.0, 100.0],
+            &[],
             &mut out,
         )
         .unwrap();
@@ -191,6 +214,7 @@ pub mod eval_tests {
             &[0.0, 1.0, 2.0],
             &[1.0, 4.0, 8.0],
             &[0.0, 0.0, 0.0],
+            &[],
             &mut out[0..3],
         )
         .unwrap();
@@ -202,6 +226,7 @@ pub mod eval_tests {
                 &[0.0, 1.0, 2.0],
                 &[1.0, 4.0, 4.0],
                 &[0.0, 0.0, 0.0],
+                &[],
                 &mut out[0..4],
             ),
             Err(Error::MismatchedSlices)
@@ -212,10 +237,53 @@ pub mod eval_tests {
             &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
             &[0.0; 7],
+            &[],
             &mut out,
         )
         .unwrap();
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
+    }
+
+    pub fn test_f_var<I: Eval>() {
+        let mut ctx = Context::new();
+        let a = ctx.var("a").unwrap();
+        let b = ctx.var("b").unwrap();
+        let sum = ctx.add(a, 1.0).unwrap();
+        let min = ctx.div(sum, b).unwrap();
+        let tape = ctx.get_tape(min);
+        let mut vars = Vars::new(&tape);
+        let mut eval = I::new_float_slice_evaluator(tape);
+
+        assert_eq!(
+            eval.eval_f(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
+            )
+            .unwrap(),
+            2.0
+        );
+        assert_eq!(
+            eval.eval_f(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
+            )
+            .unwrap(),
+            2.0
+        );
+        assert_eq!(
+            eval.eval_f(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
+            )
+            .unwrap(),
+            0.5,
+        );
     }
 
     #[macro_export]
@@ -233,6 +301,7 @@ pub mod eval_tests {
         ($t:ty) => {
             $crate::float_slice_test!(test_give_take, $t);
             $crate::float_slice_test!(test_vectorized, $t);
+            $crate::float_slice_test!(test_f_var, $t);
         };
     }
 }

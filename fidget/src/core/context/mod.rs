@@ -115,7 +115,9 @@ impl Context {
     /// not a `Op::Var`, returns `Ok(None)`.
     pub fn var_name(&self, n: Node) -> Result<Option<&str>, Error> {
         match self.ops.get_by_index(n) {
-            Some(Op::Var(c)) => self.get_var_by_index(*c).map(Some),
+            Some(Op::Var(c) | Op::Input(c)) => {
+                self.get_var_by_index(*c).map(Some)
+            }
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
         }
@@ -141,19 +143,31 @@ impl Context {
     /// ```
     pub fn x(&mut self) -> Node {
         let v = self.vars.insert(String::from("X"));
-        self.ops.insert(Op::Var(v))
+        self.ops.insert(Op::Input(v))
     }
 
     /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
         let v = self.vars.insert(String::from("Y"));
-        self.ops.insert(Op::Var(v))
+        self.ops.insert(Op::Input(v))
     }
 
     /// Constructs or finds a variable node named "Z"
     pub fn z(&mut self) -> Node {
         let v = self.vars.insert(String::from("Z"));
-        self.ops.insert(Op::Var(v))
+        self.ops.insert(Op::Input(v))
+    }
+
+    pub fn var(&mut self, name: &str) -> Result<Node, Error> {
+        if matches!(name, "X" | "Y" | "Z") {
+            return Err(Error::ReservedName);
+        }
+        let name = String::from(name);
+        if self.vars.contains_key(&name) {
+            return Err(Error::DuplicateName);
+        }
+        let v = self.vars.insert(name);
+        Ok(self.ops.insert(Op::Var(v)))
     }
 
     /// Returns a node representing the given constant value.
@@ -540,7 +554,7 @@ impl Context {
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
         let v = match self.ops.get_by_index(node).ok_or(Error::BadNode)? {
-            Op::Var(v) => {
+            Op::Var(v) | Op::Input(v) => {
                 let var_name = self.vars.get_by_index(*v).unwrap();
                 *vars.get(var_name).unwrap()
             }
@@ -662,7 +676,7 @@ impl Context {
         let op = self.ops.get_by_index(i).unwrap();
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
-            Op::Var(v) => {
+            Op::Var(v) | Op::Input(v) => {
                 let v = self.vars.get_by_index(*v).unwrap();
                 out += v;
             }
@@ -750,7 +764,7 @@ mod test {
         let mut ctx = Context::new();
         let x = ctx.x();
         let op_x = ctx.get_op(x).unwrap();
-        assert!(matches!(op_x, Op::Var(_)));
+        assert!(matches!(op_x, Op::Input(_)));
     }
 
     #[test]
@@ -773,12 +787,20 @@ mod test {
 
     #[test]
     fn test_dupe() {
-        use crate::context::Context;
         let mut ctx = Context::new();
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
         let tape = ctx.get_tape::<crate::vm::Eval>(x_squared);
         assert_eq!(tape.len(), 2);
+    }
+
+    #[test]
+    fn test_var_errors() {
+        let mut ctx = Context::new();
+        assert!(ctx.var("X").is_err());
+
+        assert!(ctx.var("a").is_ok()); // inserts the var in the map
+        assert!(ctx.var("a").is_err());
     }
 }

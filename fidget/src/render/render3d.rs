@@ -44,6 +44,7 @@ impl Scratch {
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
+            &[],
             &mut self.out_float[0..size],
         )
         .unwrap();
@@ -53,6 +54,7 @@ impl Scratch {
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
+            &[],
             &mut self.out_grad[0..size],
         )
         .unwrap();
@@ -133,7 +135,7 @@ impl<I: Eval> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let i = handle.eval_i(x, y, z);
+        let i = handle.eval_i(x, y, z, &[]).unwrap();
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {

@@ -12,6 +12,9 @@ pub enum Op {
     /// Read one of the inputs (X, Y, Z)
     Input(u8, u8),
 
+    /// Reads one of the variables
+    Var(u8, u32),
+
     /// Negate the given register
     NegReg(u8, u8),
 

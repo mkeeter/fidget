@@ -192,7 +192,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
-        let i = i_handle.eval_i(x, y, z);
+        let i = i_handle.eval_i(x, y, z, &[]).unwrap();
 
         let fill = M::interval(i, depth);
 
@@ -282,6 +282,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
+                &[],
                 &mut self.scratch.out,
             )
             .unwrap();
@@ -305,6 +306,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
+                &[],
                 &mut self.scratch.out,
             )
             .unwrap();

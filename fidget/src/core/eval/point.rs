@@ -1,10 +1,20 @@
 //! Single-point evaluation
-use crate::eval::{tape::Tape, Choice, Eval};
+use crate::{
+    eval::{tape::Tape, Choice, Eval},
+    Error,
+};
 
 /// Function handle for `f32` evaluation
 pub trait PointEvalT<R> {
     fn new(tape: &Tape<R>) -> Self;
-    fn eval_p(&mut self, x: f32, y: f32, z: f32, c: &mut [Choice]) -> f32;
+    fn eval_p(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        vars: &[f32],
+        c: &mut [Choice],
+    ) -> f32;
 }
 
 /// Function handle for point evaluation
@@ -44,10 +54,19 @@ impl<E: Eval> PointEval<E> {
     }
 
     /// Performs point evaluation
-    pub fn eval_p(&mut self, x: f32, y: f32, z: f32) -> f32 {
-        self.reset_choices();
-        let out = self.eval.eval_p(x, y, z, self.choices.as_mut_slice());
-        out
+    pub fn eval_p(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        vars: &[f32],
+    ) -> Result<f32, Error> {
+        if vars.len() != self.tape.var_count() {
+            Err(Error::BadVarSlice(vars.len(), self.tape.var_count()))
+        } else {
+            self.reset_choices();
+            Ok(self.eval.eval_p(x, y, z, vars, self.choices.as_mut_slice()))
+        }
     }
 }
 
@@ -58,14 +77,14 @@ impl<E: Eval> PointEval<E> {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::context::Context;
+    use crate::{context::Context, eval::Vars};
 
     pub fn test_constant<I: Eval>() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
         let tape = ctx.get_tape(p);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 1.5);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), 1.5);
     }
 
     pub fn test_constant_push<I: Eval>() {
@@ -75,13 +94,13 @@ pub mod eval_tests {
         let min = ctx.min(a, x).unwrap();
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 1.5);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0, &[]).unwrap(), 1.5);
 
         let next = eval.simplify();
         assert_eq!(next.len(), 1);
         let mut eval = I::new_point_evaluator(next);
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 1.5);
-        assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 1.5);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0, &[]).unwrap(), 1.5);
+        assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 1.5);
     }
 
     pub fn test_circle<I: Eval>() {
@@ -95,8 +114,8 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape(circle);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), -1.0);
-        assert_eq!(eval.eval_p(1.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), -1.0);
+        assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 0.0);
     }
 
     pub fn test_p_min<I: Eval>() {
@@ -107,20 +126,20 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), 0.0);
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 0.0);
+        assert_eq!(eval.eval_p(0.0, 1.0, 0.0, &[]).unwrap(), 0.0);
         assert_eq!(eval.choices(), &[Choice::Left]);
 
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0, &[]).unwrap(), 0.0);
         assert_eq!(eval.choices(), &[Choice::Right]);
 
-        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
+        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(v.is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
+        let v = eval.eval_p(0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(v.is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
@@ -133,20 +152,20 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape(max);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(0.0, 0.0, 0.0), 0.0);
+        assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), 0.0);
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        assert_eq!(eval.eval_p(0.0, 1.0, 0.0), 1.0);
+        assert_eq!(eval.eval_p(0.0, 1.0, 0.0, &[]).unwrap(), 1.0);
         assert_eq!(eval.choices(), &[Choice::Right]);
 
-        assert_eq!(eval.eval_p(2.0, 0.0, 0.0), 2.0);
+        assert_eq!(eval.eval_p(2.0, 0.0, 0.0, &[]).unwrap(), 2.0);
         assert_eq!(eval.choices(), &[Choice::Left]);
 
-        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0);
+        let v = eval.eval_p(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(v.is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        let v = eval.eval_p(0.0, std::f32::NAN, 0.0);
+        let v = eval.eval_p(0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(v.is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
@@ -159,9 +178,9 @@ pub mod eval_tests {
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(1.0, 3.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(3.0, 3.5, 0.0), 3.5);
+        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 2.0);
+        assert_eq!(eval.eval_p(1.0, 3.0, 0.0, &[]).unwrap(), 2.0);
+        assert_eq!(eval.eval_p(3.0, 3.5, 0.0, &[]).unwrap(), 3.5);
     }
 
     pub fn test_push<I: Eval>() {
@@ -172,34 +191,34 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape.clone());
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 1.0);
+        assert_eq!(eval.eval_p(3.0, 2.0, 0.0, &[]).unwrap(), 2.0);
 
         let t = tape.simplify(&[Choice::Left]).unwrap();
         let mut eval = I::new_point_evaluator(t);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 3.0);
+        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 1.0);
+        assert_eq!(eval.eval_p(3.0, 2.0, 0.0, &[]).unwrap(), 3.0);
 
         let t = tape.simplify(&[Choice::Right]).unwrap();
         let mut eval = I::new_point_evaluator(t);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 2.0);
-        assert_eq!(eval.eval_p(3.0, 2.0, 0.0), 2.0);
+        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 2.0);
+        assert_eq!(eval.eval_p(3.0, 2.0, 0.0, &[]).unwrap(), 2.0);
 
         let min = ctx.min(x, 1.0).unwrap();
         let tape = ctx.get_tape(min);
         let mut eval = I::new_point_evaluator(tape.clone());
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
+        assert_eq!(eval.eval_p(0.5, 0.0, 0.0, &[]).unwrap(), 0.5);
+        assert_eq!(eval.eval_p(3.0, 0.0, 0.0, &[]).unwrap(), 1.0);
 
         let t = tape.simplify(&[Choice::Left]).unwrap();
         let mut eval = I::new_point_evaluator(t);
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 0.5);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 3.0);
+        assert_eq!(eval.eval_p(0.5, 0.0, 0.0, &[]).unwrap(), 0.5);
+        assert_eq!(eval.eval_p(3.0, 0.0, 0.0, &[]).unwrap(), 3.0);
 
         let t = tape.simplify(&[Choice::Right]).unwrap();
         let mut eval = I::new_point_evaluator(t);
-        assert_eq!(eval.eval_p(0.5, 0.0, 0.0), 1.0);
-        assert_eq!(eval.eval_p(3.0, 0.0, 0.0), 1.0);
+        assert_eq!(eval.eval_p(0.5, 0.0, 0.0, &[]).unwrap(), 1.0);
+        assert_eq!(eval.eval_p(3.0, 0.0, 0.0, &[]).unwrap(), 1.0);
     }
 
     pub fn test_basic<I: Eval>() {
@@ -211,7 +230,49 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape(sum);
         let mut eval = I::new_point_evaluator(tape);
-        assert_eq!(eval.eval_p(1.0, 2.0, 0.0), 6.0);
+        assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 6.0);
+    }
+
+    pub fn test_var<I: Eval>() {
+        let mut ctx = Context::new();
+        let a = ctx.var("a").unwrap();
+        let b = ctx.var("b").unwrap();
+        let sum = ctx.add(a, 1.0).unwrap();
+        let min = ctx.div(sum, b).unwrap();
+        let tape = ctx.get_tape(min);
+        let mut vars = Vars::new(&tape);
+        let mut eval = I::new_point_evaluator(tape);
+
+        assert_eq!(
+            eval.eval_p(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
+            )
+            .unwrap(),
+            2.0
+        );
+        assert_eq!(
+            eval.eval_p(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
+            )
+            .unwrap(),
+            2.0
+        );
+        assert_eq!(
+            eval.eval_p(
+                0.0,
+                0.0,
+                0.0,
+                vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
+            )
+            .unwrap(),
+            0.5
+        );
     }
 
     #[macro_export]
@@ -234,6 +295,7 @@ pub mod eval_tests {
             $crate::point_test!(test_p_min, $t);
             $crate::point_test!(basic_interpreter, $t);
             $crate::point_test!(test_push, $t);
+            $crate::point_test!(test_var, $t);
             $crate::point_test!(test_basic, $t);
         };
     }

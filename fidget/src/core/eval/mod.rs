@@ -7,9 +7,11 @@ pub mod grad;
 pub mod interval;
 pub mod point;
 pub mod tape;
+mod vars;
 
 // Re-export a few things
 pub use choice::Choice;
+pub use vars::Vars;
 
 use float_slice::FloatSliceEvalT;
 use grad::GradEvalT;

@@ -21,11 +21,20 @@ pub enum Error {
     #[error("empty file")]
     EmptyFile,
 
-    #[error("provided slice does not match choice count")]
-    BadChoiceSlice,
+    #[error("choice slice length ({0}) does not match choice count ({1})")]
+    BadChoiceSlice(usize, usize),
 
     #[error("slice lengths are mismatched")]
     MismatchedSlices,
+
+    #[error("var slice length ({0}) does not match var count ({1})")]
+    BadVarSlice(usize, usize),
+
+    #[error("this name is reserved for 3D coordinates")]
+    ReservedName,
+
+    #[error("this name has already been used")]
+    DuplicateName,
 
     #[error("i/o error: {0}")]
     Io(#[from] std::io::Error),
