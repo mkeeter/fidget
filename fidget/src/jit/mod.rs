@@ -105,6 +105,7 @@ trait AssemblerT {
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
@@ -321,6 +322,11 @@ impl AssemblerT for PointAssembler {
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+        )
+    }
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmadd S(reg(out_reg)), S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
         )
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -656,6 +662,22 @@ impl AssemblerT for IntervalAssembler {
             ; mov V(reg(out_reg)).s[1], v5.s[0]
         )
     }
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        // We can't really do an FMA optimization here, so instead we do
+        // the multiplication (storing results in v6.s2) then do a simple add
+        dynasm!(self.0.ops
+            ; rev64 v4.s2, V(reg(lhs_reg)).s2
+            ; mov v4.d[1], V(reg(lhs_reg)).d[0]
+            ; dup v5.d2, V(reg(rhs_reg)).d[0]
+
+            ; fmul v4.s4, v4.s4, v5.s4
+            ; fminnmv s6, v4.s4
+            ; fmaxnmv s5, v4.s4
+            ; mov v6.s[1], v5.s[0]
+
+            ; fadd V(reg(out_reg)).s2, V(reg(out_reg)).s2, v6.s2
+        )
+    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
@@ -971,6 +993,11 @@ impl AssemblerT for FloatSliceAssembler {
             ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fmla V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+        )
+    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
@@ -1183,6 +1210,24 @@ impl AssemblerT for GradAssembler {
             ; mov V(reg(out_reg)).s[0], v7.s[0]
         )
     }
+
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        // We can't really take advantage of the FMA here, so we'll copy
+        // the multiplication code from above (storing the result in v6.s4)
+        // then accumulate with a plain `fadd`
+        dynasm!(self.0.ops
+            ; dup v6.s4, V(reg(lhs_reg)).s[0]
+            ; fmul v5.s4, v6.s4, V(reg(rhs_reg)).s4
+            ; fmov s7, s5
+            ; dup v6.s4, V(reg(rhs_reg)).s[0]
+            ; fmla v5.s4, v6.s4, V(reg(lhs_reg)).s4
+
+            ; mov v6.b16, v5.b16
+            ; mov v6.s[0], v7.s[0]
+
+            ; fadd V(reg(out_reg)).s4, V(reg(out_reg)).s4, v6.s4
+        )
+    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmov w9, S(reg(rhs_reg))
@@ -1375,6 +1420,10 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
             Op::AddRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_add(out, arg, reg);
+            }
+            Op::FmaRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_fma(out, arg, reg);
             }
             Op::MulRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);

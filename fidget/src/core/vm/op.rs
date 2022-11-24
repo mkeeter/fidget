@@ -35,6 +35,8 @@ pub enum Op {
 
     /// Add a register and an immediate
     AddRegImm(u8, u8, f32),
+    /// Performs a fused multi-apply with a register and an immediate
+    FmaRegImm(u8, u8, f32),
     /// Multiply a register and an immediate
     MulRegImm(u8, u8, f32),
     /// Divides a register and an immediate

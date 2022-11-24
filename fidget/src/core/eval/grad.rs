@@ -446,7 +446,7 @@ pub mod eval_tests {
         let sum = ctx.add(a, 1.0).unwrap();
         let div = ctx.div(sum, 2.0).unwrap();
         let tape = ctx.get_tape(div);
-        tape.pretty_print();
+
         let mut eval = I::new_grad_evaluator(tape);
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[1.0]).unwrap(), 1.0.into());
         assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[2.0]).unwrap(), 1.5.into());

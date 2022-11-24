@@ -259,6 +259,7 @@ impl<I: Eval> Worker<'_, I> {
             &mut self.workspace,
             std::mem::take(self.spare_tapes.last_mut().unwrap()),
         );
+
         if sub_tape.len() < handle.tape().len() {
             let storage = self.float_storage[1].take().unwrap_or_default();
             let mut func = I::new_float_slice_evaluator_with_storage(
