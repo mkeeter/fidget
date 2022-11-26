@@ -325,8 +325,9 @@ impl AssemblerT for PointAssembler {
         )
     }
     fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        let out = reg(out_reg);
         dynasm!(self.0.ops
-            ; fmadd S(reg(out_reg)), S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fmadd S(out), S(reg(lhs_reg)), S(reg(rhs_reg)), S(out)
         )
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
