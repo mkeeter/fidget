@@ -154,10 +154,14 @@ impl<I: Eval> Worker<'_, I> {
         if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1).cloned()
         {
-            let sub_tape = handle.simplify_with(
-                &mut self.workspace,
-                std::mem::take(&mut self.spare_tapes[depth]),
-            );
+            let sub_tape = if simplify {
+                handle.simplify_with(
+                    &mut self.workspace,
+                    std::mem::take(&mut self.spare_tapes[depth]),
+                )
+            } else {
+                handle.tape()
+            };
             let storage = self.interval_storage.pop().unwrap_or_default();
             let mut sub_jit = I::new_interval_evaluator_with_storage(
                 sub_tape.clone(),
@@ -182,11 +186,15 @@ impl<I: Eval> Worker<'_, I> {
                 }
             }
             self.interval_storage.push(sub_jit.take().unwrap());
+            // If one of the inner (pixel) functions populated the
+            // floating-point handle, then we release it here.
             if let Some(f) = float_handle {
                 assert!(self.float_storage[0].is_none());
                 self.float_storage[0] = Some(f.take().unwrap());
             }
-            self.spare_tapes[depth] = sub_tape.take().unwrap();
+            if simplify {
+                self.spare_tapes[depth] = sub_tape.take().unwrap();
+            }
         } else {
             self.render_tile_pixels(
                 handle,
