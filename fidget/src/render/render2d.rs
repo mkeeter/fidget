@@ -192,7 +192,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
-        let i = i_handle.eval_i(x, y, z, &[]).unwrap();
+        let (i, _simplify) = i_handle.eval_i(x, y, z, &[]).unwrap();
 
         let fill = M::interval(i, depth);
 

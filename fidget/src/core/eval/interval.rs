@@ -227,6 +227,10 @@ pub trait IntervalEvalT<R>: Clone + Send {
     }
 
     /// Performs interval evaluation, writing choices to the given array
+    ///
+    /// Returns the output interval and a boolean indicating whether any choices
+    /// are not `Both` (indicating that we can simplify the tape); when the
+    /// boolean is `true`, the tape can be simplified.
     fn eval_i<I: Into<Interval>>(
         &mut self,
         x: I,
@@ -234,7 +238,7 @@ pub trait IntervalEvalT<R>: Clone + Send {
         z: I,
         vars: &[f32],
         choices: &mut [Choice],
-    ) -> Interval;
+    ) -> (Interval, bool);
 }
 
 /// Handle for an interval evaluator, parameterized with an evaluator family.
@@ -332,7 +336,7 @@ impl<E: Eval> IntervalEval<E> {
         y: I,
         z: I,
         vars: &[f32],
-    ) -> Result<Interval, Error> {
+    ) -> Result<(Interval, bool), Error> {
         if vars.len() != self.tape.var_count() {
             Err(Error::BadVarSlice(vars.len(), self.tape.var_count()))
         } else {
@@ -352,6 +356,7 @@ impl<E: Eval> IntervalEval<E> {
             &[],
         )
         .unwrap()
+        .0
     }
 
     /// Performs interval evaluation, using zeros for Z
@@ -360,6 +365,7 @@ impl<E: Eval> IntervalEval<E> {
     pub fn eval_i_xy<I: Into<Interval>>(&mut self, x: I, y: I) -> Interval {
         self.eval_i(x.into(), y.into(), Interval::new(0.0, 0.0), &[])
             .unwrap()
+            .0
     }
 
     /// Evaluates an interval with subdivision, for higher precision
@@ -379,6 +385,7 @@ impl<E: Eval> IntervalEval<E> {
         vars: &[f32],
         subdiv: usize,
     ) -> Interval {
+        // TODO: just delete this function?
         self.reset_choices();
         self.eval_subdiv_recurse(x.into(), y.into(), z.into(), vars, subdiv)
     }
@@ -392,7 +399,9 @@ impl<E: Eval> IntervalEval<E> {
         subdiv: usize,
     ) -> Interval {
         if subdiv == 0 {
-            self.eval.eval_i(x, y, z, vars, self.choices.as_mut_slice())
+            self.eval
+                .eval_i(x, y, z, vars, self.choices.as_mut_slice())
+                .0
         } else {
             let dx = x.upper() - x.lower();
             let dy = y.upper() - y.lower();
@@ -525,7 +534,7 @@ pub mod eval_tests {
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -546,7 +555,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_x([-6.0, -2.0]), [4.0, 36.0].into());
         assert_eq!(eval.eval_i_x([-6.0, 1.0]), [0.0, 36.0].into());
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -573,13 +582,13 @@ pub mod eval_tests {
             [-18.0, 6.0].into()
         );
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -694,13 +703,13 @@ pub mod eval_tests {
         let out = eval.eval_i_xy([-1.0, 4.0], [0.5, 1.0]);
         assert_eq!(out, [-2.0, 8.0].into());
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -716,31 +725,37 @@ pub mod eval_tests {
         let tape = ctx.get_tape(min);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
-            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
-            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left]);
 
         assert_eq!(
-            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Right]);
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -756,19 +771,19 @@ pub mod eval_tests {
         let tape = ctx.get_tape(min);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
-            eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([0.0, 1.0], [0.0; 2], [0.0; 2], &[]).unwrap().0,
             [0.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
-            eval.eval_i([-1.0, 0.0], [0.0; 2], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([-1.0, 0.0], [0.0; 2], [0.0; 2], &[]).unwrap().0,
             [-1.0, 0.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left]);
 
         assert_eq!(
-            eval.eval_i([2.0, 3.0], [0.0; 2], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([2.0, 3.0], [0.0; 2], [0.0; 2], &[]).unwrap().0,
             [1.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Right]);
@@ -783,31 +798,37 @@ pub mod eval_tests {
         let tape = ctx.get_tape(max);
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
-            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [0.5, 1.5].into()
         );
         assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
-            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Right]);
 
         assert_eq!(
-            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[]).unwrap(),
+            eval.eval_i([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[])
+                .unwrap()
+                .0,
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left]);
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
         assert_eq!(eval.choices(), &[Choice::Both]);
 
-        let v = eval
+        let (v, _) = eval
             .eval_i([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
@@ -820,24 +841,53 @@ pub mod eval_tests {
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [4.0, 5.0], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [4.0, 5.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left, Choice::Right]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 4.0], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [2.0, 4.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left, Choice::Both]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 1.0], [1.0, 1.5], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left, Choice::Left]);
+    }
+
+    pub fn test_i_simplify<I: Eval>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let min = ctx.min(x, 1.0).unwrap();
+
+        let tape = ctx.get_tape(min);
+        let mut eval = I::new_interval_evaluator(tape);
+        let (out, simplify) =
+            eval.eval_i([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [0.0, 1.0].into());
+        assert!(!simplify);
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let (out, simplify) =
+            eval.eval_i([0.0, 0.5], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [0.0, 0.5].into());
+        assert!(simplify);
+        assert_eq!(eval.choices(), &[Choice::Left]);
+
+        let (out, simplify) =
+            eval.eval_i([1.5, 2.5], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [1.0, 1.0].into());
+        assert!(simplify);
+        assert_eq!(eval.choices(), &[Choice::Right]);
     }
 
     pub fn test_i_max_imm<I: Eval>() {
@@ -849,21 +899,24 @@ pub mod eval_tests {
         let mut eval = I::new_interval_evaluator(tape);
         assert_eq!(
             eval.eval_i([0.0, 2.0], [0.0, 0.0], [0.0, 0.0], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [1.0, 2.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Both]);
 
         assert_eq!(
             eval.eval_i([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [1.0, 1.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Right]);
 
         assert_eq!(
             eval.eval_i([2.0, 3.0], [0.0, 0.0], [0.0, 0.0], &[])
-                .unwrap(),
+                .unwrap()
+                .0,
             [2.0, 3.0].into()
         );
         assert_eq!(eval.choices(), &[Choice::Left]);
@@ -886,7 +939,8 @@ pub mod eval_tests {
                 0.0,
                 vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             2.0.into()
         );
         assert_eq!(
@@ -896,7 +950,8 @@ pub mod eval_tests {
                 0.0,
                 vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             2.0.into()
         );
         assert_eq!(
@@ -906,7 +961,8 @@ pub mod eval_tests {
                 0.0,
                 vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             0.5.into(),
         );
     }
@@ -938,6 +994,7 @@ pub mod eval_tests {
             $crate::interval_test!(test_i_min_imm, $t);
             $crate::interval_test!(test_i_max, $t);
             $crate::interval_test!(test_i_max_imm, $t);
+            $crate::interval_test!(test_i_simplify, $t);
             $crate::interval_test!(test_i_var, $t);
         };
     }

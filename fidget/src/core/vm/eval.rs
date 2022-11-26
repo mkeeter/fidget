@@ -91,10 +91,11 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
         z: I,
         vars: &[f32],
         choices: &mut [Choice],
-    ) -> Interval {
+    ) -> (Interval, bool) {
         let x = x.into();
         let y = y.into();
         let z = z.into();
+        let mut simplify = false;
         assert_eq!(vars.len(), self.tape.var_count());
 
         let mut choice_index = 0;
@@ -152,12 +153,14 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
+                    simplify |= choice != Choice::Both;
                 }
                 Op::MaxRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
+                    simplify |= choice != Choice::Both;
                 }
                 Op::FmaRegImm(out, arg, imm) => {
                     v[out] = v[out] + v[arg] * imm.into()
@@ -189,7 +192,7 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
                 }
             }
         }
-        self.slots[0]
+        (self.slots[0], simplify)
     }
 }
 

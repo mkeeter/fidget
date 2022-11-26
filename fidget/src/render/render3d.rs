@@ -135,7 +135,7 @@ impl<I: Eval> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let i = handle.eval_i(x, y, z, &[]).unwrap();
+        let (i, simplify) = handle.eval_i(x, y, z, &[]).unwrap();
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {
@@ -188,7 +188,13 @@ impl<I: Eval> Worker<'_, I> {
             }
             self.spare_tapes[depth] = sub_tape.take().unwrap();
         } else {
-            self.render_tile_pixels(handle, tile_size, tile, float_handle)
+            self.render_tile_pixels(
+                handle,
+                tile_size,
+                tile,
+                float_handle,
+                simplify,
+            )
         }
     }
 
@@ -198,6 +204,7 @@ impl<I: Eval> Worker<'_, I> {
         tile_size: usize,
         tile: Tile<3>,
         float_handle: &mut Option<FloatSliceEval<I>>,
+        simplify: bool,
     ) {
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
@@ -255,10 +262,14 @@ impl<I: Eval> Worker<'_, I> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let sub_tape = handle.simplify_with(
-            &mut self.workspace,
-            std::mem::take(self.spare_tapes.last_mut().unwrap()),
-        );
+        let sub_tape = if simplify {
+            handle.simplify_with(
+                &mut self.workspace,
+                std::mem::take(self.spare_tapes.last_mut().unwrap()),
+            )
+        } else {
+            handle.tape()
+        };
 
         if sub_tape.len() < handle.tape().len() {
             let storage = self.float_storage[1].take().unwrap_or_default();
@@ -349,7 +360,9 @@ impl<I: Eval> Worker<'_, I> {
             assert!(self.grad_storage.is_none());
             self.grad_storage = Some(func.take().unwrap());
         }
-        *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
+        if simplify {
+            *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
+        }
     }
 }
 

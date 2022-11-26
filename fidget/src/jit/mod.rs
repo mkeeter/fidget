@@ -426,16 +426,19 @@ impl AssemblerT for PointAssembler {
 /// We're calling a function of the form
 /// ```
 /// # type IntervalFn =
-/// extern "C" fn([f32; 2], [f32; 2], [f32; 2], *mut u8) -> [f32; 2];
+/// extern "C" fn(
+///    [f32; 2], // X (s0, s1)
+///    [f32; 2], // Y (s2, s3)
+///    [f32; 2], // Z (s4, s5)
+///    *const f32, // vars (X0)
+///    *mut u8, // choices (X1)
+///    *mut u8, // simplify (X2)
+///) -> [f32; 2];
 /// ```
 ///
 /// The first three arguments are `x`, `y`, and `z` intervals.  They come packed
 /// into `s0-5`, and we shuffle them into SIMD registers `V0.2S`, `V1.2S`, and
 /// `V2.2s` respectively.
-///
-/// The last argument is a pointer to the `choices` array, which is populated
-/// by `min` and `max` opcodes.  It comes in the `x0` register, which is
-/// unchanged by our function.
 ///
 /// During evaluation, each SIMD register stores an interval.  `s[0]` is the
 /// lower bound of the interval and `s[1]` is the upper bound.
@@ -728,19 +731,21 @@ impl AssemblerT for IntervalAssembler {
             ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
-            ; b.ne #24 // -> lhs
+            ; b.ne #28 // -> lhs
 
             ; tst x15, #0x1
-            ; b.eq #28 // -> both
+            ; b.eq #36 // -> both
 
             // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; b #24 // -> end
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; b #28 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
             ; b #12 // -> end
 
             // <- both
@@ -775,19 +780,21 @@ impl AssemblerT for IntervalAssembler {
             ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
-            ; b.ne #24 // -> rhs
+            ; b.ne #28 // -> rhs
 
             ; tst x15, #0x1
-            ; b.eq #28 // -> both
+            ; b.eq #36 // -> both
 
             // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; b #24 // -> end
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; b #28 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
             ; b #12
 
             // <- both
@@ -1632,6 +1639,7 @@ pub struct JitIntervalEval {
         [f32; 2],   // Z
         *const f32, // vars
         *mut u8,    // choices
+        *mut u8,    // simplify (single boolean)
     ) -> [f32; 2],
 }
 
@@ -1673,10 +1681,11 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
         z: I,
         vars: &[f32],
         choices: &mut [Choice],
-    ) -> Interval {
+    ) -> (Interval, bool) {
         let x: Interval = x.into();
         let y: Interval = y.into();
         let z: Interval = z.into();
+        let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
         let out = unsafe {
             (self.fn_interval)(
@@ -1685,9 +1694,10 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
                 [z.lower(), z.upper()],
                 vars.as_ptr(),
                 choices.as_mut_ptr() as *mut u8,
+                &mut simplify,
             )
         };
-        Interval::new(out[0], out[1])
+        (Interval::new(out[0], out[1]), simplify != 0)
     }
 }
 
@@ -1704,7 +1714,7 @@ impl EvalT for Eval {
     type PointEval = JitPointEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
-        &[64, 16]
+        &[64, 16, 8]
     }
 
     fn tile_sizes_2d() -> &'static [usize] {
