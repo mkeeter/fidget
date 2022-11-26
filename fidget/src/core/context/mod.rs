@@ -850,8 +850,9 @@ mod test {
         let mut ctx = Context::new();
         assert!(ctx.var("X").is_err());
 
-        assert!(ctx.var("a").is_ok()); // inserts the var in the map
-        assert!(ctx.var("a").is_err());
+        let a1 = ctx.var("a").unwrap();
+        let a2 = ctx.var("a").unwrap();
+        assert_eq!(a1, a2);
     }
 
     #[test]
