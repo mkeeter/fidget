@@ -888,6 +888,27 @@ pub mod eval_tests {
         assert_eq!(out, [1.0, 1.0].into());
         assert!(simplify);
         assert_eq!(eval.choices(), &[Choice::Right]);
+
+        let max = ctx.max(x, 1.0).unwrap();
+        let tape = ctx.get_tape(max);
+        let mut eval = I::new_interval_evaluator(tape);
+        let (out, simplify) =
+            eval.eval_i([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [1.0, 2.0].into());
+        assert!(!simplify);
+        assert_eq!(eval.choices(), &[Choice::Both]);
+
+        let (out, simplify) =
+            eval.eval_i([0.0, 0.5], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [1.0, 1.0].into());
+        assert!(simplify);
+        assert_eq!(eval.choices(), &[Choice::Right]);
+
+        let (out, simplify) =
+            eval.eval_i([1.5, 2.5], [0.0; 2], [0.0; 2], &[]).unwrap();
+        assert_eq!(out, [1.5, 2.5].into());
+        assert!(simplify);
+        assert_eq!(eval.choices(), &[Choice::Left]);
     }
 
     pub fn test_i_max_imm<I: Eval>() {
