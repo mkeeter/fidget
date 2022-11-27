@@ -67,8 +67,8 @@ impl Mmap {
 
     /// Treats the memory-mapped data as a slice
     #[inline(always)]
-    pub fn as_slice(&mut self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr as *mut u8, self.len) }
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
     }
 
     /// Returns the inner pointer
