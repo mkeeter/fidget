@@ -149,8 +149,7 @@ impl TapeData {
         let mut choice_count = 0;
 
         // The tape is constructed so that the output slot is first
-        workspace.active[self.ssa.data[0] as usize] =
-            Some(count.next().unwrap());
+        workspace.set_active(self.ssa.data[0], count.next().unwrap());
 
         // Other iterators to consume various arrays in order
         let mut data = self.ssa.data.iter();
@@ -161,7 +160,7 @@ impl TapeData {
 
         for &op in self.ssa.tape.iter() {
             let index = *data.next().unwrap();
-            if workspace.active[index as usize].is_none() {
+            if workspace.active(index).is_none() {
                 for _ in 0..op.data_count() {
                     data.next().unwrap();
                 }
@@ -174,7 +173,7 @@ impl TapeData {
             // Because we reassign nodes when they're used as an *input*
             // (while walking the tape in reverse), this node must have been
             // assigned already.
-            let new_index = workspace.active[index as usize].unwrap();
+            let new_index = workspace.active(index).unwrap();
 
             match op {
                 SsaOp::Input | SsaOp::CopyImm | SsaOp::Var => {
@@ -199,8 +198,10 @@ impl TapeData {
                 | SsaOp::RecipReg
                 | SsaOp::SqrtReg
                 | SsaOp::SquareReg => {
-                    let arg = *workspace.active[*data.next().unwrap() as usize]
-                        .get_or_insert_with(|| count.next().unwrap());
+                    let arg = workspace
+                        .get_or_insert_active(*data.next().unwrap(), || {
+                            count.next().unwrap()
+                        });
                     data_out.push(new_index);
                     data_out.push(arg);
                     ops_out.push(op);
@@ -214,7 +215,7 @@ impl TapeData {
                     // through the tape), then we can replace it with dst
                     // everywhere!
                     let src = *data.next().unwrap();
-                    match workspace.active[src as usize] {
+                    match workspace.active(src) {
                         Some(new_src) => {
                             data_out.push(new_index);
                             data_out.push(new_src);
@@ -227,7 +228,7 @@ impl TapeData {
                             );
                         }
                         None => {
-                            workspace.active[src as usize] = Some(new_index);
+                            workspace.set_active(src, new_index);
                         }
                     }
                 }
@@ -235,7 +236,7 @@ impl TapeData {
                     let arg = *data.next().unwrap();
                     let imm = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active[arg as usize] {
+                        Choice::Left => match workspace.active(arg) {
                             Some(new_arg) => {
                                 data_out.push(new_index);
                                 data_out.push(new_arg);
@@ -248,8 +249,7 @@ impl TapeData {
                                 );
                             }
                             None => {
-                                workspace.active[arg as usize] =
-                                    Some(new_index);
+                                workspace.set_active(arg, new_index);
                             }
                         },
                         Choice::Right => {
@@ -263,8 +263,10 @@ impl TapeData {
                         }
                         Choice::Both => {
                             choice_count += 1;
-                            let arg = *workspace.active[arg as usize]
-                                .get_or_insert_with(|| count.next().unwrap());
+                            let arg = workspace
+                                .get_or_insert_active(arg, || {
+                                    count.next().unwrap()
+                                });
 
                             data_out.push(new_index);
                             data_out.push(arg);
@@ -285,7 +287,7 @@ impl TapeData {
                     let lhs = *data.next().unwrap();
                     let rhs = *data.next().unwrap();
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active[lhs as usize] {
+                        Choice::Left => match workspace.active(lhs) {
                             Some(new_lhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_lhs);
@@ -298,11 +300,10 @@ impl TapeData {
                                 );
                             }
                             None => {
-                                workspace.active[lhs as usize] =
-                                    Some(new_index);
+                                workspace.set_active(lhs, new_index);
                             }
                         },
-                        Choice::Right => match workspace.active[rhs as usize] {
+                        Choice::Right => match workspace.active(rhs) {
                             Some(new_rhs) => {
                                 data_out.push(new_index);
                                 data_out.push(new_rhs);
@@ -315,16 +316,19 @@ impl TapeData {
                                 );
                             }
                             None => {
-                                workspace.active[rhs as usize] =
-                                    Some(new_index);
+                                workspace.set_active(rhs, new_index);
                             }
                         },
                         Choice::Both => {
                             choice_count += 1;
-                            let lhs = *workspace.active[lhs as usize]
-                                .get_or_insert_with(|| count.next().unwrap());
-                            let rhs = *workspace.active[rhs as usize]
-                                .get_or_insert_with(|| count.next().unwrap());
+                            let lhs = workspace
+                                .get_or_insert_active(lhs, || {
+                                    count.next().unwrap()
+                                });
+                            let rhs = workspace
+                                .get_or_insert_active(rhs, || {
+                                    count.next().unwrap()
+                                });
                             data_out.push(new_index);
                             data_out.push(lhs);
                             data_out.push(rhs);
@@ -339,10 +343,14 @@ impl TapeData {
                 | SsaOp::MulRegReg
                 | SsaOp::SubRegReg
                 | SsaOp::DivRegReg => {
-                    let lhs = *workspace.active[*data.next().unwrap() as usize]
-                        .get_or_insert_with(|| count.next().unwrap());
-                    let rhs = *workspace.active[*data.next().unwrap() as usize]
-                        .get_or_insert_with(|| count.next().unwrap());
+                    let lhs = workspace
+                        .get_or_insert_active(*data.next().unwrap(), || {
+                            count.next().unwrap()
+                        });
+                    let rhs = workspace
+                        .get_or_insert_active(*data.next().unwrap(), || {
+                            count.next().unwrap()
+                        });
                     data_out.push(new_index);
                     data_out.push(lhs);
                     data_out.push(rhs);
@@ -356,8 +364,10 @@ impl TapeData {
                 | SsaOp::SubImmReg
                 | SsaOp::DivRegImm
                 | SsaOp::DivImmReg => {
-                    let arg = *workspace.active[*data.next().unwrap() as usize]
-                        .get_or_insert_with(|| count.next().unwrap());
+                    let arg = workspace
+                        .get_or_insert_active(*data.next().unwrap(), || {
+                            count.next().unwrap()
+                        });
                     let imm = *data.next().unwrap();
                     data_out.push(new_index);
                     data_out.push(arg);
@@ -407,24 +417,47 @@ impl TapeData {
 /// This is exposed to minimize reallocations in hot loops.
 pub struct Workspace {
     pub alloc: RegisterAllocator,
-    pub active: Vec<Option<u32>>,
+    pub bind: Vec<u32>,
 }
 
 impl Default for Workspace {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
-            active: vec![],
+            bind: vec![],
         }
     }
 }
 
 impl Workspace {
+    fn active(&self, i: u32) -> Option<u32> {
+        if self.bind[i as usize] != u32::MAX {
+            Some(self.bind[i as usize])
+        } else {
+            None
+        }
+    }
+
+    fn get_or_insert_active<F: FnMut() -> u32>(
+        &mut self,
+        i: u32,
+        mut f: F,
+    ) -> u32 {
+        if self.bind[i as usize] == u32::MAX {
+            self.bind[i as usize] = f();
+        }
+        self.bind[i as usize]
+    }
+
+    fn set_active(&mut self, i: u32, bind: u32) {
+        self.bind[i as usize] = bind;
+    }
+
     /// Resets the workspace, preserving allocations
     pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
         self.alloc.reset(num_registers, tape_len);
-        self.active.fill(None);
-        self.active.resize(tape_len, None);
+        self.bind.fill(u32::MAX);
+        self.bind.resize(tape_len, u32::MAX);
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
@@ -436,7 +469,7 @@ impl Workspace {
         tape: VmTape,
     ) {
         self.alloc.reset_with_storage(num_registers, tape_len, tape);
-        self.active.fill(None);
-        self.active.resize(tape_len, None);
+        self.bind.fill(u32::MAX);
+        self.bind.resize(tape_len, u32::MAX);
     }
 }
