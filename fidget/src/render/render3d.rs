@@ -280,7 +280,7 @@ impl<I: Eval> Worker<'_, I> {
             handle.tape()
         };
 
-        if sub_tape.len() < handle.tape().len() {
+        if simplify && sub_tape.len() < handle.tape().len() {
             let storage = self.float_storage[1].take().unwrap_or_default();
             let mut func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
