@@ -144,6 +144,7 @@ impl<T> AssemblerData<T> {
 
         // Round up to the nearest multiple of 16 bytes, for alignment
         self.mem_offset = ((mem + 15) / 16) * 16;
+        assert!(self.mem_offset < 4096);
         dynasm!(self.ops
             ; sub sp, sp, #(self.mem_offset as u32)
         );
