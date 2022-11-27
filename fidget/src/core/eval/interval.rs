@@ -299,6 +299,11 @@ impl<E: Eval> IntervalEval<E> {
         self.tape.clone()
     }
 
+    /// Returns the length of the inner tape
+    pub fn tape_len(&self) -> usize {
+        self.tape.len()
+    }
+
     /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape<E> {
