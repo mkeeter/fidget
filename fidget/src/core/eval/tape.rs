@@ -145,11 +145,11 @@ impl TapeData {
         // Steal `tape.asm` and hand it to the workspace for use in allocator
         workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
 
-        let mut count = 0..;
         let mut choice_count = 0;
 
         // The tape is constructed so that the output slot is first
-        workspace.set_active(self.ssa.data[0], count.next().unwrap());
+        workspace.set_active(self.ssa.data[0], 0);
+        workspace.count += 1;
 
         // Other iterators to consume various arrays in order
         let mut data = self.ssa.data.iter();
@@ -198,10 +198,8 @@ impl TapeData {
                 | SsaOp::RecipReg
                 | SsaOp::SqrtReg
                 | SsaOp::SquareReg => {
-                    let arg = workspace
-                        .get_or_insert_active(*data.next().unwrap(), || {
-                            count.next().unwrap()
-                        });
+                    let arg =
+                        workspace.get_or_insert_active(*data.next().unwrap());
                     data_out.push(new_index);
                     data_out.push(arg);
                     ops_out.push(op);
@@ -263,10 +261,7 @@ impl TapeData {
                         }
                         Choice::Both => {
                             choice_count += 1;
-                            let arg = workspace
-                                .get_or_insert_active(arg, || {
-                                    count.next().unwrap()
-                                });
+                            let arg = workspace.get_or_insert_active(arg);
 
                             data_out.push(new_index);
                             data_out.push(arg);
@@ -321,14 +316,8 @@ impl TapeData {
                         },
                         Choice::Both => {
                             choice_count += 1;
-                            let lhs = workspace
-                                .get_or_insert_active(lhs, || {
-                                    count.next().unwrap()
-                                });
-                            let rhs = workspace
-                                .get_or_insert_active(rhs, || {
-                                    count.next().unwrap()
-                                });
+                            let lhs = workspace.get_or_insert_active(lhs);
+                            let rhs = workspace.get_or_insert_active(rhs);
                             data_out.push(new_index);
                             data_out.push(lhs);
                             data_out.push(rhs);
@@ -343,14 +332,10 @@ impl TapeData {
                 | SsaOp::MulRegReg
                 | SsaOp::SubRegReg
                 | SsaOp::DivRegReg => {
-                    let lhs = workspace
-                        .get_or_insert_active(*data.next().unwrap(), || {
-                            count.next().unwrap()
-                        });
-                    let rhs = workspace
-                        .get_or_insert_active(*data.next().unwrap(), || {
-                            count.next().unwrap()
-                        });
+                    let lhs =
+                        workspace.get_or_insert_active(*data.next().unwrap());
+                    let rhs =
+                        workspace.get_or_insert_active(*data.next().unwrap());
                     data_out.push(new_index);
                     data_out.push(lhs);
                     data_out.push(rhs);
@@ -364,10 +349,8 @@ impl TapeData {
                 | SsaOp::SubImmReg
                 | SsaOp::DivRegImm
                 | SsaOp::DivImmReg => {
-                    let arg = workspace
-                        .get_or_insert_active(*data.next().unwrap(), || {
-                            count.next().unwrap()
-                        });
+                    let arg =
+                        workspace.get_or_insert_active(*data.next().unwrap());
                     let imm = *data.next().unwrap();
                     data_out.push(new_index);
                     data_out.push(arg);
@@ -384,7 +367,7 @@ impl TapeData {
             }
         }
 
-        assert_eq!(count.next().unwrap() as usize, ops_out.len());
+        assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
         Ok(TapeData {
@@ -418,6 +401,7 @@ impl TapeData {
 pub struct Workspace {
     pub alloc: RegisterAllocator,
     pub bind: Vec<u32>,
+    count: u32,
 }
 
 impl Default for Workspace {
@@ -425,6 +409,7 @@ impl Default for Workspace {
         Self {
             alloc: RegisterAllocator::empty(),
             bind: vec![],
+            count: 0,
         }
     }
 }
@@ -438,13 +423,10 @@ impl Workspace {
         }
     }
 
-    fn get_or_insert_active<F: FnMut() -> u32>(
-        &mut self,
-        i: u32,
-        mut f: F,
-    ) -> u32 {
+    fn get_or_insert_active(&mut self, i: u32) -> u32 {
         if self.bind[i as usize] == u32::MAX {
-            self.bind[i as usize] = f();
+            self.bind[i as usize] = self.count;
+            self.count += 1;
         }
         self.bind[i as usize]
     }
@@ -458,6 +440,7 @@ impl Workspace {
         self.alloc.reset(num_registers, tape_len);
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
+        self.count = 0;
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
@@ -471,5 +454,6 @@ impl Workspace {
         self.alloc.reset_with_storage(num_registers, tape_len, tape);
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
+        self.count = 0;
     }
 }
