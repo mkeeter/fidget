@@ -14,6 +14,23 @@ use nalgebra::{Point3, Vector3};
 use std::collections::BTreeMap;
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Tiny extension trait to add a checked counterpart to `.take().unwrap()`
+trait Give<V> {
+    /// Gives the value `v` to us.
+    ///
+    /// If we already contain a value, panics.
+    fn give(&mut self, v: V);
+}
+
+impl<V> Give<V> for Option<V> {
+    #[inline]
+    fn give(&mut self, v: V) {
+        assert!(self.is_none());
+        *self = Some(v)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 struct Scratch {
     x: Vec<f32>,
@@ -63,40 +80,66 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct Evaluators<I: Eval> {
+    level: usize,
+    interval: IntervalEval<I>,
+    float_slice: Option<FloatSliceEval<I>>,
+    grad: Option<GradEval<I>>,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 struct Worker<'a, I: Eval> {
     config: &'a AlignedRenderConfig<3>,
+
+    /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
+
+    /// Output images for this specific tile
     depth: Vec<u32>,
     color: Vec<[u8; 3]>,
 
     /// Storage for float slice evaluators
     ///
-    /// We can have up to two float slice evaluators simultaneously:
-    /// - A leaf evaluator for per-voxel evaluation
-    /// - An evaluator for the tape _just above_ the leaf, for per-voxel
-    ///   evaluation when the leaf tape isn't an improvement
-    float_storage: [Option<FloatSliceEvalStorage<I>>; 2],
-
-    /// We can only have one gradient evaluator alive at a time
+    /// This has `n + 1` slots, where `n` is the number of render levels; one
+    /// level for each round of interval evaluation, and one for the voxel
+    /// stage.  Don't be mislead by the use of `Option` here; slots should
+    /// always be populated except when someone is borrowing them, and borrowers
+    /// must give them back (using the `.give()` extension method)
     ///
-    /// It is active in `Self::render_tile_pixels`, and kept here otherwise.
-    grad_storage: Option<GradEvalStorage<I>>,
+    /// This means that we'll often use `.take().unwrap()`, to ensure that we
+    /// didn't mess up our invariants.
+    float_storage: Vec<Option<FloatSliceEvalStorage<I>>>,
 
-    interval_storage: Vec<IntervalEvalStorage<I>>,
+    /// Equivalent to `float_storage`, for gradient evaluators
+    grad_storage: Vec<Option<GradEvalStorage<I>>>,
 
-    spare_tapes: Vec<TapeData>,
+    /// Storage for interval evaluators.
+    ///
+    /// This has `n` slots, where `n` is the number of render levels.  The first
+    /// slot is always `None`, because philosophically, it represents the
+    /// storage of `i_handle` (but `i_handle` is shared between multiple
+    /// threads, so we never actually reclaim its storage).
+    interval_storage: Vec<Option<IntervalEvalStorage<I>>>,
+
+    /// Spare tapes to avoid allocation churn
+    ///
+    /// This has `n + 1` slots: one for each render level, and one for per-voxel
+    /// evaluation (after the final tape simplification).
+    spare_tapes: Vec<Option<TapeData>>,
+
+    /// Reusable workspace for tape simplification, to minimize allocation
     workspace: Workspace,
 }
 
 impl<I: Eval> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
-        handle: &mut IntervalEval<I>,
-        depth: usize,
+        eval: &mut Evaluators<I>,
+        level: usize,
         tile: Tile<3>,
-        float_handle: &mut Option<FloatSliceEval<I>>,
     ) {
-        let tile_size = self.config.tile_sizes[depth];
+        let tile_size = self.config.tile_sizes[level];
 
         // Early exit if every single pixel is filled
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
@@ -135,7 +178,7 @@ impl<I: Eval> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let (i, simplify) = handle.eval_i(x, y, z, &[]).unwrap();
+        let (i, simplify) = eval.interval.eval_i(x, y, z, &[]).unwrap();
 
         if i.upper() < 0.0 {
             for y in 0..tile_size {
@@ -151,69 +194,92 @@ impl<I: Eval> Worker<'_, I> {
             return;
         };
 
-        if let Some(next_tile_size) =
-            self.config.tile_sizes.get(depth + 1).cloned()
-        {
-            let (sub_tape, mut sub_jit) = if simplify {
-                let sub_tape = handle.simplify_with(
-                    &mut self.workspace,
-                    std::mem::take(&mut self.spare_tapes[depth]),
-                );
-                let storage = self.interval_storage.pop().unwrap_or_default();
+        // Prepare to recurse, either subdividing or switching to per-voxel
+        // evaluation.
+        let level = level + 1;
+        // Calculate a simplified tape, reverting to the parent tape if the
+        // simplified tape isn't any shorter.
+        let sub_tape = if simplify {
+            let sub_tape = eval.interval.simplify_with(
+                &mut self.workspace,
+                self.spare_tapes[level].take().unwrap(),
+            );
+            if sub_tape.len() < eval.interval.tape_len() {
+                Some(sub_tape)
+            } else {
+                // Immediately return the spare tape
+                self.spare_tapes[level].give(sub_tape.take().unwrap());
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(next_size) = self.config.tile_sizes.get(level).cloned() {
+            // Recurse!
+            let mut sub_eval = sub_tape.as_ref().map(|sub_tape| {
+                let storage = self.interval_storage[level].take().unwrap();
                 let sub_jit = I::new_interval_evaluator_with_storage(
                     sub_tape.clone(),
                     storage,
                 );
-                (sub_tape, sub_jit)
-            } else {
-                (handle.tape(), handle.clone())
-            };
-            let n = tile_size / next_tile_size;
-            let mut float_handle = None;
+                Evaluators {
+                    level,
+                    interval: sub_jit,
+                    float_slice: None,
+                    grad: None,
+                }
+            });
+            let n = tile_size / next_size;
             for j in 0..n {
                 for i in 0..n {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
-                            &mut sub_jit,
-                            depth + 1,
+                            sub_eval.as_mut().unwrap_or(eval),
+                            level,
                             self.config.new_tile([
-                                tile.corner[0] + i * next_tile_size,
-                                tile.corner[1] + j * next_tile_size,
-                                tile.corner[2] + k * next_tile_size,
+                                tile.corner[0] + i * next_size,
+                                tile.corner[1] + j * next_size,
+                                tile.corner[2] + k * next_size,
                             ]),
-                            &mut float_handle,
                         );
                     }
                 }
             }
-            // If one of the inner (pixel) functions populated the
-            // floating-point handle, then we release it here.
-            if let Some(f) = float_handle {
-                assert!(self.float_storage[0].is_none());
-                self.float_storage[0] = Some(f.take().unwrap());
-            }
-            if simplify {
-                self.interval_storage.push(sub_jit.take().unwrap());
-                self.spare_tapes[depth] = sub_tape.take().unwrap();
+            // Release all handles, which may or may not have been populated
+            if let Some(sub) = sub_eval {
+                self.interval_storage[level].give(sub.interval.take().unwrap());
+                if let Some(float) = sub.float_slice {
+                    self.float_storage[level].give(float.take().unwrap());
+                }
+                if let Some(grad) = sub.grad {
+                    self.grad_storage[level].give(grad.take().unwrap());
+                }
             }
         } else {
             self.render_tile_pixels(
-                handle,
+                eval,
+                sub_tape.as_ref(),
                 tile_size,
                 tile,
-                float_handle,
-                simplify,
+                level,
             )
+        }
+
+        // This has to be called after all of the evaluators have been released,
+        // since they own references to the tape.
+        if let Some(tape) = sub_tape {
+            self.spare_tapes[level].give(tape.take().unwrap());
         }
     }
 
     fn render_tile_pixels(
         &mut self,
-        handle: &mut IntervalEval<I>,
+        eval: &mut Evaluators<I>,
+        sub_tape: Option<&Tape<I>>,
         tile_size: usize,
         tile: Tile<3>,
-        float_handle: &mut Option<FloatSliceEval<I>>,
-        simplify: bool,
+        level: usize,
     ) {
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
@@ -271,17 +337,8 @@ impl<I: Eval> Worker<'_, I> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let sub_tape = if simplify {
-            handle.simplify_with(
-                &mut self.workspace,
-                std::mem::take(self.spare_tapes.last_mut().unwrap()),
-            )
-        } else {
-            handle.tape()
-        };
-
-        if simplify && sub_tape.len() < handle.tape_len() {
-            let storage = self.float_storage[1].take().unwrap_or_default();
+        if let Some(sub_tape) = sub_tape {
+            let storage = self.float_storage[level].take().unwrap();
             let mut func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
                 storage,
@@ -292,14 +349,14 @@ impl<I: Eval> Worker<'_, I> {
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
-            self.float_storage[1] = Some(func.take().unwrap());
+            self.float_storage[level].give(func.take().unwrap());
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
-            let func = float_handle.get_or_insert_with(|| {
-                let storage = self.float_storage[0].take().unwrap_or_default();
+            let func = eval.float_slice.get_or_insert_with(|| {
+                let storage = self.float_storage[eval.level].take().unwrap();
                 I::new_float_slice_evaluator_with_storage(
-                    handle.tape(),
+                    eval.interval.tape(),
                     storage,
                 )
             });
@@ -356,21 +413,32 @@ impl<I: Eval> Worker<'_, I> {
         }
 
         if grad > 0 {
-            let storage = self.grad_storage.take().unwrap_or_default();
-            let mut func =
-                I::new_grad_evaluator_with_storage(sub_tape.clone(), storage);
+            if let Some(sub_tape) = sub_tape {
+                let storage = self.grad_storage[level].take().unwrap();
+                let mut func = I::new_grad_evaluator_with_storage(
+                    sub_tape.clone(),
+                    storage,
+                );
+                self.scratch.eval_g(&mut func, grad);
+                self.grad_storage[level].give(func.take().unwrap());
+            } else {
+                // Reuse the FloatSliceFunc handle passed in, or build one if it
+                // wasn't already available (which makes it available to siblings)
+                let func = eval.grad.get_or_insert_with(|| {
+                    let storage = self.grad_storage[eval.level].take().unwrap();
+                    I::new_grad_evaluator_with_storage(
+                        eval.interval.tape(),
+                        storage,
+                    )
+                });
+                self.scratch.eval_g(func, grad);
+            }
 
-            self.scratch.eval_g(&mut func, grad);
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
                 self.color[*o] = self.scratch.out_grad[index]
                     .to_rgb()
                     .unwrap_or([255, 0, 0]);
             }
-            assert!(self.grad_storage.is_none());
-            self.grad_storage = Some(func.take().unwrap());
-        }
-        if simplify {
-            *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
         }
     }
 }
@@ -395,7 +463,7 @@ impl Image {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: Eval>(
-    mut i_handle: IntervalEval<I>,
+    i_handle: IntervalEval<I>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
@@ -410,14 +478,30 @@ fn worker<I: Eval>(
         depth: vec![],
         color: vec![],
         config,
-        float_storage: Default::default(),
-        grad_storage: Default::default(),
-        interval_storage: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
+
+        // Notice that these are all populated with Some(...)!
+        float_storage: (0..=config.tile_sizes.len())
+            .map(|_| Some(Default::default()))
             .collect(),
+        grad_storage: (0..=config.tile_sizes.len())
+            .map(|_| Some(Default::default()))
+            .collect(),
+
+        interval_storage: (0..config.tile_sizes.len())
+            .map(|i| {
+                // The 0-depth interval evaluator is i_handle, and is never
+                // released within the context of the worker.
+                if i == 0 {
+                    None
+                } else {
+                    Some(Default::default())
+                }
+            })
+            .collect(),
+
         workspace: Workspace::default(),
-        spare_tapes: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
+        spare_tapes: (0..=config.tile_sizes.len())
+            .map(|_| Some(Default::default()))
             .collect(),
     };
 
@@ -435,7 +519,13 @@ fn worker<I: Eval>(
             // Prepare to render, allocating space for a tile
             w.depth = image.depth;
             w.color = image.color;
-            w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
+            let mut eval = Evaluators {
+                level: 0,
+                interval: i_handle.clone(),
+                float_slice: None,
+                grad: None,
+            };
+            w.render_tile_recurse(&mut eval, 0, tile);
 
             // Steal the tile, replacing it with an empty vec
             let depth = std::mem::take(&mut w.depth);
@@ -451,6 +541,15 @@ fn worker<I: Eval>(
             break;
         }
     }
+    // Check our invariants, to make sure that everyone gave back their
+    // storage data when complete.  The root interval storage will be `None`
+    // because it's our input i_handle, which is shared between threads.
+    assert!(w.interval_storage[0].is_none());
+    assert!(w.interval_storage[1..].iter().all(Option::is_some));
+    assert!(w.float_storage.iter().all(Option::is_some));
+    assert!(w.grad_storage.iter().all(Option::is_some));
+    assert!(w.spare_tapes.iter().all(Option::is_some));
+
     out
 }
 
