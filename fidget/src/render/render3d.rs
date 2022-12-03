@@ -5,7 +5,7 @@ use crate::{
         grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Tape, TapeData, Workspace},
-        Eval,
+        Choice, Eval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -132,13 +132,19 @@ struct Worker<'a, I: Eval> {
     workspace: Workspace,
 }
 
+struct ChildEval<I: Eval> {
+    choices: Vec<Choice>,
+    tape: Tape<I>,
+}
+
 impl<I: Eval> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
         eval: &mut Evaluators<I>,
         level: usize,
         tile: Tile<3>,
-    ) {
+        prev: Option<ChildEval<I>>,
+    ) -> Option<ChildEval<I>> {
         let tile_size = self.config.tile_sizes[level];
 
         // Early exit if every single pixel is filled
@@ -147,7 +153,7 @@ impl<I: Eval> Worker<'_, I> {
             let i = self.config.tile_to_offset(tile, 0, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
         }) {
-            return;
+            return prev;
         }
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -188,31 +194,64 @@ impl<I: Eval> Worker<'_, I> {
                 }
             }
             // TODO: handle gradients here as well?
-            return;
+            return prev;
         } else if i.lower() > 0.0 {
             // Return early if this tile is completely empty
-            return;
+            return prev;
         };
 
         // Prepare to recurse, either subdividing or switching to per-voxel
         // evaluation.
         let level = level + 1;
+
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let sub_tape = if simplify {
-            let sub_tape = eval.interval.simplify_with(
-                &mut self.workspace,
-                self.spare_tapes[level].take().unwrap(),
-            );
-            if sub_tape.len() < eval.interval.tape_len() {
-                Some(sub_tape)
+        let (sub_tape, prev) = if simplify {
+            // See if our previous tape shortening used the exact same set of
+            // choices; in that case, then we can reuse it.
+            //
+            // This is likely because of spatial locality!
+            if let Some(prev) = prev {
+                if prev.choices == eval.interval.choices() {
+                    (Some((prev.tape, prev.choices)), None)
+                } else {
+                    // Otherwise, steal that Tape and Choices vec, and build
+                    // our own tape (which we'll return to give our siblings
+                    // a chance).
+                    let sub_tape = eval.interval.simplify_with(
+                        &mut self.workspace,
+                        prev.tape.take().unwrap(),
+                    );
+
+                    // Reuse the `choices` vec, to avoid allocation
+                    let mut choices = prev.choices;
+                    choices
+                        .resize(eval.interval.choices().len(), Choice::Unknown);
+                    choices.copy_from_slice(eval.interval.choices());
+
+                    if sub_tape.len() < eval.interval.tape_len() {
+                        (Some((sub_tape, choices)), None)
+                    } else {
+                        // Immediately return the spare tape
+                        self.spare_tapes[level].give(sub_tape.take().unwrap());
+                        (None, None)
+                    }
+                }
             } else {
-                // Immediately return the spare tape
-                self.spare_tapes[level].give(sub_tape.take().unwrap());
-                None
+                let sub_tape = eval.interval.simplify_with(
+                    &mut self.workspace,
+                    self.spare_tapes[level].take().unwrap(),
+                );
+                if sub_tape.len() < eval.interval.tape_len() {
+                    (Some((sub_tape, eval.interval.choices().to_vec())), None)
+                } else {
+                    // Immediately return the spare tape
+                    self.spare_tapes[level].give(sub_tape.take().unwrap());
+                    (None, None)
+                }
             }
         } else {
-            None
+            (None, prev)
         };
 
         if let Some(next_size) = self.config.tile_sizes.get(level).cloned() {
@@ -220,7 +259,7 @@ impl<I: Eval> Worker<'_, I> {
             let mut sub_eval = sub_tape.as_ref().map(|sub_tape| {
                 let storage = self.interval_storage[level].take().unwrap();
                 let sub_jit = I::new_interval_evaluator_with_storage(
-                    sub_tape.clone(),
+                    sub_tape.0.clone(),
                     storage,
                 );
                 Evaluators {
@@ -230,11 +269,12 @@ impl<I: Eval> Worker<'_, I> {
                     grad: None,
                 }
             });
+            let mut sub = None;
             let n = tile_size / next_size;
             for j in 0..n {
                 for i in 0..n {
                     for k in (0..n).rev() {
-                        self.render_tile_recurse(
+                        sub = self.render_tile_recurse(
                             sub_eval.as_mut().unwrap_or(eval),
                             level,
                             self.config.new_tile([
@@ -242,10 +282,18 @@ impl<I: Eval> Worker<'_, I> {
                                 tile.corner[1] + j * next_size,
                                 tile.corner[2] + k * next_size,
                             ]),
+                            sub,
                         );
                     }
                 }
             }
+
+            // Release sub handle, if present
+            if let Some(sub) = sub {
+                // TODO: should we be passing this up if we didn't simplify?
+                self.spare_tapes[level + 1].give(sub.tape.take().unwrap());
+            }
+
             // Release all handles, which may or may not have been populated
             if let Some(sub) = sub_eval {
                 self.interval_storage[level].give(sub.interval.take().unwrap());
@@ -259,7 +307,7 @@ impl<I: Eval> Worker<'_, I> {
         } else {
             self.render_tile_pixels(
                 eval,
-                sub_tape.as_ref(),
+                sub_tape.as_ref().map(|s| &s.0),
                 tile_size,
                 tile,
                 level,
@@ -268,8 +316,10 @@ impl<I: Eval> Worker<'_, I> {
 
         // This has to be called after all of the evaluators have been released,
         // since they own references to the tape.
-        if let Some(tape) = sub_tape {
-            self.spare_tapes[level].give(tape.take().unwrap());
+        if let Some((tape, choices)) = sub_tape {
+            Some(ChildEval { tape, choices })
+        } else {
+            prev
         }
     }
 
@@ -525,7 +575,9 @@ fn worker<I: Eval>(
                 float_slice: None,
                 grad: None,
             };
-            w.render_tile_recurse(&mut eval, 0, tile);
+            if let Some(t) = w.render_tile_recurse(&mut eval, 0, tile, None) {
+                w.spare_tapes[1].give(t.tape.take().unwrap());
+            }
 
             // Steal the tile, replacing it with an empty vec
             let depth = std::mem::take(&mut w.depth);
