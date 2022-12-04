@@ -134,6 +134,22 @@ struct Worker<'a, I: Eval> {
 }
 
 impl<I: Eval> Worker<'_, I> {
+    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> TapeData {
+        if let Some(float) = eval.float_slice {
+            self.float_storage[eval.level].give(float.take().unwrap());
+        }
+        if let Some(interval) = eval.interval {
+            self.interval_storage[eval.level].give(interval.take().unwrap());
+        }
+        if let Some(grad) = eval.grad {
+            self.grad_storage[eval.level].give(grad.take().unwrap());
+        }
+
+        // Use Err to indicate that we have to shorten the tape
+        // (basically a bootleg Either)
+        eval.tape.take().unwrap()
+    }
+
     fn render_tile_recurse(
         &mut self,
         eval: &mut Evaluators<I>,
@@ -216,58 +232,43 @@ impl<I: Eval> Worker<'_, I> {
             // This is likely because of spatial locality!
             let res = if let Some((choices, sibling_eval)) = sibling {
                 if choices == interval.choices() {
-                    Ok((Some((choices, sibling_eval)), None))
+                    Ok((choices, sibling_eval))
                 } else {
                     // The sibling didn't make the same choices, so we'll tear
                     // it down for parts and build our own tape here.
                     //
                     // Release all of the sibling evaluators, which should free
                     // up the tape for reuse.
-                    if let Some(float) = sibling_eval.float_slice {
-                        self.float_storage[sibling_eval.level]
-                            .give(float.take().unwrap());
-                    }
-                    if let Some(interval) = sibling_eval.interval {
-                        self.interval_storage[sibling_eval.level]
-                            .give(interval.take().unwrap());
-                    }
-                    if let Some(grad) = sibling_eval.grad {
-                        self.grad_storage[sibling_eval.level]
-                            .give(grad.take().unwrap());
-                    }
+                    let tape = self.reclaim_storage(sibling_eval);
 
                     // Use Err to indicate that we have to shorten the tape
                     // (basically a bootleg Either)
-                    Err((sibling_eval.tape.take().unwrap(), choices))
+                    Err((tape, choices))
                 }
             } else {
                 Err((self.spare_tapes[eval.level].take().unwrap(), vec![]))
             };
 
-            match res {
-                Ok((sub_eval, prev_sibling)) => (sub_eval, prev_sibling),
+            let out = match res {
+                Ok(out) => Some(out),
                 Err((tape, mut choices)) => {
                     let sub_tape =
                         interval.simplify_with(&mut self.workspace, tape);
 
                     if sub_tape.len() < eval.tape.len() {
-                        // Reuse the `choices` vec, to avoid allocation
                         choices
                             .resize(interval.choices().len(), Choice::Unknown);
                         choices.copy_from_slice(interval.choices());
-                        (
-                            Some((
-                                choices,
-                                Evaluators {
-                                    level: eval.level + 1,
-                                    tape: sub_tape,
-                                    interval: None,
-                                    float_slice: None,
-                                    grad: None,
-                                },
-                            )),
-                            None,
-                        )
+                        Some((
+                            choices,
+                            Evaluators {
+                                level: eval.level + 1,
+                                tape: sub_tape,
+                                interval: None,
+                                float_slice: None,
+                                grad: None,
+                            },
+                        ))
                     } else {
                         // Immediately return the spare tape
                         //
@@ -277,10 +278,11 @@ impl<I: Eval> Worker<'_, I> {
 
                         // Alas, the sibling has been consumed, so we can't
                         // reuse it at all.
-                        (None, None)
+                        None
                     }
                 }
-            }
+            };
+            (out, None) // prev_sibling is always consumed
         } else {
             // If we're not simplifying this tape, then keep the sibling around,
             // since it's still useful.
@@ -344,18 +346,8 @@ impl<I: Eval> Worker<'_, I> {
             assert!(prev_sibling.is_none());
             if let Some((_choices, sibling)) = new_sibling {
                 assert!(sibling.level == sub.level + 1);
-                if let Some(float) = sibling.float_slice {
-                    self.float_storage[sibling.level]
-                        .give(float.take().unwrap());
-                }
-                if let Some(interval) = sibling.interval {
-                    self.interval_storage[sibling.level]
-                        .give(interval.take().unwrap());
-                }
-                if let Some(grad) = sibling.grad {
-                    self.grad_storage[sibling.level].give(grad.take().unwrap());
-                }
-                self.spare_tapes[sub.level].give(sibling.tape.take().unwrap());
+                let tape = self.reclaim_storage(sibling);
+                self.spare_tapes[sub.level].give(tape);
                 // TODO: reuse _choices
             }
             // We return our own subtape, which can be a sibling subtape in
