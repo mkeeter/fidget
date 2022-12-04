@@ -640,21 +640,29 @@ pub fn render<I: Eval>(
         tile_queues.push(Queue::new(ts.to_vec()));
     }
 
-    let config_ref = &config;
-    let out = std::thread::scope(|s| {
-        let mut handles = vec![];
-        for i in 0..config.threads {
-            let handle = i_handle.clone();
-            let r = tile_queues.as_slice();
-            handles
-                .push(s.spawn(move || worker::<I>(handle, r, i, config_ref)));
-        }
-        let mut out = vec![];
-        for h in handles {
-            out.extend(h.join().unwrap().into_iter());
-        }
-        out
-    });
+    // Special-case for single-threaded operation, to give simpler backtraces
+    let out = if config.threads == 1 {
+        worker::<I>(i_handle, tile_queues.as_slice(), 0, &config)
+            .into_iter()
+            .collect()
+    } else {
+        let config_ref = &config;
+        std::thread::scope(|s| {
+            let mut handles = vec![];
+            let queues = tile_queues.as_slice();
+            for i in 0..config.threads {
+                let handle = i_handle.clone();
+                handles.push(
+                    s.spawn(move || worker::<I>(handle, queues, i, config_ref)),
+                );
+            }
+            let mut out = vec![];
+            for h in handles {
+                out.extend(h.join().unwrap().into_iter());
+            }
+            out
+        })
+    };
 
     let mut image_depth = vec![0; config.orig_image_size.pow(2)];
     let mut image_color = vec![[0; 3]; config.orig_image_size.pow(2)];
