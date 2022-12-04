@@ -208,14 +208,15 @@ impl<I: Eval> Worker<'_, I> {
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
+        let interval = eval.interval.as_ref().unwrap();
         let (mut sub_eval, mut prev_sibling) = if simplify {
             // See if our previous tape shortening used the exact same set of
             // choices; in that case, then we can reuse it.
             //
             // This is likely because of spatial locality!
-            if let Some((mut choices, sibling_eval)) = sibling {
-                if choices == eval.interval.as_ref().unwrap().choices() {
-                    (Some((choices, sibling_eval)), None)
+            let res = if let Some((choices, sibling_eval)) = sibling {
+                if choices == interval.choices() {
+                    Ok((Some((choices, sibling_eval)), None))
                 } else {
                     // The sibling didn't make the same choices, so we'll tear
                     // it down for parts and build our own tape here.
@@ -235,21 +236,25 @@ impl<I: Eval> Worker<'_, I> {
                             .give(grad.take().unwrap());
                     }
 
+                    // Use Err to indicate that we have to shorten the tape
+                    // (basically a bootleg Either)
+                    Err((sibling_eval.tape.take().unwrap(), choices))
+                }
+            } else {
+                Err((self.spare_tapes[eval.level].take().unwrap(), vec![]))
+            };
+
+            match res {
+                Ok((sub_eval, prev_sibling)) => (sub_eval, prev_sibling),
+                Err((tape, mut choices)) => {
                     let sub_tape =
-                        eval.interval.as_ref().unwrap().simplify_with(
-                            &mut self.workspace,
-                            sibling_eval.tape.take().unwrap(),
-                        );
+                        interval.simplify_with(&mut self.workspace, tape);
 
                     if sub_tape.len() < eval.tape.len() {
                         // Reuse the `choices` vec, to avoid allocation
-                        choices.resize(
-                            eval.interval.as_ref().unwrap().choices().len(),
-                            Choice::Unknown,
-                        );
-                        choices.copy_from_slice(
-                            eval.interval.as_ref().unwrap().choices(),
-                        );
+                        choices
+                            .resize(interval.choices().len(), Choice::Unknown);
+                        choices.copy_from_slice(interval.choices());
                         (
                             Some((
                                 choices,
@@ -274,32 +279,6 @@ impl<I: Eval> Worker<'_, I> {
                         // reuse it at all.
                         (None, None)
                     }
-                }
-            } else {
-                // We have no sibling to copy from, so we'll just build the
-                // subtape the old-fashioned way.
-                let sub_tape = eval.interval.as_ref().unwrap().simplify_with(
-                    &mut self.workspace,
-                    self.spare_tapes[eval.level].take().unwrap(),
-                );
-                if sub_tape.len() < eval.tape.len() {
-                    (
-                        Some((
-                            eval.interval.as_ref().unwrap().choices().to_vec(),
-                            Evaluators {
-                                level: eval.level + 1,
-                                tape: sub_tape,
-                                interval: None,
-                                float_slice: None,
-                                grad: None,
-                            },
-                        )),
-                        None,
-                    )
-                } else {
-                    // Immediately return the spare tape
-                    self.spare_tapes[eval.level].give(sub_tape.take().unwrap());
-                    (None, None)
                 }
             }
         } else {
