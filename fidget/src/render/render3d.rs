@@ -388,6 +388,10 @@ impl<I: Eval> Worker<'_, I> {
         //
         // (this matters most for the JIT compiler, which is _expensive_)
         if let Some(sub_tape) = sub_tape {
+            // This should be guaranteed, because we only provide a sub-tape
+            // when it's helpful to do so.
+            assert!(sub_tape.len() < eval.interval.tape_len());
+
             let storage = self.float_storage[level].take().unwrap();
             let mut func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
