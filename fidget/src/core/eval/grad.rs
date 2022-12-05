@@ -188,9 +188,13 @@ pub trait GradEvalT<R> {
         Some(Default::default())
     }
 
+    /// Performs gradient evaluation on a single point.
     fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad;
 
     /// Performs gradient evaluation on many points
+    ///
+    /// The default implementation calls `eval_f` in a loop, but you can replace
+    /// it with a more efficient implementation if desired.
     ///
     /// # Panics
     /// The `x`, `y`, `z`, and `out` slices must be of the same length,
