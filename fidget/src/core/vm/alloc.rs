@@ -116,6 +116,7 @@ impl RegisterAllocator {
     }
 
     /// Claims the internal `Vec<Op>`, leaving it empty
+    #[inline]
     pub fn finalize(&mut self) -> Tape {
         std::mem::take(&mut self.out)
     }
@@ -129,6 +130,7 @@ impl RegisterAllocator {
     /// > It's an infinite resource  
     /// > If there's one thing worth loving  
     /// > It's a surplus of supplies
+    #[inline]
     fn get_memory(&mut self) -> u32 {
         if let Some(p) = self.spare_memory.pop() {
             p
@@ -143,6 +145,7 @@ impl RegisterAllocator {
     /// Finds the oldest register
     ///
     /// This is useful when deciding which register to evict to make room
+    #[inline]
     fn oldest_reg(&mut self) -> u8 {
         self.register_lru.pop() as u8
     }
@@ -152,6 +155,7 @@ impl RegisterAllocator {
     /// The input is an SSA assignment (i.e. an assignment in the global `Tape`)
     ///
     /// If the output is a register, then it's poked to update recency
+    #[inline]
     fn get_allocation(&mut self, n: u32) -> Allocation {
         match self.allocations[n as usize] {
             i if i < self.reg_limit as u32 => {
@@ -164,6 +168,7 @@ impl RegisterAllocator {
     }
 
     /// Return an unoccupied register, if available
+    #[inline]
     fn get_spare_register(&mut self) -> Option<u8> {
         self.spare_registers.pop().or_else(|| {
             if self.out.slot_count < self.reg_limit as u32 {
@@ -177,6 +182,7 @@ impl RegisterAllocator {
         })
     }
 
+    #[inline]
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
             assert_eq!(self.registers[reg as usize], u32::MAX);
@@ -201,6 +207,7 @@ impl RegisterAllocator {
         }
     }
 
+    #[inline]
     fn rebind_register(&mut self, n: u32, reg: u8) {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
         assert!(self.registers[reg as usize] != u32::MAX);
@@ -214,6 +221,7 @@ impl RegisterAllocator {
         self.register_lru.poke(reg);
     }
 
+    #[inline]
     fn bind_register(&mut self, n: u32, reg: u8) {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
         assert!(self.registers[reg as usize] == u32::MAX);
@@ -225,6 +233,7 @@ impl RegisterAllocator {
     }
 
     /// Release a register back to the pool of spares
+    #[inline]
     fn release_reg(&mut self, reg: u8) {
         // Release the output register, so it could be used for inputs
         assert!(reg < self.reg_limit);
@@ -239,6 +248,7 @@ impl RegisterAllocator {
         self.allocations[node as usize] = u32::MAX;
     }
 
+    #[inline]
     fn release_mem(&mut self, mem: u32) {
         assert!(mem >= self.reg_limit as u32);
         self.spare_memory.push(mem);
@@ -274,6 +284,7 @@ impl RegisterAllocator {
     /// If the given SSA input is not already bound to a register, then we
     /// evict the oldest register using `Self::get_register`, with the
     /// appropriate set of LOAD/STORE operations.
+    #[inline]
     fn get_out_reg(&mut self, out: u32) -> u8 {
         match self.get_allocation(out) {
             Allocation::Register(r_x) => r_x,
@@ -290,6 +301,7 @@ impl RegisterAllocator {
         }
     }
 
+    #[inline]
     fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> Op) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
@@ -362,6 +374,7 @@ impl RegisterAllocator {
     /// `Store` instructions to the internal tape.  It's trickier than it
     /// sounds; look at the source code for a table showing all 18 (!) possible
     /// configurations.
+    #[inline]
     pub fn op_reg_reg(&mut self, out: u32, lhs: u32, rhs: u32, op: SsaOp) {
         // Looking at this horrific table, you may be tempted to think "surely
         // there's a clean abstraction that wraps this up in a few functions".
@@ -559,6 +572,7 @@ impl RegisterAllocator {
 
     /// Lowers a function taking one register and one immediate into an
     /// [`Op`](crate::asm::Op), pushing it to the internal tape.
+    #[inline]
     pub fn op_reg_imm(&mut self, out: u32, arg: u32, imm: f32, op: SsaOp) {
         let op: fn(u8, u8, f32) -> Op = match op {
             SsaOp::AddRegImm => Op::AddRegImm,
@@ -574,6 +588,7 @@ impl RegisterAllocator {
         self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
     }
 
+    #[inline]
     fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> Op) {
         let r_x = self.get_out_reg(out);
         self.out.push(op(r_x));
@@ -581,16 +596,19 @@ impl RegisterAllocator {
     }
 
     /// Pushes a [`CopyImm`](crate::asm::Op::CopyImm) operation to the tape
+    #[inline]
     pub fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| Op::CopyImm(out, imm));
     }
 
     /// Pushes an [`Input`](crate::asm::Op::Input) operation to the tape
+    #[inline]
     pub fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| Op::Input(out, i));
     }
 
     /// Pushes an [`Var`](crate::asm::Op::Var) operation to the tape
+    #[inline]
     pub fn op_var(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| Op::Var(out, i));
     }
