@@ -110,6 +110,30 @@ trait AssemblerT {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
+    // Special-case functions for immediates.  In some cases, you can be more
+    // efficient if you know that an argument is an immediate (for example, both
+    // values in the interval will be the same, and it wlll have no gradients).
+    fn build_add_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        self.build_add(out_reg, lhs_reg, imm);
+    }
+    fn build_sub_imm_reg(&mut self, out_reg: u8, arg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        self.build_sub(out_reg, imm, arg);
+    }
+    fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        self.build_sub(out_reg, arg, imm);
+    }
+    fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        self.build_mul(out_reg, lhs_reg, imm);
+    }
+    fn build_fma_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        self.build_fma(out_reg, lhs_reg, imm);
+    }
+
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
@@ -647,6 +671,12 @@ impl AssemblerT for IntervalAssembler {
             ; fsub V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, v4.s2
         )
     }
+    fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
+        let imm = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fsub V(reg(out_reg)).s2, V(reg(arg)).s2, V(reg(imm)).s2
+        )
+    }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Set up v4 to contain
@@ -667,6 +697,18 @@ impl AssemblerT for IntervalAssembler {
             ; mov V(reg(out_reg)).s[1], v5.s[0]
         )
     }
+
+    fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let rhs_reg = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fmul V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+        );
+        if imm < 0.0 {
+            dynasm!(self.0.ops
+                ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
+            );
+        }
+    }
     fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // We can't really do an FMA optimization here, so instead we do
         // the multiplication (storing results in v6.s2) then do a simple add
@@ -682,6 +724,20 @@ impl AssemblerT for IntervalAssembler {
 
             ; fadd V(reg(out_reg)).s2, V(reg(out_reg)).s2, v6.s2
         )
+    }
+    fn build_fma_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let rhs_reg = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fmul V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+        );
+        if imm < 0.0 {
+            dynasm!(self.0.ops
+                ; rev64 V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
+            );
+        }
+        dynasm!(self.0.ops
+            ; fadd V(reg(out_reg)).s2, V(reg(out_reg)).s2, V(reg(rhs_reg)).s2
+        );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -1427,16 +1483,13 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
                 asm.build_max(out, lhs, rhs);
             }
             Op::AddRegImm(out, arg, imm) => {
-                let reg = asm.load_imm(imm);
-                asm.build_add(out, arg, reg);
+                asm.build_add_imm(out, arg, imm);
             }
             Op::FmaRegImm(out, arg, imm) => {
-                let reg = asm.load_imm(imm);
-                asm.build_fma(out, arg, reg);
+                asm.build_fma_imm(out, arg, imm);
             }
             Op::MulRegImm(out, arg, imm) => {
-                let reg = asm.load_imm(imm);
-                asm.build_mul(out, arg, reg);
+                asm.build_mul_imm(out, arg, imm);
             }
             Op::DivRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
@@ -1447,12 +1500,10 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
                 asm.build_div(out, reg, arg);
             }
             Op::SubImmReg(out, arg, imm) => {
-                let reg = asm.load_imm(imm);
-                asm.build_sub(out, reg, arg);
+                asm.build_sub_imm_reg(out, arg, imm);
             }
             Op::SubRegImm(out, arg, imm) => {
-                let reg = asm.load_imm(imm);
-                asm.build_sub(out, arg, reg);
+                asm.build_sub_reg_imm(out, arg, imm);
             }
             Op::MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
