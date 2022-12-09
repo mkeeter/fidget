@@ -73,3 +73,12 @@ pub enum Op {
     /// Read from a memory slot to a register
     Store(u8, u32),
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_vm_op_size() {
+        assert_eq!(std::mem::size_of::<Op>(), 8);
+    }
+}

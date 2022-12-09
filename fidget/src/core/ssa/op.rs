@@ -3,112 +3,123 @@
 pub enum Op {
     /// Reads one of the inputs (X, Y, Z).  This is the most flexible variable,
     /// and may vary between terms in vector / SIMD evaluation.
-    Input,
+    Input(u32, u32),
     /// Represents a variable.  Unlike `Input`, this node is assumed to remain
     /// constant across all terms in vector / SIMD evaluation, but may be edited
     /// by the user in between evaluation.
-    Var,
+    Var(u32, u32),
     /// Copy an immediate to a register
-    CopyImm,
+    CopyImm(u32, f32),
 
     /// Negates a register
-    NegReg,
+    NegReg(u32, u32),
     /// Takes the absolute value of a register
-    AbsReg,
+    AbsReg(u32, u32),
     /// Takes the reciprocal of a register
-    RecipReg,
+    RecipReg(u32, u32),
     /// Takes the square root of a register
-    SqrtReg,
+    SqrtReg(u32, u32),
     /// Squares a register
-    SquareReg,
+    SquareReg(u32, u32),
 
     /// Copies the given register
-    CopyReg,
+    CopyReg(u32, u32),
 
     /// Add a register and an immediate
-    AddRegImm,
+    AddRegImm(u32, u32, f32),
     /// Multiply a register and an immediate
-    MulRegImm,
+    MulRegImm(u32, u32, f32),
     /// Divides a register and an immediate
-    DivRegImm,
+    DivRegImm(u32, u32, f32),
     /// Divides an immediate by a register
-    DivImmReg,
+    DivImmReg(u32, u32, f32),
     /// Subtract a register from an immediate
-    SubImmReg,
+    SubImmReg(u32, u32, f32),
     /// Subtract an immediate from a register
-    SubRegImm,
+    SubRegImm(u32, u32, f32),
 
     /// Adds two registers
-    AddRegReg,
+    AddRegReg(u32, u32, u32),
     /// Multiplies two registers
-    MulRegReg,
+    MulRegReg(u32, u32, u32),
     /// Divides two registers
-    DivRegReg,
+    DivRegReg(u32, u32, u32),
     /// Subtracts two registers
-    SubRegReg,
+    SubRegReg(u32, u32, u32),
 
     /// Compute the minimum of a register and an immediate
-    MinRegImm,
+    MinRegImm(u32, u32, f32),
     /// Compute the maximum of a register and an immediate
-    MaxRegImm,
+    MaxRegImm(u32, u32, f32),
     /// Compute the minimum of two registers
-    MinRegReg,
+    MinRegReg(u32, u32, u32),
     /// Compute the maximum of two registers
-    MaxRegReg,
+    MaxRegReg(u32, u32, u32),
 }
 
 impl Op {
-    /// Returns the number of data fields associated with this opcode
-    pub fn data_count(&self) -> usize {
+    pub fn output(&self) -> u32 {
         match self {
-            Op::Input
-            | Op::Var
-            | Op::CopyImm
-            | Op::NegReg
-            | Op::AbsReg
-            | Op::RecipReg
-            | Op::SqrtReg
-            | Op::SquareReg
-            | Op::CopyReg => 1,
-
-            Op::AddRegImm
-            | Op::MulRegImm
-            | Op::SubRegImm
-            | Op::SubImmReg
-            | Op::AddRegReg
-            | Op::MulRegReg
-            | Op::SubRegReg
-            | Op::DivRegReg
-            | Op::DivRegImm
-            | Op::DivImmReg
-            | Op::MinRegImm
-            | Op::MaxRegImm
-            | Op::MinRegReg
-            | Op::MaxRegReg => 2,
+            Op::Input(out, ..)
+            | Op::Var(out, ..)
+            | Op::CopyImm(out, ..)
+            | Op::NegReg(out, ..)
+            | Op::AbsReg(out, ..)
+            | Op::RecipReg(out, ..)
+            | Op::SqrtReg(out, ..)
+            | Op::SquareReg(out, ..)
+            | Op::CopyReg(out, ..)
+            | Op::AddRegImm(out, ..)
+            | Op::MulRegImm(out, ..)
+            | Op::DivRegImm(out, ..)
+            | Op::DivImmReg(out, ..)
+            | Op::SubImmReg(out, ..)
+            | Op::SubRegImm(out, ..)
+            | Op::AddRegReg(out, ..)
+            | Op::MulRegReg(out, ..)
+            | Op::DivRegReg(out, ..)
+            | Op::SubRegReg(out, ..)
+            | Op::MinRegImm(out, ..)
+            | Op::MaxRegImm(out, ..)
+            | Op::MinRegReg(out, ..)
+            | Op::MaxRegReg(out, ..) => *out,
         }
     }
     pub fn choice_count(&self) -> usize {
         match self {
-            Op::Input
-            | Op::Var
-            | Op::CopyImm
-            | Op::NegReg
-            | Op::AbsReg
-            | Op::RecipReg
-            | Op::SqrtReg
-            | Op::SquareReg
-            | Op::CopyReg
-            | Op::AddRegImm
-            | Op::MulRegImm
-            | Op::SubRegImm
-            | Op::SubImmReg
-            | Op::AddRegReg
-            | Op::MulRegReg
-            | Op::SubRegReg
-            | Op::DivRegReg
-            | Op::DivRegImm
-            | Op::DivImmReg => 0,
-            Op::MinRegImm | Op::MaxRegImm | Op::MinRegReg | Op::MaxRegReg => 1,
+            Op::Input(..)
+            | Op::Var(..)
+            | Op::CopyImm(..)
+            | Op::NegReg(..)
+            | Op::AbsReg(..)
+            | Op::RecipReg(..)
+            | Op::SqrtReg(..)
+            | Op::SquareReg(..)
+            | Op::CopyReg(..)
+            | Op::AddRegImm(..)
+            | Op::MulRegImm(..)
+            | Op::SubRegImm(..)
+            | Op::SubImmReg(..)
+            | Op::AddRegReg(..)
+            | Op::MulRegReg(..)
+            | Op::SubRegReg(..)
+            | Op::DivRegReg(..)
+            | Op::DivRegImm(..)
+            | Op::DivImmReg(..) => 0,
+            Op::MinRegImm(..)
+            | Op::MaxRegImm(..)
+            | Op::MinRegReg(..)
+            | Op::MaxRegReg(..) => 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_op_size() {
+        assert_eq!(std::mem::size_of::<Op>(), 16);
     }
 }

@@ -22,16 +22,6 @@ pub struct Tape {
     /// the first item in the tape.
     pub tape: Vec<Op>,
 
-    /// Variable-length data for tape clauses.
-    ///
-    /// Data is densely packed in the order
-    /// - output slot
-    /// - lhs slot (or input)
-    /// - rhs slot (or immediate)
-    ///
-    /// i.e. a unary operation would only store two items in this array
-    pub data: Vec<u32>,
-
     /// Number of choice operations in the tape
     pub choice_count: usize,
 
@@ -47,86 +37,71 @@ pub struct Tape {
 impl Tape {
     /// Resets to an empty tape, preserving allocations
     pub fn reset(&mut self) {
-        self.data.clear();
         self.tape.clear();
         self.choice_count = 0;
     }
     pub fn pretty_print(&self) {
-        let mut data = self.data.iter().rev();
-        let mut next = || *data.next().unwrap();
         for &op in self.tape.iter().rev() {
             match op {
-                Op::Input => {
-                    let i = next();
-                    let out = next();
+                Op::Input(out, i) => {
                     println!("${out} = INPUT {i}");
                 }
-                Op::Var => {
-                    let i = next();
-                    let out = next();
+                Op::Var(out, i) => {
                     println!("${out} = VAR {i}");
                 }
-                Op::NegReg
-                | Op::AbsReg
-                | Op::RecipReg
-                | Op::SqrtReg
-                | Op::CopyReg
-                | Op::SquareReg => {
-                    let arg = next();
-                    let out = next();
+                Op::NegReg(out, arg)
+                | Op::AbsReg(out, arg)
+                | Op::RecipReg(out, arg)
+                | Op::SqrtReg(out, arg)
+                | Op::CopyReg(out, arg)
+                | Op::SquareReg(out, arg) => {
                     let op = match op {
-                        Op::NegReg => "NEG",
-                        Op::AbsReg => "ABS",
-                        Op::RecipReg => "RECIP",
-                        Op::SqrtReg => "SQRT",
-                        Op::SquareReg => "SQUARE",
-                        Op::CopyReg => "COPY",
+                        Op::NegReg(..) => "NEG",
+                        Op::AbsReg(..) => "ABS",
+                        Op::RecipReg(..) => "RECIP",
+                        Op::SqrtReg(..) => "SQRT",
+                        Op::SquareReg(..) => "SQUARE",
+                        Op::CopyReg(..) => "COPY",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${arg}");
                 }
 
-                Op::AddRegReg
-                | Op::MulRegReg
-                | Op::DivRegReg
-                | Op::SubRegReg
-                | Op::MinRegReg
-                | Op::MaxRegReg => {
-                    let rhs = next();
-                    let lhs = next();
-                    let out = next();
+                Op::AddRegReg(out, lhs, rhs)
+                | Op::MulRegReg(out, lhs, rhs)
+                | Op::DivRegReg(out, lhs, rhs)
+                | Op::SubRegReg(out, lhs, rhs)
+                | Op::MinRegReg(out, lhs, rhs)
+                | Op::MaxRegReg(out, lhs, rhs) => {
                     let op = match op {
-                        Op::AddRegReg => "ADD",
-                        Op::MulRegReg => "MUL",
-                        Op::DivRegReg => "DIV",
-                        Op::SubRegReg => "SUB",
-                        Op::MinRegReg => "MIN",
-                        Op::MaxRegReg => "MAX",
+                        Op::AddRegReg(..) => "ADD",
+                        Op::MulRegReg(..) => "MUL",
+                        Op::DivRegReg(..) => "DIV",
+                        Op::SubRegReg(..) => "SUB",
+                        Op::MinRegReg(..) => "MIN",
+                        Op::MaxRegReg(..) => "MAX",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
                 }
 
-                Op::AddRegImm
-                | Op::MulRegImm
-                | Op::DivRegImm
-                | Op::DivImmReg
-                | Op::SubImmReg
-                | Op::SubRegImm
-                | Op::MinRegImm
-                | Op::MaxRegImm => {
-                    let imm = f32::from_bits(next());
-                    let arg = next();
-                    let out = next();
+                Op::AddRegImm(out, arg, imm)
+                | Op::MulRegImm(out, arg, imm)
+                | Op::DivRegImm(out, arg, imm)
+                | Op::DivImmReg(out, arg, imm)
+                | Op::SubImmReg(out, arg, imm)
+                | Op::SubRegImm(out, arg, imm)
+                | Op::MinRegImm(out, arg, imm)
+                | Op::MaxRegImm(out, arg, imm) => {
                     let (op, swap) = match op {
-                        Op::AddRegImm => ("ADD", false),
-                        Op::MulRegImm => ("MUL", false),
-                        Op::DivImmReg => ("DIV", true),
-                        Op::DivRegImm => ("DIV", false),
-                        Op::SubImmReg => ("SUB", true),
-                        Op::SubRegImm => ("SUB", false),
-                        Op::MinRegImm => ("MIN", false),
-                        Op::MaxRegImm => ("MAX", false),
+                        Op::AddRegImm(..) => ("ADD", false),
+                        Op::MulRegImm(..) => ("MUL", false),
+                        Op::DivImmReg(..) => ("DIV", true),
+                        Op::DivRegImm(..) => ("DIV", false),
+                        Op::SubImmReg(..) => ("SUB", true),
+                        Op::SubRegImm(..) => ("SUB", false),
+                        Op::MinRegImm(..) => ("MIN", false),
+                        Op::MaxRegImm(..) => ("MAX", false),
                         _ => unreachable!(),
                     };
                     if swap {
@@ -135,9 +110,7 @@ impl Tape {
                         println!("${out} = {op} ${arg} {imm}");
                     }
                 }
-                Op::CopyImm => {
-                    let imm = f32::from_bits(next());
-                    let out = next();
+                Op::CopyImm(out, imm) => {
                     println!("${out} = COPY {imm}");
                 }
             }
@@ -151,55 +124,8 @@ impl Tape {
     /// simplifies **and** performs register allocation in a single pass.
     pub fn get_asm(&self, reg_limit: u8) -> VmTape {
         let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
-        let mut data = self.data.iter();
         for &op in self.tape.iter() {
-            let index = *data.next().unwrap();
-
-            match op {
-                Op::Input => {
-                    let i = *data.next().unwrap();
-                    alloc.op_input(index, i.try_into().unwrap());
-                }
-                Op::Var => {
-                    let i = *data.next().unwrap();
-                    alloc.op_var(index, i);
-                }
-                Op::CopyImm => {
-                    let imm = f32::from_bits(*data.next().unwrap());
-                    alloc.op_copy_imm(index, imm);
-                }
-                Op::CopyReg
-                | Op::NegReg
-                | Op::AbsReg
-                | Op::RecipReg
-                | Op::SqrtReg
-                | Op::SquareReg => {
-                    let arg = *data.next().unwrap();
-                    alloc.op_reg(index, arg, op);
-                }
-                Op::MinRegImm
-                | Op::MaxRegImm
-                | Op::AddRegImm
-                | Op::MulRegImm
-                | Op::DivRegImm
-                | Op::DivImmReg
-                | Op::SubRegImm
-                | Op::SubImmReg => {
-                    let arg = *data.next().unwrap();
-                    let imm = f32::from_bits(*data.next().unwrap());
-                    alloc.op_reg_imm(index, arg, imm, op);
-                }
-                Op::AddRegReg
-                | Op::MulRegReg
-                | Op::DivRegReg
-                | Op::SubRegReg
-                | Op::MinRegReg
-                | Op::MaxRegReg => {
-                    let lhs = *data.next().unwrap();
-                    let rhs = *data.next().unwrap();
-                    alloc.op_reg_reg(index, lhs, rhs, op);
-                }
-            }
+            alloc.op(op)
         }
         alloc.finalize()
     }

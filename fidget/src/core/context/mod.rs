@@ -491,9 +491,7 @@ impl Context {
         // recorded in the tape
         if ssa_tape.tape.is_empty() {
             let c = self.const_value(root).unwrap().unwrap() as f32;
-            ssa_tape.tape.push(crate::ssa::Op::CopyImm);
-            ssa_tape.data.push(0); // out register
-            ssa_tape.data.push(c.to_bits());
+            ssa_tape.tape.push(crate::ssa::Op::CopyImm(0, c));
         }
         Tape::from_ssa(ssa_tape)
     }

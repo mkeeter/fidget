@@ -10,7 +10,6 @@ use std::{
 
 pub struct Builder {
     tape: Vec<SsaOp>,
-    data: Vec<u32>,
 
     mapping: BTreeMap<Node, u32>,
     vars: BTreeMap<VarNode, u32>,
@@ -29,7 +28,6 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             tape: vec![],
-            data: vec![],
             mapping: BTreeMap::new(),
             vars: BTreeMap::new(),
             var_names: BTreeMap::new(),
@@ -41,7 +39,6 @@ impl Builder {
     pub fn finish(self) -> Tape {
         Tape {
             tape: self.tape,
-            data: self.data,
             choice_count: self.choice_count,
             vars: Arc::new(self.var_names),
         }
@@ -82,9 +79,7 @@ impl Builder {
                     "Z" => 2,
                     i => panic!("Unexpected input index: {i}"),
                 };
-                self.data.push(index.unwrap());
-                self.data.push(arg);
-                Some(SsaOp::Input)
+                Some(SsaOp::Input(index.unwrap(), arg))
             }
             Op::Var(v) => {
                 let next_var = self.vars.len().try_into().unwrap();
@@ -97,9 +92,7 @@ impl Builder {
                     }
                     Entry::Occupied(a) => *a.get(),
                 };
-                self.data.push(index.unwrap());
-                self.data.push(arg);
-                Some(SsaOp::Var)
+                Some(SsaOp::Var(index.unwrap(), arg))
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
@@ -113,7 +106,9 @@ impl Builder {
                 let rhs = self.get_allocated_value(rhs);
                 let index = index.unwrap();
 
-                let f = match op {
+                type RegFn = fn(u32, u32, u32) -> SsaOp;
+                type ImmFn = fn(u32, u32, f32) -> SsaOp;
+                let f: (RegFn, ImmFn, ImmFn) = match op {
                     BinaryOpcode::Add => {
                         (SsaOp::AddRegReg, SsaOp::AddRegImm, SsaOp::AddRegImm)
                     }
@@ -140,22 +135,13 @@ impl Builder {
 
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        self.data.push(index);
-                        self.data.push(lhs);
-                        self.data.push(rhs);
-                        f.0
+                        f.0(index, lhs, rhs)
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
-                        self.data.push(index);
-                        self.data.push(arg);
-                        self.data.push(imm.to_bits());
-                        f.1
+                        f.1(index, arg, imm)
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
-                        self.data.push(index);
-                        self.data.push(arg);
-                        self.data.push(imm.to_bits());
-                        f.2
+                        f.2(index, arg, imm)
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
@@ -178,9 +164,7 @@ impl Builder {
                     UnaryOpcode::Sqrt => SsaOp::SqrtReg,
                     UnaryOpcode::Square => SsaOp::SquareReg,
                 };
-                self.data.push(index);
-                self.data.push(lhs);
-                Some(op)
+                Some(op(index, lhs))
             }
         };
 

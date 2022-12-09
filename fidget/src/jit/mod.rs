@@ -253,7 +253,6 @@ impl MmapAssembler {
     }
 
     /// Doubles the size of the internal `Mmap` and copies over data
-    #[inline(never)]
     fn expand_mmap(&mut self) {
         let mut next = Mmap::new(self.mmap.len() * 2).unwrap();
         next.as_mut_slice()[0..self.len].copy_from_slice(self.mmap.as_slice());

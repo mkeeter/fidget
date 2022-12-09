@@ -148,22 +148,19 @@ impl TapeData {
         let mut choice_count = 0;
 
         // The tape is constructed so that the output slot is first
-        workspace.set_active(self.ssa.data[0], 0);
+        assert_eq!(self.ssa.tape[0].output(), 0);
+        workspace.set_active(self.ssa.tape[0].output(), 0);
         workspace.count += 1;
 
         // Other iterators to consume various arrays in order
-        let mut data = self.ssa.data.iter();
         let mut choice_iter = choices.iter().rev();
 
         let mut ops_out = tape.ssa.tape;
-        let mut data_out = tape.ssa.data;
 
-        for &op in self.ssa.tape.iter() {
-            let index = *data.next().unwrap();
+        for mut op in self.ssa.tape.iter().cloned() {
+            let index = op.output();
+
             if workspace.active(index).is_none() {
-                for _ in 0..op.data_count() {
-                    data.next().unwrap();
-                }
                 for _ in 0..op.choice_count() {
                     choice_iter.next().unwrap();
                 }
@@ -175,196 +172,110 @@ impl TapeData {
             // assigned already.
             let new_index = workspace.active(index).unwrap();
 
-            match op {
-                SsaOp::Input | SsaOp::CopyImm | SsaOp::Var => {
-                    let i = *data.next().unwrap();
-                    data_out.push(new_index);
-                    data_out.push(i);
-                    ops_out.push(op);
-
-                    match op {
-                        SsaOp::Input => workspace
-                            .alloc
-                            .op_input(new_index, i.try_into().unwrap()),
-                        SsaOp::Var => workspace.alloc.op_var(new_index, i),
-                        SsaOp::CopyImm => workspace
-                            .alloc
-                            .op_copy_imm(new_index, f32::from_bits(i)),
-                        _ => unreachable!(),
-                    }
+            match &mut op {
+                SsaOp::Input(index, ..)
+                | SsaOp::Var(index, ..)
+                | SsaOp::CopyImm(index, ..) => {
+                    *index = new_index;
                 }
-                SsaOp::NegReg
-                | SsaOp::AbsReg
-                | SsaOp::RecipReg
-                | SsaOp::SqrtReg
-                | SsaOp::SquareReg => {
-                    let arg =
-                        workspace.get_or_insert_active(*data.next().unwrap());
-                    data_out.push(new_index);
-                    data_out.push(arg);
-                    ops_out.push(op);
-
-                    workspace.alloc.op_reg(new_index, arg, op);
+                SsaOp::NegReg(index, arg)
+                | SsaOp::AbsReg(index, arg)
+                | SsaOp::RecipReg(index, arg)
+                | SsaOp::SqrtReg(index, arg)
+                | SsaOp::SquareReg(index, arg) => {
+                    *index = new_index;
+                    *arg = workspace.get_or_insert_active(*arg);
                 }
-                SsaOp::CopyReg => {
+                SsaOp::CopyReg(index, src) => {
                     // CopyReg effectively does
                     //      dst <= src
                     // If src has not yet been used (as we iterate backwards
                     // through the tape), then we can replace it with dst
                     // everywhere!
-                    let src = *data.next().unwrap();
-                    match workspace.active(src) {
+                    match workspace.active(*src) {
                         Some(new_src) => {
-                            data_out.push(new_index);
-                            data_out.push(new_src);
-                            ops_out.push(op);
-
-                            workspace.alloc.op_reg(
-                                new_index,
-                                new_src,
-                                SsaOp::CopyReg,
-                            );
+                            *index = new_index;
+                            *src = new_src;
                         }
                         None => {
-                            workspace.set_active(src, new_index);
+                            workspace.set_active(*src, new_index);
+                            continue;
                         }
                     }
                 }
-                SsaOp::MinRegImm | SsaOp::MaxRegImm => {
-                    let arg = *data.next().unwrap();
-                    let imm = *data.next().unwrap();
+                SsaOp::MinRegImm(index, arg, imm)
+                | SsaOp::MaxRegImm(index, arg, imm) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(arg) {
+                        Choice::Left => match workspace.active(*arg) {
                             Some(new_arg) => {
-                                data_out.push(new_index);
-                                data_out.push(new_arg);
-                                ops_out.push(SsaOp::CopyReg);
-
-                                workspace.alloc.op_reg(
-                                    new_index,
-                                    new_arg,
-                                    SsaOp::CopyReg,
-                                );
+                                op = SsaOp::CopyReg(new_index, new_arg);
                             }
                             None => {
-                                workspace.set_active(arg, new_index);
+                                workspace.set_active(*arg, new_index);
+                                continue;
                             }
                         },
                         Choice::Right => {
-                            data_out.push(new_index);
-                            data_out.push(imm);
-                            ops_out.push(SsaOp::CopyImm);
-
-                            workspace
-                                .alloc
-                                .op_copy_imm(new_index, f32::from_bits(imm));
+                            op = SsaOp::CopyImm(new_index, *imm);
                         }
                         Choice::Both => {
                             choice_count += 1;
-                            let arg = workspace.get_or_insert_active(arg);
-
-                            data_out.push(new_index);
-                            data_out.push(arg);
-                            data_out.push(imm);
-                            ops_out.push(op);
-
-                            workspace.alloc.op_reg_imm(
-                                new_index,
-                                arg,
-                                f32::from_bits(imm),
-                                op,
-                            );
+                            *index = new_index;
+                            *arg = workspace.get_or_insert_active(*arg);
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::MinRegReg | SsaOp::MaxRegReg => {
-                    let lhs = *data.next().unwrap();
-                    let rhs = *data.next().unwrap();
+                SsaOp::MinRegReg(index, lhs, rhs)
+                | SsaOp::MaxRegReg(index, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(lhs) {
+                        Choice::Left => match workspace.active(*lhs) {
                             Some(new_lhs) => {
-                                data_out.push(new_index);
-                                data_out.push(new_lhs);
-                                ops_out.push(SsaOp::CopyReg);
-
-                                workspace.alloc.op_reg(
-                                    new_index,
-                                    new_lhs,
-                                    SsaOp::CopyReg,
-                                );
+                                op = SsaOp::CopyReg(new_index, new_lhs);
                             }
                             None => {
-                                workspace.set_active(lhs, new_index);
+                                workspace.set_active(*lhs, new_index);
+                                continue;
                             }
                         },
-                        Choice::Right => match workspace.active(rhs) {
+                        Choice::Right => match workspace.active(*rhs) {
                             Some(new_rhs) => {
-                                data_out.push(new_index);
-                                data_out.push(new_rhs);
-                                ops_out.push(SsaOp::CopyReg);
-
-                                workspace.alloc.op_reg(
-                                    new_index,
-                                    new_rhs,
-                                    SsaOp::CopyReg,
-                                );
+                                op = SsaOp::CopyReg(new_index, new_rhs);
                             }
                             None => {
-                                workspace.set_active(rhs, new_index);
+                                workspace.set_active(*rhs, new_index);
+                                continue;
                             }
                         },
                         Choice::Both => {
                             choice_count += 1;
-                            let lhs = workspace.get_or_insert_active(lhs);
-                            let rhs = workspace.get_or_insert_active(rhs);
-                            data_out.push(new_index);
-                            data_out.push(lhs);
-                            data_out.push(rhs);
-                            ops_out.push(op);
-
-                            workspace.alloc.op_reg_reg(new_index, lhs, rhs, op);
+                            *index = new_index;
+                            *lhs = workspace.get_or_insert_active(*lhs);
+                            *rhs = workspace.get_or_insert_active(*rhs);
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::AddRegReg
-                | SsaOp::MulRegReg
-                | SsaOp::SubRegReg
-                | SsaOp::DivRegReg => {
-                    let lhs =
-                        workspace.get_or_insert_active(*data.next().unwrap());
-                    let rhs =
-                        workspace.get_or_insert_active(*data.next().unwrap());
-                    data_out.push(new_index);
-                    data_out.push(lhs);
-                    data_out.push(rhs);
-                    ops_out.push(op);
-
-                    workspace.alloc.op_reg_reg(new_index, lhs, rhs, op);
+                SsaOp::AddRegReg(index, lhs, rhs)
+                | SsaOp::MulRegReg(index, lhs, rhs)
+                | SsaOp::SubRegReg(index, lhs, rhs)
+                | SsaOp::DivRegReg(index, lhs, rhs) => {
+                    *index = new_index;
+                    *lhs = workspace.get_or_insert_active(*lhs);
+                    *rhs = workspace.get_or_insert_active(*rhs);
                 }
-                SsaOp::AddRegImm
-                | SsaOp::MulRegImm
-                | SsaOp::SubRegImm
-                | SsaOp::SubImmReg
-                | SsaOp::DivRegImm
-                | SsaOp::DivImmReg => {
-                    let arg =
-                        workspace.get_or_insert_active(*data.next().unwrap());
-                    let imm = *data.next().unwrap();
-                    data_out.push(new_index);
-                    data_out.push(arg);
-                    data_out.push(imm);
-                    ops_out.push(op);
-
-                    workspace.alloc.op_reg_imm(
-                        new_index,
-                        arg,
-                        f32::from_bits(imm),
-                        op,
-                    );
+                SsaOp::AddRegImm(index, arg, _imm)
+                | SsaOp::MulRegImm(index, arg, _imm)
+                | SsaOp::SubRegImm(index, arg, _imm)
+                | SsaOp::SubImmReg(index, arg, _imm)
+                | SsaOp::DivRegImm(index, arg, _imm)
+                | SsaOp::DivImmReg(index, arg, _imm) => {
+                    *index = new_index;
+                    *arg = workspace.get_or_insert_active(*arg);
                 }
             }
+            workspace.alloc.op(op);
+            ops_out.push(op);
         }
 
         assert_eq!(workspace.count as usize, ops_out.len());
@@ -373,7 +284,6 @@ impl TapeData {
         Ok(TapeData {
             ssa: SsaTape {
                 tape: ops_out,
-                data: data_out,
                 choice_count,
                 vars: self.ssa.vars.clone(),
             },
