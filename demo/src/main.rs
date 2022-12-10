@@ -48,6 +48,10 @@ struct Args {
     #[clap(short, long, requires = "image", default_value = "128")]
     size: u32,
 
+    /// Image size
+    #[clap(long, requires = "threedee")]
+    isometric: bool,
+
     /// Name of the model file to load
     filename: String,
 }
@@ -62,12 +66,16 @@ fn run3d<I: fidget::eval::Eval>(
     let tape = ctx.get_tape(node);
     info!("Built tape in {:?}", start.elapsed());
 
+    let mut mat = nalgebra::Transform3::identity();
+    if !args.isometric {
+        *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
+    }
     let cfg = fidget::render::config::RenderConfig {
         image_size: args.size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
         threads: args.threads,
 
-        mat: nalgebra::Transform3::identity(),
+        mat,
     };
 
     let start = Instant::now();
