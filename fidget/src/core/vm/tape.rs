@@ -47,16 +47,6 @@ impl Tape {
     }
     #[inline]
     pub fn push(&mut self, op: Op) {
-        // Peephole optimization to collapse FMA operations
-        if let Op::MulRegImm(prev, reg, imm) = op {
-            if let Some(Op::AddRegReg(out, a, b)) = self.tape.last().cloned() {
-                if (a == prev && b == out) || (b == prev && a == out) {
-                    self.tape.pop();
-                    self.tape.push(Op::FmaRegImm(out, reg, imm));
-                    return;
-                }
-            }
-        }
         self.tape.push(op)
     }
 }

@@ -162,9 +162,6 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
-                Op::FmaRegImm(out, arg, imm) => {
-                    v[out] = v[out] + v[arg] * imm.into()
-                }
                 Op::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
                 Op::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
                 Op::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
@@ -290,11 +287,6 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
                 Op::MulRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm;
-                    }
-                }
-                Op::FmaRegImm(out, arg, imm) => {
-                    for i in 0..size {
-                        v[out][i] += v[arg][i] * imm;
                     }
                 }
                 Op::DivRegImm(out, arg, imm) => {
@@ -442,9 +434,6 @@ impl PointEvalT<Eval> for AsmPointEval {
                 }
                 Op::MulRegImm(out, arg, imm) => {
                     v[out] = v[arg] * imm;
-                }
-                Op::FmaRegImm(out, arg, imm) => {
-                    v[out] += v[arg] * imm;
                 }
                 Op::DivRegImm(out, arg, imm) => {
                     v[out] = v[arg] / imm;
@@ -670,11 +659,6 @@ impl GradEvalT<Eval> for AsmGradEval {
                 Op::MulRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm.into();
-                    }
-                }
-                Op::FmaRegImm(out, arg, imm) => {
-                    for i in 0..size {
-                        v[out][i] = v[out][i] + v[arg][i] * imm.into();
                     }
                 }
                 Op::DivRegImm(out, arg, imm) => {

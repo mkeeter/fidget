@@ -1484,9 +1484,6 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
             Op::AddRegImm(out, arg, imm) => {
                 asm.build_add_imm(out, arg, imm);
             }
-            Op::FmaRegImm(out, arg, imm) => {
-                asm.build_fma_imm(out, arg, imm);
-            }
             Op::MulRegImm(out, arg, imm) => {
                 asm.build_mul_imm(out, arg, imm);
             }
