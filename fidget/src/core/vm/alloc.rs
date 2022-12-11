@@ -91,15 +91,7 @@ impl RegisterAllocator {
 
     /// Resets the internal state, reusing allocations if possible
     pub fn reset(&mut self, reg_limit: u8, size: usize) {
-        self.allocations.fill(u32::MAX);
-        self.allocations.resize(size, u32::MAX);
-        self.registers.fill(u32::MAX);
-        self.register_lru = Lru::new(reg_limit);
-        self.reg_limit = reg_limit;
-        self.spare_registers.clear();
-        self.spare_memory.clear();
-        self.out = Tape::new(reg_limit);
-        self.bind_register(0, 0);
+        self.reset_with_storage(reg_limit, size, Tape::default())
     }
 
     /// Resets internal state, reusing allocations and the provided tape
@@ -110,9 +102,16 @@ impl RegisterAllocator {
         tape: Tape,
     ) {
         assert!(self.out.is_empty());
-        self.reset(reg_limit, size);
+        self.allocations.fill(u32::MAX);
+        self.allocations.resize(size, u32::MAX);
+        self.registers.fill(u32::MAX);
+        self.register_lru = Lru::new(reg_limit);
+        self.reg_limit = reg_limit;
+        self.spare_registers.clear();
+        self.spare_memory.clear();
         self.out = tape;
         self.out.reset(reg_limit);
+        self.bind_register(0, 0);
     }
 
     /// Claims the internal `Vec<Op>`, leaving it empty

@@ -76,12 +76,6 @@ pub struct TapeData {
 }
 
 impl TapeData {
-    /// Empties out the inner tapes, retaining their allocations
-    pub fn reset(&mut self) {
-        self.ssa.reset();
-        self.asm.reset(self.asm.reg_limit());
-    }
-
     pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
         self.ssa.vars.clone()
     }
@@ -140,7 +134,7 @@ impl TapeData {
             ));
         }
         let reg_limit = self.asm.reg_limit();
-        tape.reset();
+        tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
         workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
