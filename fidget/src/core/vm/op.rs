@@ -68,9 +68,9 @@ pub enum Op {
     /// Copy an immediate to a register
     CopyImm(u8, f32),
 
-    /// Write from a register to a memory slot
-    Load(u8, u32),
     /// Read from a memory slot to a register
+    Load(u8, u32),
+    /// Write from a register to a memory slot
     Store(u8, u32),
 }
 
