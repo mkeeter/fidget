@@ -49,7 +49,7 @@ use crate::{
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        tape::{Tape, TapeData},
+        tape::{Data as TapeData, Tape},
         Choice, Eval as EvalT,
     },
     jit::mmap::Mmap,

@@ -8,14 +8,14 @@ use crate::{
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Light-weight handle for tape data, which deferences to
-/// [`TapeData`](TapeData).
+/// [`Data`](Data).
 ///
 /// This can be passed by value and cloned.
 ///
 /// It is parameterized by an [`Eval`](Eval) type, which sets the register
 /// count of the inner VM tape.
 #[derive(Clone)]
-pub struct Tape<R>(Arc<TapeData>, std::marker::PhantomData<*const R>);
+pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
 
 /// Safety:
 /// The `Tape` contains an `Arc`; the only reason this can't be derived
@@ -24,14 +24,14 @@ unsafe impl<R> Send for Tape<R> {}
 
 impl<E: Eval> Tape<E> {
     pub fn from_ssa(ssa: SsaTape) -> Self {
-        let t = TapeData::from_ssa(ssa, E::REG_LIMIT);
+        let t = Data::from_ssa(ssa, E::REG_LIMIT);
         Self(Arc::new(t), std::marker::PhantomData)
     }
 
     /// Simplifies a tape based on the array of choices
     ///
     /// The choice slice must be the same size as
-    /// [`self.choice_count()`](TapeData::choice_count),
+    /// [`self.choice_count()`](Data::choice_count),
     /// which should be ensured by the caller.
     pub fn simplify(&self, choices: &[Choice]) -> Result<Self, Error> {
         self.simplify_with(choices, &mut Default::default(), Default::default())
@@ -42,7 +42,7 @@ impl<E: Eval> Tape<E> {
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
-        prev: TapeData,
+        prev: Data,
     ) -> Result<Self, Error> {
         self.0
             .simplify_with(choices, workspace, prev)
@@ -50,13 +50,13 @@ impl<E: Eval> Tape<E> {
             .map(|t| Tape(t, std::marker::PhantomData))
     }
 
-    pub fn take(self) -> Option<TapeData> {
+    pub fn take(self) -> Option<Data> {
         Arc::try_unwrap(self.0).ok()
     }
 }
 
 impl<E> std::ops::Deref for Tape<E> {
-    type Target = TapeData;
+    type Target = Data;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -64,18 +64,18 @@ impl<E> std::ops::Deref for Tape<E> {
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
-/// Under the hood, [`TapeData`](Self) stores two different representations:
+/// Under the hood, [`Data`](Self) stores two different representations:
 /// - A tape in single static assignment form ([`ssa::Tape`}(crate::ssa::Tape)),
 ///   which is suitable for use during tape simplification
 /// - A tape in register-allocated form ([`vm::Tape`](crate::vm::Tape)), which
 ///   can be efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
-pub struct TapeData {
+pub struct Data {
     ssa: SsaTape,
     asm: VmTape,
 }
 
-impl TapeData {
+impl Data {
     pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
         self.ssa.vars.clone()
     }
@@ -97,7 +97,7 @@ impl TapeData {
     }
 
     /// Performs register allocation on a [`ssa::Tape`](SsaTape), building a
-    /// complete [`TapeData`](Self).
+    /// complete [`Data`](Self).
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let asm = ssa.get_asm(reg_limit);
         Self { ssa, asm }
@@ -120,12 +120,12 @@ impl TapeData {
     /// Simplifies both inner tapes, using the provided choice array
     ///
     /// To minimize allocations, this function takes a [`Workspace`](Workspace)
-    /// _and_ spare [`TapeData`](TapeData); it will reuse those allocations.
+    /// _and_ spare [`Data`](Data); it will reuse those allocations.
     pub fn simplify_with(
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
-        mut tape: TapeData,
+        mut tape: Data,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
@@ -275,7 +275,7 @@ impl TapeData {
         assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
-        Ok(TapeData {
+        Ok(Data {
             ssa: SsaTape {
                 tape: ops_out,
                 choice_count,

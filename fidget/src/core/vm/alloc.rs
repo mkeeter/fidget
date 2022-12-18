@@ -399,7 +399,7 @@ impl RegisterAllocator {
     /// Lowers a two-register operation into an [`Op`](crate::asm::Op),
     /// pushing it to the internal tape.
     ///
-    /// Inputs are SSA registers from a [`Tape`](crate::tape::Tape), i.e.
+    /// Inputs are SSA registers from a [`Tape`](crate::ssa::Tape), i.e.
     /// globally addressed.
     ///
     /// If there aren't enough spare registers, this may also push `Load` or

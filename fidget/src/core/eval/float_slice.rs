@@ -1,6 +1,6 @@
 //! Float slice evaluation (i.e. `&[f32]`)
 use crate::{
-    eval::{tape::Tape, Eval},
+    eval::{Eval, Tape},
     Error,
 };
 

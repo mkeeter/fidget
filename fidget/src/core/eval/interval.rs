@@ -1,7 +1,7 @@
 //! Interval evaluation
 use crate::{
     eval::{
-        tape::{Tape, TapeData, Workspace},
+        tape::{Data as TapeData, Tape, Workspace},
         Choice, Eval,
     },
     Error,
@@ -299,13 +299,13 @@ impl<E: Eval> IntervalEval<E> {
         self.tape.clone()
     }
 
-    /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
+    /// Calculates a simplified [`Tape`](crate::eval::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape<E> {
         self.tape.simplify(&self.choices).unwrap()
     }
 
-    /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
+    /// Calculates a simplified [`Tape`](crate::eval::Tape) based on the last
     /// evaluation.
     pub fn simplify_with(
         &self,

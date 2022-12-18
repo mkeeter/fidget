@@ -1,6 +1,6 @@
 //! Evaluation of partial derivatives
 use crate::{
-    eval::{tape::Tape, Eval},
+    eval::{Eval, Tape},
     Error,
 };
 

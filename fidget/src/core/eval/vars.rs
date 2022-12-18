@@ -1,4 +1,4 @@
-use crate::eval::tape::TapeData;
+use crate::eval::tape::Data;
 use std::{collections::BTreeMap, sync::Arc};
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
@@ -9,7 +9,7 @@ pub struct Vars {
 }
 
 impl Vars {
-    pub fn new(tape: &TapeData) -> Self {
+    pub fn new(tape: &Data) -> Self {
         let names = tape.vars();
         let values = vec![0.0; names.len()];
         Self { names, values }

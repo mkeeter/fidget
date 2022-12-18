@@ -1,6 +1,6 @@
 //! Single-point evaluation
 use crate::{
-    eval::{tape::Tape, Choice, Eval},
+    eval::{Choice, Eval, Tape},
     Error,
 };
 
@@ -38,7 +38,7 @@ impl<E: Eval> PointEval<E> {
             eval,
         }
     }
-    /// Calculates a simplified [`Tape`](crate::tape::Tape) based on the last
+    /// Calculates a simplified [`Tape`](crate::eval::Tape) based on the last
     /// evaluation.
     pub fn simplify(&self) -> Tape<E> {
         self.tape.simplify(&self.choices).unwrap()

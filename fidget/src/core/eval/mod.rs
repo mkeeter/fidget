@@ -1,16 +1,21 @@
 //! Traits and generic `struct`s for evaluation
 
-mod choice;
-
 pub mod float_slice;
 pub mod grad;
 pub mod interval;
 pub mod point;
 pub mod tape;
+
+mod choice;
 mod vars;
 
 // Re-export a few things
 pub use choice::Choice;
+pub use float_slice::FloatSliceEval;
+pub use grad::GradEval;
+pub use interval::IntervalEval;
+pub use point::PointEval;
+pub use tape::Tape;
 pub use vars::Vars;
 
 use float_slice::FloatSliceEvalT;
@@ -35,20 +40,20 @@ pub trait Eval: Clone {
     fn tile_sizes_2d() -> &'static [usize];
 
     /// Builds a point evaluator from the given `Tape`
-    fn new_point_evaluator(tape: tape::Tape<Self>) -> point::PointEval<Self> {
+    fn new_point_evaluator(tape: Tape<Self>) -> point::PointEval<Self> {
         point::PointEval::new(tape)
     }
 
     /// Builds an interval evaluator from the given `Tape`
     fn new_interval_evaluator(
-        tape: tape::Tape<Self>,
+        tape: Tape<Self>,
     ) -> interval::IntervalEval<Self> {
         interval::IntervalEval::new(tape)
     }
 
     /// Builds an interval evaluator from the given `Tape`, reusing storage
     fn new_interval_evaluator_with_storage(
-        tape: tape::Tape<Self>,
+        tape: Tape<Self>,
         storage: interval::IntervalEvalStorage<Self>,
     ) -> interval::IntervalEval<Self> {
         interval::IntervalEval::new_with_storage(tape, storage)
@@ -56,27 +61,27 @@ pub trait Eval: Clone {
 
     /// Builds a float evaluator from the given `Tape`
     fn new_float_slice_evaluator(
-        tape: tape::Tape<Self>,
+        tape: Tape<Self>,
     ) -> float_slice::FloatSliceEval<Self> {
         float_slice::FloatSliceEval::new(tape)
     }
 
     /// Builds a float slice evaluator from the given `Tape`, reusing storage
     fn new_float_slice_evaluator_with_storage(
-        tape: tape::Tape<Self>,
+        tape: Tape<Self>,
         storage: float_slice::FloatSliceEvalStorage<Self>,
     ) -> float_slice::FloatSliceEval<Self> {
         float_slice::FloatSliceEval::new_with_storage(tape, storage)
     }
 
     /// Builds a grad slice evaluator from the given `Tape`
-    fn new_grad_evaluator(tape: tape::Tape<Self>) -> grad::GradEval<Self> {
+    fn new_grad_evaluator(tape: Tape<Self>) -> grad::GradEval<Self> {
         grad::GradEval::new(tape)
     }
 
     /// Builds a float slice evaluator from the given `Tape`, reusing storage
     fn new_grad_evaluator_with_storage(
-        tape: tape::Tape<Self>,
+        tape: Tape<Self>,
         storage: grad::GradEvalStorage<Self>,
     ) -> grad::GradEval<Self> {
         grad::GradEval::new_with_storage(tape, storage)

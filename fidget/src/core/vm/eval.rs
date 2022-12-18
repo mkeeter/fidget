@@ -4,8 +4,7 @@ use crate::{
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        tape::Tape,
-        Choice, Eval as EvalT,
+        Choice, Eval as EvalT, Tape,
     },
     vm::Op,
 };

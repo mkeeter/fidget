@@ -6,7 +6,7 @@ use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
 use crate::{
-    eval::{tape::Tape, Eval},
+    eval::{Eval, Tape},
     ssa::Builder,
     Error,
 };

@@ -4,7 +4,7 @@ use crate::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
-        tape::{Tape, TapeData, Workspace},
+        tape::{Data as TapeData, Tape, Workspace},
         Choice, Eval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},

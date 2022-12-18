@@ -47,6 +47,8 @@
 //! //           XXXXXXXXXX
 //! ```
 pub mod context;
+pub use context::Context;
+
 pub mod eval;
 pub mod ssa;
 pub mod vm;
