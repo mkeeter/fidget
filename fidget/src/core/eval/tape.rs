@@ -1,6 +1,6 @@
 //! Dual-use tapes for use during evaluation or further compilation
 use crate::{
-    eval::{Choice, Eval},
+    eval::{Choice, Family},
     ssa::{Op as SsaOp, Tape as SsaTape},
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
     Error,
@@ -12,7 +12,7 @@ use std::{collections::BTreeMap, sync::Arc};
 ///
 /// This can be passed by value and cloned.
 ///
-/// It is parameterized by an [`Eval`](Eval) type, which sets the register
+/// It is parameterized by an [`Family`](Family) type, which sets the register
 /// count of the inner VM tape.
 #[derive(Clone)]
 pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
@@ -22,7 +22,7 @@ pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
 /// automatically is because it also contains a `PhantomData`.
 unsafe impl<R> Send for Tape<R> {}
 
-impl<E: Eval> Tape<E> {
+impl<E: Family> Tape<E> {
     pub fn from_ssa(ssa: SsaTape) -> Self {
         let t = Data::from_ssa(ssa, E::REG_LIMIT);
         Self(Arc::new(t), std::marker::PhantomData)
@@ -65,10 +65,10 @@ impl<E> std::ops::Deref for Tape<E> {
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
 /// Under the hood, [`Data`](Self) stores two different representations:
-/// - A tape in single static assignment form ([`ssa::Tape`}(crate::ssa::Tape)),
-///   which is suitable for use during tape simplification
-/// - A tape in register-allocated form ([`vm::Tape`](crate::vm::Tape)), which
-///   can be efficiently evaluated or lowered into machine assembly
+/// - A tape in single static assignment form ([`ssa::Tape`](SsaTape)), which is
+///   suitable for use during tape simplification
+/// - A tape in register-allocated form ([`vm::Tape`](VmTape)), which can be
+///   efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
 pub struct Data {
     ssa: SsaTape,
@@ -76,6 +76,7 @@ pub struct Data {
 }
 
 impl Data {
+    /// Returns this tape's mapping of variable names to indexes
     pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
         self.ssa.vars.clone()
     }

@@ -4,7 +4,7 @@ use crate::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
-        Eval,
+        Eval, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -145,7 +145,7 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, I: Eval, M: RenderMode> {
+struct Worker<'a, I: Family, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
@@ -161,7 +161,7 @@ struct Worker<'a, I: Eval, M: RenderMode> {
     workspace: Workspace,
 }
 
-impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
+impl<I: Family, M: RenderMode> Worker<'_, I, M> {
     fn render_tile_recurse(
         &mut self,
         i_handle: &mut IntervalEval<I>,
@@ -329,7 +329,7 @@ impl<I: Eval, M: RenderMode> Worker<'_, I, M> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: Eval, M: RenderMode>(
+fn worker<I: Family, M: RenderMode>(
     mut i_handle: IntervalEval<I>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
@@ -361,7 +361,7 @@ fn worker<I: Eval, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: Eval, M: RenderMode>(
+pub fn render<I: Family, M: RenderMode>(
     tape: Tape<I>,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {

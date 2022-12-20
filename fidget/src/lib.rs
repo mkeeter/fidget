@@ -15,9 +15,6 @@
 //! thousands of clauses.
 //!
 //! # Core functionality
-//! Fidget implements two core pieces of functionality, then uses them to build
-//! additional tools.
-//!
 //! ## Shape construction
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
@@ -34,9 +31,9 @@
 //! let sum = ctx.add(x, y).unwrap();
 //! ```
 //!
-//! This is a very manual process.  As an alternative, Fidget includes bindings
-//! to [Rhai](https://rhai.rs), a simple Rust-native scripting language,
-//! in the [`fidget::rhai` namespace](crate::rhai):
+//! As you can see, this is very verbose.  As an alternative, Fidget includes
+//! bindings to [Rhai](https://rhai.rs), a simple Rust-native scripting
+//! language, in the [`fidget::rhai` namespace](crate::rhai):
 //!
 //! ```
 //! use fidget::rhai::eval;
@@ -45,24 +42,31 @@
 //! ```
 //!
 //! ## Evaluation
-//! Here's where things get interesting!
-//!
 //! The main operation performed on an implicit surface is **evaluation**, i.e.
-//! passing it some position `(x, y, z)` and getting back a result.  Doing so
-//! efficiently is the core challenge that Fidget addresses.
+//! passing it some position `(x, y, z)` and getting back a result.  This will
+//! be done _a lot_, so it has to be fast.
 //!
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Context::get_tape`](crate::Context::get_tape):
 //! ```
-//! use fidget::{rhai::eval};
+//! use fidget::{rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape(sum).unwrap();
+//! let tape = ctx.get_tape::<vm::Eval>(sum);
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
 //! ```
 //!
-//! To evaluate the tape, we must choose an evaluator family.  At the moment,
-//! Fidget implements two evaluator families:
+//! A tape is set of operations for a very simple virtual machine; the
+//! expression above would be something like
+//! ```text
+//! $0 = INPUT 0   // X
+//! $1 = INPUT 1   // Y
+//! $2 = ADD $0 $1 // (X + Y)
+//! ```
+//!
+//! To evaluate the tape, we must choose an [evaluator
+//! family](crate::eval::Family).  At the moment, Fidget implements two
+//! evaluator families:
 //!
 //! - [`fidget::jit::Eval`](crate::jit::Eval) performs fast evaluation by
 //!   compiling shapes down to native code.  This is only functional on an ARM64
@@ -71,21 +75,76 @@
 //!   using an interpreter.  This is slower, but can run in more situations (e.g.
 //!   x86 machines or in WebAssembly).
 //!
-//! The naive approach to implicit rendering is to evaluate a the at every point
-//! in space.  This is slow, because 3D space grows as `N^3`.
+//! Looking at the [`eval::Family`](crate::eval::Family) trait, you may notice
+//! that it requires _several_ different flavors of evaluation.  In addition to
+//! supporting evaluation at a single point, Fidget evaluators must support
 //!
-//! A more efficient strategy dates back to [Duff '92](https://dl.acm.org/doi/10.1145/142920.134027):
-//! - Evaluate regions of the space using [interval arithmetic](https://en.wikipedia.org/wiki/Interval_arithmetic)
-//!     - Skip sections of the space that are unambiguously empty or full
-//!     - Construct simplified versions of the shape based on interval results
-//! - Subdivide and recurse
+//! - Evaluation on a array of points (giving an opportunity for SIMD)
+//! - Interval evaluation
+//! - Evaluation of partial derivatives with respect to `x, y, z`
 //!
-//! Fidget includes built-in support for interval arithmetic:
+//! These evaluation flavors are used in rendering:
+//! - SIMD evaluation speeds up rendering groups of voxels.
+//! - Interval evaluation can prove large regions of space to be empty or full,
+//!   at which point they don't need to be considered further.
+//! - At the surface of the model, partial derivatives represent normals and
+//!   can be used for shading.
+//!
+//! Here's a simple example of interval evaluation:
 //! ```
 //! use fidget::{eval::Eval, rhai::eval, vm};
+//!
 //! let (sum, ctx) = eval("x + y").unwrap();
 //! let tape = ctx.get_tape(sum);
-//! let interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! let (out, _) = interval_eval.eval_i(
+//!         [0.0, 1.0], // X
+//!         [2.0, 3.0], // Y
+//!         [0.0, 0.0], // Z
+//!         &[]         // variables (unused)
+//!     ).unwrap();
+//! assert_eq!(out, [2.0, 4.0].into());
+//! ```
+//!
+//! ## Tape simplification
+//! Interval evaluation serves two purposes.  As we already mentioned, it can be
+//! used to prove large regions empty or filled, which lets us do less work when
+//! rendering.  In addition, it can discover **sections of the tape** that are
+//! always inactive in a particular spatial region.
+//!
+//! Consider evaluating `max(x, y)` with `x = [0, 1]` and `y = [2, 3]`:
+//! ```
+//! use fidget::{eval::Eval, rhai::eval, vm};
+//!
+//! let (sum, ctx) = eval("min(x, y)").unwrap();
+//! let tape = ctx.get_tape(sum);
+//! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! let (out, _) = interval_eval.eval_i(
+//!         [0.0, 1.0], // X
+//!         [2.0, 3.0], // Y
+//!         [0.0, 0.0], // Z
+//!         &[]         // variables (unused)
+//!     ).unwrap();
+//! assert_eq!(out, [0.0, 1.0].into());
+//! ```
+//!
+//! Because `x` is **strictly less than** `y` in the `min(x, y)` clause, we can
+//! simplify that clause to simply `x`:
+//!
+//! ```
+//! # use fidget::{eval::Eval, rhai::eval, vm};
+//! # let (sum, ctx) = eval("min(x, y)").unwrap();
+//! # let tape = ctx.get_tape(sum);
+//! # let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! # let (out, _) = interval_eval.eval_i(
+//! #         [0.0, 1.0], // X
+//! #         [2.0, 3.0], // Y
+//! #         [0.0, 0.0], // Z
+//! #         &[]         // variables (unused)
+//! #     ).unwrap();
+//! assert_eq!(interval_eval.tape().len(), 3);
+//! let new_tape = interval_eval.simplify();
+//! assert_eq!(new_tape.len(), 1); // just the 'X' term
 //! ```
 //!
 //! # How is this different from _X_?

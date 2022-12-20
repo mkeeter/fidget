@@ -5,7 +5,7 @@ use crate::{
         grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
-        Choice, Eval,
+        Choice, Eval, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -56,7 +56,7 @@ impl Scratch {
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: Eval>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
+    fn eval_s<E: Family>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
         f.eval_s(
             &self.x[0..size],
             &self.y[0..size],
@@ -66,7 +66,7 @@ impl Scratch {
         )
         .unwrap();
     }
-    fn eval_g<E: Eval>(&mut self, f: &mut GradEval<E>, size: usize) {
+    fn eval_g<E: Family>(&mut self, f: &mut GradEval<E>, size: usize) {
         f.eval_g(
             &self.x[0..size],
             &self.y[0..size],
@@ -80,7 +80,7 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Evaluators<I: Eval> {
+struct Evaluators<I: Family> {
     level: usize,
     tape: Tape<I>,
     interval: Option<IntervalEval<I>>,
@@ -90,7 +90,7 @@ struct Evaluators<I: Eval> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, I: Eval> {
+struct Worker<'a, I: Family> {
     config: &'a AlignedRenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
@@ -133,7 +133,7 @@ struct Worker<'a, I: Eval> {
     workspace: Workspace,
 }
 
-impl<I: Eval> Worker<'_, I> {
+impl<I: Family> Worker<'_, I> {
     fn reclaim_storage(&mut self, eval: Evaluators<I>) -> TapeData {
         if let Some(float) = eval.float_slice {
             self.float_storage[eval.level].give(float.take().unwrap());
@@ -516,7 +516,7 @@ impl Image {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: Eval>(
+fn worker<I: Family>(
     i_handle: IntervalEval<I>,
     queues: &[Queue<3>],
     mut index: usize,
@@ -614,7 +614,7 @@ fn worker<I: Eval>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn render<I: Eval>(
+pub fn render<I: Family>(
     tape: Tape<I>,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {

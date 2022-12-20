@@ -1,6 +1,6 @@
 //! Float slice evaluation (i.e. `&[f32]`)
 use crate::{
-    eval::{Eval, Tape},
+    eval::{Family, Tape},
     Error,
 };
 
@@ -58,13 +58,13 @@ pub trait FloatSliceEvalT<R> {
 }
 
 /// Evaluator for float slices, parameterized by evaluator family
-pub struct FloatSliceEval<E: Eval> {
+pub struct FloatSliceEval<E: Family> {
     #[allow(dead_code)]
     tape: Tape<E>,
     eval: E::FloatSliceEval,
 }
 
-impl<E: Eval> FloatSliceEval<E> {
+impl<E: Family> FloatSliceEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
         let eval = E::FloatSliceEval::new(&tape);
         Self { tape, eval }
@@ -118,11 +118,11 @@ impl<E: Eval> FloatSliceEval<E> {
 }
 
 /// Helper `struct` to reuse storage from an [`FloatSliceEval`](FloatSliceEval)
-pub struct FloatSliceEvalStorage<E: Eval> {
-    inner: <<E as Eval>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
+pub struct FloatSliceEvalStorage<E: Family> {
+    inner: <<E as Family>::FloatSliceEval as FloatSliceEvalT<E>>::Storage,
 }
 
-impl<E: Eval> Default for FloatSliceEvalStorage<E> {
+impl<E: Family> Default for FloatSliceEvalStorage<E> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
@@ -135,9 +135,12 @@ impl<E: Eval> Default for FloatSliceEvalStorage<E> {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Eval, Vars},
+    };
 
-    pub fn test_give_take<I: Eval>() {
+    pub fn test_give_take<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -179,7 +182,7 @@ pub mod eval_tests {
         }
     }
 
-    pub fn test_vectorized<I: Eval>() {
+    pub fn test_vectorized<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -244,7 +247,7 @@ pub mod eval_tests {
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
 
-    pub fn test_f_var<I: Eval>() {
+    pub fn test_f_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let b = ctx.var("b").unwrap();

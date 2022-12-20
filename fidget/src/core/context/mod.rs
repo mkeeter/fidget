@@ -6,7 +6,7 @@ use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
 use crate::{
-    eval::{Eval, Tape},
+    eval::{Family, Tape},
     ssa::Builder,
     Error,
 };
@@ -451,7 +451,7 @@ impl Context {
     /// The resulting tape uses `E::REG_LIMIT` registers; if more memory is
     /// required, it includes
     /// [`vm::Op::Load` / `vm::Op::Store`](crate::vm::Op) operations.
-    pub fn get_tape<E: Eval>(&self, root: Node) -> Tape<E> {
+    pub fn get_tape<E: Family>(&self, root: Node) -> Tape<E> {
         let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut todo = vec![root];

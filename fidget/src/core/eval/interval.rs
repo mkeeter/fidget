@@ -2,7 +2,7 @@
 use crate::{
     eval::{
         tape::{Data as TapeData, Tape, Workspace},
-        Choice, Eval,
+        Choice, Family,
     },
     Error,
 };
@@ -248,15 +248,15 @@ pub trait IntervalEvalT<R>: Clone + Send {
 /// [`Tape`](Tape).
 ///
 /// The internal `tape` is planned with
-/// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
+/// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
 #[derive(Clone)]
-pub struct IntervalEval<E: Eval> {
+pub struct IntervalEval<E: Family> {
     tape: Tape<E>,
     choices: Vec<Choice>,
     eval: E::IntervalEval,
 }
 
-impl<E: Eval> IntervalEval<E> {
+impl<E: Family> IntervalEval<E> {
     /// Build a interval evaluator handle from the given tape
     ///
     /// If the incoming tape is planned with the correct number of registers,
@@ -444,12 +444,12 @@ impl<E: Eval> IntervalEval<E> {
 }
 
 /// Helper `struct` to reuse storage from an [`IntervalEval`](IntervalEval)
-pub struct IntervalEvalStorage<E: Eval> {
+pub struct IntervalEvalStorage<E: Family> {
     choices: Vec<Choice>,
-    inner: <<E as Eval>::IntervalEval as IntervalEvalT<E>>::Storage,
+    inner: <<E as Family>::IntervalEval as IntervalEvalT<E>>::Storage,
 }
 
-impl<E: Eval> Default for IntervalEvalStorage<E> {
+impl<E: Family> Default for IntervalEvalStorage<E> {
     fn default() -> Self {
         Self {
             choices: vec![],
@@ -479,9 +479,12 @@ mod test {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Eval, Vars},
+    };
 
-    pub fn test_interval<I: Eval>() {
+    pub fn test_interval<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -497,7 +500,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0].into());
     }
 
-    pub fn test_i_abs<I: Eval>() {
+    pub fn test_i_abs<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let abs_x = ctx.abs(x).unwrap();
@@ -520,7 +523,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_xy([1.0, 5.0], [-4.0, 3.0]), [1.0, 9.0].into());
     }
 
-    pub fn test_i_sqrt<I: Eval>() {
+    pub fn test_i_sqrt<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let sqrt_x = ctx.sqrt(x).unwrap();
@@ -541,7 +544,7 @@ pub mod eval_tests {
         assert!(v.upper().is_nan());
     }
 
-    pub fn test_i_square<I: Eval>() {
+    pub fn test_i_square<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let sqrt_x = ctx.square(x).unwrap();
@@ -562,7 +565,7 @@ pub mod eval_tests {
         assert!(v.upper().is_nan());
     }
 
-    pub fn test_i_mul<I: Eval>() {
+    pub fn test_i_mul<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -595,7 +598,7 @@ pub mod eval_tests {
         assert!(v.upper().is_nan());
     }
 
-    pub fn test_i_mul_imm<I: Eval>() {
+    pub fn test_i_mul_imm<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let mul = ctx.mul(x, 2.0).unwrap();
@@ -611,7 +614,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-6.0, -3.0].into());
     }
 
-    pub fn test_i_sub<I: Eval>() {
+    pub fn test_i_sub<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -632,7 +635,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_i_sub_imm<I: Eval>() {
+    pub fn test_i_sub_imm<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let sub = ctx.sub(x, 2.0).unwrap();
@@ -648,7 +651,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [-5.0, -4.0].into());
     }
 
-    pub fn test_i_recip<I: Eval>() {
+    pub fn test_i_recip<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
@@ -671,7 +674,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_i_x([1.0, 2.0]), [0.5, 1.0].into());
     }
 
-    pub fn test_i_div<I: Eval>() {
+    pub fn test_i_div<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -716,7 +719,7 @@ pub mod eval_tests {
         assert!(v.upper().is_nan());
     }
 
-    pub fn test_i_min<I: Eval>() {
+    pub fn test_i_min<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -763,7 +766,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
-    pub fn test_i_min_imm<I: Eval>() {
+    pub fn test_i_min_imm<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
@@ -789,7 +792,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Right]);
     }
 
-    pub fn test_i_max<I: Eval>() {
+    pub fn test_i_max<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -864,7 +867,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Left, Choice::Left]);
     }
 
-    pub fn test_i_simplify<I: Eval>() {
+    pub fn test_i_simplify<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
@@ -911,7 +914,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Left]);
     }
 
-    pub fn test_i_max_imm<I: Eval>() {
+    pub fn test_i_max_imm<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let max = ctx.max(x, 1.0).unwrap();
@@ -943,7 +946,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Left]);
     }
 
-    pub fn test_i_var<I: Eval>() {
+    pub fn test_i_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let b = ctx.var("b").unwrap();

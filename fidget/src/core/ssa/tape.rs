@@ -13,8 +13,6 @@ use std::{collections::BTreeMap, sync::Arc};
 /// - 4-byte LHS register
 /// - 4-byte RHS register (or immediate `f32`)
 ///
-/// Outputs, arguments, and immediates are packed into the `data` array
-///
 /// All register addressing is absolute.
 #[derive(Clone, Debug, Default)]
 pub struct Tape {

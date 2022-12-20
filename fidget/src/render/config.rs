@@ -1,6 +1,6 @@
 use crate::{
     context::{Context, Node},
-    eval::Eval,
+    eval::Family,
     render::render2d::RenderMode,
 };
 use nalgebra::{
@@ -20,8 +20,8 @@ where
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
-    /// [`Eval::tile_sizes_2d`](crate::eval::Eval::tile_sizes_2d) or
-    /// [`Eval::tile_sizes_3d`](crate::eval::Eval::tile_sizes_3d) to
+    /// [`Family::tile_sizes_2d`](crate::eval::Family::tile_sizes_2d) or
+    /// [`Family::tile_sizes_3d`](crate::eval::Family::tile_sizes_3d) to
     /// select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
     pub threads: usize,
@@ -196,7 +196,7 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d::render`](crate::render::render2d::render)
-    pub fn run<M: RenderMode, I: Eval>(
+    pub fn run<M: RenderMode, I: Family>(
         &self,
         root: Node,
         context: Context,
@@ -213,7 +213,7 @@ impl RenderConfig<3> {
     /// [`fidget::render::render3d::render`](crate::render::render3d::render)
     ///
     /// Returns a tuple of heightmap, RGB image.
-    pub fn run<I: Eval>(
+    pub fn run<I: Family>(
         &self,
         root: Node,
         context: Context,

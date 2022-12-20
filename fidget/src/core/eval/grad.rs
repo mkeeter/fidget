@@ -1,6 +1,6 @@
 //! Evaluation of partial derivatives
 use crate::{
-    eval::{Eval, Tape},
+    eval::{Family, Tape},
     Error,
 };
 
@@ -168,8 +168,8 @@ pub trait GradEvalT<R> {
     /// function if it would be useful.
     ///
     /// The incoming `Storage` is consumed, though it may not necessarily be
-    /// used to construct the new tape (e.g. if it's a mmap region and is too
-    /// small).
+    /// used to construct the new tape (e.g. if it's a memory-mapped region and
+    /// is too small).
     fn new_with_storage(tape: &Tape<R>, _storage: Self::Storage) -> Self
     where
         Self: Sized,
@@ -222,14 +222,14 @@ pub trait GradEvalT<R> {
 /// stored [`Tape`](Tape).
 ///
 /// The internal `tape` is planned with
-/// [`E::REG_LIMIT`](crate::eval::Eval::REG_LIMIT) registers.
-pub struct GradEval<E: Eval> {
+/// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
+pub struct GradEval<E: Family> {
     #[allow(dead_code)]
     tape: Tape<E>,
     eval: E::GradEval,
 }
 
-impl<E: Eval> GradEval<E> {
+impl<E: Family> GradEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
         let eval = E::GradEval::new(&tape);
         Self { tape, eval }
@@ -277,11 +277,11 @@ impl<E: Eval> GradEval<E> {
 }
 
 /// Helper `struct` to reuse storage from an [`GradEval`](GradEval)
-pub struct GradEvalStorage<E: Eval> {
-    inner: <<E as Eval>::GradEval as GradEvalT<E>>::Storage,
+pub struct GradEvalStorage<E: Family> {
+    inner: <<E as Family>::GradEval as GradEvalT<E>>::Storage,
 }
 
-impl<E: Eval> Default for GradEvalStorage<E> {
+impl<E: Family> Default for GradEvalStorage<E> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
@@ -294,9 +294,12 @@ impl<E: Eval> Default for GradEvalStorage<E> {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Eval, Vars},
+    };
 
-    pub fn test_g_x<I: Eval>() {
+    pub fn test_g_x<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let tape = ctx.get_tape(x);
@@ -308,7 +311,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_square<I: Eval>() {
+    pub fn test_g_square<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
@@ -333,7 +336,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_sqrt<I: Eval>() {
+    pub fn test_g_sqrt<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
@@ -350,7 +353,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_mul<I: Eval>() {
+    pub fn test_g_mul<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -376,7 +379,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_div<I: Eval>() {
+    pub fn test_g_div<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
@@ -389,7 +392,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_recip<I: Eval>() {
+    pub fn test_g_recip<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
@@ -406,7 +409,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_circle<I: Eval>() {
+    pub fn test_g_circle<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -437,7 +440,7 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_var<I: Eval>() {
+    pub fn test_g_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let tape = ctx.get_tape(a);

@@ -1,6 +1,6 @@
 //! Single-point evaluation
 use crate::{
-    eval::{Choice, Eval, Tape},
+    eval::{Choice, Family, Tape},
     Error,
 };
 
@@ -22,13 +22,13 @@ pub trait PointEvalT<R> {
 /// This trait represents a `struct` that _owns_ a function, but does not have
 /// the equipment to evaluate it (e.g. scratch memory).  It is used to produce
 /// one or more `PointEval` objects, which actually do evaluation.
-pub struct PointEval<E: Eval> {
+pub struct PointEval<E: Family> {
     tape: Tape<E>,
     choices: Vec<Choice>,
     eval: E::PointEval,
 }
 
-impl<E: Eval> PointEval<E> {
+impl<E: Family> PointEval<E> {
     pub fn new(tape: Tape<E>) -> Self {
         let eval = E::PointEval::new(&tape);
         let choices = vec![Choice::Unknown; tape.choice_count()];
@@ -77,9 +77,12 @@ impl<E: Eval> PointEval<E> {
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Eval, Vars},
+    };
 
-    pub fn test_constant<I: Eval>() {
+    pub fn test_constant<I: Family>() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
         let tape = ctx.get_tape(p);
@@ -87,7 +90,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), 1.5);
     }
 
-    pub fn test_constant_push<I: Eval>() {
+    pub fn test_constant_push<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.constant(1.5);
         let x = ctx.x();
@@ -103,7 +106,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 1.5);
     }
 
-    pub fn test_circle<I: Eval>() {
+    pub fn test_circle<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -118,7 +121,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 0.0);
     }
 
-    pub fn test_p_min<I: Eval>() {
+    pub fn test_p_min<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -144,7 +147,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
-    pub fn test_p_max<I: Eval>() {
+    pub fn test_p_max<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -170,7 +173,7 @@ pub mod eval_tests {
         assert_eq!(eval.choices(), &[Choice::Both]);
     }
 
-    pub fn basic_interpreter<I: Eval>() {
+    pub fn basic_interpreter<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -183,7 +186,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(3.0, 3.5, 0.0, &[]).unwrap(), 3.5);
     }
 
-    pub fn test_push<I: Eval>() {
+    pub fn test_push<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -221,7 +224,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(3.0, 0.0, 0.0, &[]).unwrap(), 1.0);
     }
 
-    pub fn test_basic<I: Eval>() {
+    pub fn test_basic<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -233,7 +236,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_p(1.0, 2.0, 0.0, &[]).unwrap(), 6.0);
     }
 
-    pub fn test_var<I: Eval>() {
+    pub fn test_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let b = ctx.var("b").unwrap();

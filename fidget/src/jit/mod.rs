@@ -50,7 +50,7 @@ use crate::{
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
         tape::{Data as TapeData, Tape},
-        Choice, Eval as EvalT,
+        Choice, Family,
     },
     jit::mmap::Mmap,
     vm::Op,
@@ -1753,7 +1753,7 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
 
 #[derive(Clone)]
 pub enum Eval {}
-impl EvalT for Eval {
+impl Family for Eval {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
     type IntervalEval = JitIntervalEval;

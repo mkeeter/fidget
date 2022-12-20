@@ -4,7 +4,7 @@ use crate::{
         grad::{Grad, GradEvalT},
         interval::{Interval, IntervalEvalT},
         point::PointEvalT,
-        Choice, Eval as EvalT, Tape,
+        Choice, Family, Tape,
     },
     vm::Op,
 };
@@ -15,7 +15,7 @@ use crate::{
 #[derive(Clone)]
 pub enum Eval {}
 
-impl EvalT for Eval {
+impl Family for Eval {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
