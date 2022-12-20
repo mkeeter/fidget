@@ -4,7 +4,10 @@ use clap::Parser;
 use env_logger::Env;
 use log::info;
 
-use fidget::context::{Context, Node};
+use fidget::{
+    context::{Context, Node},
+    eval::Eval,
+};
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -57,7 +60,7 @@ struct Args {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<I: fidget::eval::Eval>(
+fn run3d<I: fidget::eval::Family>(
     ctx: &Context,
     node: Node,
     args: &Args,
@@ -118,7 +121,7 @@ fn run3d<I: fidget::eval::Eval>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run<I: fidget::eval::Eval>(
+fn run<I: fidget::eval::Family>(
     ctx: &Context,
     node: Node,
     args: &Args,
