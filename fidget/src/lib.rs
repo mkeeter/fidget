@@ -14,8 +14,7 @@
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.
 //!
-//! # Core functionality
-//! ## Shape construction
+//! # Shape construction
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
 //! an arena-style allocator, doing local deduplication and other simple
@@ -41,7 +40,7 @@
 //! let (sum, ctx) = eval("x + y").unwrap();
 //! ```
 //!
-//! ## Evaluation
+//! # Evaluation
 //! The main operation performed on an implicit surface is **evaluation**, i.e.
 //! passing it some position `(x, y, z)` and getting back a result.  This will
 //! be done _a lot_, so it has to be fast.
@@ -106,13 +105,14 @@
 //! assert_eq!(out, [2.0, 4.0].into());
 //! ```
 //!
-//! ## Tape simplification
+//! # Tape simplification
 //! Interval evaluation serves two purposes.  As we already mentioned, it can be
 //! used to prove large regions empty or filled, which lets us do less work when
 //! rendering.  In addition, it can discover **sections of the tape** that are
 //! always inactive in a particular spatial region.
 //!
-//! Consider evaluating `max(x, y)` with `x = [0, 1]` and `y = [2, 3]`:
+//! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
+//! `y = [2, 3]`:
 //! ```
 //! use fidget::{eval::Eval, rhai::eval, vm};
 //!
@@ -128,8 +128,14 @@
 //! assert_eq!(out, [0.0, 1.0].into());
 //! ```
 //!
-//! Because `x` is **strictly less than** `y` in the `min(x, y)` clause, we can
-//! simplify that clause to simply `x`:
+//! In the evaluation region `x = [0, 1]; y = [2, 3]`, `x` is **strictly less
+//! than** `y` in the `min(x, y)` clause.  This means that we can simplify the
+//! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
+//!
+//! Simplification is done with
+//! [`IntervalEval::simplify`](crate::eval::IntervalEval::simplify).
+//! This is _stateful_: `simplify` uses the most recent evaluation to decide how
+//! to simplify the tape.
 //!
 //! ```
 //! # use fidget::{eval::Eval, rhai::eval, vm};
@@ -147,7 +153,26 @@
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
 //! ```
 //!
-//! # How is this different from _X_?
+//! Remember that this simplified tape is only valid for points (or intervals)
+//! within the interval region `x = [0, 1]; y = [2, 3]`.  It's up to you to make
+//! sure this is upheld!
+//!
+//! # Similar projects
+//! Fidget overlaps with various projects in the implicit modeling space:
+//!
+//! - [Antimony: CAD from a parallel universe](https://mattkeeter.com/projects/antimony)*
+//! - [`libfive`: Infrastructure for solid modeling](https://libfive.com)*
+//! - [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://github.com/mkeeter/mpr)*
+//! - [ImplicitCAD: Powerful, Open-Source, Programmatic CAD](https://implicitcad.org/)
+//! - [Ruckus: Procedural CAD For Weirdos](https://docs.racket-lang.org/ruckus/index.html)
+//! - [Curv: a language for making art using mathematics](https://github.com/curv3d/curv)
+//! - Probably more; PRs welcome!
+//!
+//! *written by the same author
+//!
+//! Compared to these projects, Fidget is unique in having a native JIT and
+//! using that JIT while performing tape simplification. At the moment, it lacks
+//! a non-debug GUI and mesh export.
 //!
 //! # Simple example
 //! ```
