@@ -51,7 +51,7 @@
 //! use fidget::{rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape::<vm::Eval>(sum);
+//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
 //! ```
 //!
@@ -94,7 +94,7 @@
 //! use fidget::{eval::Eval, rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape(sum);
+//! let tape = ctx.get_tape(sum).unwrap();
 //! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
 //! let (out, _) = interval_eval.eval_i(
 //!         [0.0, 1.0], // X
@@ -117,7 +117,7 @@
 //! use fidget::{eval::Eval, rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("min(x, y)").unwrap();
-//! let tape = ctx.get_tape(sum);
+//! let tape = ctx.get_tape(sum).unwrap();
 //! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
 //! let (out, _) = interval_eval.eval_i(
 //!         [0.0, 1.0], // X
@@ -140,7 +140,7 @@
 //! ```
 //! # use fidget::{eval::Eval, rhai::eval, vm};
 //! # let (sum, ctx) = eval("min(x, y)").unwrap();
-//! # let tape = ctx.get_tape(sum);
+//! # let tape = ctx.get_tape(sum).unwrap();
 //! # let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
 //! # let (out, _) = interval_eval.eval_i(
 //! #         [0.0, 1.0], // X
@@ -171,14 +171,14 @@
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
 //! use fidget::vm;
-//! use fidget::render::{render2d::{BitRenderMode}, config::RenderConfig};
+//! use fidget::render::{BitRenderMode, RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<BitRenderMode, vm::Eval>(shape, ctx);
+//! let out = cfg.run::<BitRenderMode, vm::Eval>(shape, ctx).unwrap();
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

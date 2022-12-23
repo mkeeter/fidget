@@ -66,7 +66,7 @@ fn run3d<I: fidget::eval::Family>(
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node);
+    let tape = ctx.get_tape(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     let mut mat = nalgebra::Transform3::identity();
@@ -126,7 +126,7 @@ fn run<I: fidget::eval::Family>(
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node);
+    let tape = ctx.get_tape(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     if args.brute {

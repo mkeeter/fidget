@@ -13,7 +13,7 @@
 //! let radius = ctx.add(x_squared, y_squared).unwrap();
 //! let circle = ctx.sub(radius, 1.0).unwrap();
 //!
-//! let tape = ctx.get_tape(circle);
+//! let tape = ctx.get_tape(circle).unwrap();
 //! let mut eval = vm::Eval::new_point_evaluator(tape);
 //! assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), -1.0);
 //! assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 0.0);

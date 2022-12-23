@@ -136,7 +136,7 @@ impl RegisterAllocator {
         } else {
             let out = self.out.slot_count;
             self.out.slot_count += 1;
-            assert!(out >= self.out.reg_limit.into());
+            assert!(out >= self.out.reg_limit().into());
             out
         }
     }

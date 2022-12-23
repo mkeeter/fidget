@@ -2,6 +2,7 @@ use crate::{
     context::{Context, Node},
     eval::Family,
     render::RenderMode,
+    Error,
 };
 use nalgebra::{
     allocator::Allocator, geometry::Transform, Const, DefaultAllocator,
@@ -16,6 +17,7 @@ where
     DefaultAllocator:
         Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
 {
+    /// Image size (for a square output image)
     pub image_size: usize,
 
     /// Tile sizes to use during evaluation.
@@ -25,8 +27,14 @@ where
     /// [`Family::tile_sizes_3d`](crate::eval::Family::tile_sizes_3d) to
     /// select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
+
+    /// Number of threads to use; 8 by default
     pub threads: usize,
 
+    /// Transform matrix to apply to the input coordinates
+    ///
+    /// By default, we render a cube spanning ±1 on all axes; `mat` allows for
+    /// rotation, scaling, transformation, and even perspective.
     pub mat: Transform<f32, nalgebra::TGeneral, N>,
 }
 
@@ -201,9 +209,9 @@ impl RenderConfig<2> {
         &self,
         root: Node,
         context: Context,
-    ) -> Vec<<M as RenderMode>::Output> {
-        let tape = context.get_tape(root);
-        crate::render::render2d::<I, M>(tape, self)
+    ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
+        let tape = context.get_tape(root)?;
+        Ok(crate::render::render2d::<I, M>(tape, self))
     }
 }
 
@@ -218,9 +226,9 @@ impl RenderConfig<3> {
         &self,
         root: Node,
         context: Context,
-    ) -> (Vec<u32>, Vec<[u8; 3]>) {
-        let tape = context.get_tape(root);
-        crate::render::render3d::<I>(tape, self)
+    ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
+        let tape = context.get_tape(root)?;
+        Ok(crate::render::render3d::<I>(tape, self))
     }
 }
 

@@ -145,8 +145,8 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape_x = ctx.get_tape(x);
-        let tape_y = ctx.get_tape(y);
+        let tape_x = ctx.get_tape(x).unwrap();
+        let tape_y = ctx.get_tape(y).unwrap();
 
         let eval = FloatSliceEval::<I>::new(tape_y.clone());
         let mut out = [0.0; 4];
@@ -187,7 +187,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape = ctx.get_tape(x);
+        let tape = ctx.get_tape(x).unwrap();
         let mut eval = FloatSliceEval::<I>::new(tape);
         let mut out = [0.0; 4];
         eval.eval_s(
@@ -201,7 +201,7 @@ pub mod eval_tests {
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let tape = ctx.get_tape(mul);
+        let tape = ctx.get_tape(mul).unwrap();
         let mut eval = FloatSliceEval::<I>::new(tape);
         eval.eval_s(
             &[0.0, 1.0, 2.0, 3.0],
@@ -253,7 +253,7 @@ pub mod eval_tests {
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape(min);
+        let tape = ctx.get_tape(min).unwrap();
         let mut vars = Vars::new(&tape);
         let mut eval = I::new_float_slice_evaluator(tape);
 

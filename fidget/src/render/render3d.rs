@@ -614,6 +614,14 @@ fn worker<I: Family>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Renders the given tape into a 3D image according to the provided
+/// configuration.
+///
+/// The tape provides the shape; the configuration supplies resolution,
+/// transforms, etc.
+///
+/// This function is parameterized by both evaluator family, which determines
+/// how we perform evaluation.
 pub fn render<I: Family>(
     tape: Tape<I>,
     config: &RenderConfig<3>,

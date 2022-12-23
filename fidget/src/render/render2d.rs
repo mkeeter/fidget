@@ -361,6 +361,15 @@ fn worker<I: Family, M: RenderMode>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Renders the given tape into a 2D image at Z = 0 according to the provided
+/// configuration.
+///
+/// The tape provides the shape; the configuration supplies resolution,
+/// transforms, etc.
+///
+/// This function is parameterized by both evaluator family (which determines
+/// how we perform evaluation) and render mode (which tells us how to color in
+/// the resulting pixels).
 pub fn render<I: Family, M: RenderMode>(
     tape: Tape<I>,
     config: &RenderConfig<2>,

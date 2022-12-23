@@ -1,4 +1,22 @@
-//! Traits and generic `struct`s for evaluation
+//! Traits and data structures for evaluation
+//!
+//! The easiest way to build an evaluator of a particular kind is the
+//! [`Eval`](Eval) extension trait on [`Family`](Family):
+//!
+//! ```rust
+//! use fidget::eval::Eval;
+//! use fidget::vm;
+//! use fidget::context::Context;
+//!
+//! let mut ctx = Context::new();
+//! let x = ctx.x();
+//! let tape = ctx.get_tape(x).unwrap();
+//!
+//! // `vm::Eval` implements `Family`, so we can use it to build any kind of
+//! // evaluator.  In this case, we'll build a single-point evaluator:
+//! let mut eval = vm::Eval::new_point_evaluator(tape);
+//! assert_eq!(eval.eval_p(0.25, 0.0, 0.0, &[]).unwrap(), 0.25);
+//! ```
 
 pub mod float_slice;
 pub mod grad;

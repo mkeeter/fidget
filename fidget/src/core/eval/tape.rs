@@ -1,4 +1,4 @@
-//! Dual-use tapes for use during evaluation or further compilation
+//! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     context::{Context, Node},
     eval::{Choice, Family},
@@ -63,8 +63,9 @@ impl<E> std::ops::Deref for Tape<E> {
     }
 }
 
-impl<E: crate::eval::Family> From<(Node, Context)> for Tape<E> {
-    fn from((node, context): (Node, Context)) -> Self {
+impl<E: crate::eval::Family> TryFrom<(Node, Context)> for Tape<E> {
+    type Error = Error;
+    fn try_from((node, context): (Node, Context)) -> Result<Self, Self::Error> {
         context.get_tape(node)
     }
 }

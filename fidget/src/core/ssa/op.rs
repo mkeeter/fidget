@@ -1,4 +1,4 @@
-/// Opcode for use in a [`Tape`](super::Tape)
+/// Opcode for use in an SSA [`Tape`](super::Tape)
 #[derive(Copy, Clone, Debug)]
 pub enum Op {
     /// Reads one of the inputs (X, Y, Z).  This is the most flexible variable,

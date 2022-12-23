@@ -145,7 +145,7 @@ impl eframe::App for MyApp {
 
         if let Ok(script_ctx) = &self.out {
             for s in script_ctx.shapes.iter() {
-                let tape = script_ctx.context.get_tape(s.shape);
+                let tape = script_ctx.context.get_tape(s.shape).unwrap();
                 let image = fidget::render::render2d::<
                     fidget::jit::Eval,
                     fidget::render::BitRenderMode,
