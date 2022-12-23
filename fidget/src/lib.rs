@@ -14,6 +14,17 @@
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.
 //!
+//! At the moment, it's got strong Lego-kit-without-a-manual energy: there are
+//! lots of functions that are individually documented, but putting them
+//! together into something useful is left as an exercise to the reader.  There
+//! may also be some missing pieces, and the API seams may not be in the right
+//! places; if you're doing serious work with the library, expect to fork it and
+//! make local modifications.
+//!
+//! Issues and PRs are welcome, although I'm unlikely to merge anything which
+//! adds substantial maintenance burden.  This is a personal-scale experimental
+//! project, so adjust your expectations accordingly.
+//!
 //! # Shape construction
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
@@ -30,9 +41,10 @@
 //! let sum = ctx.add(x, y).unwrap();
 //! ```
 //!
-//! As you can see, this is very verbose.  As an alternative, Fidget includes
-//! bindings to [Rhai](https://rhai.rs), a simple Rust-native scripting
-//! language, in the [`fidget::rhai` namespace](crate::rhai):
+//! As an alternative, Fidget includes bindings to [Rhai](https://rhai.rs), a
+//! simple Rust-native scripting language, in the [`fidget::rhai`
+//! namespace](crate::rhai).  These bindings offer a terser way to construct
+//! a shape from a script:
 //!
 //! ```
 //! use fidget::rhai::eval;
@@ -55,7 +67,7 @@
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
 //! ```
 //!
-//! A tape is set of operations for a very simple virtual machine; the
+//! A tape is a set of operations for a very simple virtual machine; the
 //! expression above would be something like
 //! ```text
 //! $0 = INPUT 0   // X
@@ -159,12 +171,10 @@
 //! sure this is upheld!
 //!
 //! # Rasterization
-//! At the moment, Fidget uses all of this machinery to build one user-facing
-//! algorithm: rasterization of implicit surfaces.
+//! At the moment, Fidget uses all of this machinery to build two user-facing
+//! algorithms: rasterization of implicit surfaces in 2D and 3D.
 //!
-//! (two, if you count 2D and 3D rasterization separately)
-//!
-//! This is implemented in the [`fidget::render` namespace](crate::render).
+//! They are implemented in the [`fidget::render` namespace](crate::render).
 //!
 //! Here's a quick example:
 //! ```

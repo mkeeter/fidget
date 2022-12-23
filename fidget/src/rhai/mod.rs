@@ -80,11 +80,8 @@ impl Engine {
         self.engine.run(script)?;
 
         // Steal the ScriptContext's contents
-        let mut next = ScriptContext::new();
         let mut lock = self.context.lock().unwrap();
-        std::mem::swap(&mut next, &mut lock);
-
-        Ok(next)
+        Ok(std::mem::take(&mut lock))
     }
 
     /// Evaluates a single expression, in terms of `x`, `y`, and `z`
@@ -109,11 +106,10 @@ impl Engine {
             .eval_expression_with_scope::<Node>(&mut scope, script)?;
 
         // Steal the ScriptContext's contents
-        let mut next = ScriptContext::new();
         let mut lock = self.context.lock().unwrap();
-        std::mem::swap(&mut next, &mut lock);
+        let ctx: ScriptContext = std::mem::take(&mut lock);
 
-        Ok((out, next.context))
+        Ok((out, ctx.context))
     }
 }
 
@@ -132,6 +128,12 @@ pub struct DrawShape {
 pub struct ScriptContext {
     pub context: Context,
     pub shapes: Vec<DrawShape>,
+}
+
+impl Default for ScriptContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ScriptContext {
@@ -265,6 +267,7 @@ define_unary_fns!(neg);
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// One-shot evaluation of a single expression, in terms of `x, y, z`
 pub fn eval(s: &str) -> Result<(Node, Context), Box<rhai::EvalAltResult>> {
     let mut engine = Engine::new();
     engine.eval(s)
