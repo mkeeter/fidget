@@ -1,5 +1,5 @@
 use eframe::egui;
-use fidget::render::config::RenderConfig;
+use fidget::{eval::Family, render::RenderConfig};
 use nalgebra::{Transform2, Vector2};
 
 mod highlight;
@@ -144,12 +144,11 @@ impl eframe::App for MyApp {
         let render_start = std::time::Instant::now();
 
         if let Ok(script_ctx) = &self.out {
-            use fidget::eval::Eval;
             for s in script_ctx.shapes.iter() {
                 let tape = script_ctx.context.get_tape(s.shape);
-                let image = fidget::render::render2d::render::<
+                let image = fidget::render::render2d::<
                     fidget::jit::Eval,
-                    fidget::render::render2d::BitRenderMode,
+                    fidget::render::BitRenderMode,
                 >(
                     tape,
                     &RenderConfig {

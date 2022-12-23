@@ -1,5 +1,6 @@
 //! Dual-use tapes for use during evaluation or further compilation
 use crate::{
+    context::{Context, Node},
     eval::{Choice, Family},
     ssa::{Op as SsaOp, Tape as SsaTape},
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
@@ -59,6 +60,12 @@ impl<E> std::ops::Deref for Tape<E> {
     type Target = Data;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<E: crate::eval::Family> From<(Node, Context)> for Tape<E> {
+    fn from((node, context): (Node, Context)) -> Self {
+        context.get_tape(node)
     }
 }
 

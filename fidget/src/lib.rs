@@ -75,7 +75,7 @@
 //!   x86 machines or in WebAssembly).
 //!
 //! Looking at the [`eval::Family`](crate::eval::Family) trait, you may notice
-//! that it requires _several_ different flavors of evaluation.  In addition to
+//! that it requires several different kinds of evaluation.  In addition to
 //! supporting evaluation at a single point, Fidget evaluators must support
 //!
 //! - Evaluation on a array of points (giving an opportunity for SIMD)
@@ -148,6 +148,7 @@
 //! #         [0.0, 0.0], // Z
 //! #         &[]         // variables (unused)
 //! #     ).unwrap();
+//! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
 //! let new_tape = interval_eval.simplify();
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
@@ -157,24 +158,15 @@
 //! within the interval region `x = [0, 1]; y = [2, 3]`.  It's up to you to make
 //! sure this is upheld!
 //!
-//! # Similar projects
-//! Fidget overlaps with various projects in the implicit modeling space:
+//! # Rasterization
+//! At the moment, Fidget uses all of this machinery to build one user-facing
+//! algorithm: rasterization of implicit surfaces.
 //!
-//! - [Antimony: CAD from a parallel universe](https://mattkeeter.com/projects/antimony)*
-//! - [`libfive`: Infrastructure for solid modeling](https://libfive.com)*
-//! - [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://github.com/mkeeter/mpr)*
-//! - [ImplicitCAD: Powerful, Open-Source, Programmatic CAD](https://implicitcad.org/)
-//! - [Ruckus: Procedural CAD For Weirdos](https://docs.racket-lang.org/ruckus/index.html)
-//! - [Curv: a language for making art using mathematics](https://github.com/curv3d/curv)
-//! - Probably more; PRs welcome!
+//! (two, if you count 2D and 3D rasterization separately)
 //!
-//! *written by the same author
+//! This is implemented in the [`fidget::render` namespace](crate::render).
 //!
-//! Compared to these projects, Fidget is unique in having a native JIT and
-//! using that JIT while performing tape simplification. At the moment, it lacks
-//! a non-debug GUI and mesh export.
-//!
-//! # Simple example
+//! Here's a quick example:
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
@@ -216,6 +208,39 @@
 //! //       XXXXXXXXXXXXXXXXXX
 //! //           XXXXXXXXXX
 //! ```
+//!
+//! # Similar projects
+//! Fidget overlaps with various projects in the implicit modeling space:
+//!
+//! - [Antimony: CAD from a parallel universe](https://mattkeeter.com/projects/antimony)*
+//! - [`libfive`: Infrastructure for solid modeling](https://libfive.com)*
+//! - [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces (MPR)](https://github.com/mkeeter/mpr)*
+//! - [ImplicitCAD: Powerful, Open-Source, Programmatic CAD](https://implicitcad.org/)
+//! - [Ruckus: Procedural CAD For Weirdos](https://docs.racket-lang.org/ruckus/index.html)
+//! - [Curv: a language for making art using mathematics](https://github.com/curv3d/curv)
+//! - [sdf: Simple SDF mesh generation in Python](https://github.com/fogleman/sdf)
+//! - Probably more; PRs welcome!
+//!
+//! *written by the same author
+//!
+//! Compared to these projects, Fidget is unique in having a native JIT and
+//! using that JIT while performing tape simplification.  This makes it _blazing
+//! fast_.
+//! For example, here are rough benchmarks rasterizing [this model](https://www.mattkeeter.com/projects/siggraph/depth_norm@2x.png)
+//! across three different implementations:
+//!
+//! Size | `libfive` | MPR| Fidget
+//! -|-|-|-
+//! 1024³ | 66.8 ms | 22.6 ms| 23.6 ms
+//! 1536³ | 127 ms | 39.3 ms| 45.4 ms
+//! 2048³ | 211 ms | 60.6 ms| 77.4 ms
+//!
+//! `libfive` and Fidget are running on an M1 Max CPU; MPR is running on a GTX
+//! 1080 Ti GPU.
+//!
+//! Fidget is missing a bunch of features that are found in more mature
+//! projects.  For example, it does not include mesh export, and only includes a
+//! debug GUI.
 
 // Re-export everything from fidget_core into the top-level namespace
 mod core;

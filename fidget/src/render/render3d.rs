@@ -1,4 +1,4 @@
-//! Bitmap rendering
+//! 3D bitmap rendering / rasterization
 use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},

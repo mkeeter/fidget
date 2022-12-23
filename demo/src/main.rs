@@ -73,7 +73,7 @@ fn run3d<I: fidget::eval::Family>(
     if !args.isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
-    let cfg = fidget::render::config::RenderConfig {
+    let cfg = fidget::render::RenderConfig {
         image_size: args.size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
         threads: args.threads,
@@ -85,8 +85,7 @@ fn run3d<I: fidget::eval::Family>(
     let mut depth = vec![];
     let mut color = vec![];
     for _ in 0..args.n {
-        (depth, color) =
-            fidget::render::render3d::render::<I>(tape.clone(), &cfg);
+        (depth, color) = fidget::render::render3d::<I>(tape.clone(), &cfg);
     }
 
     let out = if args.color {
@@ -159,7 +158,7 @@ fn run<I: fidget::eval::Family>(
             .collect();
         (out, start)
     } else {
-        let cfg = fidget::render::config::RenderConfig {
+        let cfg = fidget::render::RenderConfig {
             image_size: args.size as usize,
             tile_sizes: I::tile_sizes_2d().to_vec(),
             threads: args.threads,
@@ -169,9 +168,9 @@ fn run<I: fidget::eval::Family>(
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..args.n {
-            image = fidget::render::render2d::render::<
+            image = fidget::render::render2d::<
                 I,
-                fidget::render::render2d::DebugRenderMode,
+                fidget::render::DebugRenderMode,
             >(tape.clone(), &cfg);
         }
         let out = image

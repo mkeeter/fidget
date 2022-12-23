@@ -761,8 +761,8 @@ impl Context {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Helper trait for things that can be converted into a [`Node`](Node given a
-/// [`Context`](Context).
+/// Helper trait for things that can be converted into a
+/// [`Node`](Node) given a [`Context`](Context).
 ///
 /// This trait allows you to write
 /// ```
