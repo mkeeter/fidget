@@ -18,10 +18,10 @@ pub trait RenderMode {
     type Output: Default + Copy + Clone + Send;
 
     /// Decide whether to subdivide or fill an interval
-    fn interval(i: Interval, depth: usize) -> Option<Self::Output>;
+    fn interval(&self, i: Interval, depth: usize) -> Option<Self::Output>;
 
     /// Per-pixel drawing
-    fn pixel(f: f32) -> Self::Output;
+    fn pixel(&self, f: f32) -> Self::Output;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -31,7 +31,7 @@ pub struct DebugRenderMode;
 
 impl RenderMode for DebugRenderMode {
     type Output = DebugPixel;
-    fn interval(i: Interval, depth: usize) -> Option<DebugPixel> {
+    fn interval(&self, i: Interval, depth: usize) -> Option<DebugPixel> {
         if i.upper() < 0.0 {
             if depth > 1 {
                 Some(DebugPixel::FilledSubtile)
@@ -48,7 +48,7 @@ impl RenderMode for DebugRenderMode {
             None
         }
     }
-    fn pixel(f: f32) -> DebugPixel {
+    fn pixel(&self, f: f32) -> DebugPixel {
         if f < 0.0 {
             DebugPixel::Filled
         } else {
@@ -109,7 +109,7 @@ pub struct BitRenderMode;
 
 impl RenderMode for BitRenderMode {
     type Output = bool;
-    fn interval(i: Interval, _depth: usize) -> Option<bool> {
+    fn interval(&self, i: Interval, _depth: usize) -> Option<bool> {
         if i.upper() < 0.0 {
             Some(true)
         } else if i.lower() > 0.0 {
@@ -118,7 +118,7 @@ impl RenderMode for BitRenderMode {
             None
         }
     }
-    fn pixel(f: f32) -> bool {
+    fn pixel(&self, f: f32) -> bool {
         f < 0.0
     }
 }
@@ -168,6 +168,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         depth: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
+        mode: &M,
     ) {
         let tile_size = self.config.tile_sizes[depth];
 
@@ -194,7 +195,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let z = Interval::new(0.0, 0.0);
         let (i, _simplify) = i_handle.eval_i(x, y, z, &[]).unwrap();
 
-        let fill = M::interval(i, depth);
+        let fill = mode.interval(i, depth);
 
         if let Some(fill) = fill {
             for y in 0..tile_size {
@@ -225,6 +226,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                             tile.corner[1] + j * next_tile_size,
                         ]),
                         &mut float_handle,
+                        mode,
                     );
                 }
             }
@@ -234,7 +236,13 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
             self.spare_tapes[depth] = sub_tape.take().unwrap();
         } else {
-            self.render_tile_pixels(i_handle, tile_size, tile, float_handle)
+            self.render_tile_pixels(
+                i_handle,
+                tile_size,
+                tile,
+                float_handle,
+                mode,
+            )
         }
     }
 
@@ -244,6 +252,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         tile_size: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
+        mode: &M,
     ) {
         let mut index = 0;
         for j in 0..tile_size {
@@ -319,7 +328,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         for j in 0..tile_size {
             let o = self.config.tile_to_offset(tile, 0, j);
             for i in 0..tile_size {
-                self.image[o + i] = M::pixel(self.scratch.out[index]);
+                self.image[o + i] = mode.pixel(self.scratch.out[index]);
                 index += 1;
             }
         }
@@ -333,6 +342,7 @@ fn worker<I: Family, M: RenderMode>(
     mut i_handle: IntervalEval<I>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
+    mode: &M,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
@@ -352,7 +362,7 @@ fn worker<I: Family, M: RenderMode>(
     };
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None);
+        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None, mode);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -370,9 +380,10 @@ fn worker<I: Family, M: RenderMode>(
 /// This function is parameterized by both evaluator family (which determines
 /// how we perform evaluation) and render mode (which tells us how to color in
 /// the resulting pixels).
-pub fn render<I: Family, M: RenderMode>(
+pub fn render<I: Family, M: RenderMode + Sync>(
     tape: Tape<I>,
     config: &RenderConfig<2>,
+    mode: &M,
 ) -> Vec<M::Output> {
     let config = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
@@ -396,7 +407,7 @@ pub fn render<I: Family, M: RenderMode>(
         let mut handles = vec![];
         for _ in 0..config.threads {
             let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I, M>(i, &queue, &config)));
+            handles.push(s.spawn(|| worker::<I, M>(i, &queue, &config, mode)));
         }
         let mut out = vec![];
         for h in handles {

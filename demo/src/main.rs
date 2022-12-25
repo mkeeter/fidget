@@ -168,10 +168,11 @@ fn run<I: fidget::eval::Family>(
         let start = Instant::now();
         let mut image = vec![];
         for _ in 0..args.n {
-            image = fidget::render::render2d::<
-                I,
-                fidget::render::DebugRenderMode,
-            >(tape.clone(), &cfg);
+            image = fidget::render::render2d(
+                tape.clone(),
+                &cfg,
+                &fidget::render::DebugRenderMode,
+            );
         }
         let out = image
             .into_iter()

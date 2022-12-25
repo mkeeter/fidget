@@ -145,11 +145,9 @@ impl eframe::App for MyApp {
 
         if let Ok(script_ctx) = &self.out {
             for s in script_ctx.shapes.iter() {
-                let tape = script_ctx.context.get_tape(s.shape).unwrap();
-                let image = fidget::render::render2d::<
-                    fidget::jit::Eval,
-                    fidget::render::BitRenderMode,
-                >(
+                let tape: fidget::eval::Tape<fidget::jit::Eval> =
+                    script_ctx.context.get_tape(s.shape).unwrap();
+                let image = fidget::render::render2d(
                     tape,
                     &RenderConfig {
                         image_size,
@@ -166,6 +164,7 @@ impl eframe::App for MyApp {
                                 )),
                         ),
                     },
+                    &fidget::render::BitRenderMode,
                 );
                 for i in 0..pixels.len() {
                     if image[i] {

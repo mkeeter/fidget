@@ -3,6 +3,6 @@ mod builder;
 mod op;
 mod tape;
 
-pub use builder::Builder;
+pub(crate) use builder::Builder;
 pub use op::Op;
 pub use tape::Tape;

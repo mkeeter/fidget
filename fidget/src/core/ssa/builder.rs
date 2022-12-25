@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-pub struct Builder {
+pub(crate) struct Builder {
     tape: Vec<SsaOp>,
 
     mapping: BTreeMap<Node, u32>,

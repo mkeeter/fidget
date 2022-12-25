@@ -9,7 +9,7 @@
 //! A **closed-form** implicit surface means that the function is given in terms
 //! of closed-form operations (addition, subtraction, etc).  This is in contrast
 //! to [ShaderToy](https://www.shadertoy.com/)-style implicit surface functions,
-//! which often use explicit looping and recursion.
+//! which often make control-flow decisions at runtime.
 //!
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.

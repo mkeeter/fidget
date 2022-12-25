@@ -205,13 +205,14 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d`](crate::render::render2d)
-    pub fn run<M: RenderMode, I: Family>(
+    pub fn run<M: RenderMode + Sync, I: Family>(
         &self,
         root: Node,
         context: Context,
+        mode: &M,
     ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
         let tape = context.get_tape(root)?;
-        Ok(crate::render::render2d::<I, M>(tape, self))
+        Ok(crate::render::render2d::<I, M>(tape, self, mode))
     }
 }
 
@@ -233,3 +234,62 @@ impl RenderConfig<3> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use nalgebra::Point2;
+
+    #[test]
+    fn test_aligned_config() {
+        // Simple alignment
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 512,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            mat: Transform::identity(),
+        };
+        let aligned = config.align();
+        assert_eq!(aligned.image_size, config.image_size);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            aligned.mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(-1.0, -1.0)
+        );
+        assert_eq!(
+            aligned.mat.transform_point(&Point2::new(512.0, 0.0)),
+            Point2::new(1.0, -1.0)
+        );
+        assert_eq!(
+            aligned.mat.transform_point(&Point2::new(512.0, 512.0)),
+            Point2::new(1.0, 1.0)
+        );
+
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 575,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            mat: Transform::identity(),
+        };
+        let aligned = config.align();
+        assert_eq!(aligned.orig_image_size, 575);
+        assert_eq!(aligned.image_size, 576);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            aligned.mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(-1.0, -1.0)
+        );
+        assert_eq!(
+            aligned
+                .mat
+                .transform_point(&Point2::new(config.image_size as f32, 0.0)),
+            Point2::new(1.0, -1.0)
+        );
+        assert_eq!(
+            aligned.mat.transform_point(&Point2::new(512.0, 512.0)),
+            Point2::new(1.0, 1.0)
+        );
+    }
+}
