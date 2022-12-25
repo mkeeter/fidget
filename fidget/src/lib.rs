@@ -6,10 +6,10 @@
 //! that position is **inside** the shape; if it's `> 0`, then that position is
 //! **outside** the shape; otherwise, it's on the boundary of the shape.
 //!
-//! A **closed-form** implicit surface means that the function is given in terms
-//! of closed-form operations (addition, subtraction, etc).  This is in contrast
-//! to [ShaderToy](https://www.shadertoy.com/)-style implicit surface functions,
-//! which often make control-flow decisions at runtime.
+//! A **closed-form** implicit surface means that the function is given as a
+//! fixed program of closed-form operations (addition, subtraction, etc).  This
+//! is in contrast to [ShaderToy](https://www.shadertoy.com/)-style implicit
+//! surface functions, which often make control-flow decisions at runtime.
 //!
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.

@@ -123,6 +123,39 @@ impl RenderMode for BitRenderMode {
     }
 }
 
+/// Rendering mode which mimicks many SDF demos on ShaderToy
+pub struct SdfRenderMode;
+
+impl RenderMode for SdfRenderMode {
+    type Output = [u8; 3];
+    fn interval(&self, _i: Interval, _depth: usize) -> Option<[u8; 3]> {
+        None // always recurse
+    }
+    fn pixel(&self, f: f32) -> [u8; 3] {
+        let r = 1.0 - 0.1f32.copysign(f);
+        let g = 1.0 - 0.4f32.copysign(f);
+        let b = 1.0 - 0.7f32.copysign(f);
+
+        let dim = 1.0 - (-4.0 * f.abs()).exp(); // dimming near 0
+        let bands = 0.8 + 0.2 * (140.0 * f).cos(); // banding
+
+        let smoothstep = |edge0: f32, edge1: f32, x: f32| {
+            let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        let mix = |x: f32, y: f32, a: f32| x * (1.0 - a) + y * a;
+
+        let run = |v: f32| {
+            let mut v = v * dim * bands;
+            v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.015, f.abs()));
+            v = mix(v, 1.0, 1.0 - smoothstep(0.0, 0.005, f.abs()));
+            (v.clamp(0.0, 1.0) * 255.0) as u8
+        };
+
+        [run(r), run(g), run(b)]
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Scratch {

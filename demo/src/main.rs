@@ -44,6 +44,10 @@ struct Args {
     #[clap(long, requires = "image", conflicts_with = "brute")]
     threedee: bool,
 
+    /// Render in 3D
+    #[clap(long, requires = "image", conflicts_with = "threedee")]
+    sdf: bool,
+
     #[clap(short = 'N', default_value = "1", requires = "image")]
     n: usize,
 
@@ -166,18 +170,33 @@ fn run<I: fidget::eval::Family>(
             mat: nalgebra::Transform2::identity(),
         };
         let start = Instant::now();
-        let mut image = vec![];
-        for _ in 0..args.n {
-            image = fidget::render::render2d(
-                tape.clone(),
-                &cfg,
-                &fidget::render::DebugRenderMode,
-            );
-        }
-        let out = image
-            .into_iter()
-            .flat_map(|p| p.as_debug_color().into_iter())
-            .collect();
+        let out = if args.sdf {
+            let mut image = vec![];
+            for _ in 0..args.n {
+                image = fidget::render::render2d(
+                    tape.clone(),
+                    &cfg,
+                    &fidget::render::SdfRenderMode,
+                );
+            }
+            image
+                .into_iter()
+                .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
+                .collect()
+        } else {
+            let mut image = vec![];
+            for _ in 0..args.n {
+                image = fidget::render::render2d(
+                    tape.clone(),
+                    &cfg,
+                    &fidget::render::DebugRenderMode,
+                );
+            }
+            image
+                .into_iter()
+                .flat_map(|p| p.as_debug_color().into_iter())
+                .collect()
+        };
         (out, start)
     }
 }
