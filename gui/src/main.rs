@@ -14,16 +14,24 @@ fn main() {
 }
 
 struct MyApp {
+    /// Height of the label box, which is positioned below the editor
     label_height: Option<f32>,
+
+    // Current image
     texture: Option<egui::TextureHandle>,
 
+    // Evaluator engine
     engine: fidget::rhai::Engine,
 
+    // 2D camera parameters
     scale: f32,
     offset: egui::Vec2,
     drag_start: Option<egui::Vec2>,
 
+    // Current contents of the editable script
     script: String,
+
+    // Most recent result, or an error string
     out: Result<fidget::rhai::ScriptContext, String>,
 }
 
@@ -48,6 +56,7 @@ impl Default for MyApp {
 }
 
 impl MyApp {
+    /// Converts from mouse position to a UV position within the render window
     fn mouse_to_uv(
         &self,
         rect: egui::Rect,
@@ -76,6 +85,8 @@ impl MyApp {
         theme.selection.bg_fill = f(sol.selection);
         theme.selection.stroke =
             egui::Stroke::new(1.0, f(sol.selection_border));
+        theme.widgets.noninteractive.fg_stroke =
+            egui::Stroke::new(0.0, f(sol.foreground));
 
         ctx.set_visuals(theme);
     }
@@ -114,8 +125,15 @@ impl eframe::App for MyApp {
                         .map_err(|e| format!("{:?}", e));
                 }
 
-                let new_height = if let Err(e) = &self.out {
-                    let label = ui.label(e);
+                let new_height = if let Err(e) = &mut self.out {
+                    ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                        egui::Stroke::none();
+                    let label = ui.add(
+                        egui::TextEdit::multiline(e)
+                            .interactive(false)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace),
+                    );
                     label.rect.height()
                 } else {
                     0.0

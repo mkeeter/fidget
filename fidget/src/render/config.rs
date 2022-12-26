@@ -108,7 +108,7 @@ where
         let mat = self.mat.matrix()
             * nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
                 .matrix()
-                .append_scaling(2.0 / self.image_size as f32)
+                .append_scaling(2.0 / image_size as f32)
                 .append_scaling(scale)
                 .append_translation(&v);
 
@@ -288,7 +288,10 @@ mod test {
             Point2::new(1.0, -1.0)
         );
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(512.0, 512.0)),
+            aligned.mat.transform_point(&Point2::new(
+                config.image_size as f32,
+                config.image_size as f32
+            )),
             Point2::new(1.0, 1.0)
         );
     }
