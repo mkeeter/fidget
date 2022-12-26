@@ -215,13 +215,7 @@ impl eframe::App for MyApp {
                 self.texture = Some(texture);
             }
         }
-
         let dt = render_start.elapsed();
-        ctx.set_visuals(egui::Visuals::dark());
-        egui::Window::new("debug").show(ctx, |ui| {
-            ui.label(format!("Image size: {0}x{0}", image_size));
-            ui.label(format!("Render time: {:.2?}", dt));
-        });
 
         let uv = if size.x > size.y {
             let r = (1.0 - (size.y / size.x)) / 2.0;
@@ -246,11 +240,34 @@ impl eframe::App for MyApp {
                     min: pos,
                     max: pos + size,
                 });
+
                 if let Some(t) = self.texture.as_ref() {
                     let mut mesh = egui::Mesh::with_texture(t.id());
                     mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
                     painter.add(mesh);
                 }
+
+                let layout = painter.layout(
+                    format!(
+                        "Image size: {0}x{0}\nRender time: {dt:.2?}",
+                        image_size
+                    ),
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::WHITE,
+                    f32::INFINITY,
+                );
+                let padding = egui::Vec2 { x: 10.0, y: 10.0 };
+                let text_corner = rect.max - layout.size();
+                painter.rect_filled(
+                    egui::Rect {
+                        min: text_corner - 2.0 * padding,
+                        max: rect.max,
+                    },
+                    egui::Rounding::none(),
+                    egui::Color32::from_black_alpha(128),
+                );
+                painter.galley(text_corner - padding, layout);
+
                 // Return events from the canvas in the inner response
                 ui.interact(
                     rect,
