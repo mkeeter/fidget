@@ -13,6 +13,8 @@ fn main() {
     );
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 struct TwoDCamera {
     // 2D camera parameters
     scale: f32,
@@ -46,20 +48,73 @@ impl Default for TwoDCamera {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum TwoDMode {
     Color,
     Sdf,
     Debug,
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+struct ThreeDCamera {
+    // 2D camera parameters
+    scale: f32,
+    offset: nalgebra::Vector3<f32>,
+    drag_start: Option<egui::Vec2>,
+}
+
+impl ThreeDCamera {
+    fn mouse_to_uv(
+        &self,
+        rect: egui::Rect,
+        uv: egui::Rect,
+        p: egui::Pos2,
+    ) -> egui::Vec2 {
+        panic!()
+    }
+}
+
+impl Default for ThreeDCamera {
+    fn default() -> Self {
+        ThreeDCamera {
+            drag_start: None,
+            scale: 1.0,
+            offset: nalgebra::Vector3::zeros(),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum ThreeDMode {
+    Color,
+    Heightmap,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 enum RenderMode {
     TwoD(TwoDCamera, TwoDMode),
+    ThreeD(ThreeDCamera, ThreeDMode),
 }
 
 impl RenderMode {
     fn set_2d_mode(&mut self, mode: TwoDMode) {
         match self {
             RenderMode::TwoD(.., m) => *m = mode,
+            RenderMode::ThreeD(..) => {
+                *self = RenderMode::TwoD(TwoDCamera::default(), mode)
+            }
+        }
+    }
+    fn set_3d_mode(&mut self, mode: ThreeDMode) {
+        match self {
+            RenderMode::TwoD(..) => {
+                *self = RenderMode::ThreeD(ThreeDCamera::default(), mode)
+            }
+            RenderMode::ThreeD(_camera, m) => {
+                *m = mode;
+            }
         }
     }
 }
@@ -210,6 +265,9 @@ impl MyApp {
                     }
                 }
             }
+            RenderMode::ThreeD(camera, mode) => {
+                unimplemented!()
+            }
         };
     }
 }
@@ -226,17 +284,42 @@ impl eframe::App for MyApp {
                     }
                 });
                 ui.menu_button("Config", |ui| {
-                    if ui.button("3D heightmap").clicked() {
-                        println!("HI")
+                    let mut mode_3d = match &self.mode {
+                        RenderMode::TwoD(..) => None,
+                        RenderMode::ThreeD(_camera, mode) => Some(*mode),
+                    };
+                    ui.radio_value(
+                        &mut mode_3d,
+                        Some(ThreeDMode::Heightmap),
+                        "3D heightmap",
+                    );
+                    ui.radio_value(
+                        &mut mode_3d,
+                        Some(ThreeDMode::Color),
+                        "3D color",
+                    );
+                    if let Some(m) = mode_3d {
+                        self.mode.set_3d_mode(m);
                     }
-                    if ui.button("2D debug").clicked() {
-                        self.mode.set_2d_mode(TwoDMode::Debug);
-                    }
-                    if ui.button("2D SDF").clicked() {
-                        self.mode.set_2d_mode(TwoDMode::Sdf);
-                    }
-                    if ui.button("2D color").clicked() {
-                        self.mode.set_2d_mode(TwoDMode::Color);
+                    ui.separator();
+                    let mut mode_2d = match &self.mode {
+                        RenderMode::TwoD(_camera, mode) => Some(*mode),
+                        RenderMode::ThreeD(..) => None,
+                    };
+                    ui.radio_value(
+                        &mut mode_2d,
+                        Some(TwoDMode::Debug),
+                        "2D debug",
+                    );
+                    ui.radio_value(&mut mode_2d, Some(TwoDMode::Sdf), "2D SDF");
+                    ui.radio_value(
+                        &mut mode_2d,
+                        Some(TwoDMode::Color),
+                        "2D Color",
+                    );
+
+                    if let Some(m) = mode_2d {
+                        self.mode.set_2d_mode(m);
                     }
                 });
             });
@@ -393,33 +476,36 @@ impl eframe::App for MyApp {
             });
 
         // Handle pan and zoom
-        if let RenderMode::TwoD(camera, ..) = &mut self.mode {
-            if let Some(pos) = r.inner.interact_pointer_pos() {
-                if let Some(start) = camera.drag_start {
-                    camera.offset = egui::Vec2::ZERO;
-                    let pos = camera.mouse_to_uv(rect, uv, pos);
-                    camera.offset = start - pos;
+        match &mut self.mode {
+            RenderMode::TwoD(camera, ..) => {
+                if let Some(pos) = r.inner.interact_pointer_pos() {
+                    if let Some(start) = camera.drag_start {
+                        camera.offset = egui::Vec2::ZERO;
+                        let pos = camera.mouse_to_uv(rect, uv, pos);
+                        camera.offset = start - pos;
+                    } else {
+                        let pos = camera.mouse_to_uv(rect, uv, pos);
+                        camera.drag_start = Some(pos);
+                    }
                 } else {
-                    let pos = camera.mouse_to_uv(rect, uv, pos);
-                    camera.drag_start = Some(pos);
+                    camera.drag_start = None;
                 }
-            } else {
-                camera.drag_start = None;
-            }
 
-            if r.inner.hovered() {
-                let mouse_pos = ctx.input().pointer.hover_pos();
-                let pos_before =
-                    mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
-                camera.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
-                if let Some(pos_before) = pos_before {
-                    let pos_after =
-                        camera.mouse_to_uv(rect, uv, mouse_pos.unwrap());
-                    camera.offset += pos_before - pos_after;
+                if r.inner.hovered() {
+                    let mouse_pos = ctx.input().pointer.hover_pos();
+                    let pos_before =
+                        mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
+                    camera.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
+                    if let Some(pos_before) = pos_before {
+                        let pos_after =
+                            camera.mouse_to_uv(rect, uv, mouse_pos.unwrap());
+                        camera.offset += pos_before - pos_after;
+                    }
                 }
             }
-        } else {
-            panic!("No 3D support yet");
+            RenderMode::ThreeD(camera, ..) => {
+                unimplemented!()
+            }
         }
     }
 }
