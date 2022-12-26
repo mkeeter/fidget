@@ -13,6 +13,57 @@ fn main() {
     );
 }
 
+struct TwoDCamera {
+    // 2D camera parameters
+    scale: f32,
+    offset: egui::Vec2,
+    drag_start: Option<egui::Vec2>,
+}
+
+impl TwoDCamera {
+    /// Converts from mouse position to a UV position within the render window
+    fn mouse_to_uv(
+        &self,
+        rect: egui::Rect,
+        uv: egui::Rect,
+        p: egui::Pos2,
+    ) -> egui::Vec2 {
+        let r = (p - rect.min) / (rect.max - rect.min);
+        const ONE: egui::Vec2 = egui::Vec2::new(1.0, 1.0);
+        let pos = uv.min.to_vec2() * (ONE - r) + uv.max.to_vec2() * r;
+        let out = ((pos * 2.0) - ONE) * self.scale;
+        egui::Vec2::new(out.x, -out.y) + self.offset
+    }
+}
+
+impl Default for TwoDCamera {
+    fn default() -> Self {
+        TwoDCamera {
+            drag_start: None,
+            scale: 1.0,
+            offset: egui::Vec2::ZERO,
+        }
+    }
+}
+
+enum TwoDMode {
+    Color,
+    Sdf,
+    Debug,
+}
+
+enum RenderMode {
+    TwoD(TwoDCamera, TwoDMode),
+}
+
+impl RenderMode {
+    fn set_2d_mode(&mut self, mode: TwoDMode) {
+        match self {
+            RenderMode::TwoD(.., m) => *m = mode,
+        }
+    }
+}
+
 struct MyApp {
     /// Height of the label box, which is positioned below the editor
     label_height: Option<f32>,
@@ -23,10 +74,8 @@ struct MyApp {
     // Evaluator engine
     engine: fidget::rhai::Engine,
 
-    // 2D camera parameters
-    scale: f32,
-    offset: egui::Vec2,
-    drag_start: Option<egui::Vec2>,
+    /// Current render mode
+    mode: RenderMode,
 
     // Current contents of the editable script
     script: String,
@@ -44,44 +93,34 @@ impl Default for MyApp {
         Self {
             texture: None,
             engine,
-            script: "draw(circle(0, 0, 0.5))".to_owned(),
+            script: "".to_owned(), //"draw(circle(0, 0, 0.5))".to_owned(),
             out: Err("".to_string()),
             label_height: None,
 
-            drag_start: None,
-            scale: 1.0,
-            offset: egui::Vec2::ZERO,
+            mode: RenderMode::TwoD(TwoDCamera::default(), TwoDMode::Color),
         }
     }
 }
 
 impl MyApp {
-    /// Converts from mouse position to a UV position within the render window
-    fn mouse_to_uv(
-        &self,
-        rect: egui::Rect,
-        uv: egui::Rect,
-        p: egui::Pos2,
-    ) -> egui::Vec2 {
-        let r = (p - rect.min) / (rect.max - rect.min);
-        const ONE: egui::Vec2 = egui::Vec2::new(1.0, 1.0);
-        let pos = uv.min.to_vec2() * (ONE - r) + uv.max.to_vec2() * r;
-        let out = ((pos * 2.0) - ONE) * self.scale;
-        egui::Vec2::new(out.x, -out.y) + self.offset
-    }
-
     fn solarized(&mut self, ctx: &egui::Context) {
         let mut theme = egui::Visuals::dark();
 
         let f = |c: Option<syntect::highlighting::Color>| {
             c.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)).unwrap()
         };
-        let sol = crate::highlight::get_theme().settings;
+        let highlight = crate::highlight::get_theme();
+        let sol = highlight.settings;
 
         theme.extreme_bg_color = f(sol.background);
         theme.widgets.noninteractive.bg_fill = f(sol.gutter);
+        theme.widgets.noninteractive.bg_stroke = egui::Stroke::none();
         theme.widgets.hovered.bg_stroke =
             egui::Stroke::new(1.0, f(sol.selection_border));
+
+        theme.widgets.hovered.bg_fill = f(sol.selection);
+        theme.widgets.active.bg_fill = f(sol.selection_border);
+
         theme.selection.bg_fill = f(sol.selection);
         theme.selection.stroke =
             egui::Stroke::new(1.0, f(sol.selection_border));
@@ -90,11 +129,118 @@ impl MyApp {
 
         ctx.set_visuals(theme);
     }
+
+    fn render(
+        &self,
+        tape: fidget::eval::Tape<fidget::jit::Eval>,
+        image_size: usize,
+        color: [u8; 3],
+        pixels: &mut [egui::Color32],
+    ) {
+        match &self.mode {
+            RenderMode::TwoD(camera, mode) => {
+                let mat = Transform2::from_matrix_unchecked(
+                    Transform2::identity()
+                        .matrix()
+                        .append_scaling(camera.scale)
+                        .append_translation(&Vector2::new(
+                            camera.offset.x,
+                            camera.offset.y,
+                        )),
+                );
+
+                let config = RenderConfig {
+                    image_size,
+                    tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
+                    threads: 8,
+
+                    mat,
+                };
+                match mode {
+                    TwoDMode::Color => {
+                        let image = fidget::render::render2d(
+                            tape,
+                            &config,
+                            &fidget::render::BitRenderMode,
+                        );
+                        for i in 0..pixels.len() {
+                            if image[i] {
+                                pixels[i] =
+                                    egui::Color32::from_rgba_unmultiplied(
+                                        color[0],
+                                        color[1],
+                                        color[2],
+                                        u8::MAX,
+                                    );
+                            }
+                        }
+                    }
+
+                    TwoDMode::Sdf => {
+                        let image = fidget::render::render2d(
+                            tape,
+                            &config,
+                            &fidget::render::SdfRenderMode,
+                        );
+                        for i in 0..pixels.len() {
+                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                                image[i][0],
+                                image[i][1],
+                                image[i][2],
+                                u8::MAX,
+                            );
+                        }
+                    }
+
+                    TwoDMode::Debug => {
+                        let image = fidget::render::render2d(
+                            tape,
+                            &config,
+                            &fidget::render::DebugRenderMode,
+                        );
+                        for i in 0..pixels.len() {
+                            let p = image[i].as_debug_color();
+                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                                p[0],
+                                p[1],
+                                p[2],
+                                u8::MAX,
+                            );
+                        }
+                    }
+                }
+            }
+        };
+    }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.solarized(ctx);
+
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Open").clicked() {
+                        println!("HI")
+                    }
+                });
+                ui.menu_button("Config", |ui| {
+                    if ui.button("3D heightmap").clicked() {
+                        println!("HI")
+                    }
+                    if ui.button("2D debug").clicked() {
+                        self.mode.set_2d_mode(TwoDMode::Debug);
+                    }
+                    if ui.button("2D SDF").clicked() {
+                        self.mode.set_2d_mode(TwoDMode::Sdf);
+                    }
+                    if ui.button("2D color").clicked() {
+                        self.mode.set_2d_mode(TwoDMode::Color);
+                    }
+                });
+            });
+        });
 
         egui::SidePanel::left("root")
             .default_width(400.0)
@@ -102,7 +248,7 @@ impl eframe::App for MyApp {
                 egui::Frame::none()
                     .fill(ctx.style().visuals.widgets.noninteractive.bg_fill)
                     .inner_margin(egui::style::Margin {
-                        top: 7.0,
+                        top: 0.0,
                         bottom: 5.0,
                         left: 5.0,
                         right: 5.0,
@@ -126,8 +272,6 @@ impl eframe::App for MyApp {
                 }
 
                 let new_height = if let Err(e) = &mut self.out {
-                    ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                        egui::Stroke::none();
                     let label = ui.add(
                         egui::TextEdit::multiline(e)
                             .interactive(false)
@@ -165,35 +309,7 @@ impl eframe::App for MyApp {
             for s in script_ctx.shapes.iter() {
                 let tape: fidget::eval::Tape<fidget::jit::Eval> =
                     script_ctx.context.get_tape(s.shape).unwrap();
-                let image = fidget::render::render2d(
-                    tape,
-                    &RenderConfig {
-                        image_size,
-                        tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
-                        threads: 8,
-
-                        mat: Transform2::from_matrix_unchecked(
-                            Transform2::identity()
-                                .matrix()
-                                .append_scaling(self.scale)
-                                .append_translation(&Vector2::new(
-                                    self.offset.x,
-                                    self.offset.y,
-                                )),
-                        ),
-                    },
-                    &fidget::render::BitRenderMode,
-                );
-                for i in 0..pixels.len() {
-                    if image[i] {
-                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                            s.color_rgb[0],
-                            s.color_rgb[1],
-                            s.color_rgb[2],
-                            u8::MAX,
-                        );
-                    }
-                }
+                self.render(tape, image_size, s.color_rgb, pixels);
             }
         }
 
@@ -277,27 +393,33 @@ impl eframe::App for MyApp {
             });
 
         // Handle pan and zoom
-        if let Some(pos) = r.inner.interact_pointer_pos() {
-            if let Some(start) = self.drag_start {
-                self.offset = egui::Vec2::ZERO;
-                let pos = self.mouse_to_uv(rect, uv, pos);
-                self.offset = start - pos;
+        if let RenderMode::TwoD(camera, ..) = &mut self.mode {
+            if let Some(pos) = r.inner.interact_pointer_pos() {
+                if let Some(start) = camera.drag_start {
+                    camera.offset = egui::Vec2::ZERO;
+                    let pos = camera.mouse_to_uv(rect, uv, pos);
+                    camera.offset = start - pos;
+                } else {
+                    let pos = camera.mouse_to_uv(rect, uv, pos);
+                    camera.drag_start = Some(pos);
+                }
             } else {
-                let pos = self.mouse_to_uv(rect, uv, pos);
-                self.drag_start = Some(pos);
+                camera.drag_start = None;
+            }
+
+            if r.inner.hovered() {
+                let mouse_pos = ctx.input().pointer.hover_pos();
+                let pos_before =
+                    mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
+                camera.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
+                if let Some(pos_before) = pos_before {
+                    let pos_after =
+                        camera.mouse_to_uv(rect, uv, mouse_pos.unwrap());
+                    camera.offset += pos_before - pos_after;
+                }
             }
         } else {
-            self.drag_start = None;
-        }
-
-        if r.inner.hovered() {
-            let mouse_pos = ctx.input().pointer.hover_pos();
-            let pos_before = mouse_pos.map(|p| self.mouse_to_uv(rect, uv, p));
-            self.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
-            if let Some(pos_before) = pos_before {
-                let pos_after = self.mouse_to_uv(rect, uv, mouse_pos.unwrap());
-                self.offset += pos_before - pos_after;
-            }
+            panic!("No 3D support yet");
         }
     }
 }
