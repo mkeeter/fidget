@@ -108,7 +108,7 @@
 //! let (sum, ctx) = eval("x + y").unwrap();
 //! let tape = ctx.get_tape(sum).unwrap();
 //! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
-//! let (out, _) = interval_eval.eval_i(
+//! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
 //!         [0.0, 0.0], // Z
@@ -131,7 +131,7 @@
 //! let (sum, ctx) = eval("min(x, y)").unwrap();
 //! let tape = ctx.get_tape(sum).unwrap();
 //! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
-//! let (out, _) = interval_eval.eval_i(
+//! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
 //!         [0.0, 0.0], // Z
@@ -145,16 +145,16 @@
 //! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
 //!
 //! Simplification is done with
-//! [`IntervalEval::simplify`](crate::eval::IntervalEval::simplify).
-//! This is _stateful_: `simplify` uses the most recent evaluation to decide how
-//! to simplify the tape.
+//! [`IntervalEvalData::simplify`](crate::eval::IntervalEvalData::simplify),
+//! using the `IntervalEvalData` returned from
+//! [`IntervalEval::eval`](crate::eval::IntervalEval::eval).
 //!
 //! ```
 //! # use fidget::{eval::Eval, rhai::eval, vm};
 //! # let (sum, ctx) = eval("min(x, y)").unwrap();
 //! # let tape = ctx.get_tape(sum).unwrap();
 //! # let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
-//! # let (out, _) = interval_eval.eval_i(
+//! # let (out, data) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
@@ -162,7 +162,7 @@
 //! #     ).unwrap();
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = interval_eval.simplify();
+//! let new_tape = data.simplify().unwrap();
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
 //! ```
 //!
@@ -188,7 +188,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<BitRenderMode, vm::Eval>(shape, ctx).unwrap();
+//! let out = cfg.run::<_, vm::Eval>(shape, ctx, &BitRenderMode).unwrap();
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

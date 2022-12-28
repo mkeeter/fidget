@@ -2,7 +2,7 @@ use crate::{
     eval::{
         float_slice::FloatSliceEvalT,
         grad::{Grad, GradEvalT},
-        interval::{Interval, IntervalEvalT},
+        interval::Interval,
         point::PointEvalT,
         Choice, Family, Tape,
     },
@@ -67,38 +67,51 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 pub struct AsmIntervalEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape<Eval>,
+}
+
+#[derive(Default)]
+pub struct AsmIntervalEvalData {
     /// Workspace for data
     slots: Vec<Interval>,
 }
 
-impl IntervalEvalT<Eval> for AsmIntervalEval {
-    type Storage = ();
-
-    fn new(tape: &Tape<Eval>) -> Self {
+impl crate::eval::TracingEvaluatorData<Eval> for AsmIntervalEvalData {
+    fn prepare(&mut self, tape: &Tape<Eval>) {
         assert!(tape.reg_limit() == u8::MAX);
-        let slot_count = tape.slot_count();
-        Self {
-            tape: tape.clone(),
-            slots: vec![Interval::from(std::f32::NAN); slot_count],
-        }
-    }
 
-    fn eval_i<I: Into<Interval>>(
-        &mut self,
-        x: I,
-        y: I,
-        z: I,
+        let slot_count = tape.slot_count();
+        self.slots.resize(slot_count, Interval::from(std::f32::NAN));
+        self.slots.fill(Interval::from(std::f32::NAN));
+    }
+}
+
+impl crate::eval::EvaluatorStorage<Eval> for AsmIntervalEval {
+    type Storage = ();
+    fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
+        Self { tape: tape.clone() }
+    }
+    fn take(self) -> Option<Self::Storage> {
+        Some(())
+    }
+}
+
+impl crate::eval::TracingEvaluator<Interval, Eval> for AsmIntervalEval {
+    type Data = AsmIntervalEvalData;
+
+    fn eval_with(
+        &self,
+        x: Interval,
+        y: Interval,
+        z: Interval,
         vars: &[f32],
         choices: &mut [Choice],
+        data: &mut AsmIntervalEvalData,
     ) -> (Interval, bool) {
-        let x = x.into();
-        let y = y.into();
-        let z = z.into();
         let mut simplify = false;
         assert_eq!(vars.len(), self.tape.var_count());
 
         let mut choice_index = 0;
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
                 Op::Input(out, i) => {
@@ -188,7 +201,7 @@ impl IntervalEvalT<Eval> for AsmIntervalEval {
                 }
             }
         }
-        (self.slots[0], simplify)
+        (data.slots[0], simplify)
     }
 }
 

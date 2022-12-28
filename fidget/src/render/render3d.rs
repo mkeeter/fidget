@@ -3,9 +3,9 @@ use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         grad::{Grad, GradEval, GradEvalStorage},
-        interval::{Interval, IntervalEval, IntervalEvalStorage},
+        interval::{Interval, IntervalEval},
         tape::{Data as TapeData, Tape, Workspace},
-        Choice, Eval, Family,
+        Choice, Eval, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -121,7 +121,9 @@ struct Worker<'a, I: Family> {
     /// slot is always `None`, because philosophically, it represents the
     /// storage of `i_handle` (but `i_handle` is shared between multiple
     /// threads, so we never actually reclaim its storage).
-    interval_storage: Vec<Option<IntervalEvalStorage<I>>>,
+    interval_storage: Vec<
+        Option<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
+    >,
 
     /// Spare tapes to avoid allocation churn
     ///
@@ -204,7 +206,7 @@ impl<I: Family> Worker<'_, I> {
                     storage,
                 )
             })
-            .eval_i(x, y, z, &[])
+            .eval(x, y, z, &[])
             .unwrap();
 
         if i.upper() < 0.0 {
@@ -224,14 +226,16 @@ impl<I: Family> Worker<'_, I> {
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let interval = eval.interval.as_ref().unwrap();
-        let (mut sub_eval, mut prev_sibling) = if simplify {
+        let (mut sub_eval, mut prev_sibling) = if simplify
+            .should_simplify()
+            .unwrap()
+        {
             // See if our previous tape shortening used the exact same set of
             // choices; in that case, then we can reuse it.
             //
             // This is likely because of spatial locality!
             let res = if let Some((choices, sibling_eval)) = sibling {
-                if choices == interval.choices() {
+                if choices == simplify.choices() {
                     Ok((choices, sibling_eval))
                 } else {
                     // The sibling didn't make the same choices, so we'll tear
@@ -252,13 +256,14 @@ impl<I: Family> Worker<'_, I> {
             let out = match res {
                 Ok(out) => Some(out),
                 Err((tape, mut choices)) => {
-                    let sub_tape =
-                        interval.simplify_with(&mut self.workspace, tape);
+                    let sub_tape = simplify
+                        .simplify_with(&mut self.workspace, tape)
+                        .unwrap();
 
                     if sub_tape.len() < eval.tape.len() {
                         choices
-                            .resize(interval.choices().len(), Choice::Unknown);
-                        choices.copy_from_slice(interval.choices());
+                            .resize(simplify.choices().len(), Choice::Unknown);
+                        choices.copy_from_slice(simplify.choices());
                         Some((
                             choices,
                             Evaluators {

@@ -1,12 +1,9 @@
 use crate::{
-    eval::{
-        interval::{Interval, IntervalEvalT},
-        Choice, Tape,
-    },
+    eval::{interval::Interval, Choice, Tape},
     jit::{
-        build_asm_fn, build_asm_fn_with_storage, mmap::Mmap, reg,
-        AssemblerData, AssemblerT, Eval, CHOICE_BOTH, CHOICE_LEFT,
-        CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
+        build_asm_fn_with_storage, mmap::Mmap, reg, AssemblerData, AssemblerT,
+        Eval, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
     },
 };
 use dynasmrt::{dynasm, DynasmApi};
@@ -469,20 +466,8 @@ pub struct JitIntervalEval {
 
 unsafe impl Send for JitIntervalEval {}
 
-/// Handle owning a JIT-compiled interval function
-impl IntervalEvalT<Eval> for JitIntervalEval {
+impl crate::eval::EvaluatorStorage<Eval> for JitIntervalEval {
     type Storage = Mmap;
-
-    fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<IntervalAssembler>(t);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_interval: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
     fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_with_storage::<IntervalAssembler>(t, prev);
         let ptr = mmap.as_ptr();
@@ -496,19 +481,22 @@ impl IntervalEvalT<Eval> for JitIntervalEval {
     fn take(self) -> Option<Self::Storage> {
         Arc::try_unwrap(self.mmap).ok()
     }
+}
+
+/// Handle owning a JIT-compiled interval function
+impl crate::eval::TracingEvaluator<Interval, Eval> for JitIntervalEval {
+    type Data = ();
 
     /// Evaluates an interval
-    fn eval_i<I: Into<Interval>>(
-        &mut self,
-        x: I,
-        y: I,
-        z: I,
+    fn eval_with(
+        &self,
+        x: Interval,
+        y: Interval,
+        z: Interval,
         vars: &[f32],
         choices: &mut [Choice],
+        _data: &mut (),
     ) -> (Interval, bool) {
-        let x: Interval = x.into();
-        let y: Interval = y.into();
-        let z: Interval = z.into();
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
         let out = unsafe {

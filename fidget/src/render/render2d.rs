@@ -2,9 +2,9 @@
 use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
-        interval::{Interval, IntervalEval, IntervalEvalStorage},
+        interval::{Interval, IntervalEval},
         tape::{Data as TapeData, Tape, Workspace},
-        Eval, Family,
+        Eval, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -188,7 +188,8 @@ struct Worker<'a, I: Family, M: RenderMode> {
     float_storage: [FloatSliceEvalStorage<I>; 2],
 
     /// Storage for interval evaluators, based on recursion depth
-    interval_storage: Vec<IntervalEvalStorage<I>>,
+    interval_storage:
+        Vec<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
@@ -226,7 +227,9 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
-        let (i, _simplify) = i_handle.eval_i(x, y, z, &[]).unwrap();
+
+        // TODO: reuse data here
+        let (i, simplify) = i_handle.eval(x, y, z, &[]).unwrap();
 
         let fill = mode.interval(i, depth);
 
@@ -238,10 +241,12 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = i_handle.simplify_with(
-                &mut self.workspace,
-                std::mem::take(&mut self.spare_tapes[depth]),
-            );
+            let sub_tape = simplify
+                .simplify_with(
+                    &mut self.workspace,
+                    std::mem::take(&mut self.spare_tapes[depth]),
+                )
+                .unwrap();
             let storage = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = I::new_interval_evaluator_with_storage(
                 sub_tape.clone(),
@@ -270,7 +275,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             self.spare_tapes[depth] = sub_tape.take().unwrap();
         } else {
             self.render_tile_pixels(
-                i_handle,
+                simplify,
                 tile_size,
                 tile,
                 float_handle,
@@ -281,7 +286,13 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 
     fn render_tile_pixels(
         &mut self,
-        i_handle: &mut IntervalEval<I>,
+        simplify: crate::eval::TracingEvalData<
+            <<I as Family>::IntervalEval as crate::eval::TracingEvaluator<
+                Interval,
+                I,
+            >>::Data,
+            I,
+        >,
         tile_size: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
@@ -300,10 +311,12 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = i_handle.simplify_with(
-            &mut self.workspace,
-            std::mem::take(self.spare_tapes.last_mut().unwrap()),
-        );
+        let sub_tape = simplify
+            .simplify_with(
+                &mut self.workspace,
+                std::mem::take(self.spare_tapes.last_mut().unwrap()),
+            )
+            .unwrap();
 
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
@@ -313,7 +326,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        if sub_tape.len() < i_handle.tape().len() {
+        if sub_tape.len() < simplify.tape_len().unwrap() {
             let storage = std::mem::take(&mut self.float_storage[1]);
             let mut func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
@@ -339,7 +352,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             let func = float_handle.get_or_insert_with(|| {
                 let storage = std::mem::take(&mut self.float_storage[0]);
                 I::new_float_slice_evaluator_with_storage(
-                    i_handle.tape(),
+                    simplify.tape().unwrap(),
                     storage,
                 )
             });
