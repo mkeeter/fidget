@@ -4,7 +4,7 @@ use crate::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
         interval::{Interval, IntervalEval},
         tape::{Data as TapeData, Tape, Workspace},
-        Eval, EvaluatorStorage, Family,
+        Eval, EvaluatorStorage, Family, TracingEvalData, TracingEvaluator,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -191,6 +191,18 @@ struct Worker<'a, I: Family, M: RenderMode> {
     interval_storage:
         Vec<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
 
+    /// Workspace for interval evaluators, based on recursion depth
+    interval_data:
+        Vec<
+            TracingEvalData<
+                <<I as Family>::IntervalEval as TracingEvaluator<
+                    Interval,
+                    I,
+                >>::Data,
+                I,
+            >,
+        >,
+
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
 }
@@ -228,8 +240,8 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
 
-        // TODO: reuse data here
-        let (i, simplify) = i_handle.eval(x, y, z, &[]).unwrap();
+        let mut data = std::mem::take(&mut self.interval_data[depth]);
+        let i = i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
 
         let fill = mode.interval(i, depth);
 
@@ -241,12 +253,15 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = simplify
-                .simplify_with(
+            let sub_tape = if data.should_simplify().unwrap() {
+                data.simplify_with(
                     &mut self.workspace,
                     std::mem::take(&mut self.spare_tapes[depth]),
                 )
-                .unwrap();
+                .unwrap()
+            } else {
+                data.tape().unwrap()
+            };
             let storage = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = I::new_interval_evaluator_with_storage(
                 sub_tape.clone(),
@@ -272,21 +287,20 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
-            self.spare_tapes[depth] = sub_tape.take().unwrap();
+            if data.should_simplify().unwrap() {
+                self.spare_tapes[depth] = sub_tape.take().unwrap();
+            }
         } else {
-            self.render_tile_pixels(
-                simplify,
-                tile_size,
-                tile,
-                float_handle,
-                mode,
-            )
+            self.render_tile_pixels(&data, tile_size, tile, float_handle, mode)
         }
+
+        // Return the data
+        self.interval_data[depth] = data;
     }
 
     fn render_tile_pixels(
         &mut self,
-        simplify: crate::eval::TracingEvalData<
+        simplify: &crate::eval::TracingEvalData<
             <<I as Family>::IntervalEval as crate::eval::TracingEvaluator<
                 Interval,
                 I,
@@ -311,12 +325,16 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = simplify
-            .simplify_with(
-                &mut self.workspace,
-                std::mem::take(self.spare_tapes.last_mut().unwrap()),
-            )
-            .unwrap();
+        let sub_tape = if simplify.should_simplify().unwrap() {
+            simplify
+                .simplify_with(
+                    &mut self.workspace,
+                    std::mem::take(self.spare_tapes.last_mut().unwrap()),
+                )
+                .unwrap()
+        } else {
+            simplify.tape().unwrap()
+        };
 
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
@@ -378,7 +396,9 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 index += 1;
             }
         }
-        *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
+        if simplify.should_simplify().unwrap() {
+            *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
+        }
     }
 }
 
@@ -399,6 +419,9 @@ fn worker<I: Family, M: RenderMode>(
         config,
         float_storage: Default::default(),
         interval_storage: (0..config.tile_sizes.len())
+            .map(|_| Default::default())
+            .collect(),
+        interval_data: (0..config.tile_sizes.len())
             .map(|_| Default::default())
             .collect(),
         spare_tapes: (0..config.tile_sizes.len())
