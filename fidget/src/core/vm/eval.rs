@@ -182,12 +182,14 @@ impl crate::eval::TracingEvaluator<Interval, Eval> for AsmIntervalEval {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
+                    simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
                 Op::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
+                    simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
                 Op::CopyImm(out, imm) => {

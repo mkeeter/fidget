@@ -188,7 +188,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<_, vm::Eval>(shape, ctx, &BitRenderMode).unwrap();
+//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode).unwrap();
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

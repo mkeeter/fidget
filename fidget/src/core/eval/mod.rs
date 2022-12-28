@@ -266,7 +266,6 @@ where
         );
         data.prev = Some((self.tape.clone(), simplify));
         Ok(value)
-        // todo
     }
 
     pub fn eval<J: Into<T>>(
@@ -292,10 +291,8 @@ where
     /// This is a convenience function for unit testing
     pub fn eval_x<J: Into<T>>(&self, x: J) -> T {
         let mut data = Default::default();
-        let out = self
-            .eval_with(x.into(), T::from(0.0), T::from(0.0), &[], &mut data)
-            .unwrap();
-        out
+        self.eval_with(x.into(), T::from(0.0), T::from(0.0), &[], &mut data)
+            .unwrap()
     }
 
     /// Performs interval evaluation, using zeros for Y and Z and no `vars`
@@ -303,10 +300,8 @@ where
     /// This is a convenience function for unit testing
     pub fn eval_xy<J: Into<T>>(&self, x: J, y: J) -> T {
         let mut data = Default::default();
-        let out = self
-            .eval_with(x.into(), y.into(), T::from(0.0), &[], &mut data)
-            .unwrap();
-        out
+        self.eval_with(x.into(), y.into(), T::from(0.0), &[], &mut data)
+            .unwrap()
     }
 }
 
