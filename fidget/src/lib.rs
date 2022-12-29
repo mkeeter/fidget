@@ -164,7 +164,7 @@
 //! #     ).unwrap();
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = data.simplify().unwrap();
+//! let new_tape = data.unwrap().simplify().unwrap();
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
 //! ```
 //!

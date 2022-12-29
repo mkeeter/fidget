@@ -49,7 +49,7 @@ pub mod eval_tests {
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.5);
 
-        let next = data.simplify().unwrap();
+        let next = data.unwrap().simplify().unwrap();
         assert_eq!(next.len(), 1);
 
         let eval = I::new_point_evaluator(next);
@@ -82,23 +82,23 @@ pub mod eval_tests {
         let eval = I::new_point_evaluator(tape);
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) = eval.eval(0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
     }
 
     pub fn test_p_max<I: Family>() {
@@ -111,23 +111,23 @@ pub mod eval_tests {
         let eval = I::new_point_evaluator(tape);
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.0);
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 2.0);
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) = eval.eval(0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
     }
 
     pub fn basic_interpreter<I: Family>() {

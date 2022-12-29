@@ -474,31 +474,31 @@ pub mod eval_tests {
         let (r, data) =
             eval.eval([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) =
             eval.eval([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (v, data) = eval
             .eval([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (v, data) = eval
             .eval([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
     }
 
     pub fn test_i_min_imm<I: Family>() {
@@ -510,16 +510,16 @@ pub mod eval_tests {
         let eval = I::new_interval_evaluator(tape);
         let (r, data) = eval.eval([0.0, 1.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) =
             eval.eval([-1.0, 0.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [-1.0, 0.0].into());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (r, data) = eval.eval([2.0, 3.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [1.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
     }
 
     pub fn test_i_max<I: Family>() {
@@ -533,31 +533,31 @@ pub mod eval_tests {
         let (r, data) =
             eval.eval([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.5, 1.5].into());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) =
             eval.eval([0.0, 1.0], [2.0, 3.0], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [2.0, 3.0].into());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [2.0, 3.0].into());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (v, data) = eval
             .eval([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (v, data) = eval
             .eval([0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
@@ -566,17 +566,17 @@ pub mod eval_tests {
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [4.0, 5.0], &[]).unwrap();
         assert_eq!(r, [4.0, 5.0].into());
-        assert_eq!(data.choices(), &[Choice::Left, Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left, Choice::Right]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 4.0], &[]).unwrap();
         assert_eq!(r, [2.0, 4.0].into());
-        assert_eq!(data.choices(), &[Choice::Left, Choice::Both]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left, Choice::Both]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 1.5], &[]).unwrap();
         assert_eq!(r, [2.0, 3.0].into());
-        assert_eq!(data.choices(), &[Choice::Left, Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left, Choice::Left]);
     }
 
     pub fn test_i_simplify<I: Family>() {
@@ -589,20 +589,17 @@ pub mod eval_tests {
         let (out, data) =
             eval.eval([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [0.0, 1.0].into());
-        assert!(!data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (out, data) =
             eval.eval([0.0, 0.5], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [0.0, 0.5].into());
-        assert!(data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
 
         let (out, data) =
             eval.eval([1.5, 2.5], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [1.0, 1.0].into());
-        assert!(data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let max = ctx.max(x, 1.0).unwrap();
         let tape = ctx.get_tape(max).unwrap();
@@ -610,20 +607,17 @@ pub mod eval_tests {
         let (out, data) =
             eval.eval([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [1.0, 2.0].into());
-        assert!(!data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (out, data) =
             eval.eval([0.0, 0.5], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [1.0, 1.0].into());
-        assert!(data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (out, data) =
             eval.eval([1.5, 2.5], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(out, [1.5, 2.5].into());
-        assert!(data.should_simplify().unwrap());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
     }
 
     pub fn test_i_max_imm<I: Family>() {
@@ -636,17 +630,17 @@ pub mod eval_tests {
         let (r, data) =
             eval.eval([0.0, 2.0], [0.0, 0.0], [0.0, 0.0], &[]).unwrap();
         assert_eq!(r, [1.0, 2.0].into());
-        assert_eq!(data.choices(), &[Choice::Both]);
+        assert!(data.is_none());
 
         let (r, data) =
             eval.eval([-1.0, 0.0], [0.0, 0.0], [0.0, 0.0], &[]).unwrap();
         assert_eq!(r, [1.0, 1.0].into());
-        assert_eq!(data.choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 0.0], [0.0, 0.0], &[]).unwrap();
         assert_eq!(r, [2.0, 3.0].into());
-        assert_eq!(data.choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
     }
 
     pub fn test_i_var<I: Family>() {

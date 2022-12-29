@@ -130,6 +130,10 @@ where
     }
 
     /// Evaluate using (and modifying) the given workspace
+    ///
+    /// Returns a tuple of the resulting value and an optional handle to
+    /// simplify the tape, if simplification is possible.  This handle borrows
+    /// from the provided `data`.
     pub fn eval_with<'a, J: Into<T>>(
         &self,
         x: J,
@@ -137,7 +141,7 @@ where
         z: J,
         vars: &[f32],
         data: &'a mut TracingEvalData<E::Data, F>,
-    ) -> Result<(T, Option<TracingEvalResult<T, F, &'a [Choice]>>), Error> {
+    ) -> Result<(T, Option<BorrowedTracingEvalResult<'a, T, F>>), Error> {
         if vars.len() != self.tape.var_count() {
             return Err(Error::BadVarSlice(vars.len(), self.tape.var_count()));
         }
@@ -162,13 +166,17 @@ where
         Ok((value, r))
     }
 
+    /// Evaluates, allocating scratch memory if required.
+    ///
+    /// Returns a tuple of the resulting value and an optional (owned) handle to
+    /// simplify the tape, if simplification is possible.
     pub fn eval<J: Into<T>>(
         &self,
         x: J,
         y: J,
         z: J,
         vars: &[f32],
-    ) -> Result<(T, Option<TracingEvalResult<T, F, Vec<Choice>>>), Error> {
+    ) -> Result<(T, Option<OwnedTracingEvalResult<T, F>>), Error> {
         let mut data = Default::default();
         let (out, r) = self.eval_with(x, y, z, vars, &mut data)?;
 
@@ -244,6 +252,10 @@ pub struct TracingEvalResult<D, F, B> {
     tape: Tape<F>,
     _p: std::marker::PhantomData<*const D>,
 }
+
+type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
+type BorrowedTracingEvalResult<'a, T, F> =
+    TracingEvalResult<T, F, &'a [Choice]>;
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     fn prepare(&mut self, tape: &Tape<F>) {

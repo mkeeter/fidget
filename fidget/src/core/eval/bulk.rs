@@ -138,8 +138,8 @@ where
 ///
 /// This data is used during evaluator.
 ///
-/// - `D` is the inner (mutable scratch) data type
-/// - `T` is the evaluation value type
+/// - `D` is the scratch (mutable) data type used by the evaluator
+/// - `T` is the evaluation value type (e.g. `f32`)
 /// - `F` is the tape family
 pub struct BulkEvalData<D, T, F> {
     out: Vec<T>,
