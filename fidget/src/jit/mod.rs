@@ -546,12 +546,18 @@ where
 
         let n = xs.len();
 
-        // Special case for < 4 items, in which case the input slices can't be
-        // used as workspace (because we need at least 4x f32)
+        // Special case for when we have fewer items than the native SIMD size,
+        // in which case the input slices can't be used as workspace (because
+        // they are not valid for the entire range of values read in assembly)
         if n < I::SIMD_SIZE {
+            // We can't use I::SIMD_SIZE directly here due to Rust limitations,
+            // so instead we hard-code it to 4 with an assertion that
+            // (hopefully) will be compiled out.
             let mut x = [0.0.into(); 4];
             let mut y = [0.0.into(); 4];
             let mut z = [0.0.into(); 4];
+            assert!(I::SIMD_SIZE <= 4);
+
             x[0..n].copy_from_slice(xs);
             y[0..n].copy_from_slice(ys);
             z[0..n].copy_from_slice(zs);
@@ -570,10 +576,9 @@ where
             }
             out[0..n].copy_from_slice(&tmp[0..n]);
         } else {
-            // Our vectorized function only accepts set of 4 values, so we'll
-            // find the biggest multiple of four, then do an extra operation
-            // to process any remainders.
-
+            // Our vectorized function only accepts sets of a particular width,
+            // so we'll find the biggest multiple, then do an extra operation to
+            // process any remainders.
             let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
             unsafe {
                 (self.fn_bulk)(
@@ -585,9 +590,9 @@ where
                     m as u64,
                 );
             }
-            // If we weren't given a multiple of 4, then we'll handle the
-            // remaining 1-3 items by simply evaluating the *last* 4 items
-            // in the array again.
+            // If we weren't given an even multiple of vector width, then we'll
+            // handle the remaining items by simply evaluating the *last* full
+            // vector in the array again.
             if n != m {
                 unsafe {
                     (self.fn_bulk)(
