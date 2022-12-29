@@ -1,4 +1,4 @@
-/// Custom types used during evaluation
+//! Custom types used during evaluation
 use crate::eval::Choice;
 
 /// Represents a point in space with associated partial derivatives.
