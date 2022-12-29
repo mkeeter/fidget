@@ -15,8 +15,13 @@ use std::{collections::BTreeMap, sync::Arc};
 ///
 /// It is parameterized by an [`Family`](Family) type, which sets the register
 /// count of the inner VM tape.
-#[derive(Clone)]
 pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
+
+impl<R> Clone for Tape<R> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), std::marker::PhantomData)
+    }
+}
 
 /// Safety:
 /// The `Tape` contains an `Arc`; the only reason this can't be derived

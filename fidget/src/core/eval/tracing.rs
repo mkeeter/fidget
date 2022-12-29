@@ -130,14 +130,14 @@ where
     }
 
     /// Evaluate using (and modifying) the given workspace
-    pub fn eval_with<J: Into<T>>(
+    pub fn eval_with<'a, J: Into<T>>(
         &self,
         x: J,
         y: J,
         z: J,
         vars: &[f32],
-        data: &mut TracingEvalData<E::Data, F>,
-    ) -> Result<T, Error> {
+        data: &'a mut TracingEvalData<E::Data, F>,
+    ) -> Result<(T, Option<TracingEvalResult<T, F, &'a [Choice]>>), Error> {
         if vars.len() != self.tape.var_count() {
             return Err(Error::BadVarSlice(vars.len(), self.tape.var_count()));
         }
@@ -150,8 +150,16 @@ where
             &mut data.choices,
             &mut data.data,
         );
-        data.prev = Some((self.tape.clone(), simplify));
-        Ok(value)
+        let r = if simplify {
+            Some(TracingEvalResult {
+                choices: data.choices.as_slice(),
+                tape: self.tape.clone(),
+                _p: std::marker::PhantomData,
+            })
+        } else {
+            None
+        };
+        Ok((value, r))
     }
 
     pub fn eval<J: Into<T>>(
@@ -160,10 +168,22 @@ where
         y: J,
         z: J,
         vars: &[f32],
-    ) -> Result<(T, TracingEvalData<E::Data, F>), Error> {
+    ) -> Result<(T, Option<TracingEvalResult<T, F, Vec<Choice>>>), Error> {
         let mut data = Default::default();
-        let out = self.eval_with(x, y, z, vars, &mut data)?;
-        Ok((out, data))
+        let (out, r) = self.eval_with(x, y, z, vars, &mut data)?;
+
+        // Convert from a &[Choice] (borrowed from data above) to returning the
+        // Vec<Choice> itself.
+        let r = if r.is_some() {
+            Some(TracingEvalResult {
+                choices: data.choices,
+                tape: self.tape.clone(),
+                _p: std::marker::PhantomData,
+            })
+        } else {
+            None
+        };
+        Ok((out, r))
     }
 }
 
@@ -180,6 +200,7 @@ where
         let mut data = Default::default();
         self.eval_with(x.into(), T::from(0.0), T::from(0.0), &[], &mut data)
             .unwrap()
+            .0
     }
 
     /// Performs interval evaluation, using zeros for Y and Z and no `vars`
@@ -189,6 +210,7 @@ where
         let mut data = Default::default();
         self.eval_with(x.into(), y.into(), T::from(0.0), &[], &mut data)
             .unwrap()
+            .0
     }
 }
 
@@ -201,9 +223,7 @@ pub struct TracingEvalData<D, F> {
     /// Inner data
     data: D,
 
-    /// Stores the most recent tape and whether simplification is allowed
-    /// TODO: move this to a separate type?
-    prev: Option<(Tape<F>, bool)>,
+    _p: std::marker::PhantomData<*const F>,
 }
 
 impl<D: Default, F> Default for TracingEvalData<D, F> {
@@ -211,9 +231,18 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
         Self {
             choices: vec![],
             data: D::default(),
-            prev: None,
+            _p: std::marker::PhantomData,
         }
     }
+}
+
+/// Represents the trace from a tracing evaluation.
+///
+/// This is used as a handle to simplify the resulting tape.
+pub struct TracingEvalResult<D, F, B> {
+    choices: B,
+    tape: Tape<F>,
+    _p: std::marker::PhantomData<*const D>,
 }
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
@@ -222,23 +251,23 @@ impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
         self.choices.fill(Choice::Unknown);
         self.data.prepare(tape);
     }
+}
 
+impl<D, F, B> TracingEvalResult<D, F, B>
+where
+    F: Family,
+    B: std::borrow::Borrow<[Choice]>,
+{
     // TODO move these to a separate result type?
-    pub fn tape_len(&self) -> Option<usize> {
-        self.prev.as_ref().map(|t| t.0.len())
+    pub fn tape_len(&self) -> usize {
+        self.tape.len()
     }
 
-    pub fn tape(&self) -> Option<Tape<F>> {
-        self.prev.as_ref().map(|t| t.0.clone())
-    }
-
-    pub fn should_simplify(&self) -> Option<bool> {
-        self.prev.as_ref().map(|t| t.1)
+    pub fn tape(&self) -> Tape<F> {
+        self.tape.clone()
     }
 
     /// Simplifies the tape based on the most recent evaluation
-    ///
-    /// Returns an error if no evaluation has been performed.
     pub fn simplify(&self) -> Result<Tape<F>, Error> {
         self.simplify_with(&mut Default::default(), Default::default())
     }
@@ -247,26 +276,16 @@ impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     ///
     /// This is a convenience function for unit testing.
     pub fn choices(&self) -> &[Choice] {
-        &self.choices
+        self.choices.borrow()
     }
 
     /// Simplifies the tape based on the most recent evaluation, reusing
     /// allocations to reduce memory churn.
-    ///
-    /// Returns an error if no evaluation has been performed.
     pub fn simplify_with(
         &self,
         workspace: &mut crate::eval::tape::Workspace,
         prev: crate::eval::tape::Data,
     ) -> Result<Tape<F>, Error> {
-        if let Some((tape, simplify)) = &self.prev {
-            if *simplify {
-                tape.simplify_with(&self.choices, workspace, prev)
-            } else {
-                Ok(tape.clone())
-            }
-        } else {
-            Err(Error::NoTrace)
-        }
+        Tape::simplify_with(&self.tape, self.choices.borrow(), workspace, prev)
     }
 }

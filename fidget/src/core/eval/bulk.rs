@@ -147,7 +147,7 @@ pub struct BulkEvalData<D, T, F> {
     /// Inner data
     data: D,
 
-    _p: std::marker::PhantomData<fn(F)>,
+    _p: std::marker::PhantomData<*const F>,
 }
 
 impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {

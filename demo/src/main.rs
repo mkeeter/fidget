@@ -134,7 +134,7 @@ fn run<I: fidget::eval::Family>(
     info!("Built tape in {:?}", start.elapsed());
 
     if args.brute {
-        let mut eval = I::new_float_slice_evaluator(tape);
+        let eval = I::new_float_slice_evaluator(tape);
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
         for _ in 0..args.n {

@@ -231,7 +231,8 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let z = Interval::new(0.0, 0.0);
 
         let mut data = std::mem::take(&mut self.interval_data[depth]);
-        let i = i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
+        let (i, simplify) =
+            i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
 
         let fill = mode.interval(i, depth);
 
@@ -243,14 +244,14 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = if data.should_simplify().unwrap() {
+            let sub_tape = if let Some(data) = simplify.as_ref() {
                 data.simplify_with(
                     &mut self.workspace,
                     std::mem::take(&mut self.spare_tapes[depth]),
                 )
                 .unwrap()
             } else {
-                data.tape().unwrap()
+                i_handle.tape()
             };
             let storage = std::mem::take(&mut self.interval_storage[depth]);
             let mut sub_jit = I::new_interval_evaluator_with_storage(
@@ -277,11 +278,33 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
-            if data.should_simplify().unwrap() {
+            if simplify.is_some() {
                 self.spare_tapes[depth] = sub_tape.take().unwrap();
             }
         } else {
-            self.render_tile_pixels(&data, tile_size, tile, float_handle, mode)
+            // TODO this is not a place of honor
+            let sub_tape = if let Some(simplify) = simplify.as_ref() {
+                simplify
+                    .simplify_with(
+                        &mut self.workspace,
+                        std::mem::take(self.spare_tapes.last_mut().unwrap()),
+                    )
+                    .unwrap()
+            } else {
+                i_handle.tape()
+            };
+            self.render_tile_pixels(
+                i_handle.tape(),
+                &sub_tape,
+                tile_size,
+                tile,
+                float_handle,
+                mode,
+            );
+            if simplify.is_some() {
+                *self.spare_tapes.last_mut().unwrap() =
+                    sub_tape.take().unwrap();
+            }
         }
 
         // Return the data
@@ -290,7 +313,8 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 
     fn render_tile_pixels(
         &mut self,
-        simplify: &crate::eval::interval::IntervalEvalData<I>,
+        prev_tape: Tape<I>,
+        sub_tape: &Tape<I>,
         tile_size: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
@@ -309,17 +333,6 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = if simplify.should_simplify().unwrap() {
-            simplify
-                .simplify_with(
-                    &mut self.workspace,
-                    std::mem::take(self.spare_tapes.last_mut().unwrap()),
-                )
-                .unwrap()
-        } else {
-            simplify.tape().unwrap()
-        };
-
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
         // float-slice evaluator that's bound to the *parent* tape.
@@ -328,7 +341,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        let out = if sub_tape.len() < simplify.tape_len().unwrap() {
+        let out = if sub_tape.len() < prev_tape.len() {
             let storage = std::mem::take(&mut self.float_storage[1]);
             let func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
@@ -349,10 +362,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let storage = std::mem::take(&mut self.float_storage[0]);
-                I::new_float_slice_evaluator_with_storage(
-                    simplify.tape().unwrap(),
-                    storage,
-                )
+                I::new_float_slice_evaluator_with_storage(prev_tape, storage)
             });
 
             func.eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
@@ -369,9 +379,6 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 self.image[o + i] = mode.pixel(out[index]);
                 index += 1;
             }
-        }
-        if simplify.should_simplify().unwrap() {
-            *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
         }
     }
 }

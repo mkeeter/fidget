@@ -5,7 +5,7 @@ use crate::{
             FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
         },
         grad::{Grad, GradEval, GradEvalStorage},
-        interval::{Interval, IntervalEval},
+        interval::{Interval, IntervalEval, IntervalEvalData},
         tape::{Data as TapeData, Tape, Workspace},
         Choice, Eval, EvaluatorStorage, Family,
     },
@@ -39,7 +39,9 @@ struct Scratch<F: Family> {
     y: Vec<f32>,
     z: Vec<f32>,
     out_grad: Vec<Grad>,
+
     data_float: FloatSliceEvalData<F>,
+    data_interval: IntervalEvalData<F>,
 
     /// Depth of each column
     columns: Vec<usize>,
@@ -53,7 +55,10 @@ impl<F: Family> Scratch<F> {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
+
             data_float: Default::default(),
+            data_interval: Default::default(),
+
             out_grad: vec![0.0.into(); size2],
             columns: vec![0; size2],
         }
@@ -204,6 +209,7 @@ impl<I: Family> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
+        let mut data_interval = std::mem::take(&mut self.scratch.data_interval);
         let (i, simplify) = eval
             .interval
             .get_or_insert_with(|| {
@@ -213,9 +219,11 @@ impl<I: Family> Worker<'_, I> {
                     storage,
                 )
             })
-            .eval(x, y, z, &[])
+            .eval_with(x, y, z, &[], &mut data_interval)
             .unwrap();
 
+        // Return early if this tile is completely empty or full, returning
+        // `data_interval` to scratch memory for reuse.
         if i.upper() < 0.0 {
             for y in 0..tile_size {
                 let i = self.config.tile_to_offset(tile, 0, y);
@@ -224,18 +232,17 @@ impl<I: Family> Worker<'_, I> {
                 }
             }
             // TODO: handle gradients here as well?
-
+            self.scratch.data_interval = data_interval;
             return sibling;
         } else if i.lower() > 0.0 {
-            // Return early if this tile is completely empty
+            self.scratch.data_interval = data_interval;
             return sibling;
         }
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let (mut sub_eval, mut prev_sibling) = if simplify
-            .should_simplify()
-            .unwrap()
+        let (mut sub_eval, mut prev_sibling) = if let Some(simplify) =
+            simplify.as_ref()
         {
             // See if our previous tape shortening used the exact same set of
             // choices; in that case, then we can reuse it.
@@ -300,6 +307,9 @@ impl<I: Family> Worker<'_, I> {
             // since it's still useful.
             (None, sibling)
         };
+
+        // Return `data_interval` to our scratch buffer
+        self.scratch.data_interval = data_interval;
 
         // At this point, only one of `sub_eval` and `prev_sibling` can be
         // `Some`; both could also be `None`, if we consumed `prev_sibling` then
