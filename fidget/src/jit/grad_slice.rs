@@ -9,9 +9,11 @@ use dynasmrt::{dynasm, DynasmApi};
 
 /// Assembler for automatic differentiation / gradient evaluation
 ///
-/// Arguments are passed as `x`, `y`, `z` in `s0-2`, and a pointer to the `vars`
-/// array in `x0`.  The result is returned in `s0-3`, representing `[v, dx, dy,
-/// dz]`
+///
+/// Arguments are passed as 3x `*const f32` in `x0-2`, a var array in
+/// `x3`, and an output array `*mut f32` in `x4`.  Each pointer in the input
+/// arrays represents 4x `f32`, the var array is single `f32`s, and the `out`
+/// array is `[v, dx, dy, dz]`
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
@@ -32,14 +34,62 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
-
-            // Arguments are passed in S0-2; inject the derivatives here
-            ; fmov s6, #1.0
-            ; mov v0.S[1], v6.S[0]
-            ; mov v1.S[2], v6.S[0]
-            ; mov v2.S[3], v6.S[0]
         );
         out.prepare_stack(slot_count);
+
+        dynasm!(out.ops
+            ; b #8 // Skip the call in favor of setup
+
+            // call:
+            ; bl #76 // -> func
+
+            // The function returns here, and we check whether we need to loop
+            // Remember, at this point we have
+            //  x0: x input array pointer
+            //  x1: y input array pointer
+            //  x2: z input array pointer
+            //  x3: vars input array pointer (non-advancing)
+            //  x4: output array pointer
+            //  x5: number of points to evaluate
+            //
+            // We'll be advancing x0, x1, x2 here (and decrementing x5 by 1);
+            // x3 is advanced in finalize().
+
+            ; cmp x5, #0
+            ; b.eq #40 // -> fini
+            ; sub x5, x5, #1 // We handle 1 items at a time
+
+            // Load V0/1/2.S4 with X/Y/Z values, post-increment
+            //
+            // We're actually loading two f32s, but we can pretend they're
+            // doubles in order to move 64 bits at a time
+            ; fmov s6, #1.0
+            ; ldr s0, [x0], #4
+            ; mov v0.S[1], v6.S[0]
+            ; ldr s1, [x1], #4
+            ; mov v1.S[2], v6.S[0]
+            ; ldr s2, [x2], #4
+            ; mov v2.S[3], v6.S[0]
+
+            ; b #-44 // -> call
+
+            // fini:
+            // This is our finalization code, which happens after all evaluation
+            // is complete.
+            //
+            // Restore stack space used for spills
+            ; add   sp, sp, #(out.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+
+            // func:
+        );
 
         Self(out)
     }
@@ -86,7 +136,7 @@ impl AssemblerT for GradSliceAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr S(reg(out_reg)), [x0, #(src_arg * 4)]
+            ; ldr S(reg(out_reg)), [x3, #(src_arg * 4)]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -264,21 +314,11 @@ impl AssemblerT for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
-            // Prepare our return value, writing into s0-3
-            ; mov s0, V(reg(out_reg)).s[0]
-            ; mov s1, V(reg(out_reg)).s[1]
-            ; mov s2, V(reg(out_reg)).s[2]
-            ; mov s3, V(reg(out_reg)).s[3]
-
-            // Restore stack space used for spills
-            ; add   sp, sp, #(self.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
+            // Prepare our return value, writing to the pointer in x3
+            // It's fine to overwrite X at this point in V0, since we're not
+            // using it anymore.
+            ; mov v0.d[0], V(reg(out_reg)).d[1]
+            ; stp D(reg(out_reg)), d0, [x4], #16
             ; ret
         );
 
