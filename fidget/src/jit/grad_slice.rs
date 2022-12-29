@@ -1,5 +1,5 @@
 use crate::{
-    eval::grad_slice::Grad,
+    eval::types::Grad,
     jit::{
         mmap::Mmap, reg, AssemblerData, AssemblerT, JitBulkEval, SimdAssembler,
         IMM_REG, OFFSET, REGISTER_LIMIT,

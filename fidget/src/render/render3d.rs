@@ -4,11 +4,10 @@ use crate::{
         float_slice::{
             FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
         },
-        grad_slice::{
-            Grad, GradSliceEval, GradSliceEvalData, GradSliceEvalStorage,
-        },
-        interval::{Interval, IntervalEval, IntervalEvalData},
+        grad_slice::{GradSliceEval, GradSliceEvalData, GradSliceEvalStorage},
+        interval::{IntervalEval, IntervalEvalData},
         tape::{Data as TapeData, Tape, Workspace},
+        types::{Grad, Interval},
         Choice, Eval, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},

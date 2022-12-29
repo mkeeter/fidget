@@ -2,10 +2,9 @@
 use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
-        interval::{
-            Interval, IntervalEval, IntervalEvalData, IntervalEvalStorage,
-        },
+        interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
+        types::Interval,
         Eval, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},

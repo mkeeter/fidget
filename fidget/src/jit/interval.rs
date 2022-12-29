@@ -1,5 +1,5 @@
 use crate::{
-    eval::interval::Interval,
+    eval::types::Interval,
     jit::{
         mmap::Mmap, reg, AssemblerData, AssemblerT, JitTracingEval,
         CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,

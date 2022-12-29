@@ -15,7 +15,7 @@ use crate::{
 pub trait BulkEvaluator<T, F> {
     type Data: BulkEvaluatorData<F> + Default;
 
-    /// Evaluates a slice of `T`, writing the result into `out`
+    /// Evaluates many points, writing the result into `out`.
     ///
     /// # Panics
     /// This function may assume that the `x`, `y`, `z`, and `out` slices are of

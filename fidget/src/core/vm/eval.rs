@@ -1,9 +1,8 @@
 use crate::{
     eval::{
         bulk::{BulkEvaluator, BulkEvaluatorData},
-        grad_slice::Grad,
-        interval::Interval,
         tracing::{TracingEvaluator, TracingEvaluatorData},
+        types::{Grad, Interval},
         Choice, EvaluatorStorage, Family, Tape,
     },
     vm::Op,

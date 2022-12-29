@@ -29,14 +29,13 @@ pub mod point;
 pub mod bulk;
 pub mod tape;
 pub mod tracing;
+pub mod types;
 
 mod vars;
 
 // Re-export a few things
 pub use float_slice::FloatSliceEval;
-pub use grad_slice::Grad;
 pub use grad_slice::GradSliceEval;
-pub use interval::Interval;
 pub use point::PointEval;
 pub use tape::Tape;
 pub use tracing::Choice;
@@ -54,7 +53,7 @@ pub trait Family: Clone {
         + EvaluatorStorage<Self>
         + Clone
         + Send;
-    type IntervalEval: TracingEvaluator<Interval, Self>
+    type IntervalEval: TracingEvaluator<types::Interval, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
@@ -63,7 +62,7 @@ pub trait Family: Clone {
         + EvaluatorStorage<Self>
         + Clone
         + Send;
-    type GradSliceEval: BulkEvaluator<Grad, Self>
+    type GradSliceEval: BulkEvaluator<types::Grad, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
