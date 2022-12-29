@@ -1,8 +1,8 @@
 use crate::{
-    eval::{point::PointEvalT, Choice, Tape},
+    eval::{Choice, EvaluatorStorage, Tape, TracingEvaluator},
     jit::{
-        build_asm_fn, mmap::Mmap, reg, AssemblerData, AssemblerT, Eval,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        build_asm_fn_with_storage, mmap::Mmap, reg, AssemblerData, AssemblerT,
+        Eval, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
 };
@@ -185,32 +185,45 @@ impl AssemblerT for PointAssembler {
 }
 
 /// Handle owning a JIT-compiled float function
+#[derive(Clone)]
 pub struct JitPointEval {
-    _mmap: Arc<Mmap>,
+    mmap: Arc<Mmap>,
     var_count: usize,
     fn_float: unsafe extern "C" fn(f32, f32, f32, *const f32, *mut u8) -> f32,
 }
 
-impl PointEvalT<Eval> for JitPointEval {
-    fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<PointAssembler>(t);
+unsafe impl Send for JitPointEval {}
+
+impl EvaluatorStorage<Eval> for JitPointEval {
+    type Storage = Mmap;
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<PointAssembler>(t, prev);
         let ptr = mmap.as_ptr();
         Self {
-            _mmap: Arc::new(mmap),
+            mmap: Arc::new(mmap),
             var_count: t.var_count(),
             fn_float: unsafe { std::mem::transmute(ptr) },
         }
     }
-    fn eval_p(
-        &mut self,
+    fn take(self) -> Option<Self::Storage> {
+        Arc::try_unwrap(self.mmap).ok()
+    }
+}
+
+impl TracingEvaluator<f32, Eval> for JitPointEval {
+    type Data = ();
+
+    fn eval_with(
+        &self,
         x: f32,
         y: f32,
         z: f32,
         vars: &[f32],
         choices: &mut [Choice],
-    ) -> f32 {
+        _data: &mut (),
+    ) -> (f32, bool) {
         assert_eq!(vars.len(), self.var_count);
-        unsafe {
+        let out = unsafe {
             (self.fn_float)(
                 x,
                 y,
@@ -218,6 +231,10 @@ impl PointEvalT<Eval> for JitPointEval {
                 vars.as_ptr(),
                 choices.as_mut_ptr() as *mut u8,
             )
-        }
+        };
+        // TODO: the JIT code should populate this, like we do for the interval
+        // evaluator JIT.
+        let simplify = choices.iter().any(|c| *c != Choice::Both);
+        (out, simplify)
     }
 }

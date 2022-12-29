@@ -15,7 +15,7 @@
 //! // `vm::Eval` implements `Family`, so we can use it to build any kind of
 //! // evaluator.  In this case, we'll build a single-point evaluator:
 //! let mut eval = vm::Eval::new_point_evaluator(tape);
-//! assert_eq!(eval.eval_p(0.25, 0.0, 0.0, &[]).unwrap(), 0.25);
+//! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[]).unwrap().0, 0.25);
 //! ```
 
 pub mod float_slice;
@@ -38,19 +38,22 @@ pub use vars::Vars;
 
 use float_slice::FloatSliceEvalT;
 use grad::GradEvalT;
-use point::PointEvalT;
 
 /// Represents a "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
 
-    type IntervalEval: TracingEvaluator<crate::eval::interval::Interval, Self>
+    type PointEval: TracingEvaluator<f32, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
+    type IntervalEval: TracingEvaluator<Interval, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
+
     type FloatSliceEval: FloatSliceEvalT<Self>;
-    type PointEval: PointEvalT<Self>;
     type GradEval: GradEvalT<Self>;
 
     /// Recommended tile sizes for 3D rendering
@@ -90,12 +93,12 @@ pub trait Eval<F: Family> {
 impl<F: Family> Eval<F> for F {
     /// Builds a point evaluator from the given `Tape`
     fn new_point_evaluator(tape: Tape<F>) -> point::PointEval<F> {
-        point::PointEval::new(tape)
+        point::PointEval::new(&tape)
     }
 
     /// Builds an interval evaluator from the given `Tape`
     fn new_interval_evaluator(tape: Tape<F>) -> interval::IntervalEval<F> {
-        TracingEval::new(&tape)
+        interval::IntervalEval::new(&tape)
     }
 
     /// Builds an interval evaluator from the given `Tape`, reusing storage

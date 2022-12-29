@@ -10,7 +10,7 @@
 //! let mut eval = jit::Eval::new_point_evaluator(tape);
 //!
 //! // This calls directly into that machine code!
-//! assert_eq!(eval.eval_p(0.1, 0.3, 0.0, &[]).unwrap(), 0.1 + 0.3);
+//! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[]).unwrap().0, 0.1 + 0.3);
 //! ```
 
 // # Notes for writing assembly in this module

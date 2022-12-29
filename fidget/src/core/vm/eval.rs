@@ -3,8 +3,8 @@ use crate::{
         float_slice::FloatSliceEvalT,
         grad::{Grad, GradEvalT},
         interval::Interval,
-        point::PointEvalT,
-        Choice, Family, Tape,
+        Choice, EvaluatorStorage, Family, Tape, TracingEvaluator,
+        TracingEvaluatorData,
     },
     vm::Op,
 };
@@ -75,7 +75,7 @@ pub struct AsmIntervalEvalData {
     slots: Vec<Interval>,
 }
 
-impl crate::eval::TracingEvaluatorData<Eval> for AsmIntervalEvalData {
+impl TracingEvaluatorData<Eval> for AsmIntervalEvalData {
     fn prepare(&mut self, tape: &Tape<Eval>) {
         assert!(tape.reg_limit() == u8::MAX);
 
@@ -85,7 +85,7 @@ impl crate::eval::TracingEvaluatorData<Eval> for AsmIntervalEvalData {
     }
 }
 
-impl crate::eval::EvaluatorStorage<Eval> for AsmIntervalEval {
+impl EvaluatorStorage<Eval> for AsmIntervalEval {
     type Storage = ();
     fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
         Self { tape: tape.clone() }
@@ -95,7 +95,7 @@ impl crate::eval::EvaluatorStorage<Eval> for AsmIntervalEval {
     }
 }
 
-impl crate::eval::TracingEvaluator<Interval, Eval> for AsmIntervalEval {
+impl TracingEvaluator<Interval, Eval> for AsmIntervalEval {
     type Data = AsmIntervalEvalData;
 
     fn eval_with(
@@ -387,32 +387,54 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
+#[derive(Clone)]
 pub struct AsmPointEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape<Eval>,
+}
+
+#[derive(Default)]
+pub struct AsmPointEvalData {
     /// Workspace for data
     slots: Vec<f32>,
 }
 
-impl PointEvalT<Eval> for AsmPointEval {
-    fn new(tape: &Tape<Eval>) -> Self {
+impl TracingEvaluatorData<Eval> for AsmPointEvalData {
+    fn prepare(&mut self, tape: &Tape<Eval>) {
+        assert!(tape.reg_limit() == u8::MAX);
+
         let slot_count = tape.slot_count();
-        Self {
-            tape: tape.clone(),
-            slots: vec![std::f32::NAN; slot_count],
-        }
+        self.slots.resize(slot_count, std::f32::NAN);
+        self.slots.fill(std::f32::NAN);
     }
-    fn eval_p(
-        &mut self,
+}
+
+impl EvaluatorStorage<Eval> for AsmPointEval {
+    type Storage = ();
+    fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
+        Self { tape: tape.clone() }
+    }
+    fn take(self) -> Option<Self::Storage> {
+        Some(())
+    }
+}
+
+impl TracingEvaluator<f32, Eval> for AsmPointEval {
+    type Data = AsmPointEvalData;
+
+    fn eval_with(
+        &self,
         x: f32,
         y: f32,
         z: f32,
         vars: &[f32],
         choices: &mut [Choice],
-    ) -> f32 {
+        data: &mut AsmPointEvalData,
+    ) -> (f32, bool) {
         assert_eq!(vars.len(), self.tape.var_count());
         let mut choice_index = 0;
-        let mut v = SlotArray(&mut self.slots);
+        let mut simplify = false;
+        let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
                 Op::Input(out, i) => {
@@ -477,6 +499,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                             imm
                         }
                     };
+                    simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 Op::MaxRegImm(out, arg, imm) => {
@@ -495,6 +518,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                             imm
                         }
                     };
+                    simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 Op::AddRegReg(out, lhs, rhs) => {
@@ -526,6 +550,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                             b
                         }
                     };
+                    simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 Op::MaxRegReg(out, lhs, rhs) => {
@@ -545,6 +570,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                             b
                         }
                     };
+                    simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 Op::CopyImm(out, imm) => {
@@ -558,7 +584,7 @@ impl PointEvalT<Eval> for AsmPointEval {
                 }
             }
         }
-        self.slots[0]
+        (data.slots[0], simplify)
     }
 }
 

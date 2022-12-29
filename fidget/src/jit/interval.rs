@@ -1,5 +1,7 @@
 use crate::{
-    eval::{interval::Interval, Choice, Tape},
+    eval::{
+        interval::Interval, Choice, EvaluatorStorage, Tape, TracingEvaluator,
+    },
     jit::{
         build_asm_fn_with_storage, mmap::Mmap, reg, AssemblerData, AssemblerT,
         Eval, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
@@ -466,7 +468,7 @@ pub struct JitIntervalEval {
 
 unsafe impl Send for JitIntervalEval {}
 
-impl crate::eval::EvaluatorStorage<Eval> for JitIntervalEval {
+impl EvaluatorStorage<Eval> for JitIntervalEval {
     type Storage = Mmap;
     fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
         let mmap = build_asm_fn_with_storage::<IntervalAssembler>(t, prev);
@@ -484,7 +486,7 @@ impl crate::eval::EvaluatorStorage<Eval> for JitIntervalEval {
 }
 
 /// Handle owning a JIT-compiled interval function
-impl crate::eval::TracingEvaluator<Interval, Eval> for JitIntervalEval {
+impl TracingEvaluator<Interval, Eval> for JitIntervalEval {
     type Data = ();
 
     /// Evaluates an interval
