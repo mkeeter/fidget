@@ -273,7 +273,6 @@ where
     F: Family,
     B: std::borrow::Borrow<[Choice]>,
 {
-    // TODO move these to a separate result type?
     pub fn tape_len(&self) -> usize {
         self.tape.len()
     }
