@@ -1,7 +1,9 @@
 //! 3D bitmap rendering / rasterization
 use crate::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalStorage},
+        float_slice::{
+            FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
+        },
         grad::{Grad, GradEval, GradEvalStorage},
         interval::{Interval, IntervalEval},
         tape::{Data as TapeData, Tape, Workspace},
@@ -32,17 +34,18 @@ impl<V> Give<V> for Option<V> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Scratch {
+struct Scratch<F: Family> {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
     out_grad: Vec<Grad>,
+    data_float: FloatSliceEvalData<F>,
 
     /// Depth of each column
     columns: Vec<usize>,
 }
 
-impl Scratch {
+impl<F: Family> Scratch<F> {
     fn new(tile_size: usize) -> Self {
         let size2 = tile_size.pow(2);
         let size3 = tile_size.pow(3);
@@ -50,20 +53,27 @@ impl Scratch {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
+            data_float: Default::default(),
             out_grad: vec![0.0.into(); size2],
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: Family>(
+    fn eval_s<'a>(
         &mut self,
-        f: &mut FloatSliceEval<E>,
+        f: &mut FloatSliceEval<F>,
         size: usize,
-    ) -> Vec<f32> {
-        // TODO make this borrow data
-        f.eval(&self.x[0..size], &self.y[0..size], &self.z[0..size], &[])
-            .unwrap()
+        data: &'a mut FloatSliceEvalData<F>,
+    ) -> &'a [f32] {
+        f.eval_with(
+            &self.x[0..size],
+            &self.y[0..size],
+            &self.z[0..size],
+            &[],
+            data,
+        )
+        .unwrap()
     }
-    fn eval_g<E: Family>(&mut self, f: &mut GradEval<E>, size: usize) {
+    fn eval_g(&mut self, f: &mut GradEval<F>, size: usize) {
         f.eval_g(
             &self.x[0..size],
             &self.y[0..size],
@@ -91,7 +101,7 @@ struct Worker<'a, I: Family> {
     config: &'a AlignedRenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
-    scratch: Scratch,
+    scratch: Scratch<I>,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -430,7 +440,10 @@ impl<I: Family> Worker<'_, I> {
                 storage,
             )
         });
-        let out = self.scratch.eval_s(func, size);
+
+        // Borrow the scratch data, returning it at the end of the function
+        let mut data_float = std::mem::take(&mut self.scratch.data_float);
+        let out = self.scratch.eval_s(func, size, &mut data_float);
 
         // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile
@@ -496,6 +509,9 @@ impl<I: Family> Worker<'_, I> {
                     .unwrap_or([255, 0, 0]);
             }
         }
+
+        // Return the scratch data
+        self.scratch.data_float = data_float;
     }
 }
 
