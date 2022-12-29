@@ -147,8 +147,8 @@
 //! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
 //!
 //! Simplification is done with
-//! [`IntervalEvalData::simplify`](crate::eval::interval::IntervalEvalData::simplify),
-//! using the `IntervalEvalData` returned from
+//! [`TracingEvalResult::simplify`](crate::eval::tracing::TracingEvalResult::simplify),
+//! using the `TracingEvalResult` returned from
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```

@@ -141,6 +141,7 @@ pub trait AssemblerT {
     fn finalize(self, out_reg: u8) -> Mmap;
 }
 
+/// Trait defining SIMD width
 pub trait SimdAssembler {
     const SIMD_SIZE: usize;
 }
