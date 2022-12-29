@@ -1,6 +1,6 @@
 use crate::{
     eval::{
-        float_slice::FloatSliceEvalT,
+        bulk::{BulkEvaluator, BulkEvaluatorData},
         grad::{Grad, GradEvalT},
         interval::Interval,
         tracing::{TracingEvaluator, TracingEvaluatorData},
@@ -19,9 +19,10 @@ impl Family for Eval {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
-    type IntervalEval = AsmTracingEval;
-    type FloatSliceEval = AsmFloatSliceEval;
-    type PointEval = AsmTracingEval;
+    type IntervalEval = AsmEval;
+    type FloatSliceEval = AsmEval;
+    type PointEval = AsmEval;
+
     type GradEval = AsmGradEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
@@ -64,7 +65,7 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 /// Generic tracing evaluator
 #[derive(Clone)]
-pub struct AsmTracingEval {
+pub struct AsmEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape<Eval>,
 }
@@ -93,7 +94,7 @@ where
     }
 }
 
-impl EvaluatorStorage<Eval> for AsmTracingEval {
+impl EvaluatorStorage<Eval> for AsmEval {
     type Storage = ();
     fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
         Self { tape: tape.clone() }
@@ -105,7 +106,7 @@ impl EvaluatorStorage<Eval> for AsmTracingEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl TracingEvaluator<Interval, Eval> for AsmTracingEval {
+impl TracingEvaluator<Interval, Eval> for AsmEval {
     type Data = AsmTracingEvalData<Interval>;
 
     fn eval_with(
@@ -217,7 +218,7 @@ impl TracingEvaluator<Interval, Eval> for AsmTracingEval {
     }
 }
 
-impl TracingEvaluator<f32, Eval> for AsmTracingEval {
+impl TracingEvaluator<f32, Eval> for AsmEval {
     type Data = AsmTracingEvalData<f32>;
 
     fn eval_with(
@@ -388,37 +389,50 @@ impl TracingEvaluator<f32, Eval> for AsmTracingEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-////////////////////////////////////////////////////////////////////////////////
-
 /// Float-point interpreter-style evaluator for a tape of [`Op`]
-pub struct AsmFloatSliceEval {
-    /// Instruction tape, in reverse-evaluation order
-    tape: Tape<Eval>,
+pub struct AsmBulkEvalData<T> {
     /// Workspace for data
-    slots: Vec<Vec<f32>>,
+    slots: Vec<Vec<T>>,
     /// Current slice size in `self.slots`
     slice_size: usize,
 }
 
-impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
-    type Storage = ();
-
-    fn new(tape: &Tape<Eval>) -> Self {
-        let slot_count = tape.slot_count();
+impl<T> Default for AsmBulkEvalData<T> {
+    fn default() -> Self {
         Self {
-            tape: tape.clone(),
-            slots: vec![vec![]; slot_count],
+            slots: vec![],
             slice_size: 0,
         }
     }
+}
 
-    fn eval_s(
-        &mut self,
+impl<T> BulkEvaluatorData<Eval> for AsmBulkEvalData<T>
+where
+    T: From<f32> + Clone,
+{
+    fn prepare(&mut self, tape: &Tape<Eval>, size: usize) {
+        assert!(tape.reg_limit() == u8::MAX);
+        self.slots.resize_with(tape.slot_count(), Default::default);
+        if size > self.slice_size {
+            for s in self.slots.iter_mut() {
+                s.resize(size, std::f32::NAN.into());
+            }
+            self.slice_size = size;
+        }
+    }
+}
+
+impl BulkEvaluator<f32, Eval> for AsmEval {
+    type Data = AsmBulkEvalData<f32>;
+
+    fn eval_with(
+        &self,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
         vars: &[f32],
         out: &mut [f32],
+        data: &mut Self::Data,
     ) {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
@@ -426,14 +440,9 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
         assert_eq!(vars.len(), self.tape.var_count());
 
         let size = xs.len();
-        if size > self.slice_size {
-            for s in self.slots.iter_mut() {
-                s.resize(size, std::f32::NAN);
-            }
-            self.slice_size = size;
-        }
+        data.prepare(&self.tape, size);
 
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
                 Op::Input(out, i) => v[out][0..size].copy_from_slice(match i {
@@ -561,7 +570,7 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
                 }
             }
         }
-        out[0..size].copy_from_slice(&self.slots[0][0..size])
+        out[0..size].copy_from_slice(&data.slots[0][0..size])
     }
 }
 

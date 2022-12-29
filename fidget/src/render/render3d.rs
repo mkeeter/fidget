@@ -36,7 +36,6 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out_float: Vec<f32>,
     out_grad: Vec<Grad>,
 
     /// Depth of each column
@@ -51,20 +50,18 @@ impl Scratch {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
-            out_float: vec![0.0; size3],
             out_grad: vec![0.0.into(); size2],
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: Family>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
-        f.eval_s(
-            &self.x[0..size],
-            &self.y[0..size],
-            &self.z[0..size],
-            &[],
-            &mut self.out_float[0..size],
-        )
-        .unwrap();
+    fn eval_s<E: Family>(
+        &mut self,
+        f: &mut FloatSliceEval<E>,
+        size: usize,
+    ) -> Vec<f32> {
+        // TODO make this borrow data
+        f.eval(&self.x[0..size], &self.y[0..size], &self.z[0..size], &[])
+            .unwrap()
     }
     fn eval_g<E: Family>(&mut self, f: &mut GradEval<E>, size: usize) {
         f.eval_g(
@@ -433,13 +430,13 @@ impl<I: Family> Worker<'_, I> {
                 storage,
             )
         });
-        self.scratch.eval_s(func, size);
+        let out = self.scratch.eval_s(func, size);
 
         // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile
         // - grad refers to points that we must do gradient evaluation on
         let mut grad = 0;
-        let mut depth = self.scratch.out_float.chunks(tile_size);
+        let mut depth = out.chunks(tile_size);
         for col in 0..self.scratch.columns.len() {
             // Find the first set pixel in the column
             let depth = depth.next().unwrap();

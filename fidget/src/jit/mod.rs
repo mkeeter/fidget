@@ -36,8 +36,8 @@
 
 use crate::{
     eval::{
-        tape::Data as TapeData, tracing::TracingEvaluator, Choice,
-        EvaluatorStorage, Family, Tape,
+        bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
+        Choice, EvaluatorStorage, Family, Tape,
     },
     jit::mmap::Mmap,
     vm::Op,
@@ -139,6 +139,10 @@ pub trait AssemblerT {
     fn load_imm(&mut self, imm: f32) -> u8;
 
     fn finalize(self, out_reg: u8) -> Mmap;
+}
+
+pub trait SimdAssembler {
+    const SIMD_SIZE: usize;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -402,7 +406,7 @@ impl Family for Eval {
 pub struct JitTracingEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
-    fn_interval: unsafe extern "C" fn(
+    fn_trace: unsafe extern "C" fn(
         I::Data,    // X
         I::Data,    // Y
         I::Data,    // Z
@@ -417,7 +421,7 @@ impl<I: AssemblerT> Clone for JitTracingEval<I> {
         Self {
             mmap: self.mmap.clone(),
             var_count: self.var_count,
-            fn_interval: self.fn_interval,
+            fn_trace: self.fn_trace,
         }
     }
 }
@@ -432,7 +436,7 @@ impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
         Self {
             mmap: Arc::new(mmap),
             var_count: t.var_count(),
-            fn_interval: unsafe { std::mem::transmute(ptr) },
+            fn_trace: unsafe { std::mem::transmute(ptr) },
         }
     }
 
@@ -444,7 +448,7 @@ impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
 impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
     type Data = ();
 
-    /// Evaluates an interval
+    /// Evaluates a single point, capturing execution in `choices`
     fn eval_with(
         &self,
         x: I::Data,
@@ -457,7 +461,7 @@ impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
         let out = unsafe {
-            (self.fn_interval)(
+            (self.fn_trace)(
                 x,
                 y,
                 z,
@@ -467,6 +471,136 @@ impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
             )
         };
         (out, simplify != 0)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Handle owning a JIT-compiled bulk function of some kind
+///
+/// Users are unlikely to use this directly; consider using the
+/// [`jit::Eval`](Eval) evaluator family instead.
+pub struct JitBulkEval<I: AssemblerT> {
+    mmap: Arc<Mmap>,
+    var_count: usize,
+    fn_bulk: unsafe extern "C" fn(
+        *const I::Data, // X
+        *const I::Data, // Y
+        *const I::Data, // Z
+        *const f32,     // vars
+        *mut I::Data,   // out
+        u64,            // size
+    ) -> I::Data,
+}
+
+impl<I: AssemblerT> Clone for JitBulkEval<I> {
+    fn clone(&self) -> Self {
+        Self {
+            mmap: self.mmap.clone(),
+            var_count: self.var_count,
+            fn_bulk: self.fn_bulk,
+        }
+    }
+}
+
+unsafe impl<I: AssemblerT> Send for JitBulkEval<I> {}
+
+impl<I: AssemblerT> EvaluatorStorage<Eval> for JitBulkEval<I> {
+    type Storage = Mmap;
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<I>(t, prev);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            var_count: t.var_count(),
+            fn_bulk: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+
+    fn take(self) -> Option<Self::Storage> {
+        Arc::try_unwrap(self.mmap).ok()
+    }
+}
+
+impl<I: AssemblerT + SimdAssembler> BulkEvaluator<I::Data, Eval>
+    for JitBulkEval<I>
+where
+    I::Data: Copy + From<f32>,
+{
+    type Data = ();
+
+    /// Evaluate multiple points
+    fn eval_with(
+        &self,
+        xs: &[I::Data],
+        ys: &[I::Data],
+        zs: &[I::Data],
+        vars: &[f32],
+        out: &mut [I::Data],
+        _data: &mut (),
+    ) {
+        assert_eq!(xs.len(), ys.len());
+        assert_eq!(ys.len(), zs.len());
+        assert_eq!(zs.len(), out.len());
+        assert_eq!(vars.len(), self.var_count);
+
+        let n = xs.len();
+
+        // Special case for < 4 items, in which case the input slices can't be
+        // used as workspace (because we need at least 4x f32)
+        if n < I::SIMD_SIZE {
+            let mut x = [0.0.into(); 4];
+            let mut y = [0.0.into(); 4];
+            let mut z = [0.0.into(); 4];
+            x[0..n].copy_from_slice(xs);
+            y[0..n].copy_from_slice(ys);
+            z[0..n].copy_from_slice(zs);
+
+            let mut tmp = [std::f32::NAN.into(); 4];
+
+            unsafe {
+                (self.fn_bulk)(
+                    x.as_ptr(),
+                    y.as_ptr(),
+                    z.as_ptr(),
+                    vars.as_ptr(),
+                    tmp.as_mut_ptr(),
+                    I::SIMD_SIZE as u64,
+                );
+            }
+            out[0..n].copy_from_slice(&tmp[0..n]);
+        } else {
+            // Our vectorized function only accepts set of 4 values, so we'll
+            // find the biggest multiple of four, then do an extra operation
+            // to process any remainders.
+
+            let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
+            unsafe {
+                (self.fn_bulk)(
+                    xs.as_ptr(),
+                    ys.as_ptr(),
+                    zs.as_ptr(),
+                    vars.as_ptr(),
+                    out.as_mut_ptr(),
+                    m as u64,
+                );
+            }
+            // If we weren't given a multiple of 4, then we'll handle the
+            // remaining 1-3 items by simply evaluating the *last* 4 items
+            // in the array again.
+            if n != m {
+                unsafe {
+                    (self.fn_bulk)(
+                        xs.as_ptr().add(n - I::SIMD_SIZE),
+                        ys.as_ptr().add(n - I::SIMD_SIZE),
+                        zs.as_ptr().add(n - I::SIMD_SIZE),
+                        vars.as_ptr(),
+                        out.as_mut_ptr().add(n - I::SIMD_SIZE),
+                        I::SIMD_SIZE as u64,
+                    );
+                }
+            }
+        }
     }
 }
 

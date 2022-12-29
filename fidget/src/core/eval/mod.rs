@@ -18,6 +18,7 @@
 //! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[]).unwrap().0, 0.25);
 //! ```
 
+pub mod bulk;
 pub mod float_slice;
 pub mod grad;
 pub mod interval;
@@ -36,9 +37,10 @@ pub use tape::Tape;
 pub use tracing::Choice;
 pub use vars::Vars;
 
-use float_slice::FloatSliceEvalT;
 use grad::GradEvalT;
-use tracing::{TracingEval, TracingEvaluator};
+
+use bulk::BulkEvaluator;
+use tracing::TracingEvaluator;
 
 /// Represents a "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
@@ -54,7 +56,10 @@ pub trait Family: Clone {
         + Clone
         + Send;
 
-    type FloatSliceEval: FloatSliceEvalT<Self>;
+    type FloatSliceEval: BulkEvaluator<f32, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
     type GradEval: GradEvalT<Self>;
 
     /// Recommended tile sizes for 3D rendering
@@ -107,14 +112,14 @@ impl<F: Family> Eval<F> for F {
         tape: Tape<F>,
         storage: interval::IntervalEvalStorage<F>,
     ) -> interval::IntervalEval<F> {
-        TracingEval::new_with_storage(&tape, storage)
+        interval::IntervalEval::new_with_storage(&tape, storage)
     }
 
     /// Builds a float evaluator from the given `Tape`
     fn new_float_slice_evaluator(
         tape: Tape<F>,
     ) -> float_slice::FloatSliceEval<F> {
-        float_slice::FloatSliceEval::new(tape)
+        float_slice::FloatSliceEval::new(&tape)
     }
 
     /// Builds a float slice evaluator from the given `Tape`, reusing storage
@@ -122,7 +127,7 @@ impl<F: Family> Eval<F> for F {
         tape: Tape<F>,
         storage: float_slice::FloatSliceEvalStorage<F>,
     ) -> float_slice::FloatSliceEval<F> {
-        float_slice::FloatSliceEval::new_with_storage(tape, storage)
+        float_slice::FloatSliceEval::new_with_storage(&tape, storage)
     }
 
     /// Builds a grad slice evaluator from the given `Tape`

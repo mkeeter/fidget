@@ -150,8 +150,7 @@ fn run<I: fidget::eval::Family>(
                 }
             }
             let zs = vec![0.0; xs.len()];
-            let mut values = vec![0.0; xs.len()];
-            eval.eval_s(&xs, &ys, &zs, &[], &mut values).unwrap();
+            let values = eval.eval(&xs, &ys, &zs, &[]).unwrap();
             out = values.into_iter().map(|v| v <= 0.0).collect();
         }
         // Convert from Vec<bool> to an image

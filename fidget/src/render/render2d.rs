@@ -164,7 +164,6 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out: Vec<f32>,
 }
 
 impl Scratch {
@@ -173,7 +172,6 @@ impl Scratch {
             x: vec![0.0; size],
             y: vec![0.0; size],
             z: vec![0.0; size],
-            out: vec![0.0; size],
         }
     }
 }
@@ -330,26 +328,22 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        if sub_tape.len() < simplify.tape_len().unwrap() {
+        let out = if sub_tape.len() < simplify.tape_len().unwrap() {
             let storage = std::mem::take(&mut self.float_storage[1]);
-            let mut func = I::new_float_slice_evaluator_with_storage(
+            let func = I::new_float_slice_evaluator_with_storage(
                 sub_tape.clone(),
                 storage,
             );
 
-            func.eval_s(
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
-                &[],
-                &mut self.scratch.out,
-            )
-            .unwrap();
+            let out = func
+                .eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
+                .unwrap();
 
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
             self.float_storage[1] = func.take().unwrap();
+            out
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
@@ -361,24 +355,18 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 )
             });
 
-            func.eval_s(
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
-                &[],
-                &mut self.scratch.out,
-            )
-            .unwrap();
+            func.eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
+                .unwrap()
 
             // Don't release func to self.float_storage[0] here; it's done by
             // the parent caller at the end of subtile iteration.
-        }
+        };
 
         let mut index = 0;
         for j in 0..tile_size {
             let o = self.config.tile_to_offset(tile, 0, j);
             for i in 0..tile_size {
-                self.image[o + i] = mode.pixel(self.scratch.out[index]);
+                self.image[o + i] = mode.pixel(out[index]);
                 index += 1;
             }
         }

@@ -1,12 +1,8 @@
-use crate::{
-    eval::{float_slice::FloatSliceEvalT, Tape},
-    jit::{
-        build_asm_fn, build_asm_fn_with_storage, mmap::Mmap, reg,
-        AssemblerData, AssemblerT, Eval, IMM_REG, OFFSET, REGISTER_LIMIT,
-    },
+use crate::jit::{
+    mmap::Mmap, reg, AssemblerData, AssemblerT, JitBulkEval, SimdAssembler,
+    IMM_REG, OFFSET, REGISTER_LIMIT,
 };
 use dynasmrt::{dynasm, DynasmApi};
-use std::sync::Arc;
 
 /// Assembler for SIMD point-wise evaluation.
 ///
@@ -15,7 +11,7 @@ use std::sync::Arc;
 /// and output arrays represents 4x `f32`; the var array is single `f32`s
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
-struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
+pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
@@ -224,116 +220,10 @@ impl AssemblerT for FloatSliceAssembler {
     }
 }
 
+impl SimdAssembler for FloatSliceAssembler {
+    const SIMD_SIZE: usize = 4;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Evaluator for a JIT-compiled function taking `[f32; 4]` SIMD values
-pub struct JitFloatSliceEval {
-    mmap: Arc<Mmap>,
-    var_count: usize,
-    fn_vec: unsafe extern "C" fn(
-        *const f32, // X
-        *const f32, // Y
-        *const f32, // Z
-        *const f32, // vars
-        *mut f32,   // out
-        u64,        // size
-    ),
-}
-
-impl FloatSliceEvalT<Eval> for JitFloatSliceEval {
-    type Storage = Mmap;
-
-    fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<FloatSliceAssembler>(t);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_vec: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<FloatSliceAssembler>(t, prev);
-        let ptr = mmap.as_ptr();
-        JitFloatSliceEval {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_vec: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-
-    fn eval_s(
-        &mut self,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
-        vars: &[f32],
-        out: &mut [f32],
-    ) {
-        assert_eq!(xs.len(), ys.len());
-        assert_eq!(ys.len(), zs.len());
-        assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.var_count);
-
-        let n = xs.len();
-
-        // Special case for < 4 items, in which case the input slices can't be
-        // used as workspace (because we need at least 4x f32)
-        if n < 4 {
-            let mut x = [0.0; 4];
-            let mut y = [0.0; 4];
-            let mut z = [0.0; 4];
-            x[0..n].copy_from_slice(xs);
-            y[0..n].copy_from_slice(ys);
-            z[0..n].copy_from_slice(zs);
-            let mut tmp = [std::f32::NAN; 4];
-            unsafe {
-                (self.fn_vec)(
-                    x.as_ptr(),
-                    y.as_ptr(),
-                    z.as_ptr(),
-                    vars.as_ptr(),
-                    tmp.as_mut_ptr(),
-                    4,
-                );
-            }
-            out[0..n].copy_from_slice(&tmp[0..n]);
-        } else {
-            // Our vectorized function only accepts set of 4 values, so we'll
-            // find the biggest multiple of four, then do an extra operation
-            // to process any remainders.
-
-            let m = (n / 4) * 4; // Round down
-            unsafe {
-                (self.fn_vec)(
-                    xs.as_ptr(),
-                    ys.as_ptr(),
-                    zs.as_ptr(),
-                    vars.as_ptr(),
-                    out.as_mut_ptr(),
-                    m as u64,
-                );
-            }
-            // If we weren't given a multiple of 4, then we'll handle the
-            // remaining 1-3 items by simply evaluating the *last* 4 items
-            // in the array again.
-            if n != m {
-                unsafe {
-                    (self.fn_vec)(
-                        xs.as_ptr().add(n - 4),
-                        ys.as_ptr().add(n - 4),
-                        zs.as_ptr().add(n - 4),
-                        vars.as_ptr(),
-                        out.as_mut_ptr().add(n - 4),
-                        4,
-                    );
-                }
-            }
-        }
-    }
-}
+pub type JitFloatSliceEval = JitBulkEval<FloatSliceAssembler>;
