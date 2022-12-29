@@ -1,6 +1,7 @@
 //! Single-point evaluation
 use crate::eval::{
-    EvaluatorStorage, Family, TracingEval, TracingEvalData, TracingEvaluator,
+    tracing::{TracingEval, TracingEvalData, TracingEvaluator},
+    EvaluatorStorage, Family,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

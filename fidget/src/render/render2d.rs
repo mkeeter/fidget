@@ -292,13 +292,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 
     fn render_tile_pixels(
         &mut self,
-        simplify: &crate::eval::TracingEvalData<
-            <<I as Family>::IntervalEval as crate::eval::TracingEvaluator<
-                Interval,
-                I,
-            >>::Data,
-            I,
-        >,
+        simplify: &crate::eval::interval::IntervalEvalData<I>,
         tile_size: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,

@@ -3,8 +3,8 @@ use crate::{
         float_slice::FloatSliceEvalT,
         grad::{Grad, GradEvalT},
         interval::Interval,
-        Choice, EvaluatorStorage, Family, Tape, TracingEvaluator,
-        TracingEvaluatorData,
+        tracing::{TracingEvaluator, TracingEvaluatorData},
+        Choice, EvaluatorStorage, Family, Tape,
     },
     vm::Op,
 };

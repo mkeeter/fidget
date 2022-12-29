@@ -1,5 +1,5 @@
 use crate::{
-    eval::{Choice, EvaluatorStorage, Tape, TracingEvaluator},
+    eval::{tracing::TracingEvaluator, Choice, EvaluatorStorage, Tape},
     jit::{
         build_asm_fn_with_storage, mmap::Mmap, reg, AssemblerData, AssemblerT,
         Eval, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,

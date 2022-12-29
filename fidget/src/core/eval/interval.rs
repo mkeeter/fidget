@@ -1,7 +1,7 @@
 //! Interval evaluation
 use crate::eval::{
-    Choice, EvaluatorStorage, Family, TracingEval, TracingEvalData,
-    TracingEvaluator,
+    tracing::{TracingEval, TracingEvalData, TracingEvaluator},
+    Choice, EvaluatorStorage, Family,
 };
 
 /// Represents a range, with conservative calculations to guarantee that it

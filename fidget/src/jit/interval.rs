@@ -1,6 +1,7 @@
 use crate::{
     eval::{
-        interval::Interval, Choice, EvaluatorStorage, Tape, TracingEvaluator,
+        interval::Interval, tracing::TracingEvaluator, Choice,
+        EvaluatorStorage, Tape,
     },
     jit::{
         build_asm_fn_with_storage, mmap::Mmap, reg, AssemblerData, AssemblerT,
