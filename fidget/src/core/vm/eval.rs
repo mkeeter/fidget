@@ -19,9 +19,9 @@ impl Family for Eval {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
 
-    type IntervalEval = AsmIntervalEval;
+    type IntervalEval = AsmTracingEval;
     type FloatSliceEval = AsmFloatSliceEval;
-    type PointEval = AsmPointEval;
+    type PointEval = AsmTracingEval;
     type GradEval = AsmGradEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
@@ -62,30 +62,38 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Interval evaluator for a slice of [`Op`]
+/// Generic tracing evaluator
 #[derive(Clone)]
-pub struct AsmIntervalEval {
+pub struct AsmTracingEval {
     /// Instruction tape, in reverse-evaluation order
     tape: Tape<Eval>,
 }
 
-#[derive(Default)]
-pub struct AsmIntervalEvalData {
-    /// Workspace for data
-    slots: Vec<Interval>,
+/// Generic scratch data a tracing evaluator
+pub struct AsmTracingEvalData<T> {
+    slots: Vec<T>,
 }
 
-impl TracingEvaluatorData<Eval> for AsmIntervalEvalData {
+impl<T> Default for AsmTracingEvalData<T> {
+    fn default() -> Self {
+        Self { slots: vec![] }
+    }
+}
+
+impl<T> TracingEvaluatorData<Eval> for AsmTracingEvalData<T>
+where
+    T: From<f32> + Clone,
+{
     fn prepare(&mut self, tape: &Tape<Eval>) {
         assert!(tape.reg_limit() == u8::MAX);
 
         let slot_count = tape.slot_count();
-        self.slots.resize(slot_count, Interval::from(std::f32::NAN));
-        self.slots.fill(Interval::from(std::f32::NAN));
+        self.slots.resize(slot_count, T::from(std::f32::NAN));
+        self.slots.fill(T::from(std::f32::NAN));
     }
 }
 
-impl EvaluatorStorage<Eval> for AsmIntervalEval {
+impl EvaluatorStorage<Eval> for AsmTracingEval {
     type Storage = ();
     fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
         Self { tape: tape.clone() }
@@ -95,8 +103,10 @@ impl EvaluatorStorage<Eval> for AsmIntervalEval {
     }
 }
 
-impl TracingEvaluator<Interval, Eval> for AsmIntervalEval {
-    type Data = AsmIntervalEvalData;
+////////////////////////////////////////////////////////////////////////////////
+
+impl TracingEvaluator<Interval, Eval> for AsmTracingEval {
+    type Data = AsmTracingEvalData<Interval>;
 
     fn eval_with(
         &self,
@@ -105,7 +115,7 @@ impl TracingEvaluator<Interval, Eval> for AsmIntervalEval {
         z: Interval,
         vars: &[f32],
         choices: &mut [Choice],
-        data: &mut AsmIntervalEvalData,
+        data: &mut Self::Data,
     ) -> (Interval, bool) {
         let mut simplify = false;
         assert_eq!(vars.len(), self.tape.var_count());
@@ -206,6 +216,177 @@ impl TracingEvaluator<Interval, Eval> for AsmIntervalEval {
         (data.slots[0], simplify)
     }
 }
+
+impl TracingEvaluator<f32, Eval> for AsmTracingEval {
+    type Data = AsmTracingEvalData<f32>;
+
+    fn eval_with(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        vars: &[f32],
+        choices: &mut [Choice],
+        data: &mut Self::Data,
+    ) -> (f32, bool) {
+        assert_eq!(vars.len(), self.tape.var_count());
+        let mut choice_index = 0;
+        let mut simplify = false;
+        let mut v = SlotArray(&mut data.slots);
+        for op in self.tape.iter_asm() {
+            match op {
+                Op::Input(out, i) => {
+                    v[out] = match i {
+                        0 => x,
+                        1 => y,
+                        2 => z,
+                        _ => panic!("Invalid input: {}", i),
+                    }
+                }
+                Op::Var(out, i) => v[out] = vars[i as usize],
+                Op::NegReg(out, arg) => {
+                    v[out] = -v[arg];
+                }
+                Op::AbsReg(out, arg) => {
+                    v[out] = v[arg].abs();
+                }
+                Op::RecipReg(out, arg) => {
+                    v[out] = 1.0 / v[arg];
+                }
+                Op::SqrtReg(out, arg) => {
+                    v[out] = v[arg].sqrt();
+                }
+                Op::SquareReg(out, arg) => {
+                    let s = v[arg];
+                    v[out] = s * s;
+                }
+                Op::CopyReg(out, arg) => {
+                    v[out] = v[arg];
+                }
+                Op::AddRegImm(out, arg, imm) => {
+                    v[out] = v[arg] + imm;
+                }
+                Op::MulRegImm(out, arg, imm) => {
+                    v[out] = v[arg] * imm;
+                }
+                Op::DivRegImm(out, arg, imm) => {
+                    v[out] = v[arg] / imm;
+                }
+                Op::DivImmReg(out, arg, imm) => {
+                    v[out] = imm / v[arg];
+                }
+                Op::SubImmReg(out, arg, imm) => {
+                    v[out] = imm - v[arg];
+                }
+                Op::SubRegImm(out, arg, imm) => {
+                    v[out] = v[arg] - imm;
+                }
+                Op::MinRegImm(out, arg, imm) => {
+                    let a = v[arg];
+                    v[out] = if a < imm {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if imm < a {
+                        choices[choice_index] |= Choice::Right;
+                        imm
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        if a.is_nan() || imm.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            imm
+                        }
+                    };
+                    simplify |= choices[choice_index] != Choice::Both;
+                    choice_index += 1;
+                }
+                Op::MaxRegImm(out, arg, imm) => {
+                    let a = v[arg];
+                    v[out] = if a > imm {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if imm > a {
+                        choices[choice_index] |= Choice::Right;
+                        imm
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        if a.is_nan() || imm.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            imm
+                        }
+                    };
+                    simplify |= choices[choice_index] != Choice::Both;
+                    choice_index += 1;
+                }
+                Op::AddRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs] + v[rhs];
+                }
+                Op::MulRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs] * v[rhs];
+                }
+                Op::DivRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs] / v[rhs];
+                }
+                Op::SubRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs] - v[rhs];
+                }
+                Op::MinRegReg(out, lhs, rhs) => {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    v[out] = if a < b {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if b < a {
+                        choices[choice_index] |= Choice::Right;
+                        b
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        if a.is_nan() || b.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            b
+                        }
+                    };
+                    simplify |= choices[choice_index] != Choice::Both;
+                    choice_index += 1;
+                }
+                Op::MaxRegReg(out, lhs, rhs) => {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    v[out] = if a > b {
+                        choices[choice_index] |= Choice::Left;
+                        a
+                    } else if b > a {
+                        choices[choice_index] |= Choice::Right;
+                        b
+                    } else {
+                        choices[choice_index] |= Choice::Both;
+                        if a.is_nan() || b.is_nan() {
+                            std::f32::NAN
+                        } else {
+                            b
+                        }
+                    };
+                    simplify |= choices[choice_index] != Choice::Both;
+                    choice_index += 1;
+                }
+                Op::CopyImm(out, imm) => {
+                    v[out] = imm;
+                }
+                Op::Load(out, mem) => {
+                    v[out] = v[mem];
+                }
+                Op::Store(out, mem) => {
+                    v[mem] = v[out];
+                }
+            }
+        }
+        (data.slots[0], simplify)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -381,210 +562,6 @@ impl FloatSliceEvalT<Eval> for AsmFloatSliceEval {
             }
         }
         out[0..size].copy_from_slice(&self.slots[0][0..size])
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Float-point interpreter-style evaluator for a tape of [`Op`]
-#[derive(Clone)]
-pub struct AsmPointEval {
-    /// Instruction tape, in reverse-evaluation order
-    tape: Tape<Eval>,
-}
-
-#[derive(Default)]
-pub struct AsmPointEvalData {
-    /// Workspace for data
-    slots: Vec<f32>,
-}
-
-impl TracingEvaluatorData<Eval> for AsmPointEvalData {
-    fn prepare(&mut self, tape: &Tape<Eval>) {
-        assert!(tape.reg_limit() == u8::MAX);
-
-        let slot_count = tape.slot_count();
-        self.slots.resize(slot_count, std::f32::NAN);
-        self.slots.fill(std::f32::NAN);
-    }
-}
-
-impl EvaluatorStorage<Eval> for AsmPointEval {
-    type Storage = ();
-    fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
-        Self { tape: tape.clone() }
-    }
-    fn take(self) -> Option<Self::Storage> {
-        Some(())
-    }
-}
-
-impl TracingEvaluator<f32, Eval> for AsmPointEval {
-    type Data = AsmPointEvalData;
-
-    fn eval_with(
-        &self,
-        x: f32,
-        y: f32,
-        z: f32,
-        vars: &[f32],
-        choices: &mut [Choice],
-        data: &mut AsmPointEvalData,
-    ) -> (f32, bool) {
-        assert_eq!(vars.len(), self.tape.var_count());
-        let mut choice_index = 0;
-        let mut simplify = false;
-        let mut v = SlotArray(&mut data.slots);
-        for op in self.tape.iter_asm() {
-            match op {
-                Op::Input(out, i) => {
-                    v[out] = match i {
-                        0 => x,
-                        1 => y,
-                        2 => z,
-                        _ => panic!("Invalid input: {}", i),
-                    }
-                }
-                Op::Var(out, i) => v[out] = vars[i as usize],
-                Op::NegReg(out, arg) => {
-                    v[out] = -v[arg];
-                }
-                Op::AbsReg(out, arg) => {
-                    v[out] = v[arg].abs();
-                }
-                Op::RecipReg(out, arg) => {
-                    v[out] = 1.0 / v[arg];
-                }
-                Op::SqrtReg(out, arg) => {
-                    v[out] = v[arg].sqrt();
-                }
-                Op::SquareReg(out, arg) => {
-                    let s = v[arg];
-                    v[out] = s * s;
-                }
-                Op::CopyReg(out, arg) => {
-                    v[out] = v[arg];
-                }
-                Op::AddRegImm(out, arg, imm) => {
-                    v[out] = v[arg] + imm;
-                }
-                Op::MulRegImm(out, arg, imm) => {
-                    v[out] = v[arg] * imm;
-                }
-                Op::DivRegImm(out, arg, imm) => {
-                    v[out] = v[arg] / imm;
-                }
-                Op::DivImmReg(out, arg, imm) => {
-                    v[out] = imm / v[arg];
-                }
-                Op::SubImmReg(out, arg, imm) => {
-                    v[out] = imm - v[arg];
-                }
-                Op::SubRegImm(out, arg, imm) => {
-                    v[out] = v[arg] - imm;
-                }
-                Op::MinRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    v[out] = if a < imm {
-                        choices[choice_index] |= Choice::Left;
-                        a
-                    } else if imm < a {
-                        choices[choice_index] |= Choice::Right;
-                        imm
-                    } else {
-                        choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            std::f32::NAN
-                        } else {
-                            imm
-                        }
-                    };
-                    simplify |= choices[choice_index] != Choice::Both;
-                    choice_index += 1;
-                }
-                Op::MaxRegImm(out, arg, imm) => {
-                    let a = v[arg];
-                    v[out] = if a > imm {
-                        choices[choice_index] |= Choice::Left;
-                        a
-                    } else if imm > a {
-                        choices[choice_index] |= Choice::Right;
-                        imm
-                    } else {
-                        choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            std::f32::NAN
-                        } else {
-                            imm
-                        }
-                    };
-                    simplify |= choices[choice_index] != Choice::Both;
-                    choice_index += 1;
-                }
-                Op::AddRegReg(out, lhs, rhs) => {
-                    v[out] = v[lhs] + v[rhs];
-                }
-                Op::MulRegReg(out, lhs, rhs) => {
-                    v[out] = v[lhs] * v[rhs];
-                }
-                Op::DivRegReg(out, lhs, rhs) => {
-                    v[out] = v[lhs] / v[rhs];
-                }
-                Op::SubRegReg(out, lhs, rhs) => {
-                    v[out] = v[lhs] - v[rhs];
-                }
-                Op::MinRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    v[out] = if a < b {
-                        choices[choice_index] |= Choice::Left;
-                        a
-                    } else if b < a {
-                        choices[choice_index] |= Choice::Right;
-                        b
-                    } else {
-                        choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            std::f32::NAN
-                        } else {
-                            b
-                        }
-                    };
-                    simplify |= choices[choice_index] != Choice::Both;
-                    choice_index += 1;
-                }
-                Op::MaxRegReg(out, lhs, rhs) => {
-                    let a = v[lhs];
-                    let b = v[rhs];
-                    v[out] = if a > b {
-                        choices[choice_index] |= Choice::Left;
-                        a
-                    } else if b > a {
-                        choices[choice_index] |= Choice::Right;
-                        b
-                    } else {
-                        choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            std::f32::NAN
-                        } else {
-                            b
-                        }
-                    };
-                    simplify |= choices[choice_index] != Choice::Both;
-                    choice_index += 1;
-                }
-                Op::CopyImm(out, imm) => {
-                    v[out] = imm;
-                }
-                Op::Load(out, mem) => {
-                    v[out] = v[mem];
-                }
-                Op::Store(out, mem) => {
-                    v[mem] = v[out];
-                }
-            }
-        }
-        (data.slots[0], simplify)
     }
 }
 

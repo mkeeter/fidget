@@ -156,5 +156,3 @@ pub trait EvaluatorStorage<F> {
     /// Extract the internal storage for reuse, if possible
     fn take(self) -> Option<Self::Storage>;
 }
-
-////////////////////////////////////////////////////////////////////////////////
