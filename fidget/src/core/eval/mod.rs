@@ -64,17 +64,16 @@ pub trait Family: Clone {
 /// [`Family`](Family).
 pub trait Eval<F: Family> {
     fn new_point_evaluator(tape: Tape<F>) -> point::PointEval<F>;
-    fn new_interval_evaluator(
-        tape: Tape<F>,
-    ) -> TracingEval<Interval, F::IntervalEval, F>;
+
+    fn new_interval_evaluator(tape: Tape<F>) -> interval::IntervalEval<F>;
     fn new_interval_evaluator_with_storage(
         tape: Tape<F>,
-        storage: <<F as Family>::IntervalEval as EvaluatorStorage<F>>::Storage,
-    ) -> TracingEval<Interval, F::IntervalEval, F>;
+        storage: interval::IntervalEvalStorage<F>,
+    ) -> interval::IntervalEval<F>;
+
     fn new_float_slice_evaluator(
         tape: Tape<F>,
     ) -> float_slice::FloatSliceEval<F>;
-
     fn new_float_slice_evaluator_with_storage(
         tape: Tape<F>,
         storage: float_slice::FloatSliceEvalStorage<F>,
@@ -95,17 +94,15 @@ impl<F: Family> Eval<F> for F {
     }
 
     /// Builds an interval evaluator from the given `Tape`
-    fn new_interval_evaluator(
-        tape: Tape<F>,
-    ) -> TracingEval<Interval, F::IntervalEval, F> {
+    fn new_interval_evaluator(tape: Tape<F>) -> interval::IntervalEval<F> {
         TracingEval::new(&tape)
     }
 
     /// Builds an interval evaluator from the given `Tape`, reusing storage
     fn new_interval_evaluator_with_storage(
         tape: Tape<F>,
-        storage: <<F as Family>::IntervalEval as EvaluatorStorage<F>>::Storage,
-    ) -> TracingEval<Interval, F::IntervalEval, F> {
+        storage: interval::IntervalEvalStorage<F>,
+    ) -> interval::IntervalEval<F> {
         TracingEval::new_with_storage(&tape, storage)
     }
 
@@ -143,6 +140,10 @@ impl<F: Family> Eval<F> for F {
 
 use crate::Error;
 
+/// Represents an evaluator with some internal (immutable) storage
+///
+/// For example, the JIT evaluators declare their allocated `mmap` data as their
+/// `Storage`, which allows us to reuse pages.
 pub trait EvaluatorStorage<F> {
     type Storage: Default;
 
@@ -156,6 +157,8 @@ pub trait EvaluatorStorage<F> {
     /// Extract the internal storage for reuse, if possible
     fn take(self) -> Option<Self::Storage>;
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// A tracing evaluator performs evaluation of a single `T`, capturing a trace
 /// of execution for further simplification.
@@ -198,7 +201,7 @@ impl<F> TracingEvaluatorData<F> for () {
     }
 }
 
-/// Generic tracing evaluator
+/// Generic tracing evaluator `struct`
 ///
 /// This includes an inner type implementing
 /// [`TracingEvaluator`](TracingEvaluator) and a stored [`Tape`](Tape).
@@ -210,10 +213,8 @@ pub struct TracingEval<T, E, F> {
     eval: E,
     tape: Tape<F>,
 
-    _p: std::marker::PhantomData<*const T>,
+    _p: std::marker::PhantomData<fn(T) -> T>,
 }
-
-unsafe impl<T, E: Send, F> Send for TracingEval<T, E, F> {}
 
 impl<T, E, F: Family> TracingEval<T, E, F>
 where
@@ -306,6 +307,8 @@ where
 }
 
 /// Generic data associated with a tracing evaluator
+///
+/// This data is used during evaluator.
 pub struct TracingEvalData<D, F> {
     choices: Vec<Choice>,
 
@@ -313,6 +316,7 @@ pub struct TracingEvalData<D, F> {
     data: D,
 
     /// Stores the most recent tape and whether simplification is allowed
+    /// TODO: move this to a separate type?
     prev: Option<(Tape<F>, bool)>,
 }
 
@@ -333,7 +337,7 @@ impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
         self.data.prepare(tape);
     }
 
-    // TODO move these to a separate result type
+    // TODO move these to a separate result type?
     pub fn tape_len(&self) -> Option<usize> {
         self.prev.as_ref().map(|t| t.0.len())
     }

@@ -2,9 +2,11 @@
 use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
-        interval::{Interval, IntervalEval},
+        interval::{
+            Interval, IntervalEval, IntervalEvalData, IntervalEvalStorage,
+        },
         tape::{Data as TapeData, Tape, Workspace},
-        Eval, EvaluatorStorage, Family, TracingEvalData, TracingEvaluator,
+        Eval, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -188,20 +190,10 @@ struct Worker<'a, I: Family, M: RenderMode> {
     float_storage: [FloatSliceEvalStorage<I>; 2],
 
     /// Storage for interval evaluators, based on recursion depth
-    interval_storage:
-        Vec<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
+    interval_storage: Vec<IntervalEvalStorage<I>>,
 
     /// Workspace for interval evaluators, based on recursion depth
-    interval_data:
-        Vec<
-            TracingEvalData<
-                <<I as Family>::IntervalEval as TracingEvaluator<
-                    Interval,
-                    I,
-                >>::Data,
-                I,
-            >,
-        >,
+    interval_data: Vec<IntervalEvalData<I>>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,

@@ -1,5 +1,8 @@
 //! Interval evaluation
-use crate::eval::{Choice, Family, TracingEval};
+use crate::eval::{
+    Choice, EvaluatorStorage, Family, TracingEval, TracingEvalData,
+    TracingEvaluator,
+};
 
 /// Represents a range, with conservative calculations to guarantee that it
 /// always contains the actual value.
@@ -190,8 +193,19 @@ impl std::ops::Neg for Interval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// User-friendly interval evaluator
 pub type IntervalEval<F> =
     TracingEval<Interval, <F as Family>::IntervalEval, F>;
+
+/// Scratch data used by an interval evaluator from a particular family `F`
+pub type IntervalEvalData<F> = TracingEvalData<
+    <<F as Family>::IntervalEval as TracingEvaluator<Interval, F>>::Data,
+    F,
+>;
+
+/// Immutable data used by an interval evaluator from a particular family `F`
+pub type IntervalEvalStorage<F> =
+    <<F as Family>::IntervalEval as EvaluatorStorage<F>>::Storage;
 
 ////////////////////////////////////////////////////////////////////////////////
 
