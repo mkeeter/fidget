@@ -51,7 +51,7 @@ impl std::ops::BitOrAssign<Choice> for Choice {
 /// This trait is unlikely to be used directly; instead, use a
 /// [`TracingEval`](TracingEval), which offers a user-friendly API.
 pub trait TracingEvaluator<T, F> {
-    /// Workspace type used during evaluation
+    /// Scratch (mutable) data used during evaluation
     type Data: TracingEvaluatorData<F> + Default;
 
     /// Evaluates the given value, using `choices` and `data` as scratch memory.

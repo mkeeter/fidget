@@ -34,15 +34,18 @@
 // For general-purpose registers, `x9-15` (also called `w9-15`) are reasonable
 // choices; they are caller-saved, so we can trash them at will.
 
-mod mmap;
-
-use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
-
 use crate::{
-    eval::{tape::Data as TapeData, Choice, Family},
+    eval::{
+        tape::Data as TapeData, tracing::TracingEvaluator, Choice,
+        EvaluatorStorage, Family, Tape,
+    },
     jit::mmap::Mmap,
     vm::Op,
 };
+use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
+use std::sync::Arc;
+
+mod mmap;
 
 /// Number of registers available when executing natively
 ///
@@ -76,7 +79,17 @@ const CHOICE_LEFT: u32 = Choice::Left as u32;
 const CHOICE_RIGHT: u32 = Choice::Right as u32;
 const CHOICE_BOTH: u32 = Choice::Both as u32;
 
-trait AssemblerT {
+/// Trait for generating machine assembly
+///
+/// This is public because it's used to parameterize various other types, but
+/// shouldn't be used by clients; indeed, there are no public implementors of
+/// this trait.
+pub trait AssemblerT {
+    /// Data type used during evaluation.
+    ///
+    /// This should be a `repr(C)` type, so it can be passed around directly.
+    type Data;
+
     fn init(m: Mmap, slot_count: usize) -> Self;
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
@@ -377,6 +390,83 @@ impl Family for Eval {
 
     fn tile_sizes_2d() -> &'static [usize] {
         &[128, 16]
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Handle owning a JIT-compiled tracing function of some kind
+///
+/// Users are unlikely to use this directly; consider using the
+/// [`jit::Eval`](Eval) evaluator family instead.
+pub struct JitTracingEval<I: AssemblerT> {
+    mmap: Arc<Mmap>,
+    var_count: usize,
+    fn_interval: unsafe extern "C" fn(
+        I::Data,    // X
+        I::Data,    // Y
+        I::Data,    // Z
+        *const f32, // vars
+        *mut u8,    // choices
+        *mut u8,    // simplify (single boolean)
+    ) -> I::Data,
+}
+
+impl<I: AssemblerT> Clone for JitTracingEval<I> {
+    fn clone(&self) -> Self {
+        Self {
+            mmap: self.mmap.clone(),
+            var_count: self.var_count,
+            fn_interval: self.fn_interval,
+        }
+    }
+}
+
+unsafe impl<I: AssemblerT> Send for JitTracingEval<I> {}
+
+impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
+    type Storage = Mmap;
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<I>(t, prev);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            var_count: t.var_count(),
+            fn_interval: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+
+    fn take(self) -> Option<Self::Storage> {
+        Arc::try_unwrap(self.mmap).ok()
+    }
+}
+
+impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
+    type Data = ();
+
+    /// Evaluates an interval
+    fn eval_with(
+        &self,
+        x: I::Data,
+        y: I::Data,
+        z: I::Data,
+        vars: &[f32],
+        choices: &mut [Choice],
+        _data: &mut (),
+    ) -> (I::Data, bool) {
+        let mut simplify = 0;
+        assert_eq!(vars.len(), self.var_count);
+        let out = unsafe {
+            (self.fn_interval)(
+                x,
+                y,
+                z,
+                vars.as_ptr(),
+                choices.as_mut_ptr() as *mut u8,
+                &mut simplify,
+            )
+        };
+        (out, simplify != 0)
     }
 }
 

@@ -18,6 +18,8 @@ use std::sync::Arc;
 struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 
 impl AssemblerT for FloatSliceAssembler {
+    type Data = f32;
+
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

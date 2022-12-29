@@ -22,6 +22,8 @@ use std::sync::Arc;
 struct GradAssembler(AssemblerData<[f32; 4]>);
 
 impl AssemblerT for GradAssembler {
+    type Data = Grad;
+
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

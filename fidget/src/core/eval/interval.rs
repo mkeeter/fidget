@@ -10,6 +10,7 @@ use crate::eval::{
 /// # Warning
 /// This implementation does not set rounding modes, so it may not be _perfect_.
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(C)]
 pub struct Interval {
     lower: f32,
     upper: f32,

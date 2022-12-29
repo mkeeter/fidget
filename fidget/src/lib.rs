@@ -7,9 +7,11 @@
 //! **outside** the shape; otherwise, it's on the boundary of the shape.
 //!
 //! A **closed-form** implicit surface means that the function is given as a
-//! fixed program of closed-form operations (addition, subtraction, etc).  This
-//! is in contrast to [ShaderToy](https://www.shadertoy.com/)-style implicit
-//! surface functions, which often make control-flow decisions at runtime.
+//! fixed expression built from closed-form operations (addition, subtraction,
+//! etc), with no mutable state.  This is in contrast to
+//! [ShaderToy](https://www.shadertoy.com/)-style implicit surface functions,
+//! which often include mutable state and make control-flow decisions at
+//! runtime.
 //!
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.
@@ -145,9 +147,9 @@
 //! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
 //!
 //! Simplification is done with
-//! [`IntervalEvalData::simplify`](crate::eval::IntervalEvalData::simplify),
+//! [`IntervalEvalData::simplify`](crate::eval::interval::IntervalEvalData::simplify),
 //! using the `IntervalEvalData` returned from
-//! [`IntervalEval::eval`](crate::eval::IntervalEval::eval).
+//! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
 //! # use fidget::{eval::Eval, rhai::eval, vm};
