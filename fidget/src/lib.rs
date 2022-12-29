@@ -133,7 +133,7 @@
 //! let (sum, ctx) = eval("min(x, y)").unwrap();
 //! let tape = ctx.get_tape(sum).unwrap();
 //! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
-//! let (out, _) = interval_eval.eval(
+//! let (out, simplify) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
 //!         [0.0, 0.0], // Z
@@ -156,7 +156,7 @@
 //! # let (sum, ctx) = eval("min(x, y)").unwrap();
 //! # let tape = ctx.get_tape(sum).unwrap();
 //! # let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
-//! # let (out, data) = interval_eval.eval(
+//! # let (out, simplify) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
@@ -164,7 +164,7 @@
 //! #     ).unwrap();
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = data.unwrap().simplify().unwrap();
+//! let new_tape = simplify.unwrap().simplify().unwrap();
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
 //! ```
 //!

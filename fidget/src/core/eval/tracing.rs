@@ -247,14 +247,17 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 /// Represents the trace from a tracing evaluation.
 ///
 /// This is used as a handle to simplify the resulting tape.
+///
+/// It either owns or borrows a `&[Choice]`, which are typedef'd to
+/// [`OwnedTracingEvalResult`] or [`BorrowedTracingEvalResult`] respectively
 pub struct TracingEvalResult<D, F, B> {
     choices: B,
     tape: Tape<F>,
     _p: std::marker::PhantomData<*const D>,
 }
 
-type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
-type BorrowedTracingEvalResult<'a, T, F> =
+pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
+pub type BorrowedTracingEvalResult<'a, T, F> =
     TracingEvalResult<T, F, &'a [Choice]>;
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
