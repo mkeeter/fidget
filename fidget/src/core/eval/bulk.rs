@@ -26,9 +26,9 @@ pub trait BulkEvaluator<T, F> {
     /// number of variables in the tape.
     fn eval_with(
         &self,
-        x: &[T],
-        y: &[T],
-        z: &[T],
+        x: &[f32],
+        y: &[f32],
+        z: &[f32],
         vars: &[f32],
         out: &mut [T],
         data: &mut Self::Data,
@@ -100,9 +100,9 @@ where
     /// Returns a slice of results borrowed from `data.out`.
     pub fn eval_with<'a>(
         &self,
-        x: &[T],
-        y: &[T],
-        z: &[T],
+        x: &[f32],
+        y: &[f32],
+        z: &[f32],
         vars: &[f32],
         data: &'a mut BulkEvalData<E::Data, T, F>,
     ) -> Result<&'a [T], Error> {
@@ -123,9 +123,9 @@ where
     /// [`eval_with`](Self::eval_with) instead.
     pub fn eval(
         &self,
-        x: &[T],
-        y: &[T],
-        z: &[T],
+        x: &[f32],
+        y: &[f32],
+        z: &[f32],
         vars: &[f32],
     ) -> Result<Vec<T>, Error> {
         let mut data = Default::default();

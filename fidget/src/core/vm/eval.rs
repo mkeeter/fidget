@@ -1,7 +1,7 @@
 use crate::{
     eval::{
         bulk::{BulkEvaluator, BulkEvaluatorData},
-        grad::{Grad, GradEvalT},
+        grad_slice::Grad,
         interval::Interval,
         tracing::{TracingEvaluator, TracingEvaluatorData},
         Choice, EvaluatorStorage, Family, Tape,
@@ -20,10 +20,9 @@ impl Family for Eval {
     const REG_LIMIT: u8 = u8::MAX;
 
     type IntervalEval = AsmEval;
-    type FloatSliceEval = AsmEval;
     type PointEval = AsmEval;
-
-    type GradEval = AsmGradEval;
+    type FloatSliceEval = AsmEval;
+    type GradSliceEval = AsmEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
@@ -438,9 +437,10 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
         assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(data.slots.len(), self.tape.slot_count());
 
         let size = xs.len();
-        data.prepare(&self.tape, size);
+        assert!(data.slice_size >= size);
 
         let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
@@ -576,54 +576,28 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`Op`]
-pub struct AsmGradEval {
-    /// Instruction tape, in reverse-evaluation order
-    tape: Tape<Eval>,
-    /// Workspace for data
-    slots: Vec<Vec<Grad>>,
-    slice_size: usize,
-}
+impl BulkEvaluator<Grad, Eval> for AsmEval {
+    type Data = AsmBulkEvalData<Grad>;
 
-impl GradEvalT<Eval> for AsmGradEval {
-    type Storage = ();
-
-    fn new(tape: &Tape<Eval>) -> Self {
-        let slot_count = tape.slot_count();
-        Self {
-            tape: tape.clone(),
-            slots: vec![vec![]; slot_count],
-            slice_size: 0,
-        }
-    }
-
-    fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad {
-        let mut out = [Grad::default()];
-        self.eval_g(&[x], &[y], &[z], vars, out.as_mut_slice());
-        out[0]
-    }
-
-    fn eval_g(
-        &mut self,
+    fn eval_with(
+        &self,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
         vars: &[f32],
         out: &mut [Grad],
+        data: &mut Self::Data,
     ) {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
         assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(data.slots.len(), self.tape.slot_count());
 
         let size = xs.len();
-        if size > self.slice_size {
-            for s in self.slots.iter_mut() {
-                s.resize(size, Grad::default());
-            }
-            self.slice_size = size;
-        }
-        let mut v = SlotArray(&mut self.slots);
+        assert!(data.slice_size >= size);
+
+        let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
                 Op::Input(out, j) => {
@@ -770,7 +744,7 @@ impl GradEvalT<Eval> for AsmGradEval {
                 }
             }
         }
-        out.copy_from_slice(&self.slots[0][0..size])
+        out.copy_from_slice(&data.slots[0][0..size])
     }
 }
 

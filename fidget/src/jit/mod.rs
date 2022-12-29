@@ -278,15 +278,11 @@ impl From<Mmap> for MmapAssembler {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 mod float_slice;
-mod grad;
+mod grad_slice;
 mod interval;
 mod point;
 
 ////////////////////////////////////////////////////////////////////////////////
-
-fn build_asm_fn<A: AssemblerT>(t: &TapeData) -> Mmap {
-    build_asm_fn_with_storage::<A>(t, Mmap::new(1).unwrap())
-}
 
 fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
     let _guard = Mmap::thread_mode_write();
@@ -388,9 +384,9 @@ impl Family for Eval {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
     type IntervalEval = interval::JitIntervalEval;
-    type FloatSliceEval = float_slice::JitFloatSliceEval;
-    type GradEval = grad::JitGradEval;
     type PointEval = point::JitPointEval;
+    type FloatSliceEval = float_slice::JitFloatSliceEval;
+    type GradSliceEval = grad_slice::JitGradSliceEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
@@ -488,12 +484,12 @@ pub struct JitBulkEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
     fn_bulk: unsafe extern "C" fn(
-        *const I::Data, // X
-        *const I::Data, // Y
-        *const I::Data, // Z
-        *const f32,     // vars
-        *mut I::Data,   // out
-        u64,            // size
+        *const f32,   // X
+        *const f32,   // Y
+        *const f32,   // Z
+        *const f32,   // vars
+        *mut I::Data, // out
+        u64,          // size
     ) -> I::Data,
 }
 
@@ -536,9 +532,9 @@ where
     /// Evaluate multiple points
     fn eval_with(
         &self,
-        xs: &[I::Data],
-        ys: &[I::Data],
-        zs: &[I::Data],
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
         vars: &[f32],
         out: &mut [I::Data],
         _data: &mut (),
@@ -557,9 +553,9 @@ where
             // We can't use I::SIMD_SIZE directly here due to Rust limitations,
             // so instead we hard-code it to 4 with an assertion that
             // (hopefully) will be compiled out.
-            let mut x = [0.0.into(); 4];
-            let mut y = [0.0.into(); 4];
-            let mut z = [0.0.into(); 4];
+            let mut x = [0.0; 4];
+            let mut y = [0.0; 4];
+            let mut z = [0.0; 4];
             assert!(I::SIMD_SIZE <= 4);
 
             x[0..n].copy_from_slice(xs);

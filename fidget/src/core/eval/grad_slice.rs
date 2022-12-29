@@ -1,7 +1,7 @@
 //! Evaluation of partial derivatives
-use crate::{
-    eval::{Family, Tape},
-    Error,
+use crate::eval::{
+    bulk::{BulkEval, BulkEvalData, BulkEvaluator},
+    EvaluatorStorage, Family,
 };
 
 /// Represents a point in space with associated partial derivatives.
@@ -154,140 +154,19 @@ impl std::ops::Neg for Grad {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Trait used for gradient evaluation
-pub trait GradEvalT<R> {
-    type Storage: Default;
+/// User-friendly bulk float evaluator
+pub type GradSliceEval<F> = BulkEval<Grad, <F as Family>::GradSliceEval, F>;
 
-    fn new(tape: &Tape<R>) -> Self
-    where
-        Self: Sized;
+/// Scratch data used by an bulk float evaluator from a particular family `F`
+pub type GradSliceEvalData<F> = BulkEvalData<
+    <<F as Family>::GradSliceEval as BulkEvaluator<Grad, F>>::Data,
+    Grad,
+    F,
+>;
 
-    /// Constructs the `GradEvalT`, giving it a chance to reuse storage
-    ///
-    /// In the default implementation, `_storage` is ignored; override this
-    /// function if it would be useful.
-    ///
-    /// The incoming `Storage` is consumed, though it may not necessarily be
-    /// used to construct the new tape (e.g. if it's a memory-mapped region and
-    /// is too small).
-    fn new_with_storage(tape: &Tape<R>, _storage: Self::Storage) -> Self
-    where
-        Self: Sized,
-    {
-        Self::new(tape)
-    }
-
-    /// Extract the internal storage for reuse, if possible
-    ///
-    /// In the default implementation, this returns a default-constructed
-    /// `Storage`; override this function if it would be useful
-    fn take(self) -> Option<Self::Storage>
-    where
-        Self: Sized,
-    {
-        Some(Default::default())
-    }
-
-    /// Performs gradient evaluation on a single point.
-    fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad;
-
-    /// Performs gradient evaluation on many points
-    ///
-    /// The default implementation calls `eval_f` in a loop, but you can replace
-    /// it with a more efficient implementation if desired.
-    ///
-    /// # Panics
-    /// The `x`, `y`, `z`, and `out` slices must be of the same length,
-    /// otherwise, this function may panic (depending on implementation).
-    ///
-    /// The length of the `vars` slice must match the `var_count` in the
-    /// underlying `Tape`.
-    fn eval_g(
-        &mut self,
-        x: &[f32],
-        y: &[f32],
-        z: &[f32],
-        vars: &[f32],
-        out: &mut [Grad],
-    ) {
-        for (i, o) in out.iter_mut().enumerate() {
-            *o = self.eval_f(x[i], y[i], z[i], vars);
-        }
-    }
-}
-
-/// Handle for a gradient evaluator, parameterized with an evaluator family.
-///
-/// This includes an inner type implementing [`GradEvalT`](GradEvalT) and a
-/// stored [`Tape`](Tape).
-///
-/// The internal `tape` is planned with
-/// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
-pub struct GradEval<E: Family> {
-    #[allow(dead_code)]
-    tape: Tape<E>,
-    eval: E::GradEval,
-}
-
-impl<E: Family> GradEval<E> {
-    pub fn new(tape: Tape<E>) -> Self {
-        let eval = E::GradEval::new(&tape);
-        Self { tape, eval }
-    }
-
-    pub fn new_with_storage(tape: Tape<E>, s: GradEvalStorage<E>) -> Self {
-        let eval = E::GradEval::new_with_storage(&tape, s.inner);
-        Self { tape, eval }
-    }
-
-    pub fn take(self) -> Option<GradEvalStorage<E>> {
-        self.eval.take().map(|inner| GradEvalStorage { inner })
-    }
-
-    pub fn eval_g(
-        &mut self,
-        x: &[f32],
-        y: &[f32],
-        z: &[f32],
-        vars: &[f32],
-        out: &mut [Grad],
-    ) -> Result<(), Error> {
-        if x.len() != y.len() || x.len() != z.len() || x.len() != out.len() {
-            Err(Error::MismatchedSlices)
-        } else if vars.len() != self.tape.var_count() {
-            Err(Error::BadVarSlice(vars.len(), self.tape.var_count()))
-        } else {
-            self.eval.eval_g(x, y, z, vars, out);
-            Ok(())
-        }
-    }
-    pub fn eval_f(
-        &mut self,
-        x: f32,
-        y: f32,
-        z: f32,
-        vars: &[f32],
-    ) -> Result<Grad, Error> {
-        if vars.len() != self.tape.var_count() {
-            Err(Error::BadVarSlice(vars.len(), self.tape.var_count()))
-        } else {
-            Ok(self.eval.eval_f(x, y, z, vars))
-        }
-    }
-}
-
-/// Helper `struct` to reuse storage from an [`GradEval`](GradEval)
-pub struct GradEvalStorage<E: Family> {
-    inner: <<E as Family>::GradEval as GradEvalT<E>>::Storage,
-}
-
-impl<E: Family> Default for GradEvalStorage<E> {
-    fn default() -> Self {
-        Self {
-            inner: Default::default(),
-        }
-    }
-}
+/// Immutable data used by an bulk float evaluator from a particular family `F`
+pub type GradSliceEvalStorage<F> =
+    <<F as Family>::GradSliceEval as EvaluatorStorage<F>>::Storage;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -304,9 +183,9 @@ pub mod eval_tests {
         let x = ctx.x();
         let tape = ctx.get_tape(x).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(0.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.0, 1.0, 0.0, 0.0)
         );
     }
@@ -317,21 +196,21 @@ pub mod eval_tests {
         let s = ctx.square(x).unwrap();
         let tape = ctx.get_tape(s).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(0.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.0, 0.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(1.0, 2.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(2.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(4.0, 4.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(3.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[3.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(9.0, 6.0, 0.0, 0.0)
         );
     }
@@ -342,13 +221,13 @@ pub mod eval_tests {
         let s = ctx.sqrt(x).unwrap();
         let tape = ctx.get_tape(s).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(1.0, 0.5, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(4.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[4.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(2.0, 0.25, 0.0, 0.0)
         );
     }
@@ -360,21 +239,21 @@ pub mod eval_tests {
         let s = ctx.mul(x, y).unwrap();
         let tape = ctx.get_tape(s).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.0, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(0.0, 1.0, 0.0, &[]).unwrap(),
+            eval.eval(&[0.0], &[1.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.0, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(4.0, 1.0, 0.0, &[]).unwrap(),
+            eval.eval(&[4.0], &[1.0], &[0.0], &[]).unwrap()[0],
             Grad::new(4.0, 1.0, 4.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(4.0, 2.0, 0.0, &[]).unwrap(),
+            eval.eval(&[4.0], &[2.0], &[0.0], &[]).unwrap()[0],
             Grad::new(8.0, 2.0, 4.0, 0.0)
         );
     }
@@ -385,9 +264,9 @@ pub mod eval_tests {
         let s = ctx.div(x, 2.0).unwrap();
         let tape = ctx.get_tape(s).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.5, 0.5, 0.0, 0.0)
         );
     }
@@ -398,13 +277,13 @@ pub mod eval_tests {
         let s = ctx.recip(x).unwrap();
         let tape = ctx.get_tape(s).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(1.0, -1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(2.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.5, -0.25, 0.0, 0.0)
         );
     }
@@ -421,21 +300,21 @@ pub mod eval_tests {
         let sub = ctx.sub(sqrt, 0.5).unwrap();
         let tape = ctx.get_tape(sub).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
         assert_eq!(
-            eval.eval_f(1.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.5, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(0.0, 1.0, 0.0, &[]).unwrap(),
+            eval.eval(&[0.0], &[1.0], &[0.0], &[]).unwrap()[0],
             Grad::new(0.5, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(2.0, 0.0, 0.0, &[]).unwrap(),
+            eval.eval(&[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(1.5, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval_f(0.0, 2.0, 0.0, &[]).unwrap(),
+            eval.eval(&[0.0], &[2.0], &[0.0], &[]).unwrap()[0],
             Grad::new(1.5, 0.0, 1.0, 0.0)
         );
     }
@@ -444,9 +323,15 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let tape = ctx.get_tape(a).unwrap();
-        let mut eval = I::new_grad_evaluator(tape);
-        assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[1.0]).unwrap(), 1.0.into());
-        assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[2.0]).unwrap(), 2.0.into());
+        let eval = I::new_grad_slice_evaluator(tape);
+        assert_eq!(
+            eval.eval(&[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
+            1.0.into()
+        );
+        assert_eq!(
+            eval.eval(&[0.0], &[0.0], &[0.0], &[2.0]).unwrap()[0],
+            2.0.into()
+        );
 
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
@@ -454,9 +339,15 @@ pub mod eval_tests {
         let div = ctx.div(sum, 2.0).unwrap();
         let tape = ctx.get_tape(div).unwrap();
 
-        let mut eval = I::new_grad_evaluator(tape);
-        assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[1.0]).unwrap(), 1.0.into());
-        assert_eq!(eval.eval_f(0.0, 0.0, 0.0, &[2.0]).unwrap(), 1.5.into());
+        let eval = I::new_grad_slice_evaluator(tape);
+        assert_eq!(
+            eval.eval(&[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
+            1.0.into()
+        );
+        assert_eq!(
+            eval.eval(&[0.0], &[0.0], &[0.0], &[2.0]).unwrap()[0],
+            1.5.into()
+        );
 
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
@@ -465,36 +356,36 @@ pub mod eval_tests {
         let min = ctx.div(sum, b).unwrap();
         let tape = ctx.get_tape(min).unwrap();
         let mut vars = Vars::new(&tape);
-        let mut eval = I::new_grad_evaluator(tape);
+        let eval = I::new_grad_slice_evaluator(tape);
 
         assert_eq!(
-            eval.eval_f(
-                0.0,
-                0.0,
-                0.0,
+            eval.eval(
+                &[0.0],
+                &[0.0],
+                &[0.0],
                 vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()[0],
             2.0.into()
         );
         assert_eq!(
-            eval.eval_f(
-                0.0,
-                0.0,
-                0.0,
+            eval.eval(
+                &[0.0],
+                &[0.0],
+                &[0.0],
                 vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()[0],
             2.0.into()
         );
         assert_eq!(
-            eval.eval_f(
-                0.0,
-                0.0,
-                0.0,
+            eval.eval(
+                &[0.0],
+                &[0.0],
+                &[0.0],
                 vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
             )
-            .unwrap(),
+            .unwrap()[0],
             0.5.into(),
         );
     }
@@ -504,7 +395,7 @@ pub mod eval_tests {
         ($i:ident, $t:ty) => {
             #[test]
             fn $i() {
-                $crate::eval::grad::eval_tests::$i::<$t>()
+                $crate::eval::grad_slice::eval_tests::$i::<$t>()
             }
         };
     }

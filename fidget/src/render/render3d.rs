@@ -4,7 +4,9 @@ use crate::{
         float_slice::{
             FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
         },
-        grad::{Grad, GradEval, GradEvalStorage},
+        grad_slice::{
+            Grad, GradSliceEval, GradSliceEvalData, GradSliceEvalStorage,
+        },
         interval::{Interval, IntervalEval, IntervalEvalData},
         tape::{Data as TapeData, Tape, Workspace},
         Choice, Eval, EvaluatorStorage, Family,
@@ -38,10 +40,10 @@ struct Scratch<F: Family> {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out_grad: Vec<Grad>,
 
     data_float: FloatSliceEvalData<F>,
     data_interval: IntervalEvalData<F>,
+    data_grad: GradSliceEvalData<F>,
 
     /// Depth of each column
     columns: Vec<usize>,
@@ -58,8 +60,8 @@ impl<F: Family> Scratch<F> {
 
             data_float: Default::default(),
             data_interval: Default::default(),
+            data_grad: Default::default(),
 
-            out_grad: vec![0.0.into(); size2],
             columns: vec![0; size2],
         }
     }
@@ -78,15 +80,20 @@ impl<F: Family> Scratch<F> {
         )
         .unwrap()
     }
-    fn eval_g(&mut self, f: &mut GradEval<F>, size: usize) {
-        f.eval_g(
+    fn eval_g<'a>(
+        &mut self,
+        f: &mut GradSliceEval<F>,
+        size: usize,
+        data: &'a mut GradSliceEvalData<F>,
+    ) -> &'a [Grad] {
+        f.eval_with(
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
             &[],
-            &mut self.out_grad[0..size],
+            data,
         )
-        .unwrap();
+        .unwrap()
     }
 }
 
@@ -97,7 +104,7 @@ struct Evaluators<I: Family> {
     tape: Tape<I>,
     interval: Option<IntervalEval<I>>,
     float_slice: Option<FloatSliceEval<I>>,
-    grad: Option<GradEval<I>>,
+    grad: Option<GradSliceEval<I>>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -125,7 +132,7 @@ struct Worker<'a, I: Family> {
     float_storage: Vec<Option<FloatSliceEvalStorage<I>>>,
 
     /// Equivalent to `float_storage`, for gradient evaluators
-    grad_storage: Vec<Option<GradEvalStorage<I>>>,
+    grad_storage: Vec<Option<GradSliceEvalStorage<I>>>,
 
     /// Storage for interval evaluators.
     ///
@@ -509,15 +516,19 @@ impl<I: Family> Worker<'_, I> {
             // wasn't already available (which makes it available to siblings)
             let func = eval.grad.get_or_insert_with(|| {
                 let storage = self.grad_storage[eval.level].take().unwrap();
-                I::new_grad_evaluator_with_storage(eval.tape.clone(), storage)
+                I::new_grad_slice_evaluator_with_storage(
+                    eval.tape.clone(),
+                    storage,
+                )
             });
-            self.scratch.eval_g(func, grad);
+            let mut data_grad = std::mem::take(&mut self.scratch.data_grad);
+            let out_grad = self.scratch.eval_g(func, grad, &mut data_grad);
 
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
-                self.color[*o] = self.scratch.out_grad[index]
-                    .to_rgb()
-                    .unwrap_or([255, 0, 0]);
+                self.color[*o] =
+                    out_grad[index].to_rgb().unwrap_or([255, 0, 0]);
             }
+            self.scratch.data_grad = data_grad;
         }
 
         // Return the scratch data

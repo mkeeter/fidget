@@ -1,15 +1,11 @@
 use crate::{
-    eval::{
-        grad::{Grad, GradEvalT},
-        Tape,
-    },
+    eval::grad_slice::Grad,
     jit::{
-        build_asm_fn, build_asm_fn_with_storage, mmap::Mmap, reg,
-        AssemblerData, AssemblerT, Eval, IMM_REG, OFFSET, REGISTER_LIMIT,
+        mmap::Mmap, reg, AssemblerData, AssemblerT, JitBulkEval, SimdAssembler,
+        IMM_REG, OFFSET, REGISTER_LIMIT,
     },
 };
 use dynasmrt::{dynasm, DynasmApi};
-use std::sync::Arc;
 
 /// Assembler for automatic differentiation / gradient evaluation
 ///
@@ -19,9 +15,9 @@ use std::sync::Arc;
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
-struct GradAssembler(AssemblerData<[f32; 4]>);
+pub struct GradSliceAssembler(AssemblerData<[f32; 4]>);
 
-impl AssemblerT for GradAssembler {
+impl AssemblerT for GradSliceAssembler {
     type Data = Grad;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
@@ -290,45 +286,10 @@ impl AssemblerT for GradAssembler {
     }
 }
 
-/// Evaluator for a JIT-compiled function performing gradient evaluation.
-pub struct JitGradEval {
-    mmap: Arc<Mmap>,
-    var_count: usize,
-    /// X, Y, Z are passed by value; the output is written to an array of 4
-    /// floats (allocated by the caller)
-    fn_grad: unsafe extern "C" fn(f32, f32, f32, *const f32) -> [f32; 4],
+impl SimdAssembler for GradSliceAssembler {
+    const SIMD_SIZE: usize = 1;
 }
 
-impl GradEvalT<Eval> for JitGradEval {
-    type Storage = Mmap;
+////////////////////////////////////////////////////////////////////////////////
 
-    fn new(t: &Tape<Eval>) -> Self {
-        assert_eq!(t.reg_limit(), REGISTER_LIMIT);
-        let mmap = build_asm_fn::<GradAssembler>(t);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_grad: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<GradAssembler>(t, prev);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_grad: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-    fn eval_f(&mut self, x: f32, y: f32, z: f32, vars: &[f32]) -> Grad {
-        assert_eq!(vars.len(), self.var_count);
-        let [v, x, y, z] = unsafe { (self.fn_grad)(x, y, z, vars.as_ptr()) };
-        Grad::new(v, x, y, z)
-    }
-}
+pub type JitGradSliceEval = JitBulkEval<GradSliceAssembler>;
