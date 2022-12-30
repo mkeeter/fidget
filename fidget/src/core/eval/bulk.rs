@@ -1,7 +1,15 @@
-//! Evaluates many values in a single call
+//! Evaluates many points in a single call
 //!
 //! Doing bulk evaluations helps limit to overhead of instruction dispatch, and
 //! can take advantage of SIMD.
+//!
+//! A bulk evaluator expects to be given **many single points**, i.e. the X, Y,
+//! Z inputs are always `&[f32]`.  The output may be of a different type, e.g.
+//! partial derivatives with respect to X/Y/Z
+//! ([`GradEval`](crate::eval::GradSliceEval)).
+//!
+//! Bulk evaluators are typically named `XSliceEval`, where `X` is the output
+//! type.
 //!
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.

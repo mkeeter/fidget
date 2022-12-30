@@ -6,7 +6,7 @@ use crate::eval::{
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// User-friendly point evaluator
+/// Evaluator for a single point, returning an `f32` and capturing a trace
 pub type PointEval<F> = TracingEval<f32, <F as Family>::PointEval, F>;
 
 /// Scratch data used by an point evaluator from a particular family `F`

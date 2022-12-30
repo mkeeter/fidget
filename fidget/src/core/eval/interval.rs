@@ -7,7 +7,7 @@ use crate::eval::{
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// User-friendly interval evaluator
+/// Evaluator for intervals, returning an interval and capturing a trace
 pub type IntervalEval<F> =
     TracingEval<Interval, <F as Family>::IntervalEval, F>;
 

@@ -6,7 +6,7 @@ use crate::eval::{
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// User-friendly bulk float evaluator
+/// Evaluator for many points, returning an `f32`
 pub type FloatSliceEval<F> = BulkEval<f32, <F as Family>::FloatSliceEval, F>;
 
 /// Scratch data used by an bulk float evaluator from a particular family `F`

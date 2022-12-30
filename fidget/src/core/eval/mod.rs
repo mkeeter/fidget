@@ -36,6 +36,7 @@ mod vars;
 // Re-export a few things
 pub use float_slice::FloatSliceEval;
 pub use grad_slice::GradSliceEval;
+pub use interval::IntervalEval;
 pub use point::PointEval;
 pub use tape::Tape;
 pub use tracing::Choice;
