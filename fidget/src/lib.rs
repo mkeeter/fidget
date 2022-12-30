@@ -105,11 +105,11 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{eval::Eval, rhai::eval, vm};
+//! use fidget::{rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape(sum).unwrap();
-//! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
@@ -128,11 +128,11 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{eval::Eval, rhai::eval, vm};
+//! use fidget::{rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("min(x, y)").unwrap();
-//! let tape = ctx.get_tape(sum).unwrap();
-//! let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, simplify) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
@@ -152,10 +152,10 @@
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
-//! # use fidget::{eval::Eval, rhai::eval, vm};
+//! # use fidget::{rhai::eval, vm};
 //! # let (sum, ctx) = eval("min(x, y)").unwrap();
-//! # let tape = ctx.get_tape(sum).unwrap();
-//! # let mut interval_eval = vm::Eval::new_interval_evaluator(tape);
+//! # let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! # let mut interval_eval = tape.new_interval_evaluator();
 //! # let (out, simplify) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y

@@ -4,10 +4,7 @@ use clap::Parser;
 use env_logger::Env;
 use log::info;
 
-use fidget::{
-    context::{Context, Node},
-    eval::Eval,
-};
+use fidget::context::{Context, Node};
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -130,11 +127,11 @@ fn run<I: fidget::eval::Family>(
     args: &Args,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node).unwrap();
+    let tape = ctx.get_tape::<I>(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     if args.brute {
-        let eval = I::new_float_slice_evaluator(tape);
+        let eval = tape.new_float_slice_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
         for _ in 0..args.n {

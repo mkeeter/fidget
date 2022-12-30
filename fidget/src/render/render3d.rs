@@ -8,7 +8,7 @@ use crate::{
         interval::{IntervalEval, IntervalEvalData},
         tape::{Data as TapeData, Tape, Workspace},
         types::{Grad, Interval},
-        Choice, Eval, EvaluatorStorage, Family,
+        Choice, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -220,10 +220,7 @@ impl<I: Family> Worker<'_, I> {
             .interval
             .get_or_insert_with(|| {
                 let storage = self.interval_storage[eval.level].take().unwrap();
-                I::new_interval_evaluator_with_storage(
-                    eval.tape.clone(),
-                    storage,
-                )
+                eval.tape.new_interval_evaluator_with_storage(storage)
             })
             .eval_with(x, y, z, &[], &mut data_interval)
             .unwrap();
@@ -451,10 +448,7 @@ impl<I: Family> Worker<'_, I> {
         // wasn't already available (which makes it available to siblings)
         let func = eval.float_slice.get_or_insert_with(|| {
             let storage = self.float_storage[eval.level].take().unwrap();
-            I::new_float_slice_evaluator_with_storage(
-                eval.tape.clone(),
-                storage,
-            )
+            eval.tape.new_float_slice_evaluator_with_storage(storage)
         });
 
         // Borrow the scratch data, returning it at the end of the function
@@ -515,10 +509,7 @@ impl<I: Family> Worker<'_, I> {
             // wasn't already available (which makes it available to siblings)
             let func = eval.grad.get_or_insert_with(|| {
                 let storage = self.grad_storage[eval.level].take().unwrap();
-                I::new_grad_slice_evaluator_with_storage(
-                    eval.tape.clone(),
-                    storage,
-                )
+                eval.tape.new_grad_slice_evaluator_with_storage(storage)
             });
             let mut data_grad = std::mem::take(&mut self.scratch.data_grad);
             let out_grad = self.scratch.eval_g(func, grad, &mut data_grad);
@@ -670,7 +661,7 @@ pub fn render<I: Family>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = I::new_interval_evaluator(tape);
+    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

@@ -5,7 +5,7 @@ use crate::{
         interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
         types::Interval,
-        Eval, Family,
+        Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -253,10 +253,8 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 i_handle.tape()
             };
             let storage = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = I::new_interval_evaluator_with_storage(
-                sub_tape.clone(),
-                storage,
-            );
+            let mut sub_jit =
+                sub_tape.new_interval_evaluator_with_storage(storage);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -342,10 +340,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         // (this matters most for the JIT compiler, which is _expensive_)
         let out = if sub_tape.len() < prev_tape.len() {
             let storage = std::mem::take(&mut self.float_storage[1]);
-            let func = I::new_float_slice_evaluator_with_storage(
-                sub_tape.clone(),
-                storage,
-            );
+            let func = sub_tape.new_float_slice_evaluator_with_storage(storage);
 
             let out = func
                 .eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
@@ -361,7 +356,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let storage = std::mem::take(&mut self.float_storage[0]);
-                I::new_float_slice_evaluator_with_storage(prev_tape, storage)
+                prev_tape.new_float_slice_evaluator_with_storage(storage)
             });
 
             func.eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
@@ -440,7 +435,7 @@ pub fn render<I: Family, M: RenderMode + Sync>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = I::new_interval_evaluator(tape);
+    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

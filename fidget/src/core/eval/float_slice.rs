@@ -25,10 +25,7 @@ pub type FloatSliceEvalStorage<F> =
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{
-        context::Context,
-        eval::{Eval, Vars},
-    };
+    use crate::{context::Context, eval::Vars};
 
     pub fn test_give_take<I: Family>() {
         let mut ctx = Context::new();
@@ -121,9 +118,9 @@ pub mod eval_tests {
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape(min).unwrap();
+        let tape = ctx.get_tape::<I>(min).unwrap();
         let mut vars = Vars::new(&tape);
-        let eval = I::new_float_slice_evaluator(tape);
+        let eval = tape.new_float_slice_evaluator();
 
         assert_eq!(
             eval.eval(

@@ -4,13 +4,13 @@
 //! which is a [`Family`](Family) of JIT evaluators.
 //!
 //! ```
-//! use fidget::{rhai::eval, jit, eval::Eval};
+//! use fidget::{rhai::eval, jit};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape(sum).unwrap();
+//! let tape = ctx.get_tape::<jit::Eval>(sum).unwrap();
 //!
 //! // Generate machine code to execute the tape
-//! let mut eval = jit::Eval::new_point_evaluator(tape);
+//! let mut eval = tape.new_point_evaluator();
 //!
 //! // This calls directly into that machine code!
 //! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[]).unwrap().0, 0.1 + 0.3);
