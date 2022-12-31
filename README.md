@@ -1,5 +1,7 @@
 # Fidget
 ![Build & Test Github Actions badge](https://github.com/mkeeter/fidget/actions/workflows/rust.yml/badge.svg)
+![docs.rs badge](https://img.shields.io/docsrs/fidget?label=docs.rs)
+![crates.io badge](https://img.shields.io/crates/v/fidget)
 
 Fidget is experimental infrastructure for complex closed-form implicit surfaces.
 
