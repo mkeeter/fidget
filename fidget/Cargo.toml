@@ -9,6 +9,7 @@ authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
 
 [dependencies]
 arrayvec = "0.7"
+document-features = "0.2"
 num-derive = "0.3"
 num-traits = "0.2"
 ordered-float = "3"
@@ -26,11 +27,21 @@ nalgebra = { version = "0.31", optional = true }
 
 [features]
 # Ideally, we'd disable the `jit` feature on unsupported platforms; alas, that
-# is not possible (https://github.com/rust-lang/cargo/issues/1197)
+# is not possible 
 default = ["jit", "rhai", "render"]
 
+## Enables fast evaluation via a JIT compiler.  This is exposed in the
+## [`fidget::jit`](crate::jit) module, and is only supported on macOS + AArch64.
+## There's no way to disable the feature based on platform
+## ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197)), so users
+## will have to disable it manually via `default-features = false`.
 jit = ["dynasmrt", "libc"]
+
+## Enable [Rhai](https://rhai.rs/) bindings, in the
+## [`fidget::rhai`](crate::rhai) module
 rhai = ["dep:rhai"]
+
+## Enable 2D and 3D rendering, in the [`fidget::render`](crate::render) module
 render = ["nalgebra"]
 
 # Enable `eval-tests` if you're writing your own objects which implement the

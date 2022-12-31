@@ -37,16 +37,6 @@ Issues and PRs are welcome, although I'm unlikely to merge anything which adds
 substantial maintenance burden.  This is a personal-scale experimental project,
 so adjust your expectations accordingly.
 
-## Crate features
-The project is based on the `fidget` crate, with three relevant features
-
-- `render` builds `fidget::render`, which includes functions to render 2D and
-  3D images.
-- `rhai` builds [Rhai](https://rhai.rs/) bindings
-- `jit` builds the JIT compiler
-
-By default, all of these features are enabled.
-
 ## Demo applications
 In the [repository on Github](https://github.com/mkeeter/fidget), there are
 two demo applications:

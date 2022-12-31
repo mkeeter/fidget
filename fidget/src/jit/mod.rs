@@ -35,6 +35,12 @@ compile_error!(
     please disable the `jit` feature"
 );
 
+#[cfg(not(target_os = "macos"))]
+compile_error!(
+    "The `jit` module only builds on macOS; \
+    please disable the `jit` feature"
+);
+
 /// Number of registers available when executing natively
 ///
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)

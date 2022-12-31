@@ -269,6 +269,8 @@
 //! projects.  For example, it does not implement meshing, and only includes a
 //! debug GUI.
 //!
+//! # Feature flags
+#![doc = document_features::document_features!()]
 
 // Re-export everything from fidget::core into the top-level namespace
 mod core;
