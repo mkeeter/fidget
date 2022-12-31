@@ -3,16 +3,7 @@
 [![docs.rs badge](https://img.shields.io/docsrs/fidget?label=docs.rs)](https://docs.rs/fidget/)
 [![crates.io badge](https://img.shields.io/crates/v/fidget)](https://crates.io/crates/fidget)
 
-Fidget is experimental infrastructure for complex closed-form implicit surfaces.
-
-It is **not ready for public use**, but is published to
-[crates.io](https://crates.io) to claim the package name.
-
-(As such, I'd appreciate if people didn't share it to news aggregators or post
-about it on Twitter.  If you feel an overwhelming urge to talk about it, feel
-free to [reach out directly](https://mattkeeter.com/about))
-
-That being said, it already includes a bunch of functionality:
+Fidget is experimental infrastructure for complex closed-form implicit surfaces:
 
 - Manipulation and deduplication of math expressions
 - Conversion from graphs into straight-line code ("tapes") for evaluation
@@ -22,8 +13,8 @@ That being said, it already includes a bunch of functionality:
     - Interval evaluation (`[lower, upper]`)
     - SIMD evaluation (`f32 x 4`)
     - Gradient evaluation (partial derivatives with respect to x, y, and z)
-
-These building blocks are used in an implementation of bitmap rendering.
+- Bitmap rendering of implicit surfaces in 2D (with a variety of rendering
+  modes) and 3D (producing heightmaps and normals).
 
 If this all sounds oddly familiar, it's because you've read
 [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://www.mattkeeter.com/research/mpr/).
@@ -31,9 +22,20 @@ Fidget includes all of the building blocks from that paper, but with an emphasis
 on (native) evaluation on the CPU, rather than (interpreted) evaluation on the
 GPU.
 
-## License
-© 2022-2023 Matthew Keeter
-Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)
+The library has [extensive documentation](https://docs.rs/fidget/latest/fidget/),
+including a high-level overview of the APIs in the crate-level docs; this is a
+great place to get started!
+
+At the moment, it has strong Lego-kit-without-a-manual energy: there are lots of
+functions that are individually documented, but putting them together into
+something useful is left as an exercise to the reader.  There may also be some
+missing pieces, and the API seams may not be in the right places; if you're
+doing serious work with the library, expect to fork it and make local
+modifications.
+
+Issues and PRs are welcome, although I'm unlikely to merge anything which adds
+substantial maintenance burden.  This is a personal-scale experimental project,
+so adjust your expectations accordingly.
 
 ## Crate features
 The project is based on the `fidget` crate, with three relevant features
@@ -57,7 +59,14 @@ These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
 ## Platforms
-At the moment, only macOS (AArch64) is fully supported.
+At the moment, the JIT only supports macOS + AArch64.
 
-Disabling the `jit` feature should allow for cross-platform rendering
-(albeit without the JIT compiler), but this is untested.
+Disabling the `jit` feature allows for cross-platform rendering, using an
+interpreter rather than JIT compilation.
+
+If you want to write some x86 assembly (and who doesn't?!), adding that backend
+would be a fun project and highly welcome!
+
+## License
+© 2022-2023 Matthew Keeter  
+Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)
