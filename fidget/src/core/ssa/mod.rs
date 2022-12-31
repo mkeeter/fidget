@@ -1,4 +1,4 @@
-//! Tools for working with tapes in single static assignment (SSA) form
+//! Instruction tapes in single static assignment (SSA) form
 mod builder;
 mod op;
 mod tape;

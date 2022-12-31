@@ -19,11 +19,16 @@ use crate::{
     Error,
 };
 
-/// Trait for bulk evaluation of a given type
+/// Trait for bulk evaluation returning the given type `T`
+///
+/// It's uncommon to use this trait outside the library itself; it's an
+/// abstraction to reduce code duplication, and is public because it's used as a
+/// constraint on other public APIs.
 pub trait BulkEvaluator<T, F> {
     type Data: BulkEvaluatorData<F> + Default;
 
-    /// Evaluates many points, writing the result into `out`.
+    /// Evaluates many points, writing the result into `out` and using `data` as
+    /// scratch memory.
     ///
     /// # Panics
     /// This function may assume that the `x`, `y`, `z`, and `out` slices are of
@@ -53,19 +58,25 @@ pub trait BulkEvaluatorData<F> {
     fn prepare(&mut self, tape: &Tape<F>, size: usize);
 }
 
+/// Some bulk evaluators have no need for scratch data!
 impl<F> BulkEvaluatorData<F> for () {
     fn prepare(&mut self, _tape: &Tape<F>, _size: usize) {
         // Nothing to do here
     }
 }
 
-/// Generic bulk evaluator `struct`
+/// Generic bulk evaluator container `struct`
 ///
 /// This includes an inner type implementing
 /// [`BulkEvaluator`](BulkEvaluator) and a stored [`Tape`](Tape).
 ///
+/// This type is parameterized with three types:
+/// - `T` is the output type returned by bulk evaluation
+/// - `E` is the bulk evaluator itself
+/// - `F` is the tape family
+///
 /// The internal `tape` is planned with
-/// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
+/// [`F::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
 #[derive(Clone)]
 pub struct BulkEval<T, E, F> {
     eval: E,
@@ -84,6 +95,7 @@ where
         Self::new_with_storage(tape, E::Storage::default())
     }
 
+    /// Returns a copy of the inner tape
     pub fn tape(&self) -> Tape<F> {
         self.tape.clone()
     }
@@ -103,7 +115,7 @@ where
         self.eval.take()
     }
 
-    /// Evaluate using (and modifying) the given workspace
+    /// Evaluate using the given `data` as scratch memory
     ///
     /// Returns a slice of results borrowed from `data.out`.
     pub fn eval_with<'a>(

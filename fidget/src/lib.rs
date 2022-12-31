@@ -77,9 +77,16 @@
 //! $2 = ADD $0 $1 // (X + Y)
 //! ```
 //!
-//! To evaluate the tape, we must choose an [evaluator
-//! family](crate::eval::Family).  At the moment, Fidget implements two
-//! evaluator families:
+//! The `Tape` is parameterized by a particular
+//! [evaluator family](crate::eval::Family); in `ctx.get_tape::<vm::Eval>(...)`,
+//! the associated family is `vm::Eval`.
+//!
+//! (Parameterizing the tape is required because different evaluator families
+//! have different numbers of [available
+//! registers](crate::eval::Family::REG_LIMIT), which affects tape planning;
+//! don't worry, this won't be on the test)
+//!
+//! At the moment, Fidget implements two evaluator families:
 //!
 //! - [`fidget::jit::Eval`](crate::jit::Eval) performs fast evaluation by
 //!   compiling shapes down to native code.  This is only functional on an ARM64
@@ -89,17 +96,19 @@
 //!   x86 machines or in WebAssembly).
 //!
 //! Looking at the [`eval::Family`](crate::eval::Family) trait, you may notice
-//! that it requires several different kinds of evaluation.  In addition to
-//! supporting evaluation at a single point, Fidget evaluators must support
+//! that it requires four different kinds of evaluation:
 //!
-//! - Evaluation on a array of points (giving an opportunity for SIMD)
+//! - Single-point evaluation
 //! - Interval evaluation
-//! - Evaluation of partial derivatives with respect to `x, y, z`
+//! - Evaluation on an array of points, returning `f32` values
+//! - Evaluation on an array of points, returning partial derivatives with
+//!   respect to `x, y, z`
 //!
 //! These evaluation flavors are used in rendering:
-//! - SIMD evaluation speeds up rendering groups of voxels.
-//! - Interval evaluation can prove large regions of space to be empty or full,
-//!   at which point they don't need to be considered further.
+//! - Interval evaluation can conservatively prove large regions of space to be
+//!   empty or full, at which point they don't need to be considered further.
+//! - Array-of-points evaluation speeds up calculating occupancy (inside /
+//!   outside) when given a set of voxels by amortizing dispatch overhead.
 //! - At the surface of the model, partial derivatives represent normals and
 //!   can be used for shading.
 //!
@@ -235,26 +244,40 @@
 //!
 //! *written by the same author
 //!
-//! Compared to these projects, Fidget is unique in having a native JIT and
-//! using that JIT while performing tape simplification.  This makes it _blazing
-//! fast_.
+//! (the MPR paper also cites
+//! [many references](https://dl.acm.org/doi/10.1145/3386569.3392429#sec-ref)
+//! to related academic work)
+//!
+//! Compared to these projects, Fidget is unique in having a native JIT **and**
+//! using that JIT while performing tape simplification.  Situating it among
+//! projects by the same author – which all use roughly the same rendering
+//! strategies – it looks something like this:
+//!
+//! |                 | CPU               | GPU
+//! |-----------------|-------------------|------
+//! | **Interpreter** | `libfive`, Fidget | MPR
+//! | **JIT**         | Fidget            | (please give me APIs to do this)
+//!
+//! Fidget's native JIT makes it _blazing fast_.
 //! For example, here are rough benchmarks rasterizing [this model](https://www.mattkeeter.com/projects/siggraph/depth_norm@2x.png)
 //! across three different implementations:
 //!
-//! Size | `libfive` | MPR| Fidget
-//! -|-|-|-
-//! 1024³ | 66.8 ms | 22.6 ms| 23.6 ms
-//! 1536³ | 127 ms | 39.3 ms| 45.4 ms
-//! 2048³ | 211 ms | 60.6 ms| 77.4 ms
+//! Size  | `libfive` | MPR     | Fidget (VM) | Fidget (JIT)
+//! ------|-----------|---------|-------------|---------------
+//! 1024³ | 66.8 ms   | 22.6 ms | 61.7 ms     | 23.6 ms
+//! 1536³ | 127 ms    | 39.3 ms | 112 ms      | 45.4 ms
+//! 2048³ | 211 ms    | 60.6 ms | 184 ms      | 77.4 ms
 //!
 //! `libfive` and Fidget are running on an M1 Max CPU; MPR is running on a GTX
-//! 1080 Ti GPU.
+//! 1080 Ti GPU.  We see that Fidget's interpreter is slightly better than
+//! `libfive`, and Fidget's JIT is _nearly_ competitive with the GPU-based MPR.
 //!
 //! Fidget is missing a bunch of features that are found in more mature
-//! projects.  For example, it does not include mesh export, and only includes a
+//! projects.  For example, it does not implement meshing, and only includes a
 //! debug GUI.
+//!
 
-// Re-export everything from fidget_core into the top-level namespace
+// Re-export everything from fidget::core into the top-level namespace
 mod core;
 pub use crate::core::*;
 

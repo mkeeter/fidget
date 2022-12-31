@@ -8,14 +8,15 @@ use crate::eval::{
 /// Evaluator for many points, calculating partial derivatives
 pub type GradSliceEval<F> = BulkEval<Grad, <F as Family>::GradSliceEval, F>;
 
-/// Scratch data used by an bulk float evaluator from a particular family `F`
+/// Scratch data used by an bulk gradient evaluator from a particular family `F`
 pub type GradSliceEvalData<F> = BulkEvalData<
     <<F as Family>::GradSliceEval as BulkEvaluator<Grad, F>>::Data,
     Grad,
     F,
 >;
 
-/// Immutable data used by an bulk float evaluator from a particular family `F`
+/// Immutable data used by an bulk gradient evaluator from a particular family
+/// `F`
 pub type GradSliceEvalStorage<F> =
     <<F as Family>::GradSliceEval as EvaluatorStorage<F>>::Storage;
 
