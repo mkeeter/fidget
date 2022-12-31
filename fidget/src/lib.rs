@@ -16,6 +16,10 @@
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.
 //!
+//! Details on overall project status are in the
+//! [project's README](https://github.com/mkeeter/fidget);
+//! the rest of this page is a quick tour through the library APIs.
+//!
 //! # Shape construction
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
