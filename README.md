@@ -1,4 +1,6 @@
 # Fidget
+![Build & Test Github Actions badge](https://github.com/mkeeter/fidget/actions/workflows/rust.yml/badge.svg)
+
 Fidget is experimental infrastructure for complex closed-form implicit surfaces.
 
 It is **not ready for public use**, but is published to
