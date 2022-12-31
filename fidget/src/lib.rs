@@ -16,17 +16,6 @@
 //! Finally, **complex** means that that the library scales to expressions with
 //! thousands of clauses.
 //!
-//! At the moment, it's got strong Lego-kit-without-a-manual energy: there are
-//! lots of functions that are individually documented, but putting them
-//! together into something useful is left as an exercise to the reader.  There
-//! may also be some missing pieces, and the API seams may not be in the right
-//! places; if you're doing serious work with the library, expect to fork it and
-//! make local modifications.
-//!
-//! Issues and PRs are welcome, although I'm unlikely to merge anything which
-//! adds substantial maintenance burden.  This is a personal-scale experimental
-//! project, so adjust your expectations accordingly.
-//!
 //! # Shape construction
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
