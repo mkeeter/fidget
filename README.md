@@ -31,6 +31,10 @@ Fidget includes all of the building blocks from that paper, but with an emphasis
 on (native) evaluation on the CPU, rather than (interpreted) evaluation on the
 GPU.
 
+## License
+© 2022-2023 Matthew Keeter
+Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)
+
 ## Crate features
 The project is based on the `fidget` crate, with three relevant features
 
@@ -41,6 +45,7 @@ The project is based on the `fidget` crate, with three relevant features
 
 By default, all of these features are enabled.
 
+## Demo applications
 In the [repository on Github](https://github.com/mkeeter/fidget), there are
 two demo applications:
 
