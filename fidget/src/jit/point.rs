@@ -1,17 +1,14 @@
-use crate::{
-    eval::{point::PointEvalT, Choice, Tape},
-    jit::{
-        build_asm_fn, mmap::Mmap, reg, AssemblerData, AssemblerT, Eval,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
-    },
+use crate::jit::{
+    mmap::Mmap, reg, AssemblerData, AssemblerT, JitTracingEval, CHOICE_BOTH,
+    CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
 use dynasmrt::{dynasm, DynasmApi};
-use std::sync::Arc;
 
-struct PointAssembler(AssemblerData<f32>);
+pub struct PointAssembler(AssemblerData<f32>);
 
 impl AssemblerT for PointAssembler {
+    type Data = f32;
+
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
@@ -105,21 +102,23 @@ impl AssemblerT for PointAssembler {
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20 // -> RHS
-            ; b.gt #28 // -> LHS
+            ; b.gt #32 // -> LHS
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #24 // -> end
+            ; b #32 // -> end
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; b #12
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; b #16
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
             // fall-through to end
 
             // <- end
@@ -131,21 +130,23 @@ impl AssemblerT for PointAssembler {
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi #20
-            ; b.gt #28
+            ; b.gt #32
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #24 // -> end
+            ; b #32 // -> end
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; b #12
+            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; b #16
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
+            ; strb w14, [x2, #0]
             // fall-through to end
 
             // <- end
@@ -184,40 +185,4 @@ impl AssemblerT for PointAssembler {
     }
 }
 
-/// Handle owning a JIT-compiled float function
-pub struct JitPointEval {
-    _mmap: Arc<Mmap>,
-    var_count: usize,
-    fn_float: unsafe extern "C" fn(f32, f32, f32, *const f32, *mut u8) -> f32,
-}
-
-impl PointEvalT<Eval> for JitPointEval {
-    fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<PointAssembler>(t);
-        let ptr = mmap.as_ptr();
-        Self {
-            _mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_float: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-    fn eval_p(
-        &mut self,
-        x: f32,
-        y: f32,
-        z: f32,
-        vars: &[f32],
-        choices: &mut [Choice],
-    ) -> f32 {
-        assert_eq!(vars.len(), self.var_count);
-        unsafe {
-            (self.fn_float)(
-                x,
-                y,
-                z,
-                vars.as_ptr(),
-                choices.as_mut_ptr() as *mut u8,
-            )
-        }
-    }
-}
+pub type JitPointEval = JitTracingEval<PointAssembler>;

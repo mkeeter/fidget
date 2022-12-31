@@ -1,48 +1,33 @@
 //! Compilation down to native machine code
 //!
+//! Users are unlikely to use anything in this module other than [`Eval`](Eval),
+//! which is a [`Family`](Family) of JIT evaluators.
+//!
 //! ```
-//! use fidget::{rhai::eval, jit, eval::Eval};
+//! use fidget::{rhai::eval, jit};
 //!
 //! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape(sum).unwrap();
+//! let tape = ctx.get_tape::<jit::Eval>(sum).unwrap();
 //!
 //! // Generate machine code to execute the tape
-//! let mut eval = jit::Eval::new_point_evaluator(tape);
+//! let mut eval = tape.new_point_evaluator();
 //!
 //! // This calls directly into that machine code!
-//! assert_eq!(eval.eval_p(0.1, 0.3, 0.0, &[]).unwrap(), 0.1 + 0.3);
+//! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[]).unwrap().0, 0.1 + 0.3);
 //! ```
 
-// # Notes for writing assembly in this module
-// ## Working registers
-// We dedicate 24 registers to tape data storage:
-// - Floating point registers `s8-15` (callee-saved, but only the lower 64
-//   bits)
-// - Floating-point registers `s16-31` (caller-saved)
-//
-// This means that the input tape must be planned with a <= 24 register limit;
-// any spills will live on the stack.
-//
-// Right now, we never call anything, so don't worry about saving stuff.
-//
-// ## Scratch registers
-// Within a single operation, you'll often need to make use of scratch
-// registers.  `s3` / `v3` is used when loading immediates, and should not be
-// used as a scratch register (this is the `IMM_REG` constant).  `s4-7`/`v4-7`
-// are all available, and are callee-saved.
-//
-// For general-purpose registers, `x9-15` (also called `w9-15`) are reasonable
-// choices; they are caller-saved, so we can trash them at will.
-
-mod mmap;
-
-use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
-
 use crate::{
-    eval::{tape::Data as TapeData, Choice, Family},
+    eval::{
+        bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
+        Choice, EvaluatorStorage, Family, Tape,
+    },
     jit::mmap::Mmap,
     vm::Op,
 };
+use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
+use std::sync::Arc;
+
+mod mmap;
 
 /// Number of registers available when executing natively
 ///
@@ -76,7 +61,38 @@ const CHOICE_LEFT: u32 = Choice::Left as u32;
 const CHOICE_RIGHT: u32 = Choice::Right as u32;
 const CHOICE_BOTH: u32 = Choice::Both as u32;
 
-trait AssemblerT {
+/// Trait for generating machine assembly
+///
+/// This is public because it's used to parameterize various other types, but
+/// shouldn't be used by clients; indeed, there are no public implementors of
+/// this trait.
+///
+/// # Notes for writing assembly in this module
+/// ## Working registers
+/// We dedicate 24 registers to tape data storage:
+/// - Floating point registers `s8-15` (callee-saved, but only the lower 64
+///   bits)
+/// - Floating-point registers `s16-31` (caller-saved)
+///
+/// This means that the input tape must be planned with a <= 24 register limit;
+/// any spills will live on the stack.
+///
+/// Right now, we never call anything, so don't worry about saving stuff.
+///
+/// ## Scratch registers
+/// Within a single operation, you'll often need to make use of scratch
+/// registers.  `s3` / `v3` is used when loading immediates, and should not be
+/// used as a scratch register (this is the `IMM_REG` constant).  `s4-7`/`v4-7`
+/// are all available, and are callee-saved.
+///
+/// For general-purpose registers, `x9-15` (also called `w9-15`) are reasonable
+/// choices; they are caller-saved, so we can trash them at will.
+pub trait AssemblerT {
+    /// Data type used during evaluation.
+    ///
+    /// This should be a `repr(C)` type, so it can be passed around directly.
+    type Data;
+
     fn init(m: Mmap, slot_count: usize) -> Self;
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
@@ -126,6 +142,11 @@ trait AssemblerT {
     fn load_imm(&mut self, imm: f32) -> u8;
 
     fn finalize(self, out_reg: u8) -> Mmap;
+}
+
+/// Trait defining SIMD width
+pub trait SimdAssembler {
+    const SIMD_SIZE: usize;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -257,15 +278,11 @@ impl From<Mmap> for MmapAssembler {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 mod float_slice;
-mod grad;
+mod grad_slice;
 mod interval;
 mod point;
 
 ////////////////////////////////////////////////////////////////////////////////
-
-fn build_asm_fn<A: AssemblerT>(t: &TapeData) -> Mmap {
-    build_asm_fn_with_storage::<A>(t, Mmap::new(1).unwrap())
-}
 
 fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
     let _guard = Mmap::thread_mode_write();
@@ -367,9 +384,9 @@ impl Family for Eval {
     const REG_LIMIT: u8 = REGISTER_LIMIT;
 
     type IntervalEval = interval::JitIntervalEval;
-    type FloatSliceEval = float_slice::JitFloatSliceEval;
-    type GradEval = grad::JitGradEval;
     type PointEval = point::JitPointEval;
+    type FloatSliceEval = float_slice::JitFloatSliceEval;
+    type GradSliceEval = grad_slice::JitGradSliceEval;
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
@@ -377,6 +394,218 @@ impl Family for Eval {
 
     fn tile_sizes_2d() -> &'static [usize] {
         &[128, 16]
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Handle owning a JIT-compiled tracing function of some kind
+///
+/// Users are unlikely to use this directly; consider using the
+/// [`jit::Eval`](Eval) evaluator family instead.
+pub struct JitTracingEval<I: AssemblerT> {
+    mmap: Arc<Mmap>,
+    var_count: usize,
+    fn_trace: unsafe extern "C" fn(
+        I::Data,    // X
+        I::Data,    // Y
+        I::Data,    // Z
+        *const f32, // vars
+        *mut u8,    // choices
+        *mut u8,    // simplify (single boolean)
+    ) -> I::Data,
+}
+
+impl<I: AssemblerT> Clone for JitTracingEval<I> {
+    fn clone(&self) -> Self {
+        Self {
+            mmap: self.mmap.clone(),
+            var_count: self.var_count,
+            fn_trace: self.fn_trace,
+        }
+    }
+}
+
+unsafe impl<I: AssemblerT> Send for JitTracingEval<I> {}
+
+impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
+    type Storage = Mmap;
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<I>(t, prev);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            var_count: t.var_count(),
+            fn_trace: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+
+    fn take(self) -> Option<Self::Storage> {
+        Arc::try_unwrap(self.mmap).ok()
+    }
+}
+
+impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
+    type Data = ();
+
+    /// Evaluates a single point, capturing execution in `choices`
+    fn eval_with(
+        &self,
+        x: I::Data,
+        y: I::Data,
+        z: I::Data,
+        vars: &[f32],
+        choices: &mut [Choice],
+        _data: &mut (),
+    ) -> (I::Data, bool) {
+        let mut simplify = 0;
+        assert_eq!(vars.len(), self.var_count);
+        let out = unsafe {
+            (self.fn_trace)(
+                x,
+                y,
+                z,
+                vars.as_ptr(),
+                choices.as_mut_ptr() as *mut u8,
+                &mut simplify,
+            )
+        };
+        (out, simplify != 0)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Handle owning a JIT-compiled bulk function of some kind
+///
+/// Users are unlikely to use this directly; consider using the
+/// [`jit::Eval`](Eval) evaluator family instead.
+pub struct JitBulkEval<I: AssemblerT> {
+    mmap: Arc<Mmap>,
+    var_count: usize,
+    fn_bulk: unsafe extern "C" fn(
+        *const f32,   // X
+        *const f32,   // Y
+        *const f32,   // Z
+        *const f32,   // vars
+        *mut I::Data, // out
+        u64,          // size
+    ) -> I::Data,
+}
+
+impl<I: AssemblerT> Clone for JitBulkEval<I> {
+    fn clone(&self) -> Self {
+        Self {
+            mmap: self.mmap.clone(),
+            var_count: self.var_count,
+            fn_bulk: self.fn_bulk,
+        }
+    }
+}
+
+unsafe impl<I: AssemblerT> Send for JitBulkEval<I> {}
+
+impl<I: AssemblerT> EvaluatorStorage<Eval> for JitBulkEval<I> {
+    type Storage = Mmap;
+    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
+        let mmap = build_asm_fn_with_storage::<I>(t, prev);
+        let ptr = mmap.as_ptr();
+        Self {
+            mmap: Arc::new(mmap),
+            var_count: t.var_count(),
+            fn_bulk: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+
+    fn take(self) -> Option<Self::Storage> {
+        Arc::try_unwrap(self.mmap).ok()
+    }
+}
+
+impl<I: AssemblerT + SimdAssembler> BulkEvaluator<I::Data, Eval>
+    for JitBulkEval<I>
+where
+    I::Data: Copy + From<f32>,
+{
+    type Data = ();
+
+    /// Evaluate multiple points
+    fn eval_with(
+        &self,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+        out: &mut [I::Data],
+        _data: &mut (),
+    ) {
+        assert_eq!(xs.len(), ys.len());
+        assert_eq!(ys.len(), zs.len());
+        assert_eq!(zs.len(), out.len());
+        assert_eq!(vars.len(), self.var_count);
+
+        let n = xs.len();
+
+        // Special case for when we have fewer items than the native SIMD size,
+        // in which case the input slices can't be used as workspace (because
+        // they are not valid for the entire range of values read in assembly)
+        if n < I::SIMD_SIZE {
+            // We can't use I::SIMD_SIZE directly here due to Rust limitations,
+            // so instead we hard-code it to 4 with an assertion that
+            // (hopefully) will be compiled out.
+            let mut x = [0.0; 4];
+            let mut y = [0.0; 4];
+            let mut z = [0.0; 4];
+            assert!(I::SIMD_SIZE <= 4);
+
+            x[0..n].copy_from_slice(xs);
+            y[0..n].copy_from_slice(ys);
+            z[0..n].copy_from_slice(zs);
+
+            let mut tmp = [std::f32::NAN.into(); 4];
+
+            unsafe {
+                (self.fn_bulk)(
+                    x.as_ptr(),
+                    y.as_ptr(),
+                    z.as_ptr(),
+                    vars.as_ptr(),
+                    tmp.as_mut_ptr(),
+                    I::SIMD_SIZE as u64,
+                );
+            }
+            out[0..n].copy_from_slice(&tmp[0..n]);
+        } else {
+            // Our vectorized function only accepts sets of a particular width,
+            // so we'll find the biggest multiple, then do an extra operation to
+            // process any remainders.
+            let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
+            unsafe {
+                (self.fn_bulk)(
+                    xs.as_ptr(),
+                    ys.as_ptr(),
+                    zs.as_ptr(),
+                    vars.as_ptr(),
+                    out.as_mut_ptr(),
+                    m as u64,
+                );
+            }
+            // If we weren't given an even multiple of vector width, then we'll
+            // handle the remaining items by simply evaluating the *last* full
+            // vector in the array again.
+            if n != m {
+                unsafe {
+                    (self.fn_bulk)(
+                        xs.as_ptr().add(n - I::SIMD_SIZE),
+                        ys.as_ptr().add(n - I::SIMD_SIZE),
+                        zs.as_ptr().add(n - I::SIMD_SIZE),
+                        vars.as_ptr(),
+                        out.as_mut_ptr().add(n - I::SIMD_SIZE),
+                        I::SIMD_SIZE as u64,
+                    );
+                }
+            }
+        }
     }
 }
 

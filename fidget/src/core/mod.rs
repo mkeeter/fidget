@@ -4,7 +4,7 @@
 //! omnibus library instead.
 //!
 //! ```
-//! use fidget::{eval::Eval, vm, context::Context};
+//! use fidget::{vm, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -13,17 +13,17 @@
 //! let radius = ctx.add(x_squared, y_squared).unwrap();
 //! let circle = ctx.sub(radius, 1.0).unwrap();
 //!
-//! let tape = ctx.get_tape(circle).unwrap();
-//! let mut eval = vm::Eval::new_point_evaluator(tape);
-//! assert_eq!(eval.eval_p(0.0, 0.0, 0.0, &[]).unwrap(), -1.0);
-//! assert_eq!(eval.eval_p(1.0, 0.0, 0.0, &[]).unwrap(), 0.0);
+//! let tape = ctx.get_tape::<vm::Eval>(circle).unwrap();
+//! let mut eval = tape.new_point_evaluator();
+//! assert_eq!(eval.eval(0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
+//! assert_eq!(eval.eval(1.0, 0.0, 0.0, &[]).unwrap().0, 0.0);
 //!
 //! const N: usize = 15;
 //! for i in 0..N {
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let v = eval.eval_p(x, y, 0.0, &[]).unwrap();
+//!         let v = eval.eval(x, y, 0.0, &[]).unwrap().0;
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();

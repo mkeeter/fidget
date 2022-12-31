@@ -2,9 +2,10 @@
 use crate::{
     eval::{
         float_slice::{FloatSliceEval, FloatSliceEvalStorage},
-        interval::{Interval, IntervalEval, IntervalEvalStorage},
+        interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
-        Eval, Family,
+        types::Interval,
+        Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -162,7 +163,6 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out: Vec<f32>,
 }
 
 impl Scratch {
@@ -171,7 +171,6 @@ impl Scratch {
             x: vec![0.0; size],
             y: vec![0.0; size],
             z: vec![0.0; size],
-            out: vec![0.0; size],
         }
     }
 }
@@ -189,6 +188,9 @@ struct Worker<'a, I: Family, M: RenderMode> {
 
     /// Storage for interval evaluators, based on recursion depth
     interval_storage: Vec<IntervalEvalStorage<I>>,
+
+    /// Workspace for interval evaluators, based on recursion depth
+    interval_data: Vec<IntervalEvalData<I>>,
 
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
@@ -226,7 +228,10 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let x = Interval::new(x_min, x_max);
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
-        let (i, _simplify) = i_handle.eval_i(x, y, z, &[]).unwrap();
+
+        let mut data = std::mem::take(&mut self.interval_data[depth]);
+        let (i, simplify) =
+            i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
 
         let fill = mode.interval(i, depth);
 
@@ -238,15 +243,18 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = i_handle.simplify_with(
-                &mut self.workspace,
-                std::mem::take(&mut self.spare_tapes[depth]),
-            );
+            let sub_tape = if let Some(data) = simplify.as_ref() {
+                data.simplify_with(
+                    &mut self.workspace,
+                    std::mem::take(&mut self.spare_tapes[depth]),
+                )
+                .unwrap()
+            } else {
+                i_handle.tape()
+            };
             let storage = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit = I::new_interval_evaluator_with_storage(
-                sub_tape.clone(),
-                storage,
-            );
+            let mut sub_jit =
+                sub_tape.new_interval_evaluator_with_storage(storage);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
@@ -267,21 +275,43 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             if let Some(f) = float_handle {
                 self.float_storage[0] = f.take().unwrap();
             }
-            self.spare_tapes[depth] = sub_tape.take().unwrap();
+            if simplify.is_some() {
+                self.spare_tapes[depth] = sub_tape.take().unwrap();
+            }
         } else {
+            // TODO this is not a place of honor
+            let sub_tape = if let Some(simplify) = simplify.as_ref() {
+                simplify
+                    .simplify_with(
+                        &mut self.workspace,
+                        std::mem::take(self.spare_tapes.last_mut().unwrap()),
+                    )
+                    .unwrap()
+            } else {
+                i_handle.tape()
+            };
             self.render_tile_pixels(
-                i_handle,
+                i_handle.tape(),
+                &sub_tape,
                 tile_size,
                 tile,
                 float_handle,
                 mode,
-            )
+            );
+            if simplify.is_some() {
+                *self.spare_tapes.last_mut().unwrap() =
+                    sub_tape.take().unwrap();
+            }
         }
+
+        // Return the data
+        self.interval_data[depth] = data;
     }
 
     fn render_tile_pixels(
         &mut self,
-        i_handle: &mut IntervalEval<I>,
+        prev_tape: Tape<I>,
+        sub_tape: &Tape<I>,
         tile_size: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
@@ -300,11 +330,6 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        let sub_tape = i_handle.simplify_with(
-            &mut self.workspace,
-            std::mem::take(self.spare_tapes.last_mut().unwrap()),
-        );
-
         // In some cases, the shortened tape isn't actually any shorter, so
         // it's a waste of time to rebuild it.  Instead, we want to use a
         // float-slice evaluator that's bound to the *parent* tape.
@@ -313,59 +338,42 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         // use it.
         //
         // (this matters most for the JIT compiler, which is _expensive_)
-        if sub_tape.len() < i_handle.tape().len() {
+        let out = if sub_tape.len() < prev_tape.len() {
             let storage = std::mem::take(&mut self.float_storage[1]);
-            let mut func = I::new_float_slice_evaluator_with_storage(
-                sub_tape.clone(),
-                storage,
-            );
+            let func = sub_tape.new_float_slice_evaluator_with_storage(storage);
 
-            func.eval_s(
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
-                &[],
-                &mut self.scratch.out,
-            )
-            .unwrap();
+            let out = func
+                .eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
+                .unwrap();
 
             // We consume the evaluator, so any reuse of memory between the
             // FloatSliceFunc and FloatSliceEval should be cleared up and we
             // should be able to reuse the working memory.
             self.float_storage[1] = func.take().unwrap();
+            out
         } else {
             // Reuse the FloatSliceFunc handle passed in, or build one if it
             // wasn't already available (which makes it available to siblings)
             let func = float_handle.get_or_insert_with(|| {
                 let storage = std::mem::take(&mut self.float_storage[0]);
-                I::new_float_slice_evaluator_with_storage(
-                    i_handle.tape(),
-                    storage,
-                )
+                prev_tape.new_float_slice_evaluator_with_storage(storage)
             });
 
-            func.eval_s(
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
-                &[],
-                &mut self.scratch.out,
-            )
-            .unwrap();
+            func.eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
+                .unwrap()
 
             // Don't release func to self.float_storage[0] here; it's done by
             // the parent caller at the end of subtile iteration.
-        }
+        };
 
         let mut index = 0;
         for j in 0..tile_size {
             let o = self.config.tile_to_offset(tile, 0, j);
             for i in 0..tile_size {
-                self.image[o + i] = mode.pixel(self.scratch.out[index]);
+                self.image[o + i] = mode.pixel(out[index]);
                 index += 1;
             }
         }
-        *self.spare_tapes.last_mut().unwrap() = sub_tape.take().unwrap();
     }
 }
 
@@ -386,6 +394,9 @@ fn worker<I: Family, M: RenderMode>(
         config,
         float_storage: Default::default(),
         interval_storage: (0..config.tile_sizes.len())
+            .map(|_| Default::default())
+            .collect(),
+        interval_data: (0..config.tile_sizes.len())
             .map(|_| Default::default())
             .collect(),
         spare_tapes: (0..config.tile_sizes.len())
@@ -424,7 +435,7 @@ pub fn render<I: Family, M: RenderMode + Sync>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = I::new_interval_evaluator(tape);
+    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

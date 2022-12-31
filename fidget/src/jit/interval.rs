@@ -1,16 +1,12 @@
 use crate::{
-    eval::{
-        interval::{Interval, IntervalEvalT},
-        Choice, Tape,
-    },
+    eval::types::Interval,
     jit::{
-        build_asm_fn, build_asm_fn_with_storage, mmap::Mmap, reg,
-        AssemblerData, AssemblerT, Eval, CHOICE_BOTH, CHOICE_LEFT,
-        CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
+        mmap::Mmap, reg, AssemblerData, AssemblerT, JitTracingEval,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
     },
 };
 use dynasmrt::{dynasm, DynasmApi};
-use std::sync::Arc;
 
 /// Assembler for interval evaluation
 ///
@@ -34,9 +30,11 @@ use std::sync::Arc;
 /// During evaluation, each SIMD register stores an interval.  `s[0]` is the
 /// lower bound of the interval and `s[1]` is the upper bound; for example,
 /// `V0.S0` represents the lower bound for X.
-struct IntervalAssembler(AssemblerData<[f32; 2]>);
+pub struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
 impl AssemblerT for IntervalAssembler {
+    type Data = Interval;
+
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
@@ -452,75 +450,4 @@ impl AssemblerT for IntervalAssembler {
     }
 }
 
-/// Evaluator for a JIT-compiled function taking `[f32; 2]` intervals
-#[derive(Clone)]
-pub struct JitIntervalEval {
-    mmap: Arc<Mmap>,
-    var_count: usize,
-    fn_interval: unsafe extern "C" fn(
-        [f32; 2],   // X
-        [f32; 2],   // Y
-        [f32; 2],   // Z
-        *const f32, // vars
-        *mut u8,    // choices
-        *mut u8,    // simplify (single boolean)
-    ) -> [f32; 2],
-}
-
-unsafe impl Send for JitIntervalEval {}
-
-/// Handle owning a JIT-compiled interval function
-impl IntervalEvalT<Eval> for JitIntervalEval {
-    type Storage = Mmap;
-
-    fn new(t: &Tape<Eval>) -> Self {
-        let mmap = build_asm_fn::<IntervalAssembler>(t);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_interval: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<IntervalAssembler>(t, prev);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_interval: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-
-    /// Evaluates an interval
-    fn eval_i<I: Into<Interval>>(
-        &mut self,
-        x: I,
-        y: I,
-        z: I,
-        vars: &[f32],
-        choices: &mut [Choice],
-    ) -> (Interval, bool) {
-        let x: Interval = x.into();
-        let y: Interval = y.into();
-        let z: Interval = z.into();
-        let mut simplify = 0;
-        assert_eq!(vars.len(), self.var_count);
-        let out = unsafe {
-            (self.fn_interval)(
-                [x.lower(), x.upper()],
-                [y.lower(), y.upper()],
-                [z.lower(), z.upper()],
-                vars.as_ptr(),
-                choices.as_mut_ptr() as *mut u8,
-                &mut simplify,
-            )
-        };
-        (Interval::new(out[0], out[1]), simplify != 0)
-    }
-}
+pub type JitIntervalEval = JitTracingEval<IntervalAssembler>;

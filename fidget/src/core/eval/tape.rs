@@ -1,7 +1,7 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     context::{Context, Node},
-    eval::{Choice, Family},
+    eval::{self, Choice, Family},
     ssa::{Op as SsaOp, Tape as SsaTape},
     vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
     Error,
@@ -15,8 +15,13 @@ use std::{collections::BTreeMap, sync::Arc};
 ///
 /// It is parameterized by an [`Family`](Family) type, which sets the register
 /// count of the inner VM tape.
-#[derive(Clone)]
 pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
+
+impl<R> Clone for Tape<R> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), std::marker::PhantomData)
+    }
+}
 
 /// Safety:
 /// The `Tape` contains an `Arc`; the only reason this can't be derived
@@ -54,6 +59,54 @@ impl<E: Family> Tape<E> {
     pub fn take(self) -> Option<Data> {
         Arc::try_unwrap(self.0).ok()
     }
+
+    /// Builds a point evaluator from the given `Tape`
+    pub fn new_point_evaluator(&self) -> eval::point::PointEval<E> {
+        eval::point::PointEval::new(self)
+    }
+
+    /// Builds an interval evaluator from the given `Tape`
+    pub fn new_interval_evaluator(&self) -> eval::interval::IntervalEval<E> {
+        eval::interval::IntervalEval::new(self)
+    }
+
+    /// Builds an interval evaluator from the given `Tape`, reusing storage
+    pub fn new_interval_evaluator_with_storage(
+        &self,
+        storage: eval::interval::IntervalEvalStorage<E>,
+    ) -> eval::interval::IntervalEval<E> {
+        eval::interval::IntervalEval::new_with_storage(self, storage)
+    }
+
+    /// Builds a float evaluator from the given `Tape`
+    pub fn new_float_slice_evaluator(
+        &self,
+    ) -> eval::float_slice::FloatSliceEval<E> {
+        eval::float_slice::FloatSliceEval::new(self)
+    }
+
+    /// Builds a float slice evaluator from the given `Tape`, reusing storage
+    pub fn new_float_slice_evaluator_with_storage(
+        &self,
+        storage: eval::float_slice::FloatSliceEvalStorage<E>,
+    ) -> eval::float_slice::FloatSliceEval<E> {
+        eval::float_slice::FloatSliceEval::new_with_storage(self, storage)
+    }
+
+    /// Builds a grad slice evaluator from the given `Tape`
+    pub fn new_grad_slice_evaluator(
+        &self,
+    ) -> eval::grad_slice::GradSliceEval<E> {
+        eval::grad_slice::GradSliceEval::new(self)
+    }
+
+    /// Builds a float slice evaluator from the given `Tape`, reusing storage
+    pub fn new_grad_slice_evaluator_with_storage(
+        &self,
+        storage: eval::grad_slice::GradSliceEvalStorage<E>,
+    ) -> eval::grad_slice::GradSliceEval<E> {
+        eval::grad_slice::GradSliceEval::new_with_storage(self, storage)
+    }
 }
 
 impl<E> std::ops::Deref for Tape<E> {
@@ -69,6 +122,8 @@ impl<E: crate::eval::Family> TryFrom<(Node, Context)> for Tape<E> {
         context.get_tape(node)
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///

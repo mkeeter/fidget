@@ -1,4 +1,4 @@
-//! Tools for working with virtual assembly code
+//! Instruction tapes in the form of assembly for a simple virtual machine
 mod alloc;
 mod eval;
 mod lru;

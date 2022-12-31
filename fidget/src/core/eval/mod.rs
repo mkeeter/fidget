@@ -1,55 +1,70 @@
 //! Traits and data structures for evaluation
 //!
-//! The easiest way to build an evaluator of a particular kind is the
-//! [`Eval`](Eval) extension trait on [`Family`](Family):
+//! The easiest way to build an evaluator of a particular kind is by calling
+//! `new_X_evaluator` on [`Tape`](Tape).
 //!
 //! ```rust
-//! use fidget::eval::Eval;
 //! use fidget::vm;
 //! use fidget::context::Context;
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let tape = ctx.get_tape(x).unwrap();
+//! let tape = ctx.get_tape::<vm::Eval>(x).unwrap();
 //!
-//! // `vm::Eval` implements `Family`, so we can use it to build any kind of
-//! // evaluator.  In this case, we'll build a single-point evaluator:
-//! let mut eval = vm::Eval::new_point_evaluator(tape);
-//! assert_eq!(eval.eval_p(0.25, 0.0, 0.0, &[]).unwrap(), 0.25);
+//! // Let's build a single point evaluator:
+//! let mut eval = tape.new_point_evaluator();
+//! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[]).unwrap().0, 0.25);
 //! ```
 
+// Bulk evaluators
 pub mod float_slice;
-pub mod grad;
+pub mod grad_slice;
+
+// Tracing evaluators
 pub mod interval;
 pub mod point;
-pub mod tape;
 
-mod choice;
+pub mod bulk;
+pub mod tape;
+pub mod tracing;
+pub mod types;
+
 mod vars;
 
 // Re-export a few things
-pub use choice::Choice;
 pub use float_slice::FloatSliceEval;
-pub use grad::GradEval;
+pub use grad_slice::GradSliceEval;
 pub use interval::IntervalEval;
 pub use point::PointEval;
 pub use tape::Tape;
+pub use tracing::Choice;
 pub use vars::Vars;
 
-use float_slice::FloatSliceEvalT;
-use grad::GradEvalT;
-use interval::IntervalEvalT;
-use point::PointEvalT;
+use bulk::BulkEvaluator;
+use tracing::TracingEvaluator;
 
 /// Represents a "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
 
-    type IntervalEval: IntervalEvalT<Self>;
-    type FloatSliceEval: FloatSliceEvalT<Self>;
-    type PointEval: PointEvalT<Self>;
-    type GradEval: GradEvalT<Self>;
+    type PointEval: TracingEvaluator<f32, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
+    type IntervalEval: TracingEvaluator<types::Interval, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
+
+    type FloatSliceEval: BulkEvaluator<f32, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
+    type GradSliceEval: BulkEvaluator<types::Grad, Self>
+        + EvaluatorStorage<Self>
+        + Clone
+        + Send;
 
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
@@ -58,76 +73,20 @@ pub trait Family: Clone {
     fn tile_sizes_2d() -> &'static [usize];
 }
 
-/// Helper trait used to add evaluator constructions to anything implementing
-/// [`Family`](Family).
-pub trait Eval<F: Family> {
-    fn new_point_evaluator(tape: Tape<F>) -> point::PointEval<F>;
-    fn new_interval_evaluator(tape: Tape<F>) -> interval::IntervalEval<F>;
-    fn new_interval_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: interval::IntervalEvalStorage<F>,
-    ) -> interval::IntervalEval<F>;
-    fn new_float_slice_evaluator(
-        tape: Tape<F>,
-    ) -> float_slice::FloatSliceEval<F>;
+/// Represents an evaluator with some internal (immutable) storage
+///
+/// For example, the JIT evaluators declare their allocated `mmap` data as their
+/// `Storage`, which allows us to reuse pages.
+pub trait EvaluatorStorage<F> {
+    type Storage: Default;
 
-    fn new_float_slice_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: float_slice::FloatSliceEvalStorage<F>,
-    ) -> float_slice::FloatSliceEval<F>;
+    /// Constructs the evaluator, giving it a chance to reuse storage
+    ///
+    /// The incoming `Storage` is consumed, though it may not necessarily be
+    /// used to construct the new tape (e.g. if it's a memory-mapped region and
+    /// is too small).
+    fn new_with_storage(tape: &Tape<F>, storage: Self::Storage) -> Self;
 
-    fn new_grad_evaluator(tape: Tape<F>) -> grad::GradEval<F>;
-
-    fn new_grad_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: grad::GradEvalStorage<F>,
-    ) -> grad::GradEval<F>;
-}
-
-impl<F: Family> Eval<F> for F {
-    /// Builds a point evaluator from the given `Tape`
-    fn new_point_evaluator(tape: Tape<F>) -> point::PointEval<F> {
-        point::PointEval::new(tape)
-    }
-
-    /// Builds an interval evaluator from the given `Tape`
-    fn new_interval_evaluator(tape: Tape<F>) -> interval::IntervalEval<F> {
-        interval::IntervalEval::new(tape)
-    }
-
-    /// Builds an interval evaluator from the given `Tape`, reusing storage
-    fn new_interval_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: interval::IntervalEvalStorage<F>,
-    ) -> interval::IntervalEval<F> {
-        interval::IntervalEval::new_with_storage(tape, storage)
-    }
-
-    /// Builds a float evaluator from the given `Tape`
-    fn new_float_slice_evaluator(
-        tape: Tape<F>,
-    ) -> float_slice::FloatSliceEval<F> {
-        float_slice::FloatSliceEval::new(tape)
-    }
-
-    /// Builds a float slice evaluator from the given `Tape`, reusing storage
-    fn new_float_slice_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: float_slice::FloatSliceEvalStorage<F>,
-    ) -> float_slice::FloatSliceEval<F> {
-        float_slice::FloatSliceEval::new_with_storage(tape, storage)
-    }
-
-    /// Builds a grad slice evaluator from the given `Tape`
-    fn new_grad_evaluator(tape: Tape<F>) -> grad::GradEval<F> {
-        grad::GradEval::new(tape)
-    }
-
-    /// Builds a float slice evaluator from the given `Tape`, reusing storage
-    fn new_grad_evaluator_with_storage(
-        tape: Tape<F>,
-        storage: grad::GradEvalStorage<F>,
-    ) -> grad::GradEval<F> {
-        grad::GradEval::new_with_storage(tape, storage)
-    }
+    /// Extract the internal storage for reuse, if possible
+    fn take(self) -> Option<Self::Storage>;
 }

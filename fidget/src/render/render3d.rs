@@ -1,11 +1,14 @@
 //! 3D bitmap rendering / rasterization
 use crate::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalStorage},
-        grad::{Grad, GradEval, GradEvalStorage},
-        interval::{Interval, IntervalEval, IntervalEvalStorage},
+        float_slice::{
+            FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
+        },
+        grad_slice::{GradSliceEval, GradSliceEvalData, GradSliceEvalStorage},
+        interval::{IntervalEval, IntervalEvalData},
         tape::{Data as TapeData, Tape, Workspace},
-        Choice, Eval, Family,
+        types::{Grad, Interval},
+        Choice, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -32,18 +35,20 @@ impl<V> Give<V> for Option<V> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Scratch {
+struct Scratch<F: Family> {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    out_float: Vec<f32>,
-    out_grad: Vec<Grad>,
+
+    data_float: FloatSliceEvalData<F>,
+    data_interval: IntervalEvalData<F>,
+    data_grad: GradSliceEvalData<F>,
 
     /// Depth of each column
     columns: Vec<usize>,
 }
 
-impl Scratch {
+impl<F: Family> Scratch<F> {
     fn new(tile_size: usize) -> Self {
         let size2 = tile_size.pow(2);
         let size3 = tile_size.pow(3);
@@ -51,30 +56,43 @@ impl Scratch {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
-            out_float: vec![0.0; size3],
-            out_grad: vec![0.0.into(); size2],
+
+            data_float: Default::default(),
+            data_interval: Default::default(),
+            data_grad: Default::default(),
+
             columns: vec![0; size2],
         }
     }
-    fn eval_s<E: Family>(&mut self, f: &mut FloatSliceEval<E>, size: usize) {
-        f.eval_s(
+    fn eval_s<'a>(
+        &mut self,
+        f: &mut FloatSliceEval<F>,
+        size: usize,
+        data: &'a mut FloatSliceEvalData<F>,
+    ) -> &'a [f32] {
+        f.eval_with(
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
             &[],
-            &mut self.out_float[0..size],
+            data,
         )
-        .unwrap();
+        .unwrap()
     }
-    fn eval_g<E: Family>(&mut self, f: &mut GradEval<E>, size: usize) {
-        f.eval_g(
+    fn eval_g<'a>(
+        &mut self,
+        f: &mut GradSliceEval<F>,
+        size: usize,
+        data: &'a mut GradSliceEvalData<F>,
+    ) -> &'a [Grad] {
+        f.eval_with(
             &self.x[0..size],
             &self.y[0..size],
             &self.z[0..size],
             &[],
-            &mut self.out_grad[0..size],
+            data,
         )
-        .unwrap();
+        .unwrap()
     }
 }
 
@@ -85,7 +103,7 @@ struct Evaluators<I: Family> {
     tape: Tape<I>,
     interval: Option<IntervalEval<I>>,
     float_slice: Option<FloatSliceEval<I>>,
-    grad: Option<GradEval<I>>,
+    grad: Option<GradSliceEval<I>>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -94,7 +112,7 @@ struct Worker<'a, I: Family> {
     config: &'a AlignedRenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
-    scratch: Scratch,
+    scratch: Scratch<I>,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -113,7 +131,7 @@ struct Worker<'a, I: Family> {
     float_storage: Vec<Option<FloatSliceEvalStorage<I>>>,
 
     /// Equivalent to `float_storage`, for gradient evaluators
-    grad_storage: Vec<Option<GradEvalStorage<I>>>,
+    grad_storage: Vec<Option<GradSliceEvalStorage<I>>>,
 
     /// Storage for interval evaluators.
     ///
@@ -121,7 +139,9 @@ struct Worker<'a, I: Family> {
     /// slot is always `None`, because philosophically, it represents the
     /// storage of `i_handle` (but `i_handle` is shared between multiple
     /// threads, so we never actually reclaim its storage).
-    interval_storage: Vec<Option<IntervalEvalStorage<I>>>,
+    interval_storage: Vec<
+        Option<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
+    >,
 
     /// Spare tapes to avoid allocation churn
     ///
@@ -195,18 +215,18 @@ impl<I: Family> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
+        let mut data_interval = std::mem::take(&mut self.scratch.data_interval);
         let (i, simplify) = eval
             .interval
             .get_or_insert_with(|| {
                 let storage = self.interval_storage[eval.level].take().unwrap();
-                I::new_interval_evaluator_with_storage(
-                    eval.tape.clone(),
-                    storage,
-                )
+                eval.tape.new_interval_evaluator_with_storage(storage)
             })
-            .eval_i(x, y, z, &[])
+            .eval_with(x, y, z, &[], &mut data_interval)
             .unwrap();
 
+        // Return early if this tile is completely empty or full, returning
+        // `data_interval` to scratch memory for reuse.
         if i.upper() < 0.0 {
             for y in 0..tile_size {
                 let i = self.config.tile_to_offset(tile, 0, y);
@@ -215,23 +235,24 @@ impl<I: Family> Worker<'_, I> {
                 }
             }
             // TODO: handle gradients here as well?
-
+            self.scratch.data_interval = data_interval;
             return sibling;
         } else if i.lower() > 0.0 {
-            // Return early if this tile is completely empty
+            self.scratch.data_interval = data_interval;
             return sibling;
         }
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let interval = eval.interval.as_ref().unwrap();
-        let (mut sub_eval, mut prev_sibling) = if simplify {
+        let (mut sub_eval, mut prev_sibling) = if let Some(simplify) =
+            simplify.as_ref()
+        {
             // See if our previous tape shortening used the exact same set of
             // choices; in that case, then we can reuse it.
             //
             // This is likely because of spatial locality!
             let res = if let Some((choices, sibling_eval)) = sibling {
-                if choices == interval.choices() {
+                if choices == simplify.choices() {
                     Ok((choices, sibling_eval))
                 } else {
                     // The sibling didn't make the same choices, so we'll tear
@@ -252,13 +273,14 @@ impl<I: Family> Worker<'_, I> {
             let out = match res {
                 Ok(out) => Some(out),
                 Err((tape, mut choices)) => {
-                    let sub_tape =
-                        interval.simplify_with(&mut self.workspace, tape);
+                    let sub_tape = simplify
+                        .simplify_with(&mut self.workspace, tape)
+                        .unwrap();
 
                     if sub_tape.len() < eval.tape.len() {
                         choices
-                            .resize(interval.choices().len(), Choice::Unknown);
-                        choices.copy_from_slice(interval.choices());
+                            .resize(simplify.choices().len(), Choice::Unknown);
+                        choices.copy_from_slice(simplify.choices());
                         Some((
                             choices,
                             Evaluators {
@@ -288,6 +310,9 @@ impl<I: Family> Worker<'_, I> {
             // since it's still useful.
             (None, sibling)
         };
+
+        // Return `data_interval` to our scratch buffer
+        self.scratch.data_interval = data_interval;
 
         // At this point, only one of `sub_eval` and `prev_sibling` can be
         // `Some`; both could also be `None`, if we consumed `prev_sibling` then
@@ -423,18 +448,18 @@ impl<I: Family> Worker<'_, I> {
         // wasn't already available (which makes it available to siblings)
         let func = eval.float_slice.get_or_insert_with(|| {
             let storage = self.float_storage[eval.level].take().unwrap();
-            I::new_float_slice_evaluator_with_storage(
-                eval.tape.clone(),
-                storage,
-            )
+            eval.tape.new_float_slice_evaluator_with_storage(storage)
         });
-        self.scratch.eval_s(func, size);
+
+        // Borrow the scratch data, returning it at the end of the function
+        let mut data_float = std::mem::take(&mut self.scratch.data_float);
+        let out = self.scratch.eval_s(func, size, &mut data_float);
 
         // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile
         // - grad refers to points that we must do gradient evaluation on
         let mut grad = 0;
-        let mut depth = self.scratch.out_float.chunks(tile_size);
+        let mut depth = out.chunks(tile_size);
         for col in 0..self.scratch.columns.len() {
             // Find the first set pixel in the column
             let depth = depth.next().unwrap();
@@ -484,16 +509,20 @@ impl<I: Family> Worker<'_, I> {
             // wasn't already available (which makes it available to siblings)
             let func = eval.grad.get_or_insert_with(|| {
                 let storage = self.grad_storage[eval.level].take().unwrap();
-                I::new_grad_evaluator_with_storage(eval.tape.clone(), storage)
+                eval.tape.new_grad_slice_evaluator_with_storage(storage)
             });
-            self.scratch.eval_g(func, grad);
+            let mut data_grad = std::mem::take(&mut self.scratch.data_grad);
+            let out_grad = self.scratch.eval_g(func, grad, &mut data_grad);
 
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
-                self.color[*o] = self.scratch.out_grad[index]
-                    .to_rgb()
-                    .unwrap_or([255, 0, 0]);
+                self.color[*o] =
+                    out_grad[index].to_rgb().unwrap_or([255, 0, 0]);
             }
+            self.scratch.data_grad = data_grad;
         }
+
+        // Return the scratch data
+        self.scratch.data_float = data_float;
     }
 }
 
@@ -632,7 +661,7 @@ pub fn render<I: Family>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = I::new_interval_evaluator(tape);
+    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

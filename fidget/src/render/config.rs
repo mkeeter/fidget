@@ -205,7 +205,7 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d`](crate::render::render2d)
-    pub fn run<M: RenderMode + Sync, I: Family>(
+    pub fn run<I: Family, M: RenderMode + Sync>(
         &self,
         root: Node,
         context: Context,
