@@ -29,6 +29,12 @@ use std::sync::Arc;
 
 mod mmap;
 
+#[cfg(not(target_arch = "aarch64"))]
+compile_error!(
+    "The `jit` module only builds on `aarch64`; \
+    please disable the `jit` feature"
+);
+
 /// Number of registers available when executing natively
 ///
 /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
