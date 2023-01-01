@@ -1,7 +1,9 @@
 # Fidget
-![Build & Test Github Actions badge](https://github.com/mkeeter/fidget/actions/workflows/rust.yml/badge.svg)
-[![docs.rs badge](https://img.shields.io/docsrs/fidget?label=docs.rs)](https://docs.rs/fidget/)
-[![crates.io badge](https://img.shields.io/crates/v/fidget)](https://crates.io/crates/fidget)
+[![» Crate](https://badgen.net/crates/v/fidget)](https://crates.io/crates/fidget)
+[![» Docs](https://badgen.net/badge/api/docs.rs/df3600)](https://docs.rs/fidget/)
+![» CI](https://badgen.net/github/checks/mkeeter/fidget/main)
+[![» MPL-2.0](https://badgen.net/github/license/mkeeter/fidget)](LICENSE.txt)
+
 
 Fidget is experimental infrastructure for complex closed-form implicit surfaces:
 
