@@ -5,6 +5,15 @@
 
 Fidget is experimental infrastructure for complex closed-form implicit surfaces:
 
+At the moment, it is **quietly public**: it's available on Github and published
+to [crates.io](https://crates.io/crates.fidget), but I'd appreciate if you
+refrain from posting it to Hacker News / Twitter / etc; I'm planning to write an
+overview blog post and put together a few demo applications before making a
+larger announcement. If you have an overwhelming urge to talk about it,
+[feel free to reach out directly](https://mattkeeter.com/about)!
+
+The library contains a variety of data structures and algorithms, e.g.
+
 - Manipulation and deduplication of math expressions
 - Conversion from graphs into straight-line code ("tapes") for evaluation
 - Tape simplification, based on interval evaluation results
@@ -54,11 +63,11 @@ At the moment, the JIT only supports macOS + AArch64.
 Disabling the `jit` feature allows for cross-platform rendering, using an
 interpreter rather than JIT compilation.
 
-Adding support for Linux + AArch64 wouldn't be too hard.  You'd have to drop
-into raw assembly to invalidate the instruction cache (on macOS, there's a
+Adding support for Linux + AArch64 wouldn't be too hard.  The one tricky part
+is dropping into assembly to invalidate the instruction cache (on macOS, there's a
 [`libc` API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sys_icache_invalidate.3.html)
-for it).
-See [this discussion thread](https://github.com/CensoredUsername/dynasm-rs/issues/50)
+for it);
+see [this discussion thread](https://github.com/CensoredUsername/dynasm-rs/issues/50)
 for details.
 
 An x86 backend would be substantially more work; if you want to write some x86
