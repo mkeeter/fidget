@@ -48,7 +48,7 @@ impl AssemblerT for FloatSliceAssembler {
             //  x5: number of points to evaluate
             //
             // We'll be advancing x0, x1, x2 here (and decrementing x5 by 4);
-            // x3 is advanced in finalize().
+            // x4 is advanced in finalize().
 
             ; cmp x5, #0
             ; b.eq #36 // -> fini
@@ -208,7 +208,7 @@ impl AssemblerT for FloatSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x3
+            // Prepare our return value, writing to the pointer in x4
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
