@@ -1,7 +1,54 @@
 //! Rhai bindings to Fidget
+//!
+//! There are two main ways to use these bindings.
+//!
+//! The simplest option is to call [`eval`](eval), which evaluates a single
+//! expression with pre-defined variables `x`, `y`, `z`.
+//!
+//! ```
+//! use fidget::{vm, rhai::eval};
+//!
+//! let (sum, ctx) = eval("x + y")?;
+//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let eval = tape.new_point_evaluator();
+//! assert_eq!(eval.eval(1.0, 2.0, 0.0, &[])?.0, 3.0);
+//! # Ok::<(), fidget::Error>(())
+//! ```
+//!
+//! `eval` only evaluates a single expression.  To evaluate a full script,
+//! construct an [`Engine`] then call [`Engine::run`]:
+//!
+//! ```
+//! use fidget::{vm, rhai::Engine};
+//!
+//! let mut engine = Engine::new();
+//! let out = engine.run("draw(|x, y| x + y - 1)")?;
+//!
+//! assert_eq!(out.shapes.len(), 1);
+//! let tape = out.context.get_tape::<vm::Eval>(out.shapes[0].shape)?;
+//! let eval = tape.new_point_evaluator();
+//! assert_eq!(eval.eval(0.5, 2.0, 0.0, &[])?.0, 1.5);
+//! # Ok::<(), fidget::Error>(())
+//! ```
+//!
+//! Within a call to [`Engine::run`], `draw` and `draw_rgb` insert shapes into
+//! [`ScriptContext::shapes`], which is returned after script evaluation is
+//! complete.
+//!
+//! Both `draw` and `draw_rgb` expect to take a two-argument lambda function
+//! `|x, y| { ... }`.  They trace evaluation of that function by calling it with
+//! X and Y objects which build a math tree in a [`fidget::Context`](Context).
+//! This means that the lambda function must be a **pure function** that only
+//! uses [Fidget-friendly math operations](crate::context::Op).
+//!
+//! Scripts are evaluated in a Rhai context that includes [`core.rhai`](core),
+//! which defines a few simple shapes and transforms.
 use std::sync::{Arc, Mutex};
 
-use crate::context::{Context, Node};
+use crate::{
+    context::{Context, Node},
+    Error,
+};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -18,12 +65,11 @@ impl Default for Engine {
 impl Engine {
     /// Constructs a script evaluation engine with Fidget bindings
     ///
-    /// The context includes a variety of functions that operate on
-    /// [`Node`](crate::context::Node) handles, using a global
-    /// [`Context`](crate::context::Context).
+    /// The context includes a variety of functions that operate on [`Node`]
+    /// handles, using a global [`Context`].
     ///
-    /// In addition, it includes everything in `core.rhai`, which is effectively
-    /// our standard library.
+    /// In addition, it includes everything in [`core.rhai`](crate::rhai::core),
+    /// which is effectively our standard library.
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
         engine.register_type_with_name::<Node>("Node");
@@ -72,12 +118,9 @@ impl Engine {
     }
 
     /// Executes a full script
-    pub fn run(
-        &mut self,
-        script: &str,
-    ) -> Result<ScriptContext, Box<rhai::EvalAltResult>> {
+    pub fn run(&mut self, script: &str) -> Result<ScriptContext, Error> {
         self.context.lock().unwrap().clear();
-        self.engine.run(script)?;
+        self.engine.run(script).map_err(|e| *e)?;
 
         // Steal the ScriptContext's contents
         let mut lock = self.context.lock().unwrap();
@@ -85,10 +128,7 @@ impl Engine {
     }
 
     /// Evaluates a single expression, in terms of `x`, `y`, and `z`
-    pub fn eval(
-        &mut self,
-        script: &str,
-    ) -> Result<(Node, Context), Box<rhai::EvalAltResult>> {
+    pub fn eval(&mut self, script: &str) -> Result<(Node, Context), Error> {
         let mut scope = {
             let mut ctx = self.context.lock().unwrap();
             ctx.clear();
@@ -103,7 +143,8 @@ impl Engine {
 
         let out = self
             .engine
-            .eval_expression_with_scope::<Node>(&mut scope, script)?;
+            .eval_expression_with_scope::<Node>(&mut scope, script)
+            .map_err(|e| *e)?;
 
         // Steal the ScriptContext's contents
         let mut lock = self.context.lock().unwrap();
@@ -116,6 +157,8 @@ impl Engine {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Shape to render
+///
+/// Populated by calls to `draw(...)` or `draw_rgb(...)` in a Rhai script
 pub struct DrawShape {
     pub shape: Node,
     pub color_rgb: [u8; 3],
@@ -123,8 +166,8 @@ pub struct DrawShape {
 
 /// Context for shape evaluation
 ///
-/// This object includes a [`Context`](crate::context::Context) and a set of
-/// shapes (written with `draw` or `draw_rgb`).
+/// This object includes a [`Context`] and a set of shapes (written with `draw`
+/// or `draw_rgb`).
 pub struct ScriptContext {
     pub context: Context,
     pub shapes: Vec<DrawShape>,
@@ -268,7 +311,7 @@ define_unary_fns!(neg);
 ////////////////////////////////////////////////////////////////////////////////
 
 /// One-shot evaluation of a single expression, in terms of `x, y, z`
-pub fn eval(s: &str) -> Result<(Node, Context), Box<rhai::EvalAltResult>> {
+pub fn eval(s: &str) -> Result<(Node, Context), Error> {
     let mut engine = Engine::new();
     engine.eval(s)
 }
@@ -293,3 +336,5 @@ mod test {
         assert_eq!(ctx.eval_xyz(sum, 1.0, 2.0, 0.0).unwrap(), 3.0);
     }
 }
+
+pub mod core;

@@ -26,8 +26,8 @@ pub enum BinaryOpcode {
 ///
 /// `Op`s should be constructed by calling functions on
 /// [`Context`](crate::context::Context), e.g.
-/// [`Context::add`](crate::context::Context::add) will generate an `Op::Add`
-/// node and return an opaque handle.
+/// [`Context::add`](crate::context::Context::add) will generate an
+/// `Op::Binary(BinaryOpcode::Add, .., ..)` node and return an opaque handle.
 ///
 /// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.

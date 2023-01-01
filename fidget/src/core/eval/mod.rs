@@ -9,11 +9,12 @@
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let tape = ctx.get_tape::<vm::Eval>(x).unwrap();
+//! let tape = ctx.get_tape::<vm::Eval>(x)?;
 //!
 //! // Let's build a single point evaluator:
 //! let mut eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[]).unwrap().0, 0.25);
+//! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[])?.0, 0.25);
+//! # Ok::<(), fidget::Error>(())
 //! ```
 
 // Bulk evaluators

@@ -6,14 +6,15 @@
 //! ```
 //! use fidget::{rhai::eval, jit};
 //!
-//! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape::<jit::Eval>(sum).unwrap();
+//! let (sum, ctx) = eval("x + y")?;
+//! let tape = ctx.get_tape::<jit::Eval>(sum)?;
 //!
 //! // Generate machine code to execute the tape
 //! let mut eval = tape.new_point_evaluator();
 //!
 //! // This calls directly into that machine code!
-//! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[]).unwrap().0, 0.1 + 0.3);
+//! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[])?.0, 0.1 + 0.3);
+//! # Ok::<(), fidget::Error>(())
 //! ```
 
 use crate::{
@@ -626,7 +627,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_tests!(Eval);
+    crate::grad_slice_tests!(Eval);
     crate::interval_tests!(Eval);
     crate::float_slice_tests!(Eval);
     crate::point_tests!(Eval);

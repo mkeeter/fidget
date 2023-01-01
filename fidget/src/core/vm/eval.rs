@@ -752,7 +752,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_tests!(Eval);
+    crate::grad_slice_tests!(Eval);
     crate::interval_tests!(Eval);
     crate::float_slice_tests!(Eval);
     crate::point_tests!(Eval);

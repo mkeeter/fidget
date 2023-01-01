@@ -44,6 +44,7 @@ rhai = ["dep:rhai"]
 ## Enable 2D and 3D rendering, in the [`fidget::render`](crate::render) module
 render = ["nalgebra"]
 
-# Enable `eval-tests` if you're writing your own objects which implement the
-# `[Point|Interval|FloatSlice|Grad]EvalT` trait(s) and want to unit test them
+## Enable `eval-tests` if you're writing your own evaluator family and want to
+## unit-test it.  When enabled, the crate exports a set of macros to test each
+## evaluator type, e.g. `float_slice_tests!(...)`.
 eval-tests = []

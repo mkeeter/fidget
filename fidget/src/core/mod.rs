@@ -1,29 +1,26 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
-//! It's uncommon to use this library directly; consider using the `fidget`
-//! omnibus library instead.
-//!
 //! ```
 //! use fidget::{vm, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
-//! let x_squared = ctx.mul(x, x).unwrap();
-//! let y_squared = ctx.mul(y, y).unwrap();
-//! let radius = ctx.add(x_squared, y_squared).unwrap();
-//! let circle = ctx.sub(radius, 1.0).unwrap();
+//! let x_squared = ctx.mul(x, x)?;
+//! let y_squared = ctx.mul(y, y)?;
+//! let radius = ctx.add(x_squared, y_squared)?;
+//! let circle = ctx.sub(radius, 1.0)?;
 //!
-//! let tape = ctx.get_tape::<vm::Eval>(circle).unwrap();
+//! let tape = ctx.get_tape::<vm::Eval>(circle)?;
 //! let mut eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
-//! assert_eq!(eval.eval(1.0, 0.0, 0.0, &[]).unwrap().0, 0.0);
+//! assert_eq!(eval.eval(0.0, 0.0, 0.0, &[])?.0, -1.0);
+//! assert_eq!(eval.eval(1.0, 0.0, 0.0, &[])?.0, 0.0);
 //!
 //! const N: usize = 15;
 //! for i in 0..N {
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let v = eval.eval(x, y, 0.0, &[]).unwrap().0;
+//!         let v = eval.eval(x, y, 0.0, &[])?.0;
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();
@@ -45,6 +42,7 @@
 //! //     XXXXXXXXXXXXXXXXXXXXXX
 //! //       XXXXXXXXXXXXXXXXXX
 //! //           XXXXXXXXXX
+//! # Ok::<(), fidget::Error>(())
 //! ```
 pub mod context;
 pub use context::Context;

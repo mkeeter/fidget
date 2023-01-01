@@ -36,9 +36,7 @@ pub enum Error {
     #[error("this name has already been used")]
     DuplicateName,
 
-    #[error("Cannot call simplify before any evaluation")]
-    NoTrace,
-
-    #[error("i/o error: {0}")]
-    Io(#[from] std::io::Error),
+    #[cfg(feature = "rhai")]
+    #[error("Rhai error: {0}")]
+    RhaiError(#[from] rhai::EvalAltResult),
 }

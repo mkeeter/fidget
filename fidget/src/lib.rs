@@ -33,7 +33,8 @@
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
-//! let sum = ctx.add(x, y).unwrap();
+//! let sum = ctx.add(x, y)?;
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! As an alternative, Fidget includes bindings to [Rhai](https://rhai.rs), a
@@ -44,7 +45,8 @@
 //! ```
 //! use fidget::rhai::eval;
 //!
-//! let (sum, ctx) = eval("x + y").unwrap();
+//! let (sum, ctx) = eval("x + y")?;
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! # Evaluation
@@ -57,9 +59,10 @@
 //! ```
 //! use fidget::{rhai::eval, vm};
 //!
-//! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! let (sum, ctx) = eval("x + y")?;
+//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! A tape is a set of operations for a very simple virtual machine; the
@@ -109,16 +112,17 @@
 //! ```
 //! use fidget::{rhai::eval, vm};
 //!
-//! let (sum, ctx) = eval("x + y").unwrap();
-//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! let (sum, ctx) = eval("x + y")?;
+//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
 //!         [0.0, 0.0], // Z
 //!         &[]         // variables (unused)
-//!     ).unwrap();
+//!     )?;
 //! assert_eq!(out, [2.0, 4.0].into());
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! # Tape simplification
@@ -132,16 +136,17 @@
 //! ```
 //! use fidget::{rhai::eval, vm};
 //!
-//! let (sum, ctx) = eval("min(x, y)").unwrap();
-//! let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! let (sum, ctx) = eval("min(x, y)")?;
+//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, simplify) = interval_eval.eval(
 //!         [0.0, 1.0], // X
 //!         [2.0, 3.0], // Y
 //!         [0.0, 0.0], // Z
 //!         &[]         // variables (unused)
-//!     ).unwrap();
+//!     )?;
 //! assert_eq!(out, [0.0, 1.0].into());
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! In the evaluation region `x = [0, 1]; y = [2, 3]`, `x` is **strictly less
@@ -155,19 +160,20 @@
 //!
 //! ```
 //! # use fidget::{rhai::eval, vm};
-//! # let (sum, ctx) = eval("min(x, y)").unwrap();
-//! # let tape = ctx.get_tape::<vm::Eval>(sum).unwrap();
+//! # let (sum, ctx) = eval("min(x, y)")?;
+//! # let tape = ctx.get_tape::<vm::Eval>(sum)?;
 //! # let mut interval_eval = tape.new_interval_evaluator();
 //! # let (out, simplify) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
 //! #         &[]         // variables (unused)
-//! #     ).unwrap();
+//! #     )?;
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = simplify.unwrap().simplify().unwrap();
+//! let new_tape = simplify.unwrap().simplify()?;
 //! assert_eq!(new_tape.len(), 1); // just the 'X' term
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! Remember that this simplified tape is only valid for points (or intervals)
@@ -187,12 +193,12 @@
 //! use fidget::vm;
 //! use fidget::render::{BitRenderMode, RenderConfig};
 //!
-//! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1").unwrap();
+//! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1")?;
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode).unwrap();
+//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {
@@ -221,6 +227,7 @@
 //! //     XXXXXXXXXXXXXXXXXXXXXX
 //! //       XXXXXXXXXXXXXXXXXX
 //! //           XXXXXXXXXX
+//! # Ok::<(), fidget::Error>(())
 //! ```
 //!
 //! # Similar projects

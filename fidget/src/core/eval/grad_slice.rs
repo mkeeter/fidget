@@ -250,7 +250,7 @@ pub mod eval_tests {
     }
 
     #[macro_export]
-    macro_rules! grad_tests {
+    macro_rules! grad_slice_tests {
         ($t:ty) => {
             $crate::grad_test!(test_g_circle, $t);
             $crate::grad_test!(test_g_x, $t);
