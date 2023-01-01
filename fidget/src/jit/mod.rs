@@ -30,13 +30,21 @@ use std::sync::Arc;
 
 mod mmap;
 
-#[cfg(not(target_arch = "aarch64"))]
+// Evaluators
+mod float_slice;
+mod grad_slice;
+mod interval;
+mod point;
+
+// We allow `cargo doc` to build on x86, so that docs.rs includes documentation
+// for the JIT module; however, everything is stubbed out.
+#[cfg(not(any(doc, target_arch = "aarch64")))]
 compile_error!(
     "The `jit` module only builds on `aarch64`; \
     please disable the `jit` feature"
 );
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(doc, target_arch = "aarch64")))]
 compile_error!(
     "The `jit` module only builds on macOS; \
     please disable the `jit` feature"
@@ -181,6 +189,8 @@ impl<T> AssemblerData<T> {
             _p: std::marker::PhantomData,
         }
     }
+
+    #[cfg(target_arch = "aarch64")]
     fn prepare_stack(&mut self, slot_count: usize) {
         if slot_count < REGISTER_LIMIT as usize {
             return;
@@ -195,6 +205,12 @@ impl<T> AssemblerData<T> {
             ; sub sp, sp, #(self.mem_offset as u32)
         );
     }
+
+    #[cfg(target_arch = "x86_64")]
+    fn prepare_stack(&mut self, _slot_count: usize) {
+        unimplemented!()
+    }
+
     fn stack_pos(&self, slot: u32) -> u32 {
         assert!(slot >= REGISTER_LIMIT as u32);
         (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
@@ -289,13 +305,6 @@ impl From<Mmap> for MmapAssembler {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
-
-mod float_slice;
-mod grad_slice;
-mod interval;
-mod point;
-
-////////////////////////////////////////////////////////////////////////////////
 
 fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
     let _guard = Mmap::thread_mode_write();

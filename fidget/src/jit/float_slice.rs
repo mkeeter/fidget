@@ -13,6 +13,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
 pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 
+#[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
 
@@ -217,6 +218,72 @@ impl AssemblerT for FloatSliceAssembler {
         );
 
         self.0.ops.finalize()
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl AssemblerT for FloatSliceAssembler {
+    type Data = f32;
+
+    fn init(mmap: Mmap, slot_count: usize) -> Self {
+        unimplemented!()
+    }
+    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+        unimplemented!()
+    }
+    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+        unimplemented!()
+    }
+    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        unimplemented!()
+    }
+    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+        unimplemented!()
+    }
+    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+    fn load_imm(&mut self, imm: f32) -> u8 {
+        unimplemented!()
+    }
+    fn finalize(mut self, out_reg: u8) -> Mmap {
+        unimplemented!()
     }
 }
 
