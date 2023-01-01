@@ -19,6 +19,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
 pub struct GradSliceAssembler(AssemblerData<[f32; 4]>);
 
+#[cfg(target_arch = "aarch64")]
 impl AssemblerT for GradSliceAssembler {
     type Data = Grad;
 

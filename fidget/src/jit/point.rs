@@ -6,6 +6,7 @@ use dynasmrt::{dynasm, DynasmApi};
 
 pub struct PointAssembler(AssemblerData<f32>);
 
+#[cfg(target_arch = "aarch64")]
 impl AssemblerT for PointAssembler {
     type Data = f32;
 

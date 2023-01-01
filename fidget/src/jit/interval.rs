@@ -32,6 +32,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// `V0.S0` represents the lower bound for X.
 pub struct IntervalAssembler(AssemblerData<[f32; 2]>);
 
+#[cfg(target_arch = "aarch64")]
 impl AssemblerT for IntervalAssembler {
     type Data = Interval;
 

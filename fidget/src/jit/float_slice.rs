@@ -13,6 +13,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
 pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
 
+#[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
 
