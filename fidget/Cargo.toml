@@ -1,11 +1,12 @@
 [package]
 name = "fidget"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
 description = "Infrastructure for complex closed-form implicit surfaces"
 authors = ["Matt Keeter <matt.j.keeter@gmail.com"]
+readme = "../README.md"
 
 [dependencies]
 arrayvec = "0.7"
