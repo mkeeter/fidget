@@ -44,7 +44,7 @@ compile_error!(
     please disable the `jit` feature"
 );
 
-#[cfg(not(any(doc, target_arch = "aarch64")))]
+#[cfg(not(any(doc, target_os = "macos")))]
 compile_error!(
     "The `jit` module only builds on macOS; \
     please disable the `jit` feature"
@@ -207,7 +207,7 @@ impl<T> AssemblerData<T> {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn prepare_stack(&mut self, _slot_count: usize) {
+    fn prepare_stack(&mut self, slot_count: usize) {
         unimplemented!()
     }
 
