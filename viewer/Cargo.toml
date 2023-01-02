@@ -1,0 +1,17 @@
+[package]
+name = "viewer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "3.2.6", features = ["derive"] }
+crossbeam-channel = "0.5"
+eframe = "0.19"
+env_logger = "0.9"
+log = "0.4"
+nalgebra = "0.31"
+notify = "5.0"
+rhai = "1.10"
+
+fidget = { path = "../fidget" }
