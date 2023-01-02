@@ -1,16 +1,14 @@
 use anyhow::Result;
 use clap::Parser;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
 use fidget::{eval::Family, render::RenderConfig};
-use log::info;
+use log::{debug, error, info};
 use nalgebra::{Transform2, Vector2};
 use notify::Watcher;
 
-use std::{
-    hash::{Hash, Hasher},
-    path::Path,
-};
+use std::path::Path;
 
 /// Simple test program
 #[derive(Parser, Debug)]
@@ -26,38 +24,205 @@ struct Args {
 
 fn file_watcher_thread(
     path: &Path,
-    rx: crossbeam_channel::Receiver<()>,
-    tx: crossbeam_channel::Sender<String>,
-) {
-    use std::collections::hash_map::DefaultHasher;
+    rx: Receiver<()>,
+    tx: Sender<String>,
+) -> Result<()> {
+    let read_file = || String::from_utf8(std::fs::read(path).unwrap()).unwrap();
+    let mut contents = read_file();
+    tx.send(contents.clone())?;
 
-    let read_file = || {
-        let contents = std::fs::read(path).unwrap();
-        let mut hasher = DefaultHasher::new();
-        contents.hash(&mut hasher);
-        (contents, hasher.finish())
-    };
-    let (contents, mut hash) = read_file();
-    tx.send(String::from_utf8(contents).unwrap());
-
-    // Wait for a file change notification
-    while let Ok(()) = rx.recv() {
-        let (contents, new_hash) = read_file();
-        if new_hash != hash {
-            hash = new_hash;
-            info!("file contents changed!");
-            tx.send(String::from_utf8(contents).unwrap());
+    loop {
+        // Wait for a file change notification
+        rx.recv()?;
+        let new_contents = read_file();
+        if contents != new_contents {
+            contents = new_contents;
+            debug!("file contents changed!");
+            tx.send(contents.clone())?;
         }
     }
 }
 
 fn rhai_script_thread(
-    rx: crossbeam_channel::Receiver<String>,
-    tx: crossbeam_channel::Sender<Result<fidget::rhai::ScriptContext, String>>,
-) {
-    while let Ok(script) = rx.recv() {
-        info!("Got script!");
+    rx: Receiver<String>,
+    tx: Sender<Result<fidget::rhai::ScriptContext, String>>,
+) -> Result<()> {
+    let mut engine = fidget::rhai::Engine::new();
+    loop {
+        let script = rx.recv()?;
+        debug!("rhai script thread received script");
+        let r = engine.run(&script).map_err(|e| e.to_string());
+        debug!("rhai script thread is sending result to render thread");
+        tx.send(r)?;
     }
+}
+
+struct RenderSettings {
+    image_size: usize,
+    mode: RenderMode,
+}
+
+struct RenderResult {
+    dt: std::time::Duration,
+    image: egui::ImageData,
+    image_size: usize,
+}
+
+fn render_thread(
+    gui: egui::Context,
+    cfg: Receiver<RenderSettings>,
+    rx: Receiver<Result<fidget::rhai::ScriptContext, String>>,
+    tx: Sender<Result<RenderResult, String>>,
+) -> Result<()> {
+    let mut config = None;
+    let mut script_ctx = None;
+    let mut changed = false;
+    loop {
+        let timeout_ms = if changed { 10 } else { 10_000 };
+        let timeout = std::time::Duration::from_millis(timeout_ms);
+        crossbeam_channel::select! {
+            recv(rx) -> msg => match msg? {
+                Ok(s) => {
+                    debug!("render thread got a new result");
+                    script_ctx = Some(s);
+                    changed = true;
+                    continue;
+                },
+                Err(e) => {
+                    error!("render thread got error {e:?}; forwarding");
+                    tx.send(Err(e.to_string()))?;
+                }
+            },
+            recv(cfg) -> msg => {
+                debug!("render config got a new thread");
+                config = Some(msg?);
+                changed = true;
+                continue;
+            },
+            default(timeout) => debug!("render thread timed out"),
+        }
+
+        if !changed {
+            continue;
+        }
+
+        if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
+            info!("Rendering...");
+            let mut image = egui::ImageData::Color(egui::ColorImage::new(
+                [render_config.image_size; 2],
+                egui::Color32::BLACK,
+            ));
+            let pixels = match &mut image {
+                egui::ImageData::Color(c) => &mut c.pixels,
+                _ => panic!(),
+            };
+            let render_start = std::time::Instant::now();
+            for s in out.shapes.iter() {
+                let tape: fidget::eval::Tape<fidget::jit::Eval> =
+                    out.context.get_tape(s.shape).unwrap();
+                render(
+                    &render_config.mode,
+                    tape,
+                    render_config.image_size,
+                    s.color_rgb,
+                    pixels,
+                );
+            }
+            let dt = render_start.elapsed();
+            tx.send(Ok(RenderResult {
+                image,
+                dt,
+                image_size: render_config.image_size,
+            }))?;
+            gui.request_repaint();
+            changed = false;
+        }
+    }
+}
+
+fn render(
+    mode: &RenderMode,
+    tape: fidget::eval::Tape<fidget::jit::Eval>,
+    image_size: usize,
+    color: [u8; 3],
+    pixels: &mut [egui::Color32],
+) {
+    match mode {
+        RenderMode::TwoD(camera, mode) => {
+            let mat = Transform2::from_matrix_unchecked(
+                Transform2::identity()
+                    .matrix()
+                    .append_scaling(camera.scale)
+                    .append_translation(&Vector2::new(
+                        camera.offset.x,
+                        camera.offset.y,
+                    )),
+            );
+
+            let config = RenderConfig {
+                image_size,
+                tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
+                threads: 8,
+
+                mat,
+            };
+            match mode {
+                TwoDMode::Color => {
+                    let image = fidget::render::render2d(
+                        tape,
+                        &config,
+                        &fidget::render::BitRenderMode,
+                    );
+                    for i in 0..pixels.len() {
+                        if image[i] {
+                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                                color[0],
+                                color[1],
+                                color[2],
+                                u8::MAX,
+                            );
+                        }
+                    }
+                }
+
+                TwoDMode::Sdf => {
+                    let image = fidget::render::render2d(
+                        tape,
+                        &config,
+                        &fidget::render::SdfRenderMode,
+                    );
+                    for i in 0..pixels.len() {
+                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                            image[i][0],
+                            image[i][1],
+                            image[i][2],
+                            u8::MAX,
+                        );
+                    }
+                }
+
+                TwoDMode::Debug => {
+                    let image = fidget::render::render2d(
+                        tape,
+                        &config,
+                        &fidget::render::DebugRenderMode,
+                    );
+                    for i in 0..pixels.len() {
+                        let p = image[i].as_debug_color();
+                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                            p[0],
+                            p[1],
+                            p[2],
+                            u8::MAX,
+                        );
+                    }
+                }
+            }
+        }
+        RenderMode::ThreeD(camera, mode) => {
+            unimplemented!()
+        }
+    };
 }
 
 fn main() -> Result<()> {
@@ -65,15 +230,19 @@ fn main() -> Result<()> {
         .init();
     let args = Args::parse();
 
-    let (file_watcher_tx, file_watcher_rx) = crossbeam_channel::unbounded();
-    let (rhai_script_tx, rhai_script_rx) = crossbeam_channel::unbounded();
-    let (rhai_result_tx, rhai_result_rx) = crossbeam_channel::unbounded();
+    let (file_watcher_tx, file_watcher_rx) = unbounded();
+    let (rhai_script_tx, rhai_script_rx) = unbounded();
+    let (rhai_result_tx, rhai_result_rx) = unbounded();
+    let (render_tx, render_rx) = unbounded();
+    let (config_tx, config_rx) = unbounded();
     let path = Path::new(&args.target).to_owned();
     std::thread::spawn(move || {
-        file_watcher_thread(&path, file_watcher_rx, rhai_script_tx)
+        let _ = file_watcher_thread(&path, file_watcher_rx, rhai_script_tx);
+        info!("file watcher thread is done");
     });
     std::thread::spawn(move || {
-        rhai_script_thread(rhai_script_rx, rhai_result_tx)
+        let _ = rhai_script_thread(rhai_script_rx, rhai_result_tx);
+        info!("rhai script thread is done");
     });
 
     // Automatically select the best implementation for your platform.
@@ -83,15 +252,30 @@ fn main() -> Result<()> {
             file_watcher_tx.send(()).unwrap();
         }
         Err(e) => panic!("watch error: {:?}", e),
-    })?;
+    })
+    .unwrap();
     watcher
-        .watch(Path::new(&args.target), notify::RecursiveMode::NonRecursive)?;
+        .watch(Path::new(&args.target), notify::RecursiveMode::NonRecursive)
+        .unwrap();
 
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "Fidget",
         options,
-        Box::new(|_cc| Box::new(ViewerApp::default())),
+        Box::new(move |cc| {
+            let egui_ctx = cc.egui_ctx.clone();
+            std::thread::spawn(move || {
+                let _ = render_thread(
+                    egui_ctx,
+                    config_rx,
+                    rhai_result_rx,
+                    render_tx,
+                );
+                info!("render thread is done");
+            });
+
+            Box::new(ViewerApp::new(config_tx, render_rx))
+        }),
     );
 
     Ok(())
@@ -99,6 +283,7 @@ fn main() -> Result<()> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Copy, Clone)]
 struct TwoDCamera {
     // 2D camera parameters
     scale: f32,
@@ -141,6 +326,7 @@ enum TwoDMode {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Copy, Clone)]
 struct ThreeDCamera {
     // 2D camera parameters
     scale: f32,
@@ -177,27 +363,36 @@ enum ThreeDMode {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Copy, Clone)]
 enum RenderMode {
     TwoD(TwoDCamera, TwoDMode),
     ThreeD(ThreeDCamera, ThreeDMode),
 }
 
 impl RenderMode {
-    fn set_2d_mode(&mut self, mode: TwoDMode) {
+    fn set_2d_mode(&mut self, mode: TwoDMode) -> bool {
         match self {
-            RenderMode::TwoD(.., m) => *m = mode,
+            RenderMode::TwoD(.., m) => {
+                let changed = *m != mode;
+                *m = mode;
+                changed
+            }
             RenderMode::ThreeD(..) => {
-                *self = RenderMode::TwoD(TwoDCamera::default(), mode)
+                *self = RenderMode::TwoD(TwoDCamera::default(), mode);
+                true
             }
         }
     }
-    fn set_3d_mode(&mut self, mode: ThreeDMode) {
+    fn set_3d_mode(&mut self, mode: ThreeDMode) -> bool {
         match self {
             RenderMode::TwoD(..) => {
-                *self = RenderMode::ThreeD(ThreeDCamera::default(), mode)
+                *self = RenderMode::ThreeD(ThreeDCamera::default(), mode);
+                true
             }
             RenderMode::ThreeD(_camera, m) => {
+                let changed = *m != mode;
                 *m = mode;
+                changed
             }
         }
     }
@@ -206,157 +401,44 @@ impl RenderMode {
 struct ViewerApp {
     // Current image
     texture: Option<egui::TextureHandle>,
-
-    // Evaluator engine
-    engine: fidget::rhai::Engine,
+    stats: Option<(std::time::Duration, usize)>,
 
     /// Current render mode
     mode: RenderMode,
-
-    // Current contents of the editable script
-    script: String,
+    image_size: usize,
 
     // Most recent result, or an error string
-    out: Result<fidget::rhai::ScriptContext, String>,
+    err: Option<String>,
+
+    config_tx: Sender<RenderSettings>,
+    image_rx: Receiver<Result<RenderResult, String>>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl Default for ViewerApp {
-    fn default() -> Self {
-        let engine = fidget::rhai::Engine::new();
-
+impl ViewerApp {
+    fn new(
+        config_tx: Sender<RenderSettings>,
+        image_rx: Receiver<Result<RenderResult, String>>,
+    ) -> Self {
         Self {
             texture: None,
-            engine,
-            script: "".to_owned(), //"draw(circle(0, 0, 0.5))".to_owned(),
-            out: Err("".to_string()),
+            stats: None,
+
+            err: None,
+            image_size: 0,
+
+            config_tx,
+            image_rx,
 
             mode: RenderMode::TwoD(TwoDCamera::default(), TwoDMode::Color),
         }
     }
 }
 
-impl ViewerApp {
-    fn solarized(&mut self, ctx: &egui::Context) {
-        /*
-        let mut theme = egui::Visuals::dark();
-
-        let f = |c: Option<syntect::highlighting::Color>| {
-            c.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)).unwrap()
-        };
-        let highlight = crate::highlight::get_theme();
-        let sol = highlight.settings;
-
-        theme.extreme_bg_color = f(sol.background);
-        theme.widgets.noninteractive.bg_fill = f(sol.gutter);
-        theme.widgets.noninteractive.bg_stroke = egui::Stroke::none();
-        theme.widgets.hovered.bg_stroke =
-            egui::Stroke::new(1.0, f(sol.selection_border));
-
-        theme.widgets.hovered.bg_fill = f(sol.selection);
-        theme.widgets.active.bg_fill = f(sol.selection_border);
-
-        theme.selection.bg_fill = f(sol.selection);
-        theme.selection.stroke =
-            egui::Stroke::new(1.0, f(sol.selection_border));
-        theme.widgets.noninteractive.fg_stroke =
-            egui::Stroke::new(0.0, f(sol.foreground));
-
-        ctx.set_visuals(theme);
-        */
-    }
-
-    fn render(
-        &self,
-        tape: fidget::eval::Tape<fidget::jit::Eval>,
-        image_size: usize,
-        color: [u8; 3],
-        pixels: &mut [egui::Color32],
-    ) {
-        match &self.mode {
-            RenderMode::TwoD(camera, mode) => {
-                let mat = Transform2::from_matrix_unchecked(
-                    Transform2::identity()
-                        .matrix()
-                        .append_scaling(camera.scale)
-                        .append_translation(&Vector2::new(
-                            camera.offset.x,
-                            camera.offset.y,
-                        )),
-                );
-
-                let config = RenderConfig {
-                    image_size,
-                    tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
-                    threads: 8,
-
-                    mat,
-                };
-                match mode {
-                    TwoDMode::Color => {
-                        let image = fidget::render::render2d(
-                            tape,
-                            &config,
-                            &fidget::render::BitRenderMode,
-                        );
-                        for i in 0..pixels.len() {
-                            if image[i] {
-                                pixels[i] =
-                                    egui::Color32::from_rgba_unmultiplied(
-                                        color[0],
-                                        color[1],
-                                        color[2],
-                                        u8::MAX,
-                                    );
-                            }
-                        }
-                    }
-
-                    TwoDMode::Sdf => {
-                        let image = fidget::render::render2d(
-                            tape,
-                            &config,
-                            &fidget::render::SdfRenderMode,
-                        );
-                        for i in 0..pixels.len() {
-                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                                image[i][0],
-                                image[i][1],
-                                image[i][2],
-                                u8::MAX,
-                            );
-                        }
-                    }
-
-                    TwoDMode::Debug => {
-                        let image = fidget::render::render2d(
-                            tape,
-                            &config,
-                            &fidget::render::DebugRenderMode,
-                        );
-                        for i in 0..pixels.len() {
-                            let p = image[i].as_debug_color();
-                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                                p[0],
-                                p[1],
-                                p[2],
-                                u8::MAX,
-                            );
-                        }
-                    }
-                }
-            }
-            RenderMode::ThreeD(camera, mode) => {
-                unimplemented!()
-            }
-        };
-    }
-}
-
 impl eframe::App for ViewerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.solarized(ctx);
+        let mut render_changed = false;
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -381,7 +463,7 @@ impl eframe::App for ViewerApp {
                         "3D color",
                     );
                     if let Some(m) = mode_3d {
-                        self.mode.set_3d_mode(m);
+                        render_changed |= self.mode.set_3d_mode(m);
                     }
                     ui.separator();
                     let mut mode_2d = match &self.mode {
@@ -401,7 +483,7 @@ impl eframe::App for ViewerApp {
                     );
 
                     if let Some(m) = mode_2d {
-                        self.mode.set_2d_mode(m);
+                        render_changed |= self.mode.set_2d_mode(m);
                     }
                 });
             });
@@ -412,45 +494,42 @@ impl eframe::App for ViewerApp {
         let max_size = size.x.max(size.y);
         let image_size = (max_size * ctx.pixels_per_point()) as usize;
 
-        let mut image = egui::ImageData::Color(egui::ColorImage::new(
-            [image_size; 2],
-            egui::Color32::BLACK,
-        ));
-        let pixels = match &mut image {
-            egui::ImageData::Color(c) => &mut c.pixels,
-            _ => panic!(),
-        };
-
-        // Render shapes into self.texture
-        let render_start = std::time::Instant::now();
-
-        if let Ok(script_ctx) = &self.out {
-            for s in script_ctx.shapes.iter() {
-                let tape: fidget::eval::Tape<fidget::jit::Eval> =
-                    script_ctx.context.get_tape(s.shape).unwrap();
-                self.render(tape, image_size, s.color_rgb, pixels);
-            }
+        if image_size != self.image_size {
+            self.image_size = image_size;
+            render_changed = true;
         }
 
-        match self.texture.as_mut() {
-            Some(t) => {
-                if t.size() == [image_size; 2] {
-                    t.set(image, egui::TextureFilter::Linear)
-                } else {
-                    *t = ctx.load_texture(
-                        "tex",
-                        image,
-                        egui::TextureFilter::Linear,
-                    )
+        if let Ok(r) = self.image_rx.try_recv() {
+            match r {
+                Ok(r) => {
+                    match self.texture.as_mut() {
+                        Some(t) => {
+                            if t.size() == r.image.size() {
+                                t.set(r.image, egui::TextureFilter::Linear)
+                            } else {
+                                *t = ctx.load_texture(
+                                    "tex",
+                                    r.image,
+                                    egui::TextureFilter::Linear,
+                                )
+                            }
+                        }
+                        None => {
+                            let texture = ctx.load_texture(
+                                "tex",
+                                r.image,
+                                egui::TextureFilter::Linear,
+                            );
+                            self.texture = Some(texture);
+                        }
+                    }
+                    self.stats = Some((r.dt, r.image_size));
+                }
+                Err(e) => {
+                    self.err = Some(e);
                 }
             }
-            None => {
-                let texture =
-                    ctx.load_texture("tex", image, egui::TextureFilter::Linear);
-                self.texture = Some(texture);
-            }
         }
-        let dt = render_start.elapsed();
 
         let uv = if size.x > size.y {
             let r = (1.0 - (size.y / size.x)) / 2.0;
@@ -482,26 +561,28 @@ impl eframe::App for ViewerApp {
                     painter.add(mesh);
                 }
 
-                let layout = painter.layout(
-                    format!(
-                        "Image size: {0}x{0}\nRender time: {dt:.2?}",
-                        image_size
-                    ),
-                    egui::FontId::proportional(14.0),
-                    egui::Color32::WHITE,
-                    f32::INFINITY,
-                );
-                let padding = egui::Vec2 { x: 10.0, y: 10.0 };
-                let text_corner = rect.max - layout.size();
-                painter.rect_filled(
-                    egui::Rect {
-                        min: text_corner - 2.0 * padding,
-                        max: rect.max,
-                    },
-                    egui::Rounding::none(),
-                    egui::Color32::from_black_alpha(128),
-                );
-                painter.galley(text_corner - padding, layout);
+                if let Some((dt, image_size)) = self.stats {
+                    let layout = painter.layout(
+                        format!(
+                            "Image size: {0}x{0}\nRender time: {dt:.2?}",
+                            image_size,
+                        ),
+                        egui::FontId::proportional(14.0),
+                        egui::Color32::WHITE,
+                        f32::INFINITY,
+                    );
+                    let padding = egui::Vec2 { x: 10.0, y: 10.0 };
+                    let text_corner = rect.max - layout.size();
+                    painter.rect_filled(
+                        egui::Rect {
+                            min: text_corner - 2.0 * padding,
+                            max: rect.max,
+                        },
+                        egui::Rounding::none(),
+                        egui::Color32::from_black_alpha(128),
+                    );
+                    painter.galley(text_corner - padding, layout);
+                }
 
                 // Return events from the canvas in the inner response
                 ui.interact(
@@ -519,6 +600,7 @@ impl eframe::App for ViewerApp {
                         camera.offset = egui::Vec2::ZERO;
                         let pos = camera.mouse_to_uv(rect, uv, pos);
                         camera.offset = start - pos;
+                        render_changed = true;
                     } else {
                         let pos = camera.mouse_to_uv(rect, uv, pos);
                         camera.drag_start = Some(pos);
@@ -528,20 +610,37 @@ impl eframe::App for ViewerApp {
                 }
 
                 if r.inner.hovered() {
-                    let mouse_pos = ctx.input().pointer.hover_pos();
-                    let pos_before =
-                        mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
-                    camera.scale /= (ctx.input().scroll_delta.y / 100.0).exp2();
-                    if let Some(pos_before) = pos_before {
-                        let pos_after =
-                            camera.mouse_to_uv(rect, uv, mouse_pos.unwrap());
-                        camera.offset += pos_before - pos_after;
+                    let scroll = ctx.input().scroll_delta.y;
+                    if scroll != 0.0 {
+                        let mouse_pos = ctx.input().pointer.hover_pos();
+                        let pos_before =
+                            mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
+                        render_changed = true;
+                        camera.scale /= (scroll / 100.0).exp2();
+                        if let Some(pos_before) = pos_before {
+                            let pos_after = camera.mouse_to_uv(
+                                rect,
+                                uv,
+                                mouse_pos.unwrap(),
+                            );
+                            camera.offset += pos_before - pos_after;
+                        }
                     }
                 }
             }
             RenderMode::ThreeD(camera, ..) => {
                 unimplemented!()
             }
+        }
+
+        // Kick off a new render if we changed any settings
+        if render_changed {
+            self.config_tx
+                .send(RenderSettings {
+                    mode: self.mode,
+                    image_size: self.image_size,
+                })
+                .unwrap();
         }
     }
 }

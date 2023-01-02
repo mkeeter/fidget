@@ -4,6 +4,7 @@ members = [
     "fidget",
     "demo",
     "gui",
+    "viewer",
 ]
 
 [profile.release]
