@@ -69,10 +69,10 @@ struct RenderResult {
 }
 
 fn render_thread(
-    gui: egui::Context,
     cfg: Receiver<RenderSettings>,
     rx: Receiver<Result<fidget::rhai::ScriptContext, String>>,
     tx: Sender<Result<RenderResult, String>>,
+    wake: Sender<()>,
 ) -> Result<()> {
     let mut config = None;
     let mut script_ctx = None;
@@ -134,8 +134,8 @@ fn render_thread(
                 dt,
                 image_size: render_config.image_size,
             }))?;
-            gui.request_repaint();
             changed = false;
+            wake.send(()).unwrap();
         }
     }
 }
@@ -235,6 +235,8 @@ fn main() -> Result<()> {
     let (rhai_result_tx, rhai_result_rx) = unbounded();
     let (render_tx, render_rx) = unbounded();
     let (config_tx, config_rx) = unbounded();
+    let (wake_tx, wake_rx) = unbounded();
+
     let path = Path::new(&args.target).to_owned();
     std::thread::spawn(move || {
         let _ = file_watcher_thread(&path, file_watcher_rx, rhai_script_tx);
@@ -243,6 +245,10 @@ fn main() -> Result<()> {
     std::thread::spawn(move || {
         let _ = rhai_script_thread(rhai_script_rx, rhai_result_tx);
         info!("rhai script thread is done");
+    });
+    std::thread::spawn(move || {
+        let _ = render_thread(config_rx, rhai_result_rx, render_tx, wake_tx);
+        info!("render thread is done");
     });
 
     // Automatically select the best implementation for your platform.
@@ -263,15 +269,14 @@ fn main() -> Result<()> {
         "Fidget",
         options,
         Box::new(move |cc| {
+            // Run a worker thread which listens for wake events and pokes the
+            // UI whenever they come in.
             let egui_ctx = cc.egui_ctx.clone();
             std::thread::spawn(move || {
-                let _ = render_thread(
-                    egui_ctx,
-                    config_rx,
-                    rhai_result_rx,
-                    render_tx,
-                );
-                info!("render thread is done");
+                while let Ok(()) = wake_rx.recv() {
+                    egui_ctx.request_repaint();
+                }
+                info!("wake thread is done");
             });
 
             Box::new(ViewerApp::new(config_tx, render_rx))
