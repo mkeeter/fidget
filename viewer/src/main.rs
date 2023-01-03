@@ -14,10 +14,6 @@ use std::path::Path;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Render `.dot` files representing compilation
-    #[clap(short, long)]
-    dot: bool,
-
     /// File to watch
     target: String,
 }
@@ -90,7 +86,9 @@ fn render_thread(
                 },
                 Err(e) => {
                     error!("render thread got error {e:?}; forwarding");
+                    script_ctx = None;
                     tx.send(Err(e.to_string()))?;
+                    wake.send(()).unwrap();
                 }
             },
             recv(cfg) -> msg => {
@@ -408,12 +406,13 @@ struct ViewerApp {
     texture: Option<egui::TextureHandle>,
     stats: Option<(std::time::Duration, usize)>,
 
+    // Most recent result, or an error string
+    // TODO: this could be combined with stats as a Result
+    err: Option<String>,
+
     /// Current render mode
     mode: RenderMode,
     image_size: usize,
-
-    // Most recent result, or an error string
-    err: Option<String>,
 
     config_tx: Sender<RenderSettings>,
     image_rx: Receiver<Result<RenderResult, String>>,
@@ -439,12 +438,9 @@ impl ViewerApp {
             mode: RenderMode::TwoD(TwoDCamera::default(), TwoDMode::Color),
         }
     }
-}
 
-impl eframe::App for ViewerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut render_changed = false;
-
+    fn draw_menu(&mut self, ctx: &egui::Context) -> bool {
+        let mut changed = false;
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Config", |ui| {
@@ -463,7 +459,7 @@ impl eframe::App for ViewerApp {
                         "3D color",
                     );
                     if let Some(m) = mode_3d {
-                        render_changed |= self.mode.set_3d_mode(m);
+                        changed = self.mode.set_3d_mode(m);
                     }
                     ui.separator();
                     let mut mode_2d = match &self.mode {
@@ -483,22 +479,17 @@ impl eframe::App for ViewerApp {
                     );
 
                     if let Some(m) = mode_2d {
-                        render_changed |= self.mode.set_2d_mode(m);
+                        changed = self.mode.set_2d_mode(m);
                     }
                 });
             });
         });
+        changed
+    }
 
-        let rect = ctx.available_rect();
-        let size = rect.max - rect.min;
-        let max_size = size.x.max(size.y);
-        let image_size = (max_size * ctx.pixels_per_point()) as usize;
-
-        if image_size != self.image_size {
-            self.image_size = image_size;
-            render_changed = true;
-        }
-
+    /// Try to receive an image from the worker thread, populating
+    /// `self.texture` and `self.stats`, or `self.err`
+    fn try_recv_image(&mut self, ctx: &egui::Context) {
         if let Ok(r) = self.image_rx.try_recv() {
             match r {
                 Ok(r) => {
@@ -524,11 +515,101 @@ impl eframe::App for ViewerApp {
                         }
                     }
                     self.stats = Some((r.dt, r.image_size));
+                    self.err = None;
                 }
                 Err(e) => {
                     self.err = Some(e);
+                    self.stats = None;
                 }
             }
+        }
+    }
+
+    fn paint_image(
+        &self,
+        rect: egui::Rect,
+        uv: egui::Rect,
+        ui: &mut egui::Ui,
+    ) -> egui::Response {
+        let pos = ui.next_widget_position();
+        let size = ui.available_size();
+        let painter = ui.painter_at(egui::Rect {
+            min: pos,
+            max: pos + size,
+        });
+        const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
+
+        if let Some((dt, image_size)) = self.stats {
+            // Only draw the image if we have valid stats (i.e. no error)
+            if let Some(t) = self.texture.as_ref() {
+                let mut mesh = egui::Mesh::with_texture(t.id());
+                mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
+                painter.add(mesh);
+            }
+
+            let layout = painter.layout(
+                format!(
+                    "Image size: {0}x{0}\nRender time: {dt:.2?}",
+                    image_size,
+                ),
+                egui::FontId::proportional(14.0),
+                egui::Color32::WHITE,
+                f32::INFINITY,
+            );
+            let text_corner = rect.max - layout.size();
+            painter.rect_filled(
+                egui::Rect {
+                    min: text_corner - 2.0 * PADDING,
+                    max: rect.max,
+                },
+                egui::Rounding::none(),
+                egui::Color32::from_black_alpha(128),
+            );
+            painter.galley(text_corner - PADDING, layout);
+        }
+
+        if let Some(err) = &self.err {
+            let layout = painter.layout(
+                err.to_string(),
+                egui::FontId::proportional(14.0),
+                egui::Color32::LIGHT_RED,
+                f32::INFINITY,
+            );
+
+            let text_corner = rect.min + layout.size();
+            painter.rect_filled(
+                egui::Rect {
+                    min: rect.min,
+                    max: text_corner + 2.0 * PADDING,
+                },
+                egui::Rounding::none(),
+                egui::Color32::from_black_alpha(128),
+            );
+            painter.galley(rect.min + PADDING, layout);
+        }
+
+        // Return events from the canvas in the inner response
+        ui.interact(
+            rect,
+            egui::Id::new("canvas"),
+            egui::Sense::click_and_drag(),
+        )
+    }
+}
+
+impl eframe::App for ViewerApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut render_changed = self.draw_menu(ctx);
+        self.try_recv_image(ctx);
+
+        let rect = ctx.available_rect();
+        let size = rect.max - rect.min;
+        let max_size = size.x.max(size.y);
+        let image_size = (max_size * ctx.pixels_per_point()) as usize;
+
+        if image_size != self.image_size {
+            self.image_size = image_size;
+            render_changed = true;
         }
 
         let uv = if size.x > size.y {
@@ -545,57 +626,16 @@ impl eframe::App for ViewerApp {
             }
         };
 
+        // Draw the current image and/or error
         let r = egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
-            .show(ctx, |ui| {
-                let pos = ui.next_widget_position();
-                let size = ui.available_size();
-                let painter = ui.painter_at(egui::Rect {
-                    min: pos,
-                    max: pos + size,
-                });
-
-                if let Some(t) = self.texture.as_ref() {
-                    let mut mesh = egui::Mesh::with_texture(t.id());
-                    mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
-                    painter.add(mesh);
-                }
-
-                if let Some((dt, image_size)) = self.stats {
-                    let layout = painter.layout(
-                        format!(
-                            "Image size: {0}x{0}\nRender time: {dt:.2?}",
-                            image_size,
-                        ),
-                        egui::FontId::proportional(14.0),
-                        egui::Color32::WHITE,
-                        f32::INFINITY,
-                    );
-                    let padding = egui::Vec2 { x: 10.0, y: 10.0 };
-                    let text_corner = rect.max - layout.size();
-                    painter.rect_filled(
-                        egui::Rect {
-                            min: text_corner - 2.0 * padding,
-                            max: rect.max,
-                        },
-                        egui::Rounding::none(),
-                        egui::Color32::from_black_alpha(128),
-                    );
-                    painter.galley(text_corner - padding, layout);
-                }
-
-                // Return events from the canvas in the inner response
-                ui.interact(
-                    rect,
-                    egui::Id::new("canvas"),
-                    egui::Sense::click_and_drag(),
-                )
-            });
+            .show(ctx, |ui| self.paint_image(rect, uv, ui))
+            .inner;
 
         // Handle pan and zoom
         match &mut self.mode {
             RenderMode::TwoD(camera, ..) => {
-                if let Some(pos) = r.inner.interact_pointer_pos() {
+                if let Some(pos) = r.interact_pointer_pos() {
                     if let Some(start) = camera.drag_start {
                         camera.offset = egui::Vec2::ZERO;
                         let pos = camera.mouse_to_uv(rect, uv, pos);
@@ -609,7 +649,7 @@ impl eframe::App for ViewerApp {
                     camera.drag_start = None;
                 }
 
-                if r.inner.hovered() {
+                if r.hovered() {
                     let scroll = ctx.input().scroll_delta.y;
                     if scroll != 0.0 {
                         let mouse_pos = ctx.input().pointer.hover_pos();
