@@ -107,7 +107,7 @@ fn render_thread(
         }
 
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
-            info!("Rendering...");
+            debug!("Rendering...");
             let mut image = egui::ImageData::Color(egui::ColorImage::new(
                 [render_config.image_size; 2],
                 egui::Color32::BLACK,
@@ -442,11 +442,6 @@ impl eframe::App for ViewerApp {
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open").clicked() {
-                        println!("HI")
-                    }
-                });
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
                         RenderMode::TwoD(..) => None,
