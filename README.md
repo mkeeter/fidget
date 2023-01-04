@@ -53,7 +53,7 @@ two demo applications:
 
 - `demo` does bitmap rendering and unscientific benchmarking from the command
   line
-- `gui` is a minimal GUI for interactive exploration
+- `viewer` is a minimal GUI for interactive exploration
 
 These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.

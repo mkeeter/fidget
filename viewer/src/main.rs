@@ -10,7 +10,7 @@ use notify::Watcher;
 
 use std::path::Path;
 
-/// Simple test program
+/// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -228,6 +228,17 @@ fn main() -> Result<()> {
         .init();
     let args = Args::parse();
 
+    // This is a pipelined process with separate threads for each stage.
+    // Unbounded channels are used to send data through the pipeline
+    //
+    // - File watcher (via `notify`) produces () notifications
+    // - Loading from a file produces the text of the script
+    // - Script evaluation produces the Rhai result (or error)
+    // - Rendering produces the image (or an error)
+    // - Posting wake events to the GUI
+    //
+    // In addition, the GUI (main) thread will send new rendering configuration
+    // to the render thread when the user changes things.
     let (file_watcher_tx, file_watcher_rx) = unbounded();
     let (rhai_script_tx, rhai_script_rx) = unbounded();
     let (rhai_result_tx, rhai_result_rx) = unbounded();
