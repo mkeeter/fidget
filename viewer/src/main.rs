@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::{eval::Family, render::RenderConfig};
 use log::{debug, error, info};
-use nalgebra::{Transform2, Vector2};
+use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
 
 use std::path::Path;
@@ -218,7 +218,55 @@ fn render(
             }
         }
         RenderMode::ThreeD(camera, mode) => {
-            unimplemented!()
+            let mat = Transform3::from_matrix_unchecked(
+                Transform3::identity()
+                    .matrix()
+                    .append_scaling(camera.scale)
+                    .append_translation(&Vector3::new(
+                        camera.offset.x,
+                        camera.offset.y,
+                        0.0,
+                    )),
+            );
+
+            let config = RenderConfig {
+                image_size,
+                tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
+                threads: 8,
+
+                mat,
+            };
+            let (depth, color) = fidget::render::render3d(tape, &config);
+            match mode {
+                ThreeDMode::Color => {
+                    for i in 0..pixels.len() {
+                        if depth[i] != 0 {
+                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                                color[i][0],
+                                color[i][1],
+                                color[i][2],
+                                u8::MAX,
+                            );
+                        }
+                    }
+                }
+
+                ThreeDMode::Heightmap => {
+                    let max_depth =
+                        depth.iter().max().cloned().unwrap_or(1).max(1);
+                    for i in 0..pixels.len() {
+                        if depth[i] != 0 {
+                            let b = (depth[i] * 255 / max_depth) as u8;
+                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
+                                b,
+                                b,
+                                b,
+                                u8::MAX,
+                            );
+                        }
+                    }
+                }
+            }
         }
     };
 }
