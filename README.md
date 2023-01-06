@@ -4,7 +4,7 @@
 ![» CI](https://badgen.net/github/checks/mkeeter/fidget/main)
 [![» MPL-2.0](https://badgen.net/github/license/mkeeter/fidget)](LICENSE.txt)
 
-Fidget is experimental infrastructure for complex closed-form implicit surfaces:
+Fidget is experimental infrastructure for complex closed-form implicit surfaces.
 
 At the moment, it is **quietly public**: it's available on Github and published
 to [crates.io](https://crates.io/crates.fidget), but I'd appreciate if you
