@@ -75,6 +75,51 @@ An x86 backend would be substantially more work; if you want to write some x86
 assembly (and who doesn't?!), adding that backend would be a fun project and
 highly welcome!
 
+## Similar projects
+Fidget overlaps with various projects in the implicit modeling space:
+
+- [Antimony: CAD from a parallel universe](https://mattkeeter.com/projects/antimony)*
+- [`libfive`: Infrastructure for solid modeling](https://libfive.com)*
+- [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces (MPR)](https://github.com/mkeeter/mpr)*
+- [ImplicitCAD: Powerful, Open-Source, Programmatic CAD](https://implicitcad.org/)
+- [Ruckus: Procedural CAD For Weirdos](https://docs.racket-lang.org/ruckus/index.html)
+- [Curv: a language for making art using mathematics](https://github.com/curv3d/curv)
+- [sdf: Simple SDF mesh generation in Python](https://github.com/fogleman/sdf)
+- Probably more; PRs welcome!
+
+*written by the same author
+
+(the MPR paper also cites
+[many references](https://dl.acm.org/doi/10.1145/3386569.3392429#sec-ref)
+to related academic work)
+
+Compared to these projects, Fidget is unique in having a native JIT **and**
+using that JIT while performing tape simplification.  Situating it among
+projects by the same author – which all use roughly the same rendering
+strategies – it looks something like this:
+
+|                 | CPU               | GPU
+|-----------------|-------------------|------
+| **Interpreter** | `libfive`, Fidget | MPR
+| **JIT**         | Fidget            | (please give me APIs to do this)
+
+Fidget's native JIT makes it _blazing fast_.
+For example, here are rough benchmarks rasterizing [this model](https://www.mattkeeter.com/projects/siggraph/depth_norm@2x.png)
+across three different implementations:
+
+Size  | `libfive` | MPR     | Fidget (VM) | Fidget (JIT)
+------|-----------|---------|-------------|---------------
+1024³ | 66.8 ms   | 22.6 ms | 61.7 ms     | 23.6 ms
+1536³ | 127 ms    | 39.3 ms | 112 ms      | 45.4 ms
+2048³ | 211 ms    | 60.6 ms | 184 ms      | 77.4 ms
+
+`libfive` and Fidget are running on an M1 Max CPU; MPR is running on a GTX 1080
+Ti GPU.  We see that Fidget's interpreter is slightly better than `libfive`, and
+Fidget's JIT is _nearly_ competitive with the GPU-based MPR.
+
+Fidget is missing a bunch of features that are found in more mature projects.
+For example, it does not implement meshing, and only includes a debug GUI.
+
 ## License
 © 2022-2023 Matthew Keeter  
 Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)
