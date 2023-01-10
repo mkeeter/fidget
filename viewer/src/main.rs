@@ -171,14 +171,15 @@ fn render(
                         &config,
                         &fidget::render::BitRenderMode,
                     );
-                    for i in 0..pixels.len() {
-                        if image[i] {
-                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                                color[0],
-                                color[1],
-                                color[2],
-                                u8::MAX,
-                            );
+                    let c = egui::Color32::from_rgba_unmultiplied(
+                        color[0],
+                        color[1],
+                        color[2],
+                        u8::MAX,
+                    );
+                    for (p, &i) in pixels.iter_mut().zip(&image) {
+                        if i {
+                            *p = c;
                         }
                     }
                 }
@@ -189,13 +190,8 @@ fn render(
                         &config,
                         &fidget::render::SdfRenderMode,
                     );
-                    for i in 0..pixels.len() {
-                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                            image[i][0],
-                            image[i][1],
-                            image[i][2],
-                            u8::MAX,
-                        );
+                    for (p, i) in pixels.iter_mut().zip(&image) {
+                        *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
@@ -205,14 +201,9 @@ fn render(
                         &config,
                         &fidget::render::DebugRenderMode,
                     );
-                    for i in 0..pixels.len() {
-                        let p = image[i].as_debug_color();
-                        pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                            p[0],
-                            p[1],
-                            p[2],
-                            u8::MAX,
-                        );
+                    for (p, i) in pixels.iter_mut().zip(&image) {
+                        let c = i.as_debug_color();
+                        *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
                     }
                 }
             }
@@ -239,14 +230,11 @@ fn render(
             let (depth, color) = fidget::render::render3d(tape, &config);
             match mode {
                 ThreeDMode::Color => {
-                    for i in 0..pixels.len() {
-                        if depth[i] != 0 {
-                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                                color[i][0],
-                                color[i][1],
-                                color[i][2],
-                                u8::MAX,
-                            );
+                    for (p, (&d, &c)) in
+                        pixels.iter_mut().zip(depth.iter().zip(&color))
+                    {
+                        if d != 0 {
+                            *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
                         }
                     }
                 }
@@ -254,15 +242,10 @@ fn render(
                 ThreeDMode::Heightmap => {
                     let max_depth =
                         depth.iter().max().cloned().unwrap_or(1).max(1);
-                    for i in 0..pixels.len() {
-                        if depth[i] != 0 {
-                            let b = (depth[i] * 255 / max_depth) as u8;
-                            pixels[i] = egui::Color32::from_rgba_unmultiplied(
-                                b,
-                                b,
-                                b,
-                                u8::MAX,
-                            );
+                    for (p, &d) in pixels.iter_mut().zip(&depth) {
+                        if d != 0 {
+                            let b = (d * 255 / max_depth) as u8;
+                            *p = egui::Color32::from_rgb(b, b, b);
                         }
                     }
                 }
