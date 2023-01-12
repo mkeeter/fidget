@@ -333,6 +333,27 @@ impl RegisterAllocator {
         }
     }
 
+    #[inline]
+    fn get_arg_reg(&mut self, arg: u32) -> u8 {
+        match self.get_allocation(arg) {
+            Allocation::Register(r_x) => r_x,
+            Allocation::Memory(m_x) => {
+                // TODO: this could be more efficient with a Swap instruction,
+                // since we know that we're about to free a memory slot.
+                let r_a = self.get_register();
+
+                self.push_store(r_a, m_x);
+                self.bind_register(arg, r_a);
+                r_a
+            }
+            Allocation::Unassigned => {
+                let r_a = self.get_register();
+                self.bind_register(arg, r_a);
+                r_a
+            }
+        }
+    }
+
     #[inline(always)]
     fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> Op) {
         // When we enter this function, the output can be assigned to either a
@@ -379,15 +400,13 @@ impl RegisterAllocator {
         let r_x = self.get_out_reg(out);
         match self.get_allocation(arg) {
             Allocation::Register(r_y) => {
-                assert!(r_x != r_y);
                 self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
-            Allocation::Memory(m_y) => {
-                self.out.push(op(r_x, r_x));
-                self.rebind_register(arg, r_x);
-
-                self.push_store(r_x, m_y);
+            Allocation::Memory(_m_y) => {
+                let r_a = self.get_arg_reg(arg);
+                self.out.push(op(r_x, r_a));
+                self.release_reg(r_x);
             }
             Allocation::Unassigned => {
                 self.out.push(op(r_x, r_x));
@@ -530,32 +549,22 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
-            (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
-                self.out.push(op(r_x, r_x, r_z));
-                self.rebind_register(lhs, r_x);
-
-                self.push_store(r_x, m_y);
+            (Allocation::Memory(_m_y), Allocation::Register(r_z)) => {
+                let r_y = self.get_arg_reg(lhs);
+                self.out.push(op(r_x, r_y, r_z));
+                self.release_reg(r_x);
             }
-            (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
-                self.out.push(op(r_x, r_y, r_x));
-                self.rebind_register(rhs, r_x);
-
-                self.push_store(r_x, m_z);
+            (Allocation::Register(r_y), Allocation::Memory(_m_z)) => {
+                let r_z = self.get_arg_reg(rhs);
+                self.out.push(op(r_x, r_y, r_z));
+                self.release_reg(r_x);
             }
-            (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
-                let r_a = if lhs == rhs { r_x } else { self.get_register() };
+            (Allocation::Memory(_m_y), Allocation::Memory(_m_z)) => {
+                let r_a = self.get_arg_reg(lhs);
+                let r_b = self.get_arg_reg(rhs);
 
-                self.out.push(op(r_x, r_x, r_a));
-                self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
-
-                self.push_store(r_x, m_y);
-
-                if lhs != rhs {
-                    self.push_store(r_a, m_z);
-                }
+                self.out.push(op(r_x, r_a, r_b));
+                self.release_reg(r_x);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
@@ -565,38 +574,24 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
+            (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
+                self.out.push(op(r_x, r_x, r_x));
+                self.rebind_register(lhs, r_x);
+            }
             (Allocation::Unassigned, Allocation::Unassigned) => {
-                let r_a = if lhs == rhs { r_x } else { self.get_register() };
-
+                let r_a = self.get_arg_reg(rhs);
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
             }
-            (Allocation::Unassigned, Allocation::Memory(m_z)) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_x);
-
-                self.out.push(op(r_x, r_x, r_a));
+            (Allocation::Unassigned, Allocation::Memory(_m_z)) => {
+                let r_b = self.get_arg_reg(rhs);
+                self.out.push(op(r_x, r_x, r_b));
                 self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
-
-                self.push_store(r_a, m_z);
             }
-            (Allocation::Memory(m_y), Allocation::Unassigned) => {
-                let r_a = self.get_register();
-                assert!(r_a != r_x);
-
+            (Allocation::Memory(_m_y), Allocation::Unassigned) => {
+                let r_a = self.get_arg_reg(lhs);
                 self.out.push(op(r_x, r_a, r_x));
-                self.bind_register(lhs, r_a);
-                if lhs != rhs {
-                    self.rebind_register(rhs, r_x);
-                }
-
-                self.push_store(r_a, m_y);
+                self.rebind_register(rhs, r_x);
             }
         }
     }
