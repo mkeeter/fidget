@@ -215,8 +215,9 @@ impl RegisterAllocator {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
         assert!(self.registers[reg as usize] != u32::MAX);
 
+        // The SSA variable must have already been released (in get_out_reg)
         let prev_node = self.registers[reg as usize];
-        self.allocations[prev_node as usize] = u32::MAX;
+        assert_eq!(self.allocations[prev_node as usize], u32::MAX);
 
         // Bind the register and update its use time
         self.registers[reg as usize] = n;
@@ -247,9 +248,6 @@ impl RegisterAllocator {
 
         self.registers[reg as usize] = u32::MAX;
         self.spare_registers.push(reg);
-        // Modifying self.allocations isn't strictly necessary, but could help
-        // us detect logical errors (since it should never be used after this)
-        self.allocations[node as usize] = u32::MAX;
     }
 
     #[inline]
@@ -316,15 +314,19 @@ impl RegisterAllocator {
         self.release_mem(mem);
     }
 
-    /// Returns a register that is bound to the given SSA input
+    /// Returns a register that is bound to the given SSA input, unbinding that
+    /// SSA input (but leaving the register bound).
     ///
     /// If the given SSA input is not already bound to a register, then we
     /// evict the oldest register using `Self::get_register`, with the
     /// appropriate set of LOAD/STORE operations.
     #[inline]
     fn get_out_reg(&mut self, out: u32) -> u8 {
-        self.get_arg_reg(out)
-            .expect("Cannot have unassigned output")
+        let reg = self
+            .get_arg_reg(out)
+            .expect("Cannot have unassigned output");
+        self.allocations[out as usize] = u32::MAX;
+        reg
     }
 
     /// Returns a register that is bound to the given SSA input, or `None`
