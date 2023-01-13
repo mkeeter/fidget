@@ -332,9 +332,204 @@ impl Data {
                     *arg = workspace.get_or_insert_active(*arg);
                 }
             }
-            workspace.alloc.op(op);
             ops_out.push(op);
         }
+
+        ////////////////////////////////////////////////////////////////////////
+
+        // Perform in-line translation from pseudo-linear to SSA form
+        struct Bind(Vec<u32>, u32);
+        impl Bind {
+            fn out(&mut self, v: u8) -> u32 {
+                assert!(self.0[v as usize] != u32::MAX);
+                let out = self.0[v as usize];
+                self.0[v as usize] = u32::MAX;
+                out
+            }
+            fn arg(&mut self, v: u8) -> u32 {
+                if self.0[v as usize] == u32::MAX {
+                    self.0[v as usize] = self.1;
+                    self.1 += 1;
+                }
+                self.0[v as usize]
+            }
+            fn active(&self, v: u8) -> Option<u32> {
+                Some(self.0[v as usize]).filter(|o| *o != u32::MAX)
+            }
+        }
+        let mut choice_iter = choices.iter().rev();
+        let mut bind = Bind(vec![u32::MAX; self.slot_count()], 0);
+        bind.arg(0); // Bind the initial output register
+        let mut asm_choice_count = 0;
+        for op in self.asm.iter() {
+            // Skip if this operation isn't active (which we check by seeing
+            // whether its output is bound)
+            let out = if let Some(out) = op.output() {
+                if bind.active(out).is_none() {
+                    for _ in 0..op.choice_count() {
+                        choice_iter.next().unwrap();
+                    }
+                    continue;
+                }
+                bind.out(out)
+            } else {
+                // Not used for Load/Store operations
+                u32::MAX
+            };
+
+            let op = match *op {
+                VmOp::Input(_out, arg) => SsaOp::Input(out, arg as u32),
+                VmOp::Var(_out, var) => SsaOp::Var(out, var as u32),
+                VmOp::NegReg(_out, arg) => SsaOp::NegReg(out, bind.arg(arg)),
+                VmOp::AbsReg(_out, arg) => SsaOp::AbsReg(out, bind.arg(arg)),
+                VmOp::RecipReg(_out, arg) => {
+                    SsaOp::RecipReg(out, bind.arg(arg))
+                }
+                VmOp::SqrtReg(_out, arg) => SsaOp::SqrtReg(out, bind.arg(arg)),
+                VmOp::SquareReg(_out, arg) => {
+                    SsaOp::SquareReg(out, bind.arg(arg))
+                }
+                VmOp::CopyReg(_out, src) => {
+                    // CopyReg effectively does
+                    //      dst <= src
+                    // If src has not yet been used (as we iterate backwards
+                    // through the tape), then we can replace it with dst
+                    // everywhere!
+                    match bind.active(src) {
+                        Some(new_src) => SsaOp::CopyReg(out, new_src),
+                        None => {
+                            bind.0[src as usize] = out;
+                            continue;
+                        }
+                    }
+                }
+                VmOp::AddRegImm(_out, arg, imm) => {
+                    SsaOp::AddRegImm(out, bind.arg(arg), imm)
+                }
+                VmOp::MulRegImm(_out, arg, imm) => {
+                    SsaOp::MulRegImm(out, bind.arg(arg), imm)
+                }
+                VmOp::DivRegImm(_out, arg, imm) => {
+                    SsaOp::DivRegImm(out, bind.arg(arg), imm)
+                }
+                VmOp::DivImmReg(_out, arg, imm) => {
+                    SsaOp::DivImmReg(out, bind.arg(arg), imm)
+                }
+                VmOp::SubImmReg(_out, arg, imm) => {
+                    SsaOp::SubImmReg(out, bind.arg(arg), imm)
+                }
+                VmOp::SubRegImm(_out, arg, imm) => {
+                    SsaOp::SubRegImm(out, bind.arg(arg), imm)
+                }
+                VmOp::MinRegImm(_out, arg, imm) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match bind.active(arg) {
+                            Some(new_arg) => SsaOp::CopyReg(out, new_arg),
+                            None => {
+                                bind.0[arg as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Right => SsaOp::CopyImm(out, imm),
+                        Choice::Both => {
+                            asm_choice_count += 1;
+                            SsaOp::MinRegImm(out, bind.arg(arg), imm)
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                VmOp::MaxRegImm(_out, arg, imm) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match bind.active(arg) {
+                            Some(new_arg) => SsaOp::CopyReg(out, new_arg),
+                            None => {
+                                bind.0[arg as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Right => SsaOp::CopyImm(out, imm),
+                        Choice::Both => {
+                            asm_choice_count += 1;
+                            SsaOp::MaxRegImm(out, bind.arg(arg), imm)
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                VmOp::AddRegReg(_out, lhs, rhs) => {
+                    SsaOp::AddRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                }
+                VmOp::MulRegReg(_out, lhs, rhs) => {
+                    SsaOp::MulRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                }
+                VmOp::DivRegReg(_out, lhs, rhs) => {
+                    SsaOp::DivRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                }
+                VmOp::SubRegReg(_out, lhs, rhs) => {
+                    SsaOp::SubRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                }
+                VmOp::MinRegReg(_out, lhs, rhs) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match bind.active(lhs) {
+                            Some(new_lhs) => SsaOp::CopyReg(out, new_lhs),
+                            None => {
+                                bind.0[lhs as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Right => match bind.active(rhs) {
+                            Some(new_rhs) => SsaOp::CopyReg(out, new_rhs),
+                            None => {
+                                bind.0[rhs as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Both => {
+                            asm_choice_count += 1;
+                            SsaOp::MinRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                VmOp::MaxRegReg(_out, lhs, rhs) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => match bind.active(lhs) {
+                            Some(new_lhs) => SsaOp::CopyReg(out, new_lhs),
+                            None => {
+                                bind.0[lhs as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Right => match bind.active(rhs) {
+                            Some(new_rhs) => SsaOp::CopyReg(out, new_rhs),
+                            None => {
+                                bind.0[rhs as usize] = out;
+                                continue;
+                            }
+                        },
+                        Choice::Both => {
+                            asm_choice_count += 1;
+                            SsaOp::MaxRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
+                }
+                VmOp::CopyImm(_out, imm) => SsaOp::CopyImm(out, imm),
+                VmOp::Load(reg, mem) => {
+                    let ssa = bind.0[reg as usize];
+                    bind.0[mem as usize] = ssa;
+                    bind.0[reg as usize] = u32::MAX;
+                    continue;
+                }
+                VmOp::Store(reg, mem) => {
+                    let ssa = bind.0[mem as usize];
+                    bind.0[reg as usize] = ssa;
+                    bind.0[mem as usize] = u32::MAX;
+                    continue;
+                }
+            };
+            workspace.alloc.op(op);
+        }
+        assert_eq!(asm_choice_count, choice_count);
 
         assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();

@@ -72,6 +72,66 @@ pub enum Op {
     Store(u8, u32),
 }
 
+impl Op {
+    pub fn output(&self) -> Option<u8> {
+        match self {
+            Op::Input(out, ..)
+            | Op::Var(out, ..)
+            | Op::CopyImm(out, ..)
+            | Op::NegReg(out, ..)
+            | Op::AbsReg(out, ..)
+            | Op::RecipReg(out, ..)
+            | Op::SqrtReg(out, ..)
+            | Op::SquareReg(out, ..)
+            | Op::CopyReg(out, ..)
+            | Op::AddRegImm(out, ..)
+            | Op::MulRegImm(out, ..)
+            | Op::DivRegImm(out, ..)
+            | Op::DivImmReg(out, ..)
+            | Op::SubImmReg(out, ..)
+            | Op::SubRegImm(out, ..)
+            | Op::AddRegReg(out, ..)
+            | Op::MulRegReg(out, ..)
+            | Op::DivRegReg(out, ..)
+            | Op::SubRegReg(out, ..)
+            | Op::MinRegImm(out, ..)
+            | Op::MaxRegImm(out, ..)
+            | Op::MinRegReg(out, ..)
+            | Op::MaxRegReg(out, ..) => Some(*out),
+            Op::Load(..) | Op::Store(..) => None,
+        }
+    }
+    pub fn choice_count(&self) -> usize {
+        match self {
+            Op::Input(..)
+            | Op::Var(..)
+            | Op::CopyImm(..)
+            | Op::NegReg(..)
+            | Op::AbsReg(..)
+            | Op::RecipReg(..)
+            | Op::SqrtReg(..)
+            | Op::SquareReg(..)
+            | Op::CopyReg(..)
+            | Op::AddRegImm(..)
+            | Op::MulRegImm(..)
+            | Op::SubRegImm(..)
+            | Op::SubImmReg(..)
+            | Op::AddRegReg(..)
+            | Op::MulRegReg(..)
+            | Op::SubRegReg(..)
+            | Op::DivRegReg(..)
+            | Op::DivRegImm(..)
+            | Op::DivImmReg(..) => 0,
+            Op::MinRegImm(..)
+            | Op::MaxRegImm(..)
+            | Op::MinRegReg(..)
+            | Op::MaxRegReg(..) => 1,
+
+            Op::Load(..) | Op::Store(..) => 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
