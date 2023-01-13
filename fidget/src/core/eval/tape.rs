@@ -134,14 +134,14 @@ impl<E: crate::eval::Family> TryFrom<(Node, Context)> for Tape<E> {
 ///   efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
 pub struct Data {
-    ssa: SsaTape,
+    vars: Arc<BTreeMap<String, u32>>,
     asm: VmTape,
 }
 
 impl Data {
     /// Returns this tape's mapping of variable names to indexes
     pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
-        self.ssa.vars.clone()
+        self.vars.clone()
     }
 
     /// Returns the length of the internal `vm::Op` tape
@@ -157,14 +157,17 @@ impl Data {
     /// This is required because some evaluators pre-allocate spaces for the
     /// choice array.
     pub fn choice_count(&self) -> usize {
-        self.ssa.choice_count
+        self.asm.choice_count
     }
 
     /// Performs register allocation on a [`ssa::Tape`](SsaTape), building a
     /// complete [`Data`](Self).
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
         let asm = ssa.get_asm(reg_limit);
-        Self { ssa, asm }
+        Self {
+            vars: ssa.vars,
+            asm,
+        }
     }
 
     /// Returns the number of slots used by the inner VM tape
@@ -173,7 +176,7 @@ impl Data {
     }
 
     pub fn var_count(&self) -> usize {
-        self.ssa.vars.len()
+        self.vars.len()
     }
 
     /// Returns the register limit of the VM tape
@@ -189,7 +192,7 @@ impl Data {
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
-        mut tape: Data,
+        tape: Data,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
@@ -198,180 +201,35 @@ impl Data {
             ));
         }
         let reg_limit = self.asm.reg_limit();
-        tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
-
-        let mut choice_count = 0;
+        workspace.reset_with_storage(
+            reg_limit,
+            self.asm.len(),
+            self.slot_count(),
+            tape.asm,
+        );
 
         // The tape is constructed so that the output slot is first
-        assert_eq!(self.ssa.tape[0].output(), 0);
-        workspace.set_active(self.ssa.tape[0].output(), 0);
+        // TODO is this necessary?
+        assert_eq!(self.asm.tape[0].output().unwrap(), 0);
+        workspace.set_active(self.asm.tape[0].output().unwrap(), 0);
         workspace.count += 1;
 
-        // Other iterators to consume various arrays in order
-        let mut choice_iter = choices.iter().rev();
-
-        let mut ops_out = tape.ssa.tape;
-
-        for mut op in self.ssa.tape.iter().cloned() {
-            let index = op.output();
-
-            if workspace.active(index).is_none() {
-                for _ in 0..op.choice_count() {
-                    choice_iter.next().unwrap();
-                }
-                continue;
-            }
-
-            // Because we reassign nodes when they're used as an *input*
-            // (while walking the tape in reverse), this node must have been
-            // assigned already.
-            let new_index = workspace.active(index).unwrap();
-
-            match &mut op {
-                SsaOp::Input(index, ..)
-                | SsaOp::Var(index, ..)
-                | SsaOp::CopyImm(index, ..) => {
-                    *index = new_index;
-                }
-                SsaOp::NegReg(index, arg)
-                | SsaOp::AbsReg(index, arg)
-                | SsaOp::RecipReg(index, arg)
-                | SsaOp::SqrtReg(index, arg)
-                | SsaOp::SquareReg(index, arg) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
-                }
-                SsaOp::CopyReg(index, src) => {
-                    // CopyReg effectively does
-                    //      dst <= src
-                    // If src has not yet been used (as we iterate backwards
-                    // through the tape), then we can replace it with dst
-                    // everywhere!
-                    match workspace.active(*src) {
-                        Some(new_src) => {
-                            *index = new_index;
-                            *src = new_src;
-                        }
-                        None => {
-                            workspace.set_active(*src, new_index);
-                            continue;
-                        }
-                    }
-                }
-                SsaOp::MinRegImm(index, arg, imm)
-                | SsaOp::MaxRegImm(index, arg, imm) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*arg) {
-                            Some(new_arg) => {
-                                op = SsaOp::CopyReg(new_index, new_arg);
-                            }
-                            None => {
-                                workspace.set_active(*arg, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Right => {
-                            op = SsaOp::CopyImm(new_index, *imm);
-                        }
-                        Choice::Both => {
-                            choice_count += 1;
-                            *index = new_index;
-                            *arg = workspace.get_or_insert_active(*arg);
-                        }
-                        Choice::Unknown => panic!("oh no"),
-                    }
-                }
-                SsaOp::MinRegReg(index, lhs, rhs)
-                | SsaOp::MaxRegReg(index, lhs, rhs) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*lhs) {
-                            Some(new_lhs) => {
-                                op = SsaOp::CopyReg(new_index, new_lhs);
-                            }
-                            None => {
-                                workspace.set_active(*lhs, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Right => match workspace.active(*rhs) {
-                            Some(new_rhs) => {
-                                op = SsaOp::CopyReg(new_index, new_rhs);
-                            }
-                            None => {
-                                workspace.set_active(*rhs, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Both => {
-                            choice_count += 1;
-                            *index = new_index;
-                            *lhs = workspace.get_or_insert_active(*lhs);
-                            *rhs = workspace.get_or_insert_active(*rhs);
-                        }
-                        Choice::Unknown => panic!("oh no"),
-                    }
-                }
-                SsaOp::AddRegReg(index, lhs, rhs)
-                | SsaOp::MulRegReg(index, lhs, rhs)
-                | SsaOp::SubRegReg(index, lhs, rhs)
-                | SsaOp::DivRegReg(index, lhs, rhs) => {
-                    *index = new_index;
-                    *lhs = workspace.get_or_insert_active(*lhs);
-                    *rhs = workspace.get_or_insert_active(*rhs);
-                }
-                SsaOp::AddRegImm(index, arg, _imm)
-                | SsaOp::MulRegImm(index, arg, _imm)
-                | SsaOp::SubRegImm(index, arg, _imm)
-                | SsaOp::SubImmReg(index, arg, _imm)
-                | SsaOp::DivRegImm(index, arg, _imm)
-                | SsaOp::DivImmReg(index, arg, _imm) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
-                }
-            }
-            ops_out.push(op);
-        }
-
-        ////////////////////////////////////////////////////////////////////////
-
         // Perform in-line translation from pseudo-linear to SSA form
-        struct Bind(Vec<u32>, u32);
-        impl Bind {
-            fn out(&mut self, v: u8) -> u32 {
-                assert!(self.0[v as usize] != u32::MAX);
-                let out = self.0[v as usize];
-                self.0[v as usize] = u32::MAX;
-                out
-            }
-            fn arg(&mut self, v: u8) -> u32 {
-                if self.0[v as usize] == u32::MAX {
-                    self.0[v as usize] = self.1;
-                    self.1 += 1;
-                }
-                self.0[v as usize]
-            }
-            fn active(&self, v: u8) -> Option<u32> {
-                Some(self.0[v as usize]).filter(|o| *o != u32::MAX)
-            }
-        }
+        let mut choice_count = 0;
         let mut choice_iter = choices.iter().rev();
-        let mut bind = Bind(vec![u32::MAX; self.slot_count()], 0);
-        bind.arg(0); // Bind the initial output register
-        let mut asm_choice_count = 0;
         for op in self.asm.iter() {
             // Skip if this operation isn't active (which we check by seeing
             // whether its output is bound)
             let out = if let Some(out) = op.output() {
-                if bind.active(out).is_none() {
+                if workspace.active(out).is_none() {
                     for _ in 0..op.choice_count() {
                         choice_iter.next().unwrap();
                     }
                     continue;
                 }
-                bind.out(out)
+                workspace.out(out)
             } else {
                 // Not used for Load/Store operations
                 u32::MAX
@@ -380,14 +238,20 @@ impl Data {
             let op = match *op {
                 VmOp::Input(_out, arg) => SsaOp::Input(out, arg as u32),
                 VmOp::Var(_out, var) => SsaOp::Var(out, var as u32),
-                VmOp::NegReg(_out, arg) => SsaOp::NegReg(out, bind.arg(arg)),
-                VmOp::AbsReg(_out, arg) => SsaOp::AbsReg(out, bind.arg(arg)),
-                VmOp::RecipReg(_out, arg) => {
-                    SsaOp::RecipReg(out, bind.arg(arg))
+                VmOp::NegReg(_out, arg) => {
+                    SsaOp::NegReg(out, workspace.arg(arg))
                 }
-                VmOp::SqrtReg(_out, arg) => SsaOp::SqrtReg(out, bind.arg(arg)),
+                VmOp::AbsReg(_out, arg) => {
+                    SsaOp::AbsReg(out, workspace.arg(arg))
+                }
+                VmOp::RecipReg(_out, arg) => {
+                    SsaOp::RecipReg(out, workspace.arg(arg))
+                }
+                VmOp::SqrtReg(_out, arg) => {
+                    SsaOp::SqrtReg(out, workspace.arg(arg))
+                }
                 VmOp::SquareReg(_out, arg) => {
-                    SsaOp::SquareReg(out, bind.arg(arg))
+                    SsaOp::SquareReg(out, workspace.arg(arg))
                 }
                 VmOp::CopyReg(_out, src) => {
                     // CopyReg effectively does
@@ -395,151 +259,163 @@ impl Data {
                     // If src has not yet been used (as we iterate backwards
                     // through the tape), then we can replace it with dst
                     // everywhere!
-                    match bind.active(src) {
+                    match workspace.active(src) {
                         Some(new_src) => SsaOp::CopyReg(out, new_src),
                         None => {
-                            bind.0[src as usize] = out;
+                            workspace.set_active(src, out);
                             continue;
                         }
                     }
                 }
                 VmOp::AddRegImm(_out, arg, imm) => {
-                    SsaOp::AddRegImm(out, bind.arg(arg), imm)
+                    SsaOp::AddRegImm(out, workspace.arg(arg), imm)
                 }
                 VmOp::MulRegImm(_out, arg, imm) => {
-                    SsaOp::MulRegImm(out, bind.arg(arg), imm)
+                    SsaOp::MulRegImm(out, workspace.arg(arg), imm)
                 }
                 VmOp::DivRegImm(_out, arg, imm) => {
-                    SsaOp::DivRegImm(out, bind.arg(arg), imm)
+                    SsaOp::DivRegImm(out, workspace.arg(arg), imm)
                 }
                 VmOp::DivImmReg(_out, arg, imm) => {
-                    SsaOp::DivImmReg(out, bind.arg(arg), imm)
+                    SsaOp::DivImmReg(out, workspace.arg(arg), imm)
                 }
                 VmOp::SubImmReg(_out, arg, imm) => {
-                    SsaOp::SubImmReg(out, bind.arg(arg), imm)
+                    SsaOp::SubImmReg(out, workspace.arg(arg), imm)
                 }
                 VmOp::SubRegImm(_out, arg, imm) => {
-                    SsaOp::SubRegImm(out, bind.arg(arg), imm)
+                    SsaOp::SubRegImm(out, workspace.arg(arg), imm)
                 }
                 VmOp::MinRegImm(_out, arg, imm) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match bind.active(arg) {
+                        Choice::Left => match workspace.active(arg) {
                             Some(new_arg) => SsaOp::CopyReg(out, new_arg),
                             None => {
-                                bind.0[arg as usize] = out;
+                                workspace.set_active(arg, out);
                                 continue;
                             }
                         },
                         Choice::Right => SsaOp::CopyImm(out, imm),
                         Choice::Both => {
-                            asm_choice_count += 1;
-                            SsaOp::MinRegImm(out, bind.arg(arg), imm)
+                            choice_count += 1;
+                            SsaOp::MinRegImm(out, workspace.arg(arg), imm)
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
                 VmOp::MaxRegImm(_out, arg, imm) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match bind.active(arg) {
+                        Choice::Left => match workspace.active(arg) {
                             Some(new_arg) => SsaOp::CopyReg(out, new_arg),
                             None => {
-                                bind.0[arg as usize] = out;
+                                workspace.set_active(arg, out);
                                 continue;
                             }
                         },
                         Choice::Right => SsaOp::CopyImm(out, imm),
                         Choice::Both => {
-                            asm_choice_count += 1;
-                            SsaOp::MaxRegImm(out, bind.arg(arg), imm)
+                            choice_count += 1;
+                            SsaOp::MaxRegImm(out, workspace.arg(arg), imm)
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                VmOp::AddRegReg(_out, lhs, rhs) => {
-                    SsaOp::AddRegReg(out, bind.arg(lhs), bind.arg(rhs))
-                }
-                VmOp::MulRegReg(_out, lhs, rhs) => {
-                    SsaOp::MulRegReg(out, bind.arg(lhs), bind.arg(rhs))
-                }
-                VmOp::DivRegReg(_out, lhs, rhs) => {
-                    SsaOp::DivRegReg(out, bind.arg(lhs), bind.arg(rhs))
-                }
-                VmOp::SubRegReg(_out, lhs, rhs) => {
-                    SsaOp::SubRegReg(out, bind.arg(lhs), bind.arg(rhs))
-                }
+                VmOp::AddRegReg(_out, lhs, rhs) => SsaOp::AddRegReg(
+                    out,
+                    workspace.arg(lhs),
+                    workspace.arg(rhs),
+                ),
+                VmOp::MulRegReg(_out, lhs, rhs) => SsaOp::MulRegReg(
+                    out,
+                    workspace.arg(lhs),
+                    workspace.arg(rhs),
+                ),
+                VmOp::DivRegReg(_out, lhs, rhs) => SsaOp::DivRegReg(
+                    out,
+                    workspace.arg(lhs),
+                    workspace.arg(rhs),
+                ),
+                VmOp::SubRegReg(_out, lhs, rhs) => SsaOp::SubRegReg(
+                    out,
+                    workspace.arg(lhs),
+                    workspace.arg(rhs),
+                ),
                 VmOp::MinRegReg(_out, lhs, rhs) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match bind.active(lhs) {
+                    let c = choice_iter.next().unwrap();
+                    match c {
+                        Choice::Left => match workspace.active(lhs) {
                             Some(new_lhs) => SsaOp::CopyReg(out, new_lhs),
                             None => {
-                                bind.0[lhs as usize] = out;
+                                workspace.set_active(lhs, out);
                                 continue;
                             }
                         },
-                        Choice::Right => match bind.active(rhs) {
+                        Choice::Right => match workspace.active(rhs) {
                             Some(new_rhs) => SsaOp::CopyReg(out, new_rhs),
                             None => {
-                                bind.0[rhs as usize] = out;
+                                workspace.set_active(rhs, out);
                                 continue;
                             }
                         },
                         Choice::Both => {
-                            asm_choice_count += 1;
-                            SsaOp::MinRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                            choice_count += 1;
+                            SsaOp::MinRegReg(
+                                out,
+                                workspace.arg(lhs),
+                                workspace.arg(rhs),
+                            )
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
                 VmOp::MaxRegReg(_out, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match bind.active(lhs) {
+                        Choice::Left => match workspace.active(lhs) {
                             Some(new_lhs) => SsaOp::CopyReg(out, new_lhs),
                             None => {
-                                bind.0[lhs as usize] = out;
+                                workspace.set_active(lhs, out);
                                 continue;
                             }
                         },
-                        Choice::Right => match bind.active(rhs) {
+                        Choice::Right => match workspace.active(rhs) {
                             Some(new_rhs) => SsaOp::CopyReg(out, new_rhs),
                             None => {
-                                bind.0[rhs as usize] = out;
+                                workspace.set_active(rhs, out);
                                 continue;
                             }
                         },
                         Choice::Both => {
-                            asm_choice_count += 1;
-                            SsaOp::MaxRegReg(out, bind.arg(lhs), bind.arg(rhs))
+                            choice_count += 1;
+                            SsaOp::MaxRegReg(
+                                out,
+                                workspace.arg(lhs),
+                                workspace.arg(rhs),
+                            )
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
                 VmOp::CopyImm(_out, imm) => SsaOp::CopyImm(out, imm),
                 VmOp::Load(reg, mem) => {
-                    let ssa = bind.0[reg as usize];
-                    bind.0[mem as usize] = ssa;
-                    bind.0[reg as usize] = u32::MAX;
+                    let ssa = workspace.bind[reg as usize];
+                    workspace.bind[mem as usize] = ssa;
+                    workspace.bind[reg as usize] = u32::MAX;
                     continue;
                 }
                 VmOp::Store(reg, mem) => {
-                    let ssa = bind.0[mem as usize];
-                    bind.0[reg as usize] = ssa;
-                    bind.0[mem as usize] = u32::MAX;
+                    let ssa = workspace.bind[mem as usize];
+                    workspace.bind[reg as usize] = ssa;
+                    workspace.bind[mem as usize] = u32::MAX;
                     continue;
                 }
             };
             workspace.alloc.op(op);
         }
-        assert_eq!(asm_choice_count, choice_count);
 
-        assert_eq!(workspace.count as usize, ops_out.len());
-        let asm_tape = workspace.alloc.finalize();
+        let mut asm_tape = workspace.alloc.finalize();
+        asm_tape.choice_count = choice_count;
 
         Ok(Data {
-            ssa: SsaTape {
-                tape: ops_out,
-                choice_count,
-                vars: self.ssa.vars.clone(),
-            },
+            vars: self.vars.clone(),
             asm: asm_tape,
         })
     }
@@ -552,7 +428,7 @@ impl Data {
 
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
-        self.ssa.pretty_print()
+        todo!("oh no")
     }
 }
 
@@ -578,15 +454,17 @@ impl Default for Workspace {
 }
 
 impl Workspace {
-    fn active(&self, i: u32) -> Option<u32> {
-        if self.bind[i as usize] != u32::MAX {
-            Some(self.bind[i as usize])
-        } else {
-            None
-        }
+    fn active(&self, i: u8) -> Option<u32> {
+        Some(self.bind[i as usize]).filter(|o| *o != u32::MAX)
     }
 
-    fn get_or_insert_active(&mut self, i: u32) -> u32 {
+    fn out(&mut self, i: u8) -> u32 {
+        let out = self.active(i).unwrap();
+        self.bind[i as usize] = u32::MAX;
+        out
+    }
+
+    fn arg(&mut self, i: u8) -> u32 {
         if self.bind[i as usize] == u32::MAX {
             self.bind[i as usize] = self.count;
             self.count += 1;
@@ -594,16 +472,23 @@ impl Workspace {
         self.bind[i as usize]
     }
 
-    fn set_active(&mut self, i: u32, bind: u32) {
+    fn set_active(&mut self, i: u8, bind: u32) {
         self.bind[i as usize] = bind;
     }
 
     /// Resets the workspace, preserving allocations
-    pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
-        self.alloc.reset(num_registers, tape_len);
-        self.bind.fill(u32::MAX);
-        self.bind.resize(tape_len, u32::MAX);
-        self.count = 0;
+    pub fn reset(
+        &mut self,
+        num_registers: u8,
+        tape_len: usize,
+        slot_count: usize,
+    ) {
+        self.reset_with_storage(
+            num_registers,
+            tape_len,
+            slot_count,
+            Default::default(),
+        );
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
@@ -612,11 +497,12 @@ impl Workspace {
         &mut self,
         num_registers: u8,
         tape_len: usize,
+        slot_count: usize,
         tape: VmTape,
     ) {
         self.alloc.reset_with_storage(num_registers, tape_len, tape);
         self.bind.fill(u32::MAX);
-        self.bind.resize(tape_len, u32::MAX);
+        self.bind.resize(slot_count, u32::MAX);
         self.count = 0;
     }
 }

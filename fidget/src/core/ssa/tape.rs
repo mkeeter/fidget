@@ -125,6 +125,8 @@ impl Tape {
         for &op in self.tape.iter() {
             alloc.op(op)
         }
-        alloc.finalize()
+        let mut out = alloc.finalize();
+        out.choice_count = self.choice_count;
+        out
     }
 }

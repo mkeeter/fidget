@@ -5,10 +5,13 @@ use crate::vm::Op;
 /// further into machine instructions).
 #[derive(Clone, Default)]
 pub struct Tape {
-    tape: Vec<Op>,
+    pub(crate) tape: Vec<Op>,
 
     /// Total allocated slots
-    pub(super) slot_count: u32,
+    pub(crate) slot_count: u32,
+
+    /// Total number of choices
+    pub(crate) choice_count: usize,
 
     /// Number of registers, before we fall back to Load/Store operations
     reg_limit: u8,
@@ -19,6 +22,7 @@ impl Tape {
         Self {
             tape: vec![],
             slot_count: 1,
+            choice_count: 0,
             reg_limit,
         }
     }
