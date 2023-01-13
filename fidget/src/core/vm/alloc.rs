@@ -181,6 +181,9 @@ impl RegisterAllocator {
         })
     }
 
+    /// Returns an unbound register.
+    ///
+    /// This may require moving a currently-bound register into memory.
     #[inline]
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
@@ -206,6 +209,7 @@ impl RegisterAllocator {
         }
     }
 
+    /// Binds SSA variable `n` to currently-bound register `reg`
     #[inline]
     fn rebind_register(&mut self, n: u32, reg: u8) {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
@@ -220,6 +224,7 @@ impl RegisterAllocator {
         self.register_lru.poke(reg);
     }
 
+    /// Binds SSA variable `n` to unbound register `reg`
     #[inline]
     fn bind_register(&mut self, n: u32, reg: u8) {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
@@ -318,25 +323,21 @@ impl RegisterAllocator {
     /// appropriate set of LOAD/STORE operations.
     #[inline]
     fn get_out_reg(&mut self, out: u32) -> u8 {
-        match self.get_allocation(out) {
-            Allocation::Register(r_x) => r_x,
-            Allocation::Memory(m_x) => {
-                // TODO: this could be more efficient with a Swap instruction,
-                // since we know that we're about to free a memory slot.
-                let r_a = self.get_register();
-
-                self.push_store(r_a, m_x);
-                self.bind_register(out, r_a);
-                r_a
-            }
-            Allocation::Unassigned => panic!("Cannot have unassigned output"),
-        }
+        self.get_arg_reg(out)
+            .expect("Cannot have unassigned output")
     }
 
+    /// Returns a register that is bound to the given SSA input, or `None`
+    ///
+    /// - If the SSA input is bound to a register, then return that register
+    /// - If the SSA input is bound to a memory slot, then we move it to a
+    ///   register by inserting a `Store` operation into the tape, returning
+    ///   that register.
+    /// - If the SSA input is currently unbound, then return `None`
     #[inline]
-    fn get_arg_reg(&mut self, arg: u32) -> u8 {
+    fn get_arg_reg(&mut self, arg: u32) -> Option<u8> {
         match self.get_allocation(arg) {
-            Allocation::Register(r_x) => r_x,
+            Allocation::Register(r_x) => Some(r_x),
             Allocation::Memory(m_x) => {
                 // TODO: this could be more efficient with a Swap instruction,
                 // since we know that we're about to free a memory slot.
@@ -344,13 +345,9 @@ impl RegisterAllocator {
 
                 self.push_store(r_a, m_x);
                 self.bind_register(arg, r_a);
-                r_a
+                Some(r_a)
             }
-            Allocation::Unassigned => {
-                let r_a = self.get_register();
-                self.bind_register(arg, r_a);
-                r_a
-            }
+            Allocation::Unassigned => None,
         }
     }
 
@@ -366,10 +363,12 @@ impl RegisterAllocator {
         //       |     |
         //       |     | Afterwards, r_x is free
         //  -----|-----|----------------------------------------------------
-        //   r_x | m_y | store r_x -> m_y
-        //       |     | r_x = op r_x
+        //   r_x | m_y | r_x = op r_b
+        //       |     | store r_b -> m_y
+        //       |     | [load r_b <- m_b]
         //       |     |
-        //       |     | Afterward, r_x points to the former m_y
+        //       |     | Afterward, r_x is unbound,
+        //       |     | [m_b points to the former r_b]
         //  -----|-----|----------------------------------------------------
         //   r_x |  U  | r_x = op r_x
         //       |     |
@@ -382,15 +381,17 @@ impl RegisterAllocator {
         //       |     | Afterward, r_a and m_x are free, [m_a points to the
         //       |     | former r_a]
         //  -----|-----|----------------------------------------------------
-        //   m_x | m_y | store r_a -> m_y
-        //       |     | r_a = op rA
+        //   m_x | m_y | r_a = op r_b
+        //       |     | store r_b -> m_y
+        //       |     | [load r_b <- m_b]
         //       |     | store r_a -> m_x
         //       |     | [load r_a <- m_a]
         //       |     |
-        //       |     | Afterwards, r_a points to arg, m_x and m_y are free,
-        //       |     | [and m_a points to the former r_a]
+        //       |     | Afterwards, r_b points to arg, r_a is free, m_x and
+        //       |     | m_y are free, [m_a points to the former r_a],
+        //       |     | [m_b points to the former r_b]
         //  -----|-----|----------------------------------------------------
-        //   m_x |  U  | r_a = op rA
+        //   m_x |  U  | r_a = op r_a
         //       |     | store r_a -> m_x
         //       |     | [load r_a <- m_a]
         //       |     |
@@ -398,17 +399,12 @@ impl RegisterAllocator {
         //       |     | [and m_a points to the former r_a]
         //  -----|-----|----------------------------------------------------
         let r_x = self.get_out_reg(out);
-        match self.get_allocation(arg) {
-            Allocation::Register(r_y) => {
+        match self.get_arg_reg(arg) {
+            Some(r_y) => {
                 self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
-            Allocation::Memory(_m_y) => {
-                let r_a = self.get_arg_reg(arg);
-                self.out.push(op(r_x, r_a));
-                self.release_reg(r_x);
-            }
-            Allocation::Unassigned => {
+            None => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
             }
@@ -544,54 +540,29 @@ impl RegisterAllocator {
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
-        match (self.get_allocation(lhs), self.get_allocation(rhs)) {
-            (Allocation::Register(r_y), Allocation::Register(r_z)) => {
+        match (self.get_arg_reg(lhs), self.get_arg_reg(rhs)) {
+            (Some(r_y), Some(r_z)) => {
                 self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
-            (Allocation::Memory(_m_y), Allocation::Register(r_z)) => {
-                let r_y = self.get_arg_reg(lhs);
-                self.out.push(op(r_x, r_y, r_z));
-                self.release_reg(r_x);
-            }
-            (Allocation::Register(r_y), Allocation::Memory(_m_z)) => {
-                let r_z = self.get_arg_reg(rhs);
-                self.out.push(op(r_x, r_y, r_z));
-                self.release_reg(r_x);
-            }
-            (Allocation::Memory(_m_y), Allocation::Memory(_m_z)) => {
-                let r_a = self.get_arg_reg(lhs);
-                let r_b = self.get_arg_reg(rhs);
-
-                self.out.push(op(r_x, r_a, r_b));
-                self.release_reg(r_x);
-            }
-            (Allocation::Unassigned, Allocation::Register(r_z)) => {
+            (None, Some(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
-            (Allocation::Register(r_y), Allocation::Unassigned) => {
+            (Some(r_y), None) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
-            (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
+            (None, None) if lhs == rhs => {
                 self.out.push(op(r_x, r_x, r_x));
                 self.rebind_register(lhs, r_x);
             }
-            (Allocation::Unassigned, Allocation::Unassigned) => {
-                let r_a = self.get_arg_reg(rhs);
+            (None, None) => {
+                let r_a = self.get_register();
+                self.bind_register(rhs, r_a);
+
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-            }
-            (Allocation::Unassigned, Allocation::Memory(_m_z)) => {
-                let r_b = self.get_arg_reg(rhs);
-                self.out.push(op(r_x, r_x, r_b));
-                self.rebind_register(lhs, r_x);
-            }
-            (Allocation::Memory(_m_y), Allocation::Unassigned) => {
-                let r_a = self.get_arg_reg(lhs);
-                self.out.push(op(r_x, r_a, r_x));
-                self.rebind_register(rhs, r_x);
             }
         }
     }
