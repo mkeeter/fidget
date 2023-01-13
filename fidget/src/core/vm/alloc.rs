@@ -422,114 +422,6 @@ impl RegisterAllocator {
     /// configurations.
     #[inline(always)]
     fn op_reg_reg(&mut self, op: SsaOp) {
-        // Looking at this horrific table, you may be tempted to think "surely
-        // there's a clean abstraction that wraps this up in a few functions".
-        // You may be right, but I spent a few days chasing down terrible memory
-        // load/store ordering bugs, and decided that the brute-force approach
-        // was the right one.
-        //
-        //   out | lhs | rhs | what do?
-        //  ================================================================
-        //  r_x  | r_y  | r_z  | r_x = op r_y r_z
-        //       |      |      |
-        //       |      |      | Afterwards, r_x is free
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | m_y  | r_z  | store r_x -> m_y
-        //       |      |      | r_x = op r_x r_z
-        //       |      |      |
-        //       |      |      | Afterwards, r_x points to the former m_y, and
-        //       |      |      | m_y is free
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | r_y  | m_z  | ibid
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | m_y  | m_z  | store r_x -> m_y
-        //       |      |      | store r_a -> m_z
-        //       |      |      | r_x = op r_x r_a
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_x points to the former m_y, r_a
-        //       |      |      | points to the former m_z, m_y and m_z are free,
-        //       |      |      | [and m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | U    | r_z  | r_x = op r_x r_z
-        //       |      |      |
-        //       |      |      | Afterward, r_x points to the lhs
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | r_y  | U    | ibid
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | U    | U    | rx = op r_x r_a
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterward, r_x points to the lhs, r_a points to
-        //       |      |      | rhs, [and m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | U    | m_z  | store r_a -> m_z
-        //       |      |      | r_x = op r_x r_a
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterward, r_x points to the lhs, r_a points to
-        //       |      |      | rhs, m_z is free, [and m_a points to the former
-        //       |      |      | r_a]
-        //  -----|------|------|----------------------------------------------
-        //  r_x  | m_y  | U    | ibid
-        //  =====|======|======|==============================================
-        //   m_x | r_y  | r_z  | r_a = op r_y r_z
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a and m_x are free, [m_a points
-        //       |      |      | to the former r_a}
-        //  -----|------|------|----------------------------------------------
-        //   m_x | r_y  | m_z  | store r_a -> m_z
-        //       |      |      | r_a = op r_y rA
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to rhs, m_z and m_x are
-        //       |      |      | free, [and m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | r_z  | ibid
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | m_z  | store r_a -> m_y
-        //       |      |      | store r_b -> m_z
-        //       |      |      | r_a = op rA r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs, m_x, m_y, m_z are all free, [m_a points to
-        //       |      |      | the former r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | r_y  | U    | r_a = op r_y rA
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to rhs, m_x is free,
-        //       |      |      | [m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //   m_x |  U   | r_z  | ibid
-        //  -----|------|------|----------------------------------------------
-        //   m_x |  U   | U    | r_a = op rA r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs, m_x is free, [m_a points to the former
-        //       |      |      | r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | U    | store r_a -> m_y
-        //       |      |      | r_a = op rA r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs,  m_x and m_y are free, [m_a points to the
-        //       |      |      | former r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x  | U   | m_z  | ibid
         let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> Op) = match op {
             SsaOp::AddRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::AddRegReg),
             SsaOp::SubRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::SubRegReg),
@@ -539,6 +431,7 @@ impl RegisterAllocator {
             SsaOp::MaxRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MaxRegReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
+        // Similar logic as op_reg_fn, but with two arguments!
         let r_x = self.get_out_reg(out);
         match (self.get_arg_reg(lhs), self.get_arg_reg(rhs)) {
             (Some(r_y), Some(r_z)) => {
