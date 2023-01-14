@@ -211,7 +211,6 @@ impl Data {
         );
 
         // The tape is constructed so that the output slot is first
-        // TODO is this necessary?
         assert_eq!(self.asm.tape[0].output().unwrap(), 0);
         workspace.set_active(self.asm.tape[0].output().unwrap(), 0);
         workspace.count += 1;
