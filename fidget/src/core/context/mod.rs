@@ -7,7 +7,7 @@ pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
 use crate::{
     eval::{Family, Tape},
-    ssa::Builder,
+    tape::Builder,
     Error,
 };
 
@@ -450,7 +450,7 @@ impl Context {
     ///
     /// The resulting tape uses `E::REG_LIMIT` registers; if more memory is
     /// required, it includes
-    /// [`vm::Op::Load` / `vm::Op::Store`](crate::vm::Op) operations.
+    /// [`tape::Op::Load` / `tape::Op::Store`](crate::tape::Op) operations.
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
@@ -488,15 +488,15 @@ impl Context {
             }
             builder.step(node, *op, self);
         }
-        let mut ssa_tape = builder.finish();
+        let mut tape = builder.finish(E::REG_LIMIT);
 
         // Special case if the Node is a single constant, which isn't usually
         // recorded in the tape
-        if ssa_tape.tape.is_empty() {
+        if tape.is_empty() {
             let c = self.const_value(root).unwrap().unwrap() as f32;
-            ssa_tape.tape.push(crate::ssa::Op::CopyImm(0, c));
+            tape.push(crate::tape::Op::CopyImm(0, c));
         }
-        Ok(Tape::from_ssa(ssa_tape))
+        Ok(Tape::new(tape))
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -832,7 +832,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = ctx.get_tape::<crate::vm::Eval>(c9).unwrap();
+        let tape = ctx.get_tape::<crate::tape::Eval>(c9).unwrap();
         assert_eq!(tape.len(), 8);
     }
 
@@ -842,7 +842,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = ctx.get_tape::<crate::vm::Eval>(x_squared).unwrap();
+        let tape = ctx.get_tape::<crate::tape::Eval>(x_squared).unwrap();
         assert_eq!(tape.len(), 2);
     }
 

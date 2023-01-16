@@ -6,10 +6,10 @@
 //! expression with pre-defined variables `x`, `y`, `z`.
 //!
 //! ```
-//! use fidget::{vm, rhai::eval};
+//! use fidget::{tape, rhai::eval};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = ctx.get_tape::<tape::Eval>(sum)?;
 //! let eval = tape.new_point_evaluator();
 //! assert_eq!(eval.eval(1.0, 2.0, 0.0, &[])?.0, 3.0);
 //! # Ok::<(), fidget::Error>(())
@@ -19,13 +19,13 @@
 //! construct an [`Engine`] then call [`Engine::run`]:
 //!
 //! ```
-//! use fidget::{vm, rhai::Engine};
+//! use fidget::{tape, rhai::Engine};
 //!
 //! let mut engine = Engine::new();
 //! let out = engine.run("draw(|x, y| x + y - 1)")?;
 //!
 //! assert_eq!(out.shapes.len(), 1);
-//! let tape = out.context.get_tape::<vm::Eval>(out.shapes[0].shape)?;
+//! let tape = out.context.get_tape::<tape::Eval>(out.shapes[0].shape)?;
 //! let eval = tape.new_point_evaluator();
 //! assert_eq!(eval.eval(0.5, 2.0, 0.0, &[])?.0, 1.5);
 //! # Ok::<(), fidget::Error>(())

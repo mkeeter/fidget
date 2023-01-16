@@ -1,15 +1,13 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op, UnaryOpcode, VarNode},
-    ssa::{Op as SsaOp, Tape},
+    eval::tape::Data,
+    tape::{alloc::RegisterAllocator, Op as TapeOp},
 };
 
-use std::{
-    collections::{btree_map::Entry, BTreeMap},
-    sync::Arc,
-};
+use std::collections::{btree_map::Entry, BTreeMap};
 
 pub(crate) struct Builder {
-    tape: Vec<SsaOp>,
+    tape: Vec<TapeOp<u32>>,
 
     mapping: BTreeMap<Node, u32>,
     vars: BTreeMap<VarNode, u32>,
@@ -36,12 +34,16 @@ impl Builder {
         }
     }
 
-    pub fn finish(self) -> Tape {
-        Tape {
-            tape: self.tape,
-            choice_count: self.choice_count,
-            vars: Arc::new(self.var_names),
+    pub fn finish(self, reg_limit: u8) -> Data {
+        let mut alloc =
+            RegisterAllocator::new(reg_limit, self.tape.len().max(1));
+        for &op in self.tape.iter() {
+            alloc.op(op)
         }
+        let mut asm = alloc.finalize();
+        asm.choice_count = self.choice_count;
+
+        Data::new(asm, self.var_names)
     }
 
     fn get_allocated_value(&mut self, node: Node) -> Location {
@@ -79,7 +81,7 @@ impl Builder {
                     "Z" => 2,
                     i => panic!("Unexpected input index: {i}"),
                 };
-                Some(SsaOp::Input(index.unwrap(), arg))
+                Some(TapeOp::Input(index.unwrap(), arg))
             }
             Op::Var(v) => {
                 let next_var = self.vars.len().try_into().unwrap();
@@ -92,7 +94,7 @@ impl Builder {
                     }
                     Entry::Occupied(a) => *a.get(),
                 };
-                Some(SsaOp::Var(index.unwrap(), arg))
+                Some(TapeOp::Var(index.unwrap(), arg))
             }
             Op::Const(c) => {
                 // Skip this (because it's not inserted into the tape),
@@ -106,27 +108,39 @@ impl Builder {
                 let rhs = self.get_allocated_value(rhs);
                 let index = index.unwrap();
 
-                type RegFn = fn(u32, u32, u32) -> SsaOp;
-                type ImmFn = fn(u32, u32, f32) -> SsaOp;
+                type RegFn = fn(u32, u32, u32) -> TapeOp<u32>;
+                type ImmFn = fn(u32, u32, f32) -> TapeOp<u32>;
                 let f: (RegFn, ImmFn, ImmFn) = match op {
-                    BinaryOpcode::Add => {
-                        (SsaOp::AddRegReg, SsaOp::AddRegImm, SsaOp::AddRegImm)
-                    }
-                    BinaryOpcode::Sub => {
-                        (SsaOp::SubRegReg, SsaOp::SubRegImm, SsaOp::SubImmReg)
-                    }
-                    BinaryOpcode::Mul => {
-                        (SsaOp::MulRegReg, SsaOp::MulRegImm, SsaOp::MulRegImm)
-                    }
-                    BinaryOpcode::Div => {
-                        (SsaOp::DivRegReg, SsaOp::DivRegImm, SsaOp::DivImmReg)
-                    }
-                    BinaryOpcode::Min => {
-                        (SsaOp::MinRegReg, SsaOp::MinRegImm, SsaOp::MinRegImm)
-                    }
-                    BinaryOpcode::Max => {
-                        (SsaOp::MaxRegReg, SsaOp::MaxRegImm, SsaOp::MaxRegImm)
-                    }
+                    BinaryOpcode::Add => (
+                        TapeOp::AddRegReg,
+                        TapeOp::AddRegImm,
+                        TapeOp::AddRegImm,
+                    ),
+                    BinaryOpcode::Sub => (
+                        TapeOp::SubRegReg,
+                        TapeOp::SubRegImm,
+                        TapeOp::SubImmReg,
+                    ),
+                    BinaryOpcode::Mul => (
+                        TapeOp::MulRegReg,
+                        TapeOp::MulRegImm,
+                        TapeOp::MulRegImm,
+                    ),
+                    BinaryOpcode::Div => (
+                        TapeOp::DivRegReg,
+                        TapeOp::DivRegImm,
+                        TapeOp::DivImmReg,
+                    ),
+                    BinaryOpcode::Min => (
+                        TapeOp::MinRegReg,
+                        TapeOp::MinRegImm,
+                        TapeOp::MinRegImm,
+                    ),
+                    BinaryOpcode::Max => (
+                        TapeOp::MaxRegReg,
+                        TapeOp::MaxRegImm,
+                        TapeOp::MaxRegImm,
+                    ),
                 };
 
                 if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
@@ -158,11 +172,11 @@ impl Builder {
                 };
                 let index = index.unwrap();
                 let op = match op {
-                    UnaryOpcode::Neg => SsaOp::NegReg,
-                    UnaryOpcode::Abs => SsaOp::AbsReg,
-                    UnaryOpcode::Recip => SsaOp::RecipReg,
-                    UnaryOpcode::Sqrt => SsaOp::SqrtReg,
-                    UnaryOpcode::Square => SsaOp::SquareReg,
+                    UnaryOpcode::Neg => TapeOp::NegReg,
+                    UnaryOpcode::Abs => TapeOp::AbsReg,
+                    UnaryOpcode::Recip => TapeOp::RecipReg,
+                    UnaryOpcode::Sqrt => TapeOp::SqrtReg,
+                    UnaryOpcode::Square => TapeOp::SquareReg,
                 };
                 Some(op(index, lhs))
             }

@@ -1,7 +1,7 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{vm, context::Context};
+//! use fidget::{tape, context::Context};
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -10,7 +10,7 @@
 //! let radius = ctx.add(x_squared, y_squared)?;
 //! let circle = ctx.sub(radius, 1.0)?;
 //!
-//! let tape = ctx.get_tape::<vm::Eval>(circle)?;
+//! let tape = ctx.get_tape::<tape::Eval>(circle)?;
 //! let mut eval = tape.new_point_evaluator();
 //! assert_eq!(eval.eval(0.0, 0.0, 0.0, &[])?.0, -1.0);
 //! assert_eq!(eval.eval(1.0, 0.0, 0.0, &[])?.0, 0.0);
@@ -48,8 +48,7 @@ pub mod context;
 pub use context::Context;
 
 pub mod eval;
-pub mod ssa;
-pub mod vm;
+pub mod tape;
 
 #[cfg(test)]
 mod test {

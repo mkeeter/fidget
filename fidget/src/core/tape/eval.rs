@@ -5,7 +5,7 @@ use crate::{
         types::{Grad, Interval},
         Choice, EvaluatorStorage, Family, Tape,
     },
-    vm::Op,
+    tape::Op,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

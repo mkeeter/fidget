@@ -210,9 +210,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(img) = &args.image {
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
-                run3d::<fidget::vm::Eval>(&ctx, root, &args)
+                run3d::<fidget::tape::Eval>(&ctx, root, &args)
             } else {
-                run::<fidget::vm::Eval>(&ctx, root, &args)
+                run::<fidget::tape::Eval>(&ctx, root, &args)
             }
         } else if args.jit {
             if args.threedee {

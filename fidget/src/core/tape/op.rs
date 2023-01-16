@@ -8,72 +8,72 @@
 /// - LHS register (or input slot for [`Input`](Op::Input))
 /// - RHS register (or immediate for `*Imm`)
 #[derive(Copy, Clone, Debug)]
-pub enum Op {
+pub enum Op<T = u8> {
     /// Read one of the inputs (X, Y, Z)
-    Input(u8, u8),
+    Input(T, u8),
 
     /// Reads one of the variables
-    Var(u8, u32),
+    Var(T, u32),
 
     /// Negate the given register
-    NegReg(u8, u8),
+    NegReg(T, T),
 
     /// Take the absolute value of the given register
-    AbsReg(u8, u8),
+    AbsReg(T, T),
 
     /// Take the reciprocal of the given register (1.0 / value)
-    RecipReg(u8, u8),
+    RecipReg(T, T),
 
     /// Take the square root of the given register
-    SqrtReg(u8, u8),
+    SqrtReg(T, T),
 
     /// Square the given register
-    SquareReg(u8, u8),
+    SquareReg(T, T),
 
     /// Copies the given register
-    CopyReg(u8, u8),
+    CopyReg(T, T),
 
     /// Add a register and an immediate
-    AddRegImm(u8, u8, f32),
+    AddRegImm(T, T, f32),
     /// Multiply a register and an immediate
-    MulRegImm(u8, u8, f32),
+    MulRegImm(T, T, f32),
     /// Divides a register and an immediate
-    DivRegImm(u8, u8, f32),
+    DivRegImm(T, T, f32),
     /// Divides an immediate by a register
-    DivImmReg(u8, u8, f32),
+    DivImmReg(T, T, f32),
     /// Subtract a register from an immediate
-    SubImmReg(u8, u8, f32),
+    SubImmReg(T, T, f32),
     /// Subtract an immediate from a register
-    SubRegImm(u8, u8, f32),
+    SubRegImm(T, T, f32),
     /// Compute the minimum of a register and an immediate
-    MinRegImm(u8, u8, f32),
+    MinRegImm(T, T, f32),
     /// Compute the maximum of a register and an immediate
-    MaxRegImm(u8, u8, f32),
+    MaxRegImm(T, T, f32),
 
     /// Add two registers
-    AddRegReg(u8, u8, u8),
+    AddRegReg(T, T, T),
     /// Multiply two registers
-    MulRegReg(u8, u8, u8),
+    MulRegReg(T, T, T),
     /// Divides two registers
-    DivRegReg(u8, u8, u8),
+    DivRegReg(T, T, T),
     /// Subtract one register from another
-    SubRegReg(u8, u8, u8),
+    SubRegReg(T, T, T),
     /// Take the minimum of two registers
-    MinRegReg(u8, u8, u8),
+    MinRegReg(T, T, T),
     /// Take the maximum of two registers
-    MaxRegReg(u8, u8, u8),
+    MaxRegReg(T, T, T),
 
     /// Copy an immediate to a register
-    CopyImm(u8, f32),
+    CopyImm(T, f32),
 
     /// Read from a memory slot to a register
-    Load(u8, u32),
+    Load(T, u32),
     /// Write from a register to a memory slot
-    Store(u8, u32),
+    Store(T, u32),
 }
 
-impl Op {
-    pub fn output(&self) -> Option<u8> {
+impl<T: Copy> Op<T> {
+    pub fn output(&self) -> Option<T> {
         match self {
             Op::Input(out, ..)
             | Op::Var(out, ..)

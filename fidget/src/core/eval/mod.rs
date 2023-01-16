@@ -4,12 +4,12 @@
 //! `new_X_evaluator` on [`Tape`](Tape).
 //!
 //! ```rust
-//! use fidget::vm;
+//! use fidget::tape;
 //! use fidget::context::Context;
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let tape = ctx.get_tape::<vm::Eval>(x)?;
+//! let tape = ctx.get_tape::<tape::Eval>(x)?;
 //!
 //! // Let's build a single point evaluator:
 //! let mut eval = tape.new_point_evaluator();

@@ -23,7 +23,7 @@ use crate::{
         Choice, EvaluatorStorage, Family, Tape,
     },
     jit::mmap::Mmap,
-    vm::Op,
+    tape::Op,
 };
 use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
 use std::sync::Arc;

@@ -57,10 +57,10 @@
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Context::get_tape`](crate::Context::get_tape):
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{rhai::eval, tape};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = ctx.get_tape::<tape::Eval>(sum)?;
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -74,8 +74,8 @@
 //! ```
 //!
 //! The `Tape` is parameterized by a particular
-//! [evaluator family](crate::eval::Family); in `ctx.get_tape::<vm::Eval>(...)`,
-//! the associated family is `vm::Eval`.
+//! [evaluator family](crate::eval::Family); in
+//! `ctx.get_tape::<tape::Eval>(...)`, the associated family is `tape::Eval`.
 //!
 //! (Parameterizing the tape is required because different evaluator families
 //! have different numbers of [available
@@ -87,7 +87,7 @@
 //! - [`fidget::jit::Eval`](crate::jit::Eval) performs fast evaluation by
 //!   compiling shapes down to native code.  This is only functional on an ARM64
 //!   system running natively.
-//! - [`fidget::vm::Eval`](crate::vm::Eval) evaluates
+//! - [`fidget::tape::Eval`](crate::tape::Eval) evaluates
 //!   using an interpreter.  This is slower, but can run in more situations (e.g.
 //!   x86 machines or in WebAssembly).
 //!
@@ -110,10 +110,10 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{rhai::eval, tape};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = ctx.get_tape::<tape::Eval>(sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
@@ -134,10 +134,10 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{rhai::eval, tape};
 //!
 //! let (sum, ctx) = eval("min(x, y)")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = ctx.get_tape::<tape::Eval>(sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, simplify) = interval_eval.eval(
 //!         [0.0, 1.0], // X
@@ -159,9 +159,9 @@
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
-//! # use fidget::{rhai::eval, vm};
+//! # use fidget::{rhai::eval, tape};
 //! # let (sum, ctx) = eval("min(x, y)")?;
-//! # let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! # let tape = ctx.get_tape::<tape::Eval>(sum)?;
 //! # let mut interval_eval = tape.new_interval_evaluator();
 //! # let (out, simplify) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
@@ -190,7 +190,7 @@
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai::eval;
-//! use fidget::vm;
+//! use fidget::tape;
 //! use fidget::render::{BitRenderMode, RenderConfig};
 //!
 //! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1")?;
@@ -198,7 +198,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode)?;
+//! let out = cfg.run::<tape::Eval, _>(shape, ctx, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

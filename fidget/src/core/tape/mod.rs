@@ -1,43 +1,75 @@
-use crate::{
-    ssa::Op,
-    vm::{RegisterAllocator, Tape as VmTape},
-};
+//! Instruction tapes in the form of assembly for a simple virtual machine
+mod alloc;
+mod builder;
+mod eval;
+mod lru;
+mod op;
 
-use std::{collections::BTreeMap, sync::Arc};
+pub(super) use alloc::RegisterAllocator;
+pub(super) use builder::Builder;
 
-/// Instruction tape, storing [`Op`](crate::ssa::Op) in SSA form
-///
-/// Each operation has the following parameters
-/// - 4-byte opcode (required)
-/// - 4-byte output register (required)
-/// - 4-byte LHS register
-/// - 4-byte RHS register (or immediate `f32`)
-///
-/// All register addressing is absolute.
-#[derive(Clone, Debug, Default)]
+pub use eval::Eval;
+pub use op::Op;
+
+/// Low-level tape for use with the Fidget virtual machine (or to be lowered
+/// further into machine instructions).
+#[derive(Clone, Default)]
 pub struct Tape {
-    /// The tape is stored in reverse order, such that the root of the tree is
-    /// the first item in the tape.
-    pub tape: Vec<Op>,
+    pub(crate) tape: Vec<Op>,
 
-    /// Number of choice operations in the tape
-    pub choice_count: usize,
+    /// Total allocated slots
+    pub(crate) slot_count: u32,
 
-    /// Mapping from variable names (in the original
-    /// [`Context`](crate::context::Context)) to indexes in the variable array
-    /// used during evaluation.
-    ///
-    /// This is an `Arc` so it can be trivially shared by all of the tape's
-    /// descendents, since the variable array order does not change.
-    pub vars: Arc<BTreeMap<String, u32>>,
+    /// Total number of choices
+    pub(crate) choice_count: usize,
+
+    /// Number of registers, before we fall back to Load/Store operations
+    reg_limit: u8,
 }
 
 impl Tape {
-    /// Resets to an empty tape, preserving allocations
-    pub fn reset(&mut self) {
-        self.tape.clear();
-        self.choice_count = 0;
+    pub fn new(reg_limit: u8) -> Self {
+        Self {
+            tape: vec![],
+            slot_count: 1,
+            choice_count: 0,
+            reg_limit,
+        }
     }
+    /// Resets this tape, retaining its allocations
+    pub fn reset(&mut self, reg_limit: u8) {
+        self.tape.clear();
+        self.slot_count = 1;
+        self.reg_limit = reg_limit;
+    }
+    /// Returns the register limit with which this tape was planned
+    pub fn reg_limit(&self) -> u8 {
+        self.reg_limit
+    }
+    /// Returns the number of unique register and memory locations that are used
+    /// by this tape.
+    #[inline]
+    pub fn slot_count(&self) -> usize {
+        self.slot_count as usize
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.tape.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.tape.is_empty()
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, Op> {
+        self.tape.iter()
+    }
+    #[inline]
+    pub(crate) fn push(&mut self, op: Op) {
+        self.tape.push(op)
+    }
+
     pub fn pretty_print(&self) {
         for &op in self.tape.iter().rev() {
             match op {
@@ -111,22 +143,13 @@ impl Tape {
                 Op::CopyImm(out, imm) => {
                     println!("${out} = COPY {imm}");
                 }
+                Op::Load(reg, mem) => {
+                    println!("${reg} <= %{mem}");
+                }
+                Op::Store(reg, mem) => {
+                    println!("%{mem} <= ${reg}");
+                }
             }
         }
-    }
-
-    /// Lowers the tape to assembly with a particular register limit
-    ///
-    /// Note that if you _also_ want to simplify the tape, it's more efficient
-    /// to use [`simplify`](crate::eval::Tape::simplify), which simultaneously
-    /// simplifies **and** performs register allocation in a single pass.
-    pub fn get_asm(&self, reg_limit: u8) -> VmTape {
-        let mut alloc = RegisterAllocator::new(reg_limit, self.tape.len());
-        for &op in self.tape.iter() {
-            alloc.op(op)
-        }
-        let mut out = alloc.finalize();
-        out.choice_count = self.choice_count;
-        out
     }
 }

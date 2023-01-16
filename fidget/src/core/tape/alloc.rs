@@ -1,7 +1,4 @@
-use crate::{
-    ssa::Op as SsaOp,
-    vm::{lru::Lru, Op, Tape},
-};
+use crate::tape::{lru::Lru, Op, Tape};
 
 use arrayvec::ArrayVec;
 
@@ -264,48 +261,52 @@ impl RegisterAllocator {
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
     #[inline(always)]
-    fn op_reg(&mut self, op: SsaOp) {
+    fn op_reg(&mut self, op: Op<u32>) {
         let (out, arg, op): (u32, u32, fn(u8, u8) -> Op) = match op {
-            SsaOp::NegReg(out, arg) => (out, arg, Op::NegReg),
-            SsaOp::AbsReg(out, arg) => (out, arg, Op::AbsReg),
-            SsaOp::RecipReg(out, arg) => (out, arg, Op::RecipReg),
-            SsaOp::SqrtReg(out, arg) => (out, arg, Op::SqrtReg),
-            SsaOp::SquareReg(out, arg) => (out, arg, Op::SquareReg),
-            SsaOp::CopyReg(out, arg) => (out, arg, Op::CopyReg),
+            Op::NegReg(out, arg) => (out, arg, Op::NegReg),
+            Op::AbsReg(out, arg) => (out, arg, Op::AbsReg),
+            Op::RecipReg(out, arg) => (out, arg, Op::RecipReg),
+            Op::SqrtReg(out, arg) => (out, arg, Op::SqrtReg),
+            Op::SquareReg(out, arg) => (out, arg, Op::SquareReg),
+            Op::CopyReg(out, arg) => (out, arg, Op::CopyReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
     }
 
     #[inline(always)]
-    pub fn op(&mut self, op: SsaOp) {
+    pub fn op(&mut self, op: Op<u32>) {
         match op {
-            SsaOp::Var(out, i) => self.op_var(out, i),
-            SsaOp::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
-            SsaOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
+            Op::Var(out, i) => self.op_var(out, i),
+            Op::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
+            Op::CopyImm(out, imm) => self.op_copy_imm(out, imm),
 
-            SsaOp::NegReg(..)
-            | SsaOp::AbsReg(..)
-            | SsaOp::RecipReg(..)
-            | SsaOp::SqrtReg(..)
-            | SsaOp::SquareReg(..)
-            | SsaOp::CopyReg(..) => self.op_reg(op),
+            Op::NegReg(..)
+            | Op::AbsReg(..)
+            | Op::RecipReg(..)
+            | Op::SqrtReg(..)
+            | Op::SquareReg(..)
+            | Op::CopyReg(..) => self.op_reg(op),
 
-            SsaOp::AddRegImm(..)
-            | SsaOp::SubRegImm(..)
-            | SsaOp::SubImmReg(..)
-            | SsaOp::MulRegImm(..)
-            | SsaOp::DivRegImm(..)
-            | SsaOp::DivImmReg(..)
-            | SsaOp::MinRegImm(..)
-            | SsaOp::MaxRegImm(..) => self.op_reg_imm(op),
+            Op::AddRegImm(..)
+            | Op::SubRegImm(..)
+            | Op::SubImmReg(..)
+            | Op::MulRegImm(..)
+            | Op::DivRegImm(..)
+            | Op::DivImmReg(..)
+            | Op::MinRegImm(..)
+            | Op::MaxRegImm(..) => self.op_reg_imm(op),
 
-            SsaOp::AddRegReg(..)
-            | SsaOp::SubRegReg(..)
-            | SsaOp::MulRegReg(..)
-            | SsaOp::DivRegReg(..)
-            | SsaOp::MinRegReg(..)
-            | SsaOp::MaxRegReg(..) => self.op_reg_reg(op),
+            Op::AddRegReg(..)
+            | Op::SubRegReg(..)
+            | Op::MulRegReg(..)
+            | Op::DivRegReg(..)
+            | Op::MinRegReg(..)
+            | Op::MaxRegReg(..) => self.op_reg_reg(op),
+
+            Op::Load(..) | Op::Store(..) => panic!(
+                "Must eliminate Load/Store ops before register allocation"
+            ),
         }
     }
 
@@ -423,14 +424,14 @@ impl RegisterAllocator {
     /// sounds; look at the source code for a table showing all 18 (!) possible
     /// configurations.
     #[inline(always)]
-    fn op_reg_reg(&mut self, op: SsaOp) {
+    fn op_reg_reg(&mut self, op: Op<u32>) {
         let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> Op) = match op {
-            SsaOp::AddRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::AddRegReg),
-            SsaOp::SubRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::SubRegReg),
-            SsaOp::MulRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MulRegReg),
-            SsaOp::DivRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::DivRegReg),
-            SsaOp::MinRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MinRegReg),
-            SsaOp::MaxRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MaxRegReg),
+            Op::AddRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::AddRegReg),
+            Op::SubRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::SubRegReg),
+            Op::MulRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MulRegReg),
+            Op::DivRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::DivRegReg),
+            Op::MinRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MinRegReg),
+            Op::MaxRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MaxRegReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         // Similar logic as op_reg_fn, but with two arguments!
@@ -465,16 +466,16 @@ impl RegisterAllocator {
     /// Lowers a function taking one register and one immediate into an
     /// [`Op`](crate::asm::Op), pushing it to the internal tape.
     #[inline(always)]
-    fn op_reg_imm(&mut self, op: SsaOp) {
+    fn op_reg_imm(&mut self, op: Op<u32>) {
         let (out, arg, imm, op): (_, _, _, fn(u8, u8, f32) -> Op) = match op {
-            SsaOp::AddRegImm(out, arg, imm) => (out, arg, imm, Op::AddRegImm),
-            SsaOp::SubRegImm(out, arg, imm) => (out, arg, imm, Op::SubRegImm),
-            SsaOp::SubImmReg(out, arg, imm) => (out, arg, imm, Op::SubImmReg),
-            SsaOp::MulRegImm(out, arg, imm) => (out, arg, imm, Op::MulRegImm),
-            SsaOp::DivRegImm(out, arg, imm) => (out, arg, imm, Op::DivRegImm),
-            SsaOp::DivImmReg(out, arg, imm) => (out, arg, imm, Op::DivImmReg),
-            SsaOp::MinRegImm(out, arg, imm) => (out, arg, imm, Op::MinRegImm),
-            SsaOp::MaxRegImm(out, arg, imm) => (out, arg, imm, Op::MaxRegImm),
+            Op::AddRegImm(out, arg, imm) => (out, arg, imm, Op::AddRegImm),
+            Op::SubRegImm(out, arg, imm) => (out, arg, imm, Op::SubRegImm),
+            Op::SubImmReg(out, arg, imm) => (out, arg, imm, Op::SubImmReg),
+            Op::MulRegImm(out, arg, imm) => (out, arg, imm, Op::MulRegImm),
+            Op::DivRegImm(out, arg, imm) => (out, arg, imm, Op::DivRegImm),
+            Op::DivImmReg(out, arg, imm) => (out, arg, imm, Op::DivImmReg),
+            Op::MinRegImm(out, arg, imm) => (out, arg, imm, Op::MinRegImm),
+            Op::MaxRegImm(out, arg, imm) => (out, arg, imm, Op::MaxRegImm),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
