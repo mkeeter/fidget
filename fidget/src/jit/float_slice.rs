@@ -11,7 +11,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// and output arrays represents 4x `f32`; the var array is single `f32`s
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
-pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>);
+pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>, usize);
 
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
@@ -32,14 +32,10 @@ impl AssemblerT for FloatSliceAssembler {
 
         );
         out.prepare_stack(slot_count);
+        let loop_start = out.ops.len();
 
         dynasm!(out.ops
-            ; b #8 // Skip the call in favor of setup
-
-            // call:
-            ; bl #72 // -> func
-
-            // The function returns here, and we check whether we need to loop
+            // The loop returns here, and we check whether we need to loop
             // Remember, at this point we have
             //  x0: x input array pointer
             //  x1: y input array pointer
@@ -52,21 +48,7 @@ impl AssemblerT for FloatSliceAssembler {
             // x4 is advanced in finalize().
 
             ; cmp x5, #0
-            ; b.eq #36 // -> fini
-            ; sub x5, x5, #4 // We handle 4 items at a time
-
-            // Load V0/1/2.S4 with X/Y/Z values, post-increment
-            //
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
-            ; ldp d0, d1, [x0], #16
-            ; mov v0.d[1], v1.d[0]
-            ; ldp d1, d2, [x1], #16
-            ; mov v1.d[1], v2.d[0]
-            ; ldp d2, d3, [x2], #16
-            ; mov v2.d[1], v3.d[0]
-
-            ; b #-40 // -> call
+            ; b.ne #32 // skip to loop body
 
             // fini:
             // This is our finalization code, which happens after all evaluation
@@ -83,10 +65,22 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
 
-            // func:
+            // Loop body:
+            //
+            // Load V0/1/2.S4 with X/Y/Z values, post-increment
+            //
+            // We're actually loading two f32s, but we can pretend they're
+            // doubles in order to move 64 bits at a time
+            ; ldp d0, d1, [x0], #16
+            ; mov v0.d[1], v1.d[0]
+            ; ldp d1, d2, [x1], #16
+            ; mov v1.d[1], v2.d[0]
+            ; ldp d2, d3, [x2], #16
+            ; mov v2.d[1], v3.d[0]
+            ; sub x5, x5, #4 // We handle 4 items at a time
         );
 
-        Self(out)
+        Self(out, loop_start)
     }
     /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
@@ -214,7 +208,11 @@ impl AssemblerT for FloatSliceAssembler {
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
             ; stp D(reg(out_reg)), d0, [x4], #16
-            ; ret
+        );
+        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
+        assert!(jump_size.abs() < (1 << 25));
+        dynasm!(self.0.ops
+            ; b #-jump_size
         );
 
         self.0.ops.finalize()
