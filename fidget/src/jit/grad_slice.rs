@@ -17,7 +17,7 @@ use dynasmrt::{dynasm, DynasmApi};
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
-pub struct GradSliceAssembler(AssemblerData<[f32; 4]>);
+pub struct GradSliceAssembler(AssemblerData<[f32; 4]>, usize);
 
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for GradSliceAssembler {
@@ -37,14 +37,10 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d14, d15, [sp, #-16]!
         );
         out.prepare_stack(slot_count);
+        let loop_start = out.ops.len();
 
         dynasm!(out.ops
-            ; b #8 // Skip the call in favor of setup
-
-            // call:
-            ; bl #76 // -> func
-
-            // The function returns here, and we check whether we need to loop
+            // The loop returns here, and we check whether we need to loop
             // Remember, at this point we have
             //  x0: x input array pointer
             //  x1: y input array pointer
@@ -57,22 +53,7 @@ impl AssemblerT for GradSliceAssembler {
             // x3 is advanced in finalize().
 
             ; cmp x5, #0
-            ; b.eq #40 // -> fini
-            ; sub x5, x5, #1 // We handle 1 items at a time
-
-            // Load V0/1/2.S4 with X/Y/Z values, post-increment
-            //
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
-            ; fmov s6, #1.0
-            ; ldr s0, [x0], #4
-            ; mov v0.S[1], v6.S[0]
-            ; ldr s1, [x1], #4
-            ; mov v1.S[2], v6.S[0]
-            ; ldr s2, [x2], #4
-            ; mov v2.S[3], v6.S[0]
-
-            ; b #-44 // -> call
+            ; b.ne #32 // -> jump to loop body
 
             // fini:
             // This is our finalization code, which happens after all evaluation
@@ -89,10 +70,23 @@ impl AssemblerT for GradSliceAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
 
-            // func:
+            // Load V0/1/2.S4 with X/Y/Z values, post-increment
+            //
+            // We're actually loading two f32s, but we can pretend they're
+            // doubles in order to move 64 bits at a time
+            ; fmov s6, #1.0
+            ; ldr s0, [x0], #4
+            ; mov v0.S[1], v6.S[0]
+            ; ldr s1, [x1], #4
+            ; mov v1.S[2], v6.S[0]
+            ; ldr s2, [x2], #4
+            ; mov v2.S[3], v6.S[0]
+            ; sub x5, x5, #1 // We handle 1 item at a time
+
+            // Math begins below!
         );
 
-        Self(out)
+        Self(out, loop_start)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
@@ -320,7 +314,11 @@ impl AssemblerT for GradSliceAssembler {
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
             ; stp D(reg(out_reg)), d0, [x4], #16
-            ; ret
+        );
+        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
+        assert!(jump_size.abs() < (1 << 25));
+        dynasm!(self.0.ops
+           ; b #-jump_size
         );
 
         self.0.ops.finalize()
