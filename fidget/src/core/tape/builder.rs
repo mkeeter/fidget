@@ -38,7 +38,71 @@ impl Builder {
         let mut alloc =
             RegisterAllocator::new(reg_limit, self.tape.len().max(1));
         for &op in self.tape.iter() {
-            alloc.op(op)
+            match op {
+                TapeOp::Input(out, arg) => alloc.op_input(out, arg),
+                TapeOp::Var(out, var) => alloc.op_var(out, var),
+                TapeOp::NegReg(out, arg) => {
+                    alloc.op_reg_fn(out, arg, TapeOp::NegReg)
+                }
+                TapeOp::AbsReg(out, arg) => {
+                    alloc.op_reg_fn(out, arg, TapeOp::AbsReg)
+                }
+                TapeOp::RecipReg(out, arg) => {
+                    alloc.op_reg_fn(out, arg, TapeOp::RecipReg)
+                }
+                TapeOp::SqrtReg(out, arg) => {
+                    alloc.op_reg_fn(out, arg, TapeOp::SqrtReg)
+                }
+                TapeOp::SquareReg(out, arg) => {
+                    alloc.op_reg_fn(out, arg, TapeOp::SquareReg)
+                }
+                TapeOp::AddRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::AddRegImm)
+                }
+                TapeOp::MulRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::MulRegImm)
+                }
+                TapeOp::DivRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::DivRegImm)
+                }
+                TapeOp::DivImmReg(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::DivImmReg)
+                }
+                TapeOp::SubImmReg(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::SubImmReg)
+                }
+                TapeOp::SubRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::SubRegImm)
+                }
+                TapeOp::MinRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::MinRegImm)
+                }
+                TapeOp::MaxRegImm(out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, TapeOp::MaxRegImm)
+                }
+                TapeOp::AddRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::AddRegReg)
+                }
+                TapeOp::MulRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MulRegReg)
+                }
+                TapeOp::DivRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::DivRegReg)
+                }
+                TapeOp::SubRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::SubRegReg)
+                }
+                TapeOp::MinRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MinRegReg)
+                }
+                TapeOp::MaxRegReg(out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MaxRegReg)
+                }
+                TapeOp::CopyImm(out, imm) => alloc.op_copy_imm(out, imm),
+                TapeOp::Store(..) | TapeOp::Load(..) | TapeOp::CopyReg(..) => {
+                    panic!("Invalid operation in SSA tape");
+                }
+            }
         }
         let mut asm = alloc.finalize();
         asm.choice_count = self.choice_count;

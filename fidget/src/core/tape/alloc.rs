@@ -255,61 +255,6 @@ impl RegisterAllocator {
         // but that's okay, because it should never be used
     }
 
-    /// Lowers an operation that uses a single register into an
-    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
-    ///
-    /// This may also push `Load` or `Store` instructions to the internal tape,
-    /// if there aren't enough spare registers.
-    #[inline(always)]
-    fn op_reg(&mut self, op: Op<u32>) {
-        let (out, arg, op): (u32, u32, fn(u8, u8) -> Op) = match op {
-            Op::NegReg(out, arg) => (out, arg, Op::NegReg),
-            Op::AbsReg(out, arg) => (out, arg, Op::AbsReg),
-            Op::RecipReg(out, arg) => (out, arg, Op::RecipReg),
-            Op::SqrtReg(out, arg) => (out, arg, Op::SqrtReg),
-            Op::SquareReg(out, arg) => (out, arg, Op::SquareReg),
-            Op::CopyReg(out, arg) => (out, arg, Op::CopyReg),
-            _ => panic!("Bad opcode: {op:?}"),
-        };
-        self.op_reg_fn(out, arg, op);
-    }
-
-    #[inline(always)]
-    pub fn op(&mut self, op: Op<u32>) {
-        match op {
-            Op::Var(out, i) => self.op_var(out, i),
-            Op::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
-            Op::CopyImm(out, imm) => self.op_copy_imm(out, imm),
-
-            Op::NegReg(..)
-            | Op::AbsReg(..)
-            | Op::RecipReg(..)
-            | Op::SqrtReg(..)
-            | Op::SquareReg(..)
-            | Op::CopyReg(..) => self.op_reg(op),
-
-            Op::AddRegImm(..)
-            | Op::SubRegImm(..)
-            | Op::SubImmReg(..)
-            | Op::MulRegImm(..)
-            | Op::DivRegImm(..)
-            | Op::DivImmReg(..)
-            | Op::MinRegImm(..)
-            | Op::MaxRegImm(..) => self.op_reg_imm(op),
-
-            Op::AddRegReg(..)
-            | Op::SubRegReg(..)
-            | Op::MulRegReg(..)
-            | Op::DivRegReg(..)
-            | Op::MinRegReg(..)
-            | Op::MaxRegReg(..) => self.op_reg_reg(op),
-
-            Op::Load(..) | Op::Store(..) => panic!(
-                "Must eliminate Load/Store ops before register allocation"
-            ),
-        }
-    }
-
     fn push_store(&mut self, reg: u8, mem: u32) {
         self.out.push(Op::Store(reg, mem));
         self.release_mem(mem);
@@ -354,8 +299,13 @@ impl RegisterAllocator {
         }
     }
 
-    #[inline(always)]
-    fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> Op) {
+    /// Lowers an operation that uses a single register into an
+    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
+    ///
+    /// This may also push `Load` or `Store` instructions to the internal tape,
+    /// if there aren't enough spare registers.
+    #[inline]
+    pub fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> Op) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
         // unassigned.  This gives us six unique situations.
@@ -423,17 +373,14 @@ impl RegisterAllocator {
     /// `Store` instructions to the internal tape.  It's trickier than it
     /// sounds; look at the source code for a table showing all 18 (!) possible
     /// configurations.
-    #[inline(always)]
-    fn op_reg_reg(&mut self, op: Op<u32>) {
-        let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> Op) = match op {
-            Op::AddRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::AddRegReg),
-            Op::SubRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::SubRegReg),
-            Op::MulRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MulRegReg),
-            Op::DivRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::DivRegReg),
-            Op::MinRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MinRegReg),
-            Op::MaxRegReg(out, lhs, rhs) => (out, lhs, rhs, Op::MaxRegReg),
-            _ => panic!("Bad opcode: {op:?}"),
-        };
+    #[inline]
+    pub fn op_reg_reg(
+        &mut self,
+        out: u32,
+        lhs: u32,
+        rhs: u32,
+        op: fn(u8, u8, u8) -> Op,
+    ) {
         // Similar logic as op_reg_fn, but with two arguments!
         let r_x = self.get_out_reg(out);
         match (self.get_arg_reg(lhs), self.get_arg_reg(rhs)) {
@@ -465,23 +412,18 @@ impl RegisterAllocator {
 
     /// Lowers a function taking one register and one immediate into an
     /// [`Op`](crate::asm::Op), pushing it to the internal tape.
-    #[inline(always)]
-    fn op_reg_imm(&mut self, op: Op<u32>) {
-        let (out, arg, imm, op): (_, _, _, fn(u8, u8, f32) -> Op) = match op {
-            Op::AddRegImm(out, arg, imm) => (out, arg, imm, Op::AddRegImm),
-            Op::SubRegImm(out, arg, imm) => (out, arg, imm, Op::SubRegImm),
-            Op::SubImmReg(out, arg, imm) => (out, arg, imm, Op::SubImmReg),
-            Op::MulRegImm(out, arg, imm) => (out, arg, imm, Op::MulRegImm),
-            Op::DivRegImm(out, arg, imm) => (out, arg, imm, Op::DivRegImm),
-            Op::DivImmReg(out, arg, imm) => (out, arg, imm, Op::DivImmReg),
-            Op::MinRegImm(out, arg, imm) => (out, arg, imm, Op::MinRegImm),
-            Op::MaxRegImm(out, arg, imm) => (out, arg, imm, Op::MaxRegImm),
-            _ => panic!("Bad opcode: {op:?}"),
-        };
+    #[inline]
+    pub fn op_reg_imm(
+        &mut self,
+        out: u32,
+        arg: u32,
+        imm: f32,
+        op: fn(u8, u8, f32) -> Op,
+    ) {
         self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
     }
 
-    #[inline(always)]
+    #[inline]
     fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> Op) {
         let r_x = self.get_out_reg(out);
         self.out.push(op(r_x));
@@ -489,20 +431,20 @@ impl RegisterAllocator {
     }
 
     /// Pushes a [`CopyImm`](crate::asm::Op::CopyImm) operation to the tape
-    #[inline(always)]
-    fn op_copy_imm(&mut self, out: u32, imm: f32) {
+    #[inline]
+    pub fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| Op::CopyImm(out, imm));
     }
 
     /// Pushes an [`Input`](crate::asm::Op::Input) operation to the tape
-    #[inline(always)]
-    fn op_input(&mut self, out: u32, i: u8) {
+    #[inline]
+    pub fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| Op::Input(out, i));
     }
 
     /// Pushes an [`Var`](crate::asm::Op::Var) operation to the tape
-    #[inline(always)]
-    fn op_var(&mut self, out: u32, i: u32) {
+    #[inline]
+    pub fn op_var(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| Op::Var(out, i));
     }
 }
