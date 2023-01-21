@@ -18,6 +18,7 @@
 //! ```
 
 use crate::{
+    context::{BinaryOpcode, UnaryOpcode},
     eval::{
         bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
         Choice, EvaluatorStorage, Family, Tape,
@@ -328,67 +329,71 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
             Op::Var(out, i) => {
                 asm.build_var(out, i);
             }
-            Op::NegReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Neg, out, arg) => {
                 asm.build_neg(out, arg);
             }
-            Op::AbsReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Abs, out, arg) => {
                 asm.build_abs(out, arg);
             }
-            Op::RecipReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Recip, out, arg) => {
                 asm.build_recip(out, arg);
             }
-            Op::SqrtReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Sqrt, out, arg) => {
                 asm.build_sqrt(out, arg);
             }
-            Op::CopyReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Copy, out, arg) => {
                 asm.build_copy(out, arg);
             }
-            Op::SquareReg(out, arg) => {
+            Op::Reg(UnaryOpcode::Square, out, arg) => {
                 asm.build_square(out, arg);
             }
-            Op::AddRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Add, out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
-            Op::MulRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Mul, out, lhs, rhs) => {
                 asm.build_mul(out, lhs, rhs);
             }
-            Op::DivRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Div, out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
             }
-            Op::SubRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Sub, out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
-            Op::MinRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Min, out, lhs, rhs) => {
                 asm.build_min(out, lhs, rhs);
             }
-            Op::MaxRegReg(out, lhs, rhs) => {
+            Op::RegReg(BinaryOpcode::Max, out, lhs, rhs) => {
                 asm.build_max(out, lhs, rhs);
             }
-            Op::AddRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Add, out, arg, imm)
+            | Op::ImmReg(BinaryOpcode::Add, out, arg, imm) => {
                 asm.build_add_imm(out, arg, imm);
             }
-            Op::MulRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Mul, out, arg, imm)
+            | Op::ImmReg(BinaryOpcode::Mul, out, arg, imm) => {
                 asm.build_mul_imm(out, arg, imm);
             }
-            Op::DivRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Div, out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            Op::DivImmReg(out, arg, imm) => {
+            Op::ImmReg(BinaryOpcode::Div, out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            Op::SubImmReg(out, arg, imm) => {
+            Op::ImmReg(BinaryOpcode::Sub, out, arg, imm) => {
                 asm.build_sub_imm_reg(out, arg, imm);
             }
-            Op::SubRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Sub, out, arg, imm) => {
                 asm.build_sub_reg_imm(out, arg, imm);
             }
-            Op::MinRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Min, out, arg, imm)
+            | Op::ImmReg(BinaryOpcode::Min, out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            Op::MaxRegImm(out, arg, imm) => {
+            Op::RegImm(BinaryOpcode::Max, out, arg, imm)
+            | Op::ImmReg(BinaryOpcode::Max, out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }

@@ -5,6 +5,7 @@ mod eval;
 mod lru;
 mod op;
 
+use crate::context::{BinaryOpcode, UnaryOpcode};
 pub(super) use alloc::RegisterAllocator;
 pub(super) use builder::Builder;
 
@@ -79,69 +80,55 @@ impl Tape {
                 Op::Var(out, i) => {
                     println!("${out} = VAR {i}");
                 }
-                Op::NegReg(out, arg)
-                | Op::AbsReg(out, arg)
-                | Op::RecipReg(out, arg)
-                | Op::SqrtReg(out, arg)
-                | Op::CopyReg(out, arg)
-                | Op::SquareReg(out, arg) => {
+                Op::CopyImm(out, f) => {
+                    println!("${out} = {f}");
+                }
+                Op::Reg(op, out, arg) => {
                     let op = match op {
-                        Op::NegReg(..) => "NEG",
-                        Op::AbsReg(..) => "ABS",
-                        Op::RecipReg(..) => "RECIP",
-                        Op::SqrtReg(..) => "SQRT",
-                        Op::SquareReg(..) => "SQUARE",
-                        Op::CopyReg(..) => "COPY",
-                        _ => unreachable!(),
+                        UnaryOpcode::Neg => "NEG",
+                        UnaryOpcode::Abs => "ABS",
+                        UnaryOpcode::Recip => "RECIP",
+                        UnaryOpcode::Sqrt => "SQRT",
+                        UnaryOpcode::Square => "SQUARE",
+                        UnaryOpcode::Copy => "COPY",
                     };
                     println!("${out} = {op} ${arg}");
                 }
 
-                Op::AddRegReg(out, lhs, rhs)
-                | Op::MulRegReg(out, lhs, rhs)
-                | Op::DivRegReg(out, lhs, rhs)
-                | Op::SubRegReg(out, lhs, rhs)
-                | Op::MinRegReg(out, lhs, rhs)
-                | Op::MaxRegReg(out, lhs, rhs) => {
+                Op::RegReg(op, out, lhs, rhs) => {
                     let op = match op {
-                        Op::AddRegReg(..) => "ADD",
-                        Op::MulRegReg(..) => "MUL",
-                        Op::DivRegReg(..) => "DIV",
-                        Op::SubRegReg(..) => "SUB",
-                        Op::MinRegReg(..) => "MIN",
-                        Op::MaxRegReg(..) => "MAX",
-                        _ => unreachable!(),
+                        BinaryOpcode::Add => "ADD",
+                        BinaryOpcode::Mul => "MUL",
+                        BinaryOpcode::Div => "DIV",
+                        BinaryOpcode::Sub => "SUB",
+                        BinaryOpcode::Min => "MIN",
+                        BinaryOpcode::Max => "MAX",
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
                 }
 
-                Op::AddRegImm(out, arg, imm)
-                | Op::MulRegImm(out, arg, imm)
-                | Op::DivRegImm(out, arg, imm)
-                | Op::DivImmReg(out, arg, imm)
-                | Op::SubImmReg(out, arg, imm)
-                | Op::SubRegImm(out, arg, imm)
-                | Op::MinRegImm(out, arg, imm)
-                | Op::MaxRegImm(out, arg, imm) => {
-                    let (op, swap) = match op {
-                        Op::AddRegImm(..) => ("ADD", false),
-                        Op::MulRegImm(..) => ("MUL", false),
-                        Op::DivImmReg(..) => ("DIV", true),
-                        Op::DivRegImm(..) => ("DIV", false),
-                        Op::SubImmReg(..) => ("SUB", true),
-                        Op::SubRegImm(..) => ("SUB", false),
-                        Op::MinRegImm(..) => ("MIN", false),
-                        Op::MaxRegImm(..) => ("MAX", false),
-                        _ => unreachable!(),
+                Op::RegImm(op, out, arg, imm) => {
+                    // TODO: duplicate code
+                    let op = match op {
+                        BinaryOpcode::Add => "ADD",
+                        BinaryOpcode::Mul => "MUL",
+                        BinaryOpcode::Div => "DIV",
+                        BinaryOpcode::Sub => "SUB",
+                        BinaryOpcode::Min => "MIN",
+                        BinaryOpcode::Max => "MAX",
                     };
-                    if swap {
-                        println!("${out} = {op} {imm} ${arg}");
-                    } else {
-                        println!("${out} = {op} ${arg} {imm}");
-                    }
+                    println!("${out} = {op} ${arg} {imm}");
                 }
-                Op::CopyImm(out, imm) => {
-                    println!("${out} = COPY {imm}");
+                Op::ImmReg(op, out, arg, imm) => {
+                    let op = match op {
+                        BinaryOpcode::Add => "ADD",
+                        BinaryOpcode::Mul => "MUL",
+                        BinaryOpcode::Div => "DIV",
+                        BinaryOpcode::Sub => "SUB",
+                        BinaryOpcode::Min => "MIN",
+                        BinaryOpcode::Max => "MAX",
+                    };
+                    println!("${out} = {op} {imm} ${arg}");
                 }
                 Op::Load(reg, mem) => {
                     println!("${reg} <= %{mem}");

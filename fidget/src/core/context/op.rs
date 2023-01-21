@@ -9,6 +9,7 @@ pub enum UnaryOpcode {
     Recip,
     Sqrt,
     Square,
+    Copy,
 }
 
 /// A two-argument math operation

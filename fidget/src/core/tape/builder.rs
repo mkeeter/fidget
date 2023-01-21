@@ -1,5 +1,5 @@
 use crate::{
-    context::{BinaryOpcode, Context, Node, Op, UnaryOpcode, VarNode},
+    context::{BinaryOpcode, Context, Node, Op, VarNode},
     eval::tape::Data,
     tape::{alloc::RegisterAllocator, Op as TapeOp},
 };
@@ -41,65 +41,18 @@ impl Builder {
             match op {
                 TapeOp::Input(out, arg) => alloc.op_input(out, arg),
                 TapeOp::Var(out, var) => alloc.op_var(out, var),
-                TapeOp::NegReg(out, arg) => {
-                    alloc.op_reg_fn(out, arg, TapeOp::NegReg)
+                TapeOp::Reg(op, out, arg) => alloc.op_reg(out, arg, op),
+                TapeOp::RegReg(op, out, lhs, rhs) => {
+                    alloc.op_reg_reg(out, lhs, rhs, op)
                 }
-                TapeOp::AbsReg(out, arg) => {
-                    alloc.op_reg_fn(out, arg, TapeOp::AbsReg)
+                TapeOp::RegImm(op, out, arg, imm) => {
+                    alloc.op_reg_imm(out, arg, imm, op)
                 }
-                TapeOp::RecipReg(out, arg) => {
-                    alloc.op_reg_fn(out, arg, TapeOp::RecipReg)
-                }
-                TapeOp::SqrtReg(out, arg) => {
-                    alloc.op_reg_fn(out, arg, TapeOp::SqrtReg)
-                }
-                TapeOp::SquareReg(out, arg) => {
-                    alloc.op_reg_fn(out, arg, TapeOp::SquareReg)
-                }
-                TapeOp::AddRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::AddRegImm)
-                }
-                TapeOp::MulRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::MulRegImm)
-                }
-                TapeOp::DivRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::DivRegImm)
-                }
-                TapeOp::DivImmReg(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::DivImmReg)
-                }
-                TapeOp::SubImmReg(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::SubImmReg)
-                }
-                TapeOp::SubRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::SubRegImm)
-                }
-                TapeOp::MinRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::MinRegImm)
-                }
-                TapeOp::MaxRegImm(out, arg, imm) => {
-                    alloc.op_reg_imm(out, arg, imm, TapeOp::MaxRegImm)
-                }
-                TapeOp::AddRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::AddRegReg)
-                }
-                TapeOp::MulRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MulRegReg)
-                }
-                TapeOp::DivRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::DivRegReg)
-                }
-                TapeOp::SubRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::SubRegReg)
-                }
-                TapeOp::MinRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MinRegReg)
-                }
-                TapeOp::MaxRegReg(out, lhs, rhs) => {
-                    alloc.op_reg_reg(out, lhs, rhs, TapeOp::MaxRegReg)
+                TapeOp::ImmReg(op, out, arg, imm) => {
+                    alloc.op_imm_reg(out, arg, imm, op)
                 }
                 TapeOp::CopyImm(out, imm) => alloc.op_copy_imm(out, imm),
-                TapeOp::Store(..) | TapeOp::Load(..) | TapeOp::CopyReg(..) => {
+                TapeOp::Store(..) | TapeOp::Load(..) => {
                     panic!("Invalid operation in SSA tape");
                 }
             }
@@ -172,54 +125,19 @@ impl Builder {
                 let rhs = self.get_allocated_value(rhs);
                 let index = index.unwrap();
 
-                type RegFn = fn(u32, u32, u32) -> TapeOp<u32>;
-                type ImmFn = fn(u32, u32, f32) -> TapeOp<u32>;
-                let f: (RegFn, ImmFn, ImmFn) = match op {
-                    BinaryOpcode::Add => (
-                        TapeOp::AddRegReg,
-                        TapeOp::AddRegImm,
-                        TapeOp::AddRegImm,
-                    ),
-                    BinaryOpcode::Sub => (
-                        TapeOp::SubRegReg,
-                        TapeOp::SubRegImm,
-                        TapeOp::SubImmReg,
-                    ),
-                    BinaryOpcode::Mul => (
-                        TapeOp::MulRegReg,
-                        TapeOp::MulRegImm,
-                        TapeOp::MulRegImm,
-                    ),
-                    BinaryOpcode::Div => (
-                        TapeOp::DivRegReg,
-                        TapeOp::DivRegImm,
-                        TapeOp::DivImmReg,
-                    ),
-                    BinaryOpcode::Min => (
-                        TapeOp::MinRegReg,
-                        TapeOp::MinRegImm,
-                        TapeOp::MinRegImm,
-                    ),
-                    BinaryOpcode::Max => (
-                        TapeOp::MaxRegReg,
-                        TapeOp::MaxRegImm,
-                        TapeOp::MaxRegImm,
-                    ),
-                };
-
                 if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
                     self.choice_count += 1;
                 }
 
                 let op = match (lhs, rhs) {
                     (Location::Slot(lhs), Location::Slot(rhs)) => {
-                        f.0(index, lhs, rhs)
+                        TapeOp::RegReg(op, index, lhs, rhs)
                     }
                     (Location::Slot(arg), Location::Immediate(imm)) => {
-                        f.1(index, arg, imm)
+                        TapeOp::RegImm(op, index, arg, imm)
                     }
                     (Location::Immediate(imm), Location::Slot(arg)) => {
-                        f.2(index, arg, imm)
+                        TapeOp::ImmReg(op, index, arg, imm)
                     }
                     (Location::Immediate(..), Location::Immediate(..)) => {
                         panic!("Cannot handle f(imm, imm)")
@@ -235,14 +153,7 @@ impl Builder {
                     }
                 };
                 let index = index.unwrap();
-                let op = match op {
-                    UnaryOpcode::Neg => TapeOp::NegReg,
-                    UnaryOpcode::Abs => TapeOp::AbsReg,
-                    UnaryOpcode::Recip => TapeOp::RecipReg,
-                    UnaryOpcode::Sqrt => TapeOp::SqrtReg,
-                    UnaryOpcode::Square => TapeOp::SquareReg,
-                };
-                Some(op(index, lhs))
+                Some(TapeOp::Reg(op, index, lhs))
             }
         };
 

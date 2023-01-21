@@ -633,6 +633,7 @@ impl Context {
                     UnaryOpcode::Recip => 1.0 / a,
                     UnaryOpcode::Sqrt => a.sqrt(),
                     UnaryOpcode::Square => a * a,
+                    UnaryOpcode::Copy => a,
                 }
             }
         };
@@ -745,6 +746,7 @@ impl Context {
                 UnaryOpcode::Recip => out += "recip",
                 UnaryOpcode::Sqrt => out += "sqrt",
                 UnaryOpcode::Square => out += "square",
+                UnaryOpcode::Copy => out += "copy",
             },
         };
         write!(

@@ -1,4 +1,7 @@
-use crate::tape::{lru::Lru, Op, Tape};
+use crate::{
+    context::{BinaryOpcode, UnaryOpcode},
+    tape::{lru::Lru, Op, Tape},
+};
 
 use arrayvec::ArrayVec;
 
@@ -379,32 +382,32 @@ impl RegisterAllocator {
         out: u32,
         lhs: u32,
         rhs: u32,
-        op: fn(u8, u8, u8) -> Op,
+        op: BinaryOpcode,
     ) {
         // Similar logic as op_reg_fn, but with two arguments!
         let r_x = self.get_out_reg(out);
         match (self.get_arg_reg(lhs), self.get_arg_reg(rhs)) {
             (Some(r_y), Some(r_z)) => {
-                self.out.push(op(r_x, r_y, r_z));
+                self.out.push(Op::RegReg(op, r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
             (None, Some(r_z)) => {
-                self.out.push(op(r_x, r_x, r_z));
+                self.out.push(Op::RegReg(op, r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
             (Some(r_y), None) => {
-                self.out.push(op(r_x, r_y, r_x));
+                self.out.push(Op::RegReg(op, r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
             (None, None) if lhs == rhs => {
-                self.out.push(op(r_x, r_x, r_x));
+                self.out.push(Op::RegReg(op, r_x, r_x, r_x));
                 self.rebind_register(lhs, r_x);
             }
             (None, None) => {
                 let r_a = self.get_register();
                 self.bind_register(rhs, r_a);
 
-                self.out.push(op(r_x, r_x, r_a));
+                self.out.push(Op::RegReg(op, r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
             }
         }
@@ -418,9 +421,29 @@ impl RegisterAllocator {
         out: u32,
         arg: u32,
         imm: f32,
-        op: fn(u8, u8, f32) -> Op,
+        op: BinaryOpcode,
     ) {
-        self.op_reg_fn(out, arg, |out, arg| op(out, arg, imm));
+        self.op_reg_fn(out, arg, |out, arg| Op::RegImm(op, out, arg, imm));
+    }
+
+    /// Lowers a function taking one register and one immediate into an
+    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
+    #[inline]
+    pub fn op_imm_reg(
+        &mut self,
+        out: u32,
+        arg: u32,
+        imm: f32,
+        op: BinaryOpcode,
+    ) {
+        self.op_reg_fn(out, arg, |out, arg| Op::ImmReg(op, out, arg, imm));
+    }
+
+    /// Lowers a function taking one register into an [`Op`](crate::asm::Op),
+    /// pushing it to the internal tape.
+    #[inline]
+    pub fn op_reg(&mut self, out: u32, arg: u32, op: UnaryOpcode) {
+        self.op_reg_fn(out, arg, |out, arg| Op::Reg(op, out, arg));
     }
 
     #[inline]

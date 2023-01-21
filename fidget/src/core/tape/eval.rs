@@ -1,4 +1,5 @@
 use crate::{
+    context::{BinaryOpcode, UnaryOpcode},
     eval::{
         bulk::{BulkEvaluator, BulkEvaluatorData},
         tracing::{TracingEvaluator, TracingEvaluatorData},
@@ -134,67 +135,79 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                 Op::Var(out, i) => {
                     v[out] = vars[i as usize].into();
                 }
-                Op::NegReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Neg, out, arg) => {
                     v[out] = -v[arg];
                 }
-                Op::AbsReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Abs, out, arg) => {
                     v[out] = v[arg].abs();
                 }
-                Op::RecipReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Recip, out, arg) => {
                     v[out] = v[arg].recip();
                 }
-                Op::SqrtReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Sqrt, out, arg) => {
                     v[out] = v[arg].sqrt();
                 }
-                Op::SquareReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Square, out, arg) => {
                     v[out] = v[arg].square();
                 }
-                Op::CopyReg(out, arg) => v[out] = v[arg],
-                Op::AddRegImm(out, arg, imm) => {
+                Op::Reg(UnaryOpcode::Copy, out, arg) => v[out] = v[arg],
+                Op::RegImm(BinaryOpcode::Add, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Add, out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
                 }
-                Op::MulRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Mul, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Mul, out, arg, imm) => {
                     v[out] = v[arg] * imm.into();
                 }
-                Op::DivRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Div, out, arg, imm) => {
                     v[out] = v[arg] / imm.into();
                 }
-                Op::DivImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Div, out, arg, imm) => {
                     let imm: Interval = imm.into();
                     v[out] = imm / v[arg];
                 }
-                Op::SubImmReg(out, arg, imm) => {
-                    v[out] = Interval::from(imm) - v[arg];
-                }
-                Op::SubRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Sub, out, arg, imm) => {
                     v[out] = v[arg] - imm.into();
                 }
-                Op::MinRegImm(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Sub, out, arg, imm) => {
+                    v[out] = Interval::from(imm) - v[arg];
+                }
+                Op::RegImm(BinaryOpcode::Min, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Min, out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
-                Op::MaxRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Max, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Max, out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
-                Op::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
-                Op::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
-                Op::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
-                Op::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
-                Op::MinRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Add, out, lhs, rhs) => {
+                    v[out] = v[lhs] + v[rhs]
+                }
+                Op::RegReg(BinaryOpcode::Mul, out, lhs, rhs) => {
+                    v[out] = v[lhs] * v[rhs]
+                }
+                Op::RegReg(BinaryOpcode::Div, out, lhs, rhs) => {
+                    v[out] = v[lhs] / v[rhs]
+                }
+                Op::RegReg(BinaryOpcode::Sub, out, lhs, rhs) => {
+                    v[out] = v[lhs] - v[rhs]
+                }
+                Op::RegReg(BinaryOpcode::Min, out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
-                Op::MaxRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Max, out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
@@ -243,44 +256,47 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     }
                 }
                 Op::Var(out, i) => v[out] = vars[i as usize],
-                Op::NegReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Neg, out, arg) => {
                     v[out] = -v[arg];
                 }
-                Op::AbsReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Abs, out, arg) => {
                     v[out] = v[arg].abs();
                 }
-                Op::RecipReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Recip, out, arg) => {
                     v[out] = 1.0 / v[arg];
                 }
-                Op::SqrtReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Sqrt, out, arg) => {
                     v[out] = v[arg].sqrt();
                 }
-                Op::SquareReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Square, out, arg) => {
                     let s = v[arg];
                     v[out] = s * s;
                 }
-                Op::CopyReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Copy, out, arg) => {
                     v[out] = v[arg];
                 }
-                Op::AddRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Add, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Add, out, arg, imm) => {
                     v[out] = v[arg] + imm;
                 }
-                Op::MulRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Mul, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Mul, out, arg, imm) => {
                     v[out] = v[arg] * imm;
                 }
-                Op::DivRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Div, out, arg, imm) => {
                     v[out] = v[arg] / imm;
                 }
-                Op::DivImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Div, out, arg, imm) => {
                     v[out] = imm / v[arg];
                 }
-                Op::SubImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Sub, out, arg, imm) => {
                     v[out] = imm - v[arg];
                 }
-                Op::SubRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Sub, out, arg, imm) => {
                     v[out] = v[arg] - imm;
                 }
-                Op::MinRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Min, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Min, out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a < imm {
                         choices[choice_index] |= Choice::Left;
@@ -299,7 +315,8 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                Op::MaxRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Max, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Max, out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a > imm {
                         choices[choice_index] |= Choice::Left;
@@ -318,19 +335,19 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                Op::AddRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Add, out, lhs, rhs) => {
                     v[out] = v[lhs] + v[rhs];
                 }
-                Op::MulRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Mul, out, lhs, rhs) => {
                     v[out] = v[lhs] * v[rhs];
                 }
-                Op::DivRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Div, out, lhs, rhs) => {
                     v[out] = v[lhs] / v[rhs];
                 }
-                Op::SubRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Sub, out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
                 }
-                Op::MinRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Min, out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a < b {
@@ -350,7 +367,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                Op::MaxRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Max, out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a > b {
@@ -453,103 +470,107 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     _ => panic!("Invalid input: {}", i),
                 }),
                 Op::Var(out, i) => v[out][0..size].fill(vars[i as usize]),
-                Op::NegReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Neg, out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                Op::AbsReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Abs, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                Op::RecipReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Recip, out, arg) => {
                     for i in 0..size {
                         v[out][i] = 1.0 / v[arg][i];
                     }
                 }
-                Op::SqrtReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Sqrt, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                Op::SquareReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Square, out, arg) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                Op::CopyReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Copy, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                Op::AddRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Add, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Add, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm;
                     }
                 }
-                Op::MulRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Mul, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Mul, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm;
                     }
                 }
-                Op::DivRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Div, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm;
                     }
                 }
-                Op::DivImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Div, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                Op::SubImmReg(out, arg, imm) => {
-                    for i in 0..size {
-                        v[out][i] = imm - v[arg][i];
-                    }
-                }
-                Op::SubRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Sub, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                Op::MinRegImm(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Sub, out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = imm - v[arg][i];
+                    }
+                }
+                Op::RegImm(BinaryOpcode::Min, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Min, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                Op::MaxRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Max, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Max, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::AddRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Add, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                Op::MulRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Mul, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                Op::DivRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Div, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                Op::SubRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Sub, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                Op::MinRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Min, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                Op::MaxRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Max, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
@@ -620,109 +641,113 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         0.0,
                     ));
                 }
-                Op::NegReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Neg, out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                Op::AbsReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Abs, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                Op::RecipReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Recip, out, arg) => {
                     let one: Grad = 1.0.into();
                     for i in 0..size {
                         v[out][i] = one / v[arg][i];
                     }
                 }
-                Op::SqrtReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Sqrt, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                Op::SquareReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Square, out, arg) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                Op::CopyReg(out, arg) => {
+                Op::Reg(UnaryOpcode::Copy, out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                Op::AddRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Add, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Add, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm.into();
                     }
                 }
-                Op::MulRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Mul, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Mul, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm.into();
                     }
                 }
-                Op::DivRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Div, out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm.into();
                     }
                 }
-                Op::DivImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Div, out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                Op::SubImmReg(out, arg, imm) => {
+                Op::ImmReg(BinaryOpcode::Sub, out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                Op::SubRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Sub, out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                Op::MinRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Min, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Min, out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                Op::MaxRegImm(out, arg, imm) => {
+                Op::RegImm(BinaryOpcode::Max, out, arg, imm)
+                | Op::ImmReg(BinaryOpcode::Max, out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::AddRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Add, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                Op::MulRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Mul, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                Op::DivRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Div, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                Op::SubRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Sub, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                Op::MinRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Min, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                Op::MaxRegReg(out, lhs, rhs) => {
+                Op::RegReg(BinaryOpcode::Max, out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }

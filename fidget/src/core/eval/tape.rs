@@ -1,6 +1,6 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
-    context::{Context, Node},
+    context::{BinaryOpcode, Context, Node, UnaryOpcode},
     eval::{self, Choice, Family},
     tape::{Op, RegisterAllocator, Tape as VmTape},
     Error,
@@ -222,8 +222,6 @@ impl Data {
         // Perform in-line translation from pseudo-linear to SSA form
         let mut choice_count = 0;
         let mut choice_iter = choices.iter().rev();
-        let mut alloc = RegisterAllocator::empty();
-        std::mem::swap(&mut alloc, &mut workspace.alloc);
         for op in self.asm.iter() {
             // Skip if this operation isn't active (which we check by seeing
             // whether its output is bound)
@@ -241,141 +239,56 @@ impl Data {
             };
 
             match *op {
-                Op::Input(_out, arg) => alloc.op_input(out, arg),
-                Op::Var(_out, var) => alloc.op_var(out, var),
-                Op::NegReg(_out, arg) => {
-                    alloc.op_reg_fn(out, workspace.arg(arg), Op::NegReg)
-                }
-                Op::AbsReg(_out, arg) => {
-                    alloc.op_reg_fn(out, workspace.arg(arg), Op::AbsReg)
-                }
-                Op::RecipReg(_out, arg) => {
-                    alloc.op_reg_fn(out, workspace.arg(arg), Op::RecipReg)
-                }
-                Op::SqrtReg(_out, arg) => {
-                    alloc.op_reg_fn(out, workspace.arg(arg), Op::SqrtReg)
-                }
-                Op::SquareReg(_out, arg) => {
-                    alloc.op_reg_fn(out, workspace.arg(arg), Op::SquareReg)
-                }
-                Op::CopyReg(_out, src) => {
+                Op::Input(_out, arg) => workspace.alloc.op_input(out, arg),
+                Op::Var(_out, var) => workspace.alloc.op_var(out, var),
+                Op::Reg(UnaryOpcode::Copy, _out, src) => {
                     // CopyReg effectively does
                     //      dst <= src
                     // If src has not yet been used (as we iterate backwards
                     // through the tape), then we can replace it with dst
                     // everywhere!
                     match workspace.active(src) {
-                        Some(new_src) => {
-                            alloc.op_reg_fn(out, new_src, Op::CopyReg)
-                        }
+                        Some(new_src) => workspace.alloc.op_reg(
+                            out,
+                            new_src,
+                            UnaryOpcode::Copy,
+                        ),
                         None => {
                             workspace.set_active(src, out);
                             continue;
                         }
                     }
                 }
-                Op::AddRegImm(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::AddRegImm,
-                ),
-                Op::MulRegImm(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::MulRegImm,
-                ),
-                Op::DivRegImm(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::DivRegImm,
-                ),
-                Op::DivImmReg(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::DivImmReg,
-                ),
-                Op::SubImmReg(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::SubImmReg,
-                ),
-                Op::SubRegImm(_out, arg, imm) => alloc.op_reg_imm(
-                    out,
-                    workspace.arg(arg),
-                    imm,
-                    Op::SubRegImm,
-                ),
-                Op::MinRegImm(_out, arg, imm)
-                | Op::MaxRegImm(_out, arg, imm) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(arg) {
-                            Some(new_arg) => {
-                                alloc.op_reg_fn(out, new_arg, Op::CopyReg)
-                            }
-                            None => {
-                                workspace.set_active(arg, out);
-                                continue;
-                            }
-                        },
-                        Choice::Right => alloc.op_copy_imm(out, imm),
-                        Choice::Both => {
-                            choice_count += 1;
-                            let f = match op {
-                                Op::MinRegImm(..) => Op::MinRegImm,
-                                Op::MaxRegImm(..) => Op::MaxRegImm,
-                                _ => unreachable!(),
-                            };
-                            alloc.op_reg_imm(out, workspace.arg(arg), imm, f);
-                        }
-                        Choice::Unknown => panic!("oh no"),
-                    }
+                Op::Reg(op, _out, arg) => {
+                    let arg = workspace.arg(arg);
+                    workspace.alloc.op_reg(out, arg, op)
                 }
-                Op::AddRegReg(_out, lhs, rhs) => alloc.op_reg_reg(
-                    out,
-                    workspace.arg(lhs),
-                    workspace.arg(rhs),
-                    Op::AddRegReg,
-                ),
-                Op::MulRegReg(_out, lhs, rhs) => alloc.op_reg_reg(
-                    out,
-                    workspace.arg(lhs),
-                    workspace.arg(rhs),
-                    Op::MulRegReg,
-                ),
-                Op::DivRegReg(_out, lhs, rhs) => alloc.op_reg_reg(
-                    out,
-                    workspace.arg(lhs),
-                    workspace.arg(rhs),
-                    Op::DivRegReg,
-                ),
-                Op::SubRegReg(_out, lhs, rhs) => alloc.op_reg_reg(
-                    out,
-                    workspace.arg(lhs),
-                    workspace.arg(rhs),
-                    Op::SubRegReg,
-                ),
-                Op::MinRegReg(_out, lhs, rhs)
-                | Op::MaxRegReg(_out, lhs, rhs) => {
+
+                Op::RegReg(
+                    op @ (BinaryOpcode::Max | BinaryOpcode::Min),
+                    _out,
+                    lhs,
+                    rhs,
+                ) => {
                     let c = choice_iter.next().unwrap();
                     match c {
                         Choice::Left => match workspace.active(lhs) {
-                            Some(new_lhs) => {
-                                alloc.op_reg_fn(out, new_lhs, Op::CopyReg)
-                            }
+                            Some(new_lhs) => workspace.alloc.op_reg(
+                                out,
+                                new_lhs,
+                                UnaryOpcode::Copy,
+                            ),
                             None => {
                                 workspace.set_active(lhs, out);
                                 continue;
                             }
                         },
                         Choice::Right => match workspace.active(rhs) {
-                            Some(new_rhs) => {
-                                alloc.op_reg_fn(out, new_rhs, Op::CopyReg)
-                            }
+                            Some(new_rhs) => workspace.alloc.op_reg(
+                                out,
+                                new_rhs,
+                                UnaryOpcode::Copy,
+                            ),
                             None => {
                                 workspace.set_active(rhs, out);
                                 continue;
@@ -383,22 +296,61 @@ impl Data {
                         },
                         Choice::Both => {
                             choice_count += 1;
-                            let f = match op {
-                                Op::MinRegReg(..) => Op::MinRegReg,
-                                Op::MaxRegReg(..) => Op::MaxRegReg,
-                                _ => unreachable!(),
-                            };
-                            alloc.op_reg_reg(
-                                out,
-                                workspace.arg(lhs),
-                                workspace.arg(rhs),
-                                f,
-                            );
+                            let lhs = workspace.arg(lhs);
+                            let rhs = workspace.arg(rhs);
+                            workspace.alloc.op_reg_reg(out, lhs, rhs, op);
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                Op::CopyImm(_out, imm) => alloc.op_copy_imm(out, imm),
+
+                Op::RegReg(op, _out, lhs, rhs) => {
+                    let lhs = workspace.arg(lhs);
+                    let rhs = workspace.arg(rhs);
+                    workspace.alloc.op_reg_reg(out, lhs, rhs, op);
+                }
+
+                Op::RegImm(
+                    op @ (BinaryOpcode::Min | BinaryOpcode::Max),
+                    _out,
+                    arg,
+                    imm,
+                )
+                | Op::ImmReg(
+                    op @ (BinaryOpcode::Min | BinaryOpcode::Max),
+                    _out,
+                    arg,
+                    imm,
+                ) => match choice_iter.next().unwrap() {
+                    Choice::Left => match workspace.active(arg) {
+                        Some(new_arg) => workspace.alloc.op_reg(
+                            out,
+                            new_arg,
+                            UnaryOpcode::Copy,
+                        ),
+                        None => {
+                            workspace.set_active(arg, out);
+                            continue;
+                        }
+                    },
+                    Choice::Right => workspace.alloc.op_copy_imm(out, imm),
+                    Choice::Both => {
+                        choice_count += 1;
+                        let arg = workspace.arg(arg);
+                        workspace.alloc.op_reg_imm(out, arg, imm, op);
+                    }
+                    Choice::Unknown => panic!("oh no"),
+                },
+
+                Op::RegImm(op, _out, arg, imm) => {
+                    let arg = workspace.arg(arg);
+                    workspace.alloc.op_reg_imm(out, arg, imm, op);
+                }
+                Op::ImmReg(op, _out, arg, imm) => {
+                    let arg = workspace.arg(arg);
+                    workspace.alloc.op_imm_reg(out, arg, imm, op);
+                }
+                Op::CopyImm(_out, imm) => workspace.alloc.op_copy_imm(out, imm),
                 Op::Load(reg, mem) => {
                     let ssa = workspace.bind[reg as usize];
                     workspace.bind[mem as usize] = ssa;
@@ -414,7 +366,6 @@ impl Data {
             }
         }
 
-        std::mem::swap(&mut alloc, &mut workspace.alloc);
         let mut asm_tape = workspace.alloc.finalize();
         asm_tape.choice_count = choice_count;
 
@@ -426,8 +377,9 @@ impl Data {
 
     /// Produces an iterator that visits [`tape::Op`](crate::tape::Op) values in
     /// evaluation order.
+    #[inline(always)]
     pub fn iter_asm(&self) -> impl Iterator<Item = Op> + '_ {
-        self.asm.iter().cloned().rev()
+        self.asm.iter().rev().cloned()
     }
 
     /// Pretty-prints the inner pseudo-assembly tape
