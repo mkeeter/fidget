@@ -92,37 +92,19 @@ impl AssemblerT for GradSliceAssembler {
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(src_mem);
-        if sp_offset >= 512 {
-            assert!(sp_offset < 4096);
-            dynasm!(self.0.ops
-                ; add x9, sp, #(sp_offset)
-                ; ldp D(reg(dst_reg)), d4, [x9]
-                ; mov V(reg(dst_reg)).d[1], v4.d[0]
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; ldp D(reg(dst_reg)), d4, [sp, #(sp_offset)]
-                ; mov V(reg(dst_reg)).d[1], v4.d[0]
-            )
-        }
+        assert!(sp_offset < 65536);
+        dynasm!(self.0.ops
+            ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
+        )
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(dst_mem);
-        if sp_offset >= 512 {
-            assert!(sp_offset < 4096);
-            dynasm!(self.0.ops
-                ; add x9, sp, #(sp_offset)
-                ; mov v4.d[0], V(reg(src_reg)).d[1]
-                ; stp D(reg(src_reg)), d4, [x9]
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; mov v4.d[0], V(reg(src_reg)).d[1]
-                ; stp D(reg(src_reg)), d4, [sp, #(sp_offset)]
-            )
-        }
+        assert!(sp_offset < 65536);
+        dynasm!(self.0.ops
+            ; str Q(reg(src_reg)), [sp, #(sp_offset)]
+        )
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
@@ -309,11 +291,8 @@ impl AssemblerT for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x3
-            // It's fine to overwrite X at this point in V0, since we're not
-            // using it anymore.
-            ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x4], #16
+            // Prepare our return value, writing to the pointer in x4
+            ; str Q(reg(out_reg)), [x4], #16
         );
         let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
         assert!(jump_size.abs() < (1 << 25));

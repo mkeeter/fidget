@@ -71,53 +71,32 @@ impl AssemblerT for FloatSliceAssembler {
             //
             // We're actually loading two f32s, but we can pretend they're
             // doubles in order to move 64 bits at a time
-            ; ldp d0, d1, [x0], #16
-            ; mov v0.d[1], v1.d[0]
-            ; ldp d1, d2, [x1], #16
-            ; mov v1.d[1], v2.d[0]
-            ; ldp d2, d3, [x2], #16
-            ; mov v2.d[1], v3.d[0]
+            ; ldr q0, [x0], #16
+            ; ldr q1, [x1], #16
+            ; ldr q2, [x2], #16
             ; sub x5, x5, #4 // We handle 4 items at a time
         );
 
         Self(out, loop_start)
     }
-    /// Reads from `src_mem` to `dst_reg`, using D4 as an intermediary
+    /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(src_mem);
-        if sp_offset >= 512 {
-            assert!(sp_offset < 4096);
-            dynasm!(self.0.ops
-                ; add x9, sp, #(sp_offset)
-                ; ldp D(reg(dst_reg)), d4, [x9]
-                ; mov V(reg(dst_reg)).d[1], v4.d[0]
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; ldp D(reg(dst_reg)), d4, [sp, #(sp_offset)]
-                ; mov V(reg(dst_reg)).d[1], v4.d[0]
-            )
-        }
+        assert!(sp_offset < 65536);
+        dynasm!(self.0.ops
+            ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
+        )
     }
 
-    /// Writes from `src_reg` to `dst_mem`, using D4 as an intermediary
+    /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(dst_mem);
-        if sp_offset >= 512 {
-            assert!(sp_offset < 4096);
-            dynasm!(self.0.ops
-                ; add x9, sp, #(sp_offset)
-                ; mov v4.d[0], V(reg(src_reg)).d[1]
-                ; stp D(reg(src_reg)), d4, [x9]
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; mov v4.d[0], V(reg(src_reg)).d[1]
-                ; stp D(reg(src_reg)), d4, [sp, #(sp_offset)]
-            )
-        }
+        assert!(sp_offset < 65536);
+        dynasm!(self.0.ops
+            ; str Q(reg(src_reg)), [sp, #(sp_offset)]
+        )
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
