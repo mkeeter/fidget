@@ -10,6 +10,12 @@ use notify::Watcher;
 
 use std::path::Path;
 
+#[cfg(feature = "jit")]
+use fidget::jit::Eval as Eval;
+#[cfg(not(feature = "jit"))]
+use fidget::vm::Eval as Eval;
+
+
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -116,7 +122,7 @@ fn render_thread(
             };
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape: fidget::eval::Tape<fidget::jit::Eval> =
+                let tape: fidget::eval::Tape<Eval> =
                     out.context.get_tape(s.shape).unwrap();
                 render(
                     &render_config.mode,
@@ -140,7 +146,7 @@ fn render_thread(
 
 fn render(
     mode: &RenderMode,
-    tape: fidget::eval::Tape<fidget::jit::Eval>,
+    tape: fidget::eval::Tape<Eval>,
     image_size: usize,
     color: [u8; 3],
     pixels: &mut [egui::Color32],
@@ -159,7 +165,7 @@ fn render(
 
             let config = RenderConfig {
                 image_size,
-                tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
+                tile_sizes: Eval::tile_sizes_2d().to_vec(),
                 threads: 8,
 
                 mat,
@@ -222,7 +228,7 @@ fn render(
 
             let config = RenderConfig {
                 image_size,
-                tile_sizes: fidget::jit::Eval::tile_sizes_2d().to_vec(),
+                tile_sizes: Eval::tile_sizes_2d().to_vec(),
                 threads: 8,
 
                 mat,

@@ -24,6 +24,7 @@ struct Args {
 
     /// Render using the `dynvm`-compiled function
     #[clap(short, long, requires = "image", conflicts_with = "interpreter")]
+    #[cfg(feature = "jit")]
     jit: bool,
 
     /// Use brute-force (pixel-by-pixel) evaluation
@@ -208,18 +209,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Loaded file in {:?}", now.elapsed());
 
     if let Some(img) = &args.image {
+        #[cfg(feature = "jit")]
+        let jit = args.jit;
+        #[cfg(not(feature = "jit"))]
+        let jit = false;
         let (buffer, start): (Vec<u8>, _) = if args.interpreter {
             if args.threedee {
                 run3d::<fidget::vm::Eval>(&ctx, root, &args)
             } else {
                 run::<fidget::vm::Eval>(&ctx, root, &args)
             }
-        } else if args.jit {
+        } else if jit {
+            #[cfg(feature = "jit")]
             if args.threedee {
                 run3d::<fidget::jit::Eval>(&ctx, root, &args)
             } else {
                 run::<fidget::jit::Eval>(&ctx, root, &args)
             }
+            unreachable!()
         } else {
             let start = Instant::now();
             let scale = args.size;
