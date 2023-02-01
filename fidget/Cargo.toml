@@ -17,7 +17,7 @@ ordered-float = "3"
 thiserror = "1"
 
 # JIT
-dynasmrt = { version = "1.2.3", optional = true }
+dynasmrt = { version = "2.0", optional = true }
 libc = { version = "0.2", optional = true }
 
 # Rhai
