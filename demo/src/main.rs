@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
 use log::info;
@@ -197,7 +198,7 @@ fn run<I: fidget::eval::Family>(
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
 
@@ -215,11 +216,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 run::<fidget::vm::Eval>(&ctx, root, &args)
             }
         } else if args.jit {
+            #[cfg(feature = "jit")]
             if args.threedee {
                 run3d::<fidget::jit::Eval>(&ctx, root, &args)
             } else {
                 run::<fidget::jit::Eval>(&ctx, root, &args)
             }
+
+            #[cfg(not(feature = "jit"))]
+            anyhow::bail!("Cannot use --jit flag without `jit` feature")
         } else {
             let start = Instant::now();
             let scale = args.size;

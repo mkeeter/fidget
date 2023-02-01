@@ -14,4 +14,8 @@ nalgebra = "0.31"
 notify = "5.0"
 rhai = "1.10"
 
-fidget = { path = "../fidget" }
+fidget = { path = "../fidget", default-features = false, features = ["render", "rhai"] }
+
+[features]
+default = ["jit"]
+jit = ["fidget/jit"]

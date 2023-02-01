@@ -21,14 +21,14 @@ dynasmrt = { version = "1.2.3", optional = true }
 libc = { version = "0.2", optional = true }
 
 # Rhai
-rhai = { version = "1.10", optional = true }
+rhai = { version = "1.10", optional = true, features = ["sync"] }
 
 # Render
 nalgebra = { version = "0.31", optional = true }
 
 [features]
 # Ideally, we'd disable the `jit` feature on unsupported platforms; alas, that
-# is not possible 
+# is not possible
 default = ["jit", "rhai", "render"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
