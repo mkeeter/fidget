@@ -8,7 +8,8 @@ use log::{debug, error, info};
 use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
 
-use std::path::Path;
+use std::{path::Path, error::Error};
+
 
 #[cfg(feature = "jit")]
 type Eval = fidget::jit::Eval;
@@ -260,7 +261,7 @@ fn render(
     };
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
     let args = Args::parse();
@@ -327,7 +328,7 @@ fn main() -> Result<()> {
 
             Box::new(ViewerApp::new(config_tx, render_rx))
         }),
-    );
+    )?;
 
     Ok(())
 }
@@ -544,12 +545,12 @@ impl ViewerApp {
                     match self.texture.as_mut() {
                         Some(t) => {
                             if t.size() == r.image.size() {
-                                t.set(r.image, egui::TextureFilter::Linear)
+                                t.set(r.image, egui::TextureOptions::LINEAR)
                             } else {
                                 *t = ctx.load_texture(
                                     "tex",
                                     r.image,
-                                    egui::TextureFilter::Linear,
+                                    egui::TextureOptions::LINEAR,
                                 )
                             }
                         }
@@ -557,7 +558,7 @@ impl ViewerApp {
                             let texture = ctx.load_texture(
                                 "tex",
                                 r.image,
-                                egui::TextureFilter::Linear,
+                                egui::TextureOptions::LINEAR,
                             );
                             self.texture = Some(texture);
                         }
@@ -698,9 +699,9 @@ impl eframe::App for ViewerApp {
                 }
 
                 if r.hovered() {
-                    let scroll = ctx.input().scroll_delta.y;
+                    let scroll = ctx.input(|i| i.scroll_delta.y);
                     if scroll != 0.0 {
-                        let mouse_pos = ctx.input().pointer.hover_pos();
+                        let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
                         let pos_before =
                             mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
                         render_changed = true;

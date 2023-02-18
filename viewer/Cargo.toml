@@ -5,16 +5,21 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-clap = { version = "3.2.6", features = ["derive"] }
+clap = { version = "4.1.6", features = ["derive"] }
 crossbeam-channel = "0.5"
-eframe = "0.19"
-env_logger = "0.9"
+eframe = { version = "0.21", default-features = false, features = [
+    #"accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    #"wgpu"
+] }
+env_logger = "0.10.0"
+
+fidget = { path = "../fidget", default-features = false, features = ["render", "rhai"] }
 log = "0.4"
 nalgebra = "0.31"
 notify = "5.0"
 rhai = "1.10"
-
-fidget = { path = "../fidget", default-features = false, features = ["render", "rhai"] }
 
 [features]
 default = ["jit"]
