@@ -36,33 +36,43 @@ mod grad_slice;
 mod interval;
 mod point;
 
-// We allow `cargo doc` to build on x86, so that docs.rs includes documentation
-// for the JIT module; however, everything is stubbed out.
-#[cfg(not(any(doc, target_arch = "aarch64")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!(
-    "The `jit` module only builds on `aarch64`; \
+    "The `jit` module only builds on Linux and macOS; \
     please disable the `jit` feature"
 );
 
-#[cfg(not(any(doc, target_os = "macos")))]
-compile_error!(
-    "The `jit` module only builds on macOS; \
-    please disable the `jit` feature"
-);
+mod arch_aarch64 {
+    /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
+    pub const REGISTER_LIMIT: u8 = 24;
+    pub const OFFSET: u8 = 8;
+    pub const IMM_REG: u8 = 3;
+}
+
+mod arch_x86_64 {
+    /// We can use registers ymm1-15
+    pub const REGISTER_LIMIT: u8 = 15;
+    pub const OFFSET: u8 = 1;
+    pub const IMM_REG: u8 = 0;
+}
+
+#[cfg(target_arch = "x86_64")]
+use arch_x86_64 as arch;
+
+#[cfg(target_arch = "aarch64")]
+use arch_aarch64 as arch;
 
 /// Number of registers available when executing natively
-///
-/// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
-const REGISTER_LIMIT: u8 = 24;
+const REGISTER_LIMIT: u8 = arch::REGISTER_LIMIT;
 
 /// Offset before the first useable register
-const OFFSET: u8 = 8;
+const OFFSET: u8 = arch::OFFSET;
 
 /// Register written to by `CopyImm`
 ///
 /// `IMM_REG` is selected to avoid scratch registers used by other
 /// functions, e.g. interval mul / min / max
-const IMM_REG: u8 = 3;
+const IMM_REG: u8 = arch::IMM_REG;
 
 /// Converts from a tape-local register to an AArch64 register
 ///
@@ -208,7 +218,14 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "x86_64")]
     fn prepare_stack(&mut self, slot_count: usize) {
-        unimplemented!()
+        if slot_count < REGISTER_LIMIT as usize {
+            return;
+        }
+        let stack_slots = slot_count - REGISTER_LIMIT as usize;
+        self.mem_offset = (stack_slots + 1) * std::mem::size_of::<T>();
+        dynasm!(self.ops
+            ; sub rsp, self.mem_offset as i32
+        );
     }
 
     fn stack_pos(&self, slot: u32) -> u32 {
@@ -286,7 +303,7 @@ impl DynasmApi for MmapAssembler {
 
 impl MmapAssembler {
     fn finalize(self) -> Mmap {
-        self.mmap.flush(self.len);
+        self.mmap.finalize(self.len);
         self.mmap
     }
 
@@ -311,7 +328,11 @@ impl From<Mmap> for MmapAssembler {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
+    // This guard may be a unit value on some systems
+    #[allow(clippy::let_unit_value)]
     let _guard = Mmap::thread_mode_write();
+
+    s.make_write();
     let mut asm = A::init(s, t.slot_count());
 
     for op in t.iter_asm() {
