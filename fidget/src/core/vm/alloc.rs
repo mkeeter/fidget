@@ -146,7 +146,7 @@ impl RegisterAllocator {
     /// This is useful when deciding which register to evict to make room
     #[inline]
     fn oldest_reg(&mut self) -> u8 {
-        self.register_lru.pop() as u8
+        self.register_lru.pop()
     }
 
     /// Returns the slot allocated to the given node

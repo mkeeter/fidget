@@ -58,7 +58,7 @@ impl RenderMode for DebugRenderMode {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum DebugPixel {
     EmptyTile,
     FilledTile,
@@ -66,13 +66,8 @@ pub enum DebugPixel {
     FilledSubtile,
     Empty,
     Filled,
+    #[default]
     Invalid,
-}
-
-impl Default for DebugPixel {
-    fn default() -> Self {
-        DebugPixel::Invalid
-    }
 }
 
 impl DebugPixel {
