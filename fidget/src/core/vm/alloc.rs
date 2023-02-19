@@ -125,9 +125,9 @@ impl RegisterAllocator {
     /// Memory is treated as unlimited; if we don't have any spare slots, then
     /// we'll assign a new one (incrementing `self.total_slots`).
     ///
-    /// > If there's one thing I love
-    /// > It's an infinite resource
-    /// > If there's one thing worth loving
+    /// > If there's one thing I love  
+    /// > It's an infinite resource  
+    /// > If there's one thing worth loving  
     /// > It's a surplus of supplies
     #[inline]
     fn get_memory(&mut self) -> u32 {
