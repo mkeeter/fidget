@@ -4,6 +4,7 @@ use crate::{
         mmap::Mmap, reg, AssemblerData, AssemblerT, JitBulkEval, SimdAssembler,
         IMM_REG, OFFSET, REGISTER_LIMIT,
     },
+    Error,
 };
 use dynasmrt::{dynasm, DynasmApi};
 
@@ -272,7 +273,7 @@ impl AssemblerT for GradSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x4
             ; str Q(reg(out_reg)), [x4], #16
@@ -345,7 +346,7 @@ impl AssemblerT for GradSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         unimplemented!()
     }
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         unimplemented!()
     }
 }

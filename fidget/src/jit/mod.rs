@@ -24,8 +24,15 @@ use crate::{
     },
     jit::mmap::Mmap,
     vm::Op,
+    Error,
 };
-use dynasmrt::{dynasm, AssemblyOffset, DynasmApi};
+use dynasmrt::{
+    components::{
+        LabelRegistry, ManagedRelocs, PatchLoc, RelocRegistry, StaticLabel,
+    },
+    dynasm, AssemblyOffset, DynamicLabel, DynasmApi, DynasmError,
+    DynasmLabelApi, LabelKind, TargetKind,
+};
 use std::sync::Arc;
 
 mod mmap;
@@ -168,7 +175,7 @@ pub trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
-    fn finalize(self, out_reg: u8) -> Mmap;
+    fn finalize(self, out_reg: u8) -> Result<Mmap, Error>;
 }
 
 /// Trait defining SIMD width
@@ -237,9 +244,20 @@ impl<T> AssemblerData<T> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[cfg(target_arch = "x86_64")]
+type Relocation = dynasmrt::x64::X64Relocation;
+
+#[cfg(target_arch = "aarch64")]
+type Relocation = dynasmrt::aarch64::Aarch64Relocation;
+
 struct MmapAssembler {
     mmap: Mmap,
     len: usize,
+
+    labels: LabelRegistry,
+    relocs: RelocRegistry<Relocation>,
+    managed: ManagedRelocs<Relocation>,
+    error: Option<DynasmError>,
 }
 
 impl Extend<u8> for MmapAssembler {
@@ -302,10 +320,147 @@ impl DynasmApi for MmapAssembler {
     }
 }
 
+// Mostly copy-pasted from the `Assembler` implementation in dynasmrt
+impl DynasmLabelApi for MmapAssembler {
+    type Relocation = Relocation;
+
+    fn local_label(&mut self, name: &'static str) {
+        let offset = self.offset();
+        self.labels.define_local(name, offset);
+    }
+    fn global_label(&mut self, name: &'static str) {
+        let offset = self.offset();
+        if let Err(e) = self.labels.define_global(name, offset) {
+            self.error = Some(e)
+        }
+    }
+    fn dynamic_label(&mut self, id: DynamicLabel) {
+        let offset = self.offset();
+        if let Err(e) = self.labels.define_dynamic(id, offset) {
+            self.error = Some(e)
+        }
+    }
+    fn global_relocation(
+        &mut self,
+        name: &'static str,
+        target_offset: isize,
+        field_offset: u8,
+        ref_offset: u8,
+        kind: Relocation,
+    ) {
+        let location = self.offset();
+        let label = StaticLabel::global(name);
+        self.relocs.add_static(
+            label,
+            PatchLoc::new(
+                location,
+                target_offset,
+                field_offset,
+                ref_offset,
+                kind,
+            ),
+        );
+    }
+    fn dynamic_relocation(
+        &mut self,
+        id: DynamicLabel,
+        target_offset: isize,
+        field_offset: u8,
+        ref_offset: u8,
+        kind: Relocation,
+    ) {
+        let location = self.offset();
+        self.relocs.add_dynamic(
+            id,
+            PatchLoc::new(
+                location,
+                target_offset,
+                field_offset,
+                ref_offset,
+                kind,
+            ),
+        );
+    }
+    fn forward_relocation(
+        &mut self,
+        name: &'static str,
+        target_offset: isize,
+        field_offset: u8,
+        ref_offset: u8,
+        kind: Relocation,
+    ) {
+        let location = self.offset();
+        let label = match self.labels.place_local_reference(name) {
+            Some(label) => label.next(),
+            None => StaticLabel::first(name),
+        };
+        self.relocs.add_static(
+            label,
+            PatchLoc::new(
+                location,
+                target_offset,
+                field_offset,
+                ref_offset,
+                kind,
+            ),
+        );
+    }
+    fn backward_relocation(
+        &mut self,
+        name: &'static str,
+        target_offset: isize,
+        field_offset: u8,
+        ref_offset: u8,
+        kind: Relocation,
+    ) {
+        let location = self.offset();
+        let label = match self.labels.place_local_reference(name) {
+            Some(label) => label,
+            None => {
+                self.error =
+                    Some(DynasmError::UnknownLabel(LabelKind::Local(name)));
+                return;
+            }
+        };
+        self.relocs.add_static(
+            label,
+            PatchLoc::new(
+                location,
+                target_offset,
+                field_offset,
+                ref_offset,
+                kind,
+            ),
+        );
+    }
+    fn bare_relocation(
+        &mut self,
+        target: usize,
+        field_offset: u8,
+        ref_offset: u8,
+        kind: Relocation,
+    ) {
+        let location = self.offset();
+        let loc = PatchLoc::new(location, 0, field_offset, ref_offset, kind);
+        let addr = self.mmap.as_ptr() as usize;
+        let buf = &mut self.mmap.as_mut_slice()[loc.range(self.len)];
+        if loc.patch(buf, addr, target).is_err() {
+            self.error = Some(DynasmError::ImpossibleRelocation(
+                TargetKind::Extern(target),
+            ))
+        } else if loc.needs_adjustment() {
+            self.managed.add(loc)
+        }
+    }
+}
+
 impl MmapAssembler {
-    fn finalize(self) -> Mmap {
+    fn finalize(self) -> Result<Mmap, Error> {
+        if let Some(e) = self.error {
+            return Err(e.into());
+        }
         self.mmap.finalize(self.len);
-        self.mmap
+        Ok(self.mmap)
     }
 
     /// Doubles the size of the internal `Mmap` and copies over data
@@ -322,7 +477,14 @@ impl MmapAssembler {
 
 impl From<Mmap> for MmapAssembler {
     fn from(mmap: Mmap) -> Self {
-        Self { mmap, len: 0 }
+        Self {
+            mmap,
+            len: 0,
+            labels: LabelRegistry::new(),
+            relocs: RelocRegistry::new(),
+            managed: ManagedRelocs::new(),
+            error: None,
+        }
     }
 }
 
@@ -421,7 +583,7 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
         }
     }
 
-    asm.finalize(0)
+    asm.finalize(0).expect("failed to build JIT function")
     // JIT execute mode is restored here when the _guard is dropped
 }
 

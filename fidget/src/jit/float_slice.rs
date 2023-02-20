@@ -1,6 +1,6 @@
 use crate::jit::{
-    mmap::Mmap, reg, AssemblerData, AssemblerT, JitBulkEval, SimdAssembler,
-    IMM_REG, OFFSET, REGISTER_LIMIT,
+    mmap::Mmap, reg, AssemblerData, AssemblerT, Error, JitBulkEval,
+    SimdAssembler, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
 use dynasmrt::{dynasm, DynasmApi};
 
@@ -175,7 +175,7 @@ impl AssemblerT for FloatSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x4
             // It's fine to overwrite X at this point in V0, since we're not
@@ -251,7 +251,7 @@ impl AssemblerT for FloatSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         unimplemented!()
     }
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         unimplemented!()
     }
 }

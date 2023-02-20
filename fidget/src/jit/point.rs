@@ -1,8 +1,12 @@
-use crate::jit::{
-    mmap::Mmap, reg, AssemblerData, AssemblerT, JitTracingEval, CHOICE_BOTH,
-    CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
+use crate::{
+    jit::{
+        mmap::Mmap, reg, AssemblerData, AssemblerT, JitTracingEval,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
+    },
+    Error,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 pub struct PointAssembler(AssemblerData<f32>);
 
@@ -160,7 +164,7 @@ impl AssemblerT for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
@@ -205,6 +209,11 @@ impl PointAssembler {
     }
 }
 
+/// Registers are passed in as follows
+/// - X, Y, Z are in `xmm0-2`
+/// - `vars` is in `rdi`
+/// - `choices` is in `rsi`
+/// - `simplify` is in `rdx`
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for PointAssembler {
     type Data = f32;
@@ -316,14 +325,56 @@ impl AssemblerT for PointAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
             dynasm!(ops
+                ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+                ; ja >lhs
+                ; jb >rhs
+
+                // Equal or NaN; do the comparison to collapse NaNs
+                ; or [rsi], CHOICE_BOTH as i8
                 ; maxss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+                ; jmp >out
+
+                ; lhs:
+                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+                ; or [rsi], CHOICE_LEFT as i8
+                ; or [rdx], 1
+                ; jmp >out
+
+                ; rhs:
+                ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+                ; or [rsi], CHOICE_RIGHT as i8
+                ; or [rdx], 1
+                // fallthrough to out
+
+                ; out:
             );
         });
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
             dynasm!(ops
+                ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+                ; ja >rhs
+                ; jb >lhs
+
+                // Equal or NaN; do the comparison to collapse NaNs
+                ; or [rsi], CHOICE_BOTH as i8
                 ; minss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+                ; jmp >out
+
+                ; lhs:
+                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+                ; or [rsi], CHOICE_LEFT as i8
+                ; or [rdx], 1
+                ; jmp >out
+
+                ; rhs:
+                ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+                ; or [rsi], CHOICE_RIGHT as i8
+                ; or [rdx], 1
+                // fallthrough to out
+
+                ; out:
             );
         });
     }
@@ -335,7 +386,7 @@ impl AssemblerT for PointAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Prepare our return value
             ; movss xmm0, Rx(reg(out_reg))

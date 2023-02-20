@@ -5,6 +5,7 @@ use crate::{
         CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
+    Error,
 };
 use dynasmrt::{dynasm, DynasmApi};
 
@@ -399,7 +400,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         assert!(self.0.mem_offset < 4096);
         dynasm!(self.0.ops
             // Prepare our return value
@@ -479,7 +480,7 @@ impl AssemblerT for IntervalAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         unimplemented!()
     }
-    fn finalize(mut self, out_reg: u8) -> Mmap {
+    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         unimplemented!()
     }
 }
