@@ -185,6 +185,17 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
+
+        let tape = ctx.get_tape::<I>(x).unwrap();
+        let eval = tape.new_point_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
+
+        let tape = ctx.get_tape::<I>(y).unwrap();
+        let eval = tape.new_point_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 4.0);
+
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 

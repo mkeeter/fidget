@@ -119,18 +119,19 @@ impl Mmap {
 
 #[cfg(target_os = "linux")]
 impl Mmap {
-    pub const MMAP_PROT: i32 = libc::PROT_EXEC;
+    pub const MMAP_PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
 
-    /// Invalidates the caches for the first `size` bytes of the mmap, and
-    /// switches it to an executable binding.
+    /// Switches the given cache to an executable binding.
     ///
     /// Note that you will still need to change the global W^X mode before
     /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
     pub fn finalize(&self, size: usize) {
+        #[cfg(target_arch = "aarch64")]
+        compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
+
         unsafe {
-            linux::cacheflush(self.ptr, size.try_into().unwrap(), 0x4);
             libc::mprotect(
                 self.ptr,
                 self.len,
@@ -190,18 +191,6 @@ mod macos {
         pub fn sys_icache_invalidate(
             start: *const std::ffi::c_void,
             size: libc::size_t,
-        );
-    }
-}
-
-#[cfg(target_os = "linux")]
-mod linux {
-    #[link(name = "c")]
-    extern "C" {
-        pub fn cacheflush(
-            start: *const std::ffi::c_void,
-            size: libc::c_int,
-            cache: libc::c_int,
         );
     }
 }

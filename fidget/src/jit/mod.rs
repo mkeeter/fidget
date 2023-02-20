@@ -42,25 +42,20 @@ compile_error!(
     please disable the `jit` feature"
 );
 
-mod arch_aarch64 {
+#[cfg(target_arch = "aarch64")]
+mod arch {
     /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
     pub const REGISTER_LIMIT: u8 = 24;
     pub const OFFSET: u8 = 8;
     pub const IMM_REG: u8 = 3;
 }
 
-mod arch_x86_64 {
-    /// We can use registers ymm1-15
+#[cfg(target_arch = "x86_64")]
+mod arch {
     pub const REGISTER_LIMIT: u8 = 15;
     pub const OFFSET: u8 = 1;
     pub const IMM_REG: u8 = 0;
 }
-
-#[cfg(target_arch = "x86_64")]
-use arch_x86_64 as arch;
-
-#[cfg(target_arch = "aarch64")]
-use arch_aarch64 as arch;
 
 /// Number of registers available when executing natively
 const REGISTER_LIMIT: u8 = arch::REGISTER_LIMIT;
@@ -74,6 +69,12 @@ const OFFSET: u8 = arch::OFFSET;
 /// functions, e.g. interval mul / min / max
 const IMM_REG: u8 = arch::IMM_REG;
 
+#[cfg(target_arch = "aarch64")]
+type RegIndex = u32;
+
+#[cfg(target_arch = "x86_64")]
+type RegIndex = u8;
+
 /// Converts from a tape-local register to an AArch64 register
 ///
 /// Tape-local registers are in the range `0..REGISTER_LIMIT`, while ARM
@@ -82,8 +83,8 @@ const IMM_REG: u8 = arch::IMM_REG;
 /// This uses `wrapping_add` to support immediates, which are loaded into an ARM
 /// register below `OFFSET` (which is "negative" from the perspective of this
 /// function).
-fn reg(r: u8) -> u32 {
-    let out = r.wrapping_add(OFFSET) as u32;
+fn reg(r: u8) -> RegIndex {
+    let out = r.wrapping_add(OFFSET) as RegIndex;
     assert!(out < 32);
     out
 }
@@ -222,7 +223,9 @@ impl<T> AssemblerData<T> {
             return;
         }
         let stack_slots = slot_count - REGISTER_LIMIT as usize;
-        self.mem_offset = (stack_slots + 1) * std::mem::size_of::<T>();
+        // We put X/Y/Z values at the top of the stack, where they can be
+        // accessed with `movss [rbp - i*size_of(T)] xmm`
+        self.mem_offset = (stack_slots + 4) * std::mem::size_of::<T>();
         dynasm!(self.ops
             ; sub rsp, self.mem_offset as i32
         );

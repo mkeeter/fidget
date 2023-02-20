@@ -191,8 +191,19 @@ impl AssemblerT for PointAssembler {
     type Data = f32;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
-        unimplemented!()
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
+            ; push rbp
+            ; mov rbp, rsp
+            // Put X/Y/Z on the stack so we can use those registers
+            ; movss [rbp - 4], xmm0
+            ; movss [rbp - 8], xmm1
+            ; movss [rbp - 12], xmm2
+        );
+        out.prepare_stack(slot_count);
+        Self(out)
     }
+
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         unimplemented!()
     }
@@ -200,7 +211,9 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss Rx(reg(out_reg)), [rbp - 4 * (src_arg as i32 + 1)]
+        );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         unimplemented!()
@@ -224,13 +237,25 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        if lhs_reg == out_reg {
+            dynasm!(self.0.ops
+                ; addss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        } else {
+            unimplemented!()
+        }
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        if lhs_reg == out_reg {
+            dynasm!(self.0.ops
+                ; mulss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        } else {
+            unimplemented!()
+        }
     }
     fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
@@ -245,10 +270,21 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
-        unimplemented!()
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; mov eax, imm_u32 as i32
+            ; movd Rx(IMM_REG), eax
+        );
+        IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Mmap {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss xmm0, Rx(reg(out_reg))
+            // TODO: prepare our return value
+            ; pop rbp
+            ; ret
+        );
+        self.0.ops.finalize()
     }
 }
 
