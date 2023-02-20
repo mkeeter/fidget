@@ -208,8 +208,9 @@ impl AssemblerT for FloatSliceAssembler {
 /// X        | `rdi`    | `*const f32`
 /// Y        | `rsi`    | `*const f32`
 /// Z        | `rdx`    | `*const f32`
-/// out      | `rcx`    | `*mut f32`
-/// size     | `r8`     | `u64`
+/// vars     | `rcx`    | `*mut f32`
+/// out      | `r8`     | `*mut f32`
+/// size     | `r9`     | `u64`
 ///
 /// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
 /// 256-bit wide operations for everything.
@@ -227,11 +228,12 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov rbp, rsp
         );
         out.prepare_stack(slot_count);
-        let loop_start = out.ops.len();
         dynasm!(out.ops
             // The loop returns here, and we check whether to keep looping
-            ; test r8, r8
-            ; je >body
+            ; ->loop_start:
+
+            ; test r9, r9
+            ; jnz >body
 
             // Finalization code, which happens after all evaluation is complete
             ; add rsp, out.mem_offset as i32
@@ -240,48 +242,51 @@ impl AssemblerT for FloatSliceAssembler {
 
             ; body:
             // Copy from the input pointers into the stack right below rbp
-            ; vmovaps ymm0, [rdi]
-            ; vmovaps [rbp - 32], ymm0
+            ; vmovups ymm0, [rdi]
+            ; vmovups [rbp - 32], ymm0
             ; add rdi, 32
 
-            ; vmovaps ymm0, [rsi]
-            ; vmovaps [rbp - 64], ymm0
+            ; vmovups ymm0, [rsi]
+            ; vmovups [rbp - 64], ymm0
             ; add rsi, 32
 
-            ; vmovaps ymm0, [rdx]
-            ; vmovaps [rbp - 96], ymm0
+            ; vmovups ymm0, [rdx]
+            ; vmovups [rbp - 96], ymm0
             ; add rdx, 32
         );
-        Self(out, loop_start)
+        // We use a global label instead of a specific address, since x86
+        // encoding computing the exact jump awkward; let the library do it for
+        // us instead.
+        Self(out, 0)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
         let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
         dynasm!(self.0.ops
-            ; vmovaps Ry(reg(dst_reg)), [rsp + sp_offset]
+            ; vmovups Ry(reg(dst_reg)), [rsp + sp_offset]
         );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
         let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
         dynasm!(self.0.ops
-            ; vmovaps [rsp + sp_offset], Ry(reg(src_reg))
+            ; vmovups [rsp + sp_offset], Ry(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops
-            ; vmovaps Ry(reg(out_reg)), [rbp - 32 * (src_arg as i32 + 1)]
+            ; vmovups Ry(reg(out_reg)), [rbp - 32 * (src_arg as i32 + 1)]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         dynasm!(self.0.ops
-            ; movss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
+            ; movss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
             ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; vmovaps Ry(reg(out_reg)), Ry(reg(lhs_reg))
+            ; vmovups Ry(reg(out_reg)), Ry(reg(lhs_reg))
         );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -360,13 +365,10 @@ impl AssemblerT for FloatSliceAssembler {
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Copy data from out_reg into the out array, then adjust it
-            ; vmovaps [rcx], Ry(out_reg)
-            ; add rcx, 32
-        );
-        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
-        // Jump back to the beginning of the loop
-        dynasm!(self.0.ops
-            ; jmp -jump_size
+            ; vmovups [r8], Ry(out_reg)
+            ; add r8, 32
+            ; sub r9, 8
+            ; jmp ->loop_start
         );
 
         self.0.ops.finalize()
@@ -374,7 +376,7 @@ impl AssemblerT for FloatSliceAssembler {
 }
 
 impl SimdAssembler for FloatSliceAssembler {
-    const SIMD_SIZE: usize = 4;
+    const SIMD_SIZE: usize = SIMD_WIDTH;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -792,19 +792,22 @@ where
         // in which case the input slices can't be used as workspace (because
         // they are not valid for the entire range of values read in assembly)
         if n < I::SIMD_SIZE {
-            // We can't use I::SIMD_SIZE directly here due to Rust limitations,
-            // so instead we hard-code it to 4 with an assertion that
-            // (hopefully) will be compiled out.
-            let mut x = [0.0; 4];
-            let mut y = [0.0; 4];
-            let mut z = [0.0; 4];
-            assert!(I::SIMD_SIZE <= 4);
+            // We can't use I::SIMD_SIZE directly here due to Rust limitations.
+            // Instead we hard-code a maximum SIMD size along with an assertion
+            // that should be optimized out; we can't use a constant assertion
+            // here due to the same compiler limitations.
+            const MAX_SIMD_WIDTH: usize = 8;
+            let mut x = [0.0; MAX_SIMD_WIDTH];
+            let mut y = [0.0; MAX_SIMD_WIDTH];
+            let mut z = [0.0; MAX_SIMD_WIDTH];
+            assert!(I::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
             x[0..n].copy_from_slice(xs);
             y[0..n].copy_from_slice(ys);
             z[0..n].copy_from_slice(zs);
+            println!("{xs:?}\n{ys:?}\n{zs:?}");
 
-            let mut tmp = [std::f32::NAN.into(); 4];
+            let mut tmp = [std::f32::NAN.into(); MAX_SIMD_WIDTH];
 
             unsafe {
                 (self.fn_bulk)(
