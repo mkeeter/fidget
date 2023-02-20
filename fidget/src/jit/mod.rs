@@ -462,6 +462,8 @@ impl MmapAssembler {
         }
         let baseaddr = self.mmap.as_ptr() as usize;
 
+        // Code below is based on `Assembler::commit` in `dynasmrt`
+
         // Resolve statics
         for (loc, label) in self.relocs.take_statics() {
             let target = self.labels.resolve_static(&label)?;
