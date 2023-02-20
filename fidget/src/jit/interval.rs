@@ -564,7 +564,11 @@ impl AssemblerT for IntervalAssembler {
         );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movq xmm0, Rx(reg(rhs_reg))
+            ; shufps xmm0, xmm0, 0b11110001u8 as i8
+            ; vsubps Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm0
+        );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
