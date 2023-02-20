@@ -486,7 +486,7 @@ impl AssemblerT for IntervalAssembler {
         unimplemented!()
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        println!("{out_reg} {lhs_reg}, {} {}", reg(out_reg), reg(lhs_reg));
+        // TODO: use cmpltss instead of 2x comiss?
         dynasm!(self.0.ops
             // Store 0.0 to xmm0, for comparisons
             ; pxor xmm0, xmm0
