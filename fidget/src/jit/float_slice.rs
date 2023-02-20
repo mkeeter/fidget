@@ -365,7 +365,7 @@ impl AssemblerT for FloatSliceAssembler {
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [r8], Ry(out_reg)
+            ; vmovups [r8], Ry(reg(out_reg))
             ; add r8, 32
             ; sub r9, 8
             ; jmp ->loop_start

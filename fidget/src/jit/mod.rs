@@ -805,7 +805,6 @@ where
             x[0..n].copy_from_slice(xs);
             y[0..n].copy_from_slice(ys);
             z[0..n].copy_from_slice(zs);
-            println!("{xs:?}\n{ys:?}\n{zs:?}");
 
             let mut tmp = [std::f32::NAN.into(); MAX_SIMD_WIDTH];
 
