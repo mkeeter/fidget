@@ -87,12 +87,6 @@ impl AssemblerT for PointAssembler {
             ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
         )
     }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        let out = reg(out_reg);
-        dynasm!(self.0.ops
-            ; fmadd S(out), S(reg(lhs_reg)), S(reg(rhs_reg)), S(out)
-        )
-    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fdiv S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
@@ -187,6 +181,31 @@ impl AssemblerT for PointAssembler {
 }
 
 #[cfg(target_arch = "x86_64")]
+impl PointAssembler {
+    fn build_op<F: FnMut(&mut super::MmapAssembler)>(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        mut f: F,
+    ) {
+        if lhs_reg == out_reg {
+            f(&mut self.0.ops);
+        } else {
+            dynasm!(self.0.ops
+                ; movss [rsp - 4], Rx(reg(lhs_reg))
+            );
+            f(&mut self.0.ops);
+            dynasm!(self.0.ops
+                ; addss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+                ; movss Rx(reg(lhs_reg)), [rsp - 4]
+            );
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
 impl AssemblerT for PointAssembler {
     type Data = f32;
 
@@ -219,13 +238,43 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+        );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        // Flip the sign bit in the float
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
+                ; mov eax, 0x80000000u32 as i32
+                ; movd Rx(IMM_REG), eax
+                ; xorps Rx(IMM_REG), Rx(reg(lhs_reg))
+                ; movss Rx(reg(out_reg)), Rx(IMM_REG)
+            );
+        } else {
+            dynasm!(self.0.ops
+                ; mov eax, 0x80000000u32 as i32
+                ; movd Rx(reg(out_reg)), eax
+                ; xorps Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            );
+        }
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        // Clear the sign bit in the float
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
+                ; mov eax, 0x7fffffffu32 as i32
+                ; movd Rx(IMM_REG), eax
+                ; andps Rx(IMM_REG), Rx(reg(lhs_reg))
+                ; movss Rx(reg(out_reg)), Rx(IMM_REG)
+            )
+        } else {
+            dynasm!(self.0.ops
+                ; mov eax, 0x7fffffffu32 as i32
+                ; movd Rx(reg(out_reg)), eax
+                ; andps Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            );
+        }
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -237,37 +286,46 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if lhs_reg == out_reg {
-            dynasm!(self.0.ops
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
                 ; addss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            );
-        } else {
-            unimplemented!()
-        }
+            )
+        });
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
+                ; subss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        });
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if lhs_reg == out_reg {
-            dynasm!(self.0.ops
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
                 ; mulss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             );
-        } else {
-            unimplemented!()
-        }
-    }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        });
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
+                ; divss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        });
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
+                ; maxss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        });
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
+            dynasm!(ops
+                ; minss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            );
+        });
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
@@ -279,9 +337,10 @@ impl AssemblerT for PointAssembler {
     }
     fn finalize(mut self, out_reg: u8) -> Mmap {
         dynasm!(self.0.ops
+            // Prepare our return value
             ; movss xmm0, Rx(reg(out_reg))
-            // TODO: prepare our return value
             ; pop rbp
+            ; add rsp, self.0.mem_offset as i32
             ; ret
         );
         self.0.ops.finalize()

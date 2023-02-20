@@ -264,36 +264,6 @@ impl AssemblerT for IntervalAssembler {
             );
         }
     }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // We can't really do an FMA optimization here, so instead we do
-        // the multiplication (storing results in v6.s2) then do a simple add
-        dynasm!(self.0.ops
-            ; rev64 v4.s2, V(reg(lhs_reg)).s2
-            ; mov v4.d[1], V(reg(lhs_reg)).d[0]
-            ; dup v5.d2, V(reg(rhs_reg)).d[0]
-
-            ; fmul v4.s4, v4.s4, v5.s4
-            ; fminnmv s6, v4.s4
-            ; fmaxnmv s5, v4.s4
-            ; mov v6.s[1], v5.s[0]
-
-            ; fadd V(reg(out_reg)).s2, V(reg(out_reg)).s2, v6.s2
-        )
-    }
-    fn build_fma_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
-        let rhs_reg = self.load_imm(imm);
-        dynasm!(self.0.ops
-            ; fmul V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-        );
-        if imm < 0.0 {
-            dynasm!(self.0.ops
-                ; rev64 V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
-            );
-        }
-        dynasm!(self.0.ops
-            ; fadd V(reg(out_reg)).s2, V(reg(out_reg)).s2, V(reg(rhs_reg)).s2
-        );
-    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
@@ -495,9 +465,6 @@ impl AssemblerT for IntervalAssembler {
         unimplemented!()
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
-    }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

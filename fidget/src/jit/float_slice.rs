@@ -148,11 +148,6 @@ impl AssemblerT for FloatSliceAssembler {
             ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
-            ; fmla V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
-        )
-    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
@@ -242,9 +237,6 @@ impl AssemblerT for FloatSliceAssembler {
         unimplemented!()
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
-    }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

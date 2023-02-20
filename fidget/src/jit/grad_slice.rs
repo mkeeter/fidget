@@ -210,23 +210,6 @@ impl AssemblerT for GradSliceAssembler {
         )
     }
 
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // We can't really take advantage of the FMA here, so we'll copy
-        // the multiplication code from above (storing the result in v6.s4)
-        // then accumulate with a plain `fadd`
-        dynasm!(self.0.ops
-            ; dup v6.s4, V(reg(lhs_reg)).s[0]
-            ; fmul v5.s4, v6.s4, V(reg(rhs_reg)).s4
-            ; fmov s7, s5
-            ; dup v6.s4, V(reg(rhs_reg)).s[0]
-            ; fmla v5.s4, v6.s4, V(reg(lhs_reg)).s4
-
-            ; mov v6.b16, v5.b16
-            ; mov v6.s[0], v7.s[0]
-
-            ; fadd V(reg(out_reg)).s4, V(reg(out_reg)).s4, v6.s4
-        )
-    }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fmov w9, S(reg(rhs_reg))
@@ -348,9 +331,6 @@ impl AssemblerT for GradSliceAssembler {
         unimplemented!()
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
-    }
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

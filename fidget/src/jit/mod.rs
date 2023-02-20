@@ -141,7 +141,6 @@ pub trait AssemblerT {
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
-    fn build_fma(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
@@ -164,10 +163,6 @@ pub trait AssemblerT {
     fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_mul(out_reg, lhs_reg, imm);
-    }
-    fn build_fma_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
-        let imm = self.load_imm(imm);
-        self.build_fma(out_reg, lhs_reg, imm);
     }
 
     /// Loads an immediate into a register, returning that register
@@ -219,13 +214,16 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "x86_64")]
     fn prepare_stack(&mut self, slot_count: usize) {
-        if slot_count < REGISTER_LIMIT as usize {
-            return;
-        }
-        let stack_slots = slot_count - REGISTER_LIMIT as usize;
+        // We always use the stack on x86_64, if only to store X/Y/Z
+        let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT as usize);
+
         // We put X/Y/Z values at the top of the stack, where they can be
-        // accessed with `movss [rbp - i*size_of(T)] xmm`
-        self.mem_offset = (stack_slots + 4) * std::mem::size_of::<T>();
+        // accessed with `movss [rbp - i*size_of(T)] xmm`.  This frees up the
+        // incoming registers (xmm0-2) in the point evaluator.
+        let mem = (stack_slots + 4) * std::mem::size_of::<T>();
+
+        // Round up to the nearest multiple of 16 bytes, for alignment
+        self.mem_offset = ((mem + 15) / 16) * 16;
         dynasm!(self.ops
             ; sub rsp, self.mem_offset as i32
         );
@@ -456,7 +454,7 @@ impl Family for Eval {
 pub struct JitTracingEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
-    fn_trace: unsafe extern "C" fn(
+    fn_trace: unsafe extern "sysv64" fn(
         I::Data,    // X
         I::Data,    // Y
         I::Data,    // Z
