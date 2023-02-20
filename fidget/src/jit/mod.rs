@@ -59,8 +59,9 @@ mod arch {
 
 #[cfg(target_arch = "x86_64")]
 mod arch {
-    pub const REGISTER_LIMIT: u8 = 15;
-    pub const OFFSET: u8 = 1;
+    // We use xmm0 for immediates and xmm1-3 for temporaries
+    pub const REGISTER_LIMIT: u8 = 12;
+    pub const OFFSET: u8 = 4;
     pub const IMM_REG: u8 = 0;
 }
 
@@ -455,10 +456,40 @@ impl DynasmLabelApi for MmapAssembler {
 }
 
 impl MmapAssembler {
-    fn finalize(self) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         if let Some(e) = self.error {
             return Err(e.into());
         }
+        let baseaddr = self.mmap.as_ptr() as usize;
+
+        // Resolve statics
+        for (loc, label) in self.relocs.take_statics() {
+            let target = self.labels.resolve_static(&label)?;
+            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
+            if loc.patch(buf, baseaddr, target.0).is_err() {
+                return Err(DynasmError::ImpossibleRelocation(
+                    if label.is_global() {
+                        TargetKind::Global(label.get_name())
+                    } else {
+                        TargetKind::Local(label.get_name())
+                    },
+                )
+                .into());
+            }
+        }
+
+        // Resolve dynamics
+        for (loc, id) in self.relocs.take_dynamics() {
+            let target = self.labels.resolve_dynamic(id)?;
+            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
+            if loc.patch(buf, baseaddr, target.0).is_err() {
+                return Err(DynasmError::ImpossibleRelocation(
+                    TargetKind::Dynamic(id),
+                )
+                .into());
+            }
+        }
+
         self.mmap.finalize(self.len);
         Ok(self.mmap)
     }

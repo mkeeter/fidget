@@ -184,31 +184,6 @@ impl AssemblerT for PointAssembler {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-impl PointAssembler {
-    fn build_op<F: FnMut(&mut super::MmapAssembler)>(
-        &mut self,
-        out_reg: u8,
-        lhs_reg: u8,
-        rhs_reg: u8,
-        mut f: F,
-    ) {
-        if lhs_reg == out_reg {
-            f(&mut self.0.ops);
-        } else {
-            dynasm!(self.0.ops
-                ; movss [rsp - 4], Rx(reg(lhs_reg))
-            );
-            f(&mut self.0.ops);
-            dynasm!(self.0.ops
-                ; addss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-                ; movss Rx(reg(lhs_reg)), [rsp - 4]
-            );
-        }
-    }
-}
-
 /// Registers are passed in as follows
 /// - X, Y, Z are in `xmm0-2`
 /// - `vars` is in `rdi`
@@ -295,88 +270,126 @@ impl AssemblerT for PointAssembler {
         unimplemented!()
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
                 ; addss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             )
-        });
+        } else {
+            dynasm!(self.0.ops
+                ; movss xmm1, Rx(reg(lhs_reg))
+                ; addss xmm1, Rx(reg(rhs_reg))
+                ; movss Rx(reg(out_reg)), xmm1
+            )
+        }
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
                 ; subss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             );
-        });
+        } else {
+            dynasm!(self.0.ops
+                ; movss xmm1, Rx(reg(lhs_reg))
+                ; subss xmm1, Rx(reg(rhs_reg))
+                ; movss Rx(reg(out_reg)), xmm1
+            );
+        }
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
                 ; mulss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             );
-        });
+        } else {
+            dynasm!(self.0.ops
+                ; movss xmm1, Rx(reg(lhs_reg))
+                ; mulss xmm1, Rx(reg(rhs_reg))
+                ; movss Rx(reg(out_reg)), xmm1
+            );
+        }
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
                 ; divss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             );
-        });
+        } else {
+            dynasm!(self.0.ops
+                ; movss xmm1, Rx(reg(lhs_reg))
+                ; divss xmm1, Rx(reg(rhs_reg))
+                ; movss Rx(reg(out_reg)), xmm1
+            );
+        }
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
-                ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-                ; ja >lhs
-                ; jb >rhs
+        dynasm!(self.0.ops
+            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jp >nan
+            ; ja >lhs
+            ; jb >rhs
 
-                // Equal or NaN; do the comparison to collapse NaNs
-                ; or [rsi], CHOICE_BOTH as i8
-                ; maxss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-                ; jmp >out
+            // Fallthrough for equal, so just copy to the output register
+            ; or [rsi], CHOICE_BOTH as i8
+            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >out
 
-                ; lhs:
-                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-                ; or [rsi], CHOICE_LEFT as i8
-                ; or [rdx], 1
-                ; jmp >out
+            // Fallthrough for NaN, which are !=; do a float addition to
+            // propagate it to the output register.
+            ; nan:
+            ; or [rsi], CHOICE_BOTH as i8
+            ; movss xmm1, Rx(reg(lhs_reg))
+            ; addss xmm1, Rx(reg(rhs_reg))
+            ; movss Rx(reg(out_reg)), xmm1
+            ; jmp >out
 
-                ; rhs:
-                ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-                ; or [rsi], CHOICE_RIGHT as i8
-                ; or [rdx], 1
-                // fallthrough to out
+            ; lhs:
+            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rdx], 1
+            ; jmp >out
 
-                ; out:
-            );
-        });
+            ; rhs:
+            ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rdx], 1
+            // fallthrough to out
+
+            ; out:
+        );
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        self.build_op(out_reg, lhs_reg, rhs_reg, |ops| {
-            dynasm!(ops
-                ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-                ; ja >rhs
-                ; jb >lhs
+        dynasm!(self.0.ops
+            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jp >nan
+            ; ja >rhs
+            ; jb >lhs
 
-                // Equal or NaN; do the comparison to collapse NaNs
-                ; or [rsi], CHOICE_BOTH as i8
-                ; minss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-                ; jmp >out
+            // Fallthrough for equal, so just copy to the output register
+            ; or [rsi], CHOICE_BOTH as i8
+            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >out
 
-                ; lhs:
-                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-                ; or [rsi], CHOICE_LEFT as i8
-                ; or [rdx], 1
-                ; jmp >out
+            ; nan:
+            ; or [rsi], CHOICE_BOTH as i8
+            ; movss xmm1, Rx(reg(lhs_reg))
+            ; addss xmm1, Rx(reg(rhs_reg))
+            ; movss Rx(reg(out_reg)), xmm1
+            ; jmp >out
 
-                ; rhs:
-                ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-                ; or [rsi], CHOICE_RIGHT as i8
-                ; or [rdx], 1
-                // fallthrough to out
+            ; lhs:
+            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rdx], 1
+            ; jmp >out
 
-                ; out:
-            );
-        });
+            ; rhs:
+            ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rdx], 1
+            // fallthrough to out
+
+            ; out:
+        );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

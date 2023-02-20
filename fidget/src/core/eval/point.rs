@@ -109,6 +109,7 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape::<I>(max).unwrap();
         let eval = tape.new_point_evaluator();
+
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
         assert!(data.is_none());
