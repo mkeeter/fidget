@@ -7,7 +7,7 @@ use crate::{
     },
     Error,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Assembler for interval evaluation
 ///
@@ -442,9 +442,9 @@ impl AssemblerT for IntervalAssembler {
             ; mov rbp, rsp
 
             // Put X/Y/Z on the stack so we can use those registers
-            ; movsd [rbp - 8], xmm0
-            ; movsd [rbp - 16], xmm1
-            ; movsd [rbp - 24], xmm2
+            ; movq [rbp - 8], xmm0
+            ; movq [rbp - 16], xmm1
+            ; movq [rbp - 24], xmm2
         );
         out.prepare_stack(slot_count);
         Self(out)
@@ -454,7 +454,7 @@ impl AssemblerT for IntervalAssembler {
         let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
         dynasm!(self.0.ops
             // Pretend that we're a double
-            ; movsd Rx(reg(dst_reg)), [rsp + sp_offset]
+            ; movq Rx(reg(dst_reg)), [rsp + sp_offset]
         );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
@@ -462,12 +462,12 @@ impl AssemblerT for IntervalAssembler {
         let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
         dynasm!(self.0.ops
             // Pretend that we're a double
-            ; movsd [rsp + sp_offset], Rx(reg(src_reg))
+            ; movq [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops
-            ; movsd Rx(reg(out_reg)), [rbp - 8 * (src_arg as i32 + 1)]
+            ; movq Rx(reg(out_reg)), [rbp - 8 * (src_arg as i32 + 1)]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
@@ -479,14 +479,75 @@ impl AssemblerT for IntervalAssembler {
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; movsd Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
         );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        println!("{out_reg} {lhs_reg}, {} {}", reg(out_reg), reg(lhs_reg));
+        dynasm!(self.0.ops
+            // Store 0.0 to xmm0, for comparisons
+            ; pxor xmm0, xmm0
+
+            // Pull the upper value into xmm1
+            ; movq rax, Rx(reg(lhs_reg))
+            ; shr rax, 32
+            ; movd xmm1, eax
+
+            // Check whether lhs.upper < 0
+            ; comiss xmm1, xmm0
+            ; jb >neg
+
+            // Check whether lhs.lower < 0
+            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; jb >straddle
+
+            // Fallthrough: the whole interval is above zero, so we just copy it
+            // over and return.
+            ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >end
+
+            // The interval is less than zero, so we need to calculate
+            // [-upper, -lower]
+            ; neg:
+            ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
+            ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
+            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
+            ; xorps xmm0, Rx(reg(lhs_reg)) // xor to swap sign bits
+            ; shufps xmm0, xmm0, 1 // swap lo and hi
+            ; movq Rx(reg(out_reg)), xmm0
+            ; jmp >end
+
+            // The interval straddles 0, so we need to calculate
+            // [0.0, max(abs(lower, upper))]
+            ; straddle:
+            ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
+            ; psrld xmm0, 1      // shift, leaving xmm0 = 0x7fffffff
+            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
+
+            // Copy to out_reg and clear sign bits; setting up out_reg as
+            // [abs(low), abs(high)]
+            ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; andps Rx(reg(out_reg)), xmm0
+
+            // Set up xmm0 to contain [abs(high), abs(low)]
+            ; movq xmm0, Rx(reg(out_reg))
+            ; shufps xmm0, xmm0, 0b11110001u8 as i8
+
+            ; comiss xmm0, Rx(reg(out_reg)) // Compare abs(hi) vs abs(lo)
+            ; ja >clr // if abs(hi) > abs(lo), then we don't need to swap
+
+            ; shufps Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110011u8 as i8
+
+            // Clear the lowest value of the interval, leaving us with [0, ...]
+            ; clr:
+            ; shufps Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110111u8 as i8
+            // fallthrough to end
+
+            ; end:
+        );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -499,7 +560,7 @@ impl AssemblerT for IntervalAssembler {
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
         );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -528,12 +589,14 @@ impl AssemblerT for IntervalAssembler {
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
-            ; movsd xmm0, Rx(reg(out_reg))
+            ; movq xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
             ; ret
         );
-        self.0.ops.finalize()
+        let n = self.0.ops.len();
+        let out = self.0.ops.finalize()?;
+        Ok(out)
     }
 }
 
