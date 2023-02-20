@@ -2,7 +2,15 @@ use crate::jit::{
     mmap::Mmap, reg, AssemblerData, AssemblerT, Error, JitBulkEval,
     SimdAssembler, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+
+#[cfg(target_arch = "aarch64")]
+const SIMD_WIDTH: usize = 4;
+
+#[cfg(target_arch = "x86_64")]
+const SIMD_WIDTH: usize = 8;
+
+pub struct FloatSliceAssembler(AssemblerData<[f32; SIMD_WIDTH]>, usize);
 
 /// Assembler for SIMD point-wise evaluation.
 ///
@@ -11,8 +19,6 @@ use dynasmrt::{dynasm, DynasmApi};
 /// and output arrays represents 4x `f32`; the var array is single `f32`s
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
-pub struct FloatSliceAssembler(AssemblerData<[f32; 4]>, usize);
-
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
@@ -193,66 +199,177 @@ impl AssemblerT for FloatSliceAssembler {
     }
 }
 
+/// Assembler for SIMD point-wise evaluation.
+///
+/// Arguments are passed as follows:
+///
+/// Argument | Register | Type
+/// ---------|----------|-------------
+/// X        | `rdi`    | `*const f32`
+/// Y        | `rsi`    | `*const f32`
+/// Z        | `rdx`    | `*const f32`
+/// out      | `rcx`    | `*mut f32`
+/// size     | `r8`     | `u64`
+///
+/// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
+/// 256-bit wide operations for everything.
+///
+/// During evaluation, X, Y, and Z are stored on the stack to keep registers
+/// unoccupied.
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
-        unimplemented!()
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
+            ; push rbp
+            ; mov rbp, rsp
+        );
+        out.prepare_stack(slot_count);
+        let loop_start = out.ops.len();
+        dynasm!(out.ops
+            // The loop returns here, and we check whether to keep looping
+            ; test r8, r8
+            ; je >body
+
+            // Finalization code, which happens after all evaluation is complete
+            ; add rsp, out.mem_offset as i32
+            ; pop rbp
+            ; ret
+
+            ; body:
+            // Copy from the input pointers into the stack right below rbp
+            ; vmovaps ymm0, [rdi]
+            ; vmovaps [rbp - 32], ymm0
+            ; add rdi, 32
+
+            ; vmovaps ymm0, [rsi]
+            ; vmovaps [rbp - 64], ymm0
+            ; add rsi, 32
+
+            ; vmovaps ymm0, [rdx]
+            ; vmovaps [rbp - 96], ymm0
+            ; add rdx, 32
+        );
+        Self(out, loop_start)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        unimplemented!()
+        assert!(dst_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; vmovaps Ry(reg(dst_reg)), [rsp + sp_offset]
+        );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        unimplemented!()
+        assert!(src_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; vmovaps [rsp + sp_offset], Ry(reg(src_reg))
+        );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmovaps Ry(reg(out_reg)), [rbp - 32 * (src_arg as i32 + 1)]
+        );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
+            ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmovaps Ry(reg(out_reg)), Ry(reg(lhs_reg))
+        );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; mov eax, 0x80000000u32 as i32
+            ; movd Rx(IMM_REG), eax
+            ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
+            ; vpxor Ry(reg(out_reg)), Ry(IMM_REG), Ry(reg(lhs_reg))
+        );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; mov eax, 0x7fffffffu32 as i32
+            ; movd Rx(IMM_REG), eax
+            ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
+            ; vpand Ry(reg(out_reg)), Ry(IMM_REG), Ry(reg(lhs_reg))
+        );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        let imm = self.load_imm(1.0);
+        dynasm!(self.0.ops
+            ; vdivps Ry(reg(out_reg)), Ry(reg(imm)), Ry(reg(lhs_reg))
+        );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vsqrtps Ry(reg(out_reg)), Ry(reg(lhs_reg))
+        );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmulps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(lhs_reg))
+        );
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vaddps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vsubps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmulps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vdivps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        // TODO: does this handle NaN correctly?
+        dynasm!(self.0.ops
+            ; vmaxps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        // TODO: does this handle NaN correctly?
+        dynasm!(self.0.ops
+            ; vminps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+        );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
-        unimplemented!()
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; mov eax, imm_u32 as i32
+            ; movd Rx(IMM_REG), eax
+            ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
+        );
+        IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Copy data from out_reg into the out array, then adjust it
+            ; vmovaps [rcx], Ry(out_reg)
+            ; add rcx, 32
+        );
+        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
+        // Jump back to the beginning of the loop
+        dynasm!(self.0.ops
+            ; jmp -jump_size
+        );
+
+        self.0.ops.finalize()
     }
 }
 
