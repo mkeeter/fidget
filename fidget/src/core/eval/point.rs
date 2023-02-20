@@ -151,7 +151,7 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(min).unwrap();
-        let eval = tape.clone().new_point_evaluator();
+        let eval = tape.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
@@ -167,7 +167,7 @@ pub mod eval_tests {
 
         let min = ctx.min(x, 1.0).unwrap();
         let tape = ctx.get_tape::<I>(min).unwrap();
-        let eval = tape.clone().new_point_evaluator();
+        let eval = tape.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
