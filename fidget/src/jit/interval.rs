@@ -422,27 +422,65 @@ impl AssemblerT for IntervalAssembler {
     }
 }
 
+/// Registers are passed in as follows
+/// | Variable   | Register | Type               |
+/// |------------|----------|--------------------|
+/// | X          | `xmm0`   | `[f32; 2]`         |
+/// | Y          | `xmm1`   | `[f32; 2]`         |
+/// | Z          | `xmm2`   | `[f32; 2]`         |
+/// | `vars`     | `rdi`    | `*const f32`       |
+/// | `choices`  | `rsi`    | `*mut u8` (array)  |
+/// | `simplify` | `rsi`    | `*mut u8` (single) |
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for IntervalAssembler {
     type Data = Interval;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
-        unimplemented!()
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
+            ; push rbp
+            ; mov rbp, rsp
+
+            // Put X/Y/Z on the stack so we can use those registers
+            ; movsd [rbp - 8], xmm0
+            ; movsd [rbp - 16], xmm1
+            ; movsd [rbp - 24], xmm2
+        );
+        out.prepare_stack(slot_count);
+        Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        unimplemented!()
+        assert!(dst_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            // Pretend that we're a double
+            ; movsd Rx(reg(dst_reg)), [rsp + sp_offset]
+        );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        unimplemented!()
+        assert!(src_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            // Pretend that we're a double
+            ; movsd [rsp + sp_offset], Rx(reg(src_reg))
+        );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movsd Rx(reg(out_reg)), [rbp - 8 * (src_arg as i32 + 1)]
+        );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
+            // Somewhat overkill, since we only need two values, but oh well
+            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movsd Rx(reg(out_reg)), Rx(reg(lhs_reg))
+        );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -460,7 +498,9 @@ impl AssemblerT for IntervalAssembler {
         unimplemented!()
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
@@ -478,10 +518,22 @@ impl AssemblerT for IntervalAssembler {
         unimplemented!()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
-        unimplemented!()
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; mov eax, imm_u32 as i32
+            ; movd Rx(IMM_REG), eax
+            ; vbroadcastss Rx(IMM_REG), Rx(IMM_REG)
+        );
+        IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movsd xmm0, Rx(reg(out_reg))
+            ; add rsp, self.0.mem_offset as i32
+            ; pop rbp
+            ; ret
+        );
+        self.0.ops.finalize()
     }
 }
 
