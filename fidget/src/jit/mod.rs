@@ -454,7 +454,8 @@ impl Family for Eval {
 pub struct JitTracingEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
-    fn_trace: unsafe extern "sysv64" fn(
+    // TODO: make this `sysv64` on `x86_64` machines
+    fn_trace: unsafe extern "C" fn(
         I::Data,    // X
         I::Data,    // Y
         I::Data,    // Z
