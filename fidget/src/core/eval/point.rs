@@ -208,6 +208,22 @@ pub mod eval_tests {
     pub fn test_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
+        let tape = ctx.get_tape::<I>(a).unwrap();
+        let mut vars = Vars::new(&tape);
+        let eval = tape.new_point_evaluator();
+        assert_eq!(
+            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 5.0)].into_iter()))
+                .unwrap()
+                .0,
+            5.0
+        );
+        assert_eq!(
+            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 1.0)].into_iter()))
+                .unwrap()
+                .0,
+            1.0
+        );
+
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();

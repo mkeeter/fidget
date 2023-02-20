@@ -208,18 +208,29 @@ impl AssemblerT for PointAssembler {
     }
 
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        unimplemented!()
+        assert!(dst_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; movss Rx(reg(dst_reg)), [rsp + sp_offset]
+        );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        unimplemented!()
+        assert!(src_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; movss [rsp + sp_offset], Rx(reg(src_reg))
+        );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops
+            // Pull X/Y/Z from the stack, where they've been placed by init()
             ; movss Rx(reg(out_reg)), [rbp - 4 * (src_arg as i32 + 1)]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; movss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -261,13 +272,28 @@ impl AssemblerT for PointAssembler {
         }
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        let imm = self.load_imm(1.0);
+        dynasm!(self.0.ops
+            ; divss Rx(reg(imm)), Rx(reg(lhs_reg))
+            ; movss Rx(reg(out_reg)), Rx(reg(imm))
+        );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; sqrtss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+        );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        if out_reg == lhs_reg {
+            dynasm!(self.0.ops
+                ; mulss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            );
+        } else {
+            dynasm!(self.0.ops
+                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+                ; mulss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            );
+        }
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         if out_reg == lhs_reg {
@@ -403,8 +429,8 @@ impl AssemblerT for PointAssembler {
         dynasm!(self.0.ops
             // Prepare our return value
             ; movss xmm0, Rx(reg(out_reg))
-            ; pop rbp
             ; add rsp, self.0.mem_offset as i32
+            ; pop rbp
             ; ret
         );
         self.0.ops.finalize()
