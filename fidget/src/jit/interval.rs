@@ -483,7 +483,13 @@ impl AssemblerT for IntervalAssembler {
         );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; pshufd Rx(reg(out_reg)), Rx(reg(lhs_reg)), 0b11110001u8 as i8
+            ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
+            ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
+            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
+            ; xorps Rx(reg(out_reg)), xmm0
+        );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         // TODO: use cmpltss instead of 2x comiss?
@@ -516,7 +522,7 @@ impl AssemblerT for IntervalAssembler {
             ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
             ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
             ; xorps xmm0, Rx(reg(lhs_reg)) // xor to swap sign bits
-            ; shufps xmm0, xmm0, 1 // swap lo and hi
+            ; pshufd xmm0, xmm0, 1 // swap lo and hi
             ; movq Rx(reg(out_reg)), xmm0
             ; jmp >end
 
@@ -533,24 +539,48 @@ impl AssemblerT for IntervalAssembler {
             ; andps Rx(reg(out_reg)), xmm0
 
             // Set up xmm0 to contain [abs(high), abs(low)]
-            ; movq xmm0, Rx(reg(out_reg))
-            ; shufps xmm0, xmm0, 0b11110001u8 as i8
+            ; pshufd xmm0, Rx(reg(out_reg)), 0b11110001u8 as i8
 
             ; comiss xmm0, Rx(reg(out_reg)) // Compare abs(hi) vs abs(lo)
             ; ja >clr // if abs(hi) > abs(lo), then we don't need to swap
 
-            ; shufps Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110011u8 as i8
+            ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110011u8 as i8
 
             // Clear the lowest value of the interval, leaving us with [0, ...]
             ; clr:
-            ; shufps Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110111u8 as i8
+            ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110111u8 as i8
             // fallthrough to end
 
             ; end:
         );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        let nan_u32 = f32::NAN.to_bits();
+        let one_u32 = 1f32.to_bits();
+        dynasm!(self.0.ops
+            ; pxor xmm0, xmm0 // xmm0 = 0.0
+            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; ja >okay // low element is > 0
+            ; pshufd xmm1, Rx(reg(lhs_reg)), 1 // extract high element
+            ; comiss xmm1, xmm0
+            ; jb >okay // high element is < 0
+
+            // Bad case: the division spans 0, so return NaN
+            ; mov eax, nan_u32 as i32
+            ; movd Rx(reg(out_reg)), eax
+            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; jmp >end
+
+            ; okay:
+            ; mov eax, one_u32 as i32
+            ; movd xmm0, eax
+            ; vbroadcastss xmm0, xmm0
+            ; vdivps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
+            ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b0001
+            // Fallthrough to end
+
+            ; end:
+        );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -565,9 +595,8 @@ impl AssemblerT for IntervalAssembler {
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; movq xmm1, Rx(reg(rhs_reg))
-            ; shufps xmm1, xmm1, 0b11110001u8 as i8
-            ; vsubps Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm0
+            ; pshufd xmm1, Rx(reg(rhs_reg)), 0b11110001u8 as i8
+            ; vsubps Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm1
         );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
