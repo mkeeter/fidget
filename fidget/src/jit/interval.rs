@@ -613,7 +613,35 @@ impl AssemblerT for IntervalAssembler {
         );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Put component-wise multiplication in xmm2
+            ; vmulps xmm2, Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+            ; pxor xmm0, xmm0 // xmm0 = 0.0
+            ; pshufd xmm1, Rx(reg(lhs_reg)), 1
+            ; comiss xmm1, xmm0
+            ; jb >neg
+            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; jb >straddle
+
+            // Fallthrough: lower > 0, so our previous result is fine
+            ; movq Rx(reg(out_reg)), xmm2
+            ; jmp >end
+
+            // upper < 0, so we square then swap
+            ; neg:
+            ; pshufd Rx(reg(out_reg)), xmm2, 0b11110001u8 as i8
+            ; jmp >end
+
+            // lower < 0, upper > 0 => pick the bigger result
+            ; straddle:
+            ; pshufd xmm0, xmm2, 1
+            ; maxss xmm0, xmm2
+            ; movq rax, xmm0
+            ; shl rax, 32 // Shift to put zeros in lower, square in upper
+            ; movq Rx(reg(out_reg)), rax
+
+            ; end:
+        );
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
