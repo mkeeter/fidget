@@ -140,7 +140,7 @@ pub mod eval_tests {
         assert_eq!(eval.eval_x([0.0, 4.0]), [-4.0, 0.0].into());
         assert_eq!(eval.eval_x([2.0, 4.0]), [-4.0, -2.0].into());
         assert_eq!(eval.eval_x([-2.0, 4.0]), [-4.0, 2.0].into());
-        assert_eq!(eval.eval_x([-6.0, -2.0]), [-2.0, 6.0].into());
+        assert_eq!(eval.eval_x([-6.0, -2.0]), [2.0, 6.0].into());
         assert_eq!(eval.eval_x([-6.0, 1.0]), [-1.0, 6.0].into());
 
         let (v, _) = eval
