@@ -583,7 +583,34 @@ impl AssemblerT for IntervalAssembler {
         );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        let nan_u32 = f32::NAN.to_bits();
+        dynasm!(self.0.ops
+            ; pxor xmm0, xmm0 // xmm0 = 0.0
+            ; pshufd xmm1, Rx(reg(lhs_reg)), 1
+            ; comiss xmm1, xmm0
+            ; jb >upper_lz
+            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; jb >lower_lz
+
+            // Happy path
+            ; vsqrtps Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >end
+
+            // lower < 0, upper > 0 => [0, sqrt(upper)]
+            ; lower_lz:
+            ; pxor xmm0, xmm0 // clear xmm0
+            ; sqrtss xmm0, xmm1
+            ; pshufd Rx(reg(out_reg)), xmm0, 0b11110011u8 as i8
+            ; jmp >end
+
+            // upper < 0 => [NaN, NaN]
+            ; upper_lz:
+            ; mov eax, nan_u32 as i32
+            ; movd Rx(reg(out_reg)), eax
+            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+
+            ; end:
+        );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
