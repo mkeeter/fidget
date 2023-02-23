@@ -430,7 +430,7 @@ impl AssemblerT for IntervalAssembler {
 /// | Z          | `xmm2`   | `[f32; 2]`         |
 /// | `vars`     | `rdi`    | `*const f32`       |
 /// | `choices`  | `rsi`    | `*mut u8` (array)  |
-/// | `simplify` | `rsi`    | `*mut u8` (single) |
+/// | `simplify` | `rdx`    | `*mut u8` (single) |
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for IntervalAssembler {
     type Data = Interval;
@@ -688,7 +688,66 @@ impl AssemblerT for IntervalAssembler {
         unimplemented!()
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        // TODO: Godbolt uses unpcklps ?
+        dynasm!(self.0.ops
+            //  if lhs.upper < rhs.lower
+            //      *choices++ |= CHOICE_LEFT
+            //      out = lhs
+            //  elif rhs.upper < lhs.lower
+            //      *choices++ |= CHOICE_RIGHT
+            //      out = rhs
+            //  else
+            //      *choices++ |= CHOICE_BOTH
+            //      out = fmin(lhs, rhs)
+
+            ; mov ax, [rsi]
+
+            // TODO: use cmpltss to do both comparisons?
+
+            // xmm1 = lhs.upper
+            ; pshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8
+            ; comiss xmm1, Rx(reg(rhs_reg)) // compare lhs.upper and rhs.lower
+            ; jp >nan
+            ; jb >lhs
+
+            // xmm1 = rhs.upper
+            ; pshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8
+            ; comiss xmm1, Rx(reg(lhs_reg))
+            ; jp >nan
+            ; jb >rhs
+
+            // Fallthrough: ambiguous case
+            ; vminps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_BOTH as i16
+            ; jmp >end
+
+            ; nan:
+            ; or ax, CHOICE_BOTH as i16
+            ; mov eax, f32::NAN.to_bits() as i32
+            ; movd Rx(reg(out_reg)), eax
+            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; jmp >end
+
+            // lhs.upper < rhs.lower
+            ; lhs:
+            ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; or ax, CHOICE_LEFT as i16
+            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], cx
+            ; jmp >end
+
+            // rhs.upper < lhs.lower
+            ; rhs:
+            ; movq Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_RIGHT as i16
+            ; mov cx, 1
+            ; mov [rdx], cx
+            ; jmp >end
+
+            ; end:
+            ; mov [rsi], ax
+            ; add rsi, 1
+        );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
