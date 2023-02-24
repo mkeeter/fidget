@@ -503,12 +503,12 @@ impl AssemblerT for IntervalAssembler {
             ; movd xmm1, eax
 
             // Check whether lhs.upper < 0
-            ; comiss xmm1, xmm0
-            ; jb >neg
+            ; comiss xmm0, xmm1
+            ; ja >neg
 
             // Check whether lhs.lower < 0
-            ; comiss Rx(reg(lhs_reg)), xmm0
-            ; jb >straddle
+            ; comiss xmm0, Rx(reg(lhs_reg))
+            ; ja >straddle
 
             // Fallthrough: the whole interval is above zero, so we just copy it
             // over and return.
@@ -562,8 +562,8 @@ impl AssemblerT for IntervalAssembler {
             ; comiss Rx(reg(lhs_reg)), xmm0
             ; ja >okay // low element is > 0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1 // extract high element
-            ; comiss xmm1, xmm0
-            ; jb >okay // high element is < 0
+            ; comiss xmm0, xmm1
+            ; ja >okay // high element is < 0
 
             // Bad case: the division spans 0, so return NaN
             ; mov eax, nan_u32 as i32
@@ -587,10 +587,10 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1
-            ; comiss xmm1, xmm0
-            ; jb >upper_lz
-            ; comiss Rx(reg(lhs_reg)), xmm0
-            ; jb >lower_lz
+            ; comiss xmm0, xmm1
+            ; ja >upper_lz
+            ; comiss xmm0, Rx(reg(lhs_reg))
+            ; ja >lower_lz
 
             // Happy path
             ; vsqrtps Rx(reg(out_reg)), Rx(reg(lhs_reg))
@@ -618,10 +618,10 @@ impl AssemblerT for IntervalAssembler {
             ; vmulps xmm2, Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1
-            ; comiss xmm1, xmm0
-            ; jb >neg
-            ; comiss Rx(reg(lhs_reg)), xmm0
-            ; jb >straddle
+            ; comiss xmm0, xmm1
+            ; ja >neg
+            ; comiss xmm0, Rx(reg(lhs_reg))
+            ; ja >straddle
 
             // Fallthrough: lower > 0, so our previous result is fine
             ; movq Rx(reg(out_reg)), xmm2
@@ -682,7 +682,47 @@ impl AssemblerT for IntervalAssembler {
         );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; pxor xmm1, xmm1 // xmm1 = 0.0
+            ; comiss Rx(reg(rhs_reg)), xmm1
+            ; ja >okay
+            ; pshufd xmm2, Rx(reg(rhs_reg)), 1
+            ; comiss xmm1, xmm2
+            ; ja >okay
+
+            // Fallthrough: an input is NaN or rhs_reg spans 0; return NaN
+            ; mov eax, std::f32::NAN.to_bits() as i32
+            ; movd Rx(reg(out_reg)), eax
+            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; jmp >end
+
+            ; okay:
+            ; pshufd xmm2, Rx(reg(lhs_reg)), 0b01000001_i8
+            ; pshufd xmm1, Rx(reg(rhs_reg)), 0b00010001_i8
+            ; vdivps xmm2, xmm2, xmm1 // xmm2 contains all 4 results
+
+            // Extract the horizontal maximum into out
+            ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
+            ; vminps xmm1, xmm1, xmm2 // xmm1 = [_, _, min(3, 1), min(2, 0)]
+            ; pshufd Rx(reg(out_reg)), xmm1, 0b00000001 // out = max(3, 1)
+            ; minss Rx(reg(out_reg)), xmm1 // out[0] is lowest value
+
+            // Extract the horizontal minimum into xmm2
+            ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
+            ; vmaxps xmm1, xmm1, xmm2 // xmm1 = [_, _, max(3, 1), max(2, 0)]
+            ; pshufd xmm2, xmm1, 0b00000001 // xmm2 = max(3, 1)
+            ; maxss xmm2, xmm1 // xmm2[0] is highest value
+
+            // Splice the two together
+            // TODO is there a better way to do this?
+            ; movd eax, xmm2
+            ; shl rax, 32
+            ; movd ecx, Rx(reg(out_reg))
+            ; or rax, rcx
+            ; movq Rx(reg(out_reg)), rax
+
+            ; end:
+        );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
