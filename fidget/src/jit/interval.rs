@@ -660,25 +660,20 @@ impl AssemblerT for IntervalAssembler {
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b00010001_i8
             ; vmulps xmm2, xmm2, xmm1 // xmm2 contains all 4 results
 
-            // Extract the horizontal maximum into out
+            // Extract the horizontal minimum into out
             ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
             ; vminps xmm1, xmm1, xmm2 // xmm1 = [_, _, min(3, 1), min(2, 0)]
             ; pshufd Rx(reg(out_reg)), xmm1, 0b00000001 // out = max(3, 1)
             ; minss Rx(reg(out_reg)), xmm1 // out[0] is lowest value
 
-            // Extract the horizontal minimum into xmm2
+            // Extract the horizontal maximum into xmm2
             ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
             ; vmaxps xmm1, xmm1, xmm2 // xmm1 = [_, _, max(3, 1), max(2, 0)]
             ; pshufd xmm2, xmm1, 0b00000001 // xmm2 = max(3, 1)
             ; maxss xmm2, xmm1 // xmm2[0] is highest value
 
             // Splice the two together
-            // TODO is there a better way to do this?
-            ; movd eax, xmm2
-            ; shl rax, 32
-            ; movd ecx, Rx(reg(out_reg))
-            ; or rax, rcx
-            ; movq Rx(reg(out_reg)), rax
+            ; unpcklps Rx(reg(out_reg)), xmm2
         );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -701,25 +696,20 @@ impl AssemblerT for IntervalAssembler {
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b00010001_i8
             ; vdivps xmm2, xmm2, xmm1 // xmm2 contains all 4 results
 
-            // Extract the horizontal maximum into out
+            // Extract the horizontal minimum into out
             ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
             ; vminps xmm1, xmm1, xmm2 // xmm1 = [_, _, min(3, 1), min(2, 0)]
             ; pshufd Rx(reg(out_reg)), xmm1, 0b00000001 // out = max(3, 1)
             ; minss Rx(reg(out_reg)), xmm1 // out[0] is lowest value
 
-            // Extract the horizontal minimum into xmm2
+            // Extract the horizontal maximum into xmm2
             ; pshufd xmm1, xmm2, 0b00001110 // xmm1 = [_, _, 3, 2]
             ; vmaxps xmm1, xmm1, xmm2 // xmm1 = [_, _, max(3, 1), max(2, 0)]
             ; pshufd xmm2, xmm1, 0b00000001 // xmm2 = max(3, 1)
             ; maxss xmm2, xmm1 // xmm2[0] is highest value
 
             // Splice the two together
-            // TODO is there a better way to do this?
-            ; movd eax, xmm2
-            ; shl rax, 32
-            ; movd ecx, Rx(reg(out_reg))
-            ; or rax, rcx
-            ; movq Rx(reg(out_reg)), rax
+            ; unpcklps Rx(reg(out_reg)), xmm2
 
             ; end:
         );
@@ -851,7 +841,6 @@ impl AssemblerT for IntervalAssembler {
             ; pop rbp
             ; ret
         );
-        let n = self.0.ops.len();
         let out = self.0.ops.finalize()?;
         Ok(out)
     }
