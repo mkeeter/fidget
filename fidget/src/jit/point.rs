@@ -6,7 +6,10 @@ use crate::{
     },
     Error,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi};
+
+#[cfg(target_arch = "x86_64")]
+use dynasmrt::DynasmLabelApi;
 
 pub struct PointAssembler(AssemblerData<f32>);
 

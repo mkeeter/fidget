@@ -2,13 +2,16 @@ use crate::jit::{
     mmap::Mmap, reg, AssemblerData, AssemblerT, Error, JitBulkEval,
     SimdAssembler, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi};
 
 #[cfg(target_arch = "aarch64")]
 const SIMD_WIDTH: usize = 4;
 
 #[cfg(target_arch = "x86_64")]
 const SIMD_WIDTH: usize = 8;
+
+#[cfg(target_arch = "x86_64")]
+use dynasmrt::DynasmLabelApi;
 
 pub struct FloatSliceAssembler(AssemblerData<[f32; SIMD_WIDTH]>, usize);
 

@@ -106,13 +106,13 @@ impl Mmap {
         unsafe {
             macos::pthread_jit_write_protect_np(0);
         }
-        ThreadWriteGuard
+        macos::ThreadWriteGuard
     }
 
     /// Modifies the region's W^X state to allow writing
     ///
     /// This is only relevant on Linux and is a no-op on MacOS
-    pub fn make_write() {
+    pub fn make_write(&self) {
         // Nothing to do here
     }
 }
