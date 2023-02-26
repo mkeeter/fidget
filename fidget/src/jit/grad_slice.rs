@@ -480,7 +480,21 @@ impl AssemblerT for GradSliceAssembler {
         );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        // d/dx f(x)**2 = 2 * f(x) * f'(x)
+        dynasm!(self.0.ops
+            ; mov eax, 2.0f32.to_bits() as i32
+            ; movd xmm1, eax
+            ; vbroadcastss xmm1, xmm1
+
+            ; mov eax, 1.0f32.to_bits() as i32
+            ; movd xmm0, eax
+            ; movss xmm1, xmm0
+            // At this point, xmm1 contains [1, 2, 2, 2]
+
+            ; vbroadcastss xmm0, Rx(reg(lhs_reg))
+            ; vmulps xmm0, xmm0, xmm1
+            ; vmulps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
+        );
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
