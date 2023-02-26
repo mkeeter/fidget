@@ -339,27 +339,27 @@ impl AssemblerT for GradSliceAssembler {
 
             // Copy from the input pointers into the stack right below rbp
             ; mov eax, 1.0f32.to_bits() as i32
-            ; mov [rbp - 8], eax  // 1
-            ; mov [rbp - 48], eax // 1
-            ; mov [rbp - 28], eax // 1
+            ; mov [rbp - 12], eax  // 1
+            ; mov [rbp - 24], eax // 1
+            ; mov [rbp - 36], eax // 1
 
             ; mov eax, [rdi]
-            ; mov [rbp - 4], eax  // X
+            ; mov [rbp - 16], eax  // X
             ; add rdi, 4
 
             ; mov eax, [rsi]
-            ; mov [rbp - 20], eax // Z
+            ; mov [rbp - 32], eax // Y
             ; add rsi, 4
 
             ; mov eax, [rdx]
-            ; mov [rbp - 36], eax // Z
+            ; mov [rbp - 48], eax // Z
             ; add rdx, 4
 
             ; mov eax, 0.0f32.to_bits() as i32
-            ; mov [rbp - 12], eax // 0
-            ; mov [rbp - 16], eax // 0
-            ; mov [rbp - 24], eax // 0
-            ; mov [rbp - 32], eax // 0
+            ; mov [rbp - 8], eax // 0
+            ; mov [rbp - 4], eax // 0
+            ; mov [rbp - 28], eax // 0
+            ; mov [rbp - 20], eax // 0
             ; mov [rbp - 40], eax // 0
             ; mov [rbp - 44], eax // 0
         );

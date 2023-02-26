@@ -34,8 +34,32 @@ pub mod eval_tests {
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
-            eval.eval(&[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
-            Grad::new(0.0, 1.0, 0.0, 0.0)
+            eval.eval(&[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            Grad::new(2.0, 1.0, 0.0, 0.0)
+        );
+    }
+
+    pub fn test_g_y<I: Family>() {
+        let mut ctx = Context::new();
+        let y = ctx.y();
+        let tape = ctx.get_tape::<I>(y).unwrap();
+
+        let eval = tape.new_grad_slice_evaluator();
+        assert_eq!(
+            eval.eval(&[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            Grad::new(3.0, 0.0, 1.0, 0.0)
+        );
+    }
+
+    pub fn test_g_z<I: Family>() {
+        let mut ctx = Context::new();
+        let z = ctx.z();
+        let tape = ctx.get_tape::<I>(z).unwrap();
+
+        let eval = tape.new_grad_slice_evaluator();
+        assert_eq!(
+            eval.eval(&[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            Grad::new(4.0, 0.0, 0.0, 1.0)
         );
     }
 
@@ -254,6 +278,8 @@ pub mod eval_tests {
         ($t:ty) => {
             $crate::grad_test!(test_g_circle, $t);
             $crate::grad_test!(test_g_x, $t);
+            $crate::grad_test!(test_g_y, $t);
+            $crate::grad_test!(test_g_z, $t);
             $crate::grad_test!(test_g_square, $t);
             $crate::grad_test!(test_g_sqrt, $t);
             $crate::grad_test!(test_g_mul, $t);
