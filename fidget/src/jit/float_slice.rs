@@ -206,20 +206,20 @@ impl AssemblerT for FloatSliceAssembler {
 ///
 /// Arguments are passed as follows:
 ///
-/// Argument | Register | Type
-/// ---------|----------|-------------
-/// X        | `rdi`    | `*const f32`
-/// Y        | `rsi`    | `*const f32`
-/// Z        | `rdx`    | `*const f32`
-/// vars     | `rcx`    | `*mut f32`
-/// out      | `r8`     | `*mut f32`
-/// size     | `r9`     | `u64`
+/// | Argument | Register | Type         |
+/// | ---------|----------|--------------|
+/// | X        | `rdi`    | `*const f32` |
+/// | Y        | `rsi`    | `*const f32` |
+/// | Z        | `rdx`    | `*const f32` |
+/// | vars     | `rcx`    | `*mut f32`   |
+/// | out      | `r8`     | `*mut f32`   |
+/// | size     | `r9`     | `u64`        |
 ///
 /// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
 /// 256-bit wide operations for everything.
 ///
-/// During evaluation, X, Y, and Z are stored on the stack to keep registers
-/// unoccupied.
+/// During evaluation, X, Y, and Z values are stored on the stack to keep
+/// registers unoccupied.
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;

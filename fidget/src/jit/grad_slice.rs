@@ -8,18 +8,27 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi};
 
+#[cfg(target_arch = "x86_64")]
+use dynasmrt::DynasmLabelApi;
+
 /// Assembler for automatic differentiation / gradient evaluation
+pub struct GradSliceAssembler(AssemblerData<[f32; 4]>, usize);
+
+/// Implementation for the gradient slice assembler on AArch64
 ///
+/// Registers as pased in as follows:
 ///
-/// Arguments are passed as 3x `*const f32` in `x0-2`, a var array in
-/// `x3`, and an output array `*mut f32` in `x4`.  Each pointer in the input
-/// arrays represents 4x `f32`, the var array is single `f32`s, and the `out`
-/// array is `[v, dx, dy, dz]`
+/// | Variable   | Register | Type               |
+/// |------------|----------|--------------------|
+/// | X          | `x0`     | `*const f32`       |
+/// | Y          | `x1`     | `*const f32`       |
+/// | Z          | `x2`     | `*const f32`       |
+/// | `vars`     | `x3`     | `*const f32`       |
+/// | `out`      | `x4`     | `*const [f32; 4]`  |
+/// | `count`    | `x5`     | `u64`              |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
-pub struct GradSliceAssembler(AssemblerData<[f32; 4]>, usize);
-
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for GradSliceAssembler {
     type Data = Grad;
@@ -288,30 +297,114 @@ impl AssemblerT for GradSliceAssembler {
     }
 }
 
+/// Implementation for the gradient slice assembler on x86.
+///
+/// Registers as pased in as follows:
+///
+/// | Variable   | Register | Type               |
+/// |------------|----------|--------------------|
+/// | X          | `rdi`    | `*const f32`       |
+/// | Y          | `rsi`    | `*const f32`       |
+/// | Z          | `rdx`    | `*const f32`       |
+/// | `vars`     | `rcx`    | `*const f32`       |
+/// | `out`      | `r8`     | `*const [f32; 4]`  |
+/// | `count`    | `r9`     | `u64`              |
+///
+/// During evaluation, X, Y, and Z values are stored on the stack to keep
+/// registers unoccupied.
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for GradSliceAssembler {
     type Data = Grad;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
-        unimplemented!()
+        let mut out = AssemblerData::new(mmap);
+        dynasm!(out.ops
+            ; push rbp
+            ; mov rbp, rsp
+        );
+        out.prepare_stack(slot_count);
+        dynasm!(out.ops
+            // The loop returns here, and we check whether to keep looping
+            ; ->loop_start:
+
+            ; test r9, r9
+            ; jnz >body
+
+            // Finalization code, which happens after all evaluation is complete
+            ; add rsp, out.mem_offset as i32
+            ; pop rbp
+            ; ret
+
+            ; body:
+
+            // Copy from the input pointers into the stack right below rbp
+            ; mov eax, 1.0f32.to_bits() as i32
+            ; mov [rbp - 8], eax  // 1
+            ; mov [rbp - 48], eax // 1
+            ; mov [rbp - 28], eax // 1
+
+            ; mov eax, [rdi]
+            ; mov [rbp - 4], eax  // X
+            ; add rdi, 4
+
+            ; mov eax, [rsi]
+            ; mov [rbp - 20], eax // Z
+            ; add rsi, 4
+
+            ; mov eax, [rdx]
+            ; mov [rbp - 36], eax // Z
+            ; add rdx, 4
+
+            ; mov eax, 0.0f32.to_bits() as i32
+            ; mov [rbp - 12], eax // 0
+            ; mov [rbp - 16], eax // 0
+            ; mov [rbp - 24], eax // 0
+            ; mov [rbp - 32], eax // 0
+            ; mov [rbp - 40], eax // 0
+            ; mov [rbp - 44], eax // 0
+        );
+        // We use a global label instead of a specific address, since x86
+        // encoding computing the exact jump awkward; let the library do it for
+        // us instead.
+        Self(out, 0)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        unimplemented!()
+        assert!(dst_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; vmovups Rx(reg(dst_reg)), [rsp + sp_offset]
+        );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        unimplemented!()
+        assert!(src_reg < REGISTER_LIMIT);
+        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        dynasm!(self.0.ops
+            ; vmovups [rsp + sp_offset], Rx(reg(src_reg))
+        );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmovups Rx(reg(out_reg)), [rbp - 16 * (src_arg as i32 + 1)]
+        );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; pxor Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; movss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
+        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
+        );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; mov eax, 0x80000000u32 as i32
+            ; movd Rx(IMM_REG), eax
+            ; vbroadcastss Rx(IMM_REG), Rx(IMM_REG)
+            ; vpxor Rx(reg(out_reg)), Rx(IMM_REG), Rx(reg(lhs_reg))
+        );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -326,10 +419,14 @@ impl AssemblerT for GradSliceAssembler {
         unimplemented!()
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
@@ -344,10 +441,24 @@ impl AssemblerT for GradSliceAssembler {
         unimplemented!()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
-        unimplemented!()
+        let imm_u32 = imm.to_bits();
+        dynasm!(self.0.ops
+            ; pxor Rx(IMM_REG), Rx(IMM_REG)
+            ; mov eax, imm_u32 as i32
+            ; movd Rx(IMM_REG), eax
+        );
+        IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Copy data from out_reg into the out array, then adjust it
+            ; vmovups [r8], Rx(reg(out_reg))
+            ; add r8, 16 // 4x float
+            ; sub r9, 1
+            ; jmp ->loop_start
+        );
+
+        self.0.ops.finalize()
     }
 }
 
