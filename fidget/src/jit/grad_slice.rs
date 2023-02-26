@@ -451,13 +451,33 @@ impl AssemblerT for GradSliceAssembler {
             ; movd xmm1, eax
             ; divss xmm1, Rx(reg(lhs_reg))
 
-            ; pxor Rx(reg(out_reg)), Rx(reg(out_reg))
             ; vmovups Rx(reg(out_reg)), xmm0
             ; movss Rx(reg(out_reg)), xmm1
         );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        // d/dx sqrt(f(x)) = f'(x) / (2 * sqrt(f(x)))
+        dynasm!(self.0.ops
+            // Calculate xmm0[0] = f(x)**2
+            ; sqrtss xmm0, Rx(reg(lhs_reg))
+
+            // Multiply it by 2
+            ; mov eax, 2.0f32.to_bits() as i32
+            ; movd xmm1, eax
+            ; mulss xmm0, xmm1
+
+            // Set every element in xmm0 to 2 * sqrt(f(x))
+            ; vbroadcastss xmm0, xmm0
+
+            // Set every element in xmm0 to -f'(x) / f(x)**2
+            ; vdivps xmm0, Rx(reg(lhs_reg)), xmm0
+
+            // Compute the actual square root into xmm1
+            ; sqrtss xmm1, Rx(reg(lhs_reg))
+
+            ; vmovups Rx(reg(out_reg)), xmm0
+            ; movss Rx(reg(out_reg)), xmm1
+        );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
