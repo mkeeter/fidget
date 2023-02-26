@@ -503,6 +503,7 @@ impl MmapAssembler {
         std::mem::swap(&mut self.mmap, &mut next);
     }
 
+    #[cfg(target_arch = "aarch64")]
     fn len(&self) -> usize {
         self.len
     }

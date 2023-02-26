@@ -503,7 +503,7 @@ impl AssemblerT for GradSliceAssembler {
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vsubps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
         );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

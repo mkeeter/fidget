@@ -132,11 +132,7 @@ impl Mmap {
         compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
 
         unsafe {
-            libc::mprotect(
-                self.ptr,
-                self.len,
-                libc::PROT_READ | libc::PROT_EXEC,
-            );
+            libc::mprotect(self.ptr, size, libc::PROT_READ | libc::PROT_EXEC);
         }
     }
 
