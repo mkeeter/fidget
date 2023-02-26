@@ -521,7 +521,31 @@ impl AssemblerT for GradSliceAssembler {
         );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        // d/dx f(x) * g(x) = (f'(x)*g(x) - f(x)*g'(x)) / g(x)**2
+        dynasm!(self.0.ops
+            // f(x) * g'(x)
+            ; vbroadcastss xmm1, Rx(reg(lhs_reg))
+            ; vmulps xmm1, xmm1, Rx(reg(rhs_reg))
+
+            // g(x) * f'(x)
+            ; vbroadcastss xmm2, Rx(reg(rhs_reg))
+            ; vmulps xmm2, xmm2, Rx(reg(lhs_reg))
+
+            // f'(x)*g(x) - f(x)*g'(x)
+            ; vsubps xmm1, xmm2, xmm1
+
+            // g(x)**2
+            ; vmulss xmm2, Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; vbroadcastss xmm2, xmm2
+
+            // Do the division
+            ; vdivps xmm1, xmm1, xmm2
+
+            // Patch in the actual division result
+            ; vdivss xmm2, Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vmovups Rx(reg(out_reg)), xmm1
+            ; movss Rx(reg(out_reg)), xmm2
+        );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!()
