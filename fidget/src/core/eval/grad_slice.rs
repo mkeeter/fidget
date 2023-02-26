@@ -88,6 +88,23 @@ pub mod eval_tests {
         );
     }
 
+    pub fn test_g_abs<I: Family>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.abs(x).unwrap();
+        let tape = ctx.get_tape::<I>(s).unwrap();
+
+        let eval = tape.new_grad_slice_evaluator();
+        assert_eq!(
+            eval.eval(&[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(2.0, 1.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            eval.eval(&[-2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(2.0, -1.0, 0.0, 0.0)
+        );
+    }
+
     pub fn test_g_sqrt<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -280,6 +297,7 @@ pub mod eval_tests {
             $crate::grad_test!(test_g_x, $t);
             $crate::grad_test!(test_g_y, $t);
             $crate::grad_test!(test_g_z, $t);
+            $crate::grad_test!(test_g_abs, $t);
             $crate::grad_test!(test_g_square, $t);
             $crate::grad_test!(test_g_sqrt, $t);
             $crate::grad_test!(test_g_mul, $t);

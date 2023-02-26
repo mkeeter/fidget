@@ -407,7 +407,26 @@ impl AssemblerT for GradSliceAssembler {
         );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Store 0.0 to xmm0, for comparisons
+            ; pxor xmm0, xmm0
+
+            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; jb >neg
+
+            // Fallthrough: non-negative (or NaN) input
+            ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >end
+
+            ; neg:
+            ; mov eax, 0x80000000u32 as i32
+            ; movd xmm0, eax
+            ; vbroadcastss xmm0, xmm0
+            ; vpxor Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
+            // Fallthrough to end
+
+            ; end:
+        );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
