@@ -429,7 +429,32 @@ impl AssemblerT for GradSliceAssembler {
         );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        unimplemented!()
+        // d/dx 1/f(x) = -f'(x) / f(x)**2
+        dynasm!(self.0.ops
+            // Calculate xmm0[0] = f(x)**2
+            ; movss xmm0, Rx(reg(lhs_reg))
+            ; mulss xmm0, xmm0
+
+            // Negate it
+            ; mov eax, 0x80000000u32 as i32
+            ; movd xmm1, eax
+            ; pxor xmm0, xmm1
+
+            // Set every element in xmm0 to -f(x)**2
+            ; vbroadcastss xmm0, xmm0
+
+            // Set every element in xmm0 to -f'(x) / f(x)**2
+            ; vdivps xmm0, Rx(reg(lhs_reg)), xmm0
+
+            // Compute the actual reciprocal into xmm1
+            ; mov eax, 1.0f32.to_bits() as i32
+            ; movd xmm1, eax
+            ; divss xmm1, Rx(reg(lhs_reg))
+
+            ; pxor Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vmovups Rx(reg(out_reg)), xmm0
+            ; movss Rx(reg(out_reg)), xmm1
+        );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         unimplemented!()
@@ -439,12 +464,12 @@ impl AssemblerT for GradSliceAssembler {
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
         );
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
         );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
