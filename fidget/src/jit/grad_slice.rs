@@ -548,10 +548,36 @@ impl AssemblerT for GradSliceAssembler {
         );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; ja >lhs
+
+            // Fallthrough
+            ; vmovups Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; jmp >out
+
+            ; lhs:
+            ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            // Fallthrough
+
+            ; out:
+        );
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; ja >rhs
+
+            // Fallthrough
+            ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >out
+
+            ; rhs:
+            ; vmovups Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            // Fallthrough
+
+            ; out:
+        );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

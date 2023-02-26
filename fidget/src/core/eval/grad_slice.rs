@@ -178,6 +178,42 @@ pub mod eval_tests {
         );
     }
 
+    pub fn test_g_min<I: Family>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let m = ctx.min(x, y).unwrap();
+        let tape = ctx.get_tape::<I>(m).unwrap();
+
+        let eval = tape.new_grad_slice_evaluator();
+        assert_eq!(
+            eval.eval(&[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(2.0, 1.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            eval.eval(&[4.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(3.0, 0.0, 1.0, 0.0)
+        );
+    }
+
+    pub fn test_g_max<I: Family>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let m = ctx.max(x, y).unwrap();
+        let tape = ctx.get_tape::<I>(m).unwrap();
+
+        let eval = tape.new_grad_slice_evaluator();
+        assert_eq!(
+            eval.eval(&[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(3.0, 0.0, 1.0, 0.0)
+        );
+        assert_eq!(
+            eval.eval(&[4.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(4.0, 1.0, 0.0, 0.0)
+        );
+    }
+
     pub fn test_g_circle<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -301,6 +337,8 @@ pub mod eval_tests {
             $crate::grad_test!(test_g_square, $t);
             $crate::grad_test!(test_g_sqrt, $t);
             $crate::grad_test!(test_g_mul, $t);
+            $crate::grad_test!(test_g_min, $t);
+            $crate::grad_test!(test_g_max, $t);
             $crate::grad_test!(test_g_div, $t);
             $crate::grad_test!(test_g_recip, $t);
             $crate::grad_test!(test_g_var, $t);
