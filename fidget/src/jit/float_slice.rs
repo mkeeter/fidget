@@ -233,17 +233,17 @@ impl AssemblerT for FloatSliceAssembler {
         out.prepare_stack(slot_count);
         dynasm!(out.ops
             // The loop returns here, and we check whether to keep looping
-            ; ->loop_start:
+            ; ->L:
 
             ; test r9, r9
-            ; jnz >body
+            ; jnz >B
 
             // Finalization code, which happens after all evaluation is complete
             ; add rsp, out.mem_offset as i32
             ; pop rbp
             ; ret
 
-            ; body:
+            ; B:
             // Copy from the input pointers into the stack right below rbp
             ; vmovups ymm0, [rdi]
             ; vmovups [rbp - 32], ymm0
@@ -371,7 +371,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; vmovups [r8], Ry(reg(out_reg))
             ; add r8, 32
             ; sub r9, 8
-            ; jmp ->loop_start
+            ; jmp ->L
         );
 
         self.0.ops.finalize()

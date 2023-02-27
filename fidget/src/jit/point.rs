@@ -353,72 +353,74 @@ impl AssemblerT for PointAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; jp >nan
-            ; ja >lhs
-            ; jb >rhs
+            ; jp >N
+            ; ja >L
+            ; jb >R
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
             ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >out
+            ; jmp >O
 
             // Fallthrough for NaN, which are !=; do a float addition to
             // propagate it to the output register.
-            ; nan:
+            ; N:
             ; or [rsi], CHOICE_BOTH as i8
             ; movss xmm1, Rx(reg(lhs_reg))
             ; addss xmm1, Rx(reg(rhs_reg))
             ; movss Rx(reg(out_reg)), xmm1
-            ; jmp >out
+            ; jmp >O
 
-            ; lhs:
+            ; L:
             ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
-            ; jmp >out
+            ; jmp >O
 
-            ; rhs:
+            ; R:
             ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
 
-            ; out:
+            ; O:
         );
+        self.0.ops.commit_local().unwrap()
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; jp >nan
-            ; ja >rhs
-            ; jb >lhs
+            ; jp >N
+            ; ja >R
+            ; jb >L
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
             ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >out
+            ; jmp >O
 
-            ; nan:
+            ; N:
             ; or [rsi], CHOICE_BOTH as i8
             ; movss xmm1, Rx(reg(lhs_reg))
             ; addss xmm1, Rx(reg(rhs_reg))
             ; movss Rx(reg(out_reg)), xmm1
-            ; jmp >out
+            ; jmp >O
 
-            ; lhs:
+            ; L:
             ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
-            ; jmp >out
+            ; jmp >O
 
-            ; rhs:
+            ; R:
             ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
 
-            ; out:
+            ; O:
         );
+        self.0.ops.commit_local().unwrap()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

@@ -507,31 +507,31 @@ impl AssemblerT for IntervalAssembler {
 
             // Check whether lhs.upper < 0
             ; comiss xmm0, xmm1
-            ; ja >neg
+            ; ja >N // negative
 
             // Check whether lhs.lower < 0
             ; comiss xmm0, Rx(reg(lhs_reg))
-            ; ja >straddle
+            ; ja >S // straddling 0
 
             // Fallthrough: the whole interval is above zero, so we just copy it
             // over and return.
             ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >end
+            ; jmp >E
 
             // The interval is less than zero, so we need to calculate
             // [-upper, -lower]
-            ; neg:
+            ; N:
             ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
             ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
             ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
             ; xorps xmm0, Rx(reg(lhs_reg)) // xor to swap sign bits
             ; pshufd xmm0, xmm0, 1 // swap lo and hi
             ; movq Rx(reg(out_reg)), xmm0
-            ; jmp >end
+            ; jmp >E
 
             // The interval straddles 0, so we need to calculate
             // [0.0, max(abs(lower, upper))]
-            ; straddle:
+            ; S:
             ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
             ; psrld xmm0, 1      // shift, leaving xmm0 = 0x7fffffff
             ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
@@ -545,17 +545,18 @@ impl AssemblerT for IntervalAssembler {
             ; pshufd xmm0, Rx(reg(out_reg)), 0b11110001u8 as i8
 
             ; comiss xmm0, Rx(reg(out_reg)) // Compare abs(hi) vs abs(lo)
-            ; ja >clr // if abs(hi) > abs(lo), then we don't need to swap
+            ; ja >C // if abs(hi) > abs(lo), then we don't need to swap
 
             ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110011u8 as i8
 
             // Clear the lowest value of the interval, leaving us with [0, ...]
-            ; clr:
+            ; C:
             ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b11110111u8 as i8
             // fallthrough to end
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -563,18 +564,18 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; comiss Rx(reg(lhs_reg)), xmm0
-            ; ja >okay // low element is > 0
+            ; ja >O // low element is > 0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1 // extract high element
             ; comiss xmm0, xmm1
-            ; ja >okay // high element is < 0
+            ; ja >O // high element is < 0
 
             // Bad case: the division spans 0, so return NaN
             ; mov eax, nan_u32 as i32
             ; movd Rx(reg(out_reg)), eax
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; jmp >end
+            ; jmp >E
 
-            ; okay:
+            ; O: // We're okay!
             ; mov eax, one_u32 as i32
             ; movd xmm0, eax
             ; vbroadcastss xmm0, xmm0
@@ -582,8 +583,9 @@ impl AssemblerT for IntervalAssembler {
             ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b0001
             // Fallthrough to end
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -591,29 +593,30 @@ impl AssemblerT for IntervalAssembler {
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1
             ; comiss xmm0, xmm1
-            ; ja >upper_lz
+            ; ja >U // upper_lz
             ; comiss xmm0, Rx(reg(lhs_reg))
-            ; ja >lower_lz
+            ; ja >L // lower_lz
 
             // Happy path
             ; vsqrtps Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >end
+            ; jmp >E
 
             // lower < 0, upper > 0 => [0, sqrt(upper)]
-            ; lower_lz:
+            ; L:
             ; pxor xmm0, xmm0 // clear xmm0
             ; sqrtss xmm0, xmm1
             ; pshufd Rx(reg(out_reg)), xmm0, 0b11110011u8 as i8
-            ; jmp >end
+            ; jmp >E
 
             // upper < 0 => [NaN, NaN]
-            ; upper_lz:
+            ; U:
             ; mov eax, nan_u32 as i32
             ; movd Rx(reg(out_reg)), eax
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -622,29 +625,30 @@ impl AssemblerT for IntervalAssembler {
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1
             ; comiss xmm0, xmm1
-            ; ja >neg
+            ; ja >N // negative
             ; comiss xmm0, Rx(reg(lhs_reg))
-            ; ja >straddle
+            ; ja >S // straddling 0
 
             // Fallthrough: lower > 0, so our previous result is fine
             ; movq Rx(reg(out_reg)), xmm2
-            ; jmp >end
+            ; jmp >E
 
             // upper < 0, so we square then swap
-            ; neg:
+            ; N:
             ; pshufd Rx(reg(out_reg)), xmm2, 0b11110001u8 as i8
-            ; jmp >end
+            ; jmp >E
 
             // lower < 0, upper > 0 => pick the bigger result
-            ; straddle:
+            ; S:
             ; pshufd xmm0, xmm2, 1
             ; maxss xmm0, xmm2
             ; movq rax, xmm0
             ; shl rax, 32 // Shift to put zeros in lower, square in upper
             ; movq Rx(reg(out_reg)), rax
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -683,18 +687,18 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             ; pxor xmm1, xmm1 // xmm1 = 0.0
             ; comiss Rx(reg(rhs_reg)), xmm1
-            ; ja >okay
+            ; ja >O // okay
             ; pshufd xmm2, Rx(reg(rhs_reg)), 1
             ; comiss xmm1, xmm2
-            ; ja >okay
+            ; ja >O // okay
 
             // Fallthrough: an input is NaN or rhs_reg spans 0; return NaN
             ; mov eax, std::f32::NAN.to_bits() as i32
             ; movd Rx(reg(out_reg)), eax
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; jmp >end
+            ; jmp >E
 
-            ; okay:
+            ; O:
             ; pshufd xmm2, Rx(reg(lhs_reg)), 0b01000001_i8
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b00010001_i8
             ; vdivps xmm2, xmm2, xmm1 // xmm2 contains all 4 results
@@ -714,8 +718,9 @@ impl AssemblerT for IntervalAssembler {
             // Splice the two together
             ; unpcklps Rx(reg(out_reg)), xmm2
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -724,47 +729,48 @@ impl AssemblerT for IntervalAssembler {
             // xmm1 = lhs.upper
             ; pshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8
             ; comiss xmm1, Rx(reg(rhs_reg)) // compare lhs.upper and rhs.lower
-            ; jp >nan
-            ; jb >rhs
+            ; jp >N // NaN
+            ; jb >R // rhs
 
             // xmm1 = rhs.upper
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8
             ; comiss xmm1, Rx(reg(lhs_reg))
-            ; jp >nan
-            ; jb >lhs
+            ; jp >N
+            ; jb >L
 
             // Fallthrough: ambiguous case
             ; vmaxps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_BOTH as i16
-            ; jmp >end
+            ; jmp >E
 
-            ; nan:
+            ; N:
             ; or ax, CHOICE_BOTH as i16
             ; mov eax, f32::NAN.to_bits() as i32
             ; movd Rx(reg(out_reg)), eax
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; jmp >end
+            ; jmp >E
 
             // lhs.upper < rhs.lower
-            ; lhs:
+            ; L:
             ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
             ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
             ; mov [rdx], cx
-            ; jmp >end
+            ; jmp >E
 
             // rhs.upper < lhs.lower
-            ; rhs:
+            ; R:
             ; movq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
-            ; jmp >end
+            ; jmp >E
 
-            ; end:
+            ; E:
             ; mov [rsi], ax
             ; add rsi, 1
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
@@ -786,47 +792,48 @@ impl AssemblerT for IntervalAssembler {
             // xmm1 = lhs.upper
             ; pshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8
             ; comiss xmm1, Rx(reg(rhs_reg)) // compare lhs.upper and rhs.lower
-            ; jp >nan
-            ; jb >lhs
+            ; jp >N
+            ; jb >L
 
             // xmm1 = rhs.upper
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8
             ; comiss xmm1, Rx(reg(lhs_reg))
-            ; jp >nan
-            ; jb >rhs
+            ; jp >N
+            ; jb >R
 
             // Fallthrough: ambiguous case
             ; vminps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_BOTH as i16
-            ; jmp >end
+            ; jmp >E
 
-            ; nan:
+            ; N:
             ; or ax, CHOICE_BOTH as i16
             ; mov eax, f32::NAN.to_bits() as i32
             ; movd Rx(reg(out_reg)), eax
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; jmp >end
+            ; jmp >E
 
             // lhs.upper < rhs.lower
-            ; lhs:
+            ; L:
             ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
             ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
             ; mov [rdx], cx
-            ; jmp >end
+            ; jmp >E
 
             // rhs.upper < lhs.lower
-            ; rhs:
+            ; R:
             ; movq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
-            ; jmp >end
+            ; jmp >E
 
-            ; end:
+            ; E:
             ; mov [rsi], ax
             ; add rsi, 1
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

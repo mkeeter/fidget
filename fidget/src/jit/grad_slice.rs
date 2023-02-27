@@ -325,17 +325,17 @@ impl AssemblerT for GradSliceAssembler {
         out.prepare_stack(slot_count);
         dynasm!(out.ops
             // The loop returns here, and we check whether to keep looping
-            ; ->loop_start:
+            ; ->L:
 
             ; test r9, r9
-            ; jnz >body
+            ; jnz >B
 
             // Finalization code, which happens after all evaluation is complete
             ; add rsp, out.mem_offset as i32
             ; pop rbp
             ; ret
 
-            ; body:
+            ; B: // body of the loop
 
             // Copy from the input pointers into the stack right below rbp
             ; mov eax, 1.0f32.to_bits() as i32
@@ -412,21 +412,22 @@ impl AssemblerT for GradSliceAssembler {
             ; pxor xmm0, xmm0
 
             ; comiss Rx(reg(lhs_reg)), xmm0
-            ; jb >neg
+            ; jb >N
 
             // Fallthrough: non-negative (or NaN) input
             ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >end
+            ; jmp >E
 
-            ; neg:
+            ; N: // negative
             ; mov eax, 0x80000000u32 as i32
             ; movd xmm0, eax
             ; vbroadcastss xmm0, xmm0
             ; vpxor Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
             // Fallthrough to end
 
-            ; end:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         // d/dx 1/f(x) = -f'(x) / f(x)**2
@@ -550,34 +551,36 @@ impl AssemblerT for GradSliceAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; ja >lhs
+            ; ja >L
 
             // Fallthrough
             ; vmovups Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; jmp >out
+            ; jmp >E
 
-            ; lhs:
+            ; L:
             ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
             // Fallthrough
 
-            ; out:
+            ; E:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; ja >rhs
+            ; ja >R
 
             // Fallthrough
             ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >out
+            ; jmp >O
 
-            ; rhs:
+            ; R:
             ; vmovups Rx(reg(out_reg)), Rx(reg(rhs_reg))
             // Fallthrough
 
-            ; out:
+            ; O:
         );
+        self.0.ops.commit_local().unwrap();
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
@@ -594,7 +597,7 @@ impl AssemblerT for GradSliceAssembler {
             ; vmovups [r8], Rx(reg(out_reg))
             ; add r8, 16 // 4x float
             ; sub r9, 1
-            ; jmp ->loop_start
+            ; jmp ->L
         );
 
         self.0.ops.finalize()

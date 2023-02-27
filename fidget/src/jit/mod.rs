@@ -27,11 +27,8 @@ use crate::{
     Error,
 };
 use dynasmrt::{
-    components::{
-        LabelRegistry, ManagedRelocs, PatchLoc, RelocRegistry, StaticLabel,
-    },
-    dynasm, AssemblyOffset, DynamicLabel, DynasmApi, DynasmError,
-    DynasmLabelApi, LabelKind, TargetKind,
+    components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
+    DynasmError, DynasmLabelApi, TargetKind,
 };
 use std::sync::Arc;
 
@@ -255,10 +252,11 @@ struct MmapAssembler {
     mmap: Mmap,
     len: usize,
 
-    labels: LabelRegistry,
-    relocs: RelocRegistry<Relocation>,
-    managed: ManagedRelocs<Relocation>,
-    error: Option<DynasmError>,
+    global_labels: [Option<AssemblyOffset>; 256],
+    local_labels: [Option<AssemblyOffset>; 256],
+
+    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 1>,
+    local_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 8>,
 }
 
 impl Extend<u8> for MmapAssembler {
@@ -321,25 +319,44 @@ impl DynasmApi for MmapAssembler {
     }
 }
 
-// Mostly copy-pasted from the `Assembler` implementation in dynasmrt
+// This is a very limited implementation of the labels API.  Compared to the
+// standard labels API, it has the following limitations:
+//
+// - Labels must be a single character
+// - Local labels must be committed before they're reused, using `commit_local`
+// - Only 8 local jumps are available at any given time; this is reset when
+//   `commit_local` is called.  (if this becomes problematic, it can be
+//   increased by tweaking the size of `local_relocs: ArrayVec<..., 8>`.
+//
+// In exchange for these limitations, it allocates no memory at runtime, and all
+// label lookups are done in constant time.
 impl DynasmLabelApi for MmapAssembler {
     type Relocation = Relocation;
 
     fn local_label(&mut self, name: &'static str) {
-        let offset = self.offset();
-        self.labels.define_local(name, offset);
+        if name.len() != 1 {
+            panic!("local label must be a single character");
+        }
+        let c = name.as_bytes()[0];
+        if self.local_labels[c as usize].is_some() {
+            panic!("duplicate local label {name}");
+        }
+
+        self.local_labels[c as usize] = Some(self.offset());
     }
     fn global_label(&mut self, name: &'static str) {
-        let offset = self.offset();
-        if let Err(e) = self.labels.define_global(name, offset) {
-            self.error = Some(e)
+        if name.len() != 1 {
+            panic!("local label must be a single character");
         }
+        let c = name.as_bytes()[0];
+        if self.global_labels[c as usize].is_some() {
+            panic!("duplicate global label {name}");
+        }
+
+        self.global_labels[c as usize] = Some(self.offset());
     }
-    fn dynamic_label(&mut self, id: DynamicLabel) {
-        let offset = self.offset();
-        if let Err(e) = self.labels.define_dynamic(id, offset) {
-            self.error = Some(e)
-        }
+    fn dynamic_label(&mut self, _id: DynamicLabel) {
+        panic!("dynamic labels are not supported");
     }
     fn global_relocation(
         &mut self,
@@ -350,9 +367,11 @@ impl DynasmLabelApi for MmapAssembler {
         kind: Relocation,
     ) {
         let location = self.offset();
-        let label = StaticLabel::global(name);
-        self.relocs.add_static(
-            label,
+        if name.len() != 1 {
+            panic!("local label must be a single character");
+        }
+        let c = name.as_bytes()[0];
+        self.global_relocs.push((
             PatchLoc::new(
                 location,
                 target_offset,
@@ -360,27 +379,18 @@ impl DynasmLabelApi for MmapAssembler {
                 ref_offset,
                 kind,
             ),
-        );
+            c,
+        ));
     }
     fn dynamic_relocation(
         &mut self,
-        id: DynamicLabel,
-        target_offset: isize,
-        field_offset: u8,
-        ref_offset: u8,
-        kind: Relocation,
+        _id: DynamicLabel,
+        _target_offset: isize,
+        _field_offset: u8,
+        _ref_offset: u8,
+        _kind: Relocation,
     ) {
-        let location = self.offset();
-        self.relocs.add_dynamic(
-            id,
-            PatchLoc::new(
-                location,
-                target_offset,
-                field_offset,
-                ref_offset,
-                kind,
-            ),
-        );
+        panic!("dynamic relocations are not supported");
     }
     fn forward_relocation(
         &mut self,
@@ -390,13 +400,15 @@ impl DynasmLabelApi for MmapAssembler {
         ref_offset: u8,
         kind: Relocation,
     ) {
+        if name.len() != 1 {
+            panic!("local label must be a single character");
+        }
+        let c = name.as_bytes()[0];
+        if self.local_labels[c as usize].is_some() {
+            panic!("invalid forward relocation: {name} already exists!");
+        }
         let location = self.offset();
-        let label = match self.labels.place_local_reference(name) {
-            Some(label) => label.next(),
-            None => StaticLabel::first(name),
-        };
-        self.relocs.add_static(
-            label,
+        self.local_relocs.push((
             PatchLoc::new(
                 location,
                 target_offset,
@@ -404,7 +416,8 @@ impl DynasmLabelApi for MmapAssembler {
                 ref_offset,
                 kind,
             ),
-        );
+            c,
+        ));
     }
     fn backward_relocation(
         &mut self,
@@ -414,17 +427,15 @@ impl DynasmLabelApi for MmapAssembler {
         ref_offset: u8,
         kind: Relocation,
     ) {
+        if name.len() != 1 {
+            panic!("local label must be a single character");
+        }
+        let c = name.as_bytes()[0];
+        if self.local_labels[c as usize].is_none() {
+            panic!("invalid backward relocation: {name} does not exist");
+        }
         let location = self.offset();
-        let label = match self.labels.place_local_reference(name) {
-            Some(label) => label,
-            None => {
-                self.error =
-                    Some(DynasmError::UnknownLabel(LabelKind::Local(name)));
-                return;
-            }
-        };
-        self.relocs.add_static(
-            label,
+        self.local_relocs.push((
             PatchLoc::new(
                 location,
                 target_offset,
@@ -432,61 +443,50 @@ impl DynasmLabelApi for MmapAssembler {
                 ref_offset,
                 kind,
             ),
-        );
+            c,
+        ));
     }
     fn bare_relocation(
         &mut self,
-        target: usize,
-        field_offset: u8,
-        ref_offset: u8,
-        kind: Relocation,
+        _target: usize,
+        _field_offset: u8,
+        _ref_offset: u8,
+        _kind: Relocation,
     ) {
-        let location = self.offset();
-        let loc = PatchLoc::new(location, 0, field_offset, ref_offset, kind);
-        let addr = self.mmap.as_ptr() as usize;
-        let buf = &mut self.mmap.as_mut_slice()[loc.range(self.len)];
-        if loc.patch(buf, addr, target).is_err() {
-            self.error = Some(DynasmError::ImpossibleRelocation(
-                TargetKind::Extern(target),
-            ))
-        } else if loc.needs_adjustment() {
-            self.managed.add(loc)
-        }
+        panic!("bare relocations not implemented");
     }
 }
 
 impl MmapAssembler {
-    fn finalize(mut self) -> Result<Mmap, Error> {
-        if let Some(e) = self.error {
-            return Err(e.into());
-        }
+    fn commit_local(&mut self) -> Result<(), Error> {
         let baseaddr = self.mmap.as_ptr() as usize;
 
-        // Code below is based on `Assembler::commit` in `dynasmrt`
-
-        // Resolve statics
-        for (loc, label) in self.relocs.take_statics() {
-            let target = self.labels.resolve_static(&label)?;
+        for (loc, label) in self.local_relocs.take() {
+            let target =
+                self.local_labels.get(label as usize).unwrap().unwrap();
             let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
-                    if label.is_global() {
-                        TargetKind::Global(label.get_name())
-                    } else {
-                        TargetKind::Local(label.get_name())
-                    },
+                    TargetKind::Local("oh no"),
                 )
                 .into());
             }
         }
+        self.local_labels = [None; 256];
+        Ok(())
+    }
 
-        // Resolve dynamics
-        for (loc, id) in self.relocs.take_dynamics() {
-            let target = self.labels.resolve_dynamic(id)?;
+    fn finalize(mut self) -> Result<Mmap, Error> {
+        self.commit_local()?;
+
+        let baseaddr = self.mmap.as_ptr() as usize;
+        for (loc, label) in self.global_relocs.take() {
+            let target =
+                self.global_labels.get(label as usize).unwrap().unwrap();
             let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
-                    TargetKind::Dynamic(id),
+                    TargetKind::Global("oh no"),
                 )
                 .into());
             }
@@ -514,10 +514,10 @@ impl From<Mmap> for MmapAssembler {
         Self {
             mmap,
             len: 0,
-            labels: LabelRegistry::new(),
-            relocs: RelocRegistry::new(),
-            managed: ManagedRelocs::new(),
-            error: None,
+            global_labels: [None; 256],
+            local_labels: [None; 256],
+            global_relocs: Default::default(),
+            local_relocs: Default::default(),
         }
     }
 }
