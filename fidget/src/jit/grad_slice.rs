@@ -321,6 +321,7 @@ impl AssemblerT for GradSliceAssembler {
         dynasm!(out.ops
             ; push rbp
             ; mov rbp, rsp
+            ; vzeroupper
         );
         out.prepare_stack(slot_count);
         dynasm!(out.ops
@@ -390,8 +391,8 @@ impl AssemblerT for GradSliceAssembler {
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         dynasm!(self.0.ops
-            ; pxor Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; movss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
+            ; vpxor Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vmovss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -401,18 +402,17 @@ impl AssemblerT for GradSliceAssembler {
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; mov eax, 0x80000000u32 as i32
-            ; movd Rx(IMM_REG), eax
-            ; vbroadcastss Rx(IMM_REG), Rx(IMM_REG)
-            ; vpxor Rx(reg(out_reg)), Rx(IMM_REG), Rx(reg(lhs_reg))
+            ; vpcmpeqw xmm0, xmm0, xmm0
+            ; vpslld xmm0, xmm0, 31 // set the sign bit
+            ; vpxor Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
         );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Store 0.0 to xmm0, for comparisons
-            ; pxor xmm0, xmm0
+            ; vpxor xmm0, xmm0, xmm0
 
-            ; comiss Rx(reg(lhs_reg)), xmm0
+            ; vcomiss Rx(reg(lhs_reg)), xmm0
             ; jb >N
 
             // Fallthrough: non-negative (or NaN) input
@@ -420,9 +420,8 @@ impl AssemblerT for GradSliceAssembler {
             ; jmp >E
 
             ; N: // negative
-            ; mov eax, 0x80000000u32 as i32
-            ; movd xmm0, eax
-            ; vbroadcastss xmm0, xmm0
+            ; vpcmpeqw xmm0, xmm0, xmm0
+            ; vpslld xmm0, xmm0, 31 // set the sign bit
             ; vpxor Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
             // Fallthrough to end
 
@@ -461,12 +460,13 @@ impl AssemblerT for GradSliceAssembler {
         // d/dx sqrt(f(x)) = f'(x) / (2 * sqrt(f(x)))
         dynasm!(self.0.ops
             // Calculate xmm0[0] = f(x)**2
-            ; sqrtss xmm0, Rx(reg(lhs_reg))
+            ; vsqrtss xmm0, xmm0, Rx(reg(lhs_reg))
 
             // Multiply it by 2
+            // TODO is this the best way to make 2.0?
             ; mov eax, 2.0f32.to_bits() as i32
-            ; movd xmm1, eax
-            ; mulss xmm0, xmm1
+            ; vmovd xmm1, eax
+            ; vmulss xmm0, xmm0, xmm1
 
             // Set every element in xmm0 to 2 * sqrt(f(x))
             ; vbroadcastss xmm0, xmm0
@@ -475,21 +475,21 @@ impl AssemblerT for GradSliceAssembler {
             ; vdivps xmm0, Rx(reg(lhs_reg)), xmm0
 
             // Compute the actual square root into xmm1
-            ; sqrtss xmm1, Rx(reg(lhs_reg))
+            ; vsqrtss xmm1, xmm1, Rx(reg(lhs_reg))
 
             ; vmovups Rx(reg(out_reg)), xmm0
-            ; movss Rx(reg(out_reg)), xmm1
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), xmm1
         );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         // d/dx f(x)**2 = 2 * f(x) * f'(x)
         dynasm!(self.0.ops
             ; mov eax, 2.0f32.to_bits() as i32
-            ; movd xmm1, eax
+            ; vmovd xmm1, eax
             ; vbroadcastss xmm1, xmm1
 
             ; mov eax, 1.0f32.to_bits() as i32
-            ; movd xmm0, eax
+            ; vmovd xmm0, eax
             ; movss xmm1, xmm0
             // At this point, xmm1 contains [1, 2, 2, 2]
 
@@ -519,7 +519,7 @@ impl AssemblerT for GradSliceAssembler {
 
             ; vmulss xmm2, Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; vmovups Rx(reg(out_reg)), xmm1
-            ; movss Rx(reg(out_reg)), xmm2
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), xmm2
         );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -546,12 +546,12 @@ impl AssemblerT for GradSliceAssembler {
             // Patch in the actual division result
             ; vdivss xmm2, Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; vmovups Rx(reg(out_reg)), xmm1
-            ; movss Rx(reg(out_reg)), xmm2
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), xmm2
         );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; ja >L
 
             // Fallthrough
@@ -568,7 +568,7 @@ impl AssemblerT for GradSliceAssembler {
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; ja >R
 
             // Fallthrough
@@ -586,9 +586,9 @@ impl AssemblerT for GradSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
-            ; pxor Rx(IMM_REG), Rx(IMM_REG)
+            ; vpxor Rx(IMM_REG), Rx(IMM_REG), Rx(IMM_REG)
             ; mov eax, imm_u32 as i32
-            ; movd Rx(IMM_REG), eax
+            ; vmovd Rx(IMM_REG), eax
         );
         IMM_REG.wrapping_sub(OFFSET)
     }

@@ -286,7 +286,7 @@ impl AssemblerT for FloatSliceAssembler {
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         dynasm!(self.0.ops
-            ; movss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
+            ; vmovss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
             ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
         );
     }
