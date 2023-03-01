@@ -241,6 +241,8 @@ impl AssemblerT for FloatSliceAssembler {
             // Finalization code, which happens after all evaluation is complete
             ; add rsp, out.mem_offset as i32
             ; pop rbp
+            ; emms
+            ; vzeroall
             ; ret
 
             ; B:
@@ -294,24 +296,25 @@ impl AssemblerT for FloatSliceAssembler {
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; mov eax, 0x80000000u32 as i32
-            ; movd Rx(IMM_REG), eax
-            ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
-            ; vpxor Ry(reg(out_reg)), Ry(IMM_REG), Ry(reg(lhs_reg))
+            ; vpcmpeqw ymm0, ymm0, ymm0
+            ; vpslld ymm0, ymm0, 31 // set the sign bit
+            ; vpxor Ry(reg(out_reg)), ymm0, Ry(reg(lhs_reg))
         );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; mov eax, 0x7fffffffu32 as i32
-            ; movd Rx(IMM_REG), eax
-            ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
-            ; vpand Ry(reg(out_reg)), Ry(IMM_REG), Ry(reg(lhs_reg))
+            ; vpcmpeqw ymm0, ymm0, ymm0
+            ; vpsrld ymm0, ymm0, 1 // everything but the sign bit
+            ; vpand Ry(reg(out_reg)), ymm0, Ry(reg(lhs_reg))
         );
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        let imm = self.load_imm(1.0);
         dynasm!(self.0.ops
-            ; vdivps Ry(reg(out_reg)), Ry(reg(imm)), Ry(reg(lhs_reg))
+            // Build [1.0 x 8] in ymm0
+            ; vpcmpeqw ymm0, ymm0, ymm0
+            ; vpslld ymm0, ymm0, 25
+            ; vpsrld ymm0, ymm0, 2
+            ; vdivps Ry(reg(out_reg)), ymm0, Ry(reg(lhs_reg))
         );
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -357,10 +360,14 @@ impl AssemblerT for FloatSliceAssembler {
         );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
-        let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
-            ; mov eax, imm_u32 as i32
-            ; movd Rx(IMM_REG), eax
+            ; mov eax, imm.to_bits() as i32
+
+            // This seems extremely cursed, but is ~180x faster than "movd xmm0,
+            // eax".  I'm not any happier about it than you are.
+            ; mov [rsp - 4], eax
+            ; vmovups xmm0, [rsp - 4]
+
             ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
         );
         IMM_REG.wrapping_sub(OFFSET)

@@ -333,6 +333,7 @@ impl AssemblerT for GradSliceAssembler {
             // Finalization code, which happens after all evaluation is complete
             ; add rsp, out.mem_offset as i32
             ; pop rbp
+            ; emms
             ; ret
 
             ; B: // body of the loop

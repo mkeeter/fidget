@@ -849,6 +849,7 @@ impl AssemblerT for IntervalAssembler {
             ; movq xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
+            ; emms
             ; ret
         );
         let out = self.0.ops.finalize()?;

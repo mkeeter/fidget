@@ -436,6 +436,7 @@ impl AssemblerT for PointAssembler {
             ; movss xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
+            ; emms
             ; ret
         );
         self.0.ops.finalize()
