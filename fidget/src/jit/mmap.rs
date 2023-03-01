@@ -119,21 +119,30 @@ impl Mmap {
 
 #[cfg(target_os = "linux")]
 impl Mmap {
+    #[cfg(feature = "rxw")]
     pub const MMAP_PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
+
+    #[cfg(not(feature = "rxw"))]
+    pub const MMAP_PROT: i32 =
+        libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
+
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
 
     /// Switches the given cache to an executable binding.
     ///
-    /// Note that you will still need to change the global W^X mode before
-    /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
+    /// This is a no-op if the `rxw` feature is not enabled.
     pub fn finalize(&self, size: usize) {
         #[cfg(target_arch = "aarch64")]
         compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
 
+        #[cfg(feature = "rxw")]
         unsafe {
             libc::mprotect(self.ptr, size, libc::PROT_READ | libc::PROT_EXEC);
         }
+
+        #[cfg(not(feature = "rxw"))]
+        let _ = size; // discard
     }
 
     /// Modifies the **per-thread** W^X state to allow writing of memory-mapped
@@ -145,7 +154,10 @@ impl Mmap {
     }
 
     /// Modifies the region's W^X state to allow writing
+    ///
+    /// This is a no-op if the `rxw` feature is not enabled.
     pub fn make_write(&self) {
+        #[cfg(feature = "rxw")]
         unsafe {
             libc::mprotect(
                 self.ptr,
