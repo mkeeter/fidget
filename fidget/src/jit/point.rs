@@ -201,10 +201,11 @@ impl AssemblerT for PointAssembler {
         dynasm!(out.ops
             ; push rbp
             ; mov rbp, rsp
+            ; vzeroupper
             // Put X/Y/Z on the stack so we can use those registers
-            ; movss [rbp - 4], xmm0
-            ; movss [rbp - 8], xmm1
-            ; movss [rbp - 12], xmm2
+            ; vmovss [rbp - 4], xmm0
+            ; vmovss [rbp - 8], xmm1
+            ; vmovss [rbp - 12], xmm2
         );
         out.prepare_stack(slot_count);
         Self(out)
@@ -214,65 +215,48 @@ impl AssemblerT for PointAssembler {
         assert!(dst_reg < REGISTER_LIMIT);
         let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
         dynasm!(self.0.ops
-            ; movss Rx(reg(dst_reg)), [rsp + sp_offset]
+            ; vmovss Rx(reg(dst_reg)), [rsp + sp_offset]
         );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT);
         let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
         dynasm!(self.0.ops
-            ; movss [rsp + sp_offset], Rx(reg(src_reg))
+            ; vmovss [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops
             // Pull X/Y/Z from the stack, where they've been placed by init()
-            ; movss Rx(reg(out_reg)), [rbp - 4 * (src_arg as i32 + 1)]
+            ; vmovss Rx(reg(out_reg)), [rbp - 4 * (src_arg as i32 + 1)]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         dynasm!(self.0.ops
-            ; movss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
+            ; vmovss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
         );
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         // Flip the sign bit in the float
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; mov eax, 0x80000000u32 as i32
-                ; movd Rx(IMM_REG), eax
-                ; xorps Rx(IMM_REG), Rx(reg(lhs_reg))
-                ; movss Rx(reg(out_reg)), Rx(IMM_REG)
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; mov eax, 0x80000000u32 as i32
-                ; movd Rx(reg(out_reg)), eax
-                ; xorps Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            );
-        }
+        dynasm!(self.0.ops
+            // TODO: build this in xmm0 directly
+            ; mov eax, 0x80000000u32 as i32
+            ; movd xmm0, eax
+            ; vxorps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
+        );
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         // Clear the sign bit in the float
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; mov eax, 0x7fffffffu32 as i32
-                ; movd Rx(IMM_REG), eax
-                ; andps Rx(IMM_REG), Rx(reg(lhs_reg))
-                ; movss Rx(reg(out_reg)), Rx(IMM_REG)
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; mov eax, 0x7fffffffu32 as i32
-                ; movd Rx(reg(out_reg)), eax
-                ; andps Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            );
-        }
+        dynasm!(self.0.ops
+            ; mov eax, 0x7fffffffu32 as i32
+            ; vmovd xmm0, eax
+            ; vandps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
+        )
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let imm = self.load_imm(1.0);
@@ -287,98 +271,58 @@ impl AssemblerT for PointAssembler {
         );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; mulss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-                ; mulss Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            );
-        }
+        dynasm!(self.0.ops
+            ; vmulss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+        );
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; addss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            )
-        } else {
-            dynasm!(self.0.ops
-                ; movss xmm1, Rx(reg(lhs_reg))
-                ; addss xmm1, Rx(reg(rhs_reg))
-                ; movss Rx(reg(out_reg)), xmm1
-            )
-        }
+        dynasm!(self.0.ops
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; subss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; movss xmm1, Rx(reg(lhs_reg))
-                ; subss xmm1, Rx(reg(rhs_reg))
-                ; movss Rx(reg(out_reg)), xmm1
-            );
-        }
+        dynasm!(self.0.ops
+            ; vsubss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; mulss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; movss xmm1, Rx(reg(lhs_reg))
-                ; mulss xmm1, Rx(reg(rhs_reg))
-                ; movss Rx(reg(out_reg)), xmm1
-            );
-        }
+        dynasm!(self.0.ops
+            ; vmulss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        if out_reg == lhs_reg {
-            dynasm!(self.0.ops
-                ; divss Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; movss xmm1, Rx(reg(lhs_reg))
-                ; divss xmm1, Rx(reg(rhs_reg))
-                ; movss Rx(reg(out_reg)), xmm1
-            );
-        }
+        dynasm!(self.0.ops
+            ; vdivss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+        );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jp >N
             ; ja >L
             ; jb >R
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
-            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             // Fallthrough for NaN, which are !=; do a float addition to
             // propagate it to the output register.
             ; N:
             ; or [rsi], CHOICE_BOTH as i8
-            ; movss xmm1, Rx(reg(lhs_reg))
-            ; addss xmm1, Rx(reg(rhs_reg))
-            ; movss Rx(reg(out_reg)), xmm1
+            // TODO: this can't be the best way to make a NAN
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
-            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
             ; jmp >O
 
             ; R:
-            ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
@@ -389,31 +333,30 @@ impl AssemblerT for PointAssembler {
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; comiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jp >N
             ; ja >R
             ; jb >L
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
-            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             ; N:
             ; or [rsi], CHOICE_BOTH as i8
-            ; movss xmm1, Rx(reg(lhs_reg))
-            ; addss xmm1, Rx(reg(rhs_reg))
-            ; movss Rx(reg(out_reg)), xmm1
+            // TODO: this can't be the best way to make a NAN
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
-            ; movss Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
             ; jmp >O
 
             ; R:
-            ; movss Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
@@ -426,14 +369,14 @@ impl AssemblerT for PointAssembler {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
             ; mov eax, imm_u32 as i32
-            ; movd Rx(IMM_REG), eax
+            ; vmovd Rx(IMM_REG), eax
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Prepare our return value
-            ; movss xmm0, Rx(reg(out_reg))
+            ; vmovss xmm0, xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
             ; emms

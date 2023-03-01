@@ -229,6 +229,7 @@ impl AssemblerT for FloatSliceAssembler {
         dynasm!(out.ops
             ; push rbp
             ; mov rbp, rsp
+            ; vzeroupper
         );
         out.prepare_stack(slot_count);
         dynasm!(out.ops
