@@ -489,8 +489,7 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             ; pshufd Rx(reg(out_reg)), Rx(reg(lhs_reg)), 0b11110001u8 as i8
             ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
-            ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
-            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
+            ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000 x 4
             ; xorps Rx(reg(out_reg)), xmm0
         );
     }
@@ -523,10 +522,8 @@ impl AssemblerT for IntervalAssembler {
             ; N:
             ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
             ; pslld xmm0, 31     // shift, leaving xmm0 = 0x80000000
-            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
             ; xorps xmm0, Rx(reg(lhs_reg)) // xor to swap sign bits
-            ; pshufd xmm0, xmm0, 1 // swap lo and hi
-            ; movq Rx(reg(out_reg)), xmm0
+            ; pshufd Rx(reg(out_reg)), xmm0, 1 // swap lo and hi
             ; jmp >E
 
             // The interval straddles 0, so we need to calculate
@@ -534,12 +531,10 @@ impl AssemblerT for IntervalAssembler {
             ; S:
             ; pcmpeqd xmm0, xmm0 // set xmm0 to all 1s
             ; psrld xmm0, 1      // shift, leaving xmm0 = 0x7fffffff
-            ; vbroadcastss xmm0, xmm0 // Smear this onto every f32
 
             // Copy to out_reg and clear sign bits; setting up out_reg as
             // [abs(low), abs(high)]
-            ; movq Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; andps Rx(reg(out_reg)), xmm0
+            ; vandps Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm0
 
             // Set up xmm0 to contain [abs(high), abs(low)]
             ; pshufd xmm0, Rx(reg(out_reg)), 0b11110001u8 as i8
@@ -559,8 +554,6 @@ impl AssemblerT for IntervalAssembler {
         self.0.ops.commit_local().unwrap();
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        let nan_u32 = f32::NAN.to_bits();
-        let one_u32 = 1f32.to_bits();
         dynasm!(self.0.ops
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; comiss Rx(reg(lhs_reg)), xmm0
@@ -570,15 +563,16 @@ impl AssemblerT for IntervalAssembler {
             ; ja >O // high element is < 0
 
             // Bad case: the division spans 0, so return NaN
-            ; mov eax, nan_u32 as i32
-            ; movd Rx(reg(out_reg)), eax
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pslld Rx(reg(out_reg)), 23
+            ; psrld Rx(reg(out_reg)), 1
             ; jmp >E
 
             ; O: // We're okay!
-            ; mov eax, one_u32 as i32
-            ; movd xmm0, eax
-            ; vbroadcastss xmm0, xmm0
+            // Load 1.0 into xmm0
+            ; pcmpeqw xmm0, xmm0
+            ; pslld xmm0, 25
+            ; psrld xmm0, 2
             ; vdivps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
             ; pshufd Rx(reg(out_reg)), Rx(reg(out_reg)), 0b0001
             // Fallthrough to end
@@ -588,7 +582,6 @@ impl AssemblerT for IntervalAssembler {
         self.0.ops.commit_local().unwrap();
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             ; pxor xmm0, xmm0 // xmm0 = 0.0
             ; pshufd xmm1, Rx(reg(lhs_reg)), 1
@@ -610,9 +603,9 @@ impl AssemblerT for IntervalAssembler {
 
             // upper < 0 => [NaN, NaN]
             ; U:
-            ; mov eax, nan_u32 as i32
-            ; movd Rx(reg(out_reg)), eax
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pslld Rx(reg(out_reg)), 23
+            ; psrld Rx(reg(out_reg)), 1
 
             ; E:
         );
@@ -640,11 +633,9 @@ impl AssemblerT for IntervalAssembler {
 
             // lower < 0, upper > 0 => pick the bigger result
             ; S:
-            ; pshufd xmm0, xmm2, 1
-            ; maxss xmm0, xmm2
-            ; movq rax, xmm0
-            ; shl rax, 32 // Shift to put zeros in lower, square in upper
-            ; movq Rx(reg(out_reg)), rax
+            ; pshufd Rx(reg(out_reg)), xmm2, 1
+            ; maxss Rx(reg(out_reg)), xmm2
+            ; psllq Rx(reg(out_reg)), 32 // Shift to the upper position
 
             ; E:
         );
@@ -693,11 +684,13 @@ impl AssemblerT for IntervalAssembler {
             ; ja >O // okay
 
             // Fallthrough: an input is NaN or rhs_reg spans 0; return NaN
-            ; mov eax, std::f32::NAN.to_bits() as i32
-            ; movd Rx(reg(out_reg)), eax
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            // by manually building it in the XMM register
+            ; pcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pslld Rx(reg(out_reg)), 23
+            ; psrld Rx(reg(out_reg)), 1
             ; jmp >E
 
+            // Reorganize
             ; O:
             ; pshufd xmm2, Rx(reg(lhs_reg)), 0b01000001_i8
             ; pshufd xmm1, Rx(reg(rhs_reg)), 0b00010001_i8
@@ -745,9 +738,10 @@ impl AssemblerT for IntervalAssembler {
 
             ; N:
             ; or ax, CHOICE_BOTH as i16
-            ; mov eax, f32::NAN.to_bits() as i32
-            ; movd Rx(reg(out_reg)), eax
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            // Load NaN into out_reg
+            ; pcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pslld Rx(reg(out_reg)), 23
+            ; psrld Rx(reg(out_reg)), 1
             ; jmp >E
 
             // lhs.upper < rhs.lower
@@ -764,7 +758,7 @@ impl AssemblerT for IntervalAssembler {
             ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
-            ; jmp >E
+            // Fallthrough
 
             ; E:
             ; mov [rsi], ax
@@ -808,9 +802,10 @@ impl AssemblerT for IntervalAssembler {
 
             ; N:
             ; or ax, CHOICE_BOTH as i16
-            ; mov eax, f32::NAN.to_bits() as i32
-            ; movd Rx(reg(out_reg)), eax
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
+            // Load NAN into out_reg
+            ; pcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; pslld Rx(reg(out_reg)), 23
+            ; psrld Rx(reg(out_reg)), 1
             ; jmp >E
 
             // lhs.upper < rhs.lower
@@ -827,7 +822,7 @@ impl AssemblerT for IntervalAssembler {
             ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
-            ; jmp >E
+            // Fallthrough
 
             ; E:
             ; mov [rsi], ax

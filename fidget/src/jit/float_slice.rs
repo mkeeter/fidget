@@ -362,12 +362,7 @@ impl AssemblerT for FloatSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         dynasm!(self.0.ops
             ; mov eax, imm.to_bits() as i32
-
-            // This seems extremely cursed, but is ~180x faster than "movd xmm0,
-            // eax".  I'm not any happier about it than you are.
-            ; mov [rsp - 4], eax
-            ; vmovups xmm0, [rsp - 4]
-
+            ; vmovd Rx(IMM_REG), eax
             ; vbroadcastss Ry(IMM_REG), Rx(IMM_REG)
         );
         IMM_REG.wrapping_sub(OFFSET)
