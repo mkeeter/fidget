@@ -47,24 +47,14 @@ compile_error!(
 );
 
 #[cfg(target_arch = "aarch64")]
-mod arch {
-    /// We can use registers `v8-15` (callee saved) and `v16-31` (caller saved)
-    pub const REGISTER_LIMIT: u8 = 24;
-    /// `v3` is used for immediates, because `v0-2` contain inputs
-    pub const IMM_REG: u8 = 3;
-    /// `v4-7` are used for as temporary variables:w
-    pub const OFFSET: u8 = 8;
-}
+mod aarch64;
+#[cfg(target_arch = "aarch64")]
+use aarch64 as arch;
 
 #[cfg(target_arch = "x86_64")]
-mod arch {
-    /// We use `xmm4-16` (all caller-saved) for graph variables
-    pub const REGISTER_LIMIT: u8 = 12;
-    /// `xmm0` is used for immediates
-    pub const IMM_REG: u8 = 0;
-    /// `xmm1-3` are available for use as temporaries.
-    pub const OFFSET: u8 = 4;
-}
+mod x86_64;
+#[cfg(target_arch = "x86_64")]
+use x86_64 as arch;
 
 /// Number of registers available when executing natively
 const REGISTER_LIMIT: u8 = arch::REGISTER_LIMIT;
@@ -108,27 +98,6 @@ const CHOICE_BOTH: u32 = Choice::Both as u32;
 /// This is public because it's used to parameterize various other types, but
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
-///
-/// # Notes for writing assembly in this module
-/// ## Working registers
-/// We dedicate 24 registers to tape data storage:
-/// - Floating point registers `s8-15` (callee-saved, but only the lower 64
-///   bits)
-/// - Floating-point registers `s16-31` (caller-saved)
-///
-/// This means that the input tape must be planned with a <= 24 register limit;
-/// any spills will live on the stack.
-///
-/// Right now, we never call anything, so don't worry about saving stuff.
-///
-/// ## Scratch registers
-/// Within a single operation, you'll often need to make use of scratch
-/// registers.  `s3` / `v3` is used when loading immediates, and should not be
-/// used as a scratch register (this is the `IMM_REG` constant).  `s4-7`/`v4-7`
-/// are all available, and are callee-saved.
-///
-/// For general-purpose registers, `x9-15` (also called `w9-15`) are reasonable
-/// choices; they are caller-saved, so we can trash them at will.
 pub trait AssemblerT {
     /// Data type used during evaluation.
     ///
@@ -188,7 +157,7 @@ pub trait SimdAssembler {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-struct AssemblerData<T> {
+pub(crate) struct AssemblerData<T> {
     ops: MmapAssembler,
 
     /// Current offset of the stack pointer, in bytes
