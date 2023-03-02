@@ -48,18 +48,22 @@ compile_error!(
 
 #[cfg(target_arch = "aarch64")]
 mod arch {
-    /// We can use registers v8-v15 (callee saved) and v16-v31 (caller saved)
+    /// We can use registers `v8-15` (callee saved) and `v16-31` (caller saved)
     pub const REGISTER_LIMIT: u8 = 24;
-    pub const OFFSET: u8 = 8;
+    /// `v3` is used for immediates, because `v0-2` contain inputs
     pub const IMM_REG: u8 = 3;
+    /// `v4-7` are used for as temporary variables:w
+    pub const OFFSET: u8 = 8;
 }
 
 #[cfg(target_arch = "x86_64")]
 mod arch {
-    // We use xmm0 for immediates and xmm1-3 for temporaries
+    /// We use `xmm4-16` (all caller-saved) for graph variables
     pub const REGISTER_LIMIT: u8 = 12;
-    pub const OFFSET: u8 = 4;
+    /// `xmm0` is used for immediates
     pub const IMM_REG: u8 = 0;
+    /// `xmm1-3` are available for use as temporaries.
+    pub const OFFSET: u8 = 4;
 }
 
 /// Number of registers available when executing natively
@@ -70,8 +74,9 @@ const OFFSET: u8 = arch::OFFSET;
 
 /// Register written to by `CopyImm`
 ///
-/// `IMM_REG` is selected to avoid scratch registers used by other
-/// functions, e.g. interval mul / min / max
+/// It is the responsibility of functions to avoid writing to `IMM_REG` in cases
+/// where it could be one of their arguments (i.e. all functions of 2 or more
+/// arguments).
 const IMM_REG: u8 = arch::IMM_REG;
 
 #[cfg(target_arch = "aarch64")]
@@ -80,13 +85,13 @@ type RegIndex = u32;
 #[cfg(target_arch = "x86_64")]
 type RegIndex = u8;
 
-/// Converts from a tape-local register to an AArch64 register
+/// Converts from a tape-local register to a hardware register
 ///
 /// Tape-local registers are in the range `0..REGISTER_LIMIT`, while ARM
 /// registers have an offset (based on calling convention).
 ///
-/// This uses `wrapping_add` to support immediates, which are loaded into an ARM
-/// register below `OFFSET` (which is "negative" from the perspective of this
+/// This uses `wrapping_add` to support immediates, which are loaded into a
+/// register below [`OFFSET`] (which is "negative" from the perspective of this
 /// function).
 fn reg(r: u8) -> RegIndex {
     let out = r.wrapping_add(OFFSET) as RegIndex;
@@ -319,17 +324,20 @@ impl DynasmApi for MmapAssembler {
     }
 }
 
-// This is a very limited implementation of the labels API.  Compared to the
-// standard labels API, it has the following limitations:
-//
-// - Labels must be a single character
-// - Local labels must be committed before they're reused, using `commit_local`
-// - Only 8 local jumps are available at any given time; this is reset when
-//   `commit_local` is called.  (if this becomes problematic, it can be
-//   increased by tweaking the size of `local_relocs: ArrayVec<..., 8>`.
-//
-// In exchange for these limitations, it allocates no memory at runtime, and all
-// label lookups are done in constant time.
+/// This is a very limited implementation of the labels API.  Compared to the
+/// standard labels API, it has the following limitations:
+///
+/// - Labels must be a single character
+/// - Local labels must be committed before they're reused, using `commit_local`
+/// - Only 8 local jumps are available at any given time; this is reset when
+///   `commit_local` is called.  (if this becomes problematic, it can be
+///   increased by tweaking the size of `local_relocs: ArrayVec<..., 8>`.
+///
+/// In exchange for these limitations, it allocates no memory at runtime, and all
+/// label lookups are done in constant time.
+///
+/// However, it still has overhead compared to computing the jumps by hand;
+/// this overhead was roughly 5% in one unscientific test.
 impl DynasmLabelApi for MmapAssembler {
     type Relocation = Relocation;
 
@@ -473,6 +481,9 @@ impl DynasmLabelApi for MmapAssembler {
 }
 
 impl MmapAssembler {
+    /// Applies all local relocations, clearing the `local_relocs` array
+    ///
+    /// This should be called after any function which uses local labels.
     fn commit_local(&mut self) -> Result<(), Error> {
         let baseaddr = self.mmap.as_ptr() as usize;
 
