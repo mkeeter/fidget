@@ -2,7 +2,7 @@ use crate::jit::{
     mmap::Mmap, reg, AssemblerData, AssemblerT, Error, JitBulkEval,
     SimdAssembler, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 #[cfg(target_arch = "aarch64")]
 const SIMD_WIDTH: usize = 4;
@@ -10,10 +10,7 @@ const SIMD_WIDTH: usize = 4;
 #[cfg(target_arch = "x86_64")]
 const SIMD_WIDTH: usize = 8;
 
-#[cfg(target_arch = "x86_64")]
-use dynasmrt::DynasmLabelApi;
-
-pub struct FloatSliceAssembler(AssemblerData<[f32; SIMD_WIDTH]>, usize);
+pub struct FloatSliceAssembler(AssemblerData<[f32; SIMD_WIDTH]>);
 
 /// Assembler for SIMD point-wise evaluation.
 ///
@@ -41,10 +38,10 @@ impl AssemblerT for FloatSliceAssembler {
 
         );
         out.prepare_stack(slot_count);
-        let loop_start = out.ops.len();
 
         dynasm!(out.ops
             // The loop returns here, and we check whether we need to loop
+            ; ->L:
             // Remember, at this point we have
             //  x0: x input array pointer
             //  x1: y input array pointer
@@ -86,7 +83,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; sub x5, x5, #4 // We handle 4 items at a time
         );
 
-        Self(out, loop_start)
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
@@ -191,11 +188,7 @@ impl AssemblerT for FloatSliceAssembler {
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
             ; stp D(reg(out_reg)), d0, [x4], #16
-        );
-        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
-        assert!(jump_size.abs() < (1 << 25));
-        dynasm!(self.0.ops
-            ; b #-jump_size
+            ; b ->L
         );
 
         self.0.ops.finalize()
@@ -260,10 +253,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; vmovups [rbp - 96], ymm0
             ; add rdx, 32
         );
-        // We use a global label instead of a specific address, since x86
-        // encoding computing the exact jump awkward; let the library do it for
-        // us instead.
-        Self(out, 0)
+        Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);

@@ -517,11 +517,6 @@ impl MmapAssembler {
         next.as_mut_slice()[0..self.len].copy_from_slice(self.mmap.as_slice());
         std::mem::swap(&mut self.mmap, &mut next);
     }
-
-    #[cfg(target_arch = "aarch64")]
-    fn len(&self) -> usize {
-        self.len
-    }
 }
 
 impl From<Mmap> for MmapAssembler {

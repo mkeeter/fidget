@@ -6,13 +6,10 @@ use crate::{
     },
     Error,
 };
-use dynasmrt::{dynasm, DynasmApi};
-
-#[cfg(target_arch = "x86_64")]
-use dynasmrt::DynasmLabelApi;
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Assembler for automatic differentiation / gradient evaluation
-pub struct GradSliceAssembler(AssemblerData<[f32; 4]>, usize);
+pub struct GradSliceAssembler(AssemblerData<[f32; 4]>);
 
 /// Implementation for the gradient slice assembler on AArch64
 ///
@@ -47,10 +44,10 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d14, d15, [sp, #-16]!
         );
         out.prepare_stack(slot_count);
-        let loop_start = out.ops.len();
 
         dynasm!(out.ops
             // The loop returns here, and we check whether we need to loop
+            ; ->L:
             // Remember, at this point we have
             //  x0: x input array pointer
             //  x1: y input array pointer
@@ -96,7 +93,7 @@ impl AssemblerT for GradSliceAssembler {
             // Math begins below!
         );
 
-        Self(out, loop_start)
+        Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
@@ -286,11 +283,7 @@ impl AssemblerT for GradSliceAssembler {
         dynasm!(self.0.ops
             // Prepare our return value, writing to the pointer in x4
             ; str Q(reg(out_reg)), [x4], #16
-        );
-        let jump_size: i32 = (self.0.ops.len() - self.1).try_into().unwrap();
-        assert!(jump_size.abs() < (1 << 25));
-        dynasm!(self.0.ops
-           ; b #-jump_size
+            ; b ->L // Jump back to the loop start
         );
 
         self.0.ops.finalize()
@@ -365,10 +358,7 @@ impl AssemblerT for GradSliceAssembler {
             ; mov [rbp - 40], eax // 0
             ; mov [rbp - 44], eax // 0
         );
-        // We use a global label instead of a specific address, since x86
-        // encoding computing the exact jump awkward; let the library do it for
-        // us instead.
-        Self(out, 0)
+        Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
