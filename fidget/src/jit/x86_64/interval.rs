@@ -1,3 +1,14 @@
+use crate::{
+    eval::types::Interval,
+    jit::{
+        interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
+        AssemblerT, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
+    },
+    Error,
+};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+
 /// Registers are passed in as follows
 /// | Variable   | Register | Type               |
 /// |------------|----------|--------------------|

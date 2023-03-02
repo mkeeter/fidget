@@ -1,3 +1,13 @@
+use crate::{
+    jit::{
+        mmap::Mmap, point::PointAssembler, reg, AssemblerData, AssemblerT,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
+    },
+    Error,
+};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+
 /// Registers are passed in as follows
 /// - X, Y, Z are in `xmm0-2`
 /// - `vars` is in `rdi`

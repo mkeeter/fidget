@@ -1,3 +1,13 @@
+use crate::{
+    eval::types::Grad,
+    jit::{
+        grad_slice::GradSliceAssembler, mmap::Mmap, reg, AssemblerData,
+        AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT,
+    },
+    Error,
+};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+
 /// Implementation for the gradient slice assembler on x86.
 ///
 /// Registers as pased in as follows:

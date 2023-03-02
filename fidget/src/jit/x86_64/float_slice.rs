@@ -1,3 +1,11 @@
+use crate::jit::{
+    float_slice::FloatSliceAssembler, mmap::Mmap, reg, AssemblerData,
+    AssemblerT, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
+};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+
+pub const SIMD_WIDTH: usize = 8;
+
 /// Assembler for SIMD point-wise evaluation.
 ///
 /// Arguments are passed as follows:
@@ -16,7 +24,6 @@
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
-#[cfg(target_arch = "x86_64")]
 impl AssemblerT for FloatSliceAssembler {
     type Data = f32;
 
