@@ -252,8 +252,8 @@ struct MmapAssembler {
     mmap: Mmap,
     len: usize,
 
-    global_labels: [Option<AssemblyOffset>; 256],
-    local_labels: [Option<AssemblyOffset>; 256],
+    global_labels: [Option<AssemblyOffset>; 26],
+    local_labels: [Option<AssemblyOffset>; 26],
 
     global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 1>,
     local_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 8>,
@@ -337,7 +337,10 @@ impl DynasmLabelApi for MmapAssembler {
         if name.len() != 1 {
             panic!("local label must be a single character");
         }
-        let c = name.as_bytes()[0];
+        let c = name.as_bytes()[0].wrapping_sub(b'A');
+        if c >= 26 {
+            panic!("Invalid label {name}, must be A-Z");
+        }
         if self.local_labels[c as usize].is_some() {
             panic!("duplicate local label {name}");
         }
@@ -348,7 +351,10 @@ impl DynasmLabelApi for MmapAssembler {
         if name.len() != 1 {
             panic!("local label must be a single character");
         }
-        let c = name.as_bytes()[0];
+        let c = name.as_bytes()[0].wrapping_sub(b'A');
+        if c >= 26 {
+            panic!("Invalid label {name}, must be A-Z");
+        }
         if self.global_labels[c as usize].is_some() {
             panic!("duplicate global label {name}");
         }
@@ -370,7 +376,10 @@ impl DynasmLabelApi for MmapAssembler {
         if name.len() != 1 {
             panic!("local label must be a single character");
         }
-        let c = name.as_bytes()[0];
+        let c = name.as_bytes()[0].wrapping_sub(b'A');
+        if c >= 26 {
+            panic!("Invalid label {name}, must be A-Z");
+        }
         self.global_relocs.push((
             PatchLoc::new(
                 location,
@@ -403,7 +412,10 @@ impl DynasmLabelApi for MmapAssembler {
         if name.len() != 1 {
             panic!("local label must be a single character");
         }
-        let c = name.as_bytes()[0];
+        let c = name.as_bytes()[0].wrapping_sub(b'A');
+        if c >= 26 {
+            panic!("Invalid label {name}, must be A-Z");
+        }
         if self.local_labels[c as usize].is_some() {
             panic!("invalid forward relocation: {name} already exists!");
         }
@@ -430,7 +442,10 @@ impl DynasmLabelApi for MmapAssembler {
         if name.len() != 1 {
             panic!("local label must be a single character");
         }
-        let c = name.as_bytes()[0];
+        let c = name.as_bytes()[0].wrapping_sub(b'A');
+        if c >= 26 {
+            panic!("Invalid label {name}, must be A-Z");
+        }
         if self.local_labels[c as usize].is_none() {
             panic!("invalid backward relocation: {name} does not exist");
         }
@@ -472,7 +487,7 @@ impl MmapAssembler {
                 .into());
             }
         }
-        self.local_labels = [None; 256];
+        self.local_labels = [None; 26];
         Ok(())
     }
 
@@ -514,8 +529,8 @@ impl From<Mmap> for MmapAssembler {
         Self {
             mmap,
             len: 0,
-            global_labels: [None; 256],
-            local_labels: [None; 256],
+            global_labels: [None; 26],
+            local_labels: [None; 26],
             global_relocs: Default::default(),
             local_relocs: Default::default(),
         }
