@@ -119,10 +119,10 @@ impl Mmap {
 
 #[cfg(target_os = "linux")]
 impl Mmap {
-    #[cfg(feature = "rxw")]
+    #[cfg(feature = "write-xor-execute")]
     pub const MMAP_PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
 
-    #[cfg(not(feature = "rxw"))]
+    #[cfg(not(feature = "write-xor-execute"))]
     pub const MMAP_PROT: i32 =
         libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
 
@@ -131,17 +131,17 @@ impl Mmap {
 
     /// Switches the given cache to an executable binding.
     ///
-    /// This is a no-op if the `rxw` feature is not enabled.
+    /// This is a no-op if the `write-xor-execute` feature is not enabled.
     pub fn finalize(&self, size: usize) {
         #[cfg(target_arch = "aarch64")]
         compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
 
-        #[cfg(feature = "rxw")]
+        #[cfg(feature = "write-xor-execute")]
         unsafe {
             libc::mprotect(self.ptr, size, libc::PROT_READ | libc::PROT_EXEC);
         }
 
-        #[cfg(not(feature = "rxw"))]
+        #[cfg(not(feature = "write-xor-execute"))]
         let _ = size; // discard
     }
 
@@ -155,9 +155,9 @@ impl Mmap {
 
     /// Modifies the region's W^X state to allow writing
     ///
-    /// This is a no-op if the `rxw` feature is not enabled.
+    /// This is a no-op if the `write-xor-execute` feature is not enabled.
     pub fn make_write(&self) {
-        #[cfg(feature = "rxw")]
+        #[cfg(feature = "write-xor-execute")]
         unsafe {
             libc::mprotect(
                 self.ptr,
