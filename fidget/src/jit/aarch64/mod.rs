@@ -26,4 +26,6 @@ pub const IMM_REG: u8 = 3;
 pub const OFFSET: u8 = 8;
 
 pub mod float_slice;
+pub mod grad_slice;
+pub mod interval;
 pub mod point;
