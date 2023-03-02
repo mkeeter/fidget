@@ -664,6 +664,25 @@ impl Family for Eval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// Selects the calling convention based on platform; this is forward-looking for
+// eventual x86 Windows support, where we still want to use the sysv64 calling
+// convention.
+#[cfg(target_arch = "x86_64")]
+macro_rules! jit_fn {
+    (unsafe fn($($args:tt)*) -> $($out:tt)*) => {
+        unsafe extern "sysv64" fn($($args)*) -> $($out)*
+    };
+}
+
+#[cfg(target_arch = "aarch64")]
+macro_rules! jit_fn {
+    (unsafe fn($($args:tt)*) -> $($out:tt)*) => {
+        unsafe extern "C" fn($($args)*) -> $($out)*
+    };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Handle owning a JIT-compiled tracing function of some kind
 ///
 /// Users are unlikely to use this directly; consider using the
@@ -671,15 +690,16 @@ impl Family for Eval {
 pub struct JitTracingEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
-    // TODO: make this `sysv64` on `x86_64` machines
-    fn_trace: unsafe extern "C" fn(
-        I::Data,    // X
-        I::Data,    // Y
-        I::Data,    // Z
-        *const f32, // vars
-        *mut u8,    // choices
-        *mut u8,    // simplify (single boolean)
-    ) -> I::Data,
+    fn_trace: jit_fn!(
+        unsafe fn(
+            I::Data,    // X
+            I::Data,    // Y
+            I::Data,    // Z
+            *const f32, // vars
+            *mut u8,    // choices
+            *mut u8,    // simplify (single boolean)
+        ) -> I::Data
+    ),
 }
 
 impl<I: AssemblerT> Clone for JitTracingEval<I> {
@@ -749,14 +769,16 @@ impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
 pub struct JitBulkEval<I: AssemblerT> {
     mmap: Arc<Mmap>,
     var_count: usize,
-    fn_bulk: unsafe extern "C" fn(
-        *const f32,   // X
-        *const f32,   // Y
-        *const f32,   // Z
-        *const f32,   // vars
-        *mut I::Data, // out
-        u64,          // size
-    ) -> I::Data,
+    fn_bulk: jit_fn!(
+        unsafe fn(
+            *const f32,   // X
+            *const f32,   // Y
+            *const f32,   // Z
+            *const f32,   // vars
+            *mut I::Data, // out
+            u64,          // size
+        ) -> I::Data
+    ),
 }
 
 impl<I: AssemblerT> Clone for JitBulkEval<I> {

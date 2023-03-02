@@ -31,7 +31,7 @@ default = ["jit", "rhai", "render"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on
-## `aarch64-apple-darwin` and `x86_64-unknown-linux-*` (requires AVX
+## `aarch64-apple-darwin` and `x86_64-unknown-linux-*` (requires AVX2
 ## instructions on x86).  There's no way to disable the feature on other
 ## platforms ([Cargo issue](https://github.com/rust-lang/cargo/issues/1197));
 ## users will have to disable it manually via `default-features = false`.
