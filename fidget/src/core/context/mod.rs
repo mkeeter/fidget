@@ -515,7 +515,7 @@ impl Context {
         Ok(self.remap_xyz_recurse(root, xyz, &mut BTreeMap::new()))
     }
 
-    pub fn remap_xyz_recurse(
+    fn remap_xyz_recurse(
         &mut self,
         root: Node,
         xyz: [Node; 3],
@@ -781,6 +781,7 @@ impl Context {
 /// let sum = ctx.add(x, num).unwrap();
 /// ```
 pub trait IntoNode {
+    /// Converts the given values into a node
     fn into_node(self, ctx: &mut Context) -> Result<Node, Error>;
 }
 

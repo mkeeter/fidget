@@ -49,19 +49,23 @@ pub trait Family: Clone {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
 
+    /// Single-point evaluator
     type PointEval: TracingEvaluator<f32, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
+    /// Interval evaluator
     type IntervalEval: TracingEvaluator<types::Interval, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
 
+    /// Bulk point evaluator
     type FloatSliceEval: BulkEvaluator<f32, Self>
         + EvaluatorStorage<Self>
         + Clone
         + Send;
+    /// Bulk gradient evaluator
     type GradSliceEval: BulkEvaluator<types::Grad, Self>
         + EvaluatorStorage<Self>
         + Clone
@@ -79,6 +83,7 @@ pub trait Family: Clone {
 /// For example, the JIT evaluators declare their allocated `mmap` data as their
 /// `Storage`, which allows us to reuse pages.
 pub trait EvaluatorStorage<F> {
+    /// Storage type associated with this evaluator
     type Storage: Default;
 
     /// Constructs the evaluator, giving it a chance to reuse storage

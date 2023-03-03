@@ -232,6 +232,7 @@
 //!
 //! # Feature flags
 #![doc = document_features::document_features!()]
+#![warn(missing_docs)]
 
 // Re-export everything from fidget::core into the top-level namespace
 mod core;

@@ -58,6 +58,7 @@ pub enum Op {
 }
 
 impl Op {
+    /// Returns the index of the output variable
     pub fn output(&self) -> u32 {
         match self {
             Op::Input(out, ..)
@@ -85,6 +86,9 @@ impl Op {
             | Op::MaxRegReg(out, ..) => *out,
         }
     }
+    /// Returns the number of choices made by the given opcode
+    ///
+    /// This is always zero or one.
     pub fn choice_count(&self) -> usize {
         match self {
             Op::Input(..)

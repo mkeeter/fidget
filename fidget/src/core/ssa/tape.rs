@@ -38,6 +38,7 @@ impl Tape {
         self.tape.clear();
         self.choice_count = 0;
     }
+    /// Pretty-prints the given tape to `stdout`
     pub fn pretty_print(&self) {
         for &op in self.tape.iter().rev() {
             match op {

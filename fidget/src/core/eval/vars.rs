@@ -9,6 +9,7 @@ pub struct Vars {
 }
 
 impl Vars {
+    /// Builds a new variable binding, initializing them all to 0
     pub fn new(tape: &Data) -> Self {
         let names = tape.vars();
         let values = vec![0.0; names.len()];

@@ -29,6 +29,7 @@ impl<R> Clone for Tape<R> {
 unsafe impl<R> Send for Tape<R> {}
 
 impl<E: Family> Tape<E> {
+    /// Converts an SSA tape into a tape useable in evaluation
     pub fn from_ssa(ssa: SsaTape) -> Self {
         let t = Data::from_ssa(ssa, E::REG_LIMIT);
         Self(Arc::new(t), std::marker::PhantomData)
@@ -56,6 +57,9 @@ impl<E: Family> Tape<E> {
             .map(|t| Tape(t, std::marker::PhantomData))
     }
 
+    /// Tries to claim the inner [`Data`]
+    ///
+    /// This will fail if there are multiple `Tape` objects sharing the `Data`.
     pub fn take(self) -> Option<Data> {
         Arc::try_unwrap(self.0).ok()
     }
@@ -144,10 +148,12 @@ impl Data {
         self.ssa.vars.clone()
     }
 
-    /// Returns the length of the internal `vm::Op` tape
+    /// Returns the length of the internal VM tape
     pub fn len(&self) -> usize {
         self.asm.len()
     }
+
+    /// Returns true if the internal VM tape is empty
     pub fn is_empty(&self) -> bool {
         self.asm.is_empty()
     }
@@ -172,11 +178,15 @@ impl Data {
         self.asm.slot_count()
     }
 
+    /// Returns the number of variables used in this tape
     pub fn var_count(&self) -> usize {
         self.ssa.vars.len()
     }
 
     /// Returns the register limit of the VM tape
+    ///
+    /// Note that this may exceed the slot count on particularly short (or
+    /// easy-to-plan) tapes.
     pub fn reg_limit(&self) -> u8 {
         self.asm.reg_limit()
     }
@@ -367,8 +377,16 @@ impl Data {
 ///
 /// This is exposed to minimize reallocations in hot loops.
 pub struct Workspace {
+    /// Register allocator
     pub alloc: RegisterAllocator,
+
+    /// Current bindings from SSA variables to registers
     pub bind: Vec<u32>,
+
+    /// Number of active SSA bindings
+    ///
+    /// This value is monotonically increasing; each SSA variable gets the next
+    /// value if it is unassigned when encountered.
     count: u32,
 }
 

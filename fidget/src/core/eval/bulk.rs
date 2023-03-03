@@ -25,6 +25,10 @@ use crate::{
 /// abstraction to reduce code duplication, and is public because it's used as a
 /// constraint on other public APIs.
 pub trait BulkEvaluator<T, F> {
+    /// Data type used during evaluation
+    ///
+    /// For example, an interpreter would put its intermediate slot storage into
+    /// its `Data` type, so it could be reused.
     type Data: BulkEvaluatorData<F> + Default;
 
     /// Evaluates many points, writing the result into `out` and using `data` as

@@ -2,6 +2,7 @@ use crate::context::{indexed::Index, Node, VarNode};
 use ordered_float::OrderedFloat;
 
 /// A one-argument math operation
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum UnaryOpcode {
     Neg,
@@ -12,6 +13,7 @@ pub enum UnaryOpcode {
 }
 
 /// A two-argument math operation
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BinaryOpcode {
     Add,
@@ -31,6 +33,7 @@ pub enum BinaryOpcode {
 ///
 /// Each `Op` is tightly coupled to the [`Context`](crate::context::Context)
 /// which generated it, and will not be valid for a different `Context`.
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Op {
     Input(VarNode),

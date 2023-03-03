@@ -106,41 +106,100 @@ pub trait AssemblerT {
     /// This should be a `repr(C)` type, so it can be passed around directly.
     type Data;
 
+    /// Initializes the assembler with the given slot count
+    ///
+    /// This will likely construct a function prelude and reserve space on the
+    /// stack for slot spills.
     fn init(m: Mmap, slot_count: usize) -> Self;
+
+    /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
+
+    /// Builds a store from a register to a memory location
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
 
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8);
+
+    /// Copies a variable (provided in an input array) to `out_reg`
     fn build_var(&mut self, out_reg: u8, src_arg: u32);
+
+    /// Copies a register
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Unary negation
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Absolute value
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Reciprocal (1 / `lhs_reg`)
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Square root
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8);
-    fn build_square(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Square
+    ///
+    /// This has a default implementation, but can be overloaded for efficiency;
+    /// for example, in interval arithmetic, we benefit from knowing that both
+    /// values are the same.
+    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
+        self.build_mul(out_reg, lhs_reg, lhs_reg)
+    }
+
+    /// Addition
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Subtraction
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Multiplication
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Division
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Maximum of two values
+    ///
+    /// In a tracing evaluator, this function must also write to the `choices`
+    /// array and may set `simplify` if one branch is always taken.
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Minimum of two values
+    ///
+    /// In a tracing evaluator, this function must also write to the `choices`
+    /// array and may set `simplify` if one branch is always taken.
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     // Special-case functions for immediates.  In some cases, you can be more
     // efficient if you know that an argument is an immediate (for example, both
     // values in the interval will be the same, and it wlll have no gradients).
+
+    /// Builds a addition (immediate + register)
+    ///
+    /// This has a default implementation, but can be overloaded for efficiency
     fn build_add_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_add(out_reg, lhs_reg, imm);
     }
+    /// Builds a subtraction (immediate − register)
+    ///
+    /// This has a default implementation, but can be overloaded for efficiency
     fn build_sub_imm_reg(&mut self, out_reg: u8, arg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_sub(out_reg, imm, arg);
     }
+    /// Builds a subtraction (register − immediate)
+    ///
+    /// This has a default implementation, but can be overloaded for efficiency
     fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_sub(out_reg, arg, imm);
     }
+    /// Builds a multiplication (register × immediate)
+    ///
+    /// This has a default implementation, but can be overloaded for efficiency
     fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
         let imm = self.load_imm(imm);
         self.build_mul(out_reg, lhs_reg, imm);
@@ -149,11 +208,16 @@ pub trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
+    /// Finalize the assembly code, returning a memory-mapped region
     fn finalize(self, out_reg: u8) -> Result<Mmap, Error>;
 }
 
 /// Trait defining SIMD width
 pub trait SimdAssembler {
+    /// Number of elements processed in a single iteration
+    ///
+    /// This value is used when checking array sizes, as we want to be sure to
+    /// pass the JIT code an appropriately sized array.
     const SIMD_SIZE: usize;
 }
 

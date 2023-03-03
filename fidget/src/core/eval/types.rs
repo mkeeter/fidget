@@ -12,6 +12,7 @@ pub struct Grad {
 }
 
 impl Grad {
+    /// Constructs a new gradient
     pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
         Self { v, dx, dy, dz }
     }
@@ -31,6 +32,7 @@ impl Grad {
         }
     }
 
+    /// Absolute value
     pub fn abs(self) -> Self {
         if self.v < 0.0 {
             Grad {
@@ -43,6 +45,8 @@ impl Grad {
             self
         }
     }
+
+    /// Square root
     pub fn sqrt(self) -> Self {
         let v = self.v.sqrt();
         Grad {
@@ -52,6 +56,8 @@ impl Grad {
             dz: self.dz / (2.0 * v),
         }
     }
+
+    /// Reciprocal
     pub fn recip(self) -> Self {
         let v2 = -self.v.powi(2);
         Grad {
@@ -61,6 +67,8 @@ impl Grad {
             dz: self.dz / v2,
         }
     }
+
+    /// Minimum of two values
     pub fn min(self, rhs: Self) -> Self {
         if self.v < rhs.v {
             self
@@ -68,6 +76,8 @@ impl Grad {
             rhs
         }
     }
+
+    /// Maximum of two values
     pub fn max(self, rhs: Self) -> Self {
         if self.v > rhs.v {
             self
@@ -164,22 +174,34 @@ pub struct Interval {
 }
 
 impl Interval {
+    /// Builds a new interval
+    ///
+    /// There are two kinds of valid interval:
+    /// - `[lower, upper]` where `lower <= upper`
+    /// - `[NaN, NaN]`
+    ///
+    /// # Panics
+    /// Panics if the resulting interval would be invalid
     #[inline]
     pub fn new(lower: f32, upper: f32) -> Self {
         assert!(upper >= lower || (lower.is_nan() && upper.is_nan()));
         Self { lower, upper }
     }
+    /// Returns the lower bound of the interval
     #[inline]
     pub fn lower(&self) -> f32 {
         self.lower
     }
+    /// Returns the upper bound of the interval
     #[inline]
     pub fn upper(&self) -> f32 {
         self.upper
     }
+    /// Returns `true` if either bound of the interval is `NaN`
     pub fn has_nan(&self) -> bool {
         self.lower.is_nan() || self.upper.is_nan()
     }
+    /// Calculates the absolute value of the interval
     pub fn abs(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
@@ -191,6 +213,10 @@ impl Interval {
             self
         }
     }
+    /// Squares the interval
+    ///
+    /// Note that this has tighter bounds than multiplication, because we know
+    /// that both sides of the multiplication are the same value.
     pub fn square(self) -> Self {
         if self.upper < 0.0 {
             Interval::new(self.upper.powi(2), self.lower.powi(2))
@@ -202,6 +228,10 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
+    /// Calculates the square root of the interval
+    ///
+    /// If the entire interval is below 0, returns a `NAN` interval; otherwise,
+    /// returns the valid (positive) interval.
     pub fn sqrt(self) -> Self {
         if self.lower < 0.0 {
             if self.upper > 0.0 {
@@ -213,6 +243,9 @@ impl Interval {
             Interval::new(self.lower.sqrt(), self.upper.sqrt())
         }
     }
+    /// Calculates the reciprocal of the interval
+    ///
+    /// If the interval includes 0, returns the `NAN` interval
     pub fn recip(self) -> Self {
         if self.lower > 0.0 || self.upper < 0.0 {
             Interval::new(1.0 / self.upper, 1.0 / self.lower)
@@ -220,6 +253,12 @@ impl Interval {
             std::f32::NAN.into()
         }
     }
+    /// Calculates the minimum of two intervals
+    ///
+    /// Returns both the result and a [`Choice`] indicating whether one side is
+    /// always less than the other.
+    ///
+    /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
     pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             return (std::f32::NAN.into(), Choice::Both);
@@ -236,6 +275,12 @@ impl Interval {
             choice,
         )
     }
+    /// Calculates the maximum of two intervals
+    ///
+    /// Returns both the result and a [`Choice`] indicating whether one side is
+    /// always greater than the other.
+    ///
+    /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
     pub fn max_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
             return (std::f32::NAN.into(), Choice::Both);

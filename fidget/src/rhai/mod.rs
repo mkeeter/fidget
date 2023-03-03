@@ -160,7 +160,9 @@ impl Engine {
 ///
 /// Populated by calls to `draw(...)` or `draw_rgb(...)` in a Rhai script
 pub struct DrawShape {
+    /// Shape to render
     pub shape: Node,
+    /// Color to use when drawing the shape
     pub color_rgb: [u8; 3],
 }
 
@@ -169,7 +171,9 @@ pub struct DrawShape {
 /// This object includes a [`Context`] and a set of shapes (written with `draw`
 /// or `draw_rgb`).
 pub struct ScriptContext {
+    /// Fidget context in which to accumulate shapes
     pub context: Context,
+    /// List of shapes populated since the last call to [`clear`](Self::clear)
     pub shapes: Vec<DrawShape>,
 }
 
@@ -180,13 +184,15 @@ impl Default for ScriptContext {
 }
 
 impl ScriptContext {
-    fn new() -> Self {
+    /// Builds a new empty script context
+    pub fn new() -> Self {
         Self {
             context: Context::new(),
             shapes: vec![],
         }
     }
-    fn clear(&mut self) {
+    /// Resets the script context
+    pub fn clear(&mut self) {
         self.context.clear();
         self.shapes.clear();
     }

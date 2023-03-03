@@ -15,6 +15,7 @@ pub struct Tape {
 }
 
 impl Tape {
+    /// Constructs a new tape with the given register limit
     pub fn new(reg_limit: u8) -> Self {
         Self {
             tape: vec![],
@@ -38,20 +39,34 @@ impl Tape {
     pub fn slot_count(&self) -> usize {
         self.slot_count as usize
     }
+    /// Returns the number of elements in the tape
     #[inline]
     pub fn len(&self) -> usize {
         self.tape.len()
     }
+    /// Returns `true` if the tape contains no elements
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.tape.is_empty()
     }
+    /// Returns a front-to-back iterator
+    ///
+    /// This is the opposite of evaluation order; it will visit the root of the
+    /// tree first, and end at the leaves.
     #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, Op> {
-        self.tape.iter()
+        self.into_iter()
     }
     #[inline]
     pub(crate) fn push(&mut self, op: Op) {
         self.tape.push(op)
+    }
+}
+
+impl<'a> IntoIterator for &'a Tape {
+    type Item = &'a Op;
+    type IntoIter = std::slice::Iter<'a, Op>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.tape.iter()
     }
 }

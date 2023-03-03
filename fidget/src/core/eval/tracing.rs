@@ -27,9 +27,18 @@ use crate::{
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Choice {
+    /// This choice has not yet been assigned
+    ///
+    /// A value of `Unknown` is invalid after evaluation
     Unknown = 0,
+
+    /// The operation always picks the left-hand input
     Left = 1,
+
+    /// The operation always picks the right-hand input
     Right = 2,
+
+    /// The operation may pick either input
     Both = 3,
 }
 
@@ -110,6 +119,7 @@ where
         Self::new_with_storage(tape, E::Storage::default())
     }
 
+    /// Returns the tape being used by this evaluator
     pub fn tape(&self) -> Tape<F> {
         self.tape.clone()
     }
@@ -248,19 +258,24 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 ///
 /// This is used as a handle to simplify the resulting tape.
 ///
-/// It either owns or borrows a `&[Choice]`, which are typedef'd to
-/// [`OwnedTracingEvalResult`] or [`BorrowedTracingEvalResult`] respectively
+/// It either owns or borrows a `&[Choice]`; for convenience, these are
+/// represented by [`OwnedTracingEvalResult`] or [`BorrowedTracingEvalResult`]
+/// respectively.
 pub struct TracingEvalResult<D, F, B> {
     choices: B,
     tape: Tape<F>,
     _p: std::marker::PhantomData<*const D>,
 }
 
+/// Result of a tracing evaluation using owned data for the `Choice` array
 pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
+
+/// Result of a tracing evaluation using borrowed data for the `Choice` array
 pub type BorrowedTracingEvalResult<'a, T, F> =
     TracingEvalResult<T, F, &'a [Choice]>;
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
+    /// Prepares for a tracing evaluation with the given tape size
     fn prepare(&mut self, tape: &Tape<F>) {
         self.choices.resize(tape.choice_count(), Choice::Unknown);
         self.choices.fill(Choice::Unknown);
@@ -273,14 +288,6 @@ where
     F: Family,
     B: std::borrow::Borrow<[Choice]>,
 {
-    pub fn tape_len(&self) -> usize {
-        self.tape.len()
-    }
-
-    pub fn tape(&self) -> Tape<F> {
-        self.tape.clone()
-    }
-
     /// Simplifies the tape based on the most recent evaluation
     pub fn simplify(&self) -> Result<Tape<F>, Error> {
         self.simplify_with(&mut Default::default(), Default::default())
