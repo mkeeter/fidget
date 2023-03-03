@@ -18,10 +18,11 @@ The library contains a variety of data structures and algorithms, e.g.
 - Manipulation and deduplication of math expressions
 - Conversion from graphs into straight-line code ("tapes") for evaluation
 - Tape simplification, based on interval evaluation results
-- A _very fast_ JIT compiler, with hand-written AArch64 routines for
+- A _very fast_ JIT compiler, with hand-written `aarch64` and `x86_64` routines
+  for
     - Point-wise evaluation (`f32`)
     - Interval evaluation (`[lower, upper]`)
-    - SIMD evaluation (`f32 x 4`)
+    - SIMD evaluation (`f32 x 4` on ARM, `f32 x 8` on x86)
     - Gradient evaluation (partial derivatives with respect to x, y, and z)
 - Bitmap rendering of implicit surfaces in 2D (with a variety of rendering
   modes) and 3D (producing heightmaps and normals).
