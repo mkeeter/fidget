@@ -69,9 +69,11 @@ const OFFSET: u8 = arch::OFFSET;
 /// arguments).
 const IMM_REG: u8 = arch::IMM_REG;
 
+/// Type for a register index in `dynasm` code
 #[cfg(target_arch = "aarch64")]
 type RegIndex = u32;
 
+/// Type for a register index in `dynasm` code
 #[cfg(target_arch = "x86_64")]
 type RegIndex = u8;
 
@@ -636,6 +638,9 @@ impl Family for Eval {
 // Selects the calling convention based on platform; this is forward-looking for
 // eventual x86 Windows support, where we still want to use the sysv64 calling
 // convention.
+/// Macro to build a function type with a `extern "sysv64"` calling convention
+///
+/// This is selected at compile time, based on `target_arch`
 #[cfg(target_arch = "x86_64")]
 macro_rules! jit_fn {
     (unsafe fn($($args:tt)*) -> $($out:tt)*) => {
@@ -643,6 +648,9 @@ macro_rules! jit_fn {
     };
 }
 
+/// Macro to build a function type with the `extern "C"` calling convention
+///
+/// This is selected at compile time, based on `target_arch`
 #[cfg(target_arch = "aarch64")]
 macro_rules! jit_fn {
     (unsafe fn($($args:tt)*) -> $($out:tt)*) => {

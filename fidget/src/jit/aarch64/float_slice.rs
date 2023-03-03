@@ -6,11 +6,21 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 pub const SIMD_WIDTH: usize = 4;
 
-/// Assembler for SIMD point-wise evaluation.
+/// Assembler for SIMD point-wise evaluation on `aarch64`
 ///
-/// Arguments are passed as 3x `*const f32` in `x0-2`, a var array in
-/// `x3`, and an output array `*mut f32` in `x4`.  Each pointer in the input
-/// and output arrays represents 4x `f32`; the var array is single `f32`s
+/// | Argument | Register | Type                |
+/// | ---------|----------|---------------------|
+/// | X        | `x0`     | `*const [f32; 4]`   |
+/// | Y        | `x1`     | `*const [f32; 4]`   |
+/// | Z        | `x2`     | `*const [f32; 4]`   |
+/// | vars     | `x3`     | `*const f32`        |
+/// | out      | `x4`     | `*mut [f32; 4]`     |
+/// | size     | `x5`     | `u64`               |
+///
+/// The arrays (other than `vars`) must be an even multiple of 4 floats, since
+/// we're using NEON and 128-bit wide operations for everything.  The `vars`
+/// array contains single `f32` values, which are broadcast into SIMD registers
+/// when they are used.
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
 #[cfg(target_arch = "aarch64")]

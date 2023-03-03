@@ -1,4 +1,5 @@
-//! # Notes for writing assembly in this module
+//! Implementation for various assemblers on the `aarch64` platform
+//!
 //! We dedicate 24 registers to tape data storage:
 //! - Floating point registers `s8-15` (callee-saved, but only the lower 64
 //!   bits)
@@ -9,7 +10,6 @@
 //!
 //! Right now, we never call anything, so don't worry about saving stuff.
 //!
-//! ## Scratch registers
 //! Within a single operation, you'll often need to make use of scratch
 //! registers.  `s3` / `v3` is used when loading immediates, and should not be
 //! used as a scratch register (this is the `IMM_REG` constant).  `s4-7`/`v4-7`

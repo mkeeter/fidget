@@ -1,3 +1,4 @@
+//! Module containing the Fidget universal error type
 use thiserror::Error;
 
 /// Universal error type for Fidget

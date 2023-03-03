@@ -9,28 +9,22 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi};
 
-/// Assembler for interval evaluation
+/// Implementation for the interval assembler on `aarch64`
 ///
-/// The resulting function has the following signature:
-/// ```
-/// # type IntervalFn =
-/// extern "C" fn(
-///    [f32; 2], // X (s0, s1)
-///    [f32; 2], // Y (s2, s3)
-///    [f32; 2], // Z (s4, s5)
-///    *const f32, // vars (X0)
-///    *mut u8, // choices (X1)
-///    *mut u8, // simplify (X2)
-///) -> [f32; 2];
-/// ```
+/// Registers as pased in as follows:
 ///
-/// The first three arguments are X, Y, and Z intervals.  They come packed into
-/// `s0-5`, and we shuffle them into SIMD registers `V0.2S`, `V1.2S`, and
-/// `V2.2s` respectively.
+/// | Variable   | Register   | Type                    |
+/// |------------|------------|-------------------------|
+/// | X          | `(s0, s1)` | `(f32, f32)`            |
+/// | Y          | `(s2, s3)` | `(f32, f32)`            |
+/// | Z          | `(s4, s5)` | `(f32, f32)`            |
+/// | `vars`     | `x0`       | `*const f32` (array)    |
+/// | `choices`  | `x1`       | `*const u8` (array)     |
+/// | `simplify` | `x2`       | `*const u8` (single)    |
 ///
-/// During evaluation, each SIMD register stores an interval.  `s[0]` is the
-/// lower bound of the interval and `s[1]` is the upper bound; for example,
-/// `V0.S0` represents the lower bound for X.
+/// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
+/// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
+/// the upper bound; for example, `V0.S0` represents the lower bound for X.
 impl AssemblerT for IntervalAssembler {
     type Data = Interval;
 

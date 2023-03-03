@@ -8,11 +8,18 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
-/// Registers are passed in as follows
-/// - X, Y, Z are in `xmm0-2`
-/// - `vars` is in `rdi`
-/// - `choices` is in `rsi`
-/// - `simplify` is in `rdx`
+/// Implementation of the single-point assembler on `x86_64`
+///
+/// Registers are passed in as follows:
+///
+/// | Variable   | Register | Type                  |
+/// |------------|----------|-----------------------|
+/// | X          | `xmm0`   | `f32`                 |
+/// | Y          | `xmm1`   | `f32`                 |
+/// | Z          | `xmm2`   | `f32`                 |
+/// | `vars`     | `rdi`    | `*const f32` (array)  |
+/// | `choices`  | `rsi`    | `*mut u8` (array)     |
+/// | `simplify` | `rdx`    | `*mut u8` (single)    |
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for PointAssembler {
     type Data = f32;

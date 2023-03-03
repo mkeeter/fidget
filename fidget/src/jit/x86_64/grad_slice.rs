@@ -8,7 +8,7 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
-/// Implementation for the gradient slice assembler on x86.
+/// Implementation for the gradient slice assembler on `x86_64`
 ///
 /// Registers as pased in as follows:
 ///

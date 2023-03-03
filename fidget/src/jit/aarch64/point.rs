@@ -8,6 +8,18 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi};
 
+/// Implementation for the single-point assembler on `aarch64`
+///
+/// Registers as pased in as follows:
+///
+/// | Variable   | Register | Type                  |
+/// |------------|----------|-----------------------|
+/// | X          | `s0`     | `f32`                 |
+/// | Y          | `s1`     | `f32`                 |
+/// | Z          | `s2`     | `f32`                 |
+/// | `vars`     | `x0`     | `*const f32` (array)  |
+/// | `out`      | `x1`     | `*mut u8` (array)     |
+/// | `count`    | `x2`     | `*mut u8` (single)    |
 impl AssemblerT for PointAssembler {
     type Data = f32;
 

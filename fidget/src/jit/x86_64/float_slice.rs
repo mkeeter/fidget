@@ -6,21 +6,23 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 pub const SIMD_WIDTH: usize = 8;
 
-/// Assembler for SIMD point-wise evaluation.
+/// Assembler for SIMD point-wise evaluation on `x86_64`
 ///
 /// Arguments are passed as follows:
 ///
-/// | Argument | Register | Type         |
-/// | ---------|----------|--------------|
-/// | X        | `rdi`    | `*const f32` |
-/// | Y        | `rsi`    | `*const f32` |
-/// | Z        | `rdx`    | `*const f32` |
-/// | vars     | `rcx`    | `*mut f32`   |
-/// | out      | `r8`     | `*mut f32`   |
-/// | size     | `r9`     | `u64`        |
+/// | Argument | Register | Type                |
+/// | ---------|----------|---------------------|
+/// | X        | `rdi`    | `*const [f32; 8]`   |
+/// | Y        | `rsi`    | `*const [f32; 8]`   |
+/// | Z        | `rdx`    | `*const [f32; 8]`   |
+/// | vars     | `rcx`    | `*const f32`        |
+/// | out      | `r8`     | `*mut [f32; 8]`     |
+/// | size     | `r9`     | `u64`               |
 ///
-/// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
-/// 256-bit wide operations for everything.
+/// The arrays (other than `vars`) must be an even multiple of 8 floats, since
+/// we're using AVX2 and 256-bit wide operations for everything.  The `vars`
+/// array contains single `f32` values, which are broadcast into SIMD registers
+/// when they are used.
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.

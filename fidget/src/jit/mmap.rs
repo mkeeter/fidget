@@ -136,13 +136,17 @@ impl Mmap {
         #[cfg(target_arch = "aarch64")]
         compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
 
-        #[cfg(feature = "write-xor-execute")]
-        unsafe {
-            libc::mprotect(self.ptr, size, libc::PROT_READ | libc::PROT_EXEC);
+        // This is deliberately done as a cfg! conditional (instead of #[cfg]),
+        // so that the code is type-checked even if the feature is disabled.
+        if cfg!(feature = "write-xor-execute") {
+            unsafe {
+                libc::mprotect(
+                    self.ptr,
+                    size,
+                    libc::PROT_READ | libc::PROT_EXEC,
+                );
+            }
         }
-
-        #[cfg(not(feature = "write-xor-execute"))]
-        let _ = size; // discard
     }
 
     /// Modifies the **per-thread** W^X state to allow writing of memory-mapped
@@ -157,13 +161,14 @@ impl Mmap {
     ///
     /// This is a no-op if the `write-xor-execute` feature is not enabled.
     pub fn make_write(&self) {
-        #[cfg(feature = "write-xor-execute")]
-        unsafe {
-            libc::mprotect(
-                self.ptr,
-                self.len,
-                libc::PROT_READ | libc::PROT_WRITE,
-            );
+        if cfg!(feature = "write-xor-execute") {
+            unsafe {
+                libc::mprotect(
+                    self.ptr,
+                    self.len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                );
+            }
         }
     }
 }
@@ -180,6 +185,7 @@ impl Drop for Mmap {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    /// Empty struct which switches the thread to execute mode when dropped
     pub struct ThreadWriteGuard;
     impl Drop for ThreadWriteGuard {
         fn drop(&mut self) {

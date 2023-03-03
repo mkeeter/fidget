@@ -9,15 +9,18 @@ use crate::{
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
-/// Registers are passed in as follows
-/// | Variable   | Register | Type               |
-/// |------------|----------|--------------------|
-/// | X          | `xmm0`   | `[f32; 2]`         |
-/// | Y          | `xmm1`   | `[f32; 2]`         |
-/// | Z          | `xmm2`   | `[f32; 2]`         |
-/// | `vars`     | `rdi`    | `*const f32`       |
-/// | `choices`  | `rsi`    | `*mut u8` (array)  |
-/// | `simplify` | `rdx`    | `*mut u8` (single) |
+/// Implementation of the interval assembler on `x86_64`
+///
+/// Registers are passed in as follows:
+///
+/// | Variable   | Register | Type                  |
+/// |------------|----------|-----------------------|
+/// | X          | `xmm0`   | `[f32; 2]`            |
+/// | Y          | `xmm1`   | `[f32; 2]`            |
+/// | Z          | `xmm2`   | `[f32; 2]`            |
+/// | `vars`     | `rdi`    | `*const f32` (array)  |
+/// | `choices`  | `rsi`    | `*mut u8` (array)     |
+/// | `simplify` | `rdx`    | `*mut u8` (single)    |
 #[cfg(target_arch = "x86_64")]
 impl AssemblerT for IntervalAssembler {
     type Data = Interval;
