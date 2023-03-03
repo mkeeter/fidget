@@ -109,6 +109,7 @@ pub mod eval_tests {
 
         let tape = ctx.get_tape::<I>(max).unwrap();
         let eval = tape.new_point_evaluator();
+
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
         assert!(data.is_none());
@@ -150,7 +151,7 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(min).unwrap();
-        let eval = tape.clone().new_point_evaluator();
+        let eval = tape.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
@@ -166,7 +167,7 @@ pub mod eval_tests {
 
         let min = ctx.min(x, 1.0).unwrap();
         let tape = ctx.get_tape::<I>(min).unwrap();
-        let eval = tape.clone().new_point_evaluator();
+        let eval = tape.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
@@ -185,6 +186,17 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
+
+        let tape = ctx.get_tape::<I>(x).unwrap();
+        let eval = tape.new_point_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
+
+        let tape = ctx.get_tape::<I>(y).unwrap();
+        let eval = tape.new_point_evaluator();
+        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 4.0);
+
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
@@ -196,6 +208,22 @@ pub mod eval_tests {
     pub fn test_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
+        let tape = ctx.get_tape::<I>(a).unwrap();
+        let mut vars = Vars::new(&tape);
+        let eval = tape.new_point_evaluator();
+        assert_eq!(
+            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 5.0)].into_iter()))
+                .unwrap()
+                .0,
+            5.0
+        );
+        assert_eq!(
+            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 1.0)].into_iter()))
+                .unwrap()
+                .0,
+            1.0
+        );
+
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();

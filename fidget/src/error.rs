@@ -1,3 +1,4 @@
+//! Module containing the Fidget universal error type
 use thiserror::Error;
 
 /// Universal error type for Fidget
@@ -39,4 +40,8 @@ pub enum Error {
     #[cfg(feature = "rhai")]
     #[error("Rhai error: {0}")]
     RhaiError(#[from] rhai::EvalAltResult),
+
+    #[cfg(feature = "jit")]
+    #[error("dynasm error: {0}")]
+    DynasmError(#[from] dynasmrt::DynasmError),
 }

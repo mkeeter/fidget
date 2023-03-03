@@ -59,21 +59,24 @@ These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
 ## Platforms
-At the moment, the JIT only supports macOS + AArch64.
+At the moment, the JIT only supports two platforms:
+
+- `aarch64-apple-darwin`
+- `x86_64-unknown-linux-*` (requires AVX2 support)
 
 Disabling the `jit` feature allows for cross-platform rendering, using an
 interpreter rather than JIT compilation.
 
-Adding support for Linux + AArch64 wouldn't be too hard.  The one tricky part
-is dropping into assembly to invalidate the instruction cache (on macOS, there's a
+Adding support for other `aarch64` platforms wouldn't be _too_ hard.  The one
+tricky part is dropping into assembly to invalidate the instruction cache (on
+macOS, there's a
 [`libc` API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sys_icache_invalidate.3.html)
 for it);
 see [this discussion thread](https://github.com/CensoredUsername/dynasm-rs/issues/50)
 for details.
 
-An x86 backend would be substantially more work; if you want to write some x86
-assembly (and who doesn't?!), adding that backend would be a fun project and
-highly welcome!
+`x86_64-pc-windows-*` _may_ work already; the author does not have a Windows
+machine on which to validate.
 
 ## Similar projects
 Fidget overlaps with various projects in the implicit modeling space:

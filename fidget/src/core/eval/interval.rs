@@ -129,6 +129,27 @@ pub mod eval_tests {
         assert!(v.upper().is_nan());
     }
 
+    pub fn test_i_neg<I: Family>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let neg_x = ctx.neg(x).unwrap();
+
+        let tape = ctx.get_tape::<I>(neg_x).unwrap();
+        let eval = tape.new_interval_evaluator();
+        assert_eq!(eval.eval_x([0.0, 1.0]), [-1.0, 0.0].into());
+        assert_eq!(eval.eval_x([0.0, 4.0]), [-4.0, 0.0].into());
+        assert_eq!(eval.eval_x([2.0, 4.0]), [-4.0, -2.0].into());
+        assert_eq!(eval.eval_x([-2.0, 4.0]), [-4.0, 2.0].into());
+        assert_eq!(eval.eval_x([-6.0, -2.0]), [2.0, 6.0].into());
+        assert_eq!(eval.eval_x([-6.0, 1.0]), [-1.0, 6.0].into());
+
+        let (v, _) = eval
+            .eval([std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .unwrap();
+        assert!(v.lower().is_nan());
+        assert!(v.upper().is_nan());
+    }
+
     pub fn test_i_mul<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -519,6 +540,7 @@ pub mod eval_tests {
             $crate::interval_test!(test_i_abs, $t);
             $crate::interval_test!(test_i_sqrt, $t);
             $crate::interval_test!(test_i_square, $t);
+            $crate::interval_test!(test_i_neg, $t);
             $crate::interval_test!(test_i_mul, $t);
             $crate::interval_test!(test_i_mul_imm, $t);
             $crate::interval_test!(test_i_sub, $t);
