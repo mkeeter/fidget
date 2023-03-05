@@ -297,6 +297,15 @@ impl Interval {
             choice,
         )
     }
+
+    /// Splits the interval at the midpoint
+    pub fn split(self) -> (Self, Self) {
+        let mid = (self.lower + self.upper) / 2.0;
+        (
+            Interval::new(self.lower, mid),
+            Interval::new(mid, self.upper),
+        )
+    }
 }
 
 impl From<[f32; 2]> for Interval {

@@ -27,7 +27,7 @@ rhai = { version = "1.10", optional = true, features = ["sync"] }
 nalgebra = { version = "0.31", optional = true }
 
 [features]
-default = ["jit", "rhai", "render"]
+default = ["jit", "rhai", "render", "mesh"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on
@@ -43,6 +43,9 @@ rhai = ["dep:rhai"]
 
 ## Enable 2D and 3D rendering, in the [`fidget::render`](crate::render) module
 render = ["dep:nalgebra"]
+
+## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
+mesh = ["dep:nalgebra"]
 
 ## Enable `eval-tests` if you're writing your own evaluator family and want to
 ## unit-test it.  When enabled, the crate exports a set of macros to test each

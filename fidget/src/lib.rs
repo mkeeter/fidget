@@ -249,3 +249,6 @@ pub mod rhai;
 
 #[cfg(feature = "jit")]
 pub mod jit;
+
+#[cfg(feature = "mesh")]
+pub mod mesh;
