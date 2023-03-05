@@ -187,7 +187,7 @@ impl Octree {
 
     /// Handles two cells which share a common `YZ` face
     ///
-    /// `lo` is below `hi` on the `Z` axis
+    /// `lo` is below `hi` on the `X` axis
     fn dc_face_x(&self, lo: usize, hi: usize) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
@@ -201,7 +201,7 @@ impl Octree {
                 self.child(lo, (Y * i) | X),
                 self.child(lo, (Y * i) | X | Z),
                 self.child(hi, (Y * i) | Z),
-                self.child(lo, (Y * i) | 0),
+                self.child(hi, (Y * i) | 0),
             );
             self.dc_edge_z(
                 self.child(lo, (Z * i) | X),
@@ -225,9 +225,9 @@ impl Octree {
         for i in 0..2 {
             self.dc_edge_x(
                 self.child(lo, (X * i) | Y),
-                self.child(hi, (X * i) | 0),
-                self.child(hi, (X * i) | Z),
                 self.child(lo, (X * i) | Y | Z),
+                self.child(hi, (X * i) | Z),
+                self.child(hi, (X * i) | 0),
             );
             self.dc_edge_z(
                 self.child(lo, (Z * i) | Y),
@@ -265,7 +265,7 @@ impl Octree {
     }
     /// Handles four cells that share a common `X` edge
     ///
-    /// Cells positions are in the order `[0, Y, Z, Y | Z]`, i.e. a right-handed
+    /// Cells positions are in the order `[0, Y, Y | Z, Z]`, i.e. a right-handed
     /// winding about `+X`.
     fn dc_edge_x(&self, a: usize, b: usize, c: usize, d: usize) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
@@ -273,34 +273,45 @@ impl Octree {
         }
         for i in 0..2 {
             self.dc_edge_x(
-                self.child(a, (i * Z) | Y | Z),
-                self.child(b, (i * Z) | Z),
-                self.child(c, (i * Z) | 0),
-                self.child(d, (i * Z) | Y),
+                self.child(a, (i * X) | Y | Z),
+                self.child(b, (i * X) | Z),
+                self.child(c, (i * X) | 0),
+                self.child(d, (i * X) | Y),
             )
         }
-        todo!()
     }
     /// Handles four cells that share a common `Y` edge
     ///
-    /// Cells positions are in the order `[0, Z, X, X | Z]`, i.e. a right-handed
+    /// Cells positions are in the order `[0, Z, X | Z, X]`, i.e. a right-handed
     /// winding about `+Y`.
     fn dc_edge_y(&self, a: usize, b: usize, c: usize, d: usize) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             // terminate!
         }
-        // Two calls to edgeproc
-        todo!()
+        for i in 0..2 {
+            self.dc_edge_y(
+                self.child(a, (i * Y) | X | Z),
+                self.child(b, (i * Y) | X),
+                self.child(c, (i * Y) | 0),
+                self.child(d, (i * Y) | Z),
+            )
+        }
     }
     /// Handles four cells that share a common `Z` edge
     ///
-    /// Cells positions are in the order `[0, X, Y, X | Y]`, i.e. a right-handed
+    /// Cells positions are in the order `[0, X, X | Y, Y]`, i.e. a right-handed
     /// winding about `+Z`.
     fn dc_edge_z(&self, a: usize, b: usize, c: usize, d: usize) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             // terminate!
         }
-        // Two calls to edgeproc
-        todo!()
+        for i in 0..2 {
+            self.dc_edge_z(
+                self.child(a, (i * Z) | X | Y),
+                self.child(b, (i * Z) | Y),
+                self.child(c, (i * Z) | 0),
+                self.child(d, (i * Z) | X),
+            )
+        }
     }
 }
