@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
 const X: usize = 1;
 const Y: usize = 2;
@@ -70,6 +70,31 @@ fn build_mdc_table() {
                 if r & (1 << j) != 0 {
                     assert_eq!(regions[j], u8::MAX);
                     regions[j as usize] = i as u8;
+                }
+            }
+        }
+
+        // We're finally ready to build the edge transition table!
+        //
+        // vert_map is a map from (start region, end region) to a vertex index.
+        // verts is a map from vertex index to the edges that built that vertex.
+        let mut vert_map = BTreeMap::new();
+        let mut verts = vec![];
+        for start in 0..8 {
+            for axis in [X, Y, Z] {
+                let end = start ^ axis;
+                // We're only looking for inside (1) -> outside (0) transitions
+                // here, and will skip everything else.
+                if (i & (1 << start)) != 0 && (i & (1 << end)) == 0 {
+                    let start_region = regions[start];
+                    let end_region = regions[end];
+                    assert!(start_region != end_region);
+                    let key = (start_region, end_region);
+                    if let Entry::Vacant(e) = vert_map.entry(key) {
+                        e.insert(verts.len());
+                        verts.push(BTreeSet::new());
+                    }
+                    verts[vert_map[&key]].insert((start, end));
                 }
             }
         }
