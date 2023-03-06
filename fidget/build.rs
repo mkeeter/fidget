@@ -1,4 +1,7 @@
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::{
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+    fmt::Write,
+};
 
 const X: usize = 1;
 const Y: usize = 2;
@@ -15,6 +18,9 @@ fn main() {
 /// This is roughly equivalent to Figure 5 in Nielson's Dual Marching Cubes
 /// (2004), but worked out automatically by clustering cell corners.
 fn build_mdc_table() {
+    let mut vert_table =
+        "const CELL_TO_VERTS: [&'static [&'static [(u8, u8)]]; 256] = [\n"
+            .to_owned();
     for i in 0..256 {
         let mut filled_regions = BTreeMap::new();
         let mut empty_regions = BTreeMap::new();
@@ -80,6 +86,7 @@ fn build_mdc_table() {
         // verts is a map from vertex index to the edges that built that vertex.
         let mut vert_map = BTreeMap::new();
         let mut verts = vec![];
+        // TODO: just store edges in `vert_map` instead?
         for start in 0..8 {
             for axis in [X, Y, Z] {
                 let end = start ^ axis;
@@ -89,18 +96,30 @@ fn build_mdc_table() {
                     let start_region = regions[start];
                     let end_region = regions[end];
                     assert!(start_region != end_region);
-                    let key = (start_region, end_region);
-                    if let Entry::Vacant(e) = vert_map.entry(key) {
+                    if let Entry::Vacant(e) = vert_map.entry(start_region) {
                         e.insert(verts.len());
                         verts.push(BTreeSet::new());
                     }
-                    verts[vert_map[&key]].insert((start, end));
+                    verts[vert_map[&start_region]].insert((start, end));
                 }
             }
         }
+        // There are two maps associated with this cell:
+        // - A list of vertices, each of which has a list of transition edges
+        // - A map from transition edge to vertex in the previous list
+        _ = writeln!(&mut vert_table, "&[");
+        for edges in &verts {
+            _ = write!(&mut vert_table, "    &[");
+            for (start, end) in edges {
+                _ = write!(&mut vert_table, "({start}, {end}), ");
+            }
+            _ = writeln!(&mut vert_table, "],");
+        }
+        _ = writeln!(&mut vert_table, "],");
     }
+    _ = writeln!(&mut vert_table, "];");
 
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("mdc_tables.rs");
-    std::fs::write(dest_path, "// hi").unwrap();
+    std::fs::write(dest_path, vert_table).unwrap();
 }
