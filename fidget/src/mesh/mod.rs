@@ -315,3 +315,5 @@ impl Octree {
         }
     }
 }
+
+include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
