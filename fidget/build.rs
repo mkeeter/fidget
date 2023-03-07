@@ -34,7 +34,7 @@ fn build_mdc_table() {
 /// Given a cell index `i` (as an 8-bit value), looks up a list of vertices
 /// which are required for that cell.  Each vertex is implicitly numbered based
 /// on its position in the list, and itself stores a list of edges (as packed
-/// values in the range 0-24).
+/// directed values in the range 0-24).
 pub const CELL_TO_VERT_TO_EDGES: [&'static [&'static [u8]]; 256] = [\n"
         .to_owned();
 
@@ -49,10 +49,10 @@ pub const CELL_TO_VERT_TO_EDGES: [&'static [&'static [u8]]; 256] = [\n"
 /// Lookup table to find which vertex is associated with a particular edge
 ///
 /// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
-/// packed value in the range 0-24), returns a vertex index `v` such that
-/// [`CELL_TO_VERT_TO_EDGES[i][v]`](CELL_TO_VERT_TO_EDGES) contains the edge
-/// `e`.
-pub const CELL_TO_EDGE_TO_VERT: [[u8; 24]; 256] = [\n"
+/// packed undirected value in the range 0-12), returns a vertex index `v` such
+/// that [`CELL_TO_VERT_TO_EDGES[i][v]`](CELL_TO_VERT_TO_EDGES) contains the
+/// edge `e` (as a directed edge, i.e. possibly shifted by 12)
+pub const CELL_TO_EDGE_TO_VERT: [[u8; 12]; 256] = [\n"
         .to_owned();
     for i in 0..256 {
         let mut filled_regions = BTreeMap::new();
@@ -119,7 +119,6 @@ pub const CELL_TO_EDGE_TO_VERT: [[u8; 24]; 256] = [\n"
         // of edges that built that vertex.
         let mut verts: BTreeMap<_, Vec<_>> = BTreeMap::new();
         let mut edge = 0;
-        println!("----------\n{i:08b}");
         for rev in [false, true] {
             for t in [X, Y, Z] {
                 // t-u-v forms a right-handed coordinate system
@@ -156,7 +155,7 @@ pub const CELL_TO_EDGE_TO_VERT: [[u8; 24]; 256] = [\n"
         // There are two maps associated with this cell:
         // - A list of vertices, each of which has a list of transition edges
         // - A map from transition edge to vertex in the previous list
-        let mut edge_map = [u8::MAX; 24];
+        let mut edge_map = [u8::MAX; 12];
         writeln!(&mut vert_table, "  &[").unwrap();
         for (vert, (_, edges)) in verts.iter().enumerate() {
             write!(&mut vert_table, "    &[").unwrap();
@@ -176,7 +175,9 @@ pub const CELL_TO_EDGE_TO_VERT: [[u8; 24]; 256] = [\n"
                 assert!((i & (1 << end)) == 0);
 
                 write!(&mut vert_table, "{e}, ").unwrap();
-                edge_map[*e] = vert.try_into().unwrap();
+
+                // Convert from directed to undirected edge for the second map
+                edge_map[*e % 12] = vert.try_into().unwrap();
             }
             writeln!(&mut vert_table, "],").unwrap();
         }
