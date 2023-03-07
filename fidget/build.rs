@@ -1,11 +1,21 @@
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Write,
 };
 
+// Same axes as in `fidget::mesh`, but available at build time.
 const X: usize = 1;
 const Y: usize = 2;
 const Z: usize = 4;
+
+fn next(axis: usize) -> usize {
+    match axis {
+        X => Y,
+        Y => Z,
+        Z => X,
+        a => panic!("Invalid axis {a}"),
+    }
+}
 
 fn main() {
     if std::env::var("CARGO_FEATURE_MESH").is_ok() {
@@ -18,9 +28,32 @@ fn main() {
 /// This is roughly equivalent to Figure 5 in Nielson's Dual Marching Cubes
 /// (2004), but worked out automatically by clustering cell corners.
 fn build_mdc_table() {
-    let mut vert_table =
-        "const CELL_TO_VERTS: [&'static [&'static [(u8, u8)]]; 256] = [\n"
-            .to_owned();
+    let mut vert_table = "
+/// Lookup table to find edges for a particular cell configuration
+///
+/// Given a cell index `i` (as an 8-bit value), looks up a list of vertices
+/// which are required for that cell.  Each vertex is implicitly numbered based
+/// on its position in the list, and itself stores a list of edges (as packed
+/// values in the range 0-24).
+pub const CELL_TO_VERT_TO_EDGES: [&'static [&'static [u8]]; 256] = [\n"
+        .to_owned();
+
+    // TODO: refactor this to `CELL_TO_VERT_TO_INTERSECTION`, which returns an
+    // implicitly numbered intersection, and `CELL_TO_INTERSECTION_TO_EDGE`
+    // which looks up that intersection and returns `(start, end)`
+    //
+    // Then, CELL_TO_EDGE_TO_VERT could be only [[u8; 12; 256], since we
+    // wouldn't care about edge signs.
+
+    let mut edge_table = "
+/// Lookup table to find which vertex is associated with a particular edge
+///
+/// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
+/// packed value in the range 0-24), returns a vertex index `v` such that
+/// [`CELL_TO_VERT_TO_EDGES[i][v]`](CELL_TO_VERT_TO_EDGES) contains the edge
+/// `e`.
+pub const CELL_TO_EDGE_TO_VERT: [[u8; 24]; 256] = [\n"
+        .to_owned();
     for i in 0..256 {
         let mut filled_regions = BTreeMap::new();
         let mut empty_regions = BTreeMap::new();
@@ -82,44 +115,79 @@ fn build_mdc_table() {
 
         // We're finally ready to build the edge transition table!
         //
-        // vert_map is a map from (start region, end region) to a vertex index.
-        // verts is a map from vertex index to the edges that built that vertex.
-        let mut vert_map = BTreeMap::new();
-        let mut verts = vec![];
-        // TODO: just store edges in `vert_map` instead?
-        for start in 0..8 {
-            for axis in [X, Y, Z] {
-                let end = start ^ axis;
-                // We're only looking for inside (1) -> outside (0) transitions
-                // here, and will skip everything else.
-                if (i & (1 << start)) != 0 && (i & (1 << end)) == 0 {
-                    let start_region = regions[start];
-                    let end_region = regions[end];
-                    assert!(start_region != end_region);
-                    if let Entry::Vacant(e) = vert_map.entry(start_region) {
-                        e.insert(verts.len());
-                        verts.push(BTreeSet::new());
+        // vert_map is a map from start region to a vertex, defined as a list
+        // of edges that built that vertex.
+        let mut verts: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        let mut edge = 0;
+        println!("----------\n{i:08b}");
+        for rev in [false, true] {
+            for t in [X, Y, Z] {
+                // t-u-v forms a right-handed coordinate system
+                let u = next(t);
+                let v = next(u);
+                for b in 0..2 {
+                    for a in 0..2 {
+                        let start = (a * u) | (b * v);
+                        let end = start | t;
+
+                        let (start, end) =
+                            if rev { (end, start) } else { (start, end) };
+                        println!("checking {start} -> {end}");
+
+                        // Only process this edge if `start` is inside the model
+                        // (non-zero) and `end` is outside (0).
+                        if ((i & (1 << start)) != 0) && ((i & (1 << end)) == 0)
+                        {
+                            let start_region = regions[start];
+                            println!(
+                                "   got hit in {start_region}, {t} {u} {v}"
+                            );
+                            let end_region = regions[end];
+                            assert!(start_region != end_region);
+                            verts.entry(start_region).or_default().push(edge);
+                        }
+                        edge += 1;
                     }
-                    verts[vert_map[&start_region]].insert((start, end));
                 }
             }
         }
+        println!("verts: {verts:?}");
+
         // There are two maps associated with this cell:
         // - A list of vertices, each of which has a list of transition edges
         // - A map from transition edge to vertex in the previous list
-        _ = writeln!(&mut vert_table, "&[");
-        for edges in &verts {
-            _ = write!(&mut vert_table, "    &[");
-            for (start, end) in edges {
-                _ = write!(&mut vert_table, "({start}, {end}), ");
+        let mut edge_map = [u8::MAX; 24];
+        writeln!(&mut vert_table, "  &[").unwrap();
+        for (vert, (_, edges)) in verts.iter().enumerate() {
+            write!(&mut vert_table, "    &[").unwrap();
+            for e in edges {
+                let rev = e / 12 != 0;
+
+                let t = 1 << ((e % 12) / 4);
+                let u = next(t);
+                let v = next(u);
+
+                let a = (u * (e % 2)) | (v * ((e % 4) / 2));
+                let b = a | t;
+
+                let (start, end) = if rev { (b, a) } else { (a, b) };
+
+                assert!((i & (1 << start)) != 0);
+                assert!((i & (1 << end)) == 0);
+
+                write!(&mut vert_table, "{e}, ").unwrap();
+                edge_map[*e] = vert.try_into().unwrap();
             }
-            _ = writeln!(&mut vert_table, "],");
+            writeln!(&mut vert_table, "],").unwrap();
         }
-        _ = writeln!(&mut vert_table, "],");
+        writeln!(&mut vert_table, "  ],").unwrap();
+        writeln!(&mut edge_table, "    {edge_map:?},").unwrap();
     }
-    _ = writeln!(&mut vert_table, "];");
+    writeln!(&mut vert_table, "];").unwrap();
+    writeln!(&mut edge_table, "];").unwrap();
 
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("mdc_tables.rs");
-    std::fs::write(dest_path, vert_table).unwrap();
+    std::fs::write(dest_path, format!("{}\n{}", vert_table, edge_table))
+        .unwrap();
 }
