@@ -17,6 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cargo build --verbose --package fidget --no-default-features --features rhai,render
+      run: cargo build --verbose --package fidget
     - name: Run tests
-      run: cargo test --verbose --package fidget --no-default-features --features rhai,render
+      run: cargo test --verbose --package fidget
