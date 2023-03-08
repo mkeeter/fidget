@@ -129,9 +129,10 @@ impl Mmap {
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
 
-    /// Switches the given cache to an executable binding and flushes caches
+    /// Flushes caches and remaps to an executable binding
     ///
-    /// This is a no-op if the `write-xor-execute` feature is not enabled.
+    /// The former is a no-op on systems with coherent D/I-caches (i.e. x86);
+    /// the latter is a no-op if the `write-xor-execute` feature is not enabled.
     pub fn finalize(&self, size: usize) {
         self.flush_cache(size);
 
@@ -163,8 +164,8 @@ impl Mmap {
         let icache_line_size = (cache_type & 0xF) << 4;
         let dcache_line_size = ((cache_type >> 16) & 0xF) << 4;
 
-		let mut addr = self.as_ptr() as usize & !(dcache_line_size - 1);
-		let end = self.as_ptr() as usize + size;
+        let mut addr = self.as_ptr() as usize & !(dcache_line_size - 1);
+        let end = self.as_ptr() as usize + size;
         while addr < end {
             unsafe {
                 asm!(
@@ -189,8 +190,7 @@ impl Mmap {
             addr += icache_line_size;
         }
         unsafe {
-            asm!("dsb ish",
-                 "isb");
+            asm!("dsb ish", "isb");
         }
     }
 
