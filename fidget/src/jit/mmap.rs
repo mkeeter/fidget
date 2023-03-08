@@ -129,12 +129,11 @@ impl Mmap {
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
 
-    /// Switches the given cache to an executable binding.
+    /// Switches the given cache to an executable binding and flushes caches
     ///
     /// This is a no-op if the `write-xor-execute` feature is not enabled.
     pub fn finalize(&self, size: usize) {
-        #[cfg(target_arch = "aarch64")]
-        compile_error!("Missing __builtin___clear_cache on Linux + AArch64");
+        self.flush_cache(size);
 
         // This is deliberately done as a cfg! conditional (instead of #[cfg]),
         // so that the code is type-checked even if the feature is disabled.
@@ -147,6 +146,57 @@ impl Mmap {
                 );
             }
         }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn flush_cache(&self, size: usize) {
+        use std::arch::asm;
+        let mut cache_type: usize;
+        // Loosely based on code from mono; see mono/mono#3549 for a good
+        // writeup and associated PR.
+        unsafe {
+            asm!(
+                "mrs {tmp}, ctr_el0",
+                tmp = out(reg) cache_type,
+            );
+        }
+        let icache_line_size = (cache_type & 0xF) << 4;
+        let dcache_line_size = ((cache_type >> 16) & 0xF) << 4;
+
+		let mut addr = self.as_ptr() as usize & !(dcache_line_size - 1);
+		let end = self.as_ptr() as usize + size;
+        while addr < end {
+            unsafe {
+                asm!(
+                    "dc civac, {tmp}",
+                    tmp = in(reg) addr,
+                );
+            }
+            addr += dcache_line_size;
+        }
+        unsafe {
+            asm!("dsb ish");
+        }
+
+        let mut addr = self.as_ptr() as usize & !(icache_line_size - 1);
+        while addr < end {
+            unsafe {
+                asm!(
+                    "ic ivau, {tmp}",
+                    tmp = in(reg) addr,
+                );
+            }
+            addr += icache_line_size;
+        }
+        unsafe {
+            asm!("dsb ish",
+                 "isb");
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    fn flush_cache(&self, _size: usize) {
+        // Nothing to do here
     }
 
     /// Modifies the **per-thread** W^X state to allow writing of memory-mapped
