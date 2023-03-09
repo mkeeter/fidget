@@ -1,7 +1,21 @@
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
 struct Leaf {
-    corners: [f32; 8],
+    /// Corner mask, with set bits (1) for cube corners inside the surface
+    ///
+    /// "Inside" means < 0.0; exactly 0.0 is treated as outside.
+    mask: u8,
+
+    /// Intersection positions along active edges
+    ///
+    /// Intersections are numbered as `axis * 4 + next(axis) * 2 + prev(axis)`,
+    /// (TODO is this correct?)
+    /// where `prev(...)` and `next(...)` produce a right-handed coordinate
+    /// system from the given axis.
+    ///
+    /// The intersection position is given as a fraction of the distance along
+    /// the edge, where 0 is the minimum value on the relevant axis.
+    intersections: [u16; 12],
 }
 
 pub struct Octree {
@@ -68,16 +82,35 @@ impl Octree {
                 let mut ys = [0.0; 8];
                 let mut zs = [0.0; 8];
                 for i in 0..8 {
-                    xs[i] = if i & 1 == 0 { x_lo } else { x_hi };
-                    ys[i] = if i & 1 == 0 { y_lo } else { y_hi };
-                    zs[i] = if i & 1 == 0 { z_lo } else { z_hi };
+                    xs[i] = if i & X == 0 { x_lo } else { x_hi };
+                    ys[i] = if i & Y == 0 { y_lo } else { y_hi };
+                    zs[i] = if i & Z == 0 { z_lo } else { z_hi };
                 }
+                // TODO: reuse evaluators, etc
                 let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
                 let leaf_index = self.leafs.len();
-                assert!(leaf_index & Self::CELL_TYPE_MASK == 0);
 
+                // Make sure we haven't made too many leafs
+                assert!(leaf_index & Self::CELL_TYPE_MASK == 0);
+                assert_eq!(out.len(), 8);
+
+                // Build a mask of active corners
+                let cell = out
+                    .iter()
+                    .enumerate()
+                    .filter(|(_i, &v)| v < 0.0)
+                    .fold(0, |acc, (i, _v)| acc | (1 << i));
+
+                let mut intersections = [0; 12];
+                for verts in CELL_TO_VERT_TO_EDGES[cell as usize] {
+                    for e in *verts {
+                        intersections[(e % 12) as usize] =
+                            if e / 12 != 0 { 16384 } else { u16::MAX - 16384 }
+                    }
+                }
                 self.leafs.push(Leaf {
-                    corners: out.try_into().unwrap(),
+                    mask: cell,
+                    intersections,
                 });
                 self.cells[index] = leaf_index & Self::CELL_TYPE_LEAF;
             } else {
@@ -90,9 +123,9 @@ impl Octree {
                 let (y_lo, y_hi) = y.split();
                 let (z_lo, z_hi) = z.split();
                 for i in 0..8 {
-                    let x = if i & 1 == 0 { x_lo } else { x_hi };
-                    let y = if i & 2 == 0 { y_lo } else { y_hi };
-                    let z = if i & 4 == 0 { z_lo } else { z_hi };
+                    let x = if i & X == 0 { x_lo } else { x_hi };
+                    let y = if i & Y == 0 { y_lo } else { y_hi };
+                    let z = if i & Z == 0 { z_lo } else { z_hi };
                     self.recurse(i_handle, child + i, x, y, z, depth - 1);
                 }
             }
