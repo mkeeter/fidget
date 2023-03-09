@@ -22,6 +22,9 @@ struct Leaf {
 ///
 /// Instead of storing the cell bounds in the leaf itself, we build them when
 /// descending the tree.
+///
+/// `index` points to where this cell is stored in [`Octree::cells`]
+#[derive(Copy, Clone)]
 struct CellIndex {
     index: usize,
     depth: usize,
@@ -31,6 +34,24 @@ struct CellIndex {
 }
 
 impl CellIndex {
+    /// Returns the position of the given corner (0-7)
+    ///
+    /// Vertices are numbered as follows:
+    ///
+    /// ```text
+    ///         6 -------- 7
+    ///        /          /       Z
+    ///       / |        / |      ^  _ Y
+    ///      4----------5  |      | /
+    ///      |  |       |  |      |/
+    ///      |  2-------|--3      ---> X
+    ///      | /        | /
+    ///      |/         |/
+    ///      0----------1
+    /// ```
+    ///
+    /// The 8 octree cells are numbered equivalently, based on their corner
+    /// vertex.
     fn corner(&self, i: usize) -> (f32, f32, f32) {
         let x = if i & X == 0 {
             self.x.lower()
@@ -46,6 +67,27 @@ impl CellIndex {
             self.z.lower()
         } else {
             self.z.upper()
+        };
+        (x, y, z)
+    }
+
+    /// Returns the interval of the given child (0-7)
+    fn interval(&self, i: usize) -> (Interval, Interval, Interval) {
+        // TODO: make this a function in `Interval`?
+        let x = if i & X == 0 {
+            Interval::new(self.x.lower(), self.x.midpoint())
+        } else {
+            Interval::new(self.x.midpoint(), self.x.upper())
+        };
+        let y = if i & Y == 0 {
+            Interval::new(self.y.lower(), self.y.midpoint())
+        } else {
+            Interval::new(self.y.midpoint(), self.y.upper())
+        };
+        let z = if i & Z == 0 {
+            Interval::new(self.z.lower(), self.z.midpoint())
+        } else {
+            Interval::new(self.z.midpoint(), self.z.upper())
         };
         (x, y, z)
     }
@@ -182,95 +224,93 @@ impl Octree {
         let y = Interval::new(-1.0, 1.0);
         let z = Interval::new(-1.0, 1.0);
 
-        self.dc_cell(0);
+        self.dc_cell(CellIndex {
+            index: 0,
+            x,
+            y,
+            z,
+            depth: 0,
+        });
     }
 }
 
-/// Vertices are numbered as follows:
-///
-/// ```text
-///         6 -------- 7
-///        /          /       Z
-///       / |        / |      ^  _ Y
-///      4----------5  |      | /
-///      |  |       |  |      |/
-///      |  2-------|--3      ---> X
-///      | /        | /
-///      |/         |/
-///      0----------1
-/// ```
-///
-/// The 8 octree cells are numbered equivalently, based on their corner vertex
 #[allow(clippy::modulo_one, clippy::identity_op)]
 impl Octree {
-    fn dc_cell(&self, index: usize) {
-        let i = self.cells[index];
+    fn dc_cell(&self, cell: CellIndex) {
+        let i = self.cells[cell.index];
         let ty = i & Self::CELL_TYPE_MASK;
 
         if ty == Self::CELL_TYPE_BRANCH {
-            let c = i & !Self::CELL_TYPE_MASK;
-            assert_eq!(c % 8, 0);
+            assert_eq!(cell.index % 8, 0);
             for i in 0..8 {
-                self.dc_cell(c | i);
+                self.dc_cell(self.child(cell, i));
             }
             for i in 0..4 {
                 self.dc_face_x(
-                    c | (2 * X * (i / X) + (i % X)) | 0,
-                    c | (2 * X * (i / X) + (i % X)) | X,
+                    self.child(cell, (2 * X * (i / X) + (i % X)) | 0),
+                    self.child(cell, (2 * X * (i / X) + (i % X)) | X),
                 );
                 self.dc_face_y(
-                    c | (2 * Y * (i / Y) + (i % Y)) | 0,
-                    c | (2 * Y * (i / Y) + (i % Y)) | Y,
+                    self.child(cell, (2 * Y * (i / Y) + (i % Y)) | 0),
+                    self.child(cell, (2 * Y * (i / Y) + (i % Y)) | Y),
                 );
                 self.dc_face_z(
-                    c | (2 * Z * (i / Z) + (i % Z)) | 0,
-                    c | (2 * Z * (i / Z) + (i % Z)) | Z,
+                    self.child(cell, (2 * Z * (i / Z) + (i % Z)) | 0),
+                    self.child(cell, (2 * Z * (i / Z) + (i % Z)) | Z),
                 );
             }
             for i in 0..2 {
                 self.dc_edge_x(
-                    c | (X * i) | 0,
-                    c | (X * i) | Y,
-                    c | (X * i) | Y | Z,
-                    c | (X * i) | Z,
+                    self.child(cell, (X * i) | 0),
+                    self.child(cell, (X * i) | Y),
+                    self.child(cell, (X * i) | Y | Z),
+                    self.child(cell, (X * i) | Z),
                 );
                 self.dc_edge_y(
-                    c | (Y * i) | 0,
-                    c | (Y * i) | Z,
-                    c | (Y * i) | X | Z,
-                    c | (Y * i) | X,
+                    self.child(cell, (Y * i) | 0),
+                    self.child(cell, (Y * i) | Z),
+                    self.child(cell, (Y * i) | X | Z),
+                    self.child(cell, (Y * i) | X),
                 );
                 self.dc_edge_z(
-                    c | (Z * i) | 0,
-                    c | (Z * i) | X,
-                    c | (Z * i) | X | Y,
-                    c | (Z * i) | Y,
+                    self.child(cell, (Z * i) | 0),
+                    self.child(cell, (Z * i) | X),
+                    self.child(cell, (Z * i) | X | Y),
+                    self.child(cell, (Z * i) | Y),
                 );
             }
         }
     }
 
     /// Checks whether the given cell is a leaf node
-    pub fn is_leaf(&self, index: usize) -> bool {
-        self.cells[index] & Self::CELL_TYPE_MASK != Self::CELL_TYPE_BRANCH
+    fn is_leaf(&self, cell: CellIndex) -> bool {
+        self.cells[cell.index] & Self::CELL_TYPE_MASK != Self::CELL_TYPE_BRANCH
     }
 
     /// Looks up the given child of a cell.
     ///
     /// If the cell is a leaf node, returns that cell instead.
-    pub fn child(&self, index: usize, child: usize) -> usize {
+    fn child(&self, cell: CellIndex, child: usize) -> CellIndex {
         assert!(child < 8);
-        if self.is_leaf(index) {
-            index
+        if self.is_leaf(cell) {
+            cell
         } else {
-            (self.cells[index] & Self::CELL_TYPE_MASK) + child
+            let index = (self.cells[cell.index] & Self::CELL_TYPE_MASK) + child;
+            let (x, y, z) = cell.interval(child);
+            CellIndex {
+                index,
+                x,
+                y,
+                z,
+                depth: cell.depth + 1,
+            }
         }
     }
 
     /// Handles two cells which share a common `YZ` face
     ///
     /// `lo` is below `hi` on the `X` axis
-    fn dc_face_x(&self, lo: usize, hi: usize) {
+    fn dc_face_x(&self, lo: CellIndex, hi: CellIndex) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
@@ -296,7 +336,7 @@ impl Octree {
     /// Handles two cells which share a common `XZ` face
     ///
     /// `lo` is below `hi` on the `Y` axis
-    fn dc_face_y(&self, lo: usize, hi: usize) {
+    fn dc_face_y(&self, lo: CellIndex, hi: CellIndex) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
@@ -322,7 +362,7 @@ impl Octree {
     /// Handles two cells which share a common `XY` face
     ///
     /// `lo` is below `hi` on the `Z` axis
-    fn dc_face_z(&self, lo: usize, hi: usize) {
+    fn dc_face_z(&self, lo: CellIndex, hi: CellIndex) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
@@ -349,7 +389,13 @@ impl Octree {
     ///
     /// Cells positions are in the order `[0, Y, Y | Z, Z]`, i.e. a right-handed
     /// winding about `+X`.
-    fn dc_edge_x(&self, a: usize, b: usize, c: usize, d: usize) {
+    fn dc_edge_x(
+        &self,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             // terminate!
         }
@@ -366,7 +412,13 @@ impl Octree {
     ///
     /// Cells positions are in the order `[0, Z, X | Z, X]`, i.e. a right-handed
     /// winding about `+Y`.
-    fn dc_edge_y(&self, a: usize, b: usize, c: usize, d: usize) {
+    fn dc_edge_y(
+        &self,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             // terminate!
         }
@@ -383,7 +435,13 @@ impl Octree {
     ///
     /// Cells positions are in the order `[0, X, X | Y, Y]`, i.e. a right-handed
     /// winding about `+Z`.
-    fn dc_edge_z(&self, a: usize, b: usize, c: usize, d: usize) {
+    fn dc_edge_z(
+        &self,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             // terminate!
         }

@@ -298,9 +298,14 @@ impl Interval {
         )
     }
 
+    /// Returns the midpoint of the interval
+    pub fn midpoint(self) -> f32 {
+        (self.lower + self.upper) / 2.0
+    }
+
     /// Splits the interval at the midpoint
     pub fn split(self) -> (Self, Self) {
-        let mid = (self.lower + self.upper) / 2.0;
+        let mid = self.midpoint();
         (
             Interval::new(self.lower, mid),
             Interval::new(mid, self.upper),
