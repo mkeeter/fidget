@@ -57,7 +57,7 @@ fn build_mdc_table() {
 /// which are required for that cell.  Each vertex is implicitly numbered based
 /// on its position in the list, and itself stores a list of edges (as packed
 /// directed values in the range 0-24).
-pub const CELL_TO_VERT_TO_EDGES: [&'static [&'static [u8]]; 256] = [\n"
+pub const CELL_TO_VERT_TO_EDGES: [&[&[u8]]; 256] = [\n"
         .to_owned();
 
     // TODO: refactor this to `CELL_TO_VERT_TO_INTERSECTION`, which returns an

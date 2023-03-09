@@ -172,13 +172,15 @@ impl Octree {
                 assert!(leaf_index & Self::CELL_TYPE_MASK == 0);
                 assert_eq!(out.len(), 8);
 
-                // Build a mask of active corners
+                // Build a mask of active corners, which determines cell
+                // topology / vertex count / active edges / etc.
                 let mask = out
                     .iter()
                     .enumerate()
                     .filter(|(_i, &v)| v < 0.0)
                     .fold(0, |acc, (i, _v)| acc | (1 << i));
 
+                // Pick fake intersections for now
                 let mut intersections = [0; 12];
                 for verts in CELL_TO_VERT_TO_EDGES[mask as usize] {
                     for e in *verts {
