@@ -60,13 +60,6 @@ fn build_mdc_table() {
 pub const CELL_TO_VERT_TO_EDGES: [&[&[u8]]; 256] = [\n"
         .to_owned();
 
-    // TODO: refactor this to `CELL_TO_VERT_TO_INTERSECTION`, which returns an
-    // implicitly numbered intersection, and `CELL_TO_INTERSECTION_TO_EDGE`
-    // which looks up that intersection and returns `(start, end)`
-    //
-    // Then, CELL_TO_EDGE_TO_VERT could be only [[u8; 12; 256], since we
-    // wouldn't care about edge signs.
-
     let mut edge_table = "
 /// Lookup table to find which vertex is associated with a particular edge
 ///

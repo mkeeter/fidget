@@ -1,5 +1,6 @@
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
+#[derive(Copy, Clone)]
 struct Leaf {
     /// Corner mask, with set bits (1) for cube corners inside the surface
     ///
@@ -114,6 +115,7 @@ impl Octree {
         0b11 << (std::mem::size_of::<usize>() * 8 - 2);
     const CELL_TYPE_LEAF: usize =
         0b01 << (std::mem::size_of::<usize>() * 8 - 2);
+    const CELL_INDEX_MASK: usize = !Self::CELL_TYPE_MASK;
 
     pub fn build<I: Family>(tape: Tape<I>, depth: usize) -> Self {
         let i_handle = tape.new_interval_evaluator();
@@ -192,7 +194,7 @@ impl Octree {
                     mask,
                     intersections,
                 });
-                self.cells[cell.index] = leaf_index & Self::CELL_TYPE_LEAF;
+                self.cells[cell.index] = Self::CELL_TYPE_LEAF | leaf_index;
             } else {
                 let child = self.cells.len();
                 for _ in 0..8 {
@@ -297,7 +299,8 @@ impl Octree {
         if self.is_leaf(cell) {
             cell
         } else {
-            let index = (self.cells[cell.index] & Self::CELL_TYPE_MASK) + child;
+            let index =
+                (self.cells[cell.index] & Self::CELL_INDEX_MASK) + child;
             let (x, y, z) = cell.interval(child);
             CellIndex {
                 index,
@@ -399,6 +402,10 @@ impl Octree {
         d: CellIndex,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
+            let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
+            let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
+            let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
             // terminate!
         }
         for i in 0..2 {
@@ -422,6 +429,10 @@ impl Octree {
         d: CellIndex,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
+            let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
+            let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
+            let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
             // terminate!
         }
         for i in 0..2 {
@@ -445,6 +456,10 @@ impl Octree {
         d: CellIndex,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
+            let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
+            let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
+            let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
             // terminate!
         }
         for i in 0..2 {
