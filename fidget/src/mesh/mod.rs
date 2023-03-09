@@ -18,6 +18,39 @@ struct Leaf {
     intersections: [u16; 12],
 }
 
+/// Cell index used during iteration
+///
+/// Instead of storing the cell bounds in the leaf itself, we build them when
+/// descending the tree.
+struct CellIndex {
+    index: usize,
+    depth: usize,
+    x: Interval,
+    y: Interval,
+    z: Interval,
+}
+
+impl CellIndex {
+    fn corner(&self, i: usize) -> (f32, f32, f32) {
+        let x = if i & X == 0 {
+            self.x.lower()
+        } else {
+            self.x.upper()
+        };
+        let y = if i & Y == 0 {
+            self.y.lower()
+        } else {
+            self.y.upper()
+        };
+        let z = if i & Z == 0 {
+            self.z.lower()
+        } else {
+            self.z.upper()
+        };
+        (x, y, z)
+    }
+}
+
 pub struct Octree {
     /// The top two bits determine cell types
     cells: Vec<usize>,
@@ -51,40 +84,43 @@ impl Octree {
             leafs: vec![],
         };
 
-        out.recurse(&i_handle, 0, x, y, z, depth);
+        out.recurse(
+            &i_handle,
+            CellIndex {
+                index: 0,
+                x,
+                y,
+                z,
+                depth,
+            },
+        );
         out
     }
 
     fn recurse<I: Family>(
         &mut self,
         i_handle: &IntervalEval<I>,
-        index: usize,
-        x: Interval,
-        y: Interval,
-        z: Interval,
-        depth: usize,
+        cell: CellIndex,
     ) {
-        let (i, r) = i_handle.eval(x, y, z, &[]).unwrap();
+        let (i, r) = i_handle.eval(cell.x, cell.y, cell.z, &[]).unwrap();
         if i.upper() < 0.0 {
-            self.cells[index] = Self::CELL_TYPE_FILLED;
+            self.cells[cell.index] = Self::CELL_TYPE_FILLED;
         } else if i.lower() > 0.0 {
-            self.cells[index] = Self::CELL_TYPE_EMPTY;
+            self.cells[cell.index] = Self::CELL_TYPE_EMPTY;
         } else {
             let sub_tape = r.map(|r| r.simplify().unwrap());
-            if depth == 0 {
+            if cell.depth == 0 {
                 let tape = sub_tape.unwrap_or_else(|| i_handle.tape());
                 let eval = tape.new_float_slice_evaluator();
 
-                let (x_lo, x_hi) = (x.lower(), x.upper());
-                let (y_lo, y_hi) = (y.lower(), y.upper());
-                let (z_lo, z_hi) = (z.lower(), z.upper());
                 let mut xs = [0.0; 8];
                 let mut ys = [0.0; 8];
                 let mut zs = [0.0; 8];
                 for i in 0..8 {
-                    xs[i] = if i & X == 0 { x_lo } else { x_hi };
-                    ys[i] = if i & Y == 0 { y_lo } else { y_hi };
-                    zs[i] = if i & Z == 0 { z_lo } else { z_hi };
+                    let (x, y, z) = cell.corner(i);
+                    xs[i] = x;
+                    ys[i] = y;
+                    zs[i] = z;
                 }
                 // TODO: reuse evaluators, etc
                 let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
@@ -95,44 +131,57 @@ impl Octree {
                 assert_eq!(out.len(), 8);
 
                 // Build a mask of active corners
-                let cell = out
+                let mask = out
                     .iter()
                     .enumerate()
                     .filter(|(_i, &v)| v < 0.0)
                     .fold(0, |acc, (i, _v)| acc | (1 << i));
 
                 let mut intersections = [0; 12];
-                for verts in CELL_TO_VERT_TO_EDGES[cell as usize] {
+                for verts in CELL_TO_VERT_TO_EDGES[mask as usize] {
                     for e in *verts {
                         intersections[(e % 12) as usize] =
                             if e / 12 != 0 { 16384 } else { u16::MAX - 16384 }
                     }
                 }
                 self.leafs.push(Leaf {
-                    mask: cell,
+                    mask,
                     intersections,
                 });
-                self.cells[index] = leaf_index & Self::CELL_TYPE_LEAF;
+                self.cells[cell.index] = leaf_index & Self::CELL_TYPE_LEAF;
             } else {
                 let child = self.cells.len();
                 for _ in 0..8 {
                     self.cells.push(0);
                 }
-                self.cells[index] = Self::CELL_TYPE_BRANCH | child;
-                let (x_lo, x_hi) = x.split();
-                let (y_lo, y_hi) = y.split();
-                let (z_lo, z_hi) = z.split();
+                self.cells[cell.index] = Self::CELL_TYPE_BRANCH | child;
+                let (x_lo, x_hi) = cell.x.split();
+                let (y_lo, y_hi) = cell.y.split();
+                let (z_lo, z_hi) = cell.z.split();
                 for i in 0..8 {
                     let x = if i & X == 0 { x_lo } else { x_hi };
                     let y = if i & Y == 0 { y_lo } else { y_hi };
                     let z = if i & Z == 0 { z_lo } else { z_hi };
-                    self.recurse(i_handle, child + i, x, y, z, depth - 1);
+                    self.recurse(
+                        i_handle,
+                        CellIndex {
+                            index: child + i,
+                            x,
+                            y,
+                            z,
+                            depth: cell.depth - 1,
+                        },
+                    );
                 }
             }
         }
     }
 
     pub fn walk_dual(&self) {
+        let x = Interval::new(-1.0, 1.0);
+        let y = Interval::new(-1.0, 1.0);
+        let z = Interval::new(-1.0, 1.0);
+
         self.dc_cell(0);
     }
 }
