@@ -1,3 +1,7 @@
+# 0.1.4 (unreleased)
+- Added support for `aarch64-unknown-linux-*` to the JIT compiler; previously,
+  `aarch64` was only supported on macOS.
+
 # 0.1.3
 - Added `x86_64` backend for the JIT compiler
 
