@@ -1,5 +1,31 @@
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
+const X: usize = 1;
+const Y: usize = 2;
+const Z: usize = 4;
+
+/// `(axis, next(axis), next(next(axis)))` is a right-handed coordinate system
+const fn next(axis: usize) -> usize {
+    match axis {
+        X => Y,
+        Y => Z,
+        Z => X,
+        _ => panic!(),
+    }
+}
+
+/// `(axis, prev(prev((axis))), prev(axis))` is a right-handed coordinate system
+const fn prev(axis: usize) -> usize {
+    match axis {
+        X => Y,
+        Y => Z,
+        Z => X,
+        _ => panic!(),
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Copy, Clone)]
 struct Leaf {
     /// Corner mask, with set bits (1) for cube corners inside the surface
@@ -17,7 +43,12 @@ struct Leaf {
     /// The intersection position is given as a fraction of the distance along
     /// the edge, where 0 is the minimum value on the relevant axis.
     intersections: [u16; 12],
+
+    /// Vertices within this cell, given as fractions of distance
+    verts: [nalgebra::Vector3<u16>; 4],
 }
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// Cell index used during iteration
 ///
@@ -94,15 +125,13 @@ impl CellIndex {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub struct Octree {
     /// The top two bits determine cell types
     cells: Vec<usize>,
     leafs: Vec<Leaf>,
 }
-
-const X: usize = 1;
-const Y: usize = 2;
-const Z: usize = 4;
 
 impl Octree {
     const CELL_TYPE_MASK: usize =
@@ -182,17 +211,32 @@ impl Octree {
                     .filter(|(_i, &v)| v < 0.0)
                     .fold(0, |acc, (i, _v)| acc | (1 << i));
 
-                // Pick fake intersections for now
+                // Pick fake intersections and fake vertex positions for now
                 let mut intersections = [0; 12];
-                for verts in CELL_TO_VERT_TO_EDGES[mask as usize] {
-                    for e in *verts {
-                        intersections[(e % 12) as usize] =
-                            if e / 12 != 0 { 16384 } else { u16::MAX - 16384 }
+                let mut verts = [nalgebra::Vector3::zeros(); 4];
+                for (vs, out) in
+                    CELL_TO_VERT_TO_EDGES[mask as usize].iter().zip(&mut verts)
+                {
+                    let mut center = nalgebra::Vector3::zeros();
+                    for e in *vs {
+                        let pos =
+                            if e / 12 != 0 { 16384 } else { u16::MAX - 16384 };
+                        intersections[(e % 12) as usize] = pos;
+
+                        // Convert the intersection to a 3D position
+                        let mut v = nalgebra::Vector3::zeros();
+                        v[*e as usize / 4] = pos;
+
+                        // Accumulate a fake vertex by taking the average of all
+                        // intersection positions (for now)
+                        center += v;
                     }
+                    *out = center / vs.len() as u16;
                 }
                 self.leafs.push(Leaf {
                     mask,
                     intersections,
+                    verts,
                 });
                 self.cells[cell.index] = Self::CELL_TYPE_LEAF | leaf_index;
             } else {
@@ -345,10 +389,10 @@ impl Octree {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_x(self.child(lo, Y), self.child(hi, 0));
-        self.dc_face_x(self.child(lo, Y | X), self.child(hi, X));
-        self.dc_face_x(self.child(lo, Y | Z), self.child(hi, Z));
-        self.dc_face_x(self.child(lo, Y | X | Z), self.child(hi, X | Z));
+        self.dc_face_y(self.child(lo, Y), self.child(hi, 0));
+        self.dc_face_y(self.child(lo, Y | X), self.child(hi, X));
+        self.dc_face_y(self.child(lo, Y | Z), self.child(hi, Z));
+        self.dc_face_y(self.child(lo, Y | X | Z), self.child(hi, X | Z));
         for i in 0..2 {
             self.dc_edge_x(
                 self.child(lo, (X * i) | Y),
@@ -371,10 +415,10 @@ impl Octree {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_x(self.child(lo, Z), self.child(hi, 0));
-        self.dc_face_x(self.child(lo, Z | X), self.child(hi, X));
-        self.dc_face_x(self.child(lo, Z | Y), self.child(hi, Y));
-        self.dc_face_x(self.child(lo, Z | X | Y), self.child(hi, X | Y));
+        self.dc_face_z(self.child(lo, Z), self.child(hi, 0));
+        self.dc_face_z(self.child(lo, Z | X), self.child(hi, X));
+        self.dc_face_z(self.child(lo, Z | Y), self.child(hi, Y));
+        self.dc_face_z(self.child(lo, Z | X | Y), self.child(hi, X | Y));
         for i in 0..2 {
             self.dc_edge_x(
                 self.child(lo, (X * i) | Z),
@@ -406,6 +450,13 @@ impl Octree {
             let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
             let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
             let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
+
+            let vert_a = get_edge_vert(leaf_a.mask, Z, 3);
+            let vert_b = get_edge_vert(leaf_a.mask, Z, 2);
+            let vert_c = get_edge_vert(leaf_a.mask, Z, 1);
+            let vert_d = get_edge_vert(leaf_a.mask, Z, 0);
+
+            CELL_TO_VERT_TO_EDGES;
             // terminate!
         }
         for i in 0..2 {
@@ -474,3 +525,13 @@ impl Octree {
 }
 
 include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
+
+/// Returns the index of a vertex associated with a particular edge
+///
+/// The edge is specified as an axis and an index (0-3)
+fn get_edge_vert(cell: u8, axis: usize, index: usize) -> u8 {
+    assert!(index < 4);
+    CELL_TO_EDGE_TO_VERT[cell as usize][axis * 4
+        + (1 << next(axis).trailing_zeros()) * (index % 2)
+        + (1 << prev(axis).trailing_zeros()) * (index / 2)]
+}
