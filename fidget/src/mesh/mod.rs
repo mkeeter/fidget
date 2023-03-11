@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
 const X: usize = 1;
@@ -33,19 +35,11 @@ struct Leaf {
     /// "Inside" means < 0.0; exactly 0.0 is treated as outside.
     mask: u8,
 
-    /// Intersection positions along active edges
+    /// Cell data, represented as an index into `Octree::verts`
     ///
-    /// Intersections are numbered as `axis * 4 + next(axis) * 2 + prev(axis)`,
-    /// (TODO is this correct?)
-    /// where `prev(...)` and `next(...)` produce a right-handed coordinate
-    /// system from the given axis.
-    ///
-    /// The intersection position is given as a fraction of the distance along
-    /// the edge, where 0 is the minimum value on the relevant axis.
-    intersections: [u16; 12],
-
-    /// Vertices within this cell, given as fractions of distance
-    verts: [nalgebra::Vector3<u16>; 4],
+    /// Each cell stores (in order) 0-4 vertices and 0-12 intersections in the
+    /// `Octree::verts` array, depending on the `mask`.
+    data: Option<NonZeroUsize>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -127,10 +121,30 @@ impl CellIndex {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Default)]
+pub struct Mesh {
+    triangles: Vec<nalgebra::Vector3<usize>>,
+    vertices: Vec<nalgebra::Vector3<f32>>,
+}
+
+impl Mesh {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 pub struct Octree {
     /// The top two bits determine cell types
     cells: Vec<usize>,
     leafs: Vec<Leaf>,
+
+    /// Cell vertices, given as positions within the cell
+    ///
+    /// This is indexed by `Leaf::data`; the exact shape depends heavily on the
+    /// number of intersections and vertices within each leaf.
+    verts: Vec<nalgebra::Vector3<u16>>,
 }
 
 impl Octree {
@@ -155,6 +169,9 @@ impl Octree {
         let mut out = Self {
             cells: vec![0; 8],
             leafs: vec![],
+
+            // Use the 0th index as an empty marker
+            verts: vec![nalgebra::Vector3::zeros()],
         };
 
         out.recurse(
@@ -212,31 +229,39 @@ impl Octree {
                     .fold(0, |acc, (i, _v)| acc | (1 << i));
 
                 // Pick fake intersections and fake vertex positions for now
-                let mut intersections = [0; 12];
-                let mut verts = [nalgebra::Vector3::zeros(); 4];
-                for (vs, out) in
-                    CELL_TO_VERT_TO_EDGES[mask as usize].iter().zip(&mut verts)
-                {
+                //
+                // We have up to 12 intersections, followed by up to 4 vertices
+                let mut intersections: arrayvec::ArrayVec<
+                    nalgebra::Vector3<u16>,
+                    12,
+                > = arrayvec::ArrayVec::new();
+                let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
+                    arrayvec::ArrayVec::new();
+                for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
                     let mut center = nalgebra::Vector3::zeros();
                     for e in *vs {
+                        // TODO: no need to encode this fancily, maybe just a
+                        // (u8, u8) or a u8 containing 2x 4-bit values?
                         let pos =
                             if e / 12 != 0 { 16384 } else { u16::MAX - 16384 };
-                        intersections[(e % 12) as usize] = pos;
 
                         // Convert the intersection to a 3D position
                         let mut v = nalgebra::Vector3::zeros();
                         v[*e as usize / 4] = pos;
+                        intersections.push(v);
 
                         // Accumulate a fake vertex by taking the average of all
                         // intersection positions (for now)
                         center += v;
                     }
-                    *out = center / vs.len() as u16;
+                    verts.push(center / vs.len() as u16);
                 }
+                let index = self.verts.len();
+                self.verts.extend(verts.into_iter());
+                self.verts.extend(intersections.into_iter());
                 self.leafs.push(Leaf {
                     mask,
-                    intersections,
-                    verts,
+                    data: NonZeroUsize::new(index),
                 });
                 self.cells[cell.index] = Self::CELL_TYPE_LEAF | leaf_index;
             } else {
@@ -267,44 +292,52 @@ impl Octree {
         }
     }
 
-    pub fn walk_dual(&self) {
+    pub fn walk_dual(&self) -> Mesh {
         let x = Interval::new(-1.0, 1.0);
         let y = Interval::new(-1.0, 1.0);
         let z = Interval::new(-1.0, 1.0);
+        let mut mesh = Mesh::default();
 
-        self.dc_cell(CellIndex {
-            index: 0,
-            x,
-            y,
-            z,
-            depth: 0,
-        });
+        self.dc_cell(
+            CellIndex {
+                index: 0,
+                x,
+                y,
+                z,
+                depth: 0,
+            },
+            &mut mesh,
+        );
+        mesh
     }
 }
 
 #[allow(clippy::modulo_one, clippy::identity_op)]
 impl Octree {
-    fn dc_cell(&self, cell: CellIndex) {
+    fn dc_cell(&self, cell: CellIndex, out: &mut Mesh) {
         let i = self.cells[cell.index];
         let ty = i & Self::CELL_TYPE_MASK;
 
         if ty == Self::CELL_TYPE_BRANCH {
             assert_eq!(cell.index % 8, 0);
             for i in 0..8 {
-                self.dc_cell(self.child(cell, i));
+                self.dc_cell(self.child(cell, i), out);
             }
             for i in 0..4 {
                 self.dc_face_x(
                     self.child(cell, (2 * X * (i / X) + (i % X)) | 0),
                     self.child(cell, (2 * X * (i / X) + (i % X)) | X),
+                    out,
                 );
                 self.dc_face_y(
                     self.child(cell, (2 * Y * (i / Y) + (i % Y)) | 0),
                     self.child(cell, (2 * Y * (i / Y) + (i % Y)) | Y),
+                    out,
                 );
                 self.dc_face_z(
                     self.child(cell, (2 * Z * (i / Z) + (i % Z)) | 0),
                     self.child(cell, (2 * Z * (i / Z) + (i % Z)) | Z),
+                    out,
                 );
             }
             for i in 0..2 {
@@ -313,18 +346,21 @@ impl Octree {
                     self.child(cell, (X * i) | Y),
                     self.child(cell, (X * i) | Y | Z),
                     self.child(cell, (X * i) | Z),
+                    out,
                 );
                 self.dc_edge_y(
                     self.child(cell, (Y * i) | 0),
                     self.child(cell, (Y * i) | Z),
                     self.child(cell, (Y * i) | X | Z),
                     self.child(cell, (Y * i) | X),
+                    out,
                 );
                 self.dc_edge_z(
                     self.child(cell, (Z * i) | 0),
                     self.child(cell, (Z * i) | X),
                     self.child(cell, (Z * i) | X | Y),
                     self.child(cell, (Z * i) | Y),
+                    out,
                 );
             }
         }
@@ -359,78 +395,84 @@ impl Octree {
     /// Handles two cells which share a common `YZ` face
     ///
     /// `lo` is below `hi` on the `X` axis
-    fn dc_face_x(&self, lo: CellIndex, hi: CellIndex) {
+    fn dc_face_x(&self, lo: CellIndex, hi: CellIndex, out: &mut Mesh) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_x(self.child(lo, X), self.child(hi, 0));
-        self.dc_face_x(self.child(lo, X | Y), self.child(hi, Y));
-        self.dc_face_x(self.child(lo, X | Z), self.child(hi, Z));
-        self.dc_face_x(self.child(lo, X | Y | Z), self.child(hi, Y | Z));
+        self.dc_face_x(self.child(lo, X), self.child(hi, 0), out);
+        self.dc_face_x(self.child(lo, X | Y), self.child(hi, Y), out);
+        self.dc_face_x(self.child(lo, X | Z), self.child(hi, Z), out);
+        self.dc_face_x(self.child(lo, X | Y | Z), self.child(hi, Y | Z), out);
         for i in 0..2 {
             self.dc_edge_y(
                 self.child(lo, (Y * i) | X),
                 self.child(lo, (Y * i) | X | Z),
                 self.child(hi, (Y * i) | Z),
                 self.child(hi, (Y * i) | 0),
+                out,
             );
             self.dc_edge_z(
                 self.child(lo, (Z * i) | X),
                 self.child(hi, (Z * i) | 0),
                 self.child(hi, (Z * i) | Y),
                 self.child(lo, (Z * i) | X | Y),
+                out,
             );
         }
     }
     /// Handles two cells which share a common `XZ` face
     ///
     /// `lo` is below `hi` on the `Y` axis
-    fn dc_face_y(&self, lo: CellIndex, hi: CellIndex) {
+    fn dc_face_y(&self, lo: CellIndex, hi: CellIndex, out: &mut Mesh) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_y(self.child(lo, Y), self.child(hi, 0));
-        self.dc_face_y(self.child(lo, Y | X), self.child(hi, X));
-        self.dc_face_y(self.child(lo, Y | Z), self.child(hi, Z));
-        self.dc_face_y(self.child(lo, Y | X | Z), self.child(hi, X | Z));
+        self.dc_face_y(self.child(lo, Y), self.child(hi, 0), out);
+        self.dc_face_y(self.child(lo, Y | X), self.child(hi, X), out);
+        self.dc_face_y(self.child(lo, Y | Z), self.child(hi, Z), out);
+        self.dc_face_y(self.child(lo, Y | X | Z), self.child(hi, X | Z), out);
         for i in 0..2 {
             self.dc_edge_x(
                 self.child(lo, (X * i) | Y),
                 self.child(lo, (X * i) | Y | Z),
                 self.child(hi, (X * i) | Z),
                 self.child(hi, (X * i) | 0),
+                out,
             );
             self.dc_edge_z(
                 self.child(lo, (Z * i) | Y),
                 self.child(lo, (Z * i) | X | Y),
                 self.child(hi, (Z * i) | X),
                 self.child(hi, (Z * i) | 0),
+                out,
             );
         }
     }
     /// Handles two cells which share a common `XY` face
     ///
     /// `lo` is below `hi` on the `Z` axis
-    fn dc_face_z(&self, lo: CellIndex, hi: CellIndex) {
+    fn dc_face_z(&self, lo: CellIndex, hi: CellIndex, out: &mut Mesh) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_z(self.child(lo, Z), self.child(hi, 0));
-        self.dc_face_z(self.child(lo, Z | X), self.child(hi, X));
-        self.dc_face_z(self.child(lo, Z | Y), self.child(hi, Y));
-        self.dc_face_z(self.child(lo, Z | X | Y), self.child(hi, X | Y));
+        self.dc_face_z(self.child(lo, Z), self.child(hi, 0), out);
+        self.dc_face_z(self.child(lo, Z | X), self.child(hi, X), out);
+        self.dc_face_z(self.child(lo, Z | Y), self.child(hi, Y), out);
+        self.dc_face_z(self.child(lo, Z | X | Y), self.child(hi, X | Y), out);
         for i in 0..2 {
             self.dc_edge_x(
                 self.child(lo, (X * i) | Z),
                 self.child(lo, (X * i) | Y | Z),
                 self.child(hi, (X * i) | Y),
                 self.child(hi, (X * i) | 0),
+                out,
             );
             self.dc_edge_y(
                 self.child(lo, (Y * i) | Z),
                 self.child(hi, (Y * i) | 0),
                 self.child(hi, (Y * i) | X),
                 self.child(lo, (Y * i) | X | Z),
+                out,
             );
         }
     }
@@ -444,6 +486,7 @@ impl Octree {
         b: CellIndex,
         c: CellIndex,
         d: CellIndex,
+        out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
@@ -456,7 +499,8 @@ impl Octree {
             let vert_c = get_edge_vert(leaf_a.mask, Z, 1);
             let vert_d = get_edge_vert(leaf_a.mask, Z, 0);
 
-            CELL_TO_VERT_TO_EDGES;
+            let e =
+                CELL_TO_VERT_TO_EDGES[leaf_a.mask as usize][vert_a as usize];
             // terminate!
         }
         for i in 0..2 {
@@ -465,6 +509,7 @@ impl Octree {
                 self.child(b, (i * X) | Z),
                 self.child(c, (i * X) | 0),
                 self.child(d, (i * X) | Y),
+                out,
             )
         }
     }
@@ -478,6 +523,7 @@ impl Octree {
         b: CellIndex,
         c: CellIndex,
         d: CellIndex,
+        out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
@@ -492,6 +538,7 @@ impl Octree {
                 self.child(b, (i * Y) | X),
                 self.child(c, (i * Y) | 0),
                 self.child(d, (i * Y) | Z),
+                out,
             )
         }
     }
@@ -505,6 +552,7 @@ impl Octree {
         b: CellIndex,
         c: CellIndex,
         d: CellIndex,
+        out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
@@ -519,6 +567,7 @@ impl Octree {
                 self.child(b, (i * Z) | Y),
                 self.child(c, (i * Z) | 0),
                 self.child(d, (i * Z) | X),
+                out,
             )
         }
     }
