@@ -186,7 +186,7 @@ impl Leaf {
 /// descending the tree.
 ///
 /// `index` points to where this cell is stored in [`Octree::cells`]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct CellIndex {
     index: usize,
     depth: usize,
@@ -459,13 +459,8 @@ impl Octree {
                     self.cells.push(CellData(0));
                 }
                 self.cells[cell.index] = Cell::Branch { index: child }.into();
-                let (x_lo, x_hi) = cell.x.split();
-                let (y_lo, y_hi) = cell.y.split();
-                let (z_lo, z_hi) = cell.z.split();
                 for i in Corner::iter() {
-                    let x = if i & X { x_lo } else { x_hi };
-                    let y = if i & Y { y_lo } else { y_hi };
-                    let z = if i & Z { z_lo } else { z_hi };
+                    let (x, y, z) = cell.interval(i);
                     self.recurse(
                         i_handle,
                         CellIndex {
