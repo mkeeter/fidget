@@ -158,8 +158,8 @@ impl From<CellData> for Cell {
                 index: i & ((1 << 62) - 1),
             },
             0b11 => Cell::Leaf(Leaf {
-                index: i & ((1 << 54) - 1),
                 mask: (i >> 54) as u8,
+                index: i & ((1 << 54) - 1),
             }),
             _ => unreachable!(),
         }
@@ -339,7 +339,7 @@ pub struct Octree {
 }
 
 impl Octree {
-    pub fn build<I: Family>(tape: Tape<I>, depth: usize) -> Self {
+    pub fn build<I: Family>(tape: &Tape<I>, depth: usize) -> Self {
         let i_handle = tape.new_interval_evaluator();
         let x = Interval::new(-1.0, 1.0);
         let y = Interval::new(-1.0, 1.0);
@@ -405,7 +405,7 @@ impl Octree {
 
                 // Pick fake intersections and fake vertex positions for now
                 //
-                // We have up to 12 intersections, followed by up to 4 vertices
+                // We have up to 4 vertices, followed by up to 12 intersections
                 let mut intersections: arrayvec::ArrayVec<
                     nalgebra::Vector3<u16>,
                     12,
@@ -875,6 +875,7 @@ include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{context::Node, Context};
 
     #[test]
     fn test_cell_encode_decode() {
@@ -898,32 +899,72 @@ mod test {
         }
     }
 
+    fn sphere(ctx: &mut Context, center: [f32; 3], radius: f32) -> Node {
+        let x = ctx.x();
+        let x = ctx.sub(x, center[0]).unwrap();
+        let y = ctx.y();
+        let y = ctx.sub(y, center[1]).unwrap();
+        let z = ctx.z();
+        let z = ctx.sub(z, center[2]).unwrap();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let z2 = ctx.square(z).unwrap();
+        let a = ctx.add(x2, y2).unwrap();
+        let r = ctx.add(a, z2).unwrap();
+        let r = ctx.sqrt(r).unwrap();
+        ctx.sub(r, radius).unwrap()
+    }
+
+    #[test]
+    fn test_mesh_basic() {
+        let mut c = Context::new();
+        let shape = sphere(&mut c, [0.0; 3], 0.2);
+
+        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+
+        // If we only build a depth-0 octree, then it's a leaf without any
+        // vertices (since all the corners are empty)
+        let octree = Octree::build(&tape, 0);
+        assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
+        assert_eq!(
+            Cell::Leaf(Leaf { mask: 0, index: 1 }),
+            octree.cells[0].into(),
+        );
+        assert_eq!(octree.verts.len(), 1);
+        // TODO: should we transform this into an Empty?
+
+        // Now, at depth-1, each cell should be a Leaf with one vertex
+        let octree = Octree::build(&tape, 1);
+        assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
+        assert_eq!(Cell::Branch { index: 8 }, octree.cells[0].into());
+
+        // Each of the 6 edges is counted 4 times; each cell produces 1 vertex,
+        // and we have an offset vertex at position 0.
+        assert_eq!(octree.verts.len(), 1 + 6 * 4 + 8);
+
+        // Each cell is a leaf with 4 vertices (3 edges, 1 center)
+        for o in &octree.cells[8..] {
+            let Cell::Leaf(Leaf { index, mask}) = (*o).into() else { panic!() };
+            assert_eq!(mask.count_ones(), 1);
+            assert_eq!((index - 1) % 4, 0);
+        }
+    }
+
     #[test]
     fn test_mesh_manifold() {
         for i in 0..256 {
-            let mut c = crate::Context::new();
-            let mut sphere = |cx: f32, cy: f32, cz: f32| {
-                let x = c.x();
-                let x = c.sub(x, cx).unwrap();
-                let y = c.y();
-                let y = c.sub(y, cy).unwrap();
-                let z = c.z();
-                let z = c.sub(z, cz).unwrap();
-                let x2 = c.square(x).unwrap();
-                let y2 = c.square(y).unwrap();
-                let z2 = c.square(z).unwrap();
-                let a = c.add(x2, y2).unwrap();
-                let r = c.add(a, z2).unwrap();
-                let r = c.sqrt(r).unwrap();
-                c.sub(r, 0.1).unwrap()
-            };
+            let mut c = Context::new();
             let mut shape = vec![];
             for j in Corner::iter() {
                 if i & (1 << j.0) != 0 {
                     shape.push(sphere(
-                        if j & X { 0.5 } else { 0.0 },
-                        if j & Y { 0.5 } else { 0.0 },
-                        if j & Z { 0.5 } else { 0.0 },
+                        &mut c,
+                        [
+                            if j & X { 0.5 } else { 0.0 },
+                            if j & Y { 0.5 } else { 0.0 },
+                            if j & Z { 0.5 } else { 0.0 },
+                        ],
+                        0.1,
                     ));
                 }
             }
@@ -935,7 +976,7 @@ mod test {
             // Now, we have our shape, which is 0-8 spheres placed at the
             // corners of the cell spanning [0, 0.25]
             let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
-            let octree = Octree::build(tape, 2);
+            let octree = Octree::build(&tape, 2);
             println!("{i}, {}", octree.cells.len());
         }
     }
