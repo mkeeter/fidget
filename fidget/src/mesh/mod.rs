@@ -216,19 +216,19 @@ impl CellIndex {
     /// vertex.
     fn corner(&self, i: Corner) -> (f32, f32, f32) {
         let x = if i & X {
-            self.x.lower()
-        } else {
             self.x.upper()
+        } else {
+            self.x.lower()
         };
         let y = if i & Y {
-            self.y.lower()
-        } else {
             self.y.upper()
+        } else {
+            self.y.lower()
         };
         let z = if i & Z {
-            self.z.lower()
-        } else {
             self.z.upper()
+        } else {
+            self.z.lower()
         };
         (x, y, z)
     }
@@ -237,19 +237,19 @@ impl CellIndex {
     fn interval(&self, i: Corner) -> (Interval, Interval, Interval) {
         // TODO: make this a function in `Interval`?
         let x = if i & X {
-            Interval::new(self.x.lower(), self.x.midpoint())
-        } else {
             Interval::new(self.x.midpoint(), self.x.upper())
+        } else {
+            Interval::new(self.x.lower(), self.x.midpoint())
         };
         let y = if i & Y {
-            Interval::new(self.y.lower(), self.y.midpoint())
-        } else {
             Interval::new(self.y.midpoint(), self.y.upper())
+        } else {
+            Interval::new(self.y.lower(), self.y.midpoint())
         };
         let z = if i & Z {
-            Interval::new(self.z.lower(), self.z.midpoint())
-        } else {
             Interval::new(self.z.midpoint(), self.z.upper())
+        } else {
+            Interval::new(self.z.lower(), self.z.midpoint())
         };
         (x, y, z)
     }
@@ -413,7 +413,8 @@ impl Octree {
                 let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
                     arrayvec::ArrayVec::new();
                 for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
-                    let mut center = nalgebra::Vector3::zeros();
+                    let mut center: nalgebra::Vector3<u32> =
+                        nalgebra::Vector3::zeros();
                     for e in *vs {
                         // Find the axis that's being used by this edge
                         let axis = e.start.0 ^ e.end.0;
@@ -430,13 +431,22 @@ impl Octree {
                         // Convert the intersection to a 3D position
                         let mut v = nalgebra::Vector3::zeros();
                         v[axis.trailing_zeros() as usize] = pos;
+                        let i = (axis.trailing_zeros() + 1) % 3;
+                        let j = (axis.trailing_zeros() + 2) % 3;
+                        v[i as usize] =
+                            if e.start & Axis(1 << i) { u16::MAX } else { 0 };
+                        v[j as usize] =
+                            if e.start & Axis(1 << j) { u16::MAX } else { 0 };
                         intersections.push(v);
 
                         // Accumulate a fake vertex by taking the average of all
                         // intersection positions (for now)
-                        center += v;
+                        center += v.map(|i| i as u32);
                     }
-                    verts.push(center / vs.len() as u16);
+                    verts
+                        .push(center.map(|i| {
+                            (i / vs.len() as u32).try_into().unwrap()
+                        }));
                 }
                 let index = self.verts.len();
                 self.verts.extend(verts.into_iter());
@@ -885,6 +895,48 @@ mod test {
             }),
         ] {
             assert_eq!(c, Cell::from(CellData::from(c)));
+        }
+    }
+
+    #[test]
+    fn test_mesh_manifold() {
+        for i in 0..256 {
+            let mut c = crate::Context::new();
+            let mut sphere = |cx: f32, cy: f32, cz: f32| {
+                let x = c.x();
+                let x = c.sub(x, cx).unwrap();
+                let y = c.y();
+                let y = c.sub(y, cy).unwrap();
+                let z = c.z();
+                let z = c.sub(z, cz).unwrap();
+                let x2 = c.square(x).unwrap();
+                let y2 = c.square(y).unwrap();
+                let z2 = c.square(z).unwrap();
+                let a = c.add(x2, y2).unwrap();
+                let r = c.add(a, z2).unwrap();
+                let r = c.sqrt(r).unwrap();
+                c.sub(r, 0.1).unwrap()
+            };
+            let mut shape = vec![];
+            for j in Corner::iter() {
+                if i & (1 << j.0) != 0 {
+                    shape.push(sphere(
+                        if j & X { 0.5 } else { 0.0 },
+                        if j & Y { 0.5 } else { 0.0 },
+                        if j & Z { 0.5 } else { 0.0 },
+                    ));
+                }
+            }
+            let Some(start) = shape.pop() else { continue };
+            let shape = shape
+                .into_iter()
+                .fold(start, |acc, s| c.min(acc, s).unwrap());
+
+            // Now, we have our shape, which is 0-8 spheres placed at the
+            // corners of the cell spanning [0, 0.25]
+            let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+            let octree = Octree::build(tape, 2);
+            println!("{i}, {}", octree.cells.len());
         }
     }
 }
