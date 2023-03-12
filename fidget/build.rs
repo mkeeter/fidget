@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Write,
+    io::Write,
 };
 
 // Same axes as in `fidget::mesh`, but available at build time.
@@ -9,12 +9,14 @@ const Y: usize = 2;
 const Z: usize = 4;
 
 fn next(axis: usize) -> usize {
-    match axis {
-        X => Y,
-        Y => Z,
-        Z => X,
-        a => panic!("Invalid axis {a}"),
-    }
+    assert_eq!(axis.count_ones(), 1);
+    assert!(axis < 8);
+
+    let out = (axis | axis.rotate_right(3)).rotate_left(1) & (X | Y | Z);
+    assert_eq!(out.count_ones(), 1);
+    assert!(out < 8);
+
+    out
 }
 
 fn main() {
@@ -41,7 +43,7 @@ fn main() {
     }
 
     if std::env::var("CARGO_FEATURE_MESH").is_ok() {
-        build_mdc_table();
+        build_mdc_table().unwrap();
     }
 }
 
@@ -49,26 +51,13 @@ fn main() {
 ///
 /// This is roughly equivalent to Figure 5 in Nielson's Dual Marching Cubes
 /// (2004), but worked out automatically by clustering cell corners.
-fn build_mdc_table() {
-    let mut vert_table = "
-/// Lookup table to find edges for a particular cell configuration
-///
-/// Given a cell index `i` (as an 8-bit value), looks up a list of vertices
-/// which are required for that cell.  Each vertex is implicitly numbered based
-/// on its position in the list, and itself stores a list of edges (as packed
-/// directed values in the range 0-24).
-pub const CELL_TO_VERT_TO_EDGES: [&[&[u8]]; 256] = [\n"
-        .to_owned();
+fn build_mdc_table() -> Result<(), std::io::Error> {
+    // vert_table will contain 256 entries.  Each entry contains some number of
+    // vertices, which each contain some number of edges (as `(u8, u8)` tuples,
+    // from inside corner to outside corner)
+    let mut vert_table: Vec<Vec<Vec<(u8, u8)>>> = vec![];
+    let mut edge_table = vec![];
 
-    let mut edge_table = "
-/// Lookup table to find which vertex is associated with a particular edge
-///
-/// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
-/// packed undirected value in the range 0-12), returns a vertex index `v` such
-/// that [`CELL_TO_VERT_TO_EDGES[i][v]`](CELL_TO_VERT_TO_EDGES) contains the
-/// edge `e` (as a directed edge, i.e. possibly shifted by 12)
-pub const CELL_TO_EDGE_TO_VERT: [[u8; 12]; 256] = [\n"
-        .to_owned();
     for i in 0..256 {
         let mut filled_regions = BTreeMap::new();
         let mut empty_regions = BTreeMap::new();
@@ -133,10 +122,9 @@ pub const CELL_TO_EDGE_TO_VERT: [[u8; 12]; 256] = [\n"
         // vert_map is a map from start region to a vertex, defined as a list
         // of edges that built that vertex.
         let mut verts: BTreeMap<_, Vec<_>> = BTreeMap::new();
-        let mut edge = 0;
         for rev in [false, true] {
+            // t-u-v forms a right-handed coordinate system
             for t in [X, Y, Z] {
-                // t-u-v forms a right-handed coordinate system
                 let u = next(t);
                 let v = next(u);
                 for b in 0..2 {
@@ -158,52 +146,114 @@ pub const CELL_TO_EDGE_TO_VERT: [[u8; 12]; 256] = [\n"
                             );
                             let end_region = regions[end];
                             assert!(start_region != end_region);
-                            verts.entry(start_region).or_default().push(edge);
+                            verts
+                                .entry(start_region)
+                                .or_default()
+                                .push((start, end));
                         }
-                        edge += 1;
                     }
                 }
             }
         }
         println!("verts: {verts:?}");
 
+        let mut vert_table_entry = vec![];
+
         // There are two maps associated with this cell:
         // - A list of vertices, each of which has a list of transition edges
         // - A map from transition edge to vertex in the previous list
-        let mut edge_map = [u8::MAX; 12];
-        writeln!(&mut vert_table, "  &[").unwrap();
+        let mut edge_map = [(u8::MAX, u8::MAX); 12];
+        let mut intersection_count = 0;
+        let vert_count = verts.len();
+        #[allow(clippy::identity_op)]
         for (vert, (_, edges)) in verts.iter().enumerate() {
-            write!(&mut vert_table, "    &[").unwrap();
-            for e in edges {
-                let rev = e / 12 != 0;
+            let mut vert_entry = vec![];
 
-                let t = 1 << ((e % 12) / 4);
-                let u = next(t);
-                let v = next(u);
-
-                let a = (u * (e % 2)) | (v * ((e % 4) / 2));
-                let b = a | t;
-
-                let (start, end) = if rev { (b, a) } else { (a, b) };
-
+            for &(start, end) in edges {
                 assert!((i & (1 << start)) != 0);
                 assert!((i & (1 << end)) == 0);
 
-                write!(&mut vert_table, "{e}, ").unwrap();
+                vert_entry.push((start as u8, end as u8));
 
-                // Convert from directed to undirected edge for the second map
-                edge_map[*e % 12] = vert.try_into().unwrap();
+                // Build a right-handed coordinate system of T-U-V
+                let t = start ^ end;
+                let u = next(t);
+                let v = next(u);
+
+                assert_eq!(start & u, end & u);
+                assert_eq!(start & v, end & v);
+
+                let edge = (t.trailing_zeros() as usize * 4)
+                    + (((start & u) != 0) as usize) * 1
+                    + (((start & v) != 0) as usize) * 2;
+
+                edge_map[edge] = (
+                    vert.try_into().unwrap(),
+                    (vert_count + intersection_count).try_into().unwrap(),
+                );
+                intersection_count += 1;
             }
-            writeln!(&mut vert_table, "],").unwrap();
+            vert_table_entry.push(vert_entry);
         }
-        writeln!(&mut vert_table, "  ],").unwrap();
-        writeln!(&mut edge_table, "    {edge_map:?},").unwrap();
+        edge_table.push(edge_map);
+        vert_table.push(vert_table_entry);
     }
-    writeln!(&mut vert_table, "];").unwrap();
-    writeln!(&mut edge_table, "];").unwrap();
 
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("mdc_tables.rs");
-    std::fs::write(dest_path, format!("{}\n{}", vert_table, edge_table))
-        .unwrap();
+    let mut file =
+        std::fs::File::create(dest_path).expect("could not make output file");
+
+    writeln!(
+        &mut file,
+        "
+/// Lookup table to find edges for a particular cell configuration
+///
+/// Given a cell index `i` (as an 8-bit value), looks up a list of vertices
+/// which are required for that cell.  Each vertex is implicitly numbered based
+/// on its position in the list, and itself stores a list of edges (as tuples
+/// of `(start, end)` cell corners).
+pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
+    )?;
+
+    for v in vert_table {
+        writeln!(&mut file, "    &[")?;
+        for e in v {
+            writeln!(&mut file, "        &[")?;
+            for (start, end) in e {
+                write!(
+                    &mut file,
+                    "DirectedEdge {{ start: Corner({start}), \
+                                     end:   Corner({end}) }},"
+                )?;
+            }
+            writeln!(&mut file, "],")?;
+        }
+        writeln!(&mut file, "    ],")?;
+    }
+    writeln!(&mut file, "];")?;
+
+    writeln!(
+        &mut file,
+        "
+/// Lookup table to find which vertex is associated with a particular edge
+///
+/// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
+/// packed undirected value in the range 0-12), returns an [`Intersection`]
+/// that encodes the vertex offsets for that edge.
+pub const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
+    )?;
+
+    for e in edge_table {
+        for (vert, edge) in e {
+            writeln!(
+                &mut file,
+                "    Intersection {{ vert: Offset({vert}), \
+                                     edge: Offset({edge}) }},"
+            )?;
+        }
+    }
+    writeln!(&mut file, "];")?;
+
+    Ok(())
 }

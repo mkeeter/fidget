@@ -1,7 +1,6 @@
-use std::num::NonZeroUsize;
-
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
+// TODO: make these strongly typed?
 const X: usize = 1;
 const Y: usize = 2;
 const Z: usize = 4;
@@ -26,6 +25,60 @@ const fn prev(axis: usize) -> usize {
     }
 }
 
+/// Cell mask, as an 8-bit value representing set corners
+#[derive(Copy, Clone, Debug)]
+struct Mask(u8);
+
+/// Strongly-typed cell corner, in the 0-8 range
+#[derive(Copy, Clone, Debug)]
+struct Corner(u8);
+
+/// Represents a directed edge within an octree cell
+#[derive(Copy, Clone, Debug)]
+struct DirectedEdge {
+    start: Corner,
+    end: Corner,
+}
+
+/// Represents an undirected edge within an octree cell
+///
+/// With `(t, u, v)` as a right-handed coordinate system and `t` being the
+/// varying axis of the edge, this is packed as `4 * t + 2 * v + 1 * u`
+#[derive(Copy, Clone, Debug)]
+struct Edge(u8);
+
+impl Edge {
+    /// Returns a right-handed coordinate system `(t, u, v)` for this edge
+    fn axes(&self) -> (u8, u8, u8) {
+        let t = self.0 / 4;
+        let u = (t + 1) % 3;
+        let v = (t + 2) % 3;
+
+        (1 << t, 1 << u, 1 << v)
+    }
+    fn start(&self) -> Corner {
+        let (t, u, v) = self.axes();
+        Corner(((self.0 % 4 / 2) * v) | ((self.0 % 2) * u))
+    }
+    fn end(&self) -> Corner {
+        let (t, _, _) = self.axes();
+        Corner(self.start().0 | t)
+    }
+}
+
+/// Represents the relative offset of a vertex within [`Octree::verts`]
+#[derive(Copy, Clone, Debug)]
+struct Offset(u8);
+
+/// Represents an edge that includes a sign change (and thus an intersection)
+#[derive(Copy, Clone, Debug)]
+struct Intersection {
+    /// Data offset of the vertex located within the cell
+    vert: Offset,
+    /// Data offset of the vertex located on the edge
+    edge: Offset,
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Raw cell data
@@ -43,7 +96,7 @@ impl From<Cell> for CellData {
                 assert!(index < (1 << 62));
                 0b10 << 62 | index as u64
             }
-            Cell::Leaf { mask, index } => {
+            Cell::Leaf(Leaf { mask, index }) => {
                 assert!(index < (1 << 54));
                 (0b11 << 62) | ((mask as u64) << 54) | index as u64
             }
@@ -63,7 +116,7 @@ enum Cell {
     Empty,
     Full,
     Branch { index: usize },
-    Leaf { mask: u8, index: usize },
+    Leaf(Leaf),
 }
 
 impl From<CellData> for Cell {
@@ -75,12 +128,24 @@ impl From<CellData> for Cell {
             0b10 => Cell::Branch {
                 index: i & ((1 << 62) - 1),
             },
-            0b11 => Cell::Leaf {
+            0b11 => Cell::Leaf(Leaf {
                 index: i & ((1 << 54) - 1),
                 mask: (i >> 54) as u8,
-            },
+            }),
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+struct Leaf {
+    mask: u8,
+    index: usize,
+}
+
+impl Leaf {
+    fn edge(&self, e: Edge) -> Intersection {
+        CELL_TO_EDGE_TO_VERT[self.mask as usize][e.0 as usize]
     }
 }
 
@@ -265,14 +330,21 @@ impl Octree {
                 for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
                     let mut center = nalgebra::Vector3::zeros();
                     for e in *vs {
-                        // TODO: no need to encode this fancily, maybe just a
-                        // (u8, u8) or a u8 containing 2x 4-bit values?
-                        let pos =
-                            if e / 12 != 0 { 16384 } else { u16::MAX - 16384 };
+                        // Find the axis that's being used by this edge
+                        let axis = e.start.0 ^ e.end.0;
+                        debug_assert_eq!(axis.count_ones(), 1);
+                        debug_assert!(axis < 8);
+
+                        // Pick a position closer to the filled side
+                        let pos = if e.end.0 & axis != 0 {
+                            16384
+                        } else {
+                            u16::MAX - 16384
+                        };
 
                         // Convert the intersection to a 3D position
                         let mut v = nalgebra::Vector3::zeros();
-                        v[*e as usize / 4] = pos;
+                        v[axis.trailing_zeros() as usize] = pos;
                         intersections.push(v);
 
                         // Accumulate a fake vertex by taking the average of all
@@ -284,7 +356,8 @@ impl Octree {
                 let index = self.verts.len();
                 self.verts.extend(verts.into_iter());
                 self.verts.extend(intersections.into_iter());
-                self.cells[cell.index] = Cell::Leaf { mask, index }.into();
+                self.cells[cell.index] =
+                    Cell::Leaf(Leaf { mask, index }).into();
             } else {
                 let child = self.cells.len();
                 for _ in 0..8 {
@@ -597,16 +670,6 @@ impl Octree {
 
 include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
 
-/// Returns the index of a vertex associated with a particular edge
-///
-/// The edge is specified as an axis and an index (0-3)
-fn get_edge_vert(cell: u8, axis: usize, index: usize) -> u8 {
-    assert!(index < 4);
-    CELL_TO_EDGE_TO_VERT[cell as usize][axis * 4
-        + (1 << next(axis).trailing_zeros()) * (index % 2)
-        + (1 << prev(axis).trailing_zeros()) * (index / 2)]
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -620,14 +683,14 @@ mod test {
             Cell::Branch {
                 index: 0x1234000054322345,
             },
-            Cell::Leaf {
+            Cell::Leaf(Leaf {
                 index: 12345,
                 mask: 0b101,
-            },
-            Cell::Leaf {
+            }),
+            Cell::Leaf(Leaf {
                 index: 0x123400005432,
                 mask: 0b11011010,
-            },
+            }),
         ] {
             assert_eq!(c, Cell::from(CellData::from(c)));
         }
