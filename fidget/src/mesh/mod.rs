@@ -307,8 +307,8 @@ impl MeshBuilder {
         cell: CellIndex,
         verts: &[nalgebra::Vector3<u16>],
     ) -> usize {
-        if v > self.map.len() {
-            self.map.resize(v, Option::None);
+        if v >= self.map.len() {
+            self.map.resize(v + 1, Option::None);
         }
         match self.map[v] {
             Some(u) => u.get(),
@@ -933,6 +933,10 @@ mod test {
         assert_eq!(octree.verts.len(), 1);
         // TODO: should we transform this into an Empty?
 
+        let empty_mesh = octree.walk_dual();
+        assert_eq!(empty_mesh.vertices.len(), 1);
+        assert!(empty_mesh.triangles.is_empty());
+
         // Now, at depth-1, each cell should be a Leaf with one vertex
         let octree = Octree::build(&tape, 1);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
@@ -948,6 +952,10 @@ mod test {
             assert_eq!(mask.count_ones(), 1);
             assert_eq!((index - 1) % 4, 0);
         }
+
+        let sphere_mesh = octree.walk_dual();
+        assert!(sphere_mesh.vertices.len() > 1);
+        assert!(!sphere_mesh.triangles.is_empty());
     }
 
     #[test]
