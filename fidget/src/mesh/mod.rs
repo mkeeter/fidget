@@ -28,18 +28,60 @@ const fn prev(axis: usize) -> usize {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Raw cell data
+///
+/// Unpack to a [`Cell`] to actually use it
 #[derive(Copy, Clone)]
-struct Leaf {
-    /// Corner mask, with set bits (1) for cube corners inside the surface
-    ///
-    /// "Inside" means < 0.0; exactly 0.0 is treated as outside.
-    mask: u8,
+struct CellData(u64);
 
-    /// Cell data, represented as an index into `Octree::verts`
-    ///
-    /// Each cell stores (in order) 0-4 vertices and 0-12 intersections in the
-    /// `Octree::verts` array, depending on the `mask`.
-    data: Option<NonZeroUsize>,
+impl From<Cell> for CellData {
+    fn from(c: Cell) -> Self {
+        let i = match c {
+            Cell::Empty => 0b00 << 62,
+            Cell::Full => 0b01 << 62,
+            Cell::Branch { index } => {
+                assert!(index < (1 << 62));
+                0b10 << 62 | index as u64
+            }
+            Cell::Leaf { mask, index } => {
+                assert!(index < (1 << 54));
+                (0b11 << 62) | ((mask as u64) << 54) | index as u64
+            }
+        };
+        CellData(i)
+    }
+}
+
+static_assertions::const_assert_eq!(
+    std::mem::size_of::<usize>(),
+    std::mem::size_of::<u64>()
+);
+
+/// Unpacked form of [`CellData`]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum Cell {
+    Empty,
+    Full,
+    Branch { index: usize },
+    Leaf { mask: u8, index: usize },
+}
+
+impl From<CellData> for Cell {
+    fn from(c: CellData) -> Self {
+        let i = c.0 as usize;
+        match (i >> 62) & 0b11 {
+            0b00 => Cell::Empty,
+            0b01 => Cell::Full,
+            0b10 => Cell::Branch {
+                index: i & ((1 << 62) - 1),
+            },
+            0b11 => Cell::Leaf {
+                index: i & ((1 << 54) - 1),
+                mask: (i >> 54) as u8,
+            },
+            _ => unreachable!(),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -137,29 +179,16 @@ impl Mesh {
 
 pub struct Octree {
     /// The top two bits determine cell types
-    cells: Vec<usize>,
-    leafs: Vec<Leaf>,
+    cells: Vec<CellData>,
 
     /// Cell vertices, given as positions within the cell
     ///
-    /// This is indexed by `Leaf::data`; the exact shape depends heavily on the
-    /// number of intersections and vertices within each leaf.
+    /// This is indexed by cell leaf index; the exact shape depends heavily on
+    /// the number of intersections and vertices within each leaf.
     verts: Vec<nalgebra::Vector3<u16>>,
 }
 
 impl Octree {
-    const CELL_TYPE_MASK: usize =
-        0b11 << (std::mem::size_of::<usize>() * 8 - 2);
-    const CELL_TYPE_BRANCH: usize =
-        0b00 << (std::mem::size_of::<usize>() * 8 - 2);
-    const CELL_TYPE_EMPTY: usize =
-        0b10 << (std::mem::size_of::<usize>() * 8 - 2);
-    const CELL_TYPE_FILLED: usize =
-        0b11 << (std::mem::size_of::<usize>() * 8 - 2);
-    const CELL_TYPE_LEAF: usize =
-        0b01 << (std::mem::size_of::<usize>() * 8 - 2);
-    const CELL_INDEX_MASK: usize = !Self::CELL_TYPE_MASK;
-
     pub fn build<I: Family>(tape: Tape<I>, depth: usize) -> Self {
         let i_handle = tape.new_interval_evaluator();
         let x = Interval::new(-1.0, 1.0);
@@ -167,8 +196,7 @@ impl Octree {
         let z = Interval::new(-1.0, 1.0);
 
         let mut out = Self {
-            cells: vec![0; 8],
-            leafs: vec![],
+            cells: vec![CellData(0); 8],
 
             // Use the 0th index as an empty marker
             verts: vec![nalgebra::Vector3::zeros()],
@@ -194,9 +222,9 @@ impl Octree {
     ) {
         let (i, r) = i_handle.eval(cell.x, cell.y, cell.z, &[]).unwrap();
         if i.upper() < 0.0 {
-            self.cells[cell.index] = Self::CELL_TYPE_FILLED;
+            self.cells[cell.index] = Cell::Full.into();
         } else if i.lower() > 0.0 {
-            self.cells[cell.index] = Self::CELL_TYPE_EMPTY;
+            self.cells[cell.index] = Cell::Empty.into();
         } else {
             let sub_tape = r.map(|r| r.simplify().unwrap());
             if cell.depth == 0 {
@@ -212,12 +240,9 @@ impl Octree {
                     ys[i] = y;
                     zs[i] = z;
                 }
+
                 // TODO: reuse evaluators, etc
                 let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
-                let leaf_index = self.leafs.len();
-
-                // Make sure we haven't made too many leafs
-                assert!(leaf_index & Self::CELL_TYPE_MASK == 0);
                 assert_eq!(out.len(), 8);
 
                 // Build a mask of active corners, which determines cell
@@ -259,17 +284,13 @@ impl Octree {
                 let index = self.verts.len();
                 self.verts.extend(verts.into_iter());
                 self.verts.extend(intersections.into_iter());
-                self.leafs.push(Leaf {
-                    mask,
-                    data: NonZeroUsize::new(index),
-                });
-                self.cells[cell.index] = Self::CELL_TYPE_LEAF | leaf_index;
+                self.cells[cell.index] = Cell::Leaf { mask, index }.into();
             } else {
                 let child = self.cells.len();
                 for _ in 0..8 {
-                    self.cells.push(0);
+                    self.cells.push(CellData(0));
                 }
-                self.cells[cell.index] = Self::CELL_TYPE_BRANCH | child;
+                self.cells[cell.index] = Cell::Branch { index: child }.into();
                 let (x_lo, x_hi) = cell.x.split();
                 let (y_lo, y_hi) = cell.y.split();
                 let (z_lo, z_hi) = cell.z.split();
@@ -315,11 +336,8 @@ impl Octree {
 #[allow(clippy::modulo_one, clippy::identity_op)]
 impl Octree {
     fn dc_cell(&self, cell: CellIndex, out: &mut Mesh) {
-        let i = self.cells[cell.index];
-        let ty = i & Self::CELL_TYPE_MASK;
-
-        if ty == Self::CELL_TYPE_BRANCH {
-            assert_eq!(cell.index % 8, 0);
+        if let Cell::Branch { index } = self.cells[cell.index].into() {
+            assert_eq!(index % 8, 0);
             for i in 0..8 {
                 self.dc_cell(self.child(cell, i), out);
             }
@@ -366,30 +384,28 @@ impl Octree {
         }
     }
 
-    /// Checks whether the given cell is a leaf node
-    fn is_leaf(&self, cell: CellIndex) -> bool {
-        self.cells[cell.index] & Self::CELL_TYPE_MASK != Self::CELL_TYPE_BRANCH
-    }
-
     /// Looks up the given child of a cell.
     ///
     /// If the cell is a leaf node, returns that cell instead.
     fn child(&self, cell: CellIndex, child: usize) -> CellIndex {
         assert!(child < 8);
-        if self.is_leaf(cell) {
-            cell
-        } else {
-            let index =
-                (self.cells[cell.index] & Self::CELL_INDEX_MASK) + child;
-            let (x, y, z) = cell.interval(child);
-            CellIndex {
-                index,
-                x,
-                y,
-                z,
-                depth: cell.depth + 1,
+        match self.cells[cell.index].into() {
+            Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
+            Cell::Branch { index } => {
+                let (x, y, z) = cell.interval(child);
+                CellIndex {
+                    index: index + child,
+                    x,
+                    y,
+                    z,
+                    depth: cell.depth + 1,
+                }
             }
         }
+    }
+
+    fn is_leaf(&self, cell: CellIndex) -> bool {
+        matches!(self.cells[cell.index].into(), Cell::Leaf { .. })
     }
 
     /// Handles two cells which share a common `YZ` face
@@ -489,6 +505,7 @@ impl Octree {
         out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            /*
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
             let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
             let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
@@ -501,6 +518,7 @@ impl Octree {
 
             let e =
                 CELL_TO_VERT_TO_EDGES[leaf_a.mask as usize][vert_a as usize];
+            */
             // terminate!
         }
         for i in 0..2 {
@@ -526,10 +544,12 @@ impl Octree {
         out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            /*
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
             let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
             let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
             let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
+            */
             // terminate!
         }
         for i in 0..2 {
@@ -555,10 +575,12 @@ impl Octree {
         out: &mut Mesh,
     ) {
         if [a, b, c, d].iter().all(|v| self.is_leaf(*v)) {
+            /*
             let leaf_a = self.leafs[a.index & Self::CELL_INDEX_MASK];
             let leaf_b = self.leafs[b.index & Self::CELL_INDEX_MASK];
             let leaf_c = self.leafs[c.index & Self::CELL_INDEX_MASK];
             let leaf_d = self.leafs[d.index & Self::CELL_INDEX_MASK];
+            */
             // terminate!
         }
         for i in 0..2 {
@@ -583,4 +605,31 @@ fn get_edge_vert(cell: u8, axis: usize, index: usize) -> u8 {
     CELL_TO_EDGE_TO_VERT[cell as usize][axis * 4
         + (1 << next(axis).trailing_zeros()) * (index % 2)
         + (1 << prev(axis).trailing_zeros()) * (index / 2)]
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cell_encode_decode() {
+        for c in [
+            Cell::Empty,
+            Cell::Full,
+            Cell::Branch { index: 12345 },
+            Cell::Branch {
+                index: 0x1234000054322345,
+            },
+            Cell::Leaf {
+                index: 12345,
+                mask: 0b101,
+            },
+            Cell::Leaf {
+                index: 0x123400005432,
+                mask: 0b11011010,
+            },
+        ] {
+            assert_eq!(c, Cell::from(CellData::from(c)));
+        }
+    }
 }
