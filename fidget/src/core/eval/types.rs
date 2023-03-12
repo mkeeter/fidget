@@ -304,12 +304,33 @@ impl Interval {
     }
 
     /// Splits the interval at the midpoint
+    ///
+    /// ```
+    /// # use fidget::eval::types::Interval;
+    /// let a = Interval::new(0.0, 1.0);
+    /// let (lo, hi) = a.split();
+    /// assert_eq!(lo, Interval::new(0.0, 0.5));
+    /// assert_eq!(hi, Interval::new(0.5, 1.0));
+    /// ```
     pub fn split(self) -> (Self, Self) {
         let mid = self.midpoint();
         (
             Interval::new(self.lower, mid),
             Interval::new(mid, self.upper),
         )
+    }
+
+    /// Linear interpolation from `lower` to `upper`
+    ///
+    /// ```
+    /// # use fidget::eval::types::Interval;
+    /// let a = Interval::new(0.0, 2.0);
+    /// assert_eq!(a.lerp(0.5), 1.0);
+    /// assert_eq!(a.lerp(0.75), 1.5);
+    /// assert_eq!(a.lerp(2.0), 4.0);
+    /// ```
+    pub fn lerp(self, frac: f32) -> f32 {
+        self.lower * (1.0 - frac) + self.upper * frac
     }
 }
 

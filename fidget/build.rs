@@ -134,16 +134,12 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
 
                         let (start, end) =
                             if rev { (end, start) } else { (start, end) };
-                        println!("checking {start} -> {end}");
 
                         // Only process this edge if `start` is inside the model
                         // (non-zero) and `end` is outside (0).
                         if ((i & (1 << start)) != 0) && ((i & (1 << end)) == 0)
                         {
                             let start_region = regions[start];
-                            println!(
-                                "   got hit in {start_region}, {t} {u} {v}"
-                            );
                             let end_region = regions[end];
                             assert!(start_region != end_region);
                             verts
@@ -155,7 +151,6 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
                 }
             }
         }
-        println!("verts: {verts:?}");
 
         let mut vert_table_entry = vec![];
 
@@ -213,7 +208,7 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
 /// which are required for that cell.  Each vertex is implicitly numbered based
 /// on its position in the list, and itself stores a list of edges (as tuples
 /// of `(start, end)` cell corners).
-pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
+const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
     )?;
 
     for v in vert_table {
@@ -221,13 +216,13 @@ pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
         for e in v {
             writeln!(&mut file, "        &[")?;
             for (start, end) in e {
-                write!(
+                writeln!(
                     &mut file,
-                    "DirectedEdge {{ start: Corner({start}), \
-                                     end:   Corner({end}) }},"
+                    "            DirectedEdge {{ start: Corner({start}), \
+                                                 end: Corner({end}) }},"
                 )?;
             }
-            writeln!(&mut file, "],")?;
+            writeln!(&mut file, "        ],")?;
         }
         writeln!(&mut file, "    ],")?;
     }
@@ -241,17 +236,19 @@ pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
 /// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
 /// packed undirected value in the range 0-12), returns an [`Intersection`]
 /// that encodes the vertex offsets for that edge.
-pub const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
+const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
     )?;
 
     for e in edge_table {
+        writeln!(&mut file, "    [")?;
         for (vert, edge) in e {
             writeln!(
                 &mut file,
-                "    Intersection {{ vert: Offset({vert}), \
-                                     edge: Offset({edge}) }},"
+                "        Intersection {{ vert: Offset({vert}), \
+                                         edge: Offset({edge}) }},"
             )?;
         }
+        writeln!(&mut file, "    ],")?;
     }
     writeln!(&mut file, "];")?;
 
