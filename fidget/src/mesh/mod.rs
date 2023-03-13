@@ -862,6 +862,8 @@ mod test {
             // corners of the cell spanning [0, 0.25]
             let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
             let octree = Octree::build(&tape, 2);
+
+            let mesh = octree.walk_dual();
         }
     }
 }
