@@ -587,7 +587,7 @@ impl Octree {
     }
 
     fn is_leaf(&self, cell: CellIndex) -> bool {
-        matches!(self.cells[cell.index].into(), Cell::Leaf { .. })
+        !matches!(self.cells[cell.index].into(), Cell::Branch { .. })
     }
 
     /// Handles two cells which share a common `YZ` face
@@ -693,11 +693,18 @@ impl Octree {
     ) {
         let cs = [a, b, c, d];
         if cs.iter().all(|v| self.is_leaf(*v)) {
-            let leafs = cs.map(|cell| {
-                let Cell::Leaf(leaf) = self.cells[cell.index].into() else
-                    { unreachable!() };
-                leaf
+            let leafs = cs.map(|cell| match self.cells[cell.index].into() {
+                Cell::Leaf(leaf) => Some(leaf),
+                Cell::Empty | Cell::Full => None,
+                Cell::Branch { .. } => unreachable!(),
             });
+            // If any of the leafs are `None`, then this edge can't include a
+            // sign change.  TODO: can we make this any -> all if we collapse
+            // empty / filled leafs into Empty / Full cells?
+            if leafs.iter().any(Option::is_none) {
+                return;
+            }
+            let leafs = leafs.map(Option::unwrap);
             let verts = [
                 leafs[0].edge(Edge((T.trailing_zeros() * 4 + 3) as u8)),
                 leafs[1].edge(Edge((T.trailing_zeros() * 4 + 2) as u8)),
