@@ -539,21 +539,21 @@ impl Octree {
             dc_face_z(X | Y);
 
             for i in [false, true] {
-                self.dc_edge_x(
+                self.dc_edge::<{ X.0 }>(
                     self.child(cell, (X * i)),
                     self.child(cell, (X * i) | Y),
                     self.child(cell, (X * i) | Y | Z),
                     self.child(cell, (X * i) | Z),
                     out,
                 );
-                self.dc_edge_y(
+                self.dc_edge::<{ Y.0 }>(
                     self.child(cell, (Y * i)),
                     self.child(cell, (Y * i) | Z),
                     self.child(cell, (Y * i) | X | Z),
                     self.child(cell, (Y * i) | X),
                     out,
                 );
-                self.dc_edge_z(
+                self.dc_edge::<{ Z.0 }>(
                     self.child(cell, (Z * i)),
                     self.child(cell, (Z * i) | X),
                     self.child(cell, (Z * i) | X | Y),
