@@ -1,7 +1,16 @@
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
+////////////////////////////////////////////////////////////////////////////////
+// Welcome to the strongly-typed zone!
+
 #[derive(Copy, Clone, Debug)]
 struct Axis(u8);
+
+impl Axis {
+    fn index(self) -> usize {
+        self.0.trailing_zeros() as usize
+    }
+}
 
 const X: Axis = Axis(1);
 const Y: Axis = Axis(2);
@@ -44,10 +53,6 @@ impl From<Axis> for Corner {
         Corner(a.0)
     }
 }
-
-/// Cell mask, as an 8-bit value representing set corners
-#[derive(Copy, Clone, Debug)]
-struct Mask(u8);
 
 /// Strongly-typed cell corner, in the 0-8 range
 #[derive(Copy, Clone, Debug)]
@@ -105,6 +110,49 @@ struct Intersection {
     vert: Offset,
     /// Data offset of the vertex located on the edge
     edge: Offset,
+}
+
+/// Cell mask, as an 8-bit value representing set corners
+#[derive(Copy, Clone, Debug)]
+struct Mask(u8);
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Marker trait for a right-handed coordinate frame
+trait Frame {
+    type Next: Frame;
+    type Prev: Frame;
+    fn frame() -> (Axis, Axis, Axis);
+}
+
+#[allow(clippy::upper_case_acronyms)]
+struct XYZ;
+#[allow(clippy::upper_case_acronyms)]
+struct YZX;
+#[allow(clippy::upper_case_acronyms)]
+struct ZXY;
+
+impl Frame for XYZ {
+    type Next = YZX;
+    type Prev = ZXY;
+    fn frame() -> (Axis, Axis, Axis) {
+        (X, Y, Z)
+    }
+}
+
+impl Frame for YZX {
+    type Next = ZXY;
+    type Prev = XYZ;
+    fn frame() -> (Axis, Axis, Axis) {
+        (Y, Z, X)
+    }
+}
+impl Frame for ZXY {
+    type Next = XYZ;
+    type Prev = YZX;
+    fn frame() -> (Axis, Axis, Axis) {
+        (Z, X, Y)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -502,58 +550,26 @@ impl Octree {
                 self.dc_cell(self.child(cell, i), out);
             }
 
-            let mut dc_face_x = |a| {
-                self.dc_face_x(
-                    self.child(cell, a),
-                    self.child(cell, a | X),
-                    out,
-                )
-            };
-            dc_face_x(Corner(0));
-            dc_face_x(Y.into());
-            dc_face_x(Z.into());
-            dc_face_x(Y | Z);
-
-            let mut dc_face_y = |a| {
-                self.dc_face_y(
-                    self.child(cell, a),
-                    self.child(cell, a | Y),
-                    out,
-                )
-            };
-            dc_face_y(Corner(0));
-            dc_face_y(X.into());
-            dc_face_y(Z.into());
-            dc_face_y(X | Z);
-
-            let mut dc_face_z = |a| {
-                self.dc_face_z(
-                    self.child(cell, a),
-                    self.child(cell, a | Z),
-                    out,
-                )
-            };
-            dc_face_z(Corner(0));
-            dc_face_z(X.into());
-            dc_face_z(Y.into());
-            dc_face_z(X | Y);
+            self.dc_faces::<XYZ>(cell, out);
+            self.dc_faces::<YZX>(cell, out);
+            self.dc_faces::<ZXY>(cell, out);
 
             for i in [false, true] {
-                self.dc_edge::<{ X.0 }>(
+                self.dc_edge::<XYZ>(
                     self.child(cell, (X * i)),
                     self.child(cell, (X * i) | Y),
                     self.child(cell, (X * i) | Y | Z),
                     self.child(cell, (X * i) | Z),
                     out,
                 );
-                self.dc_edge::<{ Y.0 }>(
+                self.dc_edge::<YZX>(
                     self.child(cell, (Y * i)),
                     self.child(cell, (Y * i) | Z),
                     self.child(cell, (Y * i) | X | Z),
                     self.child(cell, (Y * i) | X),
                     out,
                 );
-                self.dc_edge::<{ Z.0 }>(
+                self.dc_edge::<ZXY>(
                     self.child(cell, (Z * i)),
                     self.child(cell, (Z * i) | X),
                     self.child(cell, (Z * i) | X | Y),
@@ -561,6 +577,18 @@ impl Octree {
                     out,
                 );
             }
+        }
+    }
+
+    /// Calls [`self.dc_face`] on all four face adjacencies in the given frame
+    fn dc_faces<T: Frame>(&self, cell: CellIndex, out: &mut MeshBuilder) {
+        let (t, u, v) = T::frame();
+        for c in [Corner(0), u.into(), v.into(), u | v] {
+            self.dc_face::<T>(
+                self.child(cell, c),
+                self.child(cell, c | t),
+                out,
+            );
         }
     }
 
@@ -590,86 +618,41 @@ impl Octree {
         !matches!(self.cells[cell.index].into(), Cell::Branch { .. })
     }
 
-    /// Handles two cells which share a common `YZ` face
+    /// Handles two cells which share a common face
     ///
-    /// `lo` is below `hi` on the `X` axis
-    fn dc_face_x(&self, lo: CellIndex, hi: CellIndex, out: &mut MeshBuilder) {
+    /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
+    /// `T-U-V` is a right-handed coordinate system.
+    fn dc_face<T: Frame>(
+        &self,
+        lo: CellIndex,
+        hi: CellIndex,
+        out: &mut MeshBuilder,
+    ) {
         if self.is_leaf(lo) && self.is_leaf(hi) {
             return;
         }
-        self.dc_face_x(self.child(lo, X), self.child(hi, Corner(0)), out);
-        self.dc_face_x(self.child(lo, X | Y), self.child(hi, Y), out);
-        self.dc_face_x(self.child(lo, X | Z), self.child(hi, Z), out);
-        self.dc_face_x(self.child(lo, X | Y | Z), self.child(hi, Y | Z), out);
+        let (t, u, v) = T::frame();
+        self.dc_face::<T>(self.child(lo, t), self.child(hi, Corner(0)), out);
+        self.dc_face::<T>(self.child(lo, t | u), self.child(hi, u), out);
+        self.dc_face::<T>(self.child(lo, t | Y), self.child(hi, v), out);
+        self.dc_face::<T>(
+            self.child(lo, t | u | v),
+            self.child(hi, u | v),
+            out,
+        );
         for i in [false, true] {
-            self.dc_edge::<{ Y.0 }>(
-                self.child(lo, (Y * i) | X),
-                self.child(lo, (Y * i) | X | Z),
-                self.child(hi, (Y * i) | Z),
-                self.child(hi, (Y * i)),
+            self.dc_edge::<T::Next>(
+                self.child(lo, (u * i) | t),
+                self.child(lo, (u * i) | v | t),
+                self.child(hi, (u * i) | v),
+                self.child(hi, (u * i)),
                 out,
             );
-            self.dc_edge::<{ Z.0 }>(
-                self.child(lo, (Z * i) | X),
-                self.child(hi, (Z * i)),
-                self.child(hi, (Z * i) | Y),
-                self.child(lo, (Z * i) | X | Y),
-                out,
-            );
-        }
-    }
-    /// Handles two cells which share a common `XZ` face
-    ///
-    /// `lo` is below `hi` on the `Y` axis
-    fn dc_face_y(&self, lo: CellIndex, hi: CellIndex, out: &mut MeshBuilder) {
-        if self.is_leaf(lo) && self.is_leaf(hi) {
-            return;
-        }
-        self.dc_face_y(self.child(lo, Y), self.child(hi, Corner(0)), out);
-        self.dc_face_y(self.child(lo, Y | X), self.child(hi, X), out);
-        self.dc_face_y(self.child(lo, Y | Z), self.child(hi, Z), out);
-        self.dc_face_y(self.child(lo, Y | X | Z), self.child(hi, X | Z), out);
-        for i in [false, true] {
-            self.dc_edge::<{ X.0 }>(
-                self.child(lo, (X * i) | Y),
-                self.child(lo, (X * i) | Y | Z),
-                self.child(hi, (X * i) | Z),
-                self.child(hi, (X * i)),
-                out,
-            );
-            self.dc_edge::<{ Z.0 }>(
-                self.child(lo, (Z * i) | Y),
-                self.child(lo, (Z * i) | X | Y),
-                self.child(hi, (Z * i) | X),
-                self.child(hi, (Z * i)),
-                out,
-            );
-        }
-    }
-    /// Handles two cells which share a common `XY` face
-    ///
-    /// `lo` is below `hi` on the `Z` axis
-    fn dc_face_z(&self, lo: CellIndex, hi: CellIndex, out: &mut MeshBuilder) {
-        if self.is_leaf(lo) && self.is_leaf(hi) {
-            return;
-        }
-        self.dc_face_z(self.child(lo, Z), self.child(hi, Corner(0)), out);
-        self.dc_face_z(self.child(lo, Z | X), self.child(hi, X), out);
-        self.dc_face_z(self.child(lo, Z | Y), self.child(hi, Y), out);
-        self.dc_face_z(self.child(lo, Z | X | Y), self.child(hi, X | Y), out);
-        for i in [false, true] {
-            self.dc_edge::<{ X.0 }>(
-                self.child(lo, (X * i) | Z),
-                self.child(lo, (X * i) | Y | Z),
-                self.child(hi, (X * i) | Y),
-                self.child(hi, (X * i)),
-                out,
-            );
-            self.dc_edge::<{ Y.0 }>(
-                self.child(lo, (Y * i) | Z),
-                self.child(hi, (Y * i)),
-                self.child(hi, (Y * i) | X),
-                self.child(lo, (Y * i) | X | Z),
+            self.dc_edge::<T::Prev>(
+                self.child(lo, (v * i) | t),
+                self.child(hi, (v * i)),
+                self.child(hi, (v * i) | u),
+                self.child(lo, (v * i) | u | t),
                 out,
             );
         }
@@ -683,7 +666,7 @@ impl Octree {
     /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
     /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
     /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-    fn dc_edge<const T: u8>(
+    fn dc_edge<T: Frame>(
         &self,
         a: CellIndex,
         b: CellIndex,
@@ -704,12 +687,13 @@ impl Octree {
             if leafs.iter().any(Option::is_none) {
                 return;
             }
+            let (t, _, _) = T::frame();
             let leafs = leafs.map(Option::unwrap);
             let verts = [
-                leafs[0].edge(Edge((T.trailing_zeros() * 4 + 3) as u8)),
-                leafs[1].edge(Edge((T.trailing_zeros() * 4 + 2) as u8)),
-                leafs[2].edge(Edge((T.trailing_zeros() * 4 + 0) as u8)),
-                leafs[3].edge(Edge((T.trailing_zeros() * 4 + 1) as u8)),
+                leafs[0].edge(Edge((t.index() * 4 + 3) as u8)),
+                leafs[1].edge(Edge((t.index() * 4 + 2) as u8)),
+                leafs[2].edge(Edge((t.index() * 4 + 0) as u8)),
+                leafs[3].edge(Edge((t.index() * 4 + 1) as u8)),
             ];
 
             // Pick the intersection vertex based on the deepest cell
@@ -738,9 +722,7 @@ impl Octree {
                 ))
             }
         } else {
-            let t = Axis(T);
-            let u = Corner((T | T.rotate_right(3)).rotate_left(1) & 0b111);
-            let v = Corner((T | T.rotate_right(3)).rotate_left(2) & 0b111);
+            let (t, u, v) = T::frame();
             for i in [false, true] {
                 self.dc_edge::<T>(
                     self.child(a, (t * i) | u | v),
