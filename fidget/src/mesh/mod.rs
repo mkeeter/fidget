@@ -861,7 +861,20 @@ mod test {
             let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
             let octree = Octree::build(&tape, 2);
 
-            let _mesh = octree.walk_dual();
+            let mesh = octree.walk_dual();
+            if i != 0 && i != 255 {
+                assert!(!mesh.vertices.is_empty());
+                assert!(!mesh.triangles.is_empty());
+            }
+            check_for_vertex_dupes(&mesh);
+        }
+    }
+
+    fn check_for_vertex_dupes(mesh: &Mesh) {
+        let mut verts = mesh.vertices.clone();
+        verts.sort_by_key(|k| (k.x.to_bits(), k.y.to_bits(), k.z.to_bits()));
+        for i in 1..verts.len() {
+            assert_ne!(verts[i - 1], verts[i]);
         }
     }
 }
