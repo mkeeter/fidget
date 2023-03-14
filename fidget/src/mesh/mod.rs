@@ -315,18 +315,10 @@ impl CellIndex {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// An indexed 3D mesh
+#[derive(Default)]
 pub struct Mesh {
     triangles: Vec<nalgebra::Vector3<usize>>,
     vertices: Vec<nalgebra::Vector3<f32>>,
-}
-
-impl Default for Mesh {
-    fn default() -> Self {
-        Self {
-            triangles: vec![],
-            vertices: vec![],
-        }
-    }
 }
 
 impl Mesh {
@@ -339,6 +331,8 @@ impl Mesh {
 #[derive(Default)]
 struct MeshBuilder {
     /// Map from indexes in [`Octree::verts`] to `out.vertices`
+    ///
+    /// `usize::MAX` is used a marker for an unmapped vertex
     map: Vec<usize>,
     out: Mesh,
 }
@@ -676,19 +670,34 @@ impl Octree {
     ) {
         let cs = [a, b, c, d];
         if cs.iter().all(|v| self.is_leaf(*v)) {
+            // If any of the leafs are Empty or Full, then this edge can't
+            // include a sign change.  TODO: can we make this any -> all if we
+            // collapse empty / filled leafs into Empty / Full cells?
             let leafs = cs.map(|cell| match self.cells[cell.index].into() {
                 Cell::Leaf(leaf) => Some(leaf),
                 Cell::Empty | Cell::Full => None,
                 Cell::Branch { .. } => unreachable!(),
             });
-            // If any of the leafs are `None`, then this edge can't include a
-            // sign change.  TODO: can we make this any -> all if we collapse
-            // empty / filled leafs into Empty / Full cells?
             if leafs.iter().any(Option::is_none) {
                 return;
             }
-            let (t, _, _) = T::frame();
             let leafs = leafs.map(Option::unwrap);
+
+            // TODO: check for a sign change on this edge
+            let (t, u, v) = T::frame();
+            let sign_change_count = leafs
+                .iter()
+                .zip([u | v, v.into(), Corner(0), u.into()])
+                .filter(|(leaf, c)| {
+                    (leaf.mask & (1 << c.0) == 0)
+                        != (leaf.mask & (1 << (*c | t).0) == 0)
+                })
+                .count();
+            if sign_change_count == 0 {
+                return;
+            }
+            debug_assert_eq!(sign_change_count, 4);
+
             let verts = [
                 leafs[0].edge(Edge((t.index() * 4 + 3) as u8)),
                 leafs[1].edge(Edge((t.index() * 4 + 2) as u8)),
@@ -852,7 +861,7 @@ mod test {
             let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
             let octree = Octree::build(&tape, 2);
 
-            let mesh = octree.walk_dual();
+            let _mesh = octree.walk_dual();
         }
     }
 }
