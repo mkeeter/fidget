@@ -751,6 +751,7 @@ include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
 mod test {
     use super::*;
     use crate::{context::Node, Context};
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_cell_encode_decode() {
@@ -866,15 +867,36 @@ mod test {
                 assert!(!mesh.vertices.is_empty());
                 assert!(!mesh.triangles.is_empty());
             }
-            check_for_vertex_dupes(&mesh);
+            check_for_vertex_dupes(i, &mesh);
+            check_for_edge_matching(i, &mesh);
         }
     }
 
-    fn check_for_vertex_dupes(mesh: &Mesh) {
+    fn check_for_vertex_dupes(mask: usize, mesh: &Mesh) {
         let mut verts = mesh.vertices.clone();
         verts.sort_by_key(|k| (k.x.to_bits(), k.y.to_bits(), k.z.to_bits()));
         for i in 1..verts.len() {
-            assert_ne!(verts[i - 1], verts[i]);
+            assert_ne!(
+                verts[i - 1],
+                verts[i],
+                "mask {mask:08b} has duplicate vertices"
+            );
+        }
+    }
+
+    fn check_for_edge_matching(mask: usize, mesh: &Mesh) {
+        let mut edges: BTreeMap<_, usize> = BTreeMap::new();
+        for t in &mesh.triangles {
+            for edge in [(t.x, t.y), (t.y, t.z), (t.z, t.x)] {
+                *edges.entry(edge).or_default() += 1;
+            }
+        }
+        for (&(a, b), &i) in &edges {
+            assert_eq!(i, 1, "mask {i:08b} has duplicate edge");
+            assert!(
+                edges.contains_key(&(b, a)),
+                "mask {mask:08b} has unpaired edges"
+            );
         }
     }
 }
