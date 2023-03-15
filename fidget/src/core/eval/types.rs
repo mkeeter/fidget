@@ -334,6 +334,12 @@ impl Interval {
     }
 }
 
+impl std::fmt::Display for Interval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.lower, self.upper)
+    }
+}
+
 impl From<[f32; 2]> for Interval {
     fn from(i: [f32; 2]) -> Interval {
         Interval::new(i[0], i[1])

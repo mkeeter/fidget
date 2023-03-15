@@ -708,21 +708,26 @@ impl Octree {
                 cs[deepest],
                 &self.verts,
             );
-
             // Helper function to extract other vertices
-            let mut v = |i: usize| {
+            let mut vert = |i: usize| {
                 out.get(
                     leafs[i].index + verts[i].vert.0 as usize,
                     cs[i],
                     &self.verts,
                 )
             };
-            let vs = [v(0), v(1), v(2), v(3)];
+            let vs = [vert(0), vert(1), vert(2), vert(3)];
 
+            // Pick a triangle winding depending on the edge direction
+            let winding = if leafs[0].mask & (1 << (u | v).0) == 0 {
+                3
+            } else {
+                1
+            };
             for j in 0..4 {
                 out.out.triangles.push(nalgebra::Vector3::new(
                     vs[j],
-                    vs[(j + 1) % 4],
+                    vs[(j + winding) % 4],
                     i,
                 ))
             }
