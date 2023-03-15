@@ -307,7 +307,7 @@ impl CellIndex {
     fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
         let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
-        let z = self.z.lerp(p.y as f32 / u16::MAX as f32);
+        let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
         nalgebra::Vector3::new(x, y, z)
     }
 }
@@ -315,7 +315,7 @@ impl CellIndex {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// An indexed 3D mesh
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Mesh {
     triangles: Vec<nalgebra::Vector3<usize>>,
     vertices: Vec<nalgebra::Vector3<f32>>,
@@ -892,7 +892,7 @@ mod test {
             }
         }
         for (&(a, b), &i) in &edges {
-            assert_eq!(i, 1, "mask {i:08b} has duplicate edge");
+            assert_eq!(i, 1, "mask {mask:08b} has duplicate edge ({a}, {b})");
             assert!(
                 edges.contains_key(&(b, a)),
                 "mask {mask:08b} has unpaired edges"
