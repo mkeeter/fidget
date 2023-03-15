@@ -121,7 +121,6 @@ struct Mask(u8);
 /// Marker trait for a right-handed coordinate frame
 trait Frame {
     type Next: Frame;
-    type Prev: Frame;
     fn frame() -> (Axis, Axis, Axis);
 }
 
@@ -134,7 +133,6 @@ struct ZXY;
 
 impl Frame for XYZ {
     type Next = YZX;
-    type Prev = ZXY;
     fn frame() -> (Axis, Axis, Axis) {
         (X, Y, Z)
     }
@@ -142,14 +140,12 @@ impl Frame for XYZ {
 
 impl Frame for YZX {
     type Next = ZXY;
-    type Prev = XYZ;
     fn frame() -> (Axis, Axis, Axis) {
         (Y, Z, X)
     }
 }
 impl Frame for ZXY {
     type Next = XYZ;
-    type Prev = YZX;
     fn frame() -> (Axis, Axis, Axis) {
         (Z, X, Y)
     }
@@ -642,7 +638,7 @@ impl Octree {
                 self.child(hi, (u * i)),
                 out,
             );
-            self.dc_edge::<T::Prev>(
+            self.dc_edge::<<T::Next as Frame>::Next>(
                 self.child(lo, (v * i) | t),
                 self.child(hi, (v * i)),
                 self.child(hi, (v * i) | u),
