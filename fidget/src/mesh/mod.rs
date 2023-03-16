@@ -867,7 +867,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not at radius 0.2")]
     fn test_sphere_verts() {
         let mut c = Context::new();
         let shape = sphere(&mut c, [0.0; 3], 0.2);
