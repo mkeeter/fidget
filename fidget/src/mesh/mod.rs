@@ -414,9 +414,7 @@ impl Octree {
 
         let mut out = Self {
             cells: vec![CellData(0); 8],
-
-            // Use the 0th index as an empty marker
-            verts: vec![nalgebra::Vector3::zeros()],
+            verts: vec![],
         };
 
         out.recurse(
@@ -446,81 +444,9 @@ impl Octree {
             let sub_tape = r.map(|r| r.simplify().unwrap());
             if cell.depth == 0 {
                 let tape = sub_tape.unwrap_or_else(|| i_handle.tape());
-                let eval = tape.new_float_slice_evaluator();
-
-                let mut xs = [0.0; 8];
-                let mut ys = [0.0; 8];
-                let mut zs = [0.0; 8];
-                for i in Corner::iter() {
-                    let (x, y, z) = cell.corner(i);
-                    xs[i.0 as usize] = x;
-                    ys[i.0 as usize] = y;
-                    zs[i.0 as usize] = z;
-                }
-
-                // TODO: reuse evaluators, etc
-                let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
-                debug_assert_eq!(out.len(), 8);
-
-                // Build a mask of active corners, which determines cell
-                // topology / vertex count / active edges / etc.
-                let mask = out
-                    .iter()
-                    .enumerate()
-                    .filter(|(_i, &v)| v < 0.0)
-                    .fold(0, |acc, (i, _v)| acc | (1 << i));
-
-                // Pick fake intersections and fake vertex positions for now
-                //
-                // We have up to 4 vertices, followed by up to 12 intersections
-                let mut intersections: arrayvec::ArrayVec<
-                    nalgebra::Vector3<u16>,
-                    12,
-                > = arrayvec::ArrayVec::new();
-                let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
-                    arrayvec::ArrayVec::new();
-                for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
-                    let mut center: nalgebra::Vector3<u32> =
-                        nalgebra::Vector3::zeros();
-                    for e in *vs {
-                        // Find the axis that's being used by this edge
-                        let axis = e.start.0 ^ e.end.0;
-                        debug_assert_eq!(axis.count_ones(), 1);
-                        debug_assert!(axis < 8);
-
-                        // Pick a position closer to the filled side
-                        let pos = if e.end.0 & axis != 0 {
-                            16384
-                        } else {
-                            u16::MAX - 16384
-                        };
-
-                        // Convert the intersection to a 3D position
-                        let mut v = nalgebra::Vector3::zeros();
-                        v[axis.trailing_zeros() as usize] = pos;
-                        let i = (axis.trailing_zeros() + 1) % 3;
-                        let j = (axis.trailing_zeros() + 2) % 3;
-                        v[i as usize] =
-                            if e.start & Axis(1 << i) { u16::MAX } else { 0 };
-                        v[j as usize] =
-                            if e.start & Axis(1 << j) { u16::MAX } else { 0 };
-                        intersections.push(v);
-
-                        // Accumulate a fake vertex by taking the average of all
-                        // intersection positions (for now)
-                        center += v.map(|i| i as u32);
-                    }
-                    verts
-                        .push(center.map(|i| {
-                            (i / vs.len() as u32).try_into().unwrap()
-                        }));
-                }
-                let index = self.verts.len();
-                self.verts.extend(verts.into_iter());
-                self.verts.extend(intersections.into_iter());
-                self.cells[cell.index] =
-                    Cell::Leaf(Leaf { mask, index }).into();
+                self.leaf(tape, cell)
             } else {
+                let sub_eval = sub_tape.map(|s| s.new_interval_evaluator());
                 let child = self.cells.len();
                 for _ in Corner::iter() {
                     self.cells.push(CellData(0));
@@ -529,7 +455,7 @@ impl Octree {
                 for i in Corner::iter() {
                     let (x, y, z) = cell.interval(i);
                     self.recurse(
-                        i_handle,
+                        sub_eval.as_ref().unwrap_or(i_handle),
                         CellIndex {
                             index: child + i.0 as usize,
                             x,
@@ -541,6 +467,78 @@ impl Octree {
                 }
             }
         }
+    }
+
+    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) {
+        let eval = tape.new_float_slice_evaluator();
+
+        let mut xs = [0.0; 8];
+        let mut ys = [0.0; 8];
+        let mut zs = [0.0; 8];
+        for i in Corner::iter() {
+            let (x, y, z) = cell.corner(i);
+            xs[i.0 as usize] = x;
+            ys[i.0 as usize] = y;
+            zs[i.0 as usize] = z;
+        }
+
+        // TODO: reuse evaluators, etc
+        let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
+        debug_assert_eq!(out.len(), 8);
+
+        // Build a mask of active corners, which determines cell
+        // topology / vertex count / active edges / etc.
+        let mask = out
+            .iter()
+            .enumerate()
+            .filter(|(_i, &v)| v < 0.0)
+            .fold(0, |acc, (i, _v)| acc | (1 << i));
+
+        // Pick fake intersections and fake vertex positions for now
+        //
+        // We have up to 4 vertices, followed by up to 12 intersections
+        let mut intersections: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 12> =
+            arrayvec::ArrayVec::new();
+        let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
+            arrayvec::ArrayVec::new();
+        for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
+            let mut center: nalgebra::Vector3<u32> = nalgebra::Vector3::zeros();
+            for e in *vs {
+                // Find the axis that's being used by this edge
+                let axis = e.start.0 ^ e.end.0;
+                debug_assert_eq!(axis.count_ones(), 1);
+                debug_assert!(axis < 8);
+
+                // Pick a position closer to the filled side
+                let pos = if e.end.0 & axis != 0 {
+                    16384
+                } else {
+                    u16::MAX - 16384
+                };
+
+                // Convert the intersection to a 3D position
+                let mut v = nalgebra::Vector3::zeros();
+                v[axis.trailing_zeros() as usize] = pos;
+                let i = (axis.trailing_zeros() + 1) % 3;
+                let j = (axis.trailing_zeros() + 2) % 3;
+                v[i as usize] =
+                    if e.start & Axis(1 << i) { u16::MAX } else { 0 };
+                v[j as usize] =
+                    if e.start & Axis(1 << j) { u16::MAX } else { 0 };
+                intersections.push(v);
+
+                // Accumulate a fake vertex by taking the average of all
+                // intersection positions (for now)
+                center += v.map(|i| i as u32);
+            }
+            verts.push(
+                center.map(|i| (i / vs.len() as u32).try_into().unwrap()),
+            );
+        }
+        let index = self.verts.len();
+        self.verts.extend(verts.into_iter());
+        self.verts.extend(intersections.into_iter());
+        self.cells[cell.index] = Cell::Leaf(Leaf { mask, index }).into();
     }
 
     pub fn walk_dual(&self) -> Mesh {
@@ -780,6 +778,8 @@ impl Octree {
 
 include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
 
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -836,10 +836,10 @@ mod test {
         let octree = Octree::build(&tape, 0);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(
-            Cell::Leaf(Leaf { mask: 0, index: 1 }),
+            Cell::Leaf(Leaf { mask: 0, index: 0 }),
             octree.cells[0].into(),
         );
-        assert_eq!(octree.verts.len(), 1);
+        assert_eq!(octree.verts.len(), 0);
         // TODO: should we transform this into an Empty?
 
         let empty_mesh = octree.walk_dual();
@@ -851,20 +851,46 @@ mod test {
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
         assert_eq!(Cell::Branch { index: 8 }, octree.cells[0].into());
 
-        // Each of the 6 edges is counted 4 times; each cell produces 1 vertex,
-        // and we have an offset vertex at position 0.
-        assert_eq!(octree.verts.len(), 1 + 6 * 4 + 8);
+        // Each of the 6 edges is counted 4 times and each cell has 1 vertex
+        assert_eq!(octree.verts.len(), 6 * 4 + 8);
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
         for o in &octree.cells[8..] {
             let Cell::Leaf(Leaf { index, mask}) = (*o).into() else { panic!() };
             assert_eq!(mask.count_ones(), 1);
-            assert_eq!((index - 1) % 4, 0);
+            assert_eq!(index % 4, 0);
         }
 
         let sphere_mesh = octree.walk_dual();
         assert!(sphere_mesh.vertices.len() > 1);
         assert!(!sphere_mesh.triangles.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_sphere_verts() {
+        let mut c = Context::new();
+        let shape = sphere(&mut c, [0.0; 3], 0.2);
+
+        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+        let octree = Octree::build(&tape, 1);
+        let sphere_mesh = octree.walk_dual();
+
+        for v in &sphere_mesh.vertices {
+            // Edge vertices should be found via binary search and therefore
+            // should be close to the true crossing point
+            let x_edge = v.x.abs() > 1e-6;
+            let y_edge = v.y.abs() > 1e-6;
+            let z_edge = v.z.abs() > 1e-6;
+            let edge_sum = x_edge as u8 + y_edge as u8 + z_edge as u8;
+            assert!(edge_sum == 1 || edge_sum == 3);
+            if edge_sum == 1 {
+                assert!(
+                    (v.norm() - 0.2) < 1e-6,
+                    "edge vertex {v:?} is not at radius 0.2"
+                );
+            }
+        }
     }
 
     #[test]
@@ -902,6 +928,10 @@ mod test {
             }
             check_for_vertex_dupes(i, &mesh);
             check_for_edge_matching(i, &mesh);
+            mesh.write_stl(
+                &mut std::fs::File::create(format!("out{i}.stl")).unwrap(),
+            )
+            .unwrap();
         }
     }
 
