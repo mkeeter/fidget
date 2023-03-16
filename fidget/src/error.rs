@@ -49,6 +49,10 @@ pub enum Error {
     #[error("this name has already been used")]
     DuplicateName,
 
+    /// io error; see inner code for details
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
+
     #[cfg(feature = "rhai")]
     /// Rhai error; see inner code for details
     #[error("Rhai error: {0}")]
