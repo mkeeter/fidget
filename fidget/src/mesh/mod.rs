@@ -394,6 +394,7 @@ impl MeshBuilder {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Octree storing occupancy and vertex positions for Manifold Dual Contouring
 pub struct Octree {
     /// The top two bits determine cell types
     cells: Vec<CellData>,
@@ -406,6 +407,9 @@ pub struct Octree {
 }
 
 impl Octree {
+    /// Builds an octree to the given depth
+    ///
+    /// The shape is evaluated on the region `[-1, 1]` on all axes
     pub fn build<I: Family>(tape: &Tape<I>, depth: usize) -> Self {
         let i_handle = tape.new_interval_evaluator();
         let x = Interval::new(-1.0, 1.0);
@@ -541,6 +545,7 @@ impl Octree {
         self.cells[cell.index] = Cell::Leaf(Leaf { mask, index }).into();
     }
 
+    /// Recursively walks the dual of the octree, building a mesh
     pub fn walk_dual(&self) -> Mesh {
         let x = Interval::new(-1.0, 1.0);
         let y = Interval::new(-1.0, 1.0);
