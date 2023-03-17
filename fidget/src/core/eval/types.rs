@@ -332,6 +332,19 @@ impl Interval {
     pub fn lerp(self, frac: f32) -> f32 {
         self.lower * (1.0 - frac) + self.upper * frac
     }
+
+    /// Calculates the width of the interval
+    ///
+    /// ```
+    /// # use fidget::eval::types::Interval;
+    /// let a = Interval::new(2.0, 3.0);
+    /// assert_eq!(a.width(), 1.0);
+    /// let b = Interval::new(2.0, 5.0);
+    /// assert_eq!(b.width(), 3.0);
+    /// ```
+    pub fn width(self) -> f32 {
+        self.upper - self.lower
+    }
 }
 
 impl std::fmt::Display for Interval {
