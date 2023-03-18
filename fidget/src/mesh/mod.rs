@@ -178,6 +178,16 @@ impl From<Cell> for CellData {
     }
 }
 
+impl std::fmt::Debug for CellData {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        let c: Cell = (*self).into();
+        c.fmt(f)
+    }
+}
+
 static_assertions::const_assert_eq!(
     std::mem::size_of::<usize>(),
     std::mem::size_of::<u64>()
@@ -409,6 +419,7 @@ impl MeshBuilder {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Octree storing occupancy and vertex positions for Manifold Dual Contouring
+#[derive(Debug)]
 pub struct Octree {
     /// The top two bits determine cell types
     cells: Vec<CellData>,
@@ -992,6 +1003,31 @@ mod test {
         ctx.sub(r, radius).unwrap()
     }
 
+    fn cube(
+        ctx: &mut Context,
+        bx: [f32; 2],
+        by: [f32; 2],
+        bz: [f32; 2],
+    ) -> Node {
+        let x = ctx.x();
+        let xmin = ctx.sub(bx[0], x).unwrap();
+        let xmax = ctx.sub(x, bx[1]).unwrap();
+        let x_bounds = ctx.max(xmin, xmax).unwrap();
+
+        let y = ctx.y();
+        let ymin = ctx.sub(by[0], y).unwrap();
+        let ymax = ctx.sub(y, by[1]).unwrap();
+        let y_bounds = ctx.max(ymin, ymax).unwrap();
+
+        let z = ctx.z();
+        let zmin = ctx.sub(bz[0], z).unwrap();
+        let zmax = ctx.sub(z, bz[1]).unwrap();
+        let z_bounds = ctx.max(zmin, zmax).unwrap();
+
+        let xy_bounds = ctx.max(x_bounds, y_bounds).unwrap();
+        ctx.max(xy_bounds, z_bounds).unwrap()
+    }
+
     #[test]
     fn test_mesh_basic() {
         let mut c = Context::new();
@@ -1054,7 +1090,7 @@ mod test {
             assert!(edge_sum == 1 || edge_sum == 3);
             if edge_sum == 1 {
                 assert!(
-                    (v.norm() - 0.2).abs() < 2.0 / 65535.0,
+                    (v.norm() - 0.2).abs() < 2.0 / u16::MAX as f32,
                     "edge vertex {v:?} is not at radius 0.2"
                 );
                 edge_count += 1;
@@ -1070,6 +1106,52 @@ mod test {
             }
         }
         assert_eq!(edge_count, 6);
+    }
+
+    #[test]
+    fn test_cube_verts() {
+        let mut c = Context::new();
+        let shape = cube(&mut c, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
+
+        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+        let octree = Octree::build(&tape, 1);
+        let mesh = octree.walk_dual();
+        const EPSILON: f32 = 2.0 / u16::MAX as f32;
+        assert!(!mesh.vertices.is_empty());
+        for v in &mesh.vertices {
+            // Edge vertices should be found via binary search and therefore
+            // should be close to the true crossing point
+            let x_edge = v.x != 0.0;
+            let y_edge = v.y != 0.0;
+            let z_edge = v.z != 0.0;
+            let edge_sum = x_edge as u8 + y_edge as u8 + z_edge as u8;
+            assert!(edge_sum == 1 || edge_sum == 3);
+
+            if edge_sum == 1 {
+                assert!(
+                    (x_edge
+                        && ((v.x - -0.1).abs() < EPSILON
+                            || (v.x - 0.6).abs() < EPSILON))
+                        || (y_edge
+                            && ((v.y - -0.2).abs() < EPSILON
+                                || (v.y - 0.75).abs() < EPSILON))
+                        || (z_edge
+                            && ((v.z - -0.3).abs() < EPSILON
+                                || (v.z - 0.4).abs() < EPSILON)),
+                    "bad edge position {v:?}"
+                );
+            } else {
+                assert!(
+                    ((v.x - -0.1).abs() < EPSILON
+                        || (v.x - 0.6).abs() < EPSILON)
+                        && ((v.y - -0.2).abs() < EPSILON
+                            || (v.y - 0.75).abs() < EPSILON)
+                        && ((v.z - -0.3).abs() < EPSILON
+                            || (v.z - 0.4).abs() < EPSILON),
+                    "bad vertex position {v:?}"
+                );
+            }
+        }
     }
 
     #[test]
