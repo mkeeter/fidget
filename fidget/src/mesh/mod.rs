@@ -301,11 +301,25 @@ impl CellIndex {
         (x, y, z)
     }
 
+    /// Converts from a relative position in the cell to an absolute position
     fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
         let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
         let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
         nalgebra::Vector3::new(x, y, z)
+    }
+
+    /// Converts from an absolute position to a relative position in the cell
+    fn relative(&self, p: nalgebra::Vector3<f32>) -> nalgebra::Vector3<u16> {
+        let x = (p.x - self.x.lower()) / self.x.width() * u16::MAX as f32;
+        let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
+        let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
+
+        nalgebra::Vector3::new(
+            x.clamp(0.0, u16::MAX as f32) as u16,
+            y.clamp(0.0, u16::MAX as f32) as u16,
+            z.clamp(0.0, u16::MAX as f32) as u16,
+        )
     }
 }
 
@@ -476,7 +490,7 @@ impl Octree {
 
     /// Evaluates the given leaf
     fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) {
-        let eval = tape.new_float_slice_evaluator();
+        let float_eval = tape.new_float_slice_evaluator();
 
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
@@ -489,7 +503,7 @@ impl Octree {
         }
 
         // TODO: reuse evaluators, etc
-        let out = eval.eval(&xs, &ys, &zs, &[]).unwrap();
+        let out = float_eval.eval(&xs, &ys, &zs, &[]).unwrap();
         debug_assert_eq!(out.len(), 8);
 
         // Build a mask of active corners, which determines cell
@@ -505,6 +519,8 @@ impl Octree {
         let mut end = [nalgebra::Vector3::zeros(); 12];
         let mut edge_count = 0;
 
+        // Convert from the corner mask to start and end-points in 3D space,
+        // relative to the cell bounds (i.e. as a `Matrix3<u16>`).
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             for e in *vs {
                 // Find the axis that's being used by this edge
@@ -549,6 +565,9 @@ impl Octree {
         let zs =
             &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
         let mut data = crate::eval::bulk::BulkEvalData::default();
+
+        // This part looks hairy, but it's just doing an N-ary search along each
+        // edge to find the intersection point.
         for _ in 0..EDGE_SEARCH_DEPTH {
             // Populate edge search arrays
             let mut i = 0;
@@ -570,7 +589,7 @@ impl Octree {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out = eval.eval_with(xs, ys, zs, &[], &mut data).unwrap();
+            let out = float_eval.eval_with(xs, ys, zs, &[], &mut data).unwrap();
 
             // Update start and end positions based on evaluation
             for ((start, end), search) in start
@@ -607,23 +626,80 @@ impl Octree {
             }
         }
 
-        // Populate intersections to the nearest *inside* point
+        // Populate intersections to the average of start and end
         let intersections: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 12> =
-            start.iter().copied().collect();
+            start
+                .iter()
+                .zip(end.iter())
+                .map(|(a, b)| {
+                    ((a.map(|v| v as u32) + b.map(|v| v as u32)) / 2)
+                        .map(|v| v as u16)
+                })
+                .collect();
 
-        // Pick dummy vertices based on average intersection
-        // TODO make this better
+        for (i, xyz) in intersections.iter().enumerate() {
+            let pos = cell.pos(*xyz);
+            xs[i] = pos.x;
+            ys[i] = pos.y;
+            zs[i] = pos.z;
+        }
+
+        // TODO: special case for cells with multiple gradients ("features")
+        let grad_eval = tape.new_grad_slice_evaluator();
+        let grads = grad_eval.eval(xs, ys, zs, &[]).unwrap();
+
+        // Now, we're going to solve a quadratic error function for every vertex
+        // to position it at the right place.  This gets a little tricky; see
+        // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF
+        // math and references to primary sources.
         let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
             arrayvec::ArrayVec::new();
-        let mut iter = intersections.iter();
+        let mut i = 0;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
-            let mut center = nalgebra::Vector3::zeros();
+            let mut ata = nalgebra::Matrix3::zeros();
+            let mut atb = nalgebra::Vector3::zeros();
+            // We won't track B^T B here, since it's only useful for calculating
+            // the actual error, which we don't really care about.
+
+            let mut mass_point = nalgebra::Vector3::zeros();
             for _ in 0..vs.len() {
-                center += iter.next().unwrap().map(|v| v as u32);
+                let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
+                mass_point += pos;
+                let grad = grads[i];
+
+                // Per "Dual Contouring: The Secret Sauce", we'll use absolute
+                // normals instead of relative; this allows us to truncate
+                // eigenvalues using an absolute cutoff.
+                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz)
+                    .normalize();
+                // TODO: correct for non-zero distance value?
+
+                ata += norm * norm.transpose();
+                atb += norm * norm.dot(&pos);
+                i += 1;
             }
-            center /= vs.len() as u32;
-            debug_assert!(center.max() <= u16::MAX.into());
-            verts.push(center.map(|v| v as u16));
+            // Minimize towards mass point of intersections
+            let center = mass_point / vs.len() as f32;
+            atb -= ata * center;
+
+            let svd = ata.svd(true, false);
+
+            // Pseudo-inverse of eigenvalues matrix, clipping singular values
+            let d_0_inverse = nalgebra::Matrix3::from_diagonal(
+                &svd.singular_values
+                    .map(|e| if e > 0.1 { 1.0 / e } else { 0.0 }),
+            );
+
+            // Pseudo-inverse of A^T A
+            let ata_i =
+                svd.u.unwrap().transpose() * d_0_inverse * svd.u.unwrap();
+
+            // Vertex position (at last!)
+            let pos = ata_i * atb + center;
+
+            // Convert back to a relative (within-cell) position and store it
+            // TODO: how do we track escaped verts?
+            verts.push(cell.relative(pos));
         }
 
         let index = self.verts.len();
@@ -982,6 +1058,15 @@ mod test {
                     "edge vertex {v:?} is not at radius 0.2"
                 );
                 edge_count += 1;
+            } else {
+                // The sphere looks like a box at this sampling depth, since the
+                // edge intersections are all axis-aligned; we'll check that
+                // corner vertices are all at [±0.2, ±0.2, ±0.2]
+                assert!(
+                    (v.abs() - nalgebra::Vector3::new(0.2, 0.2, 0.2)).norm()
+                        < 2.0 / 65535.0,
+                    "cell vertex {v:?} is not at expected position"
+                );
             }
         }
         assert_eq!(edge_count, 6);

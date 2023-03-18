@@ -5,10 +5,10 @@ use crate::eval::Choice;
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Grad {
-    v: f32,
-    dx: f32,
-    dy: f32,
-    dz: f32,
+    pub v: f32,
+    pub dx: f32,
+    pub dy: f32,
+    pub dz: f32,
 }
 
 impl Grad {
