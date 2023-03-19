@@ -962,7 +962,7 @@ include!(concat!(env!("OUT_DIR"), "/mdc_tables.rs"));
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{context::Node, Context};
+    use crate::context::bound::{self, BoundContext, BoundNode};
     use std::collections::BTreeMap;
 
     #[test]
@@ -987,53 +987,37 @@ mod test {
         }
     }
 
-    fn sphere(ctx: &mut Context, center: [f32; 3], radius: f32) -> Node {
-        let x = ctx.x();
-        let x = ctx.sub(x, center[0]).unwrap();
-        let y = ctx.y();
-        let y = ctx.sub(y, center[1]).unwrap();
-        let z = ctx.z();
-        let z = ctx.sub(z, center[2]).unwrap();
-        let x2 = ctx.square(x).unwrap();
-        let y2 = ctx.square(y).unwrap();
-        let z2 = ctx.square(z).unwrap();
-        let a = ctx.add(x2, y2).unwrap();
-        let r = ctx.add(a, z2).unwrap();
-        let r = ctx.sqrt(r).unwrap();
-        ctx.sub(r, radius).unwrap()
+    fn sphere(
+        ctx: &BoundContext,
+        center: [f32; 3],
+        radius: f32,
+    ) -> bound::BoundNode {
+        let (x, y, z) = ctx.axes();
+        ((x - center[0]).square()
+            + (y - center[1]).square()
+            + (z - center[2]).square())
+        .sqrt()
+            - radius
     }
 
     fn cube(
-        ctx: &mut Context,
+        ctx: &BoundContext,
         bx: [f32; 2],
         by: [f32; 2],
         bz: [f32; 2],
-    ) -> Node {
-        let x = ctx.x();
-        let xmin = ctx.sub(bx[0], x).unwrap();
-        let xmax = ctx.sub(x, bx[1]).unwrap();
-        let x_bounds = ctx.max(xmin, xmax).unwrap();
-
-        let y = ctx.y();
-        let ymin = ctx.sub(by[0], y).unwrap();
-        let ymax = ctx.sub(y, by[1]).unwrap();
-        let y_bounds = ctx.max(ymin, ymax).unwrap();
-
-        let z = ctx.z();
-        let zmin = ctx.sub(bz[0], z).unwrap();
-        let zmax = ctx.sub(z, bz[1]).unwrap();
-        let z_bounds = ctx.max(zmin, zmax).unwrap();
-
-        let xy_bounds = ctx.max(x_bounds, y_bounds).unwrap();
-        ctx.max(xy_bounds, z_bounds).unwrap()
+    ) -> BoundNode {
+        let (x, y, z) = ctx.axes();
+        let x_bounds = (bx[0] - x.clone()).max(x - bx[1]);
+        let y_bounds = (by[0] - y.clone()).max(y - by[1]);
+        let z_bounds = (bz[0] - z.clone()).max(z - bz[1]);
+        x_bounds.max(y_bounds).max(z_bounds)
     }
 
     #[test]
     fn test_mesh_basic() {
-        let mut c = Context::new();
-        let shape = sphere(&mut c, [0.0; 3], 0.2);
-
-        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.0; 3], 0.2);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
@@ -1072,10 +1056,10 @@ mod test {
 
     #[test]
     fn test_sphere_verts() {
-        let mut c = Context::new();
-        let shape = sphere(&mut c, [0.0; 3], 0.2);
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.0; 3], 0.2);
 
-        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, 1);
         let sphere_mesh = octree.walk_dual();
 
@@ -1110,10 +1094,11 @@ mod test {
 
     #[test]
     fn test_cube_verts() {
-        let mut c = Context::new();
-        let shape = cube(&mut c, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
+        let ctx = BoundContext::new();
+        let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
-        let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        tape.pretty_print();
         let octree = Octree::build(&tape, 1);
         let mesh = octree.walk_dual();
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
@@ -1157,12 +1142,12 @@ mod test {
     #[test]
     fn test_mesh_manifold() {
         for i in 0..256 {
-            let mut c = Context::new();
+            let ctx = BoundContext::new();
             let mut shape = vec![];
             for j in Corner::iter() {
                 if i & (1 << j.0) != 0 {
                     shape.push(sphere(
-                        &mut c,
+                        &ctx,
                         [
                             if j & X { 0.5 } else { 0.0 },
                             if j & Y { 0.5 } else { 0.0 },
@@ -1173,13 +1158,11 @@ mod test {
                 }
             }
             let Some(start) = shape.pop() else { continue };
-            let shape = shape
-                .into_iter()
-                .fold(start, |acc, s| c.min(acc, s).unwrap());
+            let shape = shape.into_iter().fold(start, |acc, s| acc.min(s));
 
             // Now, we have our shape, which is 0-8 spheres placed at the
             // corners of the cell spanning [0, 0.25]
-            let tape = c.get_tape::<crate::vm::Eval>(shape).unwrap();
+            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
             let octree = Octree::build(&tape, 2);
 
             let mesh = octree.walk_dual();

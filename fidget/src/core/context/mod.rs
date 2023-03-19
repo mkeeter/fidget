@@ -2,6 +2,9 @@
 mod indexed;
 mod op;
 
+#[cfg(test)]
+pub(crate) mod bound;
+
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
