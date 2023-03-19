@@ -5,9 +5,13 @@ use crate::eval::Choice;
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Grad {
+    /// Value of the distance field at this point
     pub v: f32,
+    /// Partial derivative with respect to `x`
     pub dx: f32,
+    /// Partial derivative with respect to `y`
     pub dy: f32,
+    /// Partial derivative with respect to `z`
     pub dz: f32,
 }
 
