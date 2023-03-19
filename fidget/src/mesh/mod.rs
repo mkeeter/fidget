@@ -252,7 +252,26 @@ struct CellIndex {
     z: Interval,
 }
 
+impl Default for CellIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CellIndex {
+    pub fn new() -> Self {
+        let x = Interval::new(-1.0, 1.0);
+        let y = Interval::new(-1.0, 1.0);
+        let z = Interval::new(-1.0, 1.0);
+        CellIndex {
+            index: 0,
+            x,
+            y,
+            z,
+            depth: 0,
+        }
+    }
+
     /// Returns the position of the given corner (0-7)
     ///
     /// Vertices are numbered as follows:
@@ -437,9 +456,6 @@ impl Octree {
     /// The shape is evaluated on the region `[-1, 1]` on all axes
     pub fn build<I: Family>(tape: &Tape<I>, depth: usize) -> Self {
         let i_handle = tape.new_interval_evaluator();
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
 
         let mut out = Self {
             cells: vec![CellData(0); 8],
@@ -449,11 +465,8 @@ impl Octree {
         out.recurse(
             &i_handle,
             CellIndex {
-                index: 0,
-                x,
-                y,
-                z,
                 depth,
+                ..CellIndex::default()
             },
         );
         out
@@ -1013,6 +1026,40 @@ mod test {
         x_bounds.max(y_bounds).max(z_bounds)
     }
 
+    fn cone(
+        ctx: &BoundContext,
+        corner: nalgebra::Vector3<f32>,
+        tip: nalgebra::Vector3<f32>,
+        radius: f32,
+    ) -> BoundNode {
+        let dir = (tip - corner).normalize();
+        let (x, y, z) = ctx.axes();
+        let point = nalgebra::Vector3::new(x, y, z);
+        let length = dir.norm();
+
+        let corner = corner.map(|v| ctx.constant(v as f64));
+        let dir = dir.map(|v| ctx.constant(v as f64));
+
+        let offset = point.clone() - corner.clone();
+
+        // a is the distance along the corner-tip direction
+        let a = offset.x.clone() * dir.x.clone()
+            + offset.y.clone() * dir.y.clone()
+            + offset.z.clone() * dir.z.clone();
+
+        // Position of the nearest point on the corner-tip axis
+        let a_pos = corner + dir * a.clone();
+
+        // b is the orthogonal distance
+        let offset = point - a_pos;
+        let b = (offset.x.clone().square()
+            + offset.y.clone().square()
+            + offset.z.clone().square())
+        .sqrt();
+
+        b - radius * (1.0 - a / length)
+    }
+
     #[test]
     fn test_mesh_basic() {
         let ctx = BoundContext::new();
@@ -1098,7 +1145,6 @@ mod test {
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        tape.pretty_print();
         let octree = Octree::build(&tape, 1);
         let mesh = octree.walk_dual();
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
@@ -1137,6 +1183,25 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_cone_vert() {
+        let ctx = BoundContext::new();
+        let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
+        let tip = nalgebra::Vector3::new(0.3, 0.4, 0.5);
+        let shape = cone(&ctx, corner, tip, 0.1);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, 0);
+        assert_eq!(octree.cells.len(), 8);
+        assert_eq!(octree.verts.len(), 4);
+
+        let pos = CellIndex::default().pos(octree.verts[0]);
+        assert!(
+            (pos - tip).norm() < 1e-6,
+            "bad vertex position: expected {tip:?}, got {pos:?}"
+        );
     }
 
     #[test]

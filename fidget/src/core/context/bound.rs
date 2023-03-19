@@ -9,7 +9,7 @@ use std::{cell::RefCell, rc::Rc};
 ///
 /// This is only available for unit testing, because it is less efficient than
 /// manually managing a [`Context`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BoundContext(Rc<RefCell<Context>>);
 
 impl std::ops::Deref for BoundContext {
@@ -49,6 +49,13 @@ impl BoundContext {
         };
         (x, y, z)
     }
+    pub fn constant(&self, f: f64) -> BoundNode {
+        let node = self.borrow_mut().constant(f);
+        BoundNode {
+            node,
+            ctx: self.clone(),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -58,10 +65,16 @@ impl BoundContext {
 /// This allows us to write inline math expressions, for ease of testing.
 /// However, it's less efficient: each `BoundNode` doubles in size, and every
 /// operation encurs a `RefCell` dynamic borrow.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BoundNode {
     node: Node,
     ctx: BoundContext,
+}
+
+impl std::cmp::PartialEq for BoundNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.node == other.node && self.ctx.as_ptr() == other.ctx.as_ptr()
+    }
 }
 
 impl IntoNode for BoundNode {
@@ -135,35 +148,38 @@ impl BoundNode {
 }
 
 macro_rules! impl_binary {
-    ($op:ident, $fn_name:ident, $ctx_name:ident) => {
+    ($op:ident, $assign: ident, $base_fn:ident, $assign_fn:ident) => {
         impl<A: IntoNode> std::ops::$op<A> for BoundNode {
             type Output = Self;
 
-            fn $fn_name(self, other: A) -> Self {
-                self.op_bin(other, Context::$ctx_name)
+            fn $base_fn(self, other: A) -> Self {
+                self.op_bin(other, Context::$base_fn)
             }
         }
         impl std::ops::$op<BoundNode> for f32 {
             type Output = BoundNode;
 
-            fn $fn_name(self, other: BoundNode) -> Self::Output {
+            fn $base_fn(self, other: BoundNode) -> Self::Output {
                 let lhs = BoundNode {
                     node: self.into_node(&mut other.ctx.borrow_mut()).unwrap(),
                     ctx: other.ctx.clone(),
                 };
-                lhs.op_bin(other, Context::$ctx_name)
+                lhs.op_bin(other, Context::$base_fn)
+            }
+        }
+        impl<A: IntoNode> std::ops::$assign<A> for BoundNode {
+            fn $assign_fn(&mut self, other: A) {
+                let lhs = self.clone();
+                self.node = lhs.op_bin(other, Context::$base_fn).node;
             }
         }
     };
-    ($op:ident, $fn_name:ident) => {
-        impl_binary!($op, $fn_name, $fn_name);
-    };
 }
 
-impl_binary!(Add, add);
-impl_binary!(Sub, sub);
-impl_binary!(Mul, mul);
-impl_binary!(Div, div);
+impl_binary!(Add, AddAssign, add, add_assign);
+impl_binary!(Sub, SubAssign, sub, sub_assign);
+impl_binary!(Mul, MulAssign, mul, mul_assign);
+impl_binary!(Div, DivAssign, div, div_assign);
 
 ////////////////////////////////////////////////////////////////////////////////
 
