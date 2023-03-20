@@ -1186,6 +1186,41 @@ mod test {
     }
 
     #[test]
+    fn test_plane_center() {
+        const EPSILON: f32 = 1e-3;
+        let ctx = BoundContext::new();
+        for dx in [0.0, 0.25, -0.25, 2.0, -2.0] {
+            for dy in [0.0, 0.25, -0.25, 2.0, -2.0] {
+                for offset in [0.0, -0.2, 0.2] {
+                    let (x, y, z) = ctx.axes();
+                    let f = x * dx + y * dy + z + offset;
+                    let tape = f.get_tape::<crate::vm::Eval>().unwrap();
+                    let octree = Octree::build(&tape, 0);
+
+                    assert_eq!(octree.cells.len(), 8);
+                    let pos = CellIndex::default().pos(octree.verts[0]);
+                    let mut mass_point = nalgebra::Vector3::zeros();
+                    for v in &octree.verts[1..] {
+                        mass_point += CellIndex::default().pos(*v);
+                    }
+                    mass_point /= (octree.verts.len() - 1) as f32;
+                    assert!(
+                        (pos - mass_point).norm() < EPSILON,
+                        "bad vertex position at dx: {dx}, dy: {dy}, \
+                         offset: {offset} => {pos:?} != {mass_point:?}"
+                    );
+                    let eval = tape.new_point_evaluator();
+                    for v in &octree.verts {
+                        let v = CellIndex::default().pos(*v);
+                        let (r, _) = eval.eval(v.x, v.y, v.z, &[]).unwrap();
+                        assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     #[should_panic]
     fn test_cone_vert() {
         let ctx = BoundContext::new();
