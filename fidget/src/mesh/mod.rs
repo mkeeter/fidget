@@ -689,13 +689,10 @@ impl Octree {
             for _ in 0..vs.len() {
                 let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
                 mass_point += pos;
-                let grad = grads[i];
 
-                // Per "Dual Contouring: The Secret Sauce", we'll use absolute
-                // normals instead of relative; this allows us to truncate
-                // eigenvalues using an absolute cutoff.
-                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz)
-                    .normalize();
+                let grad = grads[i];
+                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz);
+
                 // TODO: correct for non-zero distance value?
 
                 ata += norm * norm.transpose();
@@ -708,15 +705,35 @@ impl Octree {
 
             let svd = ata.svd(true, false);
 
+            // Pick an eigenvalue cutoff based the largest eigenvalue; this
+            // goes against "Dual Contouring: The Secret Sauce" but seems to
+            // work well in practice.  If the largest eigenvalue is extremely
+            // small, then we'll cut off all eigenvalues, effectively placing
+            // the vertex at the mass point; this is the best we can do without
+            // meaningful gradients.
+            //
+            // (see libfive's dc_tree.inl for similar decisions)
+            let max_eigenvalue = svd.singular_values.map(|e| e.abs()).max();
+            let cutoff = if max_eigenvalue > 1e-20 {
+                0.01 * max_eigenvalue
+            } else {
+                f32::INFINITY
+            };
+
             // Pseudo-inverse of eigenvalues matrix, clipping singular values
             let d_0_inverse = nalgebra::Matrix3::from_diagonal(
-                &svd.singular_values
-                    .map(|e| if e > 0.1 { 1.0 / e } else { 0.0 }),
+                &svd.singular_values.map(|e| {
+                    if e.abs() < cutoff {
+                        0.0
+                    } else {
+                        1.0 / e
+                    }
+                }),
             );
 
             // Pseudo-inverse of A^T A
             let ata_i =
-                svd.u.unwrap().transpose() * d_0_inverse * svd.u.unwrap();
+                svd.u.unwrap() * d_0_inverse * svd.u.unwrap().transpose();
 
             // Vertex position (at last!)
             let pos = ata_i * atb + center;
