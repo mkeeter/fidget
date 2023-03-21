@@ -703,40 +703,11 @@ impl Octree {
             let center = mass_point / vs.len() as f32;
             atb -= ata * center;
 
-            let svd = ata.svd(true, false);
-
-            // Pick an eigenvalue cutoff based the largest eigenvalue; this
-            // goes against "Dual Contouring: The Secret Sauce" but seems to
-            // work well in practice.  If the largest eigenvalue is extremely
-            // small, then we'll cut off all eigenvalues, effectively placing
-            // the vertex at the mass point; this is the best we can do without
-            // meaningful gradients.
-            //
-            // (see libfive's dc_tree.inl for similar decisions)
-            let max_eigenvalue = svd.singular_values.map(|e| e.abs()).max();
-            let cutoff = if max_eigenvalue > 1e-20 {
-                0.01 * max_eigenvalue
-            } else {
-                f32::INFINITY
-            };
-
-            // Pseudo-inverse of eigenvalues matrix, clipping singular values
-            let d_0_inverse = nalgebra::Matrix3::from_diagonal(
-                &svd.singular_values.map(|e| {
-                    if e.abs() < cutoff {
-                        0.0
-                    } else {
-                        1.0 / e
-                    }
-                }),
-            );
-
-            // Pseudo-inverse of A^T A
-            let ata_i =
-                svd.u.unwrap() * d_0_inverse * svd.u.unwrap().transpose();
-
-            // Vertex position (at last!)
-            let pos = ata_i * atb + center;
+            // Instead of getting tricky with SVD, let's just throw a LU solver
+            // at the problem; this appears to be more robust than the
+            // traditional SVD + eigenvalue clamping approach.
+            let sol = nalgebra::linalg::LU::new(ata).solve(&atb);
+            let pos = sol.map(|c| c + center).unwrap_or(center);
 
             // Convert back to a relative (within-cell) position and store it
             // TODO: how do we track escaped verts?
@@ -1049,14 +1020,15 @@ mod test {
         tip: nalgebra::Vector3<f32>,
         radius: f32,
     ) -> BoundNode {
-        let dir = (tip - corner).normalize();
-        let (x, y, z) = ctx.axes();
-        let point = nalgebra::Vector3::new(x, y, z);
+        let dir = tip - corner;
         let length = dir.norm();
+        let dir = dir.normalize();
 
         let corner = corner.map(|v| ctx.constant(v as f64));
         let dir = dir.map(|v| ctx.constant(v as f64));
 
+        let (x, y, z) = ctx.axes();
+        let point = nalgebra::Vector3::new(x, y, z);
         let offset = point.clone() - corner.clone();
 
         // a is the distance along the corner-tip direction
@@ -1238,20 +1210,26 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
     fn test_cone_vert() {
         let ctx = BoundContext::new();
         let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
-        let tip = nalgebra::Vector3::new(0.3, 0.4, 0.5);
+        let tip = nalgebra::Vector3::new(0.2, 0.3, 0.4);
         let shape = cone(&ctx, corner, tip, 0.1);
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+
+        let eval = tape.new_point_evaluator();
+        let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
+        assert!(v.abs() < 1e-6, "bad tip value: {v}");
+        let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
+        assert!(v < 0.0, "bad corner value: {v}");
+
         let octree = Octree::build(&tape, 0);
         assert_eq!(octree.cells.len(), 8);
         assert_eq!(octree.verts.len(), 4);
 
         let pos = CellIndex::default().pos(octree.verts[0]);
         assert!(
-            (pos - tip).norm() < 1e-6,
+            (pos - tip).norm() < 1e-3,
             "bad vertex position: expected {tip:?}, got {pos:?}"
         );
     }

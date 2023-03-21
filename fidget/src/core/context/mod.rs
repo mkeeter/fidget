@@ -293,6 +293,8 @@ impl Context {
             match (self.const_value(a)?, self.const_value(b)?) {
                 (Some(one), _) if one == 1.0 => Ok(b),
                 (_, Some(one)) if one == 1.0 => Ok(a),
+                (Some(zero), _) if zero == 0.0 => Ok(a),
+                (_, Some(zero)) if zero == 0.0 => Ok(b),
                 _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
             }
         }
@@ -426,7 +428,12 @@ impl Context {
     ) -> Result<Node, Error> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
-        self.op_binary(a, b, BinaryOpcode::Sub)
+
+        match (self.const_value(a)?, self.const_value(b)?) {
+            (Some(zero), _) if zero == 0.0 => self.neg(b),
+            (_, Some(zero)) if zero == 0.0 => Ok(a),
+            _ => self.op_binary(a, b, BinaryOpcode::Sub),
+        }
     }
 
     /// Builds a node which performs division. Under the hood, `a / b` is
@@ -446,7 +453,12 @@ impl Context {
     ) -> Result<Node, Error> {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
-        self.op_binary(a, b, BinaryOpcode::Div)
+
+        match (self.const_value(a)?, self.const_value(b)?) {
+            (Some(zero), _) if zero == 0.0 => Ok(a),
+            (_, Some(one)) if one == 1.0 => Ok(a),
+            _ => self.op_binary(a, b, BinaryOpcode::Div),
+        }
     }
 
     /// Flattens a subtree of the graph into straight-line code.
