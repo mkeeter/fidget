@@ -1129,6 +1129,24 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn test_sphere_manifold() {
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.0; 3], 0.2);
+
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, 4);
+        let sphere_mesh = octree.walk_dual();
+
+        if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
+            panic!("{e}");
+        }
+        if let Err(e) = check_for_edge_matching(&sphere_mesh) {
+            panic!("{e}");
+        }
+    }
+
+    #[test]
     fn test_cube_verts() {
         let ctx = BoundContext::new();
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
@@ -1265,24 +1283,27 @@ mod test {
                 assert!(!mesh.vertices.is_empty());
                 assert!(!mesh.triangles.is_empty());
             }
-            check_for_vertex_dupes(i, &mesh);
-            check_for_edge_matching(i, &mesh);
+            if let Err(e) = check_for_vertex_dupes(&mesh) {
+                panic!("mask {i:08b} has {e}");
+            }
+            if let Err(e) = check_for_edge_matching(&mesh) {
+                panic!("mask {i:08b} has {e}");
+            }
         }
     }
 
-    fn check_for_vertex_dupes(mask: usize, mesh: &Mesh) {
+    fn check_for_vertex_dupes(mesh: &Mesh) -> Result<(), String> {
         let mut verts = mesh.vertices.clone();
         verts.sort_by_key(|k| (k.x.to_bits(), k.y.to_bits(), k.z.to_bits()));
         for i in 1..verts.len() {
-            assert_ne!(
-                verts[i - 1],
-                verts[i],
-                "mask {mask:08b} has duplicate vertices"
-            );
+            if verts[i - 1] == verts[i] {
+                return Err("duplicate vertices".to_owned());
+            }
         }
+        Ok(())
     }
 
-    fn check_for_edge_matching(mask: usize, mesh: &Mesh) {
+    fn check_for_edge_matching(mesh: &Mesh) -> Result<(), String> {
         let mut edges: BTreeMap<_, usize> = BTreeMap::new();
         for t in &mesh.triangles {
             for edge in [(t.x, t.y), (t.y, t.z), (t.z, t.x)] {
@@ -1290,11 +1311,13 @@ mod test {
             }
         }
         for (&(a, b), &i) in &edges {
-            assert_eq!(i, 1, "mask {mask:08b} has duplicate edge ({a}, {b})");
-            assert!(
-                edges.contains_key(&(b, a)),
-                "mask {mask:08b} has unpaired edges"
-            );
+            if i != 1 {
+                return Err(format!("duplicate edge ({a}, {b})"));
+            }
+            if !edges.contains_key(&(b, a)) {
+                return Err("unpaired edges".to_owned());
+            }
         }
+        Ok(())
     }
 }
