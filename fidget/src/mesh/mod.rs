@@ -4,7 +4,7 @@ use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 ////////////////////////////////////////////////////////////////////////////////
 // Welcome to the strongly-typed zone!
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct Axis(u8);
 
 impl Axis {
@@ -834,7 +834,7 @@ impl Octree {
         let (t, u, v) = T::frame();
         self.dc_face::<T>(self.child(lo, t), self.child(hi, Corner(0)), out);
         self.dc_face::<T>(self.child(lo, t | u), self.child(hi, u), out);
-        self.dc_face::<T>(self.child(lo, t | Y), self.child(hi, v), out);
+        self.dc_face::<T>(self.child(lo, t | v), self.child(hi, v), out);
         self.dc_face::<T>(
             self.child(lo, t | u | v),
             self.child(hi, u | v),
@@ -1129,13 +1129,12 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
     fn test_sphere_manifold() {
         let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.2);
+        let shape = sphere(&ctx, [0.0; 3], 0.85);
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, 4);
+        let octree = Octree::build(&tape, 3);
         let sphere_mesh = octree.walk_dual();
 
         if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
