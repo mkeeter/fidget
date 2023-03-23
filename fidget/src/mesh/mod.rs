@@ -970,7 +970,7 @@ mod test {
         // TODO: should we transform this into an Empty?
 
         let empty_mesh = octree.walk_dual();
-        assert_eq!(empty_mesh.vertices.len(), 0);
+        assert!(empty_mesh.vertices.is_empty());
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
