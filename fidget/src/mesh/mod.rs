@@ -90,6 +90,21 @@ impl Leaf {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+struct CellVertex {
+    /// Position, as a relative offset within a cell's bounding box
+    pos: nalgebra::Vector3<u16>,
+
+    /// If a vertex is valid, its original position was within the bounding box
+    _valid: bool,
+}
+
+impl From<CellVertex> for nalgebra::Vector3<u16> {
+    fn from(v: CellVertex) -> Self {
+        v.pos
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Cell index used during iteration
@@ -186,7 +201,11 @@ impl CellIndex {
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
+    fn pos<P: Into<nalgebra::Vector3<u16>>>(
+        &self,
+        p: P,
+    ) -> nalgebra::Vector3<f32> {
+        let p = p.into();
         let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
         let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
         let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
@@ -194,16 +213,29 @@ impl CellIndex {
     }
 
     /// Converts from an absolute position to a relative position in the cell
-    fn relative(&self, p: nalgebra::Vector3<f32>) -> nalgebra::Vector3<u16> {
+    ///
+    /// The `bool` indicates whether the vertex was clamped into the cell's
+    /// bounding box.
+    fn relative(&self, p: nalgebra::Vector3<f32>) -> CellVertex {
         let x = (p.x - self.x.lower()) / self.x.width() * u16::MAX as f32;
         let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
         let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
 
-        nalgebra::Vector3::new(
-            x.clamp(0.0, u16::MAX as f32) as u16,
-            y.clamp(0.0, u16::MAX as f32) as u16,
-            z.clamp(0.0, u16::MAX as f32) as u16,
-        )
+        let valid = x >= 0.0
+            && x <= u16::MAX as f32
+            && y >= 0.0
+            && y <= u16::MAX as f32
+            && z >= 0.0
+            && z <= u16::MAX as f32;
+
+        CellVertex {
+            pos: nalgebra::Vector3::new(
+                x.clamp(0.0, u16::MAX as f32) as u16,
+                y.clamp(0.0, u16::MAX as f32) as u16,
+                z.clamp(0.0, u16::MAX as f32) as u16,
+            ),
+            _valid: valid,
+        }
     }
 }
 
@@ -273,7 +305,7 @@ impl MeshBuilder {
         &mut self,
         v: usize,
         cell: CellIndex,
-        verts: &[nalgebra::Vector3<u16>],
+        verts: &[CellVertex],
     ) -> usize {
         if v >= self.map.len() {
             self.map.resize(v + 1, usize::MAX);
@@ -301,9 +333,12 @@ pub struct Octree {
 
     /// Cell vertices, given as positions within the cell
     ///
+    /// The `bool` in the tuple indicates whether the vertex was clamped to fit
+    /// into the cell's bounding box.
+    ///
     /// This is indexed by cell leaf index; the exact shape depends heavily on
     /// the number of intersections and vertices within each leaf.
-    verts: Vec<nalgebra::Vector3<u16>>,
+    verts: Vec<CellVertex>,
 }
 
 impl Octree {
@@ -538,8 +573,7 @@ impl Octree {
         // to position it at the right place.  This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF
         // math and references to primary sources.
-        let mut verts: arrayvec::ArrayVec<nalgebra::Vector3<u16>, 4> =
-            arrayvec::ArrayVec::new();
+        let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut ata = nalgebra::Matrix3::zeros();
@@ -572,13 +606,17 @@ impl Octree {
             let pos = sol.map(|c| c + center).unwrap_or(center);
 
             // Convert back to a relative (within-cell) position and store it
-            // TODO: how do we track escaped verts?
             verts.push(cell.relative(pos));
         }
 
         let index = self.verts.len();
         self.verts.extend(verts.into_iter());
-        self.verts.extend(intersections.into_iter());
+        // All intersections are valid (within the cell), by definition
+        self.verts.extend(
+            intersections
+                .into_iter()
+                .map(|pos| CellVertex { pos, _valid: true }),
+        );
         self.cells[cell.index] = Cell::Leaf(Leaf { mask, index }).into();
     }
 
