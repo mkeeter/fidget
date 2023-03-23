@@ -134,7 +134,7 @@ impl std::ops::BitOr<Axis> for Corner {
     }
 }
 
-/// Represents a directed edge within an octree cell
+/// A directed edge within an octree cell
 ///
 /// This data structure enforces the invariant that the start and end must be
 /// different (checked during construction).
@@ -171,7 +171,7 @@ impl DirectedEdge {
     }
 }
 
-/// Represents an undirected edge within an octree cell
+/// An undirected edge within an octree cell
 ///
 /// With `(t, u, v)` as a right-handed coordinate system and `t` being the
 /// varying axis of the edge, this is packed as `4 * t + 2 * v + 1 * u`
@@ -193,11 +193,11 @@ impl Edge {
     }
 }
 
-/// Represents the relative offset of a vertex within [`Octree::verts`]
+/// Represents the relative offset of a vertex within `Octree::verts`
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Offset(pub u8);
 
-/// Represents an edge that includes a sign change (and thus an intersection)
+/// Information about how to mesh an edge that contains a sign change
 #[derive(Copy, Clone, Debug)]
 pub struct Intersection {
     /// Data offset of the vertex located within the cell

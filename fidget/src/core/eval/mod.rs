@@ -44,7 +44,7 @@ pub use vars::Vars;
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
 
-/// Represents a "family" of evaluators (JIT, interpreter, etc)
+/// A "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
     /// Register limit for this evaluator family.
     const REG_LIMIT: u8;
@@ -78,7 +78,7 @@ pub trait Family: Clone {
     fn tile_sizes_2d() -> &'static [usize];
 }
 
-/// Represents an evaluator with some internal (immutable) storage
+/// An evaluator with some internal (immutable) storage
 ///
 /// For example, the JIT evaluators declare their allocated `mmap` data as their
 /// `Storage`, which allows us to reuse pages.

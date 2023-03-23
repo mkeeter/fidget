@@ -60,7 +60,7 @@ impl BoundContext {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Represents a node bound to a specific context
+/// A node bound to a specific context
 ///
 /// This allows us to write inline math expressions, for ease of testing.
 /// However, it's less efficient: each `BoundNode` doubles in size, and every

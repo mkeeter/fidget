@@ -24,7 +24,7 @@ pub enum BinaryOpcode {
     Max,
 }
 
-/// Represents an operation in a math expression.
+/// An operation in a math expression.
 ///
 /// `Op`s should be constructed by calling functions on
 /// [`Context`](crate::context::Context), e.g.

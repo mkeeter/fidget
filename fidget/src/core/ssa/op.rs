@@ -4,7 +4,7 @@ pub enum Op {
     /// Reads one of the inputs (X, Y, Z).  This is the most flexible variable,
     /// and may vary between terms in vector / SIMD evaluation.
     Input(u32, u32),
-    /// Represents a variable.  Unlike `Input`, this node is assumed to remain
+    /// A single variable.  Unlike `Input`, this node is assumed to remain
     /// constant across all terms in vector / SIMD evaluation, but may be edited
     /// by the user in between evaluation.
     Var(u32, u32),

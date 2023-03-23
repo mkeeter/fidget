@@ -15,7 +15,7 @@ use crate::{
     Error,
 };
 
-/// Represents a single choice made at a min/max node.
+/// A single choice made at a min/max node.
 ///
 /// Explicitly stored in a `u8` so that this can be written by JIT functions,
 /// which have no notion of Rust enums.

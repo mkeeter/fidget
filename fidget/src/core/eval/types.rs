@@ -1,7 +1,7 @@
 //! Custom types used during evaluation
 use crate::eval::Choice;
 
-/// Represents a point in space with associated partial derivatives.
+/// A point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Grad {
@@ -165,8 +165,8 @@ impl std::ops::Neg for Grad {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Represents a range, with conservative calculations to guarantee that it
-/// always contains the actual value.
+/// Stores a range, with conservative calculations to guarantee that it always
+/// contains the actual value.
 ///
 /// # Warning
 /// This implementation does not set rounding modes, so it may not be _perfect_.
