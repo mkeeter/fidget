@@ -218,8 +218,8 @@ const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
             for (start, end) in e {
                 writeln!(
                     &mut file,
-                    "            DirectedEdge {{ start: Corner({start}), \
-                                                 end: Corner({end}) }},"
+                    "            DirectedEdge::new(Corner::new({start}), \
+                                                   Corner::new({end})),"
                 )?;
             }
             writeln!(&mut file, "        ],")?;

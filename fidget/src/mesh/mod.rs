@@ -1,156 +1,11 @@
 //! Octree construction and meshing
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
-////////////////////////////////////////////////////////////////////////////////
-// Welcome to the strongly-typed zone!
+mod frame;
+pub mod types;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct Axis(u8);
-
-impl Axis {
-    fn index(self) -> usize {
-        self.0.trailing_zeros() as usize
-    }
-}
-
-const X: Axis = Axis(1);
-const Y: Axis = Axis(2);
-const Z: Axis = Axis(4);
-
-impl std::ops::Mul<bool> for Axis {
-    type Output = Axis;
-    fn mul(self, rhs: bool) -> Axis {
-        if rhs {
-            self
-        } else {
-            Axis(0)
-        }
-    }
-}
-
-impl std::ops::BitAnd<Corner> for Axis {
-    type Output = bool;
-    fn bitand(self, rhs: Corner) -> bool {
-        (self.0 & rhs.0) != 0
-    }
-}
-
-impl std::ops::BitOr<Axis> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
-        Corner(self.0 | rhs.0)
-    }
-}
-
-impl std::ops::BitOr<Corner> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
-        Corner(self.0 | rhs.0)
-    }
-}
-
-impl From<Axis> for Corner {
-    fn from(a: Axis) -> Self {
-        Corner(a.0)
-    }
-}
-
-/// Strongly-typed cell corner, in the 0-8 range
-#[derive(Copy, Clone, Debug)]
-struct Corner(u8);
-
-impl Corner {
-    fn iter() -> impl Iterator<Item = Corner> {
-        (0..8).map(Corner)
-    }
-}
-
-impl std::ops::BitAnd<Axis> for Corner {
-    type Output = bool;
-    fn bitand(self, rhs: Axis) -> bool {
-        (self.0 & rhs.0) != 0
-    }
-}
-
-impl std::ops::BitOr<Corner> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
-        Corner(self.0 | rhs.0)
-    }
-}
-
-impl std::ops::BitOr<Axis> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
-        Corner(self.0 | rhs.0)
-    }
-}
-
-/// Represents a directed edge within an octree cell
-#[derive(Copy, Clone, Debug)]
-struct DirectedEdge {
-    start: Corner,
-    end: Corner,
-}
-
-/// Represents an undirected edge within an octree cell
-///
-/// With `(t, u, v)` as a right-handed coordinate system and `t` being the
-/// varying axis of the edge, this is packed as `4 * t + 2 * v + 1 * u`
-#[derive(Copy, Clone, Debug)]
-struct Edge(u8);
-
-/// Represents the relative offset of a vertex within [`Octree::verts`]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct Offset(u8);
-
-/// Represents an edge that includes a sign change (and thus an intersection)
-#[derive(Copy, Clone, Debug)]
-struct Intersection {
-    /// Data offset of the vertex located within the cell
-    vert: Offset,
-    /// Data offset of the vertex located on the edge
-    edge: Offset,
-}
-
-/// Cell mask, as an 8-bit value representing set corners
-#[derive(Copy, Clone, Debug)]
-struct Mask(u8);
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Marker trait for a right-handed coordinate frame
-trait Frame {
-    type Next: Frame;
-    fn frame() -> (Axis, Axis, Axis);
-}
-
-#[allow(clippy::upper_case_acronyms)]
-struct XYZ;
-#[allow(clippy::upper_case_acronyms)]
-struct YZX;
-#[allow(clippy::upper_case_acronyms)]
-struct ZXY;
-
-impl Frame for XYZ {
-    type Next = YZX;
-    fn frame() -> (Axis, Axis, Axis) {
-        (X, Y, Z)
-    }
-}
-
-impl Frame for YZX {
-    type Next = ZXY;
-    fn frame() -> (Axis, Axis, Axis) {
-        (Y, Z, X)
-    }
-}
-impl Frame for ZXY {
-    type Next = XYZ;
-    fn frame() -> (Axis, Axis, Axis) {
-        (Z, X, Y)
-    }
-}
+use frame::{Frame, XYZ, YZX, ZXY};
+use types::{Axis, Corner, DirectedEdge, Edge, Intersection, Offset, X, Y, Z};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -228,7 +83,7 @@ struct Leaf {
 
 impl Leaf {
     fn edge(&self, e: Edge) -> Intersection {
-        let out = CELL_TO_EDGE_TO_VERT[self.mask as usize][e.0 as usize];
+        let out = CELL_TO_EDGE_TO_VERT[self.mask as usize][e.index()];
         debug_assert_ne!(out.vert.0, u8::MAX);
         debug_assert_ne!(out.edge.0, u8::MAX);
         out
@@ -399,6 +254,7 @@ impl Mesh {
     }
 }
 
+/// Container used during construction of a [`Mesh`]
 #[derive(Default)]
 struct MeshBuilder {
     /// Map from indexes in [`Octree::verts`] to `out.vertices`
@@ -500,7 +356,7 @@ impl Octree {
                     self.recurse(
                         sub_eval.as_ref().unwrap_or(i_handle),
                         CellIndex {
-                            index: child + i.0 as usize,
+                            index: child + i.index(),
                             x,
                             y,
                             z,
@@ -521,9 +377,9 @@ impl Octree {
         let mut zs = [0.0; 8];
         for i in Corner::iter() {
             let (x, y, z) = cell.corner(i);
-            xs[i.0 as usize] = x;
-            ys[i.0 as usize] = y;
-            zs[i.0 as usize] = z;
+            xs[i.index()] = x;
+            ys[i.index()] = y;
+            zs[i.index()] = z;
         }
 
         // TODO: reuse evaluators, etc
@@ -548,12 +404,12 @@ impl Octree {
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             for e in *vs {
                 // Find the axis that's being used by this edge
-                let axis = e.start.0 ^ e.end.0;
+                let axis = e.start().index() ^ e.end().index();
                 debug_assert_eq!(axis.count_ones(), 1);
                 debug_assert!(axis < 8);
 
                 // Pick a position closer to the filled side
-                let (a, b) = if e.end.0 & axis != 0 {
+                let (a, b) = if e.end().index() & axis != 0 {
                     (0, u16::MAX)
                 } else {
                     (u16::MAX, 0)
@@ -563,10 +419,16 @@ impl Octree {
                 let mut v = nalgebra::Vector3::zeros();
                 let i = (axis.trailing_zeros() + 1) % 3;
                 let j = (axis.trailing_zeros() + 2) % 3;
-                v[i as usize] =
-                    if e.start & Axis(1 << i) { u16::MAX } else { 0 };
-                v[j as usize] =
-                    if e.start & Axis(1 << j) { u16::MAX } else { 0 };
+                v[i as usize] = if e.start() & Axis::new(1 << i) {
+                    u16::MAX
+                } else {
+                    0
+                };
+                v[j as usize] = if e.start() & Axis::new(1 << j) {
+                    u16::MAX
+                } else {
+                    0
+                };
 
                 v[axis.trailing_zeros() as usize] = a;
                 start[edge_count] = v;
@@ -783,7 +645,7 @@ impl Octree {
     /// Calls [`self.dc_face`] on all four face adjacencies in the given frame
     fn dc_faces<T: Frame>(&self, cell: CellIndex, out: &mut MeshBuilder) {
         let (t, u, v) = T::frame();
-        for c in [Corner(0), u.into(), v.into(), u | v] {
+        for c in [Corner::new(0), u.into(), v.into(), u | v] {
             self.dc_face::<T>(
                 self.child(cell, c),
                 self.child(cell, c | t),
@@ -797,14 +659,13 @@ impl Octree {
     /// If the cell is a leaf node, returns that cell instead.
     fn child<C: Into<Corner>>(&self, cell: CellIndex, child: C) -> CellIndex {
         let child = child.into();
-        debug_assert!(child.0 < 8);
 
         match self.cells[cell.index].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index } => {
                 let (x, y, z) = cell.interval(child);
                 CellIndex {
-                    index: index + child.0 as usize,
+                    index: index + child.index(),
                     x,
                     y,
                     z,
@@ -832,7 +693,11 @@ impl Octree {
             return;
         }
         let (t, u, v) = T::frame();
-        self.dc_face::<T>(self.child(lo, t), self.child(hi, Corner(0)), out);
+        self.dc_face::<T>(
+            self.child(lo, t),
+            self.child(hi, Corner::new(0)),
+            out,
+        );
         self.dc_face::<T>(self.child(lo, t | u), self.child(hi, u), out);
         self.dc_face::<T>(self.child(lo, t | v), self.child(hi, v), out);
         self.dc_face::<T>(
@@ -893,10 +758,10 @@ impl Octree {
             let (t, u, v) = T::frame();
             let sign_change_count = leafs
                 .iter()
-                .zip([u | v, v.into(), Corner(0), u.into()])
+                .zip([u | v, v.into(), Corner::new(0), u.into()])
                 .filter(|(leaf, c)| {
-                    (leaf.mask & (1 << c.0) == 0)
-                        != (leaf.mask & (1 << (*c | t).0) == 0)
+                    (leaf.mask & (1 << c.index()) == 0)
+                        != (leaf.mask & (1 << (*c | t).index()) == 0)
                 })
                 .count();
             if sign_change_count == 0 {
@@ -905,10 +770,10 @@ impl Octree {
             debug_assert_eq!(sign_change_count, 4);
 
             let verts = [
-                leafs[0].edge(Edge((t.index() * 4 + 3) as u8)),
-                leafs[1].edge(Edge((t.index() * 4 + 2) as u8)),
-                leafs[2].edge(Edge((t.index() * 4 + 0) as u8)),
-                leafs[3].edge(Edge((t.index() * 4 + 1) as u8)),
+                leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
+                leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
+                leafs[2].edge(Edge::new((t.index() * 4 + 0) as u8)),
+                leafs[3].edge(Edge::new((t.index() * 4 + 1) as u8)),
             ];
 
             // Pick the intersection vertex based on the deepest cell
@@ -929,7 +794,7 @@ impl Octree {
             let vs = [vert(0), vert(1), vert(2), vert(3)];
 
             // Pick a triangle winding depending on the edge direction
-            let winding = if leafs[0].mask & (1 << (u | v).0) == 0 {
+            let winding = if leafs[0].mask & (1 << (u | v).index()) == 0 {
                 3
             } else {
                 1
@@ -1257,7 +1122,7 @@ mod test {
             let ctx = BoundContext::new();
             let mut shape = vec![];
             for j in Corner::iter() {
-                if i & (1 << j.0) != 0 {
+                if i & (1 << j.index()) != 0 {
                     shape.push(sphere(
                         &ctx,
                         [
