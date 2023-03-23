@@ -1,6 +1,8 @@
 # 0.1.4 (unreleased)
 - Added support for `aarch64-unknown-linux-*` to the JIT compiler; previously,
   `aarch64` was only supported on macOS.
+- Added initial meshing support in the `fidget::mesh` module, gated by the
+  `mesh` feature (enabled by default).
 
 # 0.1.3
 - Added `x86_64` backend for the JIT compiler
