@@ -597,7 +597,7 @@ impl Octree {
                 i += 1;
             }
             // Minimize towards mass point of intersections
-            let center = nalgebra::Vector3::zeros(); //mass_point / vs.len() as f32;
+            let center = mass_point / vs.len() as f32;
             atb -= ata * center;
 
             let svd = nalgebra::linalg::SVD::new(ata, true, true);
