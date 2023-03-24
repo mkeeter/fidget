@@ -21,8 +21,11 @@ use crate::{
 /// which have no notion of Rust enums.
 ///
 /// Note that this is a bitfield such that
-/// ```text
-/// Choice::Both = Choice::Left | Choice::Right
+/// ```rust
+/// # use fidget::eval::Choice;
+/// # assert!(
+/// Choice::Both as u8 == Choice::Left as u8 | Choice::Right as u8
+/// # );
 /// ```
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
