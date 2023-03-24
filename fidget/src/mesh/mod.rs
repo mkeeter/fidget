@@ -587,7 +587,8 @@ impl Octree {
                 mass_point += pos;
 
                 let grad = grads[i];
-                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz);
+                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz)
+                    .normalize();
 
                 // TODO: correct for non-zero distance value?
 
@@ -596,13 +597,15 @@ impl Octree {
                 i += 1;
             }
             // Minimize towards mass point of intersections
-            let center = mass_point / vs.len() as f32;
+            let center = nalgebra::Vector3::zeros(); //mass_point / vs.len() as f32;
             atb -= ata * center;
 
-            // Instead of getting tricky with SVD, let's just throw a LU solver
-            // at the problem; this appears to be more robust than the
-            // traditional SVD + eigenvalue clamping approach.
-            let sol = nalgebra::linalg::LU::new(ata).solve(&atb);
+            let svd = nalgebra::linalg::SVD::new(ata, true, true);
+            // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
+            // when using normalized gradients, but I've found that fails on
+            // things like the cone model.  Since we're not sampling from noisy
+            // real-world data, let's be a little more strict.
+            let sol = svd.solve(&atb, 1e-6);
             let pos = sol.map(|c| c + center).unwrap_or(center);
 
             // Convert back to a relative (within-cell) position and store it
@@ -915,6 +918,25 @@ mod test {
         let y_bounds = (by[0] - y.clone()).max(y - by[1]);
         let z_bounds = (bz[0] - z.clone()).max(z - bz[1]);
         x_bounds.max(y_bounds).max(z_bounds)
+    }
+
+    #[test]
+    fn test_cube_edge() {
+        const EPSILON: f32 = 1e-3;
+        let ctx = BoundContext::new();
+        let f = 2.0;
+        let cube = cube(&ctx, [-f, f], [-f, 0.3], [-f, 0.6]);
+        // This should be a cube with a single edge running through the root
+        // node of the octree, with an edge vertex at [0, 0.3, 0.6]
+        let tape = cube.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, 0);
+        assert_eq!(octree.verts.len(), 5);
+        let v = CellIndex::default().pos(octree.verts[0]);
+        let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
+        assert!(
+            (v - expected).norm() < EPSILON,
+            "bad edge vertex {v:?}; expected {expected:?}"
+        );
     }
 
     fn cone(
