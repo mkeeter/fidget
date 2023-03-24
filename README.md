@@ -121,7 +121,8 @@ Ti GPU.  We see that Fidget's interpreter is slightly better than `libfive`, and
 Fidget's JIT is _nearly_ competitive with the GPU-based MPR.
 
 Fidget is missing a bunch of features that are found in more mature projects.
-For example, it does not implement meshing, and only includes a debug GUI.
+For example, it only includes a debug GUI, and its meshing is much less
+battle-tested than `libfive`.
 
 ## License
 © 2022-2023 Matthew Keeter  
