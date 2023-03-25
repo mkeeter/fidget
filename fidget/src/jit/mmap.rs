@@ -100,7 +100,7 @@ impl Mmap {
     ///
     /// The fact that this occurs on a per-thread (rather than per-page) basis
     /// is _very strange_, and means this APIs must be used with caution.
-    /// Returns a [`ThreadWriteGuard`], which restores execute mode when
+    /// Returns a [`macos::ThreadWriteGuard`], which restores execute mode when
     /// dropped.
     pub fn thread_mode_write() -> macos::ThreadWriteGuard {
         unsafe {

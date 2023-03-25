@@ -256,7 +256,7 @@ impl RegisterAllocator {
     }
 
     /// Lowers an operation that uses a single register into an
-    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
+    /// [`Op`](crate::vm::Op), pushing it to the internal tape.
     ///
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
@@ -396,7 +396,7 @@ impl RegisterAllocator {
         }
     }
 
-    /// Lowers a two-register operation into an [`Op`](crate::asm::Op),
+    /// Lowers a two-register operation into an [`Op`](crate::vm::Op),
     /// pushing it to the internal tape.
     ///
     /// Inputs are SSA registers from a [`Tape`], i.e. globally addressed.
@@ -602,7 +602,7 @@ impl RegisterAllocator {
     }
 
     /// Lowers a function taking one register and one immediate into an
-    /// [`Op`](crate::asm::Op), pushing it to the internal tape.
+    /// [`Op`](crate::vm::Op), pushing it to the internal tape.
     #[inline(always)]
     fn op_reg_imm(&mut self, op: SsaOp) {
         let (out, arg, imm, op): (_, _, _, fn(u8, u8, f32) -> Op) = match op {
@@ -626,19 +626,19 @@ impl RegisterAllocator {
         self.release_reg(r_x);
     }
 
-    /// Pushes a [`CopyImm`](crate::asm::Op::CopyImm) operation to the tape
+    /// Pushes a [`CopyImm`](crate::vm::Op::CopyImm) operation to the tape
     #[inline(always)]
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| Op::CopyImm(out, imm));
     }
 
-    /// Pushes an [`Input`](crate::asm::Op::Input) operation to the tape
+    /// Pushes an [`Input`](crate::vm::Op::Input) operation to the tape
     #[inline(always)]
     fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| Op::Input(out, i));
     }
 
-    /// Pushes an [`Var`](crate::asm::Op::Var) operation to the tape
+    /// Pushes an [`Var`](crate::vm::Op::Var) operation to the tape
     #[inline(always)]
     fn op_var(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| Op::Var(out, i));

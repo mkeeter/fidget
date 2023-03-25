@@ -115,7 +115,8 @@ impl From<CellVertex> for nalgebra::Vector3<u16> {
 /// Instead of storing the cell bounds in the leaf itself, we build them when
 /// descending the tree.
 ///
-/// `index` points to where this cell is stored in [`Octree::cells`]
+/// `index` points to where this cell is stored in
+/// [`Octree::cells`](super::Octree::cells)
 #[derive(Copy, Clone, Debug)]
 pub struct CellIndex {
     pub index: usize,

@@ -7,7 +7,8 @@ use super::{
 /// Container used during construction of a [`Mesh`]
 #[derive(Default)]
 pub struct MeshBuilder {
-    /// Map from indexes in [`Octree::verts`] to `out.vertices`
+    /// Map from indexes in [`Octree::verts`](super::Octree::verts) to
+    /// `out.vertices`
     ///
     /// `usize::MAX` is used a marker for an unmapped vertex
     map: Vec<usize>,
@@ -18,7 +19,7 @@ impl MeshBuilder {
     /// Looks up the given vertex, localizing it within a cell
     ///
     /// `v` is an absolute offset into `verts`, which should be a reference to
-    /// [`Octree::verts`].
+    /// [`Octree::verts`](super::Octree::verts).
     pub fn get(
         &mut self,
         v: usize,
