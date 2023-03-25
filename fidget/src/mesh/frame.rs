@@ -1,5 +1,5 @@
 //! Coordinate frames
-use crate::mesh::types::{Axis, X, Y, Z};
+use super::types::{Axis, X, Y, Z};
 
 /// Marker trait for a right-handed coordinate frame
 pub trait Frame {

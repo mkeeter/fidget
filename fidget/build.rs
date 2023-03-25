@@ -208,7 +208,7 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
 /// which are required for that cell.  Each vertex is implicitly numbered based
 /// on its position in the list, and itself stores a list of edges (as tuples
 /// of `(start, end)` cell corners).
-const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
+pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
     )?;
 
     for v in vert_table {
@@ -236,7 +236,7 @@ const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
 /// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
 /// packed undirected value in the range 0-12), returns an [`Intersection`]
 /// that encodes the vertex offsets for that edge.
-const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
+pub const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
     )?;
 
     for e in edge_table {
