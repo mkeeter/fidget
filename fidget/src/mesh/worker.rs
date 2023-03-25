@@ -123,7 +123,7 @@ impl<I: Family> Worker<I> {
 
         loop {
             // First, check to see if anyone has finished a task and sent us
-            // back the result.
+            // back the result.  Otherwise, keep going.
             match self.done.try_recv() {
                 Ok(v) => {
                     self.octree.record(v.cell_index, v.child);
@@ -134,7 +134,36 @@ impl<I: Family> Worker<I> {
                     // nothing to do here
                 }
             }
-            // Do some work here!
+
+            let t = self.queue.pop().map(|t| (t, None)).or_else(|| {
+                use crossbeam_deque::Steal;
+                // Try stealing from all of our friends (but not ourselves)
+                for i in 1..self.friend_queue.len() {
+                    let i = (i + self.thread_index) % self.friend_queue.len();
+                    let q = &self.friend_queue[i];
+                    loop {
+                        match q.steal() {
+                            Steal::Success(v) => return Some((v, Some(i))),
+                            Steal::Empty => break,
+                            Steal::Retry => continue,
+                        }
+                    }
+                }
+                None
+            });
+
+            if let Some((task, source)) = t {
+                // Do some work here!
+
+                if let Some(source) = source {
+                    debug_assert!(source != self.thread_index);
+                    // Send the result back on the wire
+                } else {
+                    // Store the result locally
+                }
+
+                continue; // keep looping
+            }
 
             // At this point, the thread doesn't have any work to do, so we'll
             // consider putting it to sleep.  However, if every other thread is

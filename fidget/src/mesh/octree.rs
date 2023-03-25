@@ -73,39 +73,58 @@ impl Octree {
         out
     }
 
-    /// Recurse down the octree, building the given cell
-    fn recurse<I: Family>(
+    fn eval_cell<I: Family>(
         &mut self,
         i_handle: &IntervalEval<I>,
         cell: CellIndex,
-    ) {
+    ) -> CellResult<I> {
         let (i, r) = i_handle.eval(cell.x, cell.y, cell.z, &[]).unwrap();
         if i.upper() < 0.0 {
-            self.cells[cell.index] = Cell::Full.into();
+            CellResult::Full
         } else if i.lower() > 0.0 {
-            self.cells[cell.index] = Cell::Empty.into();
+            CellResult::Empty
         } else {
             let sub_tape = r.map(|r| r.simplify().unwrap());
             if cell.depth == 0 {
                 let tape = sub_tape.unwrap_or_else(|| i_handle.tape());
-                self.leaf(tape, cell)
+                let leaf = self.leaf(tape, cell);
+
+                CellResult::Leaf(leaf)
             } else {
                 let sub_eval = sub_tape.map(|s| s.new_interval_evaluator());
                 let child = self.cells.len();
                 for _ in Corner::iter() {
                     self.cells.push(Cell::Invalid.into());
                 }
-                self.cells[cell.index] = Cell::Branch {
+                CellResult::Recurse {
                     index: child,
-                    thread: 0,
+                    eval: sub_eval.unwrap_or_else(|| i_handle.clone()),
                 }
-                .into();
+            }
+        }
+    }
+
+    /// Recurse down the octree, building the given cell
+    fn recurse<I: Family>(
+        &mut self,
+        i_handle: &IntervalEval<I>,
+        cell: CellIndex,
+    ) {
+        match self.eval_cell(i_handle, cell) {
+            CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
+            CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
+            CellResult::Leaf(leaf) => {
+                self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
+            }
+            CellResult::Recurse { index, eval } => {
+                self.cells[cell.index] =
+                    Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
                     let (x, y, z) = cell.interval(i);
                     self.recurse(
-                        sub_eval.as_ref().unwrap_or(i_handle),
+                        &eval,
                         CellIndex {
-                            index: child + i.index(),
+                            index: index + i.index(),
                             x,
                             y,
                             z,
@@ -118,7 +137,7 @@ impl Octree {
     }
 
     /// Evaluates the given leaf
-    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) {
+    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) -> Leaf {
         let float_eval = tape.new_float_slice_evaluator();
 
         let mut xs = [0.0; 8];
@@ -334,11 +353,7 @@ impl Octree {
                 .into_iter()
                 .map(|pos| CellVertex { pos, _valid: true }),
         );
-        self.cells[cell.index] = Cell::Leaf {
-            leaf: Leaf { mask, index },
-            thread: 0, // TODO
-        }
-        .into();
+        Leaf { mask, index }
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -581,6 +596,16 @@ impl Octree {
         }
     }
 }
+
+/// Result of a single cell evaluation
+enum CellResult<I: Family> {
+    Empty,
+    Full,
+    Leaf(Leaf),
+    Recurse { index: usize, eval: IntervalEval<I> },
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
