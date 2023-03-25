@@ -26,7 +26,32 @@ pub struct Octree {
     verts: Vec<CellVertex>,
 }
 
+impl Default for Octree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Octree {
+    /// Builds a new octree, which allocates data for 8 root cells
+    pub fn new() -> Self {
+        Self {
+            cells: vec![Cell::Invalid.into(); 8],
+            verts: vec![],
+        }
+    }
+
+    /// Records the given cell into the provided index
+    ///
+    /// The index must be valid already; this does not modify the cells vector.
+    ///
+    /// # Panics
+    /// If the index exceeds the bounds of the cell vector.
+    pub fn record(&mut self, index: usize, cell: CellData) {
+        debug_assert_eq!(self.cells[index], Cell::Invalid.into());
+        self.cells[index] = cell;
+    }
+
     /// Builds an octree to the given depth
     ///
     /// The shape is evaluated on the region `[-1, 1]` on all axes
@@ -34,7 +59,7 @@ impl Octree {
         let i_handle = tape.new_interval_evaluator();
 
         let mut out = Self {
-            cells: vec![CellData::new(0); 8],
+            cells: vec![Cell::Invalid.into(); 8],
             verts: vec![],
         };
 
@@ -68,7 +93,7 @@ impl Octree {
                 let sub_eval = sub_tape.map(|s| s.new_interval_evaluator());
                 let child = self.cells.len();
                 for _ in Corner::iter() {
-                    self.cells.push(CellData::new(0));
+                    self.cells.push(Cell::Invalid.into());
                 }
                 self.cells[cell.index] = Cell::Branch {
                     index: child,
@@ -406,6 +431,7 @@ impl Octree {
                     depth: cell.depth + 1,
                 }
             }
+            Cell::Invalid => panic!(),
         }
     }
 
@@ -482,6 +508,7 @@ impl Octree {
                 Cell::Leaf { leaf, .. } => Some(leaf),
                 Cell::Empty | Cell::Full => None,
                 Cell::Branch { .. } => unreachable!(),
+                Cell::Invalid => panic!(),
             });
             if leafs.iter().any(Option::is_none) {
                 return;

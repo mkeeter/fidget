@@ -9,14 +9,15 @@ use super::{
 /// Raw cell data
 ///
 /// Unpack to a [`Cell`] to actually use it
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct CellData(u64);
 
 impl From<Cell> for CellData {
     fn from(c: Cell) -> Self {
         let i = match c {
-            Cell::Empty => 0b00 << 62,
-            Cell::Full => 0b01 << 62,
+            Cell::Invalid => 0,
+            Cell::Empty => 1,
+            Cell::Full => 2,
             Cell::Branch { index, thread } => {
                 debug_assert!(index < (1 << 54));
                 0b10 << 62 | ((thread as u64) << 54) | index as u64
@@ -46,12 +47,6 @@ impl std::fmt::Debug for CellData {
     }
 }
 
-impl CellData {
-    pub fn new(i: u64) -> Self {
-        Self(i)
-    }
-}
-
 static_assertions::const_assert_eq!(
     std::mem::size_of::<usize>(),
     std::mem::size_of::<u64>()
@@ -60,6 +55,7 @@ static_assertions::const_assert_eq!(
 /// Unpacked form of [`CellData`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Cell {
+    Invalid,
     Empty,
     Full,
     Branch { index: usize, thread: u8 },
@@ -69,21 +65,24 @@ pub enum Cell {
 impl From<CellData> for Cell {
     fn from(c: CellData) -> Self {
         let i = c.0 as usize;
-        match (i >> 62) & 0b11 {
-            0b00 => Cell::Empty,
-            0b01 => Cell::Full,
-            0b10 => Cell::Branch {
-                index: i & ((1 << 54) - 1),
-                thread: (i >> 54) as u8,
-            },
-            0b11 => Cell::Leaf {
-                leaf: Leaf {
-                    mask: (i >> 54) as u8,
-                    index: i & ((1 << 46) - 1),
+        match i {
+            0 => Cell::Invalid,
+            1 => Cell::Empty,
+            2 => Cell::Full,
+            _ => match (i >> 62) & 0b11 {
+                0b10 => Cell::Branch {
+                    index: i & ((1 << 54) - 1),
+                    thread: (i >> 54) as u8,
                 },
-                thread: (i >> 46) as u8,
+                0b11 => Cell::Leaf {
+                    leaf: Leaf {
+                        mask: (i >> 54) as u8,
+                        index: i & ((1 << 46) - 1),
+                    },
+                    thread: (i >> 46) as u8,
+                },
+                _ => panic!("invalid cell encoding"),
             },
-            _ => unreachable!(),
         }
     }
 }
@@ -263,6 +262,7 @@ mod test {
     fn test_cell_encode_decode() {
         for c in [
             Cell::Empty,
+            Cell::Invalid,
             Cell::Full,
             Cell::Branch {
                 index: 12345,
