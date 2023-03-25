@@ -17,13 +17,19 @@ impl From<Cell> for CellData {
         let i = match c {
             Cell::Empty => 0b00 << 62,
             Cell::Full => 0b01 << 62,
-            Cell::Branch { index } => {
-                debug_assert!(index < (1 << 62));
-                0b10 << 62 | index as u64
-            }
-            Cell::Leaf(Leaf { mask, index }) => {
+            Cell::Branch { index, thread } => {
                 debug_assert!(index < (1 << 54));
-                (0b11 << 62) | ((mask as u64) << 54) | index as u64
+                0b10 << 62 | ((thread as u64) << 54) | index as u64
+            }
+            Cell::Leaf {
+                leaf: Leaf { mask, index },
+                thread,
+            } => {
+                debug_assert!(index < (1 << 46));
+                (0b11 << 62)
+                    | ((mask as u64) << 54)
+                    | ((thread as u64) << 46)
+                    | index as u64
             }
         };
         CellData(i)
@@ -56,8 +62,8 @@ static_assertions::const_assert_eq!(
 pub enum Cell {
     Empty,
     Full,
-    Branch { index: usize },
-    Leaf(Leaf),
+    Branch { index: usize, thread: u8 },
+    Leaf { leaf: Leaf, thread: u8 },
 }
 
 impl From<CellData> for Cell {
@@ -67,12 +73,16 @@ impl From<CellData> for Cell {
             0b00 => Cell::Empty,
             0b01 => Cell::Full,
             0b10 => Cell::Branch {
-                index: i & ((1 << 62) - 1),
-            },
-            0b11 => Cell::Leaf(Leaf {
-                mask: (i >> 54) as u8,
                 index: i & ((1 << 54) - 1),
-            }),
+                thread: (i >> 54) as u8,
+            },
+            0b11 => Cell::Leaf {
+                leaf: Leaf {
+                    mask: (i >> 54) as u8,
+                    index: i & ((1 << 46) - 1),
+                },
+                thread: (i >> 46) as u8,
+            },
             _ => unreachable!(),
         }
     }
@@ -254,18 +264,28 @@ mod test {
         for c in [
             Cell::Empty,
             Cell::Full,
-            Cell::Branch { index: 12345 },
             Cell::Branch {
-                index: 0x1234000054322345,
-            },
-            Cell::Leaf(Leaf {
                 index: 12345,
-                mask: 0b101,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x123400005432,
-                mask: 0b11011010,
-            }),
+                thread: 17,
+            },
+            Cell::Branch {
+                index: 0x12340054322345,
+                thread: 128,
+            },
+            Cell::Leaf {
+                leaf: Leaf {
+                    index: 12345,
+                    mask: 0b101,
+                },
+                thread: 123,
+            },
+            Cell::Leaf {
+                leaf: Leaf {
+                    index: 0x123400005432,
+                    mask: 0b11011010,
+                },
+                thread: 18,
+            },
         ] {
             assert_eq!(c, Cell::from(CellData::from(c)));
         }

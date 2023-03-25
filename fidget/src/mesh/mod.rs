@@ -5,6 +5,7 @@ mod cell;
 mod frame;
 mod gen;
 mod octree;
+mod worker;
 
 #[doc(hidden)]
 pub mod types;

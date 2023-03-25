@@ -48,7 +48,7 @@ impl Octree {
         out
     }
 
-    /// Recurse down the octree, rendering the given cell
+    /// Recurse down the octree, building the given cell
     fn recurse<I: Family>(
         &mut self,
         i_handle: &IntervalEval<I>,
@@ -70,7 +70,11 @@ impl Octree {
                 for _ in Corner::iter() {
                     self.cells.push(CellData::new(0));
                 }
-                self.cells[cell.index] = Cell::Branch { index: child }.into();
+                self.cells[cell.index] = Cell::Branch {
+                    index: child,
+                    thread: 0,
+                }
+                .into();
                 for i in Corner::iter() {
                     let (x, y, z) = cell.interval(i);
                     self.recurse(
@@ -305,7 +309,11 @@ impl Octree {
                 .into_iter()
                 .map(|pos| CellVertex { pos, _valid: true }),
         );
-        self.cells[cell.index] = Cell::Leaf(Leaf { mask, index }).into();
+        self.cells[cell.index] = Cell::Leaf {
+            leaf: Leaf { mask, index },
+            thread: 0, // TODO
+        }
+        .into();
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -332,7 +340,7 @@ impl Octree {
 #[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
 impl Octree {
     fn dc_cell(&self, cell: CellIndex, out: &mut MeshBuilder) {
-        if let Cell::Branch { index } = self.cells[cell.index].into() {
+        if let Cell::Branch { index, .. } = self.cells[cell.index].into() {
             debug_assert_eq!(index % 8, 0);
             for i in Corner::iter() {
                 self.dc_cell(self.child(cell, i), out);
@@ -388,7 +396,7 @@ impl Octree {
 
         match self.cells[cell.index].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
-            Cell::Branch { index } => {
+            Cell::Branch { index, .. } => {
                 let (x, y, z) = cell.interval(child);
                 CellIndex {
                     index: index + child.index(),
@@ -471,7 +479,7 @@ impl Octree {
             // include a sign change.  TODO: can we make this any -> all if we
             // collapse empty / filled leafs into Empty / Full cells?
             let leafs = cs.map(|cell| match self.cells[cell.index].into() {
-                Cell::Leaf(leaf) => Some(leaf),
+                Cell::Leaf { leaf, .. } => Some(leaf),
                 Cell::Empty | Cell::Full => None,
                 Cell::Branch { .. } => unreachable!(),
             });
@@ -644,7 +652,10 @@ mod test {
         let octree = Octree::build(&tape, 0);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(
-            Cell::Leaf(Leaf { mask: 0, index: 0 }),
+            Cell::Leaf {
+                leaf: Leaf { mask: 0, index: 0 },
+                thread: 0
+            },
             octree.cells[0].into(),
         );
         assert_eq!(octree.verts.len(), 0);
@@ -657,14 +668,21 @@ mod test {
         // Now, at depth-1, each cell should be a Leaf with one vertex
         let octree = Octree::build(&tape, 1);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
-        assert_eq!(Cell::Branch { index: 8 }, octree.cells[0].into());
+        assert_eq!(
+            Cell::Branch {
+                index: 8,
+                thread: 0
+            },
+            octree.cells[0].into()
+        );
 
         // Each of the 6 edges is counted 4 times and each cell has 1 vertex
         assert_eq!(octree.verts.len(), 6 * 4 + 8, "incorrect vertex count");
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
         for o in &octree.cells[8..] {
-            let Cell::Leaf(Leaf { index, mask}) = (*o).into() else { panic!() };
+            let Cell::Leaf { leaf: Leaf { index, mask}, .. } = (*o).into()
+                else { panic!() };
             assert_eq!(mask.count_ones(), 1);
             assert_eq!(index % 4, 0);
         }
