@@ -1,3 +1,4 @@
+//! Mesh builder data structure and implementation
 use super::{
     cell::{CellIndex, CellVertex},
     Mesh,

@@ -1,3 +1,4 @@
+//! Mesh output implementation
 use super::Mesh;
 
 impl Mesh {

@@ -1,4 +1,4 @@
-//! Octree cells
+//! Data types used in the octree
 use crate::eval::types::Interval;
 
 use super::{
