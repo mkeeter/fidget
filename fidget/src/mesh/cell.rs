@@ -108,7 +108,7 @@ pub struct CellVertex {
     pub pos: nalgebra::Vector3<u16>,
 
     /// If a vertex is valid, its original position was within the bounding box
-    pub _valid: bool,
+    pub valid: bool,
 }
 
 impl From<CellVertex> for nalgebra::Vector3<u16> {
@@ -252,7 +252,7 @@ impl CellIndex {
                 y.clamp(0.0, u16::MAX as f32) as u16,
                 z.clamp(0.0, u16::MAX as f32) as u16,
             ),
-            _valid: valid,
+            valid,
         }
     }
 }

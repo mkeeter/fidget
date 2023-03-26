@@ -389,13 +389,20 @@ impl Octree {
             let svd = nalgebra::linalg::SVD::new(ata, true, true);
             // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
             // when using normalized gradients, but I've found that fails on
-            // things like the cone model.  Since we're not sampling from noisy
-            // real-world data, let's be a little more strict.
-            let sol = svd.solve(&atb, 1e-3);
-            let pos = sol.map(|c| c + center).unwrap_or(center);
+            // things like the cone test model.  We'll be a little more clever
+            // here: we'll start at a small epsilon, then back off if we find
+            // that the cell is escaping the bounds.
+            const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
+            for (i, &epsilon) in EPSILONS.iter().enumerate() {
+                let sol = svd.solve(&atb, epsilon);
+                let pos = sol.map(|c| c + center).unwrap_or(center);
 
-            // Convert back to a relative (within-cell) position and store it
-            verts.push(cell.relative(pos));
+                let pos = cell.relative(pos);
+                if pos.valid || i == EPSILONS.len() - 1 {
+                    verts.push(pos);
+                    break;
+                }
+            }
         }
 
         let index = self.verts.len();
@@ -404,7 +411,7 @@ impl Octree {
         self.verts.extend(
             intersections
                 .into_iter()
-                .map(|pos| CellVertex { pos, _valid: true }),
+                .map(|pos| CellVertex { pos, valid: true }),
         );
         Leaf { mask, index }
     }
