@@ -402,7 +402,7 @@ impl Octree {
             // when using normalized gradients, but I've found that fails on
             // things like the cone model.  Since we're not sampling from noisy
             // real-world data, let's be a little more strict.
-            let sol = svd.solve(&atb, 1e-6);
+            let sol = svd.solve(&atb, 1e-3);
             let pos = sol.map(|c| c + center).unwrap_or(center);
 
             // Convert back to a relative (within-cell) position and store it
