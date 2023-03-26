@@ -4,7 +4,9 @@ use std::sync::{
 };
 
 use super::{
-    cell::{CellData, CellIndex},
+    cell::{Cell, CellData, CellIndex},
+    octree::CellResult,
+    types::Corner,
     Octree,
 };
 use crate::eval::{Family, IntervalEval};
@@ -135,34 +137,69 @@ impl<I: Family> Worker<I> {
                 }
             }
 
-            let t = self.queue.pop().map(|t| (t, None)).or_else(|| {
-                use crossbeam_deque::Steal;
-                // Try stealing from all of our friends (but not ourselves)
-                for i in 1..self.friend_queue.len() {
-                    let i = (i + self.thread_index) % self.friend_queue.len();
-                    let q = &self.friend_queue[i];
-                    loop {
-                        match q.steal() {
-                            Steal::Success(v) => return Some((v, Some(i))),
-                            Steal::Empty => break,
-                            Steal::Retry => continue,
+            let t = self.queue.pop().map(|t| (t, self.thread_index)).or_else(
+                || {
+                    use crossbeam_deque::Steal;
+                    // Try stealing from all of our friends (but not ourselves)
+                    for i in 1..self.friend_queue.len() {
+                        let i =
+                            (i + self.thread_index) % self.friend_queue.len();
+                        let q = &self.friend_queue[i];
+                        loop {
+                            match q.steal() {
+                                Steal::Success(v) => return Some((v, i)),
+                                Steal::Empty => break,
+                                Steal::Retry => continue,
+                            }
                         }
                     }
-                }
-                None
-            });
+                    None
+                },
+            );
 
             if let Some((task, source)) = t {
-                // Do some work here!
+                // Each task represents 8 cells, so evaluate them one by one
+                // here and return results.
+                for i in Corner::iter() {
+                    let sub_cell = task.cell.child(task.cell.index, i);
 
-                if let Some(source) = source {
-                    debug_assert!(source != self.thread_index);
-                    // Send the result back on the wire
-                } else {
-                    // Store the result locally
+                    let r = match self.octree.eval_cell(&task.eval, sub_cell) {
+                        CellResult::Empty => Cell::Empty,
+                        CellResult::Full => Cell::Full,
+                        CellResult::Leaf(leaf) => Cell::Leaf {
+                            leaf,
+                            thread: self.thread_index as u8,
+                        },
+                        CellResult::Recurse { index, eval } => {
+                            self.queue.push(Task {
+                                eval,
+                                cell: sub_cell,
+                            });
+                            Cell::Branch {
+                                index,
+                                thread: self.thread_index as u8,
+                            }
+                        }
+                    };
+                    // Do some work here!
+
+                    if source != self.thread_index {
+                        // Send the result back on the wire
+                        self.friend_done[source]
+                            .send(Done {
+                                cell_index: sub_cell.index,
+                                child: r.into(),
+                            })
+                            .unwrap();
+                    } else {
+                        // Store the result locally
+                        self.octree.record(sub_cell.index, r.into());
+                    }
                 }
 
-                continue; // keep looping
+                // We've successfully done some work, so start the loop again
+                // from the top and see what else needs to be done.
+                continue;
             }
 
             // At this point, the thread doesn't have any work to do, so we'll

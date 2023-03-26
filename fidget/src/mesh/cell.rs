@@ -213,6 +213,18 @@ impl CellIndex {
         (x, y, z)
     }
 
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner) -> Self {
+        let (x, y, z) = self.interval(i);
+        CellIndex {
+            index: index + i.index(),
+            x,
+            y,
+            z,
+            depth: self.depth - 1,
+        }
+    }
+
     /// Converts from a relative position in the cell to an absolute position
     pub fn pos<P: Into<nalgebra::Vector3<u16>>>(
         &self,

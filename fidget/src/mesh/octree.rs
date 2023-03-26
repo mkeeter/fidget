@@ -73,7 +73,12 @@ impl Octree {
         out
     }
 
-    fn eval_cell<I: Family>(
+    /// Evaluates a single cell in the octree
+    ///
+    /// Leaf data is stored in `self.verts`; cell results are **not** written
+    /// back to the `cells` array, because the cell may be rooted in a different
+    /// octree (e.g. on another thread).
+    pub fn eval_cell<I: Family>(
         &mut self,
         i_handle: &IntervalEval<I>,
         cell: CellIndex,
@@ -120,17 +125,8 @@ impl Octree {
                 self.cells[cell.index] =
                     Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
-                    let (x, y, z) = cell.interval(i);
-                    self.recurse(
-                        &eval,
-                        CellIndex {
-                            index: index + i.index(),
-                            x,
-                            y,
-                            z,
-                            depth: cell.depth - 1,
-                        },
-                    );
+                    let cell = cell.child(index, i);
+                    self.recurse(&eval, cell);
                 }
             }
         }
@@ -437,6 +433,9 @@ impl Octree {
         match self.cells[cell.index].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index, .. } => {
+                // TODO: switch to consistent depth (always increasing from the
+                // root) then use `cell.child` here (making `cell.interval`
+                // private once that's done).
                 let (x, y, z) = cell.interval(child);
                 CellIndex {
                     index: index + child.index(),
@@ -598,7 +597,7 @@ impl Octree {
 }
 
 /// Result of a single cell evaluation
-enum CellResult<I: Family> {
+pub enum CellResult<I: Family> {
     Empty,
     Full,
     Leaf(Leaf),
