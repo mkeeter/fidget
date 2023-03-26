@@ -867,6 +867,23 @@ mod test {
     }
 
     #[test]
+    fn test_sphere_manifold_mt() {
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.0; 3], 0.85);
+
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build_mt(&tape, 5, 8);
+        let sphere_mesh = octree.walk_dual();
+
+        if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
+            panic!("{e}");
+        }
+        if let Err(e) = check_for_edge_matching(&sphere_mesh) {
+            panic!("{e}");
+        }
+    }
+
+    #[test]
     fn test_cube_verts() {
         let ctx = BoundContext::new();
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
@@ -972,8 +989,10 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_mesh_manifold() {
+    fn test_mesh_manifold_inner<F>(f: F)
+    where
+        F: Fn(&Tape<crate::vm::Eval>, usize) -> Octree,
+    {
         for i in 0..256 {
             let ctx = BoundContext::new();
             let mut shape = vec![];
@@ -996,7 +1015,7 @@ mod test {
             // Now, we have our shape, which is 0-8 spheres placed at the
             // corners of the cell spanning [0, 0.25]
             let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-            let octree = Octree::build(&tape, 2);
+            let octree = f(&tape, 2);
 
             let mesh = octree.walk_dual();
             if i != 0 && i != 255 {
@@ -1010,6 +1029,16 @@ mod test {
                 panic!("mask {i:08b} has {e}");
             }
         }
+    }
+
+    #[test]
+    fn test_mesh_manifold() {
+        test_mesh_manifold_inner(|i, n| Octree::build(i, n));
+    }
+
+    #[test]
+    fn test_mesh_manifold_mt() {
+        test_mesh_manifold_inner(|i, n| Octree::build_mt(i, n, 8));
     }
 
     fn check_for_vertex_dupes(mesh: &Mesh) -> Result<(), String> {
