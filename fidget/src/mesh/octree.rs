@@ -6,6 +6,7 @@ use super::{
     frame::{Frame, XYZ, YZX, ZXY},
     gen::CELL_TO_VERT_TO_EDGES,
     types::{Axis, Corner, Edge, X, Y, Z},
+    worker::Worker,
     Mesh,
 };
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
@@ -41,15 +42,71 @@ impl Octree {
         }
     }
 
+    /// Builds a new empty octree
+    pub fn empty() -> Self {
+        Self {
+            cells: vec![],
+            verts: vec![],
+        }
+    }
+
     /// Records the given cell into the provided index
     ///
     /// The index must be valid already; this does not modify the cells vector.
     ///
     /// # Panics
-    /// If the index exceeds the bounds of the cell vector.
+    /// If the index exceeds the bounds of the cell vector, or the cell is
+    /// already populated with something other than [`Cell::Invalid`].
     pub fn record(&mut self, index: usize, cell: CellData) {
         debug_assert_eq!(self.cells[index], Cell::Invalid.into());
         self.cells[index] = cell;
+    }
+
+    /// Merges a set of octrees constructed across multiple workers
+    ///
+    /// # Panics
+    /// All cross-octree references must be valid
+    pub fn merge(os: &[Octree]) -> Octree {
+        // Calculate offsets within the global merged Octree
+        let mut cell_offsets = vec![0];
+        let mut vert_offsets = vec![0];
+        for o in os {
+            let i = cell_offsets.last().unwrap();
+            cell_offsets.push(i + o.cells.len());
+
+            let i = vert_offsets.last().unwrap();
+            vert_offsets.push(i + o.verts.len());
+        }
+
+        let mut out = Octree {
+            cells: Vec::with_capacity(*cell_offsets.last().unwrap()),
+            verts: Vec::with_capacity(*vert_offsets.last().unwrap()),
+        };
+
+        for o in os {
+            for c in &o.cells {
+                let c: Cell = match (*c).into() {
+                    c @ (Cell::Empty | Cell::Full | Cell::Invalid) => c,
+                    Cell::Branch { index, thread } => Cell::Branch {
+                        index: cell_offsets[thread as usize] + index,
+                        thread: 0,
+                    },
+                    Cell::Leaf {
+                        leaf: Leaf { mask, index },
+                        thread,
+                    } => Cell::Leaf {
+                        leaf: Leaf {
+                            index: vert_offsets[thread as usize] + index,
+                            mask,
+                        },
+                        thread: 0,
+                    },
+                };
+                out.cells.push(c.into());
+            }
+            out.verts.extend(o.verts.iter().cloned());
+        }
+        out
     }
 
     /// Builds an octree to the given depth
@@ -71,6 +128,17 @@ impl Octree {
             },
         );
         out
+    }
+
+    /// Builds an octree using multithreaded evaluation
+    pub fn build_mt<I: Family>(
+        tape: &Tape<I>,
+        depth: usize,
+        thread_count: usize,
+    ) -> Self {
+        assert!(thread_count <= u8::MAX as usize); // TODO: make an error here
+        let i_handle = tape.new_interval_evaluator();
+        Worker::scheduler(i_handle, thread_count, depth)
     }
 
     /// Evaluates a single cell in the octree

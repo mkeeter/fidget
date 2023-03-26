@@ -18,9 +18,15 @@ use crate::eval::{Family, IntervalEval};
 /// based on what queue we stole this from).
 struct Task<I: Family> {
     eval: IntervalEval<I>,
-    cell: CellIndex,
+
+    /// Parent cell, which must be a branch cell pointing to the given index
+    parent: CellIndex,
+
+    /// Beginning of the 8x child region in the parent octree
+    index: usize,
 }
 
+#[derive(Debug)]
 struct Done {
     /// The cell index within the parent octree, to which we're sending data
     cell_index: usize,
@@ -33,7 +39,7 @@ struct Done {
     child: CellData,
 }
 
-struct Worker<I: Family> {
+pub struct Worker<I: Family> {
     thread_index: usize,
     octree: Octree,
     queue: crossbeam_deque::Worker<Task<I>>,
@@ -54,7 +60,11 @@ struct Worker<I: Family> {
 }
 
 impl<I: Family> Worker<I> {
-    pub fn run_many(eval: IntervalEval<I>, thread_count: usize) {
+    pub fn scheduler(
+        eval: IntervalEval<I>,
+        thread_count: usize,
+        depth: usize,
+    ) -> Octree {
         let task_queues = (0..thread_count)
             .map(|_| crossbeam_deque::Worker::<Task<I>>::new_lifo())
             .collect::<Vec<_>>();
@@ -62,38 +72,79 @@ impl<I: Family> Worker<I> {
             .map(|_| std::sync::mpsc::channel::<Done>())
             .collect::<Vec<_>>();
 
-        // Inject the root cell into one of the queues.
-        task_queues[0].push(Task {
-            cell: CellIndex::default(),
-            eval,
-        });
-
         // Extract all of the shared data into Vecs
         let friend_queue =
             task_queues.iter().map(|t| t.stealer()).collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
 
-        let workers = task_queues
+        let mut workers = task_queues
             .into_iter()
             .zip(done_queues.into_iter().map(|t| t.1))
             .enumerate()
             .map(|(thread_index, (queue, done))| Worker {
                 thread_index,
-                octree: Octree::new(),
+                octree: if thread_index == 0 {
+                    Octree::new()
+                } else {
+                    Octree::empty()
+                },
                 queue,
                 done,
                 friend_queue: friend_queue.clone(),
                 friend_done: friend_done.clone(),
             })
             .collect::<Vec<_>>();
+
+        let root = CellIndex {
+            depth,
+            ..CellIndex::default()
+        };
+        let r = workers[0].octree.eval_cell(&eval, root);
+        let c = match r {
+            CellResult::Full => Cell::Full,
+            CellResult::Empty => Cell::Empty,
+            CellResult::Leaf(leaf) => Cell::Leaf { leaf, thread: 0 },
+            CellResult::Recurse { index, eval } => {
+                // Inject the recursive task into worker[0]'s queue
+                workers[0].queue.push(Task {
+                    eval,
+                    parent: root,
+                    index,
+                });
+                Cell::Branch { index, thread: 0 }
+            }
+        };
+        workers[0].octree.record(0, c.into());
+
+        if matches!(c, Cell::Branch { .. }) {
+            let threads = std::sync::RwLock::new(vec![
+                std::thread::current();
+                thread_count
+            ]);
+            let counter = AtomicUsize::new(0);
+            let out: Vec<Octree> = std::thread::scope(|s| {
+                let mut handles = vec![];
+                for w in workers {
+                    let thread_ref = &threads;
+                    let counter_ref = &counter;
+                    handles
+                        .push(s.spawn(move || w.run(thread_ref, counter_ref)));
+                }
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            Octree::merge(&out)
+        } else {
+            workers.into_iter().next().unwrap().octree
+        }
     }
 
+    /// Runs a single worker to completion as part of a worker group
     pub fn run(
-        &mut self,
-        threads: std::sync::RwLock<Vec<std::thread::Thread>>,
-        counter: &mut AtomicUsize,
-    ) {
+        mut self,
+        threads: &std::sync::RwLock<Vec<std::thread::Thread>>,
+        counter: &AtomicUsize,
+    ) -> Octree {
         ////////////////////////////////////////////////////////////////////////
         // Setup: build the `threads` array for later waking.
         //
@@ -113,7 +164,7 @@ impl<I: Family> Worker<I> {
         drop(w);
 
         // Wait until every thread has installed itself into the array
-        while counter.load(Ordering::Relaxed) != thread_count {
+        while counter.load(Ordering::Acquire) < thread_count {
             std::thread::park();
         }
 
@@ -160,8 +211,9 @@ impl<I: Family> Worker<I> {
             if let Some((task, source)) = t {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
+                let mut any_recurse = false;
                 for i in Corner::iter() {
-                    let sub_cell = task.cell.child(task.cell.index, i);
+                    let sub_cell = task.parent.child(task.index, i);
 
                     let r = match self.octree.eval_cell(&task.eval, sub_cell) {
                         CellResult::Empty => Cell::Empty,
@@ -173,15 +225,16 @@ impl<I: Family> Worker<I> {
                         CellResult::Recurse { index, eval } => {
                             self.queue.push(Task {
                                 eval,
-                                cell: sub_cell,
+                                parent: sub_cell,
+                                index,
                             });
+                            any_recurse = true;
                             Cell::Branch {
                                 index,
                                 thread: self.thread_index as u8,
                             }
                         }
                     };
-                    // Do some work here!
 
                     if source != self.thread_index {
                         // Send the result back on the wire
@@ -196,6 +249,15 @@ impl<I: Family> Worker<I> {
                         self.octree.record(sub_cell.index, r.into());
                     }
                 }
+                // If we pushed anything to our queue, then let other threads
+                // wake up to try stealing tasks.
+                if any_recurse {
+                    for (i, t) in threads.iter().enumerate() {
+                        if i != self.thread_index {
+                            t.unpark();
+                        }
+                    }
+                }
 
                 // We've successfully done some work, so start the loop again
                 // from the top and see what else needs to be done.
@@ -205,7 +267,9 @@ impl<I: Family> Worker<I> {
             // At this point, the thread doesn't have any work to do, so we'll
             // consider putting it to sleep.  However, if every other thread is
             // sleeping, then we're ready to exit; we'll wake them all up.
-            if counter.fetch_sub(1, Ordering::Release) == 0 {
+            let c = 1 + (counter.fetch_add(256, Ordering::Release) >> 8);
+            if c == thread_count {
+                // Wake up the other threads, so they notice that we're done
                 for (i, t) in threads.iter().enumerate() {
                     if i != self.thread_index {
                         t.unpark();
@@ -216,11 +280,21 @@ impl<I: Family> Worker<I> {
             // There are other active threads, so park ourselves and wait for
             // someone else to wake us up.
             std::thread::park();
-            if counter.load(Ordering::Relaxed) == 0 {
+            if counter.load(Ordering::Acquire) >> 8 == thread_count {
                 break;
             }
+            // Back to the grind
+            counter.fetch_sub(256, Ordering::Release);
         }
 
-        todo!()
+        // Cleanup, flushing the done queue
+        loop {
+            match self.done.try_recv() {
+                Ok(v) => self.octree.record(v.cell_index, v.child),
+                Err(TryRecvError::Disconnected) => panic!(),
+                Err(TryRecvError::Empty) => break,
+            }
+        }
+        self.octree
     }
 }
