@@ -7,7 +7,7 @@ use super::{
     cell::{Cell, CellData, CellIndex},
     octree::CellResult,
     types::Corner,
-    Octree,
+    Octree, Settings,
 };
 use crate::eval::{Family, IntervalEval};
 
@@ -60,15 +60,11 @@ pub struct Worker<I: Family> {
 }
 
 impl<I: Family> Worker<I> {
-    pub fn scheduler(
-        eval: IntervalEval<I>,
-        thread_count: usize,
-        depth: usize,
-    ) -> Octree {
-        let task_queues = (0..thread_count)
+    pub fn scheduler(eval: IntervalEval<I>, settings: Settings) -> Octree {
+        let task_queues = (0..settings.threads)
             .map(|_| crossbeam_deque::Worker::<Task<I>>::new_lifo())
             .collect::<Vec<_>>();
-        let done_queues = (0..thread_count)
+        let done_queues = (0..settings.threads)
             .map(|_| std::sync::mpsc::channel::<Done>())
             .collect::<Vec<_>>();
 
@@ -96,11 +92,8 @@ impl<I: Family> Worker<I> {
             })
             .collect::<Vec<_>>();
 
-        let root = CellIndex {
-            depth,
-            ..CellIndex::default()
-        };
-        let r = workers[0].octree.eval_cell(&eval, root);
+        let root = CellIndex::default();
+        let r = workers[0].octree.eval_cell(&eval, root, settings);
         let c = match r {
             CellResult::Full => Cell::Full,
             CellResult::Empty => Cell::Empty,
@@ -120,16 +113,16 @@ impl<I: Family> Worker<I> {
         if matches!(c, Cell::Branch { .. }) {
             let threads = std::sync::RwLock::new(vec![
                 std::thread::current();
-                thread_count
+                settings.threads as usize
             ]);
-            let counter = AtomicUsize::new(0);
+            let counter = &AtomicUsize::new(0);
             let out: Vec<Octree> = std::thread::scope(|s| {
                 let mut handles = vec![];
                 for w in workers {
                     let thread_ref = &threads;
-                    let counter_ref = &counter;
-                    handles
-                        .push(s.spawn(move || w.run(thread_ref, counter_ref)));
+                    handles.push(
+                        s.spawn(move || w.run(thread_ref, counter, settings)),
+                    );
                 }
                 handles.into_iter().map(|h| h.join().unwrap()).collect()
             });
@@ -144,6 +137,7 @@ impl<I: Family> Worker<I> {
         mut self,
         threads: &std::sync::RwLock<Vec<std::thread::Thread>>,
         counter: &AtomicUsize,
+        settings: Settings,
     ) -> Octree {
         ////////////////////////////////////////////////////////////////////////
         // Setup: build the `threads` array for later waking.
@@ -215,7 +209,10 @@ impl<I: Family> Worker<I> {
                 for i in Corner::iter() {
                     let sub_cell = task.parent.child(task.index, i);
 
-                    let r = match self.octree.eval_cell(&task.eval, sub_cell) {
+                    let r = match self
+                        .octree
+                        .eval_cell(&task.eval, sub_cell, settings)
+                    {
                         CellResult::Empty => Cell::Empty,
                         CellResult::Full => Cell::Full,
                         CellResult::Leaf(leaf) => Cell::Leaf {

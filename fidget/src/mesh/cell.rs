@@ -192,9 +192,8 @@ impl CellIndex {
         (x, y, z)
     }
 
-    /// Returns the interval of the given child (0-7)
-    pub fn interval(&self, i: Corner) -> (Interval, Interval, Interval) {
-        // TODO: make this a function in `Interval`?
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner) -> Self {
         let x = if i & X {
             Interval::new(self.x.midpoint(), self.x.upper())
         } else {
@@ -210,18 +209,12 @@ impl CellIndex {
         } else {
             Interval::new(self.z.lower(), self.z.midpoint())
         };
-        (x, y, z)
-    }
-
-    /// Returns a child cell for the given corner, rooted at the given index
-    pub fn child(&self, index: usize, i: Corner) -> Self {
-        let (x, y, z) = self.interval(i);
         CellIndex {
             index: index + i.index(),
             x,
             y,
             z,
-            depth: self.depth - 1,
+            depth: self.depth + 1,
         }
     }
 

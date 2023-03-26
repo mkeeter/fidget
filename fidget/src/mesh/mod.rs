@@ -31,3 +31,19 @@ impl Mesh {
         Self::default()
     }
 }
+
+/// Settings when building an octree and mesh
+#[derive(Copy, Clone, Debug)]
+pub struct Settings {
+    /// Number of threads to use
+    ///
+    /// 0 indicates to use the single-threaded evaluator; other values will
+    /// spin up _N_ threads to perform octree construction in parallel.
+    pub threads: u8,
+
+    /// Minimum depth to recurse in the octree
+    pub min_depth: u8,
+
+    /// Maximum depth to recurse in the octree
+    pub max_depth: u8,
+}
