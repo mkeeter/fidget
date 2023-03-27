@@ -105,13 +105,25 @@ impl Leaf {
 #[derive(Copy, Clone, Debug)]
 pub struct CellVertex {
     /// Position, as a relative offset within a cell's bounding box
-    pub pos: nalgebra::Vector3<u16>,
-
-    /// If a vertex is valid, its original position was within the bounding box
-    pub valid: bool,
+    ///
+    /// The lower `u16` represents the cell's bounding box; higher bits are for
+    /// vertices that exceed the bounding box.
+    pub pos: nalgebra::Vector3<i32>,
 }
 
-impl From<CellVertex> for nalgebra::Vector3<u16> {
+impl CellVertex {
+    /// Checks whether the vertex is contained within the cell
+    pub fn valid(self) -> bool {
+        self.pos.x >= 0
+            && self.pos.x <= u16::MAX as i32
+            && self.pos.y >= 0
+            && self.pos.y <= u16::MAX as i32
+            && self.pos.z >= 0
+            && self.pos.z <= u16::MAX as i32
+    }
+}
+
+impl From<CellVertex> for nalgebra::Vector3<i32> {
     fn from(v: CellVertex) -> Self {
         v.pos
     }
@@ -219,7 +231,7 @@ impl CellIndex {
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    pub fn pos<P: Into<nalgebra::Vector3<u16>>>(
+    pub fn pos<P: Into<nalgebra::Vector3<i32>>>(
         &self,
         p: P,
     ) -> nalgebra::Vector3<f32> {
@@ -239,20 +251,12 @@ impl CellIndex {
         let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
         let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
 
-        let valid = x >= 0.0
-            && x <= u16::MAX as f32
-            && y >= 0.0
-            && y <= u16::MAX as f32
-            && z >= 0.0
-            && z <= u16::MAX as f32;
-
         CellVertex {
             pos: nalgebra::Vector3::new(
-                x.clamp(0.0, u16::MAX as f32) as u16,
-                y.clamp(0.0, u16::MAX as f32) as u16,
-                z.clamp(0.0, u16::MAX as f32) as u16,
+                x.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+                y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+                z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
             ),
-            valid,
         }
     }
 }

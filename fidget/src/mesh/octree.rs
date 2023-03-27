@@ -286,7 +286,7 @@ impl Octree {
                         / ((EDGE_SEARCH_SIZE - 1) as u32);
                     debug_assert!(pos.max() <= u16::MAX.into());
 
-                    let pos = cell.pos(pos.map(|v| v as u16));
+                    let pos = cell.pos(pos.map(|v| v as i32));
                     xs[i] = pos.x;
                     ys[i] = pos.y;
                     zs[i] = pos.z;
@@ -345,7 +345,7 @@ impl Octree {
                 .collect();
 
         for (i, xyz) in intersections.iter().enumerate() {
-            let pos = cell.pos(*xyz);
+            let pos = cell.pos(xyz.map(|i| i as i32));
             xs[i] = pos.x;
             ys[i] = pos.y;
             zs[i] = pos.z;
@@ -389,30 +389,24 @@ impl Octree {
             let svd = nalgebra::linalg::SVD::new(ata, true, true);
             // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
             // when using normalized gradients, but I've found that fails on
-            // things like the cone test model.  We'll be a little more clever
-            // here: we'll start at a small epsilon, then back off if we find
-            // that the cell is escaping the bounds.
-            const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
-            for (i, &epsilon) in EPSILONS.iter().enumerate() {
-                let sol = svd.solve(&atb, epsilon);
-                let pos = sol.map(|c| c + center).unwrap_or(center);
+            // things like the cone model.  Since we're not sampling from noisy
+            // real-world data, let's be a little more strict.
+            //
+            // TODO: this is still a little awkward!
+            let sol = svd.solve(&atb, 1e-3);
+            let pos = sol.map(|c| c + center).unwrap_or(center);
 
-                let pos = cell.relative(pos);
-                if pos.valid || i == EPSILONS.len() - 1 {
-                    verts.push(pos);
-                    break;
-                }
-            }
+            let pos = cell.relative(pos);
+            verts.push(pos);
         }
 
         let index = self.verts.len();
         self.verts.extend(verts.into_iter());
         // All intersections are valid (within the cell), by definition
-        self.verts.extend(
-            intersections
-                .into_iter()
-                .map(|pos| CellVertex { pos, valid: true }),
-        );
+        self.verts
+            .extend(intersections.into_iter().map(|pos| CellVertex {
+                pos: pos.map(|i| i as i32),
+            }));
         Leaf { mask, index }
     }
 
