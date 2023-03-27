@@ -391,10 +391,13 @@ impl Octree {
             // when using normalized gradients, but I've found that fails on
             // things like the cone model.  Since we're not sampling from noisy
             // real-world data, let's be a little more strict.
-            //
-            // TODO: this is still a little awkward!
             let sol = svd.solve(&atb, 1e-3);
             let pos = sol.map(|c| c + center).unwrap_or(center);
+
+            // TODO: this is still a little awkward!
+            // Thoughts: perhaps we should try solving with a variety of
+            // epsilons, rejecting out-of-cell vertices **unless** their error
+            // is dramatically lower?
 
             let pos = cell.relative(pos);
             verts.push(pos);
@@ -947,27 +950,32 @@ mod test {
 
     #[test]
     fn test_cone_vert() {
-        let ctx = BoundContext::new();
-        let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
-        let tip = nalgebra::Vector3::new(0.2, 0.3, 0.4);
-        let shape = cone(&ctx, corner, tip, 0.1);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        // Test both in-cell and out-of-cell cone vertices
+        for tip in [
+            nalgebra::Vector3::new(0.2, 0.3, 0.4),
+            nalgebra::Vector3::new(1.2, 1.3, 1.4),
+        ] {
+            let ctx = BoundContext::new();
+            let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
+            let shape = cone(&ctx, corner, tip, 0.1);
+            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
 
-        let eval = tape.new_point_evaluator();
-        let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
-        assert!(v.abs() < 1e-6, "bad tip value: {v}");
-        let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
-        assert!(v < 0.0, "bad corner value: {v}");
+            let eval = tape.new_point_evaluator();
+            let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
+            assert!(v.abs() < 1e-6, "bad tip value: {v}");
+            let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
+            assert!(v < 0.0, "bad corner value: {v}");
 
-        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
-        assert_eq!(octree.cells.len(), 8);
-        assert_eq!(octree.verts.len(), 4);
+            let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+            assert_eq!(octree.cells.len(), 8);
+            assert_eq!(octree.verts.len(), 4);
 
-        let pos = CellIndex::default().pos(octree.verts[0]);
-        assert!(
-            (pos - tip).norm() < 1e-3,
-            "bad vertex position: expected {tip:?}, got {pos:?}"
-        );
+            let pos = CellIndex::default().pos(octree.verts[0]);
+            assert!(
+                (pos - tip).norm() < 1e-3,
+                "bad vertex position: expected {tip:?}, got {pos:?}"
+            );
+        }
     }
 
     #[test]
