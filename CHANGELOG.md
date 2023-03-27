@@ -1,3 +1,7 @@
+# 0.2.0 (unreleased)
+- Add parallelism to meshing implementation, configured by the new
+  `fidget::mesh::Settings`.
+
 # 0.1.4
 - Added support for `aarch64-unknown-linux-*` to the JIT compiler; previously,
   `aarch64` was only supported on macOS.
