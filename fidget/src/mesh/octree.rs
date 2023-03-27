@@ -6,7 +6,8 @@ use super::{
     frame::{Frame, XYZ, YZX, ZXY},
     gen::CELL_TO_VERT_TO_EDGES,
     types::{Axis, Corner, Edge, X, Y, Z},
-    Mesh,
+    worker::Worker,
+    Mesh, Settings,
 };
 use crate::eval::{types::Interval, Family, IntervalEval, Tape};
 
@@ -26,70 +27,170 @@ pub struct Octree {
     verts: Vec<CellVertex>,
 }
 
-impl Octree {
-    /// Builds an octree to the given depth
-    ///
-    /// The shape is evaluated on the region `[-1, 1]` on all axes
-    pub fn build<I: Family>(tape: &Tape<I>, depth: usize) -> Self {
-        let i_handle = tape.new_interval_evaluator();
+impl Default for Octree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        let mut out = Self {
-            cells: vec![CellData::new(0); 8],
+impl Octree {
+    /// Builds a new octree, which allocates data for 8 root cells
+    pub fn new() -> Self {
+        Self {
+            cells: vec![Cell::Invalid.into(); 8],
             verts: vec![],
+        }
+    }
+
+    /// Builds a new empty octree
+    pub fn empty() -> Self {
+        Self {
+            cells: vec![],
+            verts: vec![],
+        }
+    }
+
+    /// Records the given cell into the provided index
+    ///
+    /// The index must be valid already; this does not modify the cells vector.
+    ///
+    /// # Panics
+    /// If the index exceeds the bounds of the cell vector, or the cell is
+    /// already populated with something other than [`Cell::Invalid`].
+    pub fn record(&mut self, index: usize, cell: CellData) {
+        debug_assert_eq!(self.cells[index], Cell::Invalid.into());
+        self.cells[index] = cell;
+    }
+
+    /// Merges a set of octrees constructed across multiple workers
+    ///
+    /// # Panics
+    /// All cross-octree references must be valid
+    pub fn merge(os: &[Octree]) -> Octree {
+        // Calculate offsets within the global merged Octree
+        let mut cell_offsets = vec![0];
+        let mut vert_offsets = vec![0];
+        for o in os {
+            let i = cell_offsets.last().unwrap();
+            cell_offsets.push(i + o.cells.len());
+
+            let i = vert_offsets.last().unwrap();
+            vert_offsets.push(i + o.verts.len());
+        }
+
+        let mut out = Octree {
+            cells: Vec::with_capacity(*cell_offsets.last().unwrap()),
+            verts: Vec::with_capacity(*vert_offsets.last().unwrap()),
         };
 
-        out.recurse(
-            &i_handle,
-            CellIndex {
-                depth,
-                ..CellIndex::default()
-            },
-        );
+        for o in os {
+            for c in &o.cells {
+                let c: Cell = match (*c).into() {
+                    c @ (Cell::Empty | Cell::Full | Cell::Invalid) => c,
+                    Cell::Branch { index, thread } => Cell::Branch {
+                        index: cell_offsets[thread as usize] + index,
+                        thread: 0,
+                    },
+                    Cell::Leaf {
+                        leaf: Leaf { mask, index },
+                        thread,
+                    } => Cell::Leaf {
+                        leaf: Leaf {
+                            index: vert_offsets[thread as usize] + index,
+                            mask,
+                        },
+                        thread: 0,
+                    },
+                };
+                out.cells.push(c.into());
+            }
+            out.verts.extend(o.verts.iter().cloned());
+        }
         out
     }
 
-    /// Recurse down the octree, rendering the given cell
-    fn recurse<I: Family>(
+    /// Builds an octree to the given depth
+    ///
+    /// The shape is evaluated on the region `[-1, 1]` on all axes
+    pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
+        let i_handle = tape.new_interval_evaluator();
+
+        if settings.threads == 0 {
+            let mut out = Self {
+                cells: vec![Cell::Invalid.into(); 8],
+                verts: vec![],
+            };
+
+            out.recurse(&i_handle, CellIndex::default(), settings);
+            out
+        } else {
+            Worker::scheduler(i_handle, settings)
+        }
+    }
+
+    /// Evaluates a single cell in the octree
+    ///
+    /// Leaf data is stored in `self.verts`; cell results are **not** written
+    /// back to the `cells` array, because the cell may be rooted in a different
+    /// octree (e.g. on another thread).
+    pub fn eval_cell<I: Family>(
         &mut self,
         i_handle: &IntervalEval<I>,
         cell: CellIndex,
-    ) {
+        settings: Settings,
+    ) -> CellResult<I> {
         let (i, r) = i_handle.eval(cell.x, cell.y, cell.z, &[]).unwrap();
         if i.upper() < 0.0 {
-            self.cells[cell.index] = Cell::Full.into();
+            CellResult::Full
         } else if i.lower() > 0.0 {
-            self.cells[cell.index] = Cell::Empty.into();
+            CellResult::Empty
         } else {
             let sub_tape = r.map(|r| r.simplify().unwrap());
-            if cell.depth == 0 {
+            if cell.depth == settings.min_depth as usize {
                 let tape = sub_tape.unwrap_or_else(|| i_handle.tape());
-                self.leaf(tape, cell)
+                let leaf = self.leaf(tape, cell);
+
+                CellResult::Leaf(leaf)
             } else {
                 let sub_eval = sub_tape.map(|s| s.new_interval_evaluator());
                 let child = self.cells.len();
                 for _ in Corner::iter() {
-                    self.cells.push(CellData::new(0));
+                    self.cells.push(Cell::Invalid.into());
                 }
-                self.cells[cell.index] = Cell::Branch { index: child }.into();
+                CellResult::Recurse {
+                    index: child,
+                    eval: sub_eval.unwrap_or_else(|| i_handle.clone()),
+                }
+            }
+        }
+    }
+
+    /// Recurse down the octree, building the given cell
+    fn recurse<I: Family>(
+        &mut self,
+        i_handle: &IntervalEval<I>,
+        cell: CellIndex,
+        settings: Settings,
+    ) {
+        match self.eval_cell(i_handle, cell, settings) {
+            CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
+            CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
+            CellResult::Leaf(leaf) => {
+                self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
+            }
+            CellResult::Recurse { index, eval } => {
+                self.cells[cell.index] =
+                    Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
-                    let (x, y, z) = cell.interval(i);
-                    self.recurse(
-                        sub_eval.as_ref().unwrap_or(i_handle),
-                        CellIndex {
-                            index: child + i.index(),
-                            x,
-                            y,
-                            z,
-                            depth: cell.depth - 1,
-                        },
-                    );
+                    let cell = cell.child(index, i);
+                    self.recurse(&eval, cell, settings);
                 }
             }
         }
     }
 
     /// Evaluates the given leaf
-    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) {
+    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) -> Leaf {
         let float_eval = tape.new_float_slice_evaluator();
 
         let mut xs = [0.0; 8];
@@ -185,7 +286,7 @@ impl Octree {
                         / ((EDGE_SEARCH_SIZE - 1) as u32);
                     debug_assert!(pos.max() <= u16::MAX.into());
 
-                    let pos = cell.pos(pos.map(|v| v as u16));
+                    let pos = cell.pos(pos.map(|v| v as i32));
                     xs[i] = pos.x;
                     ys[i] = pos.y;
                     zs[i] = pos.z;
@@ -244,7 +345,7 @@ impl Octree {
                 .collect();
 
         for (i, xyz) in intersections.iter().enumerate() {
-            let pos = cell.pos(*xyz);
+            let pos = cell.pos(xyz.map(|i| i as i32));
             xs[i] = pos.x;
             ys[i] = pos.y;
             zs[i] = pos.z;
@@ -290,22 +391,26 @@ impl Octree {
             // when using normalized gradients, but I've found that fails on
             // things like the cone model.  Since we're not sampling from noisy
             // real-world data, let's be a little more strict.
-            let sol = svd.solve(&atb, 1e-6);
+            let sol = svd.solve(&atb, 1e-3);
             let pos = sol.map(|c| c + center).unwrap_or(center);
 
-            // Convert back to a relative (within-cell) position and store it
-            verts.push(cell.relative(pos));
+            // TODO: this is still a little awkward!
+            // Thoughts: perhaps we should try solving with a variety of
+            // epsilons, rejecting out-of-cell vertices **unless** their error
+            // is dramatically lower?
+
+            let pos = cell.relative(pos);
+            verts.push(pos);
         }
 
         let index = self.verts.len();
         self.verts.extend(verts.into_iter());
         // All intersections are valid (within the cell), by definition
-        self.verts.extend(
-            intersections
-                .into_iter()
-                .map(|pos| CellVertex { pos, _valid: true }),
-        );
-        self.cells[cell.index] = Cell::Leaf(Leaf { mask, index }).into();
+        self.verts
+            .extend(intersections.into_iter().map(|pos| CellVertex {
+                pos: pos.map(|i| i as i32),
+            }));
+        Leaf { mask, index }
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -332,7 +437,7 @@ impl Octree {
 #[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
 impl Octree {
     fn dc_cell(&self, cell: CellIndex, out: &mut MeshBuilder) {
-        if let Cell::Branch { index } = self.cells[cell.index].into() {
+        if let Cell::Branch { index, .. } = self.cells[cell.index].into() {
             debug_assert_eq!(index % 8, 0);
             for i in Corner::iter() {
                 self.dc_cell(self.child(cell, i), out);
@@ -388,16 +493,8 @@ impl Octree {
 
         match self.cells[cell.index].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
-            Cell::Branch { index } => {
-                let (x, y, z) = cell.interval(child);
-                CellIndex {
-                    index: index + child.index(),
-                    x,
-                    y,
-                    z,
-                    depth: cell.depth + 1,
-                }
-            }
+            Cell::Branch { index, .. } => cell.child(index, child),
+            Cell::Invalid => panic!(),
         }
     }
 
@@ -471,9 +568,10 @@ impl Octree {
             // include a sign change.  TODO: can we make this any -> all if we
             // collapse empty / filled leafs into Empty / Full cells?
             let leafs = cs.map(|cell| match self.cells[cell.index].into() {
-                Cell::Leaf(leaf) => Some(leaf),
+                Cell::Leaf { leaf, .. } => Some(leaf),
                 Cell::Empty | Cell::Full => None,
                 Cell::Branch { .. } => unreachable!(),
+                Cell::Invalid => panic!(),
             });
             if leafs.iter().any(Option::is_none) {
                 return;
@@ -547,11 +645,32 @@ impl Octree {
     }
 }
 
+/// Result of a single cell evaluation
+pub enum CellResult<I: Family> {
+    Empty,
+    Full,
+    Leaf(Leaf),
+    Recurse { index: usize, eval: IntervalEval<I> },
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::context::bound::{self, BoundContext, BoundNode};
     use std::collections::BTreeMap;
+
+    const DEPTH0_SINGLE_THREAD: Settings = Settings {
+        min_depth: 0,
+        max_depth: 0,
+        threads: 0,
+    };
+    const DEPTH1_SINGLE_THREAD: Settings = Settings {
+        min_depth: 1,
+        max_depth: 1,
+        threads: 0,
+    };
 
     fn sphere(
         ctx: &BoundContext,
@@ -588,7 +707,7 @@ mod test {
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
         let tape = cube.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, 0);
+        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
         let v = CellIndex::default().pos(octree.verts[0]);
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
@@ -641,10 +760,13 @@ mod test {
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
-        let octree = Octree::build(&tape, 0);
+        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(
-            Cell::Leaf(Leaf { mask: 0, index: 0 }),
+            Cell::Leaf {
+                leaf: Leaf { mask: 0, index: 0 },
+                thread: 0
+            },
             octree.cells[0].into(),
         );
         assert_eq!(octree.verts.len(), 0);
@@ -655,16 +777,23 @@ mod test {
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
-        let octree = Octree::build(&tape, 1);
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
-        assert_eq!(Cell::Branch { index: 8 }, octree.cells[0].into());
+        assert_eq!(
+            Cell::Branch {
+                index: 8,
+                thread: 0
+            },
+            octree.cells[0].into()
+        );
 
         // Each of the 6 edges is counted 4 times and each cell has 1 vertex
         assert_eq!(octree.verts.len(), 6 * 4 + 8, "incorrect vertex count");
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
         for o in &octree.cells[8..] {
-            let Cell::Leaf(Leaf { index, mask}) = (*o).into() else { panic!() };
+            let Cell::Leaf { leaf: Leaf { index, mask}, .. } = (*o).into()
+                else { panic!() };
             assert_eq!(mask.count_ones(), 1);
             assert_eq!(index % 4, 0);
         }
@@ -680,7 +809,7 @@ mod test {
         let shape = sphere(&ctx, [0.0; 3], 0.2);
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, 1);
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
         let sphere_mesh = octree.walk_dual();
 
         let mut edge_count = 0;
@@ -717,15 +846,24 @@ mod test {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.85);
 
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, 3);
-        let sphere_mesh = octree.walk_dual();
+        for threads in [0, 8] {
+            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+            let octree = Octree::build(
+                &tape,
+                Settings {
+                    min_depth: 5,
+                    max_depth: 5,
+                    threads,
+                },
+            );
+            let sphere_mesh = octree.walk_dual();
 
-        if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
-            panic!("{e}");
-        }
-        if let Err(e) = check_for_edge_matching(&sphere_mesh) {
-            panic!("{e}");
+            if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
+                panic!("{e}");
+            }
+            if let Err(e) = check_for_edge_matching(&sphere_mesh) {
+                panic!("{e}");
+            }
         }
     }
 
@@ -735,7 +873,7 @@ mod test {
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, 1);
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
         let mesh = octree.walk_dual();
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
@@ -785,7 +923,7 @@ mod test {
                     let (x, y, z) = ctx.axes();
                     let f = x * dx + y * dy + z + offset;
                     let tape = f.get_tape::<crate::vm::Eval>().unwrap();
-                    let octree = Octree::build(&tape, 0);
+                    let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
                     let pos = CellIndex::default().pos(octree.verts[0]);
@@ -812,65 +950,79 @@ mod test {
 
     #[test]
     fn test_cone_vert() {
-        let ctx = BoundContext::new();
-        let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
-        let tip = nalgebra::Vector3::new(0.2, 0.3, 0.4);
-        let shape = cone(&ctx, corner, tip, 0.1);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        // Test both in-cell and out-of-cell cone vertices
+        for tip in [
+            nalgebra::Vector3::new(0.2, 0.3, 0.4),
+            nalgebra::Vector3::new(1.2, 1.3, 1.4),
+        ] {
+            let ctx = BoundContext::new();
+            let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
+            let shape = cone(&ctx, corner, tip, 0.1);
+            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
 
-        let eval = tape.new_point_evaluator();
-        let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
-        assert!(v.abs() < 1e-6, "bad tip value: {v}");
-        let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
-        assert!(v < 0.0, "bad corner value: {v}");
+            let eval = tape.new_point_evaluator();
+            let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
+            assert!(v.abs() < 1e-6, "bad tip value: {v}");
+            let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
+            assert!(v < 0.0, "bad corner value: {v}");
 
-        let octree = Octree::build(&tape, 0);
-        assert_eq!(octree.cells.len(), 8);
-        assert_eq!(octree.verts.len(), 4);
+            let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+            assert_eq!(octree.cells.len(), 8);
+            assert_eq!(octree.verts.len(), 4);
 
-        let pos = CellIndex::default().pos(octree.verts[0]);
-        assert!(
-            (pos - tip).norm() < 1e-3,
-            "bad vertex position: expected {tip:?}, got {pos:?}"
-        );
+            let pos = CellIndex::default().pos(octree.verts[0]);
+            assert!(
+                (pos - tip).norm() < 1e-3,
+                "bad vertex position: expected {tip:?}, got {pos:?}"
+            );
+        }
     }
 
     #[test]
     fn test_mesh_manifold() {
-        for i in 0..256 {
-            let ctx = BoundContext::new();
-            let mut shape = vec![];
-            for j in Corner::iter() {
-                if i & (1 << j.index()) != 0 {
-                    shape.push(sphere(
-                        &ctx,
-                        [
-                            if j & X { 0.5 } else { 0.0 },
-                            if j & Y { 0.5 } else { 0.0 },
-                            if j & Z { 0.5 } else { 0.0 },
-                        ],
-                        0.1,
-                    ));
+        for threads in [0, 8] {
+            for i in 0..256 {
+                let ctx = BoundContext::new();
+                let mut shape = vec![];
+                for j in Corner::iter() {
+                    if i & (1 << j.index()) != 0 {
+                        shape.push(sphere(
+                            &ctx,
+                            [
+                                if j & X { 0.5 } else { 0.0 },
+                                if j & Y { 0.5 } else { 0.0 },
+                                if j & Z { 0.5 } else { 0.0 },
+                            ],
+                            0.1,
+                        ));
+                    }
                 }
-            }
-            let Some(start) = shape.pop() else { continue };
-            let shape = shape.into_iter().fold(start, |acc, s| acc.min(s));
+                let Some(start) = shape.pop() else { continue };
+                let shape = shape.into_iter().fold(start, |acc, s| acc.min(s));
 
-            // Now, we have our shape, which is 0-8 spheres placed at the
-            // corners of the cell spanning [0, 0.25]
-            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-            let octree = Octree::build(&tape, 2);
+                // Now, we have our shape, which is 0-8 spheres placed at the
+                // corners of the cell spanning [0, 0.25]
+                let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+                let octree = Octree::build(
+                    &tape,
+                    Settings {
+                        min_depth: 2,
+                        max_depth: 2,
+                        threads,
+                    },
+                );
 
-            let mesh = octree.walk_dual();
-            if i != 0 && i != 255 {
-                assert!(!mesh.vertices.is_empty());
-                assert!(!mesh.triangles.is_empty());
-            }
-            if let Err(e) = check_for_vertex_dupes(&mesh) {
-                panic!("mask {i:08b} has {e}");
-            }
-            if let Err(e) = check_for_edge_matching(&mesh) {
-                panic!("mask {i:08b} has {e}");
+                let mesh = octree.walk_dual();
+                if i != 0 && i != 255 {
+                    assert!(!mesh.vertices.is_empty());
+                    assert!(!mesh.triangles.is_empty());
+                }
+                if let Err(e) = check_for_vertex_dupes(&mesh) {
+                    panic!("mask {i:08b} has {e}");
+                }
+                if let Err(e) = check_for_edge_matching(&mesh) {
+                    panic!("mask {i:08b} has {e}");
+                }
             }
         }
     }

@@ -9,21 +9,28 @@ use super::{
 /// Raw cell data
 ///
 /// Unpack to a [`Cell`] to actually use it
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct CellData(u64);
 
 impl From<Cell> for CellData {
     fn from(c: Cell) -> Self {
         let i = match c {
-            Cell::Empty => 0b00 << 62,
-            Cell::Full => 0b01 << 62,
-            Cell::Branch { index } => {
-                debug_assert!(index < (1 << 62));
-                0b10 << 62 | index as u64
-            }
-            Cell::Leaf(Leaf { mask, index }) => {
+            Cell::Invalid => 0,
+            Cell::Empty => 1,
+            Cell::Full => 2,
+            Cell::Branch { index, thread } => {
                 debug_assert!(index < (1 << 54));
-                (0b11 << 62) | ((mask as u64) << 54) | index as u64
+                0b10 << 62 | ((thread as u64) << 54) | index as u64
+            }
+            Cell::Leaf {
+                leaf: Leaf { mask, index },
+                thread,
+            } => {
+                debug_assert!(index < (1 << 46));
+                (0b11 << 62)
+                    | ((mask as u64) << 54)
+                    | ((thread as u64) << 46)
+                    | index as u64
             }
         };
         CellData(i)
@@ -40,12 +47,6 @@ impl std::fmt::Debug for CellData {
     }
 }
 
-impl CellData {
-    pub fn new(i: u64) -> Self {
-        Self(i)
-    }
-}
-
 static_assertions::const_assert_eq!(
     std::mem::size_of::<usize>(),
     std::mem::size_of::<u64>()
@@ -54,26 +55,34 @@ static_assertions::const_assert_eq!(
 /// Unpacked form of [`CellData`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Cell {
+    Invalid,
     Empty,
     Full,
-    Branch { index: usize },
-    Leaf(Leaf),
+    Branch { index: usize, thread: u8 },
+    Leaf { leaf: Leaf, thread: u8 },
 }
 
 impl From<CellData> for Cell {
     fn from(c: CellData) -> Self {
         let i = c.0 as usize;
-        match (i >> 62) & 0b11 {
-            0b00 => Cell::Empty,
-            0b01 => Cell::Full,
-            0b10 => Cell::Branch {
-                index: i & ((1 << 62) - 1),
+        match i {
+            0 => Cell::Invalid,
+            1 => Cell::Empty,
+            2 => Cell::Full,
+            _ => match (i >> 62) & 0b11 {
+                0b10 => Cell::Branch {
+                    index: i & ((1 << 54) - 1),
+                    thread: (i >> 54) as u8,
+                },
+                0b11 => Cell::Leaf {
+                    leaf: Leaf {
+                        mask: (i >> 54) as u8,
+                        index: i & ((1 << 46) - 1),
+                    },
+                    thread: (i >> 46) as u8,
+                },
+                _ => panic!("invalid cell encoding"),
             },
-            0b11 => Cell::Leaf(Leaf {
-                mask: (i >> 54) as u8,
-                index: i & ((1 << 54) - 1),
-            }),
-            _ => unreachable!(),
         }
     }
 }
@@ -96,13 +105,25 @@ impl Leaf {
 #[derive(Copy, Clone, Debug)]
 pub struct CellVertex {
     /// Position, as a relative offset within a cell's bounding box
-    pub pos: nalgebra::Vector3<u16>,
-
-    /// If a vertex is valid, its original position was within the bounding box
-    pub _valid: bool,
+    ///
+    /// The lower `u16` represents the cell's bounding box; higher bits are for
+    /// vertices that exceed the bounding box.
+    pub pos: nalgebra::Vector3<i32>,
 }
 
-impl From<CellVertex> for nalgebra::Vector3<u16> {
+impl CellVertex {
+    /// Checks whether the vertex is contained within the cell
+    pub fn valid(self) -> bool {
+        self.pos.x >= 0
+            && self.pos.x <= u16::MAX as i32
+            && self.pos.y >= 0
+            && self.pos.y <= u16::MAX as i32
+            && self.pos.z >= 0
+            && self.pos.z <= u16::MAX as i32
+    }
+}
+
+impl From<CellVertex> for nalgebra::Vector3<i32> {
     fn from(v: CellVertex) -> Self {
         v.pos
     }
@@ -183,9 +204,8 @@ impl CellIndex {
         (x, y, z)
     }
 
-    /// Returns the interval of the given child (0-7)
-    pub fn interval(&self, i: Corner) -> (Interval, Interval, Interval) {
-        // TODO: make this a function in `Interval`?
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner) -> Self {
         let x = if i & X {
             Interval::new(self.x.midpoint(), self.x.upper())
         } else {
@@ -201,11 +221,17 @@ impl CellIndex {
         } else {
             Interval::new(self.z.lower(), self.z.midpoint())
         };
-        (x, y, z)
+        CellIndex {
+            index: index + i.index(),
+            x,
+            y,
+            z,
+            depth: self.depth + 1,
+        }
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    pub fn pos<P: Into<nalgebra::Vector3<u16>>>(
+    pub fn pos<P: Into<nalgebra::Vector3<i32>>>(
         &self,
         p: P,
     ) -> nalgebra::Vector3<f32> {
@@ -225,20 +251,12 @@ impl CellIndex {
         let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
         let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
 
-        let valid = x >= 0.0
-            && x <= u16::MAX as f32
-            && y >= 0.0
-            && y <= u16::MAX as f32
-            && z >= 0.0
-            && z <= u16::MAX as f32;
-
         CellVertex {
             pos: nalgebra::Vector3::new(
-                x.clamp(0.0, u16::MAX as f32) as u16,
-                y.clamp(0.0, u16::MAX as f32) as u16,
-                z.clamp(0.0, u16::MAX as f32) as u16,
+                x.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+                y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+                z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
             ),
-            _valid: valid,
         }
     }
 }
@@ -253,19 +271,30 @@ mod test {
     fn test_cell_encode_decode() {
         for c in [
             Cell::Empty,
+            Cell::Invalid,
             Cell::Full,
-            Cell::Branch { index: 12345 },
             Cell::Branch {
-                index: 0x1234000054322345,
-            },
-            Cell::Leaf(Leaf {
                 index: 12345,
-                mask: 0b101,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x123400005432,
-                mask: 0b11011010,
-            }),
+                thread: 17,
+            },
+            Cell::Branch {
+                index: 0x12340054322345,
+                thread: 128,
+            },
+            Cell::Leaf {
+                leaf: Leaf {
+                    index: 12345,
+                    mask: 0b101,
+                },
+                thread: 123,
+            },
+            Cell::Leaf {
+                leaf: Leaf {
+                    index: 0x123400005432,
+                    mask: 0b11011010,
+                },
+                thread: 18,
+            },
         ] {
             assert_eq!(c, Cell::from(CellData::from(c)));
         }
