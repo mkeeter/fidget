@@ -364,8 +364,7 @@ impl Octree {
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut ata = nalgebra::Matrix3::zeros();
             let mut atb = nalgebra::Vector3::zeros();
-            // We won't track B^T B here, since it's only useful for calculating
-            // the actual error, which we don't really care about.
+            let mut btb = 0.0;
 
             let mut mass_point = nalgebra::Vector3::zeros();
             for _ in 0..vs.len() {
@@ -380,27 +379,49 @@ impl Octree {
 
                 ata += norm * norm.transpose();
                 atb += norm * norm.dot(&pos);
+                btb += norm.dot(&pos).powi(2);
                 i += 1;
             }
-            // Minimize towards mass point of intersections
+            // Minimize towards mass point of intersections, which requires
+            // substituting B' = B - Ac in the QEF equations.
             let center = mass_point / vs.len() as f32;
+            btb += ((center.transpose() * ata - atb.transpose()) * center
+                - center.transpose() * atb)[0];
             atb -= ata * center;
 
             let svd = nalgebra::linalg::SVD::new(ata, true, true);
             // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
             // when using normalized gradients, but I've found that fails on
-            // things like the cone model.  Since we're not sampling from noisy
-            // real-world data, let's be a little more strict.
-            let sol = svd.solve(&atb, 1e-3);
-            let pos = sol.map(|c| c + center).unwrap_or(center);
+            // things like the cone model.  Instead, we'll be a little more
+            // clever: we'll pick the smallest epsilon that keeps the feature in
+            // the cell without dramatically increasing QEF error.
+            const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
+            let mut prev = None;
+            for (i, &epsilon) in EPSILONS.iter().enumerate() {
+                let sol = svd.solve(&atb, epsilon);
+                let pos = sol.map(|c| c + center).unwrap_or(center);
+                let err = (pos.transpose() * ata * pos
+                    - 2.0 * pos.transpose() * atb)[0]
+                    + btb;
 
-            // TODO: this is still a little awkward!
-            // Thoughts: perhaps we should try solving with a variety of
-            // epsilons, rejecting out-of-cell vertices **unless** their error
-            // is dramatically lower?
+                // If this epsilon dramatically increases the error, then we'll
+                // assume that the previous (out-of-cell) vertex was genuine and
+                // use it.
+                if prev
+                    .map(|(prev_err, _)| err > prev_err * 2.0)
+                    .unwrap_or(false)
+                {
+                    verts.push(prev.unwrap().1);
+                    break;
+                }
 
-            let pos = cell.relative(pos);
-            verts.push(pos);
+                let pos = cell.relative(pos);
+                if i == EPSILONS.len() - 1 || pos.valid() {
+                    verts.push(pos);
+                    break;
+                }
+                prev = Some((err, pos));
+            }
         }
 
         let index = self.verts.len();
@@ -857,6 +878,14 @@ mod test {
                 },
             );
             let sphere_mesh = octree.walk_dual();
+            /*
+            sphere_mesh
+                .write_stl(
+                    &mut std::fs::File::create(format!("out{threads}.stl"))
+                        .unwrap(),
+                )
+                .unwrap();
+            */
 
             if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
                 panic!("{e}");
