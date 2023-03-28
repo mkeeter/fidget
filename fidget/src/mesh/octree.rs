@@ -395,6 +395,10 @@ impl Octree {
             // things like the cone model.  Instead, we'll be a little more
             // clever: we'll pick the smallest epsilon that keeps the feature in
             // the cell without dramatically increasing QEF error.
+            //
+            // TODO: iterating by epsilons is a _little_ silly, because what we
+            // actually care about is turning off the 0/1/2/3 lowest eigenvalues
+            // in the solution matrix.
             const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
             let mut prev = None;
             for (i, &epsilon) in EPSILONS.iter().enumerate() {
@@ -407,14 +411,16 @@ impl Octree {
                 // If this epsilon dramatically increases the error, then we'll
                 // assume that the previous (out-of-cell) vertex was genuine and
                 // use it.
-                if prev
-                    .map(|(prev_err, _)| err > prev_err * 2.0)
-                    .unwrap_or(false)
+                if let Some((_, prev_pos)) =
+                    prev.filter(|(prev_err, _)| err > prev_err * 2.0)
                 {
-                    verts.push(prev.unwrap().1);
+                    verts.push(prev_pos);
                     break;
                 }
 
+                // If the matrix solution is in the cell, then we assume the
+                // solution is good; we _also_ stop iterating if this is the
+                // last possible chance.
                 let pos = cell.relative(pos);
                 if i == EPSILONS.len() - 1 || pos.valid() {
                     verts.push(pos);
@@ -426,7 +432,6 @@ impl Octree {
 
         let index = self.verts.len();
         self.verts.extend(verts.into_iter());
-        // All intersections are valid (within the cell), by definition
         self.verts
             .extend(intersections.into_iter().map(|pos| CellVertex {
                 pos: pos.map(|i| i as i32),
