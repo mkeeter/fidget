@@ -661,6 +661,7 @@ impl Context {
     /// ```
     /// # use fidget::context::Context;
     /// let txt = "
+    /// ## This is a comment!
     /// 0x600000b90000 var-x
     /// 0x600000b900a0 square 0x600000b90000
     /// 0x600000b90050 var-y
@@ -682,7 +683,7 @@ impl Context {
         let mut last = None;
 
         for line in reader.lines().map(|line| line.unwrap()) {
-            if line.is_empty() {
+            if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             let mut iter = line.split_whitespace();

@@ -1,0 +1,809 @@
+# Model of a colonnade with a balcony and outside staircase
+_0 var-y
+_1 const 10
+_2 mul _0 _1
+_3 const 3.5
+_4 sub _2 _3
+_5 const 0.5
+_6 sub _5 _2
+_7 max _4 _6
+_8 var-z
+_9 mul _8 _1
+_a add _3 _9
+_b neg _a
+_c max _7 _b
+_d const 1
+_e add _d _9
+_f max _c _e
+_10 const 2
+_11 sub _2 _10
+_12 square _11
+_13 square _e
+_14 add _12 _13
+_15 sqrt _14
+_16 const 1.5
+_17 sub _15 _16
+_18 min _f _17
+_19 const 7
+_1a sub _2 _19
+_1b const 4
+_1c sub _1b _2
+_1d max _1a _1c
+_1e max _1d _b
+_1f max _1e _e
+_20 min _18 _1f
+_21 const 5.5
+_22 sub _2 _21
+_23 square _22
+_24 add _23 _13
+_25 sqrt _24
+_26 sub _25 _16
+_27 min _20 _26
+_28 const 7.5
+_29 sub _28 _2
+_2a const 10.5
+_2b sub _2 _2a
+_2c max _29 _2b
+_2d max _2c _b
+_2e max _2d _e
+_2f min _27 _2e
+_30 const 9
+_31 sub _2 _30
+_32 square _31
+_33 add _32 _13
+_34 sqrt _33
+_35 sub _34 _16
+_36 min _2f _35
+_37 const 3
+_38 add _37 _2
+_39 neg _38
+_3a max _39 _2
+_3b max _3a _b
+_3c max _3b _e
+_3d min _36 _3c
+_3e add _16 _2
+_3f square _3e
+_40 add _3f _13
+_41 sqrt _40
+_42 sub _41 _16
+_43 min _3d _42
+_44 neg _43
+_45 const 2.5
+_46 var-x
+_47 mul _46 _1
+_48 add _45 _47
+_49 max _44 _48
+_4a add _37 _47
+_4b neg _4a
+_4c max _49 _4b
+_4d sub _9 _45
+_4e max _4c _4d
+_4f max _4e _31
+_50 add _3 _2
+_51 neg _50
+_52 max _4f _51
+_53 max _52 _b
+_54 const 5.7
+_55 sub _47 _54
+_56 max _44 _55
+_57 const 5.2
+_58 sub _57 _47
+_59 max _56 _58
+_5a max _59 _4d
+_5b max _5a _31
+_5c max _5b _51
+_5d max _5c _b
+_5e min _53 _5d
+_5f const 16.5
+_60 sub _9 _5f
+_61 sub _3 _9
+_62 max _60 _61
+_63 const 4.1
+_64 add _63 _2
+_65 max _62 _64
+_66 const 13.5
+_67 add _2 _66
+_68 neg _67
+_69 max _65 _68
+_6a sub _47 _30
+_6b max _69 _6a
+_6c const 5
+_6d sub _6c _47
+_6e max _6b _6d
+_6f max _60 _6a
+_70 max _6f _6d
+_71 sub _5 _9
+_72 max _70 _71
+_73 add _28 _2
+_74 max _72 _73
+_75 const 8.5
+_76 add _75 _2
+_77 neg _76
+_78 max _74 _77
+_79 min _6e _78
+_7a const 3.1
+_7b sub _7a _9
+_7c max _6a _7b
+_7d max _7c _2b
+_7e const 6.5
+_7f sub _7e _2
+_80 max _7d _7f
+_81 sub _37 _47
+_82 max _80 _81
+_83 sub _9 _7e
+_84 max _82 _83
+_85 min _79 _84
+_86 max _60 _64
+_87 max _86 _6d
+_88 sub _16 _9
+_89 max _87 _88
+_8a const 6.1
+_8b add _8a _2
+_8c neg _8b
+_8d max _89 _8c
+_8e const 5.8
+_8f sub _47 _8e
+_90 max _8d _8f
+_91 const 8
+_92 mul _46 _91
+_93 add _45 _9
+_94 sub _92 _93
+_95 max _90 _94
+_96 min _85 _95
+_97 max _6d _7b
+_98 max _97 _8f
+_99 const 6
+_9a sub _9 _99
+_9b max _98 _9a
+_9c const 6.2
+_9d sub _2 _9c
+_9e max _9b _9d
+_9f add _45 _2
+_a0 neg _9f
+_a1 max _9e _a0
+_a2 min _96 _a1
+_a3 sub _9 _8e
+_a4 max _6d _a3
+_a5 sub _2 _99
+_a6 max _a4 _a5
+_a7 const 2.3
+_a8 add _a7 _2
+_a9 neg _a8
+_aa max _a6 _a9
+_ab sub _47 _99
+_ac max _aa _ab
+_ad const 3.3
+_ae sub _ad _9
+_af max _ac _ae
+_b0 min _a2 _af
+_b1 max _86 _88
+_b2 max _b1 _8c
+_b3 const 6.7
+_b4 sub _b3 _47
+_b5 max _b2 _b4
+_b6 sub _47 _28
+_b7 max _b5 _b6
+_b8 add _92 _9
+_b9 sub _28 _b8
+_ba max _b7 _b9
+_bb min _b0 _ba
+_bc max _7b _9a
+_bd max _bc _9d
+_be max _bd _a0
+_bf max _be _b4
+_c0 max _bf _b6
+_c1 min _bb _c0
+_c2 max _a3 _a5
+_c3 max _c2 _a9
+_c4 max _c3 _b6
+_c5 sub _7e _47
+_c6 max _c4 _c5
+_c7 max _c6 _ae
+_c8 min _c1 _c7
+_c9 neg _c8
+_ca sub _21 _47
+_cb max _c9 _ca
+_cc max _cb _31
+_cd max _cc _77
+_ce sub _47 _19
+_cf max _cd _ce
+_d0 max _cf _83
+_d1 max _d0 _b
+_d2 min _5e _d1
+_d3 sub _9 _3
+_d4 const 5.4
+_d5 add _d4 _2
+_d6 max _d3 _d5
+_d7 add _7e _2
+_d8 neg _d7
+_d9 max _d6 _d8
+_da const 6.8
+_db sub _47 _da
+_dc max _d9 _db
+_dd sub _54 _47
+_de max _dc _dd
+_df max _de _ae
+_e0 min _d2 _df
+_e1 const 6.7
+_e2 sub _9 _e1
+_e3 sub _2 _7e
+_e4 max _e2 _e3
+_e5 const 4.3
+_e6 add _e5 _2
+_e7 neg _e6
+_e8 max _e4 _e7
+_e9 const 7.2
+_ea sub _47 _e9
+_eb max _e8 _ea
+_ec const 5.3
+_ed sub _ec _47
+_ee max _eb _ed
+_ef sub _7e _9
+_f0 max _ee _ef
+_f1 min _e0 _f0
+_f2 const 1.7238
+_f3 mul _8 _f2
+_f4 const 5.43983
+_f5 add _f3 _f4
+_f6 const 9.8503
+_f7 mul _0 _f6
+_f8 add _f5 _f7
+_f9 const 7.95658
+_fa add _f9 _f7
+_fb sub _f3 _fa
+_fc max _f8 _fb
+_fd const 1.84289
+_fe mul _8 _fd
+_ff const 9.82872
+_100 mul _46 _ff
+_101 add _fe _100
+_102 const 7.48826
+_103 sub _101 _102
+_104 max _fc _103
+_105 const 4.79765
+_106 add _fe _105
+_107 sub _106 _100
+_108 max _104 _107
+_109 const 3.9
+_10a sub _9 _109
+_10b max _108 _10a
+_10c max _10b _ae
+_10d min _f1 _10c
+_10e sub _47 _e1
+_10f sub _8e _47
+_110 max _10e _10f
+_111 square _64
+_112 sub _9 _ad
+_113 square _112
+_114 add _111 _113
+_115 sqrt _114
+_116 sub _115 _16
+_117 max _110 _116
+_118 min _10d _117
+_119 max _db _dd
+_11a max _119 _116
+_11b const 1.3
+_11c sub _11b _115
+_11d max _11a _11c
+_11e max _11d _ae
+_11f min _118 _11e
+_120 const 5.6
+_121 sub _9 _120
+_122 square _121
+_123 const 4.85
+_124 sub _47 _123
+_125 square _124
+_126 add _122 _125
+_127 const 3.15
+_128 add _127 _2
+_129 square _128
+_12a add _126 _129
+_12b sqrt _12a
+_12c const 0.1
+_12d sub _12b _12c
+_12e min _11f _12d
+_12f const 2.8
+_130 sub _12f _9
+_131 const 5.4
+_132 sub _131 _2
+_133 max _130 _132
+_134 max _133 _6a
+_135 max _134 _31
+_136 sub _9 _7a
+_137 max _135 _136
+_138 add _30 _47
+_139 neg _138
+_13a max _137 _139
+_13b const 30
+_13c mul _8 _13b
+_13d add _131 _2
+_13e sub _13c _13d
+_13f sub _13c _38
+_140 sub _30 _47
+_141 sub _47 _21
+_142 min _140 _141
+_143 neg _142
+_144 max _13f _143
+_145 neg _144
+_146 max _13e _145
+_147 const 0.0999999
+_148 add _147 _9
+_149 min _148 _7b
+_14a neg _149
+_14b max _146 _14a
+_14c max _14b _143
+_14d min _13a _14c
+_14e const 9.3
+_14f add _14e _2
+_150 sub _13c _14f
+_151 max _150 _143
+_152 const 6.9
+_153 add _152 _2
+_154 sub _13c _153
+_155 max _143 _154
+_156 const 0.2
+_157 sub _156 _9
+_158 min _155 _157
+_159 min _158 _76
+_15a neg _159
+_15b max _151 _15a
+_15c min _14d _15b
+_15d sub _9 _156
+_15e neg _148
+_15f max _15d _15e
+_160 const 3.2
+_161 add _160 _2
+_162 max _15f _161
+_163 const 7.2
+_164 add _163 _2
+_165 neg _164
+_166 max _162 _165
+_167 sub _19 _47
+_168 max _166 _167
+_169 max _168 _6a
+_16a min _15c _169
+_16b max _157 _38
+_16c const 0.371
+_16d sub _16c _9
+_16e max _16d _9f
+_16f min _16b _16e
+_170 add _10 _2
+_171 const 0.542
+_172 sub _171 _9
+_173 max _170 _172
+_174 min _16f _173
+_175 const 0.713
+_176 sub _175 _9
+_177 max _176 _3e
+_178 min _174 _177
+_179 add _d _2
+_17a const 0.884
+_17b sub _17a _9
+_17c max _179 _17b
+_17d min _178 _17c
+_17e add _5 _2
+_17f const 1.055
+_180 sub _17f _9
+_181 max _17e _180
+_182 min _17d _181
+_183 const 1.226
+_184 sub _183 _9
+_185 max _184 _2
+_186 min _182 _185
+_187 sub _2 _5
+_188 const 1.397
+_189 sub _188 _9
+_18a max _187 _189
+_18b min _186 _18a
+_18c sub _2 _d
+_18d const 1.568
+_18e sub _18d _9
+_18f max _18c _18e
+_190 min _18b _18f
+_191 sub _2 _16
+_192 const 1.739
+_193 sub _192 _9
+_194 max _191 _193
+_195 min _190 _194
+_196 const 1.91
+_197 sub _196 _9
+_198 max _197 _11
+_199 min _195 _198
+_19a sub _2 _45
+_19b const 2.081
+_19c sub _19b _9
+_19d max _19a _19c
+_19e min _199 _19d
+_19f sub _2 _37
+_1a0 const 2.252
+_1a1 sub _1a0 _9
+_1a2 max _19f _1a1
+_1a3 min _19e _1a2
+_1a4 const 2.423
+_1a5 sub _1a4 _9
+_1a6 max _1a5 _4
+_1a7 min _1a3 _1a6
+_1a8 sub _2 _1b
+_1a9 const 2.594
+_1aa sub _1a9 _9
+_1ab max _1a8 _1aa
+_1ac min _1a7 _1ab
+_1ad const 4.5
+_1ae sub _2 _1ad
+_1af const 2.765
+_1b0 sub _1af _9
+_1b1 max _1ae _1b0
+_1b2 min _1ac _1b1
+_1b3 sub _2 _6c
+_1b4 const 2.936
+_1b5 sub _1b4 _9
+_1b6 max _1b3 _1b5
+_1b7 min _1b2 _1b6
+_1b8 const 3.107
+_1b9 sub _1b8 _9
+_1ba max _1b9 _22
+_1bb min _1b7 _1ba
+_1bc const 3.278
+_1bd sub _1bc _9
+_1be max _1bd _a5
+_1bf min _1bb _1be
+_1c0 const 3.449
+_1c1 sub _1c0 _9
+_1c2 max _1c1 _e3
+_1c3 min _1bf _1c2
+_1c4 const 9.2
+_1c5 add _1c4 _2
+_1c6 const 0.65
+_1c7 add _1c6 _9
+_1c8 neg _1c7
+_1c9 max _1c5 _1c8
+_1ca min _1c3 _1c9
+_1cb const 8.7
+_1cc add _1cb _2
+_1cd const 0.479
+_1ce add _1cd _9
+_1cf neg _1ce
+_1d0 max _1cc _1cf
+_1d1 min _1ca _1d0
+_1d2 const 8.2
+_1d3 add _1d2 _2
+_1d4 const 0.308
+_1d5 add _1d4 _9
+_1d6 neg _1d5
+_1d7 max _1d3 _1d6
+_1d8 min _1d1 _1d7
+_1d9 const 7.7
+_1da add _1d9 _2
+_1db const 0.137
+_1dc add _1db _9
+_1dd neg _1dc
+_1de max _1da _1dd
+_1df min _1d8 _1de
+_1e0 const 0.0339999
+_1e1 sub _1e0 _9
+_1e2 max _164 _1e1
+_1e3 min _1df _1e2
+_1e4 neg _1e3
+_1e5 max _16a _1e4
+_1e6 min _12e _1e5
+_1e7 const 2.75
+_1e8 add _1e7 _47
+_1e9 square _1e8
+_1ea add _129 _1e9
+_1eb sqrt _1ea
+_1ec sub _1eb _12c
+_1ed const 7.4
+_1ee sub _9 _1ed
+_1ef max _1ec _1ee
+_1f0 max _1ef _ef
+_1f1 min _1e6 _1f0
+_1f2 square _1ee
+_1f3 add _1f2 _129
+_1f4 add _1f3 _1e9
+_1f5 sqrt _1f4
+_1f6 sub _1f5 _12c
+_1f7 min _1f1 _1f6
+_1f8 const 4.8
+_1f9 sub _9 _1f8
+_1fa sub _45 _9
+_1fb max _1f9 _1fa
+_1fc const 7.1
+_1fd add _1fc _47
+_1fe neg _1fd
+_1ff max _1fb _1fe
+_200 const 2.6
+_201 add _200 _2
+_202 max _1ff _201
+_203 const 3.7
+_204 add _203 _2
+_205 neg _204
+_206 max _202 _205
+_207 add _99 _47
+_208 max _206 _207
+_209 min _1f7 _208
+_20a mul _8 _6c
+_20b const 2.2
+_20c sub _20a _20b
+_20d square _20c
+_20e const 6.55
+_20f add _20e _47
+_210 square _20f
+_211 add _20d _210
+_212 add _211 _129
+_213 sqrt _212
+_214 sub _213 _5
+_215 min _209 _214
+_216 sub _1f8 _9
+_217 max _121 _216
+_218 add _210 _129
+_219 sqrt _218
+_21a sub _219 _12c
+_21b max _217 _21a
+_21c min _215 _21b
+_21d add _210 _122
+_21e add _21d _129
+_21f sqrt _21e
+_220 sub _21f _12c
+_221 min _21c _220
+_222 const 1.6
+_223 sub _47 _222
+_224 max _1fb _223
+_225 sub _5 _47
+_226 max _224 _225
+_227 max _226 _201
+_228 max _227 _205
+_229 min _221 _228
+_22a const 1.05
+_22b sub _47 _22a
+_22c square _22b
+_22d add _20d _22c
+_22e add _22d _129
+_22f sqrt _22e
+_230 sub _22f _5
+_231 min _229 _230
+_232 add _22c _129
+_233 sqrt _232
+_234 sub _233 _12c
+_235 max _217 _234
+_236 min _231 _235
+_237 add _122 _22c
+_238 add _237 _129
+_239 sqrt _238
+_23a sub _239 _12c
+_23b min _236 _23a
+_23c sub _47 _131
+_23d max _1fb _23c
+_23e const 4.3
+_23f sub _23e _47
+_240 max _23d _23f
+_241 max _240 _201
+_242 max _241 _205
+_243 min _23b _242
+_244 add _20d _125
+_245 add _244 _129
+_246 sqrt _245
+_247 sub _246 _5
+_248 min _243 _247
+_249 add _125 _129
+_24a sqrt _249
+_24b sub _24a _12c
+_24c max _217 _24b
+_24d min _248 _24c
+_24e max _141 _139
+_24f const 4.2
+_250 sub _9 _24f
+_251 max _24e _250
+_252 max _251 _ae
+_253 const 3.4
+_254 add _253 _2
+_255 max _252 _254
+_256 const 3.6
+_257 add _256 _2
+_258 neg _257
+_259 max _255 _258
+_25a sub _9 _63
+_25b sub _253 _9
+_25c max _25a _25b
+_25d max _25c _9f
+_25e const 8.1
+_25f add _25e _47
+_260 max _25d _25f
+_261 const 8.9
+_262 add _261 _47
+_263 neg _262
+_264 max _260 _263
+_265 max _264 _51
+_266 min _259 _265
+_267 const 7.15
+_268 add _267 _47
+_269 max _25d _268
+_26a const 7.95
+_26b add _26a _47
+_26c neg _26b
+_26d max _269 _26c
+_26e max _26d _51
+_26f min _266 _26e
+_270 add _57 _47
+_271 max _25d _270
+_272 neg _207
+_273 max _271 _272
+_274 max _273 _51
+_275 min _26f _274
+_276 const 4.25
+_277 add _276 _47
+_278 max _25d _277
+_279 const 5.05
+_27a add _279 _47
+_27b neg _27a
+_27c max _278 _27b
+_27d max _27c _51
+_27e min _275 _27d
+_27f const 3.3
+_280 add _27f _47
+_281 max _25d _280
+_282 add _63 _47
+_283 neg _282
+_284 max _281 _283
+_285 max _284 _51
+_286 min _27e _285
+_287 const 1.4
+_288 add _287 _47
+_289 max _25d _288
+_28a const 2.2
+_28b add _28a _47
+_28c neg _28b
+_28d max _289 _28c
+_28e max _28d _51
+_28f min _286 _28e
+_290 const 0.45
+_291 add _290 _47
+_292 max _25d _291
+_293 const 1.25
+_294 add _293 _47
+_295 neg _294
+_296 max _292 _295
+_297 max _296 _51
+_298 min _28f _297
+_299 sub _47 _5
+_29a max _25d _299
+_29b const 0.3
+_29c add _29b _47
+_29d neg _29c
+_29e max _29a _29d
+_29f max _29e _51
+_2a0 min _298 _29f
+_2a1 const 2.4
+_2a2 sub _47 _2a1
+_2a3 max _25d _2a2
+_2a4 const 1.6
+_2a5 sub _2a4 _47
+_2a6 max _2a3 _2a5
+_2a7 max _2a6 _51
+_2a8 min _2a0 _2a7
+_2a9 const 3.35
+_2aa sub _47 _2a9
+_2ab max _25d _2aa
+_2ac const 2.55
+_2ad sub _2ac _47
+_2ae max _2ab _2ad
+_2af max _2ae _51
+_2b0 min _2a8 _2af
+_2b1 sub _47 _e5
+_2b2 max _25d _2b1
+_2b3 const 3.5
+_2b4 sub _2b3 _47
+_2b5 max _2b2 _2b4
+_2b6 max _2b5 _51
+_2b7 min _2b0 _2b6
+_2b8 neg _2b7
+_2b9 max _2b8 _38
+_2ba max _2b9 _51
+_2bb const 4.4
+_2bc sub _9 _2bb
+_2bd max _2ba _2bc
+_2be max _2bd _b
+_2bf max _2be _ab
+_2c0 max _2bf _139
+_2c1 max _b _e
+_2c2 add _28 _47
+_2c3 max _2c1 _2c2
+_2c4 add _47 _2a
+_2c5 neg _2c4
+_2c6 max _2c3 _2c5
+_2c7 square _138
+_2c8 add _13 _2c7
+_2c9 sqrt _2c8
+_2ca sub _2c9 _16
+_2cb min _2c6 _2ca
+_2cc add _1b _47
+_2cd max _2c1 _2cc
+_2ce add _19 _47
+_2cf neg _2ce
+_2d0 max _2cd _2cf
+_2d1 min _2cb _2d0
+_2d2 add _21 _47
+_2d3 square _2d2
+_2d4 add _13 _2d3
+_2d5 sqrt _2d4
+_2d6 sub _2d5 _16
+_2d7 min _2d1 _2d6
+_2d8 sub _47 _16
+_2d9 max _2c1 _2d8
+_2da add _16 _47
+_2db neg _2da
+_2dc max _2d9 _2db
+_2dd min _2d7 _2dc
+_2de square _47
+_2df add _13 _2de
+_2e0 sqrt _2df
+_2e1 sub _2e0 _16
+_2e2 min _2dd _2e1
+_2e3 sub _47 _6c
+_2e4 max _2c1 _2e3
+_2e5 sub _10 _47
+_2e6 max _2e4 _2e5
+_2e7 min _2e2 _2e6
+_2e8 sub _47 _3
+_2e9 square _2e8
+_2ea add _13 _2e9
+_2eb sqrt _2ea
+_2ec sub _2eb _16
+_2ed min _2e7 _2ec
+_2ee neg _2ed
+_2ef max _2c0 _2ee
+_2f0 min _24d _2ef
+_2f1 add _1b _9
+_2f2 neg _2f1
+_2f3 max _2f2 _31
+_2f4 max _2f3 _77
+_2f5 max _2f4 _ce
+_2f6 max _2f5 _a
+_2f7 max _2f6 _139
+_2f8 min _2f0 _2f7
+_2f9 max _31 _ce
+_2fa const 2.3
+_2fb sub _9 _2fa
+_2fc max _2f9 _2fb
+_2fd sub _10 _9
+_2fe max _2fc _2fd
+_2ff add _109 _2
+_300 neg _2ff
+_301 max _2fe _300
+_302 max _301 _139
+_303 min _2f8 _302
+_304 max _2f9 _136
+_305 sub _2fa _9
+_306 max _304 _305
+_307 const 3.8
+_308 add _307 _2
+_309 neg _308
+_30a max _306 _309
+_30b max _30a _139
+_30c min _303 _30b
+_30d max _ce _300
+_30e const 3.2
+_30f sub _9 _30e
+_310 max _30d _30f
+_311 const 2.9
+_312 sub _311 _9
+_313 max _310 _312
+_314 max _313 _50
+_315 max _314 _139
+_316 min _30c _315
+_317 max _83 _201
+_318 max _317 _205
+_319 add _20b _47
+_31a max _318 _319
+_31b add _ad _47
+_31c neg _31b
+_31d max _31a _31c
+_31e max _31d _b
+_31f min _316 _31e
+_320 const 3.05
+_321 sub _20a _320
+_322 square _321
+_323 add _322 _129
+_324 add _323 _1e9
+_325 sqrt _324
+_326 sub _325 _5
+_327 min _31f _326
