@@ -7,7 +7,7 @@ edition = "2021"
 fidget = { path = "../fidget", default-features = false, features = ["render"] }
 
 anyhow = "1"
-clap = { version = "3.2.6", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 env_logger = "0.9"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"

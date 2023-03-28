@@ -1,84 +1,104 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
 use fidget::context::{Context, Node};
 
 /// Simple test program
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Render `.dot` files representing compilation
-    #[clap(short, long)]
-    dot: bool,
+    #[clap(subcommand)]
+    cmd: Command,
 
+    /// Input file
+    #[clap(short, long)]
+    input: String,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Render2d {
+        #[clap(flatten)]
+        settings: ImageSettings,
+
+        /// Use brute-force (pixel-by-pixel) evaluation
+        #[clap(short, long)]
+        brute: bool,
+
+        /// Render as a color-gradient SDF
+        #[clap(long)]
+        sdf: bool,
+    },
+
+    Render3d {
+        #[clap(flatten)]
+        settings: ImageSettings,
+
+        /// Render in color
+        #[clap(long)]
+        color: bool,
+
+        /// Render using an isometric perspective
+        #[clap(long)]
+        isometric: bool,
+    },
+}
+
+#[derive(ValueEnum, Clone)]
+enum EvalMode {
+    Vm,
+
+    #[cfg(feature = "jit")]
+    Jit,
+}
+
+#[derive(Parser)]
+struct ImageSettings {
     /// Name of a `.png` file to write
     #[clap(short, long)]
-    image: Option<String>,
+    out: String,
 
-    /// Use the interpreter
-    #[clap(long, requires = "image")]
-    interpreter: bool,
+    /// Evaluator flavor
+    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    eval: EvalMode,
 
-    /// Render using the `dynvm`-compiled function
-    #[clap(short, long, requires = "image", conflicts_with = "interpreter")]
-    jit: bool,
-
-    /// Use brute-force (pixel-by-pixel) evaluation
-    #[clap(short, long)]
-    brute: bool,
-
-    #[clap(short, long, requires = "image", default_value = "8")]
+    /// Number of threads to use
+    #[clap(short, long, default_value_t = 8)]
     threads: usize,
 
-    /// Render in color
-    #[clap(short, long, requires = "threedee")]
-    color: bool,
-
-    /// Render in 3D
-    #[clap(long, requires = "image", conflicts_with = "brute")]
-    threedee: bool,
-
-    /// Render in 3D
-    #[clap(long, requires = "image", conflicts_with = "threedee")]
-    sdf: bool,
-
-    #[clap(short = 'N', default_value = "1", requires = "image")]
+    /// Number of times to render (for benchmarking)
+    #[clap(short = 'N', default_value_t = 1)]
     n: usize,
 
     /// Image size
-    #[clap(short, long, requires = "image", default_value = "128")]
+    #[clap(short, long, default_value_t = 128)]
     size: u32,
-
-    /// Image size
-    #[clap(long, requires = "threedee")]
-    isometric: bool,
-
-    /// Name of the model file to load
-    filename: String,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 fn run3d<I: fidget::eval::Family>(
     ctx: &Context,
     node: Node,
-    args: &Args,
+    settings: &ImageSettings,
+    isometric: bool,
+    mode_color: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     let mut mat = nalgebra::Transform3::identity();
-    if !args.isometric {
+    if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
     let cfg = fidget::render::RenderConfig {
-        image_size: args.size as usize,
+        image_size: settings.size as usize,
         tile_sizes: I::tile_sizes_3d().to_vec(),
-        threads: args.threads,
+        threads: settings.threads,
 
         mat,
     };
@@ -86,11 +106,11 @@ fn run3d<I: fidget::eval::Family>(
     let start = Instant::now();
     let mut depth = vec![];
     let mut color = vec![];
-    for _ in 0..args.n {
+    for _ in 0..settings.n {
         (depth, color) = fidget::render::render3d::<I>(tape.clone(), &cfg);
     }
 
-    let out = if args.color {
+    let out = if mode_color {
         depth
             .into_iter()
             .zip(color.into_iter())
@@ -122,26 +142,28 @@ fn run3d<I: fidget::eval::Family>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run<I: fidget::eval::Family>(
+fn run2d<I: fidget::eval::Family>(
     ctx: &Context,
     node: Node,
-    args: &Args,
+    settings: &ImageSettings,
+    brute: bool,
+    sdf: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape::<I>(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
-    if args.brute {
+    if brute {
         let eval = tape.new_float_slice_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
-        for _ in 0..args.n {
+        for _ in 0..settings.n {
             let mut xs = vec![];
             let mut ys = vec![];
-            let div = (args.size - 1) as f64;
-            for i in 0..args.size {
+            let div = (settings.size - 1) as f64;
+            for i in 0..settings.size {
                 let y = -(-1.0 + 2.0 * (i as f64) / div);
-                for j in 0..args.size {
+                for j in 0..settings.size {
                     let x = -1.0 + 2.0 * (j as f64) / div;
                     xs.push(x as f32);
                     ys.push(y as f32);
@@ -160,16 +182,16 @@ fn run<I: fidget::eval::Family>(
         (out, start)
     } else {
         let cfg = fidget::render::RenderConfig {
-            image_size: args.size as usize,
+            image_size: settings.size as usize,
             tile_sizes: I::tile_sizes_2d().to_vec(),
-            threads: args.threads,
+            threads: settings.threads,
 
             mat: nalgebra::Transform2::identity(),
         };
         let start = Instant::now();
-        let out = if args.sdf {
+        let out = if sdf {
             let mut image = vec![];
-            for _ in 0..args.n {
+            for _ in 0..settings.n {
                 image = fidget::render::render2d(
                     tape.clone(),
                     &cfg,
@@ -182,7 +204,7 @@ fn run<I: fidget::eval::Family>(
                 .collect()
         } else {
             let mut image = vec![];
-            for _ in 0..args.n {
+            for _ in 0..settings.n {
                 image = fidget::render::render2d(
                     tape.clone(),
                     &cfg,
@@ -204,62 +226,72 @@ fn main() -> Result<()> {
 
     let now = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(&args.filename)?;
+    let mut file = std::fs::File::open(&args.input)?;
     let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
-    if let Some(img) = &args.image {
-        let (buffer, start): (Vec<u8>, _) = if args.interpreter {
-            if args.threedee {
-                run3d::<fidget::vm::Eval>(&ctx, root, &args)
-            } else {
-                run::<fidget::vm::Eval>(&ctx, root, &args)
-            }
-        } else if args.jit {
-            #[cfg(feature = "jit")]
-            if args.threedee {
-                run3d::<fidget::jit::Eval>(&ctx, root, &args)
-            } else {
-                run::<fidget::jit::Eval>(&ctx, root, &args)
-            }
-
-            #[cfg(not(feature = "jit"))]
-            anyhow::bail!("Cannot use --jit flag without `jit` feature")
-        } else {
-            let start = Instant::now();
-            let scale = args.size;
-            let mut out = Vec::with_capacity((scale * scale) as usize);
-            for _ in 0..args.n {
-                out.clear();
-                let div = (scale - 1) as f64;
-                for i in 0..scale {
-                    let y = -(-1.0 + 2.0 * (i as f64) / div);
-                    for j in 0..scale {
-                        let x = -1.0 + 2.0 * (j as f64) / div;
-                        let v = ctx.eval_xyz(root, x, y, 0.0)? as f32;
-                        out.extend(if v <= 0.0 {
-                            [u8::MAX; 4]
-                        } else {
-                            [0, 0, 0, 255]
-                        });
-                    }
+    match args.cmd {
+        Command::Render2d {
+            settings,
+            brute,
+            sdf,
+        } => {
+            let (buffer, start) = match settings.eval {
+                #[cfg(feature = "jit")]
+                EvalMode::Jit => run2d::<fidget::jit::Eval>(
+                    &ctx, root, &settings, brute, sdf,
+                ),
+                EvalMode::Vm => {
+                    run2d::<fidget::vm::Eval>(&ctx, root, &settings, brute, sdf)
                 }
-            }
-            (out, start)
-        };
-        info!(
-            "Rendered {}x at {:?} ms/frame",
-            args.n,
-            start.elapsed().as_micros() as f64 / 1000.0 / (args.n as f64)
-        );
+            };
 
-        image::save_buffer(
-            img,
-            &buffer,
-            args.size as u32,
-            args.size as u32,
-            image::ColorType::Rgba8,
-        )?;
+            info!(
+                "Rendered {}x at {:?} ms/frame",
+                settings.n,
+                start.elapsed().as_micros() as f64
+                    / 1000.0
+                    / (settings.n as f64)
+            );
+            image::save_buffer(
+                settings.out,
+                &buffer,
+                settings.size as u32,
+                settings.size as u32,
+                image::ColorType::Rgba8,
+            )?;
+        }
+        Command::Render3d {
+            settings,
+            color,
+            isometric,
+        } => {
+            let (buffer, start) = match settings.eval {
+                #[cfg(feature = "jit")]
+                EvalMode::Jit => run3d::<fidget::jit::Eval>(
+                    &ctx, root, &settings, isometric, color,
+                ),
+                EvalMode::Vm => run3d::<fidget::vm::Eval>(
+                    &ctx, root, &settings, isometric, color,
+                ),
+            };
+            info!(
+                "Rendered {}x at {:?} ms/frame",
+                settings.n,
+                start.elapsed().as_micros() as f64
+                    / 1000.0
+                    / (settings.n as f64)
+            );
+
+            image::save_buffer(
+                settings.out,
+                &buffer,
+                settings.size as u32,
+                settings.size as u32,
+                image::ColorType::Rgba8,
+            )?;
+        }
     }
+
     Ok(())
 }
