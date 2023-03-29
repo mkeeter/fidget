@@ -20,6 +20,10 @@ fn next(axis: usize) -> usize {
 }
 
 fn main() {
+    // The build script stands alone; ignore other changes (e.g. edits to
+    // benchmarks in the benches subfolder).
+    println!("cargo:rerun-if-changed=build.rs");
+
     // Check CPU feature support and error out if we don't have the appropriate
     // features. This isn't a fool-proof – someone could build on a machine with
     // AVX2 support, then try running those binaries elsewhere – but is a good

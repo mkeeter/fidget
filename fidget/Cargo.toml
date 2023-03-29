@@ -60,3 +60,10 @@ eval-tests = []
 ## writable and executable at the same time.  This is best practice from a
 ## security perspective, but incurs a 25% slowdown.
 write-xor-execute = []
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+
+[[bench]]
+name = "render"
+harness = false

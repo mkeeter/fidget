@@ -676,7 +676,7 @@ impl Context {
     ///
     /// This representation is loosely defined and only intended for use in
     /// quick experiments.
-    pub fn from_text<R: Read>(r: &mut R) -> Result<(Self, Node), Error> {
+    pub fn from_text<R: Read>(r: R) -> Result<(Self, Node), Error> {
         let reader = BufReader::new(r);
         let mut ctx = Self::new();
         let mut seen = BTreeMap::new();
