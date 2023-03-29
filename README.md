@@ -52,8 +52,7 @@ so adjust your expectations accordingly.
 In the [repository on Github](https://github.com/mkeeter/fidget), there are
 two demo applications:
 
-- `demo` does bitmap rendering and unscientific benchmarking from the command
-  line
+- `demo` does bitmap rendering from the command line
 - `viewer` is a minimal GUI for interactive exploration
 
 These are deliberately not published to [https://crates.io](crates.io), because
