@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -16,7 +17,7 @@ struct Args {
 
     /// Input file
     #[clap(short, long)]
-    input: String,
+    input: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -64,7 +65,7 @@ enum EvalMode {
 struct ImageSettings {
     /// Name of a `.png` file to write
     #[clap(short, long)]
-    out: String,
+    out: Option<PathBuf>,
 
     /// Evaluator flavor
     #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
@@ -91,7 +92,7 @@ struct MeshSettings {
 
     /// Name of a `.stl` file to write
     #[clap(short, long)]
-    out: String,
+    out: Option<PathBuf>,
 
     /// Evaluator flavor
     #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
@@ -100,6 +101,10 @@ struct MeshSettings {
     /// Number of threads to use
     #[clap(short, long, default_value_t = 8)]
     threads: u8,
+
+    /// Number of times to render (for benchmarking)
+    #[clap(short = 'N', default_value_t = 1)]
+    n: usize,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -300,13 +305,15 @@ fn main() -> Result<()> {
                     / 1000.0
                     / (settings.n as f64)
             );
-            image::save_buffer(
-                settings.out,
-                &buffer,
-                settings.size as u32,
-                settings.size as u32,
-                image::ColorType::Rgba8,
-            )?;
+            if let Some(out) = settings.out {
+                image::save_buffer(
+                    out,
+                    &buffer,
+                    settings.size as u32,
+                    settings.size as u32,
+                    image::ColorType::Rgba8,
+                )?;
+            }
         }
         Command::Render3d {
             settings,
@@ -330,13 +337,16 @@ fn main() -> Result<()> {
                     / (settings.n as f64)
             );
 
-            image::save_buffer(
-                settings.out,
-                &buffer,
-                settings.size as u32,
-                settings.size as u32,
-                image::ColorType::Rgba8,
-            )?;
+            if let Some(out) = settings.out {
+                info!("Writing image to {out:?}");
+                image::save_buffer(
+                    out,
+                    &buffer,
+                    settings.size as u32,
+                    settings.size as u32,
+                    image::ColorType::Rgba8,
+                )?;
+            }
         }
         Command::Mesh { settings } => {
             let (mesh, start) = match settings.eval {
@@ -349,10 +359,16 @@ fn main() -> Result<()> {
                 }
             };
             info!(
-                "Rendered in {:?} ms",
-                start.elapsed().as_micros() as f64 / 1000.0
+                "Rendered {}x at {:?} ms/iter",
+                settings.n,
+                start.elapsed().as_micros() as f64
+                    / 1000.0
+                    / (settings.n as f64)
             );
-            mesh.write_stl(&mut std::fs::File::create(settings.out)?)?;
+            if let Some(out) = settings.out {
+                info!("Writing STL to {out:?}");
+                mesh.write_stl(&mut std::fs::File::create(out)?)?;
+            }
         }
     }
 
