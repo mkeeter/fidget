@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fidget = { path = "../fidget", default-features = false, features = ["render"] }
+fidget = { path = "../fidget", default-features = false, features = ["render", "mesh"] }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

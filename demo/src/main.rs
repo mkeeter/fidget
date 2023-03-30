@@ -46,6 +46,10 @@ enum Command {
         #[clap(long)]
         isometric: bool,
     },
+    Mesh {
+        #[clap(flatten)]
+        settings: MeshSettings,
+    },
 }
 
 #[derive(ValueEnum, Clone)]
@@ -73,6 +77,25 @@ struct ImageSettings {
     /// Image size
     #[clap(short, long, default_value_t = 128)]
     size: u32,
+}
+
+#[derive(Parser)]
+struct MeshSettings {
+    /// Minimum octree depth
+    #[clap(short, long)]
+    depth: u8,
+
+    /// Name of a `.stl` file to write
+    #[clap(short, long)]
+    out: String,
+
+    /// Evaluator flavor
+    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    eval: EvalMode,
+
+    /// Number of threads to use
+    #[clap(short, long, default_value_t = 8)]
+    threads: u8,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -209,6 +232,30 @@ fn run2d<I: fidget::eval::Family>(
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+fn run_mesh<I: fidget::eval::Family>(
+    ctx: &Context,
+    node: Node,
+    settings: &MeshSettings,
+) -> (fidget::mesh::Mesh, std::time::Instant) {
+    let start = Instant::now();
+    let tape = ctx.get_tape::<I>(node).unwrap();
+    info!("Built tape in {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let octree = fidget::mesh::Octree::build(
+        &tape,
+        fidget::mesh::Settings {
+            threads: settings.threads,
+            min_depth: settings.depth,
+            max_depth: settings.depth,
+        },
+    );
+    let mesh = octree.walk_dual();
+    (mesh, start)
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
@@ -273,6 +320,22 @@ fn main() -> Result<()> {
                 settings.size as u32,
                 image::ColorType::Rgba8,
             )?;
+        }
+        Command::Mesh { settings } => {
+            let (mesh, start) = match settings.eval {
+                #[cfg(feature = "jit")]
+                EvalMode::Jit => {
+                    run_mesh::<fidget::jit::Eval>(&ctx, root, &settings)
+                }
+                EvalMode::Vm => {
+                    run_mesh::<fidget::vm::Eval>(&ctx, root, &settings)
+                }
+            };
+            info!(
+                "Rendered in {:?} ms",
+                start.elapsed().as_micros() as f64 / 1000.0
+            );
+            mesh.write_stl(&mut std::fs::File::create(settings.out)?)?;
         }
     }
 
