@@ -74,6 +74,10 @@ struct ImageSettings {
     #[clap(short, long, default_value_t = 8)]
     threads: usize,
 
+    /// Number of times to render (for benchmarking)
+    #[clap(short = 'N', default_value_t = 1)]
+    n: usize,
+
     /// Image size
     #[clap(short, long, default_value_t = 128)]
     size: u32,
@@ -125,7 +129,9 @@ fn run3d<I: fidget::eval::Family>(
     let start = Instant::now();
     let mut depth = vec![];
     let mut color = vec![];
-    (depth, color) = fidget::render::render3d::<I>(tape.clone(), &cfg);
+    for _ in 0..settings.n {
+        (depth, color) = fidget::render::render3d::<I>(tape.clone(), &cfg);
+    }
 
     let out = if mode_color {
         depth
@@ -174,21 +180,22 @@ fn run2d<I: fidget::eval::Family>(
         let eval = tape.new_float_slice_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
-        let mut xs = vec![];
-        let mut ys = vec![];
-        let div = (settings.size - 1) as f64;
-        for i in 0..settings.size {
-            let y = -(-1.0 + 2.0 * (i as f64) / div);
-            for j in 0..settings.size {
-                let x = -1.0 + 2.0 * (j as f64) / div;
-                xs.push(x as f32);
-                ys.push(y as f32);
+        for _ in 0..settings.n {
+            let mut xs = vec![];
+            let mut ys = vec![];
+            let div = (settings.size - 1) as f64;
+            for i in 0..settings.size {
+                let y = -(-1.0 + 2.0 * (i as f64) / div);
+                for j in 0..settings.size {
+                    let x = -1.0 + 2.0 * (j as f64) / div;
+                    xs.push(x as f32);
+                    ys.push(y as f32);
+                }
             }
+            let zs = vec![0.0; xs.len()];
+            let values = eval.eval(&xs, &ys, &zs, &[]).unwrap();
+            out = values.into_iter().map(|v| v <= 0.0).collect();
         }
-        let zs = vec![0.0; xs.len()];
-        let values = eval.eval(&xs, &ys, &zs, &[]).unwrap();
-        out = values.into_iter().map(|v| v <= 0.0).collect();
-
         // Convert from Vec<bool> to an image
         let out = out
             .into_iter()
@@ -207,22 +214,26 @@ fn run2d<I: fidget::eval::Family>(
         let start = Instant::now();
         let out = if sdf {
             let mut image = vec![];
-            image = fidget::render::render2d(
-                tape.clone(),
-                &cfg,
-                &fidget::render::SdfRenderMode,
-            );
+            for _ in 0..settings.n {
+                image = fidget::render::render2d(
+                    tape.clone(),
+                    &cfg,
+                    &fidget::render::SdfRenderMode,
+                );
+            }
             image
                 .into_iter()
                 .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
                 .collect()
         } else {
             let mut image = vec![];
-            image = fidget::render::render2d(
-                tape.clone(),
-                &cfg,
-                &fidget::render::DebugRenderMode,
-            );
+            for _ in 0..settings.n {
+                image = fidget::render::render2d(
+                    tape.clone(),
+                    &cfg,
+                    &fidget::render::DebugRenderMode,
+                );
+            }
             image
                 .into_iter()
                 .flat_map(|p| p.as_debug_color().into_iter())
@@ -283,8 +294,11 @@ fn main() -> Result<()> {
             };
 
             info!(
-                "Rendered in {:?} ms",
-                start.elapsed().as_micros() as f64 / 1000.0
+                "Rendered {}x at {:?} ms/frame",
+                settings.n,
+                start.elapsed().as_micros() as f64
+                    / 1000.0
+                    / (settings.n as f64)
             );
             image::save_buffer(
                 settings.out,
@@ -309,8 +323,11 @@ fn main() -> Result<()> {
                 ),
             };
             info!(
-                "Rendered in {:?} ms",
-                start.elapsed().as_micros() as f64 / 1000.0
+                "Rendered {}x at {:?} ms/frame",
+                settings.n,
+                start.elapsed().as_micros() as f64
+                    / 1000.0
+                    / (settings.n as f64)
             );
 
             image::save_buffer(
