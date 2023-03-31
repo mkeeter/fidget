@@ -53,29 +53,43 @@ pub trait Family: Clone {
     type PointEval: TracingEvaluator<f32, Self>
         + EvaluatorStorage<Self>
         + Clone
-        + Send;
+        + Send
+        + Sync;
     /// Interval evaluator
     type IntervalEval: TracingEvaluator<types::Interval, Self>
         + EvaluatorStorage<Self>
         + Clone
-        + Send;
+        + Send
+        + Sync;
 
     /// Bulk point evaluator
     type FloatSliceEval: BulkEvaluator<f32, Self>
         + EvaluatorStorage<Self>
         + Clone
-        + Send;
+        + Send
+        + Sync;
     /// Bulk gradient evaluator
     type GradSliceEval: BulkEvaluator<types::Grad, Self>
         + EvaluatorStorage<Self>
         + Clone
-        + Send;
+        + Send
+        + Sync;
 
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
 
     /// Recommended tile sizes for 2D rendering
     fn tile_sizes_2d() -> &'static [usize];
+
+    /// Indicates whether we run tape simplification at the given cell depth
+    /// during meshing.
+    ///
+    /// By default, this is always true; for evaluators where simplification is
+    /// more expensive than evaluation (i.e. the JIT), it may only be true at
+    /// certain depths.
+    fn simplify_tree_during_meshing(_d: usize) -> bool {
+        true
+    }
 }
 
 /// An evaluator with some internal (immutable) storage

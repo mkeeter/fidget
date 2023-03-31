@@ -695,6 +695,11 @@ impl Family for Eval {
     fn tile_sizes_2d() -> &'static [usize] {
         &[128, 16]
     }
+
+    fn simplify_tree_during_meshing(d: usize) -> bool {
+        // Unscientifically selected, but similar to tile_sizes_3d
+        d % 8 == 4
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -753,7 +758,10 @@ impl<I: AssemblerT> Clone for JitTracingEval<I> {
     }
 }
 
+// SAFETY: there is no mutable state in a `JitTracingEval`, and the pointer
+// inside of it points to its own `Mmap`, which is owned by an `Arc`
 unsafe impl<I: AssemblerT> Send for JitTracingEval<I> {}
+unsafe impl<I: AssemblerT> Sync for JitTracingEval<I> {}
 
 impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
     type Storage = Mmap;
@@ -832,7 +840,10 @@ impl<I: AssemblerT> Clone for JitBulkEval<I> {
     }
 }
 
+// SAFETY: there is no mutable state in a `JitBulkEval`, and the pointer
+// inside of it points to its own `Mmap`, which is owned by an `Arc`
 unsafe impl<I: AssemblerT> Send for JitBulkEval<I> {}
+unsafe impl<I: AssemblerT> Sync for JitBulkEval<I> {}
 
 impl<I: AssemblerT> EvaluatorStorage<Eval> for JitBulkEval<I> {
     type Storage = Mmap;

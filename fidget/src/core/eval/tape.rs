@@ -23,10 +23,11 @@ impl<R> Clone for Tape<R> {
     }
 }
 
-/// Safety:
-/// The `Tape` contains an `Arc`; the only reason this can't be derived
-/// automatically is because it also contains a `PhantomData`.
+// SAFETY: the tape contains a single `Arc`, which is already `Send + Sync`;
+// the only reason this can't be derived automatically is due to the
+// `PhantomData` and Rust limitations.
 unsafe impl<R> Send for Tape<R> {}
+unsafe impl<R> Sync for Tape<R> {}
 
 impl<E: Family> Tape<E> {
     /// Converts an SSA tape into a tape useable in evaluation

@@ -1,15 +1,16 @@
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     mpsc::TryRecvError,
+    Arc,
 };
 
 use super::{
     cell::{Cell, CellData, CellIndex},
-    octree::CellResult,
+    octree::{CellResult, EvalGroup},
     types::Corner,
     Octree, Settings,
 };
-use crate::eval::{Family, IntervalEval};
+use crate::eval::Family;
 
 /// Represents a chunk of work that should be handled by a worker
 ///
@@ -17,7 +18,7 @@ use crate::eval::{Family, IntervalEval};
 /// octants, sending results back to the parent (which is numbered implicitly
 /// based on what queue we stole this from).
 struct Task<I: Family> {
-    eval: IntervalEval<I>,
+    eval: Arc<EvalGroup<I>>,
 
     /// Parent cell, which must be a branch cell pointing to the given index
     parent: CellIndex,
@@ -60,7 +61,7 @@ pub struct Worker<I: Family> {
 }
 
 impl<I: Family> Worker<I> {
-    pub fn scheduler(eval: IntervalEval<I>, settings: Settings) -> Octree {
+    pub fn scheduler(eval: Arc<EvalGroup<I>>, settings: Settings) -> Octree {
         let task_queues = (0..settings.threads)
             .map(|_| crossbeam_deque::Worker::<Task<I>>::new_lifo())
             .collect::<Vec<_>>();

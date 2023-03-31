@@ -9,7 +9,49 @@ use super::{
     worker::Worker,
     Mesh, Settings,
 };
-use crate::eval::{types::Interval, Family, IntervalEval, Tape};
+use crate::eval::{
+    types::Interval, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
+};
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
+
+/// Helper struct to contain a set of matched evaluators
+///
+/// Note that this is `Send + Sync` and can be used with shared references!
+#[derive(Clone)]
+pub struct EvalGroup<I: Family> {
+    tape: Tape<I>,
+
+    // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
+    // indirection (since the evaluators also contain `Arc`); could we flatten
+    // them out?
+    interval: OnceCell<IntervalEval<I>>,
+    float_slice: OnceCell<FloatSliceEval<I>>,
+    grad_slice: OnceCell<GradSliceEval<I>>,
+}
+
+impl<I: Family> EvalGroup<I> {
+    fn new(tape: Tape<I>) -> Self {
+        Self {
+            tape,
+            interval: OnceCell::new(),
+            float_slice: OnceCell::new(),
+            grad_slice: OnceCell::new(),
+        }
+    }
+    fn interval(&self) -> &IntervalEval<I> {
+        self.interval
+            .get_or_init(|| self.tape.new_interval_evaluator())
+    }
+    fn float_slice(&self) -> &FloatSliceEval<I> {
+        self.float_slice
+            .get_or_init(|| self.tape.new_float_slice_evaluator())
+    }
+    fn grad_slice(&self) -> &GradSliceEval<I> {
+        self.grad_slice
+            .get_or_init(|| self.tape.new_grad_slice_evaluator())
+    }
+}
 
 /// Octree storing occupancy and vertex positions for Manifold Dual Contouring
 #[derive(Debug)]
@@ -113,7 +155,7 @@ impl Octree {
     ///
     /// The shape is evaluated on the region `[-1, 1]` on all axes
     pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
-        let i_handle = tape.new_interval_evaluator();
+        let eval = Arc::new(EvalGroup::new(tape.clone()));
 
         if settings.threads == 0 {
             let mut out = Self {
@@ -121,10 +163,10 @@ impl Octree {
                 verts: vec![],
             };
 
-            out.recurse(&i_handle, CellIndex::default(), settings);
+            out.recurse(&eval, CellIndex::default(), settings);
             out
         } else {
-            Worker::scheduler(i_handle, settings)
+            Worker::scheduler(eval, settings)
         }
     }
 
@@ -135,31 +177,34 @@ impl Octree {
     /// octree (e.g. on another thread).
     pub fn eval_cell<I: Family>(
         &mut self,
-        i_handle: &IntervalEval<I>,
+        eval: &Arc<EvalGroup<I>>,
         cell: CellIndex,
         settings: Settings,
     ) -> CellResult<I> {
-        let (i, r) = i_handle.eval(cell.x, cell.y, cell.z, &[]).unwrap();
+        let (i, r) = eval.interval().eval(cell.x, cell.y, cell.z, &[]).unwrap();
         if i.upper() < 0.0 {
             CellResult::Full
         } else if i.lower() > 0.0 {
             CellResult::Empty
         } else {
-            let sub_tape = r.map(|r| r.simplify().unwrap());
+            let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
+                r.map(|r| Arc::new(EvalGroup::new(r.simplify().unwrap())))
+            } else {
+                None
+            };
             if cell.depth == settings.min_depth as usize {
-                let tape = sub_tape.unwrap_or_else(|| i_handle.tape());
-                let leaf = self.leaf(tape, cell);
+                let eval = sub_tape.unwrap_or_else(|| eval.clone());
+                let leaf = self.leaf(&eval, cell);
 
                 CellResult::Leaf(leaf)
             } else {
-                let sub_eval = sub_tape.map(|s| s.new_interval_evaluator());
                 let child = self.cells.len();
                 for _ in Corner::iter() {
                     self.cells.push(Cell::Invalid.into());
                 }
                 CellResult::Recurse {
                     index: child,
-                    eval: sub_eval.unwrap_or_else(|| i_handle.clone()),
+                    eval: sub_tape.unwrap_or_else(|| eval.clone()),
                 }
             }
         }
@@ -168,11 +213,11 @@ impl Octree {
     /// Recurse down the octree, building the given cell
     fn recurse<I: Family>(
         &mut self,
-        i_handle: &IntervalEval<I>,
+        eval: &Arc<EvalGroup<I>>,
         cell: CellIndex,
         settings: Settings,
     ) {
-        match self.eval_cell(i_handle, cell, settings) {
+        match self.eval_cell(eval, cell, settings) {
             CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
             CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
             CellResult::Leaf(leaf) => {
@@ -190,8 +235,12 @@ impl Octree {
     }
 
     /// Evaluates the given leaf
-    fn leaf<I: Family>(&mut self, tape: Tape<I>, cell: CellIndex) -> Leaf {
-        let float_eval = tape.new_float_slice_evaluator();
+    fn leaf<I: Family>(
+        &mut self,
+        eval: &EvalGroup<I>,
+        cell: CellIndex,
+    ) -> Leaf {
+        let float_eval = eval.float_slice();
 
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
@@ -352,7 +401,7 @@ impl Octree {
         }
 
         // TODO: special case for cells with multiple gradients ("features")
-        let grad_eval = tape.new_grad_slice_evaluator();
+        let grad_eval = eval.grad_slice();
         let grads = grad_eval.eval(xs, ys, zs, &[]).unwrap();
 
         // Now, we're going to solve a quadratic error function for every vertex
@@ -676,7 +725,10 @@ pub enum CellResult<I: Family> {
     Empty,
     Full,
     Leaf(Leaf),
-    Recurse { index: usize, eval: IntervalEval<I> },
+    Recurse {
+        index: usize,
+        eval: Arc<EvalGroup<I>>,
+    },
 }
 
 ////////////////////////////////////////////////////////////////////////////////
