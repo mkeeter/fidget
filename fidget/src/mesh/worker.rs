@@ -217,7 +217,7 @@ impl<I: Family> Worker<I> {
                 },
             );
 
-            if let Some((mut task, source)) = t {
+            if let Some((task, source)) = t {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
                 let mut any_recurse = false;
@@ -274,16 +274,9 @@ impl<I: Family> Worker<I> {
                     }
                 }
 
-                if let Some(e) = Arc::get_mut(&mut task.eval) {
-                    self.storage
-                        .interval_storage
-                        .extend(e.interval.take().and_then(|s| s.take()));
-                    self.storage
-                        .float_storage
-                        .extend(e.float_slice.take().and_then(|s| s.take()));
-                    self.storage
-                        .grad_storage
-                        .extend(e.grad_slice.take().and_then(|s| s.take()));
+                // Try to recycle tape storage
+                if let Ok(e) = Arc::try_unwrap(task.eval) {
+                    self.storage.claim(e);
                 }
 
                 // We've successfully done some work, so start the loop again

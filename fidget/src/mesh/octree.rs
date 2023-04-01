@@ -13,6 +13,7 @@ use crate::eval::{
     float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
     grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
     interval::{IntervalEvalData, IntervalEvalStorage},
+    tape,
     types::Interval,
     Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
 };
@@ -23,7 +24,7 @@ use std::sync::Arc;
 ///
 /// Note that this is `Send + Sync` and can be used with shared references!
 pub struct EvalGroup<I: Family> {
-    tape: Tape<I>,
+    pub tape: Tape<I>,
 
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
     // indirection (since the evaluators also contain `Arc`); could we flatten
@@ -92,14 +93,30 @@ impl<I: Family> Default for EvalData<I> {
 }
 
 pub struct EvalStorage<I: Family> {
+    pub workspace: tape::Workspace,
+    pub tape_storage: Vec<tape::Data>,
     pub float_storage: Vec<FloatSliceEvalStorage<I>>,
     pub interval_storage: Vec<IntervalEvalStorage<I>>,
     pub grad_storage: Vec<GradSliceEvalStorage<I>>,
 }
 
+impl<I: Family> EvalStorage<I> {
+    pub fn claim(&mut self, mut e: EvalGroup<I>) {
+        self.interval_storage
+            .extend(e.interval.take().and_then(|s| s.take()));
+        self.float_storage
+            .extend(e.float_slice.take().and_then(|s| s.take()));
+        self.grad_storage
+            .extend(e.grad_slice.take().and_then(|s| s.take()));
+        self.tape_storage.extend(e.tape.take());
+    }
+}
+
 impl<I: Family> Default for EvalStorage<I> {
     fn default() -> Self {
         Self {
+            workspace: Default::default(),
+            tape_storage: Default::default(),
             float_storage: Default::default(),
             grad_storage: Default::default(),
             interval_storage: Default::default(),
@@ -252,7 +269,15 @@ impl Octree {
             CellResult::Empty
         } else {
             let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
-                r.map(|r| Arc::new(EvalGroup::new(r.simplify().unwrap())))
+                r.map(|r| {
+                    Arc::new(EvalGroup::new(
+                        r.simplify_with(
+                            &mut storage.workspace,
+                            storage.tape_storage.pop().unwrap_or_default(),
+                        )
+                        .unwrap(),
+                    ))
+                })
             } else {
                 None
             };
@@ -287,23 +312,16 @@ impl Octree {
             CellResult::Leaf(leaf) => {
                 self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
             }
-            CellResult::Recurse { index, mut eval } => {
+            CellResult::Recurse { index, eval } => {
                 self.cells[cell.index] =
                     Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
                     self.recurse(&eval, data, storage, cell, settings);
                 }
-                if let Some(e) = Arc::get_mut(&mut eval) {
-                    storage
-                        .interval_storage
-                        .extend(e.interval.take().and_then(|s| s.take()));
-                    storage
-                        .float_storage
-                        .extend(e.float_slice.take().and_then(|s| s.take()));
-                    storage
-                        .grad_storage
-                        .extend(e.grad_slice.take().and_then(|s| s.take()));
+                // Try to recycle tape storage
+                if let Ok(e) = Arc::try_unwrap(eval) {
+                    storage.claim(e);
                 }
             }
         }
