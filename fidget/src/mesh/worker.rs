@@ -6,7 +6,7 @@ use std::sync::{
 
 use super::{
     cell::{Cell, CellData, CellIndex},
-    octree::{CellResult, EvalGroup},
+    octree::{CellResult, EvalData, EvalGroup},
     types::Corner,
     Octree, Settings,
 };
@@ -58,6 +58,9 @@ pub struct Worker<I: Family> {
     /// thread; it would be silly to send stuff back to your own thread via the
     /// queue (rather than storing it directly).
     friend_done: Vec<std::sync::mpsc::Sender<Done>>,
+
+    /// Per-thread local data for evaluation, to avoid allocation churn
+    data: EvalData<I>,
 }
 
 impl<I: Family> Worker<I> {
@@ -90,11 +93,17 @@ impl<I: Family> Worker<I> {
                 done,
                 friend_queue: friend_queue.clone(),
                 friend_done: friend_done.clone(),
+                data: Default::default(),
             })
             .collect::<Vec<_>>();
 
         let root = CellIndex::default();
-        let r = workers[0].octree.eval_cell(&eval, root, settings);
+        let r = workers[0].octree.eval_cell(
+            &eval,
+            &mut Default::default(),
+            root,
+            settings,
+        );
         let c = match r {
             CellResult::Full => Cell::Full,
             CellResult::Empty => Cell::Empty,
@@ -210,10 +219,12 @@ impl<I: Family> Worker<I> {
                 for i in Corner::iter() {
                     let sub_cell = task.parent.child(task.index, i);
 
-                    let r = match self
-                        .octree
-                        .eval_cell(&task.eval, sub_cell, settings)
-                    {
+                    let r = match self.octree.eval_cell(
+                        &task.eval,
+                        &mut self.data,
+                        sub_cell,
+                        settings,
+                    ) {
                         CellResult::Empty => Cell::Empty,
                         CellResult::Full => Cell::Full,
                         CellResult::Leaf(leaf) => Cell::Leaf {

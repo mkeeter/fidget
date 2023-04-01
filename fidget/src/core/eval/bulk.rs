@@ -29,7 +29,7 @@ pub trait BulkEvaluator<T, F> {
     ///
     /// For example, an interpreter would put its intermediate slot storage into
     /// its `Data` type, so it could be reused.
-    type Data: BulkEvaluatorData<F> + Default;
+    type Data: BulkEvaluatorData<F> + Default + Send;
 
     /// Evaluates many points, writing the result into `out` and using `data` as
     /// scratch memory.
@@ -183,6 +183,10 @@ impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {
         }
     }
 }
+
+// SAFETY: this can't be derived because of Rust limitations, but we're sending
+// around a Vec<T> and a D, which should be fine.
+unsafe impl<D: Send, T: Send, F> Send for BulkEvalData<D, T, F> {}
 
 impl<D: BulkEvaluatorData<F>, T, F> BulkEvalData<D, T, F>
 where

@@ -10,7 +10,9 @@ use super::{
     Mesh, Settings,
 };
 use crate::eval::{
-    types::Interval, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
+    float_slice::FloatSliceEvalData, grad_slice::GradSliceEvalData,
+    interval::IntervalEvalData, types::Interval, Family, FloatSliceEval,
+    GradSliceEval, IntervalEval, Tape,
 };
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
@@ -18,7 +20,6 @@ use std::sync::Arc;
 /// Helper struct to contain a set of matched evaluators
 ///
 /// Note that this is `Send + Sync` and can be used with shared references!
-#[derive(Clone)]
 pub struct EvalGroup<I: Family> {
     tape: Tape<I>,
 
@@ -50,6 +51,22 @@ impl<I: Family> EvalGroup<I> {
     fn grad_slice(&self) -> &GradSliceEval<I> {
         self.grad_slice
             .get_or_init(|| self.tape.new_grad_slice_evaluator())
+    }
+}
+
+pub struct EvalData<I: Family> {
+    float_data: FloatSliceEvalData<I>,
+    grad_data: GradSliceEvalData<I>,
+    interval_data: IntervalEvalData<I>,
+}
+
+impl<I: Family> Default for EvalData<I> {
+    fn default() -> Self {
+        Self {
+            float_data: Default::default(),
+            grad_data: Default::default(),
+            interval_data: Default::default(),
+        }
     }
 }
 
@@ -162,8 +179,12 @@ impl Octree {
                 cells: vec![Cell::Invalid.into(); 8],
                 verts: vec![],
             };
-
-            out.recurse(&eval, CellIndex::default(), settings);
+            out.recurse(
+                &eval,
+                &mut EvalData::default(),
+                CellIndex::default(),
+                settings,
+            );
             out
         } else {
             Worker::scheduler(eval, settings)
@@ -178,10 +199,14 @@ impl Octree {
     pub fn eval_cell<I: Family>(
         &mut self,
         eval: &Arc<EvalGroup<I>>,
+        data: &mut EvalData<I>,
         cell: CellIndex,
         settings: Settings,
     ) -> CellResult<I> {
-        let (i, r) = eval.interval().eval(cell.x, cell.y, cell.z, &[]).unwrap();
+        let (i, r) = eval
+            .interval()
+            .eval_with(cell.x, cell.y, cell.z, &[], &mut data.interval_data)
+            .unwrap();
         if i.upper() < 0.0 {
             CellResult::Full
         } else if i.lower() > 0.0 {
@@ -194,7 +219,12 @@ impl Octree {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                let leaf = self.leaf(&eval, cell);
+                let leaf = self.leaf(
+                    &eval,
+                    cell,
+                    &mut data.float_data,
+                    &mut data.grad_data,
+                );
 
                 CellResult::Leaf(leaf)
             } else {
@@ -214,10 +244,11 @@ impl Octree {
     fn recurse<I: Family>(
         &mut self,
         eval: &Arc<EvalGroup<I>>,
+        data: &mut EvalData<I>,
         cell: CellIndex,
         settings: Settings,
     ) {
-        match self.eval_cell(eval, cell, settings) {
+        match self.eval_cell(eval, data, cell, settings) {
             CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
             CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
             CellResult::Leaf(leaf) => {
@@ -228,7 +259,7 @@ impl Octree {
                     Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&eval, cell, settings);
+                    self.recurse(&eval, data, cell, settings);
                 }
             }
         }
@@ -239,6 +270,8 @@ impl Octree {
         &mut self,
         eval: &EvalGroup<I>,
         cell: CellIndex,
+        data_float: &mut FloatSliceEvalData<I>,
+        data_grad: &mut GradSliceEvalData<I>,
     ) -> Leaf {
         let float_eval = eval.float_slice();
 
@@ -253,7 +286,9 @@ impl Octree {
         }
 
         // TODO: reuse evaluators, etc
-        let out = float_eval.eval(&xs, &ys, &zs, &[]).unwrap();
+        let out = float_eval
+            .eval_with(&xs, &ys, &zs, &[], data_float)
+            .unwrap();
         debug_assert_eq!(out.len(), 8);
 
         // Build a mask of active corners, which determines cell
@@ -320,7 +355,6 @@ impl Octree {
             &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
         let zs =
             &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
-        let mut data = crate::eval::bulk::BulkEvalData::default();
 
         // This part looks hairy, but it's just doing an N-ary search along each
         // edge to find the intersection point.
@@ -345,7 +379,8 @@ impl Octree {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out = float_eval.eval_with(xs, ys, zs, &[], &mut data).unwrap();
+            let out =
+                float_eval.eval_with(xs, ys, zs, &[], data_float).unwrap();
 
             // Update start and end positions based on evaluation
             for ((start, end), search) in start
@@ -402,7 +437,7 @@ impl Octree {
 
         // TODO: special case for cells with multiple gradients ("features")
         let grad_eval = eval.grad_slice();
-        let grads = grad_eval.eval(xs, ys, zs, &[]).unwrap();
+        let grads = grad_eval.eval_with(xs, ys, zs, &[], data_grad).unwrap();
 
         // Now, we're going to solve a quadratic error function for every vertex
         // to position it at the right place.  This gets a little tricky; see

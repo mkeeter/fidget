@@ -64,7 +64,7 @@ impl std::ops::BitOrAssign<Choice> for Choice {
 /// [`TracingEval`](TracingEval), which offers a user-friendly API.
 pub trait TracingEvaluator<T, F> {
     /// Scratch (mutable) data used during evaluation
-    type Data: TracingEvaluatorData<F> + Default;
+    type Data: TracingEvaluatorData<F> + Default + Send;
 
     /// Evaluates the given value, using `choices` and `data` as scratch memory.
     ///
@@ -246,6 +246,10 @@ pub struct TracingEvalData<D, F> {
 
     _p: std::marker::PhantomData<*const F>,
 }
+
+// SAFETY: this can't be derived because of Rust limitations, but we're sending
+// around a Vec<Choice> and a D, which should be fine.
+unsafe impl<D: Send, F> Send for TracingEvalData<D, F> {}
 
 impl<D: Default, F> Default for TracingEvalData<D, F> {
     fn default() -> Self {
