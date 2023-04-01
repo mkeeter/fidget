@@ -10,9 +10,11 @@ use super::{
     Mesh, Settings,
 };
 use crate::eval::{
-    float_slice::FloatSliceEvalData, grad_slice::GradSliceEvalData,
-    interval::IntervalEvalData, types::Interval, Family, FloatSliceEval,
-    GradSliceEval, IntervalEval, Tape,
+    float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
+    grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
+    interval::{IntervalEvalData, IntervalEvalStorage},
+    types::Interval,
+    Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
 };
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
@@ -26,9 +28,9 @@ pub struct EvalGroup<I: Family> {
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
     // indirection (since the evaluators also contain `Arc`); could we flatten
     // them out?
-    interval: OnceCell<IntervalEval<I>>,
-    float_slice: OnceCell<FloatSliceEval<I>>,
-    grad_slice: OnceCell<GradSliceEval<I>>,
+    pub interval: OnceCell<IntervalEval<I>>,
+    pub float_slice: OnceCell<FloatSliceEval<I>>,
+    pub grad_slice: OnceCell<GradSliceEval<I>>,
 }
 
 impl<I: Family> EvalGroup<I> {
@@ -40,17 +42,36 @@ impl<I: Family> EvalGroup<I> {
             grad_slice: OnceCell::new(),
         }
     }
-    fn interval(&self) -> &IntervalEval<I> {
-        self.interval
-            .get_or_init(|| self.tape.new_interval_evaluator())
+    fn interval(
+        &self,
+        s: &mut Vec<IntervalEvalStorage<I>>,
+    ) -> &IntervalEval<I> {
+        self.interval.get_or_init(|| {
+            self.tape.new_interval_evaluator_with_storage(
+                s.pop().unwrap_or_default(),
+            )
+        })
     }
-    fn float_slice(&self) -> &FloatSliceEval<I> {
-        self.float_slice
-            .get_or_init(|| self.tape.new_float_slice_evaluator())
+    fn float_slice(
+        &self,
+        s: &mut Vec<FloatSliceEvalStorage<I>>,
+    ) -> &FloatSliceEval<I> {
+        self.float_slice.get_or_init(|| {
+            self.tape.new_float_slice_evaluator_with_storage(
+                s.pop().unwrap_or_default(),
+            )
+        })
     }
-    fn grad_slice(&self) -> &GradSliceEval<I> {
-        self.grad_slice
-            .get_or_init(|| self.tape.new_grad_slice_evaluator())
+    fn grad_slice(
+        &self,
+
+        s: &mut Vec<GradSliceEvalStorage<I>>,
+    ) -> &GradSliceEval<I> {
+        self.grad_slice.get_or_init(|| {
+            self.tape.new_grad_slice_evaluator_with_storage(
+                s.pop().unwrap_or_default(),
+            )
+        })
     }
 }
 
@@ -66,6 +87,22 @@ impl<I: Family> Default for EvalData<I> {
             float_data: Default::default(),
             grad_data: Default::default(),
             interval_data: Default::default(),
+        }
+    }
+}
+
+pub struct EvalStorage<I: Family> {
+    pub float_storage: Vec<FloatSliceEvalStorage<I>>,
+    pub interval_storage: Vec<IntervalEvalStorage<I>>,
+    pub grad_storage: Vec<GradSliceEvalStorage<I>>,
+}
+
+impl<I: Family> Default for EvalStorage<I> {
+    fn default() -> Self {
+        Self {
+            float_storage: Default::default(),
+            grad_storage: Default::default(),
+            interval_storage: Default::default(),
         }
     }
 }
@@ -182,6 +219,7 @@ impl Octree {
             out.recurse(
                 &eval,
                 &mut EvalData::default(),
+                &mut EvalStorage::default(),
                 CellIndex::default(),
                 settings,
             );
@@ -200,11 +238,12 @@ impl Octree {
         &mut self,
         eval: &Arc<EvalGroup<I>>,
         data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
         cell: CellIndex,
         settings: Settings,
     ) -> CellResult<I> {
         let (i, r) = eval
-            .interval()
+            .interval(&mut storage.interval_storage)
             .eval_with(cell.x, cell.y, cell.z, &[], &mut data.interval_data)
             .unwrap();
         if i.upper() < 0.0 {
@@ -219,7 +258,7 @@ impl Octree {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                CellResult::Leaf(self.leaf(&eval, data, cell))
+                CellResult::Leaf(self.leaf(&eval, data, storage, cell))
             } else {
                 let child = self.cells.len();
                 for _ in Corner::iter() {
@@ -238,21 +277,33 @@ impl Octree {
         &mut self,
         eval: &Arc<EvalGroup<I>>,
         data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
         cell: CellIndex,
         settings: Settings,
     ) {
-        match self.eval_cell(eval, data, cell, settings) {
+        match self.eval_cell(eval, data, storage, cell, settings) {
             CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
             CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
             CellResult::Leaf(leaf) => {
                 self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
             }
-            CellResult::Recurse { index, eval } => {
+            CellResult::Recurse { index, mut eval } => {
                 self.cells[cell.index] =
                     Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&eval, data, cell, settings);
+                    self.recurse(&eval, data, storage, cell, settings);
+                }
+                if let Some(e) = Arc::get_mut(&mut eval) {
+                    storage
+                        .interval_storage
+                        .extend(e.interval.take().and_then(|s| s.take()));
+                    storage
+                        .float_storage
+                        .extend(e.float_slice.take().and_then(|s| s.take()));
+                    storage
+                        .grad_storage
+                        .extend(e.grad_slice.take().and_then(|s| s.take()));
                 }
             }
         }
@@ -263,9 +314,10 @@ impl Octree {
         &mut self,
         eval: &EvalGroup<I>,
         data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
         cell: CellIndex,
     ) -> Leaf {
-        let float_eval = eval.float_slice();
+        let float_eval = eval.float_slice(&mut storage.float_storage);
 
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
@@ -429,7 +481,7 @@ impl Octree {
         }
 
         // TODO: special case for cells with multiple gradients ("features")
-        let grad_eval = eval.grad_slice();
+        let grad_eval = eval.grad_slice(&mut storage.grad_storage);
         let grads = grad_eval
             .eval_with(xs, ys, zs, &[], &mut data.grad_data)
             .unwrap();

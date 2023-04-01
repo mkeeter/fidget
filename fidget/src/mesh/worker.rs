@@ -6,7 +6,7 @@ use std::sync::{
 
 use super::{
     cell::{Cell, CellData, CellIndex},
-    octree::{CellResult, EvalData, EvalGroup},
+    octree::{CellResult, EvalData, EvalGroup, EvalStorage},
     types::Corner,
     Octree, Settings,
 };
@@ -61,6 +61,9 @@ pub struct Worker<I: Family> {
 
     /// Per-thread local data for evaluation, to avoid allocation churn
     data: EvalData<I>,
+
+    /// Per-thread local storage for evaluators, to avoid allocation churn
+    storage: EvalStorage<I>,
 }
 
 impl<I: Family> Worker<I> {
@@ -94,12 +97,14 @@ impl<I: Family> Worker<I> {
                 friend_queue: friend_queue.clone(),
                 friend_done: friend_done.clone(),
                 data: Default::default(),
+                storage: Default::default(),
             })
             .collect::<Vec<_>>();
 
         let root = CellIndex::default();
         let r = workers[0].octree.eval_cell(
             &eval,
+            &mut Default::default(),
             &mut Default::default(),
             root,
             settings,
@@ -212,7 +217,7 @@ impl<I: Family> Worker<I> {
                 },
             );
 
-            if let Some((task, source)) = t {
+            if let Some((mut task, source)) = t {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
                 let mut any_recurse = false;
@@ -222,6 +227,7 @@ impl<I: Family> Worker<I> {
                     let r = match self.octree.eval_cell(
                         &task.eval,
                         &mut self.data,
+                        &mut self.storage,
                         sub_cell,
                         settings,
                     ) {
@@ -266,6 +272,18 @@ impl<I: Family> Worker<I> {
                             t.unpark();
                         }
                     }
+                }
+
+                if let Some(e) = Arc::get_mut(&mut task.eval) {
+                    self.storage
+                        .interval_storage
+                        .extend(e.interval.take().and_then(|s| s.take()));
+                    self.storage
+                        .float_storage
+                        .extend(e.float_slice.take().and_then(|s| s.take()));
+                    self.storage
+                        .grad_storage
+                        .extend(e.grad_slice.take().and_then(|s| s.take()));
                 }
 
                 // We've successfully done some work, so start the loop again
