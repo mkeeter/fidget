@@ -219,14 +219,7 @@ impl Octree {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                let leaf = self.leaf(
-                    &eval,
-                    cell,
-                    &mut data.float_data,
-                    &mut data.grad_data,
-                );
-
-                CellResult::Leaf(leaf)
+                CellResult::Leaf(self.leaf(&eval, data, cell))
             } else {
                 let child = self.cells.len();
                 for _ in Corner::iter() {
@@ -269,9 +262,8 @@ impl Octree {
     fn leaf<I: Family>(
         &mut self,
         eval: &EvalGroup<I>,
+        data: &mut EvalData<I>,
         cell: CellIndex,
-        data_float: &mut FloatSliceEvalData<I>,
-        data_grad: &mut GradSliceEvalData<I>,
     ) -> Leaf {
         let float_eval = eval.float_slice();
 
@@ -287,7 +279,7 @@ impl Octree {
 
         // TODO: reuse evaluators, etc
         let out = float_eval
-            .eval_with(&xs, &ys, &zs, &[], data_float)
+            .eval_with(&xs, &ys, &zs, &[], &mut data.float_data)
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -379,8 +371,9 @@ impl Octree {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out =
-                float_eval.eval_with(xs, ys, zs, &[], data_float).unwrap();
+            let out = float_eval
+                .eval_with(xs, ys, zs, &[], &mut data.float_data)
+                .unwrap();
 
             // Update start and end positions based on evaluation
             for ((start, end), search) in start
@@ -437,7 +430,9 @@ impl Octree {
 
         // TODO: special case for cells with multiple gradients ("features")
         let grad_eval = eval.grad_slice();
-        let grads = grad_eval.eval_with(xs, ys, zs, &[], data_grad).unwrap();
+        let grads = grad_eval
+            .eval_with(xs, ys, zs, &[], &mut data.grad_data)
+            .unwrap();
 
         // Now, we're going to solve a quadratic error function for every vertex
         // to position it at the right place.  This gets a little tricky; see
