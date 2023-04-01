@@ -41,9 +41,25 @@ struct Done {
 }
 
 pub struct Worker<I: Family> {
+    /// Global index of this worker thread
+    ///
+    /// For example, this is the thread's own index in `friend_queue` and
+    /// `friend_done`.
     thread_index: usize,
+
+    /// The under-construction octree.
+    ///
+    /// This octree may not be complete; worker 0 is guaranteed to contain the
+    /// root, and other works may contain fragmentary branches that point to
+    /// each other in a tree structure.
     octree: Octree,
+
+    /// Our personal queue of tasks to complete
+    ///
+    /// Other threads may steal from this queue!
     queue: crossbeam_deque::Worker<Task<I>>,
+
+    /// Incoming completed tasks from other threads
     done: std::sync::mpsc::Receiver<Done>,
 
     /// Queues from which we can steal other workers' tasks
