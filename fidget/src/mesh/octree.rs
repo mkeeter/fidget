@@ -3,6 +3,7 @@
 use super::{
     builder::MeshBuilder,
     cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
+    dc::DcWorker,
     frame::{Frame, XYZ, YZX, ZXY},
     gen::CELL_TO_VERT_TO_EDGES,
     types::{Axis, Corner, Edge, X, Y, Z},
@@ -128,7 +129,7 @@ impl<I: Family> Default for EvalStorage<I> {
 #[derive(Debug)]
 pub struct Octree {
     /// The top two bits determine cell types
-    cells: Vec<CellData>,
+    pub(crate) cells: Vec<CellData>,
 
     /// Cell vertices, given as positions within the cell
     ///
@@ -137,7 +138,7 @@ pub struct Octree {
     ///
     /// This is indexed by cell leaf index; the exact shape depends heavily on
     /// the number of intersections and vertices within each leaf.
-    verts: Vec<CellVertex>,
+    pub(crate) verts: Vec<CellVertex>,
 }
 
 impl Default for Octree {
@@ -589,23 +590,28 @@ impl Octree {
     }
 
     /// Recursively walks the dual of the octree, building a mesh
-    pub fn walk_dual(&self) -> Mesh {
+    pub fn walk_dual(&self, settings: Settings) -> Mesh {
         let x = Interval::new(-1.0, 1.0);
         let y = Interval::new(-1.0, 1.0);
         let z = Interval::new(-1.0, 1.0);
         let mut mesh = MeshBuilder::default();
 
-        self.dc_cell(
-            CellIndex {
-                index: 0,
-                x,
-                y,
-                z,
-                depth: 0,
-            },
-            &mut mesh,
-        );
-        mesh.take()
+        // TODO: enable multithreading
+        if settings.threads == 0 || true {
+            self.dc_cell(
+                CellIndex {
+                    index: 0,
+                    x,
+                    y,
+                    z,
+                    depth: 0,
+                },
+                &mut mesh,
+            );
+            mesh.take()
+        } else {
+            DcWorker::scheduler(self, settings.threads as usize)
+        }
     }
 }
 
@@ -663,7 +669,11 @@ impl Octree {
     /// Looks up the given child of a cell.
     ///
     /// If the cell is a leaf node, returns that cell instead.
-    fn child<C: Into<Corner>>(&self, cell: CellIndex, child: C) -> CellIndex {
+    pub(crate) fn child<C: Into<Corner>>(
+        &self,
+        cell: CellIndex,
+        child: C,
+    ) -> CellIndex {
         let child = child.into();
 
         match self.cells[cell.index].into() {
@@ -673,7 +683,7 @@ impl Octree {
         }
     }
 
-    fn is_leaf(&self, cell: CellIndex) -> bool {
+    pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
         !matches!(self.cells[cell.index].into(), Cell::Branch { .. })
     }
 
@@ -950,7 +960,7 @@ mod test {
         assert_eq!(octree.verts.len(), 0);
         // TODO: should we transform this into an Empty?
 
-        let empty_mesh = octree.walk_dual();
+        let empty_mesh = octree.walk_dual(DEPTH0_SINGLE_THREAD);
         assert!(empty_mesh.vertices.is_empty());
         assert!(empty_mesh.triangles.is_empty());
 
@@ -976,7 +986,7 @@ mod test {
             assert_eq!(index % 4, 0);
         }
 
-        let sphere_mesh = octree.walk_dual();
+        let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
         assert!(sphere_mesh.vertices.len() > 1);
         assert!(!sphere_mesh.triangles.is_empty());
     }
@@ -988,7 +998,7 @@ mod test {
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
-        let sphere_mesh = octree.walk_dual();
+        let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
 
         let mut edge_count = 0;
         for v in &sphere_mesh.vertices {
@@ -1023,18 +1033,16 @@ mod test {
     fn test_sphere_manifold() {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.85);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
 
         for threads in [0, 8] {
-            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-            let octree = Octree::build(
-                &tape,
-                Settings {
-                    min_depth: 5,
-                    max_depth: 5,
-                    threads,
-                },
-            );
-            let sphere_mesh = octree.walk_dual();
+            let settings = Settings {
+                min_depth: 5,
+                max_depth: 5,
+                threads,
+            };
+            let octree = Octree::build(&tape, settings);
+            let sphere_mesh = octree.walk_dual(settings);
             /*
             sphere_mesh
                 .write_stl(
@@ -1060,7 +1068,7 @@ mod test {
 
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
-        let mesh = octree.walk_dual();
+        let mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
         for v in &mesh.vertices {
@@ -1189,16 +1197,14 @@ mod test {
                 // Now, we have our shape, which is 0-8 spheres placed at the
                 // corners of the cell spanning [0, 0.25]
                 let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-                let octree = Octree::build(
-                    &tape,
-                    Settings {
-                        min_depth: 2,
-                        max_depth: 2,
-                        threads,
-                    },
-                );
+                let settings = Settings {
+                    min_depth: 2,
+                    max_depth: 2,
+                    threads,
+                };
+                let octree = Octree::build(&tape, settings);
 
-                let mesh = octree.walk_dual();
+                let mesh = octree.walk_dual(settings);
                 if i != 0 && i != 255 {
                     assert!(!mesh.vertices.is_empty());
                     assert!(!mesh.triangles.is_empty());

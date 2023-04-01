@@ -43,7 +43,7 @@ pub fn colonnade_mesh(c: &mut Criterion) {
     let octree = fidget::mesh::Octree::build(tape_vm, cfg);
 
     c.bench_function("colonnade mesh construction", move |b| {
-        b.iter(|| black_box(octree.walk_dual()))
+        b.iter(|| black_box(octree.walk_dual(cfg)))
     });
 }
 
