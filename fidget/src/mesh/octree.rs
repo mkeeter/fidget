@@ -590,7 +590,8 @@ impl Octree {
                 octree: self,
                 mesh: MeshBuilder::default(),
             };
-            dc::dc_cell(o, CellIndex::default(), self);
+            use dc::DcCore;
+            o.dc_cell(CellIndex::default());
             std::mem::take(&mut o.mesh).take()
         } else {
             DcWorker::scheduler(self, settings.threads)
@@ -626,41 +627,29 @@ struct OctreeDc<'a> {
 
 impl dc::DcCore for OctreeDc<'_> {
     #[inline(always)]
-    fn get_vertex(
-        &mut self,
-        i: usize,
-        cell: CellIndex,
-        octree: &Octree,
-    ) -> usize {
-        self.mesh.get(i, cell, &octree.verts)
+    fn get_vertex(&mut self, i: usize, cell: CellIndex) -> usize {
+        self.mesh.get(i, cell, &self.octree.verts)
     }
     #[inline(always)]
     fn push(&mut self, task: dc::Task) {
         match task {
-            dc::Task::Cell(i) => dc::dc_cell(self, i, self.octree),
-            dc::Task::FaceXYZ(a, b) => {
-                dc::dc_face::<_, XYZ>(self, a, b, self.octree)
-            }
-            dc::Task::FaceYZX(a, b) => {
-                dc::dc_face::<_, YZX>(self, a, b, self.octree)
-            }
-            dc::Task::FaceZXY(a, b) => {
-                dc::dc_face::<_, ZXY>(self, a, b, self.octree)
-            }
-            dc::Task::EdgeXYZ(a, b, c, d) => {
-                dc::dc_edge::<_, XYZ>(self, a, b, c, d, self.octree)
-            }
-            dc::Task::EdgeYZX(a, b, c, d) => {
-                dc::dc_edge::<_, YZX>(self, a, b, c, d, self.octree)
-            }
-            dc::Task::EdgeZXY(a, b, c, d) => {
-                dc::dc_edge::<_, ZXY>(self, a, b, c, d, self.octree)
-            }
+            dc::Task::Cell(i) => self.dc_cell(i),
+            dc::Task::FaceXYZ(a, b) => self.dc_face::<XYZ>(a, b),
+            dc::Task::FaceYZX(a, b) => self.dc_face::<YZX>(a, b),
+            dc::Task::FaceZXY(a, b) => self.dc_face::<ZXY>(a, b),
+            dc::Task::EdgeXYZ(a, b, c, d) => self.dc_edge::<XYZ>(a, b, c, d),
+            dc::Task::EdgeYZX(a, b, c, d) => self.dc_edge::<YZX>(a, b, c, d),
+            dc::Task::EdgeZXY(a, b, c, d) => self.dc_edge::<ZXY>(a, b, c, d),
         };
     }
     #[inline(always)]
     fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.mesh.push(nalgebra::Vector3::new(a, b, c));
+    }
+
+    #[inline(always)]
+    fn octree(&self) -> &Octree {
+        self.octree
     }
 }
 

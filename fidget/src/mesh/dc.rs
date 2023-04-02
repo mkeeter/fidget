@@ -223,26 +223,19 @@ impl<'a> DcWorker<'a> {
             if let Some(task) = t {
                 // Evaluate a single task, pushing any recursive tasks to our
                 // own queue.
-                let o = self.octree;
                 let any_recurse = match task {
-                    Task::Cell(i) => dc_cell(&mut self, i, o),
-                    Task::FaceXYZ(a, b) => {
-                        dc_face::<_, XYZ>(&mut self, a, b, o)
-                    }
-                    Task::FaceYZX(a, b) => {
-                        dc_face::<_, YZX>(&mut self, a, b, o)
-                    }
-                    Task::FaceZXY(a, b) => {
-                        dc_face::<_, ZXY>(&mut self, a, b, o)
-                    }
+                    Task::Cell(i) => self.dc_cell(i),
+                    Task::FaceXYZ(a, b) => self.dc_face::<XYZ>(a, b),
+                    Task::FaceYZX(a, b) => self.dc_face::<YZX>(a, b),
+                    Task::FaceZXY(a, b) => self.dc_face::<ZXY>(a, b),
                     Task::EdgeXYZ(a, b, c, d) => {
-                        dc_edge::<_, XYZ>(&mut self, a, b, c, d, o)
+                        self.dc_edge::<XYZ>(a, b, c, d)
                     }
                     Task::EdgeYZX(a, b, c, d) => {
-                        dc_edge::<_, YZX>(&mut self, a, b, c, d, o)
+                        self.dc_edge::<YZX>(a, b, c, d)
                     }
                     Task::EdgeZXY(a, b, c, d) => {
-                        dc_edge::<_, ZXY>(&mut self, a, b, c, d, o)
+                        self.dc_edge::<ZXY>(a, b, c, d)
                     }
                 };
 
@@ -269,17 +262,210 @@ impl<'a> DcWorker<'a> {
 
 pub trait DcCore {
     /// Looks up the given octree vertex
-    fn get_vertex(
-        &mut self,
-        i: usize,
-        cell: CellIndex,
-        octree: &Octree,
-    ) -> usize;
+    fn get_vertex(&mut self, i: usize, cell: CellIndex) -> usize;
 
     /// Pushes a task for evaluation
     fn push(&mut self, task: Task);
 
     fn triangle(&mut self, a: usize, b: usize, c: usize);
+
+    fn octree(&self) -> &Octree;
+
+    #[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
+    fn dc_cell(&mut self, cell: CellIndex) -> bool {
+        if let Cell::Branch { index, .. } =
+            self.octree().cells[cell.index].into()
+        {
+            debug_assert_eq!(index % 8, 0);
+            for i in Corner::iter() {
+                self.push(Task::Cell(self.octree().child(cell, i)));
+            }
+
+            self.dc_faces::<XYZ>(cell);
+            self.dc_faces::<YZX>(cell);
+            self.dc_faces::<ZXY>(cell);
+
+            for i in [false, true] {
+                self.push(Task::EdgeXYZ(
+                    self.octree().child(cell, (X * i)),
+                    self.octree().child(cell, (X * i) | Y),
+                    self.octree().child(cell, (X * i) | Y | Z),
+                    self.octree().child(cell, (X * i) | Z),
+                ));
+                self.push(Task::EdgeYZX(
+                    self.octree().child(cell, (Y * i)),
+                    self.octree().child(cell, (Y * i) | Z),
+                    self.octree().child(cell, (Y * i) | X | Z),
+                    self.octree().child(cell, (Y * i) | X),
+                ));
+                self.push(Task::EdgeZXY(
+                    self.octree().child(cell, (Z * i)),
+                    self.octree().child(cell, (Z * i) | X),
+                    self.octree().child(cell, (Z * i) | X | Y),
+                    self.octree().child(cell, (Z * i) | Y),
+                ));
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Queues up `Face` tasks on all four face adjacencies in the given frame
+    fn dc_faces<T: Frame + FrameToTask>(&mut self, cell: CellIndex) {
+        let (t, u, v) = T::frame();
+        for c in [Corner::new(0), u.into(), v.into(), u | v] {
+            self.push(T::face(
+                self.octree().child(cell, c),
+                self.octree().child(cell, c | t),
+            ));
+        }
+    }
+
+    /// Handles two cells which share a common face
+    ///
+    /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
+    /// `T-U-V` is a right-handed coordinate system.
+    #[allow(unused_parens)]
+    fn dc_face<T: Frame + FrameToTask>(
+        &mut self,
+        lo: CellIndex,
+        hi: CellIndex,
+    ) -> bool
+    where
+        <T as Frame>::Next: FrameToTask,
+        <<T as Frame>::Next as Frame>::Next: FrameToTask,
+    {
+        if self.octree().is_leaf(lo) && self.octree().is_leaf(hi) {
+            return false;
+        }
+        let (t, u, v) = T::frame();
+        self.push(T::face(
+            self.octree().child(lo, t),
+            self.octree().child(hi, Corner::new(0)),
+        ));
+        self.push(T::face(
+            self.octree().child(lo, t | u),
+            self.octree().child(hi, u),
+        ));
+        self.push(T::face(
+            self.octree().child(lo, t | v),
+            self.octree().child(hi, v),
+        ));
+        self.push(T::face(
+            self.octree().child(lo, t | u | v),
+            self.octree().child(hi, u | v),
+        ));
+        for i in [false, true] {
+            self.push(<T::Next as FrameToTask>::edge(
+                self.octree().child(lo, (u * i) | t),
+                self.octree().child(lo, (u * i) | v | t),
+                self.octree().child(hi, (u * i) | v),
+                self.octree().child(hi, (u * i)),
+            ));
+            self.push(<<T::Next as Frame>::Next as FrameToTask>::edge(
+                self.octree().child(lo, (v * i) | t),
+                self.octree().child(hi, (v * i)),
+                self.octree().child(hi, (v * i) | u),
+                self.octree().child(lo, (v * i) | u | t),
+            ));
+        }
+        true
+    }
+
+    /// Handles four cells that share a common edge aligned on axis `T`
+    ///
+    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
+    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
+    ///
+    /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
+    /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
+    /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
+    #[allow(clippy::identity_op, unused_parens)]
+    fn dc_edge<T: Frame + FrameToTask>(
+        &mut self,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) -> bool {
+        let cs = [a, b, c, d];
+        if cs.iter().all(|v| self.octree().is_leaf(*v)) {
+            // If any of the leafs are Empty or Full, then this edge can't
+            // include a sign change.  TODO: can we make this any -> all if we
+            // collapse empty / filled leafs into Empty / Full cells?
+            let leafs =
+                cs.map(|cell| match self.octree().cells[cell.index].into() {
+                    Cell::Leaf { leaf, .. } => Some(leaf),
+                    Cell::Empty | Cell::Full => None,
+                    Cell::Branch { .. } => unreachable!(),
+                    Cell::Invalid => panic!(),
+                });
+            if leafs.iter().any(Option::is_none) {
+                return false;
+            }
+            let leafs = leafs.map(Option::unwrap);
+
+            // TODO: check for a sign change on this edge
+            let (t, u, v) = T::frame();
+            let sign_change_count = leafs
+                .iter()
+                .zip([u | v, v.into(), Corner::new(0), u.into()])
+                .filter(|(leaf, c)| {
+                    (leaf.mask & (1 << c.index()) == 0)
+                        != (leaf.mask & (1 << (*c | t).index()) == 0)
+                })
+                .count();
+            if sign_change_count == 0 {
+                return false;
+            }
+            debug_assert_eq!(sign_change_count, 4);
+
+            let verts = [
+                leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
+                leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
+                leafs[2].edge(Edge::new((t.index() * 4 + 0) as u8)),
+                leafs[3].edge(Edge::new((t.index() * 4 + 1) as u8)),
+            ];
+
+            // Pick the intersection vertex based on the deepest cell
+            let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
+            let i = self.get_vertex(
+                leafs[deepest].index + verts[deepest].edge.0 as usize,
+                cs[deepest],
+            );
+            // Helper function to extract other vertices
+            let mut vert = |i: usize| {
+                self.get_vertex(
+                    leafs[i].index + verts[i].vert.0 as usize,
+                    cs[i],
+                )
+            };
+            let vs = [vert(0), vert(1), vert(2), vert(3)];
+
+            // Pick a triangle winding depending on the edge direction
+            let winding = if leafs[0].mask & (1 << (u | v).index()) == 0 {
+                3
+            } else {
+                1
+            };
+            for j in 0..4 {
+                self.triangle(vs[j], vs[(j + winding) % 4], i);
+            }
+            false
+        } else {
+            let (t, u, v) = T::frame();
+            for i in [false, true] {
+                self.push(T::edge(
+                    self.octree().child(a, (t * i) | u | v),
+                    self.octree().child(b, (t * i) | v),
+                    self.octree().child(c, (t * i)),
+                    self.octree().child(d, (t * i) | u),
+                ));
+            }
+            true
+        }
+    }
 }
 
 impl DcCore for DcWorker<'_> {
@@ -294,12 +480,7 @@ impl DcCore for DcWorker<'_> {
     /// then it returns the other thread's claimed vertex index (which includes
     /// the thread ID in the upper bits).
     #[inline(always)]
-    fn get_vertex(
-        &mut self,
-        i: usize,
-        cell: CellIndex,
-        _octree: &Octree,
-    ) -> usize {
+    fn get_vertex(&mut self, i: usize, cell: CellIndex) -> usize {
         // Build our thread + vertex index
         let mut next = self.verts.len();
         assert!(next < (1 << 55));
@@ -324,200 +505,9 @@ impl DcCore for DcWorker<'_> {
     fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.tris.push(nalgebra::Vector3::new(a, b, c))
     }
-}
 
-#[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
-pub fn dc_cell<C: DcCore>(
-    core: &mut C,
-    cell: CellIndex,
-    octree: &Octree,
-) -> bool {
-    if let Cell::Branch { index, .. } = octree.cells[cell.index].into() {
-        debug_assert_eq!(index % 8, 0);
-        for i in Corner::iter() {
-            core.push(Task::Cell(octree.child(cell, i)));
-        }
-
-        dc_faces::<C, XYZ>(core, cell, octree);
-        dc_faces::<C, YZX>(core, cell, octree);
-        dc_faces::<C, ZXY>(core, cell, octree);
-
-        for i in [false, true] {
-            core.push(Task::EdgeXYZ(
-                octree.child(cell, (X * i)),
-                octree.child(cell, (X * i) | Y),
-                octree.child(cell, (X * i) | Y | Z),
-                octree.child(cell, (X * i) | Z),
-            ));
-            core.push(Task::EdgeYZX(
-                octree.child(cell, (Y * i)),
-                octree.child(cell, (Y * i) | Z),
-                octree.child(cell, (Y * i) | X | Z),
-                octree.child(cell, (Y * i) | X),
-            ));
-            core.push(Task::EdgeZXY(
-                octree.child(cell, (Z * i)),
-                octree.child(cell, (Z * i) | X),
-                octree.child(cell, (Z * i) | X | Y),
-                octree.child(cell, (Z * i) | Y),
-            ));
-        }
-        true
-    } else {
-        false
-    }
-}
-
-/// Queues up `Face` tasks on all four face adjacencies in the given frame
-fn dc_faces<C: DcCore, T: Frame + FrameToTask>(
-    core: &mut C,
-    cell: CellIndex,
-    octree: &Octree,
-) {
-    let (t, u, v) = T::frame();
-    for c in [Corner::new(0), u.into(), v.into(), u | v] {
-        core.push(T::face(octree.child(cell, c), octree.child(cell, c | t)));
-    }
-}
-
-/// Handles two cells which share a common face
-///
-/// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
-/// `T-U-V` is a right-handed coordinate system.
-#[allow(unused_parens)]
-pub fn dc_face<C: DcCore, T: Frame + FrameToTask>(
-    core: &mut C,
-    lo: CellIndex,
-    hi: CellIndex,
-    octree: &Octree,
-) -> bool
-where
-    <T as Frame>::Next: FrameToTask,
-    <<T as Frame>::Next as Frame>::Next: FrameToTask,
-{
-    if octree.is_leaf(lo) && octree.is_leaf(hi) {
-        return false;
-    }
-    let (t, u, v) = T::frame();
-    core.push(T::face(
-        octree.child(lo, t),
-        octree.child(hi, Corner::new(0)),
-    ));
-    core.push(T::face(octree.child(lo, t | u), octree.child(hi, u)));
-    core.push(T::face(octree.child(lo, t | v), octree.child(hi, v)));
-    core.push(T::face(
-        octree.child(lo, t | u | v),
-        octree.child(hi, u | v),
-    ));
-    for i in [false, true] {
-        core.push(<T::Next as FrameToTask>::edge(
-            octree.child(lo, (u * i) | t),
-            octree.child(lo, (u * i) | v | t),
-            octree.child(hi, (u * i) | v),
-            octree.child(hi, (u * i)),
-        ));
-        core.push(<<T::Next as Frame>::Next as FrameToTask>::edge(
-            octree.child(lo, (v * i) | t),
-            octree.child(hi, (v * i)),
-            octree.child(hi, (v * i) | u),
-            octree.child(lo, (v * i) | u | t),
-        ));
-    }
-    true
-}
-
-/// Handles four cells that share a common edge aligned on axis `T`
-///
-/// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
-/// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
-///
-/// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
-/// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
-/// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-#[allow(clippy::identity_op, unused_parens)]
-pub fn dc_edge<C: DcCore, T: Frame + FrameToTask>(
-    core: &mut C,
-    a: CellIndex,
-    b: CellIndex,
-    c: CellIndex,
-    d: CellIndex,
-    octree: &Octree,
-) -> bool {
-    let cs = [a, b, c, d];
-    if cs.iter().all(|v| octree.is_leaf(*v)) {
-        // If any of the leafs are Empty or Full, then this edge can't
-        // include a sign change.  TODO: can we make this any -> all if we
-        // collapse empty / filled leafs into Empty / Full cells?
-        let leafs = cs.map(|cell| match octree.cells[cell.index].into() {
-            Cell::Leaf { leaf, .. } => Some(leaf),
-            Cell::Empty | Cell::Full => None,
-            Cell::Branch { .. } => unreachable!(),
-            Cell::Invalid => panic!(),
-        });
-        if leafs.iter().any(Option::is_none) {
-            return false;
-        }
-        let leafs = leafs.map(Option::unwrap);
-
-        // TODO: check for a sign change on this edge
-        let (t, u, v) = T::frame();
-        let sign_change_count = leafs
-            .iter()
-            .zip([u | v, v.into(), Corner::new(0), u.into()])
-            .filter(|(leaf, c)| {
-                (leaf.mask & (1 << c.index()) == 0)
-                    != (leaf.mask & (1 << (*c | t).index()) == 0)
-            })
-            .count();
-        if sign_change_count == 0 {
-            return false;
-        }
-        debug_assert_eq!(sign_change_count, 4);
-
-        let verts = [
-            leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
-            leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
-            leafs[2].edge(Edge::new((t.index() * 4 + 0) as u8)),
-            leafs[3].edge(Edge::new((t.index() * 4 + 1) as u8)),
-        ];
-
-        // Pick the intersection vertex based on the deepest cell
-        let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
-        let i = core.get_vertex(
-            leafs[deepest].index + verts[deepest].edge.0 as usize,
-            cs[deepest],
-            octree,
-        );
-        // Helper function to extract other vertices
-        let mut vert = |i: usize| {
-            core.get_vertex(
-                leafs[i].index + verts[i].vert.0 as usize,
-                cs[i],
-                octree,
-            )
-        };
-        let vs = [vert(0), vert(1), vert(2), vert(3)];
-
-        // Pick a triangle winding depending on the edge direction
-        let winding = if leafs[0].mask & (1 << (u | v).index()) == 0 {
-            3
-        } else {
-            1
-        };
-        for j in 0..4 {
-            core.triangle(vs[j], vs[(j + winding) % 4], i);
-        }
-        false
-    } else {
-        let (t, u, v) = T::frame();
-        for i in [false, true] {
-            core.push(T::edge(
-                octree.child(a, (t * i) | u | v),
-                octree.child(b, (t * i) | v),
-                octree.child(c, (t * i)),
-                octree.child(d, (t * i) | u),
-            ));
-        }
-        true
+    #[inline(always)]
+    fn octree(&self) -> &Octree {
+        self.octree
     }
 }
