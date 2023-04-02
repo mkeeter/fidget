@@ -72,3 +72,6 @@ harness = false
 [[bench]]
 name = "mesh"
 harness = false
+
+[lib]
+bench = false
