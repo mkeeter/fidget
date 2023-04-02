@@ -632,7 +632,6 @@ impl Octree {
     }
 }
 
-#[allow(unused_parens)]
 fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
     if let Cell::Branch { index, .. } = octree.cells[cell.index].into() {
         debug_assert_eq!(index % 8, 0);
@@ -644,6 +643,7 @@ fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
         dc_faces::<YZX>(octree, cell, out);
         dc_faces::<ZXY>(octree, cell, out);
 
+        #[allow(unused_parens)]
         for i in [false, true] {
             dc_edge::<XYZ>(
                 octree,
@@ -690,7 +690,6 @@ fn dc_faces<T: Frame>(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
 ///
 /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
 /// `T-U-V` is a right-handed coordinate system.
-#[allow(unused_parens)]
 fn dc_face<T: Frame>(
     octree: &Octree,
     lo: CellIndex,
@@ -715,6 +714,7 @@ fn dc_face<T: Frame>(
         octree.child(hi, u | v),
         out,
     );
+    #[allow(unused_parens)]
     for i in [false, true] {
         dc_edge::<T::Next>(
             octree,
@@ -743,7 +743,6 @@ fn dc_face<T: Frame>(
 /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
 /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
 /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-#[allow(clippy::identity_op, unused_parens)]
 fn dc_edge<T: Frame>(
     octree: &Octree,
     a: CellIndex,
@@ -783,6 +782,7 @@ fn dc_edge<T: Frame>(
         }
         debug_assert_eq!(sign_change_count, 4);
 
+        #[allow(clippy::identity_op)]
         let verts = [
             leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
             leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
@@ -818,6 +818,8 @@ fn dc_edge<T: Frame>(
         }
     } else {
         let (t, u, v) = T::frame();
+
+        #[allow(unused_parens)]
         for i in [false, true] {
             dc_edge::<T>(
                 octree,
