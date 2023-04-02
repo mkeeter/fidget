@@ -632,57 +632,110 @@ impl Octree {
     }
 }
 
-fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
+////////////////////////////////////////////////////////////////////////////////
+
+trait DcBuilder {
+    fn cell(&mut self, octree: &Octree, cell: CellIndex);
+    fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex);
+    fn edge<F: Frame>(
+        &mut self,
+        octree: &Octree,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    );
+    fn triangle(&mut self, a: usize, b: usize, c: usize);
+
+    /// Looks up the given vertex, localizing it within a cell
+    ///
+    /// `v` is an absolute offset into `verts`, which should be a reference to
+    /// [`Octree::verts`](super::Octree::verts).
+    fn vertex(
+        &mut self,
+        v: usize,
+        cell: CellIndex,
+        verts: &[CellVertex],
+    ) -> usize;
+}
+
+impl DcBuilder for MeshBuilder {
+    fn cell(&mut self, octree: &Octree, cell: CellIndex) {
+        dc_cell(octree, cell, self);
+    }
+    fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex) {
+        dc_face::<F, _>(octree, a, b, self)
+    }
+    fn edge<F: Frame>(
+        &mut self,
+        octree: &Octree,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) {
+        dc_edge::<F, _>(octree, a, b, c, d, self)
+    }
+    fn triangle(&mut self, a: usize, b: usize, c: usize) {
+        self.push(nalgebra::Vector3::new(a, b, c))
+    }
+    fn vertex(
+        &mut self,
+        v: usize,
+        cell: CellIndex,
+        verts: &[CellVertex],
+    ) -> usize {
+        self.get(v, cell, verts)
+    }
+}
+
+fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
     if let Cell::Branch { index, .. } = octree.cells[cell.index].into() {
         debug_assert_eq!(index % 8, 0);
         for i in Corner::iter() {
-            dc_cell(octree, octree.child(cell, i), out);
+            out.cell(octree, octree.child(cell, i));
         }
 
-        dc_faces::<XYZ>(octree, cell, out);
-        dc_faces::<YZX>(octree, cell, out);
-        dc_faces::<ZXY>(octree, cell, out);
+        dc_faces::<XYZ, _>(octree, cell, out);
+        dc_faces::<YZX, _>(octree, cell, out);
+        dc_faces::<ZXY, _>(octree, cell, out);
 
         #[allow(unused_parens)]
         for i in [false, true] {
-            dc_edge::<XYZ>(
+            out.edge::<XYZ>(
                 octree,
                 octree.child(cell, (X * i)),
                 octree.child(cell, (X * i) | Y),
                 octree.child(cell, (X * i) | Y | Z),
                 octree.child(cell, (X * i) | Z),
-                out,
             );
-            dc_edge::<YZX>(
+            out.edge::<YZX>(
                 octree,
                 octree.child(cell, (Y * i)),
                 octree.child(cell, (Y * i) | Z),
                 octree.child(cell, (Y * i) | X | Z),
                 octree.child(cell, (Y * i) | X),
-                out,
             );
-            dc_edge::<ZXY>(
+            out.edge::<ZXY>(
                 octree,
                 octree.child(cell, (Z * i)),
                 octree.child(cell, (Z * i) | X),
                 octree.child(cell, (Z * i) | X | Y),
                 octree.child(cell, (Z * i) | Y),
-                out,
             );
         }
     }
 }
 
 /// Calls [`self.dc_face`] on all four face adjacencies in the given frame
-fn dc_faces<T: Frame>(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
+fn dc_faces<T: Frame, B: DcBuilder>(
+    octree: &Octree,
+    cell: CellIndex,
+    out: &mut B,
+) {
     let (t, u, v) = T::frame();
     for c in [Corner::new(0), u.into(), v.into(), u | v] {
-        dc_face::<T>(
-            octree,
-            octree.child(cell, c),
-            octree.child(cell, c | t),
-            out,
-        );
+        out.face::<T>(octree, octree.child(cell, c), octree.child(cell, c | t));
     }
 }
 
@@ -690,47 +743,39 @@ fn dc_faces<T: Frame>(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
 ///
 /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
 /// `T-U-V` is a right-handed coordinate system.
-fn dc_face<T: Frame>(
+fn dc_face<T: Frame, B: DcBuilder>(
     octree: &Octree,
     lo: CellIndex,
     hi: CellIndex,
-    out: &mut MeshBuilder,
+    out: &mut B,
 ) {
     if octree.is_leaf(lo) && octree.is_leaf(hi) {
         return;
     }
     let (t, u, v) = T::frame();
-    dc_face::<T>(
+    out.face::<T>(
         octree,
         octree.child(lo, t),
         octree.child(hi, Corner::new(0)),
-        out,
     );
-    dc_face::<T>(octree, octree.child(lo, t | u), octree.child(hi, u), out);
-    dc_face::<T>(octree, octree.child(lo, t | v), octree.child(hi, v), out);
-    dc_face::<T>(
-        octree,
-        octree.child(lo, t | u | v),
-        octree.child(hi, u | v),
-        out,
-    );
+    out.face::<T>(octree, octree.child(lo, t | u), octree.child(hi, u));
+    out.face::<T>(octree, octree.child(lo, t | v), octree.child(hi, v));
+    out.face::<T>(octree, octree.child(lo, t | u | v), octree.child(hi, u | v));
     #[allow(unused_parens)]
     for i in [false, true] {
-        dc_edge::<T::Next>(
+        out.edge::<T::Next>(
             octree,
             octree.child(lo, (u * i) | t),
             octree.child(lo, (u * i) | v | t),
             octree.child(hi, (u * i) | v),
             octree.child(hi, (u * i)),
-            out,
         );
-        dc_edge::<<T::Next as Frame>::Next>(
+        out.edge::<<T::Next as Frame>::Next>(
             octree,
             octree.child(lo, (v * i) | t),
             octree.child(hi, (v * i)),
             octree.child(hi, (v * i) | u),
             octree.child(lo, (v * i) | u | t),
-            out,
         );
     }
 }
@@ -743,13 +788,13 @@ fn dc_face<T: Frame>(
 /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
 /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
 /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-fn dc_edge<T: Frame>(
+fn dc_edge<T: Frame, B: DcBuilder>(
     octree: &Octree,
     a: CellIndex,
     b: CellIndex,
     c: CellIndex,
     d: CellIndex,
-    out: &mut MeshBuilder,
+    out: &mut B,
 ) {
     let cs = [a, b, c, d];
     if cs.iter().all(|v| octree.is_leaf(*v)) {
@@ -792,14 +837,14 @@ fn dc_edge<T: Frame>(
 
         // Pick the intersection vertex based on the deepest cell
         let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
-        let i = out.get(
+        let i = out.vertex(
             leafs[deepest].index + verts[deepest].edge.0 as usize,
             cs[deepest],
             &octree.verts,
         );
         // Helper function to extract other vertices
         let mut vert = |i: usize| {
-            out.get(
+            out.vertex(
                 leafs[i].index + verts[i].vert.0 as usize,
                 cs[i],
                 &octree.verts,
@@ -814,20 +859,19 @@ fn dc_edge<T: Frame>(
             1
         };
         for j in 0..4 {
-            out.push(nalgebra::Vector3::new(vs[j], vs[(j + winding) % 4], i))
+            out.triangle(vs[j], vs[(j + winding) % 4], i)
         }
     } else {
         let (t, u, v) = T::frame();
 
         #[allow(unused_parens)]
         for i in [false, true] {
-            dc_edge::<T>(
+            out.edge::<T>(
                 octree,
                 octree.child(a, (t * i) | u | v),
                 octree.child(b, (t * i) | v),
                 octree.child(c, (t * i)),
                 octree.child(d, (t * i) | u),
-                out,
             )
         }
     }
