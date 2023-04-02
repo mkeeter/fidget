@@ -20,11 +20,8 @@ use crate::eval::Family;
 struct Task<I: Family> {
     eval: Arc<EvalGroup<I>>,
 
-    /// Parent cell, which must be a branch cell pointing to the given index
+    /// Parent cell, which must be an `Invalid` cell waiting for population
     parent: CellIndex,
-
-    /// Beginning of the 8x child region in the parent octree
-    index: usize,
 }
 
 #[derive(Debug)]
@@ -126,22 +123,19 @@ impl<I: Family> Worker<I> {
             settings,
         );
         let c = match r {
-            CellResult::Full => Cell::Full,
-            CellResult::Empty => Cell::Empty,
-            CellResult::Leaf(leaf) => Cell::Leaf { leaf, thread: 0 },
-            CellResult::Recurse { index, eval } => {
+            CellResult::Full => Some(Cell::Full),
+            CellResult::Empty => Some(Cell::Empty),
+            CellResult::Leaf(leaf) => Some(Cell::Leaf { leaf, thread: 0 }),
+            CellResult::Recurse(eval) => {
                 // Inject the recursive task into worker[0]'s queue
-                workers[0].queue.push(Task {
-                    eval,
-                    parent: root,
-                    index,
-                });
-                Cell::Branch { index, thread: 0 }
+                workers[0].queue.push(Task { eval, parent: root });
+                None
             }
         };
-        workers[0].octree.record(0, c.into());
-
-        if matches!(c, Cell::Branch { .. }) {
+        if let Some(c) = c {
+            workers[0].octree.record(0, c.into());
+            workers.into_iter().next().unwrap().octree
+        } else {
             let threads = std::sync::RwLock::new(vec![
                 std::thread::current();
                 settings.threads as usize
@@ -158,8 +152,6 @@ impl<I: Family> Worker<I> {
                 handles.into_iter().map(|h| h.join().unwrap()).collect()
             });
             Octree::merge(&out)
-        } else {
-            workers.into_iter().next().unwrap().octree
         }
     }
 
@@ -237,8 +229,15 @@ impl<I: Family> Worker<I> {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
                 let mut any_recurse = false;
+
+                // Prepare a set of 8x cells for storage
+                let index = self.octree.cells.len();
+                for _ in Corner::iter() {
+                    self.octree.cells.push(Cell::Invalid.into());
+                }
+
                 for i in Corner::iter() {
-                    let sub_cell = task.parent.child(task.index, i);
+                    let sub_cell = task.parent.child(index, i);
 
                     let r = match self.octree.eval_cell(
                         &task.eval,
@@ -247,39 +246,48 @@ impl<I: Family> Worker<I> {
                         sub_cell,
                         settings,
                     ) {
-                        CellResult::Empty => Cell::Empty,
-                        CellResult::Full => Cell::Full,
-                        CellResult::Leaf(leaf) => Cell::Leaf {
+                        CellResult::Empty => Some(Cell::Empty),
+                        CellResult::Full => Some(Cell::Full),
+                        CellResult::Leaf(leaf) => Some(Cell::Leaf {
                             leaf,
                             thread: self.thread_index as u8,
-                        },
-                        CellResult::Recurse { index, eval } => {
+                        }),
+                        CellResult::Recurse(eval) => {
                             self.queue.push(Task {
                                 eval,
                                 parent: sub_cell,
-                                index,
                             });
                             any_recurse = true;
-                            Cell::Branch {
-                                index,
-                                thread: self.thread_index as u8,
-                            }
+                            None
                         }
                     };
-
-                    if source != self.thread_index {
-                        // Send the result back on the wire
-                        self.friend_done[source]
-                            .send(Done {
-                                cell_index: sub_cell.index,
-                                child: r.into(),
-                            })
-                            .unwrap();
-                    } else {
-                        // Store the result locally
+                    // If this child is finished, then record it locally.  If
+                    // it's a branching cell, then we'll let a caller fill it in
+                    // eventually (via the done queue).
+                    if let Some(r) = r {
                         self.octree.record(sub_cell.index, r.into());
                     }
                 }
+
+                // We're done evaluating the task; record that it is a branch
+                // pointing to this thread's data array.
+                let r = Cell::Branch {
+                    index,
+                    thread: self.thread_index as u8,
+                };
+                if source != self.thread_index {
+                    // Send the result back on the wire
+                    self.friend_done[source]
+                        .send(Done {
+                            cell_index: task.parent.index,
+                            child: r.into(),
+                        })
+                        .unwrap();
+                } else {
+                    // Store the result locally
+                    self.octree.record(task.parent.index, r.into());
+                }
+
                 // If we pushed anything to our queue, then let other threads
                 // wake up to try stealing tasks.
                 if any_recurse && counter.load(Ordering::Acquire) >> 8 != 0 {

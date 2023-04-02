@@ -286,14 +286,7 @@ impl Octree {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
                 CellResult::Leaf(self.leaf(&eval, data, storage, cell))
             } else {
-                let child = self.cells.len();
-                for _ in Corner::iter() {
-                    self.cells.push(Cell::Invalid.into());
-                }
-                CellResult::Recurse {
-                    index: child,
-                    eval: sub_tape.unwrap_or_else(|| eval.clone()),
-                }
+                CellResult::Recurse(sub_tape.unwrap_or_else(|| eval.clone()))
             }
         }
     }
@@ -313,7 +306,11 @@ impl Octree {
             CellResult::Leaf(leaf) => {
                 self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
             }
-            CellResult::Recurse { index, eval } => {
+            CellResult::Recurse(eval) => {
+                let index = self.cells.len();
+                for _ in Corner::iter() {
+                    self.cells.push(Cell::Invalid.into());
+                }
                 self.cells[cell.index] =
                     Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
@@ -833,10 +830,7 @@ pub enum CellResult<I: Family> {
     Empty,
     Full,
     Leaf(Leaf),
-    Recurse {
-        index: usize,
-        eval: Arc<EvalGroup<I>>,
-    },
+    Recurse(Arc<EvalGroup<I>>),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
