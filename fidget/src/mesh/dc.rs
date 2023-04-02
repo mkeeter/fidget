@@ -1,7 +1,6 @@
 //! Dual contouring implementation
 
 use super::{
-    builder::MeshBuilder,
     cell::{Cell, CellIndex},
     frame::{Frame, XYZ, YZX, ZXY},
     types::{Corner, Edge, X, Y, Z},
@@ -9,6 +8,7 @@ use super::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug)]
 enum Task {
     Cell(CellIndex),
     FaceXYZ(CellIndex, CellIndex),
@@ -55,18 +55,27 @@ impl FrameToTask for ZXY {
 pub struct DcWorker<'a> {
     /// Global index of this worker thread
     ///
-    /// For example, this is the thread's own index in `friend_queue` and
+    /// For example, this is the thread's own index in `friend_queue`.
+    ///
+    /// By construction, this must always fit into a `u8`, but it's stored as a
+    /// `usize` for convenience.
     thread_index: usize,
 
     /// Target octree
     octree: &'a Octree,
 
-    /// The under-construction octree.
+    /// Map from octree vertex index (position in [`Octree::verts`]) to mesh
+    /// vertex.
     ///
-    /// This octree may not be complete; worker 0 is guaranteed to contain the
-    /// root, and other works may contain fragmentary branches that point to
-    /// each other in a tree structure.
-    mesh: MeshBuilder,
+    /// This starts as all 0; individual threads claim vertices by doing an
+    /// atomic compare-exchange.  A claimed vertex is divided into bits as
+    /// follows:
+    /// - The top bit is always 1 (so 0 is not a valid claimed index)
+    /// - The next 8 bits indicate which thread has claimed the vertex
+    /// - The remaining bits are an index into that thread's [`DcWorker::verts`]
+    map: &'a [AtomicUsize],
+    tris: Vec<nalgebra::Vector3<usize>>,
+    verts: Vec<nalgebra::Vector3<f32>>,
 
     /// Our personal queue of tasks to complete
     ///
@@ -80,9 +89,10 @@ pub struct DcWorker<'a> {
     friend_queue: Vec<crossbeam_deque::Stealer<Task>>,
 }
 
-// TODO: lots of this duplicates stuff in `octree.rs`
+// TODO: lots of this duplicates stuff in `octree.rs`, and the multithreaded
+// worker architecture mimicks that in `worker.rs`
 impl<'a> DcWorker<'a> {
-    pub fn scheduler(octree: &Octree, threads: usize) -> Mesh {
+    pub fn scheduler(octree: &Octree, threads: u8) -> Mesh {
         let task_queues = (0..threads)
             .map(|_| crossbeam_deque::Worker::<Task>::new_lifo())
             .collect::<Vec<_>>();
@@ -90,24 +100,33 @@ impl<'a> DcWorker<'a> {
         let friend_queue =
             task_queues.iter().map(|t| t.stealer()).collect::<Vec<_>>();
 
+        let map = octree
+            .verts
+            .iter()
+            .map(|_| AtomicUsize::new(0))
+            .collect::<Vec<_>>();
+
         let workers = task_queues
             .into_iter()
             .enumerate()
             .map(|(thread_index, queue)| DcWorker {
                 thread_index,
                 octree,
+                map: &map,
                 queue,
                 friend_queue: friend_queue.clone(),
-                mesh: MeshBuilder::default(),
+                tris: vec![],
+                verts: vec![],
             })
             .collect::<Vec<_>>();
+        workers[0].queue.push(Task::Cell(CellIndex::default()));
 
         let threads = std::sync::RwLock::new(vec![
             std::thread::current();
             threads as usize
         ]);
         let counter = &AtomicUsize::new(0);
-        let mut out: Vec<_> = std::thread::scope(|s| {
+        let out: Vec<_> = std::thread::scope(|s| {
             let mut handles = vec![];
             for w in workers {
                 let thread_ref = &threads;
@@ -116,14 +135,76 @@ impl<'a> DcWorker<'a> {
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
 
-        out.pop().unwrap()
+        // Calculate offsets within the global merged mesh
+        let mut vert_offsets = vec![0];
+
+        for (_, verts) in &out {
+            let i = vert_offsets.last().unwrap();
+            vert_offsets.push(i + verts.len());
+        }
+        let tri_count = out.iter().map(|(t, _)| t.len()).sum();
+
+        // We'll be building a single mesh as output, but the mesh will be
+        // constructed in parallel with individual threads copying data into
+        // chunks of the output triangle and vertex arrays.
+        let mut mesh = Mesh {
+            vertices: vec![
+                nalgebra::Vector3::zeros();
+                *vert_offsets.last().unwrap()
+            ],
+            triangles: vec![nalgebra::Vector3::zeros(); tri_count],
+        };
+
+        let mut slice = mesh.vertices.as_mut_slice();
+        let mut out_verts = vec![];
+        for n in out.iter().map(|(_, v)| v.len()) {
+            let (a, b) = slice.split_at_mut(n);
+            out_verts.push(a);
+            slice = b;
+        }
+
+        let mut slice = mesh.triangles.as_mut_slice();
+        let mut out_tris = vec![];
+        for n in out.iter().map(|(t, _)| t.len()) {
+            let (a, b) = slice.split_at_mut(n);
+            out_tris.push(a);
+            slice = b;
+        }
+
+        // Multi-thread copying!
+        let vert_offsets_ref = &vert_offsets;
+        std::thread::scope(|s| {
+            for ((tris, verts), (out_t, out_v)) in out
+                .into_iter()
+                .zip(out_tris.into_iter().zip(out_verts.into_iter()))
+            {
+                s.spawn(move || {
+                    out_t
+                        .iter_mut()
+                        .zip(tris.iter().map(|t| {
+                            t.map(|v| {
+                                let thread = (v >> 55) & 0xFF;
+                                let i = v & ((1 << 55) - 1);
+                                vert_offsets_ref[thread] + i
+                            })
+                        }))
+                        .for_each(|(o, i)| *o = i);
+                    out_v
+                        .iter_mut()
+                        .zip(verts.into_iter())
+                        .for_each(|(o, i)| *o = i);
+                });
+            }
+        });
+
+        mesh
     }
 
     pub fn run(
         mut self,
         threads: &std::sync::RwLock<Vec<std::thread::Thread>>,
         counter: &AtomicUsize,
-    ) -> Mesh {
+    ) -> (Vec<nalgebra::Vector3<usize>>, Vec<nalgebra::Vector3<f32>>) {
         ////////////////////////////////////////////////////////////////////////
         // Setup: build the `threads` array for later waking.
         //
@@ -228,7 +309,7 @@ impl<'a> DcWorker<'a> {
             counter.fetch_sub(256, Ordering::Release);
         }
 
-        self.mesh.take()
+        (self.tris, self.verts)
     }
 }
 
@@ -390,17 +471,15 @@ impl DcWorker<'_> {
 
             // Pick the intersection vertex based on the deepest cell
             let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
-            let i = self.mesh.get(
+            let i = self.get_vertex(
                 leafs[deepest].index + verts[deepest].edge.0 as usize,
                 cs[deepest],
-                &self.octree.verts,
             );
             // Helper function to extract other vertices
             let mut vert = |i: usize| {
-                self.mesh.get(
+                self.get_vertex(
                     leafs[i].index + verts[i].vert.0 as usize,
                     cs[i],
-                    &self.octree.verts,
                 )
             };
             let vs = [vert(0), vert(1), vert(2), vert(3)];
@@ -412,7 +491,7 @@ impl DcWorker<'_> {
                 1
             };
             for j in 0..4 {
-                self.mesh.push(nalgebra::Vector3::new(
+                self.tris.push(nalgebra::Vector3::new(
                     vs[j],
                     vs[(j + winding) % 4],
                     i,
@@ -430,6 +509,32 @@ impl DcWorker<'_> {
                 ));
             }
             true
+        }
+    }
+
+    /// Looks up the given octree vertex
+    ///
+    /// This function attempts to claim it for this thread, but if that fails,
+    /// then it returns the other thread's claimed vertex index (which includes
+    /// the thread ID in the upper bits).
+    fn get_vertex(&mut self, i: usize, cell: CellIndex) -> usize {
+        // Build our thread + vertex index
+        let mut next = self.verts.len();
+        assert!(next < (1 << 55));
+        next |= 1 << 63;
+        next |= (self.thread_index as usize) << 55;
+
+        match self.map[i].compare_exchange(
+            0,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                self.verts.push(cell.pos(self.octree.verts[i]));
+                next
+            }
+            Err(i) => i,
         }
     }
 }

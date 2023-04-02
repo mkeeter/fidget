@@ -348,7 +348,6 @@ impl Octree {
             zs[i.index()] = z;
         }
 
-        // TODO: reuse evaluators, etc
         let out = float_eval
             .eval_with(&xs, &ys, &zs, &[], &mut data.float_data)
             .unwrap();
@@ -596,8 +595,7 @@ impl Octree {
         let z = Interval::new(-1.0, 1.0);
         let mut mesh = MeshBuilder::default();
 
-        // TODO: enable multithreading
-        if settings.threads == 0 || true {
+        if settings.threads == 0 {
             self.dc_cell(
                 CellIndex {
                     index: 0,
@@ -610,7 +608,7 @@ impl Octree {
             );
             mesh.take()
         } else {
-            DcWorker::scheduler(self, settings.threads as usize)
+            DcWorker::scheduler(self, settings.threads)
         }
     }
 }

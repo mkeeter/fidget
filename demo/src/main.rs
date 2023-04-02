@@ -263,15 +263,13 @@ fn run_mesh<I: fidget::eval::Family>(
     let mut mesh = fidget::mesh::Mesh::new();
 
     for _ in 0..settings.n {
-        let octree = fidget::mesh::Octree::build(
-            &tape,
-            fidget::mesh::Settings {
-                threads: settings.threads,
-                min_depth: settings.depth,
-                max_depth: settings.depth,
-            },
-        );
-        mesh = octree.walk_dual();
+        let settings = fidget::mesh::Settings {
+            threads: settings.threads,
+            min_depth: settings.depth,
+            max_depth: settings.depth,
+        };
+        let octree = fidget::mesh::Octree::build(&tape, settings);
+        mesh = octree.walk_dual(settings);
     }
     (mesh, start)
 }
