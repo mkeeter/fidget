@@ -273,7 +273,7 @@ impl<'a> DcWorker<'a> {
 
                 // If we pushed anything to our queue, then let other threads
                 // wake up to try stealing tasks.
-                if any_recurse {
+                if any_recurse && counter.load(Ordering::Acquire) >> 8 != 0 {
                     for (i, t) in threads.iter().enumerate() {
                         if i != self.thread_index {
                             t.unpark();
