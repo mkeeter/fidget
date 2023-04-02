@@ -587,25 +587,30 @@ impl Octree {
     pub fn walk_dual(&self, settings: Settings) -> Mesh {
         if settings.threads == 0 {
             let o = &mut OctreeDc {
-                octree: self,
                 mesh: MeshBuilder::default(),
                 queue: vec![],
             };
             o.queue.push(dc::Task::Cell(CellIndex::default()));
             while let Some(t) = o.queue.pop() {
                 match t {
-                    dc::Task::Cell(i) => dc::dc_cell(o, i),
-                    dc::Task::FaceXYZ(a, b) => dc::dc_face::<_, XYZ>(o, a, b),
-                    dc::Task::FaceYZX(a, b) => dc::dc_face::<_, YZX>(o, a, b),
-                    dc::Task::FaceZXY(a, b) => dc::dc_face::<_, ZXY>(o, a, b),
+                    dc::Task::Cell(i) => dc::dc_cell(o, i, self),
+                    dc::Task::FaceXYZ(a, b) => {
+                        dc::dc_face::<_, XYZ>(o, a, b, self)
+                    }
+                    dc::Task::FaceYZX(a, b) => {
+                        dc::dc_face::<_, YZX>(o, a, b, self)
+                    }
+                    dc::Task::FaceZXY(a, b) => {
+                        dc::dc_face::<_, ZXY>(o, a, b, self)
+                    }
                     dc::Task::EdgeXYZ(a, b, c, d) => {
-                        dc::dc_edge::<_, XYZ>(o, a, b, c, d)
+                        dc::dc_edge::<_, XYZ>(o, a, b, c, d, self)
                     }
                     dc::Task::EdgeYZX(a, b, c, d) => {
-                        dc::dc_edge::<_, YZX>(o, a, b, c, d)
+                        dc::dc_edge::<_, YZX>(o, a, b, c, d, self)
                     }
                     dc::Task::EdgeZXY(a, b, c, d) => {
-                        dc::dc_edge::<_, ZXY>(o, a, b, c, d)
+                        dc::dc_edge::<_, ZXY>(o, a, b, c, d, self)
                     }
                 };
             }
@@ -637,21 +642,22 @@ impl Octree {
     }
 }
 
-struct OctreeDc<'a> {
-    octree: &'a Octree,
+struct OctreeDc {
     mesh: MeshBuilder,
     queue: Vec<dc::Task>,
 }
 
-impl dc::DcCore for OctreeDc<'_> {
-    fn get_vertex(&mut self, i: usize, cell: CellIndex) -> usize {
-        self.mesh.get(i, cell, &self.octree.verts)
+impl dc::DcCore for OctreeDc {
+    fn get_vertex(
+        &mut self,
+        i: usize,
+        cell: CellIndex,
+        octree: &Octree,
+    ) -> usize {
+        self.mesh.get(i, cell, &octree.verts)
     }
     fn push(&mut self, task: dc::Task) {
         self.queue.push(task)
-    }
-    fn octree(&self) -> &Octree {
-        self.octree
     }
     fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.mesh.push(nalgebra::Vector3::new(a, b, c));
