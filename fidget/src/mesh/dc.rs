@@ -3,6 +3,7 @@
 use super::{
     cell::{Cell, CellIndex},
     frame::{Frame, XYZ, YZX, ZXY},
+    pool::ThreadPool,
     types::{Corner, Edge, X, Y, Z},
     Mesh, Octree,
 };
@@ -121,16 +122,11 @@ impl<'a> DcWorker<'a> {
             .collect::<Vec<_>>();
         workers[0].queue.push(Task::Cell(CellIndex::default()));
 
-        let threads = std::sync::RwLock::new(vec![
-            std::thread::current();
-            threads as usize
-        ]);
-        let counter = &AtomicUsize::new(0);
+        let pool = &ThreadPool::new(threads as usize);
         let out: Vec<_> = std::thread::scope(|s| {
             let mut handles = vec![];
             for w in workers {
-                let thread_ref = &threads;
-                handles.push(s.spawn(move || w.run(thread_ref, counter)));
+                handles.push(s.spawn(move || w.run(pool)));
             }
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
@@ -202,37 +198,9 @@ impl<'a> DcWorker<'a> {
 
     pub fn run(
         mut self,
-        threads: &std::sync::RwLock<Vec<std::thread::Thread>>,
-        counter: &AtomicUsize,
+        pool: &ThreadPool,
     ) -> (Vec<nalgebra::Vector3<usize>>, Vec<nalgebra::Vector3<f32>>) {
-        ////////////////////////////////////////////////////////////////////////
-        // Setup: build the `threads` array for later waking.
-        //
-        // Record our current index
-        let mut w = threads.write().unwrap();
-        let thread_count = w.len();
-        w[self.thread_index] = std::thread::current();
-        counter.fetch_add(1, Ordering::Release);
-
-        // Wake all of the other workers; if everyone has registered themselves,
-        // then the counter will be at thread_count and everyone will continue.
-        for (i, t) in w.iter().enumerate() {
-            if i != self.thread_index {
-                t.unpark();
-            }
-        }
-        drop(w);
-
-        // Wait until every thread has installed itself into the array
-        while counter.load(Ordering::Acquire) < thread_count {
-            std::thread::park();
-        }
-
-        // At this point, every thread can borrow this array immutably
-        let threads = threads.read().unwrap();
-        let threads = threads.as_slice();
-
-        ////////////////////////////////////////////////////////////////////////
+        let ctx = pool.start(self.thread_index);
 
         loop {
             let t = self.queue.pop().or_else(|| {
@@ -271,14 +239,9 @@ impl<'a> DcWorker<'a> {
                     }
                 };
 
-                // If we pushed anything to our queue, then let other threads
-                // wake up to try stealing tasks.
-                if any_recurse && counter.load(Ordering::Acquire) >> 8 != 0 {
-                    for (i, t) in threads.iter().enumerate() {
-                        if i != self.thread_index {
-                            t.unpark();
-                        }
-                    }
+                // Wake other threads, since there could be work available
+                if any_recurse {
+                    ctx.wake();
                 }
 
                 // We've successfully done some work, so start the loop again
@@ -286,27 +249,9 @@ impl<'a> DcWorker<'a> {
                 continue;
             }
 
-            // At this point, the thread doesn't have any work to do, so we'll
-            // consider putting it to sleep.  However, if every other thread is
-            // sleeping, then we're ready to exit; we'll wake them all up.
-            let c = 1 + (counter.fetch_add(256, Ordering::Release) >> 8);
-            if c == thread_count {
-                // Wake up the other threads, so they notice that we're done
-                for (i, t) in threads.iter().enumerate() {
-                    if i != self.thread_index {
-                        t.unpark();
-                    }
-                }
+            if !ctx.sleep() {
                 break;
             }
-            // There are other active threads, so park ourselves and wait for
-            // someone else to wake us up.
-            std::thread::park();
-            if counter.load(Ordering::Acquire) >> 8 == thread_count {
-                break;
-            }
-            // Back to the grind
-            counter.fetch_sub(256, Ordering::Release);
         }
 
         (self.tris, self.verts)

@@ -7,6 +7,7 @@ mod frame;
 mod gen;
 mod octree;
 mod output;
+mod pool;
 mod worker;
 
 #[doc(hidden)]
