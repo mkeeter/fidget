@@ -20,6 +20,7 @@ impl MeshBuilder {
     ///
     /// `v` is an absolute offset into `verts`, which should be a reference to
     /// [`Octree::verts`](super::Octree::verts).
+    #[inline(always)]
     pub fn get(
         &mut self,
         v: usize,
@@ -40,6 +41,7 @@ impl MeshBuilder {
             u => u,
         }
     }
+    #[inline(always)]
     pub fn push(&mut self, tri: nalgebra::Vector3<usize>) {
         self.out.triangles.push(tri)
     }

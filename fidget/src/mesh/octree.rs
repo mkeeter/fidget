@@ -625,6 +625,7 @@ struct OctreeDc<'a> {
 }
 
 impl dc::DcCore for OctreeDc<'_> {
+    #[inline(always)]
     fn get_vertex(
         &mut self,
         i: usize,
@@ -633,6 +634,7 @@ impl dc::DcCore for OctreeDc<'_> {
     ) -> usize {
         self.mesh.get(i, cell, &octree.verts)
     }
+    #[inline(always)]
     fn push(&mut self, task: dc::Task) {
         match task {
             dc::Task::Cell(i) => dc::dc_cell(self, i, self.octree),
@@ -656,6 +658,7 @@ impl dc::DcCore for OctreeDc<'_> {
             }
         };
     }
+    #[inline(always)]
     fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.mesh.push(nalgebra::Vector3::new(a, b, c));
     }

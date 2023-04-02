@@ -283,6 +283,7 @@ pub trait DcCore {
 }
 
 impl DcCore for DcWorker<'_> {
+    #[inline(always)]
     fn push(&mut self, task: Task) {
         self.queue.push(task);
     }
@@ -292,6 +293,7 @@ impl DcCore for DcWorker<'_> {
     /// This function attempts to claim it for this thread, but if that fails,
     /// then it returns the other thread's claimed vertex index (which includes
     /// the thread ID in the upper bits).
+    #[inline(always)]
     fn get_vertex(
         &mut self,
         i: usize,
@@ -318,6 +320,7 @@ impl DcCore for DcWorker<'_> {
         }
     }
 
+    #[inline(always)]
     fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.tris.push(nalgebra::Vector3::new(a, b, c))
     }
