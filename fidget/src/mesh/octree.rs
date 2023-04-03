@@ -3,10 +3,9 @@
 use super::{
     builder::MeshBuilder,
     cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
-    dc::DcWorker,
-    frame::{Frame, XYZ, YZX, ZXY},
+    dc::{DcBuilder, DcWorker},
     gen::CELL_TO_VERT_TO_EDGES,
-    types::{Axis, Corner, Edge, X, Y, Z},
+    types::{Axis, Corner},
     worker::Worker,
     Mesh, Settings,
 };
@@ -593,7 +592,8 @@ impl Octree {
         let mut mesh = MeshBuilder::default();
 
         if settings.threads == 0 {
-            self.dc_cell(
+            mesh.cell(
+                &self,
                 CellIndex {
                     index: 0,
                     x,
@@ -601,63 +601,10 @@ impl Octree {
                     z,
                     depth: 0,
                 },
-                &mut mesh,
             );
             mesh.take()
         } else {
             DcWorker::scheduler(self, settings.threads)
-        }
-    }
-}
-
-#[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
-impl Octree {
-    fn dc_cell(&self, cell: CellIndex, out: &mut MeshBuilder) {
-        if let Cell::Branch { index, .. } = self.cells[cell.index].into() {
-            debug_assert_eq!(index % 8, 0);
-            for i in Corner::iter() {
-                self.dc_cell(self.child(cell, i), out);
-            }
-
-            self.dc_faces::<XYZ>(cell, out);
-            self.dc_faces::<YZX>(cell, out);
-            self.dc_faces::<ZXY>(cell, out);
-
-            for i in [false, true] {
-                self.dc_edge::<XYZ>(
-                    self.child(cell, (X * i)),
-                    self.child(cell, (X * i) | Y),
-                    self.child(cell, (X * i) | Y | Z),
-                    self.child(cell, (X * i) | Z),
-                    out,
-                );
-                self.dc_edge::<YZX>(
-                    self.child(cell, (Y * i)),
-                    self.child(cell, (Y * i) | Z),
-                    self.child(cell, (Y * i) | X | Z),
-                    self.child(cell, (Y * i) | X),
-                    out,
-                );
-                self.dc_edge::<ZXY>(
-                    self.child(cell, (Z * i)),
-                    self.child(cell, (Z * i) | X),
-                    self.child(cell, (Z * i) | X | Y),
-                    self.child(cell, (Z * i) | Y),
-                    out,
-                );
-            }
-        }
-    }
-
-    /// Calls [`self.dc_face`] on all four face adjacencies in the given frame
-    fn dc_faces<T: Frame>(&self, cell: CellIndex, out: &mut MeshBuilder) {
-        let (t, u, v) = T::frame();
-        for c in [Corner::new(0), u.into(), v.into(), u | v] {
-            self.dc_face::<T>(
-                self.child(cell, c),
-                self.child(cell, c | t),
-                out,
-            );
         }
     }
 
@@ -681,148 +628,6 @@ impl Octree {
     pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
         !matches!(self.cells[cell.index].into(), Cell::Branch { .. })
     }
-
-    /// Handles two cells which share a common face
-    ///
-    /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
-    /// `T-U-V` is a right-handed coordinate system.
-    fn dc_face<T: Frame>(
-        &self,
-        lo: CellIndex,
-        hi: CellIndex,
-        out: &mut MeshBuilder,
-    ) {
-        if self.is_leaf(lo) && self.is_leaf(hi) {
-            return;
-        }
-        let (t, u, v) = T::frame();
-        self.dc_face::<T>(
-            self.child(lo, t),
-            self.child(hi, Corner::new(0)),
-            out,
-        );
-        self.dc_face::<T>(self.child(lo, t | u), self.child(hi, u), out);
-        self.dc_face::<T>(self.child(lo, t | v), self.child(hi, v), out);
-        self.dc_face::<T>(
-            self.child(lo, t | u | v),
-            self.child(hi, u | v),
-            out,
-        );
-        for i in [false, true] {
-            self.dc_edge::<T::Next>(
-                self.child(lo, (u * i) | t),
-                self.child(lo, (u * i) | v | t),
-                self.child(hi, (u * i) | v),
-                self.child(hi, (u * i)),
-                out,
-            );
-            self.dc_edge::<<T::Next as Frame>::Next>(
-                self.child(lo, (v * i) | t),
-                self.child(hi, (v * i)),
-                self.child(hi, (v * i) | u),
-                self.child(lo, (v * i) | u | t),
-                out,
-            );
-        }
-    }
-
-    /// Handles four cells that share a common edge aligned on axis `T`
-    ///
-    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
-    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
-    ///
-    /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
-    /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
-    /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-    fn dc_edge<T: Frame>(
-        &self,
-        a: CellIndex,
-        b: CellIndex,
-        c: CellIndex,
-        d: CellIndex,
-        out: &mut MeshBuilder,
-    ) {
-        let cs = [a, b, c, d];
-        if cs.iter().all(|v| self.is_leaf(*v)) {
-            // If any of the leafs are Empty or Full, then this edge can't
-            // include a sign change.  TODO: can we make this any -> all if we
-            // collapse empty / filled leafs into Empty / Full cells?
-            let leafs = cs.map(|cell| match self.cells[cell.index].into() {
-                Cell::Leaf { leaf, .. } => Some(leaf),
-                Cell::Empty | Cell::Full => None,
-                Cell::Branch { .. } => unreachable!(),
-                Cell::Invalid => panic!(),
-            });
-            if leafs.iter().any(Option::is_none) {
-                return;
-            }
-            let leafs = leafs.map(Option::unwrap);
-
-            // TODO: check for a sign change on this edge
-            let (t, u, v) = T::frame();
-            let sign_change_count = leafs
-                .iter()
-                .zip([u | v, v.into(), Corner::new(0), u.into()])
-                .filter(|(leaf, c)| {
-                    (leaf.mask & (1 << c.index()) == 0)
-                        != (leaf.mask & (1 << (*c | t).index()) == 0)
-                })
-                .count();
-            if sign_change_count == 0 {
-                return;
-            }
-            debug_assert_eq!(sign_change_count, 4);
-
-            let verts = [
-                leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
-                leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
-                leafs[2].edge(Edge::new((t.index() * 4 + 0) as u8)),
-                leafs[3].edge(Edge::new((t.index() * 4 + 1) as u8)),
-            ];
-
-            // Pick the intersection vertex based on the deepest cell
-            let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
-            let i = out.get(
-                leafs[deepest].index + verts[deepest].edge.0 as usize,
-                cs[deepest],
-                &self.verts,
-            );
-            // Helper function to extract other vertices
-            let mut vert = |i: usize| {
-                out.get(
-                    leafs[i].index + verts[i].vert.0 as usize,
-                    cs[i],
-                    &self.verts,
-                )
-            };
-            let vs = [vert(0), vert(1), vert(2), vert(3)];
-
-            // Pick a triangle winding depending on the edge direction
-            let winding = if leafs[0].mask & (1 << (u | v).index()) == 0 {
-                3
-            } else {
-                1
-            };
-            for j in 0..4 {
-                out.push(nalgebra::Vector3::new(
-                    vs[j],
-                    vs[(j + winding) % 4],
-                    i,
-                ))
-            }
-        } else {
-            let (t, u, v) = T::frame();
-            for i in [false, true] {
-                self.dc_edge::<T>(
-                    self.child(a, (t * i) | u | v),
-                    self.child(b, (t * i) | v),
-                    self.child(c, (t * i)),
-                    self.child(d, (t * i) | u),
-                    out,
-                )
-            }
-        }
-    }
 }
 
 /// Result of a single cell evaluation
@@ -838,7 +643,10 @@ pub enum CellResult<I: Family> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::context::bound::{self, BoundContext, BoundNode};
+    use crate::{
+        context::bound::{self, BoundContext, BoundNode},
+        mesh::types::{X, Y, Z},
+    };
     use std::collections::BTreeMap;
 
     const DEPTH0_SINGLE_THREAD: Settings = Settings {

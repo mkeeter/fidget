@@ -108,3 +108,84 @@ impl ThreadContext<'_> {
         true
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Queue for use in a thread pool
+///
+/// This queue contains a local queue plus references to other threads' queues,
+/// so that we can steal items if our queue runs dry.
+pub struct QueuePool<T> {
+    /// Our personal queue of tasks to complete
+    ///
+    /// Other threads may steal from this queue!
+    queue: crossbeam_deque::Worker<T>,
+
+    /// Queues from which we can steal other workers' tasks
+    ///
+    /// This contains `n - 1` items; our own queue is implicitly at the end of
+    /// the list and is therefore skipped.
+    friend_queue: Vec<crossbeam_deque::Stealer<T>>,
+
+    /// Marks whether the queue has received new items since the last `pop`
+    changed: bool,
+}
+
+impl<T> QueuePool<T> {
+    /// Builds a new set of queues for `n` threads
+    pub fn new(n: usize) -> Vec<Self> {
+        let task_queues = (0..n)
+            .map(|_| crossbeam_deque::Worker::<T>::new_lifo())
+            .collect::<Vec<_>>();
+
+        let stealers =
+            task_queues.iter().map(|t| t.stealer()).collect::<Vec<_>>();
+
+        task_queues
+            .into_iter()
+            .enumerate()
+            .map(|(index, queue)| Self {
+                queue,
+                friend_queue: (1..n)
+                    .map(|j| stealers[(index + j) % n].clone())
+                    .collect(),
+                changed: false,
+            })
+            .collect()
+    }
+
+    /// Pops an item from this queue or steals from another
+    ///
+    /// Sets `self.changed` to `false`
+    pub fn pop(&mut self) -> Option<T> {
+        self.changed = false;
+        self.queue.pop().or_else(|| {
+            // Try stealing from all of our friends
+            use crossbeam_deque::Steal;
+            for q in self.friend_queue.iter() {
+                loop {
+                    match q.steal() {
+                        Steal::Success(v) => return Some(v),
+                        Steal::Empty => break,
+                        Steal::Retry => continue,
+                    }
+                }
+            }
+            None
+        })
+    }
+
+    /// Pushes an item to this queue, setting `self.changed` to true
+    pub fn push(&mut self, t: T) {
+        self.queue.push(t);
+        self.changed = true;
+    }
+
+    /// Returns the value of `self.changed`
+    ///
+    /// This indicates whether we have pushed items to the queue since the last
+    /// call to `pop()`.
+    pub fn changed(&self) -> bool {
+        self.changed
+    }
+}

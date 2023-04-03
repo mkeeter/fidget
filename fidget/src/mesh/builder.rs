@@ -1,7 +1,9 @@
 //! Mesh builder data structure and implementation
 use super::{
     cell::{CellIndex, CellVertex},
-    Mesh,
+    dc::{self, DcBuilder},
+    frame::Frame,
+    Mesh, Octree,
 };
 
 /// Container used during construction of a [`Mesh`]
@@ -16,11 +18,37 @@ pub struct MeshBuilder {
 }
 
 impl MeshBuilder {
+    pub fn take(self) -> Mesh {
+        self.out
+    }
+}
+
+impl DcBuilder for MeshBuilder {
+    fn cell(&mut self, octree: &Octree, cell: CellIndex) {
+        dc::dc_cell(octree, cell, self);
+    }
+    fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex) {
+        dc::dc_face::<F, _>(octree, a, b, self)
+    }
+    fn edge<F: Frame>(
+        &mut self,
+        octree: &Octree,
+        a: CellIndex,
+        b: CellIndex,
+        c: CellIndex,
+        d: CellIndex,
+    ) {
+        dc::dc_edge::<F, _>(octree, a, b, c, d, self)
+    }
+    fn triangle(&mut self, a: usize, b: usize, c: usize) {
+        self.out.triangles.push(nalgebra::Vector3::new(a, b, c))
+    }
+
     /// Looks up the given vertex, localizing it within a cell
     ///
     /// `v` is an absolute offset into `verts`, which should be a reference to
     /// [`Octree::verts`](super::Octree::verts).
-    pub fn get(
+    fn vertex(
         &mut self,
         v: usize,
         cell: CellIndex,
@@ -39,11 +67,5 @@ impl MeshBuilder {
             }
             u => u,
         }
-    }
-    pub fn push(&mut self, tri: nalgebra::Vector3<usize>) {
-        self.out.triangles.push(tri)
-    }
-    pub fn take(self) -> Mesh {
-        self.out
     }
 }
