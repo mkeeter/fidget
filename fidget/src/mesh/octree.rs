@@ -728,6 +728,7 @@ fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
 }
 
 /// Calls [`self.dc_face`] on all four face adjacencies in the given frame
+#[inline(always)]
 fn dc_faces<T: Frame, B: DcBuilder>(
     octree: &Octree,
     cell: CellIndex,
