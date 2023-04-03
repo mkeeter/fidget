@@ -156,7 +156,7 @@ impl<'a> DcWorker<'a> {
         let ctx = pool.start(self.thread_index);
 
         loop {
-            if let Some(task) = self.queue.pop() {
+            if let Some((task, _)) = self.queue.pop() {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
                 match task {

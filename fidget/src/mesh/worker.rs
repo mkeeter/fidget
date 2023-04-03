@@ -3,7 +3,7 @@ use std::sync::{mpsc::TryRecvError, Arc};
 use super::{
     cell::{Cell, CellData, CellIndex},
     octree::{CellResult, EvalData, EvalGroup, EvalStorage},
-    pool::ThreadPool,
+    pool::{QueuePool, ThreadPool},
     types::Corner,
     Octree, Settings,
 };
@@ -48,19 +48,11 @@ pub struct Worker<I: Family> {
     /// each other in a tree structure.
     octree: Octree,
 
-    /// Our personal queue of tasks to complete
-    ///
-    /// Other threads may steal from this queue!
-    queue: crossbeam_deque::Worker<Task<I>>,
-
     /// Incoming completed tasks from other threads
     done: std::sync::mpsc::Receiver<Done>,
 
-    /// Queues from which we can steal other workers' tasks
-    ///
-    /// Each task has `thread_count` friend queues, including its own; it would
-    /// be silly to steal from your own queue, but that keeps the code cleaner.
-    friend_queue: Vec<crossbeam_deque::Stealer<Task<I>>>,
+    /// Our queue of tasks
+    queue: QueuePool<Task<I>>,
 
     /// When a worker finishes a task, it returns it through these queues
     ///
@@ -78,16 +70,10 @@ pub struct Worker<I: Family> {
 
 impl<I: Family> Worker<I> {
     pub fn scheduler(eval: Arc<EvalGroup<I>>, settings: Settings) -> Octree {
-        let task_queues = (0..settings.threads)
-            .map(|_| crossbeam_deque::Worker::<Task<I>>::new_lifo())
-            .collect::<Vec<_>>();
+        let task_queues = QueuePool::new(settings.threads as usize);
         let done_queues = (0..settings.threads)
             .map(|_| std::sync::mpsc::channel::<Done>())
             .collect::<Vec<_>>();
-
-        // Extract all of the shared data into Vecs
-        let friend_queue =
-            task_queues.iter().map(|t| t.stealer()).collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
 
@@ -104,7 +90,6 @@ impl<I: Family> Worker<I> {
                 },
                 queue,
                 done,
-                friend_queue: friend_queue.clone(),
                 friend_done: friend_done.clone(),
                 data: Default::default(),
                 storage: Default::default(),
@@ -163,30 +148,9 @@ impl<I: Family> Worker<I> {
                 }
             }
 
-            let t = self.queue.pop().map(|t| (t, self.thread_index)).or_else(
-                || {
-                    use crossbeam_deque::Steal;
-                    // Try stealing from all of our friends (but not ourselves)
-                    for i in 1..self.friend_queue.len() {
-                        let i =
-                            (i + self.thread_index) % self.friend_queue.len();
-                        let q = &self.friend_queue[i];
-                        loop {
-                            match q.steal() {
-                                Steal::Success(v) => return Some((v, i)),
-                                Steal::Empty => break,
-                                Steal::Retry => continue,
-                            }
-                        }
-                    }
-                    None
-                },
-            );
-
-            if let Some((task, source)) = t {
+            if let Some((task, source)) = self.queue.pop() {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
-                let mut any_recurse = false;
 
                 // Prepare a set of 8x cells for storage
                 let index = self.octree.cells.len();
@@ -215,7 +179,6 @@ impl<I: Family> Worker<I> {
                                 eval,
                                 parent: sub_cell,
                             });
-                            any_recurse = true;
                             None
                         }
                     };
@@ -248,7 +211,7 @@ impl<I: Family> Worker<I> {
 
                 // If we pushed anything to our queue, then let other threads
                 // wake up to try stealing tasks.
-                if any_recurse {
+                if self.queue.changed() {
                     ctx.wake();
                 }
 

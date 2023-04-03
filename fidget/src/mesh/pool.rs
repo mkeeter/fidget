@@ -123,12 +123,15 @@ pub struct QueuePool<T> {
 
     /// Queues from which we can steal other workers' tasks
     ///
-    /// This contains `n - 1` items; our own queue is implicitly at the end of
-    /// the list and is therefore skipped.
+    /// Our own queue is at index `self.index` in this list and is skipped when
+    /// attempting to steal an item.
     friend_queue: Vec<crossbeam_deque::Stealer<T>>,
 
     /// Marks whether the queue has received new items since the last `pop`
     changed: bool,
+
+    /// Index of this queue within the pool.
+    index: usize,
 }
 
 impl<T> QueuePool<T> {
@@ -146,26 +149,29 @@ impl<T> QueuePool<T> {
             .enumerate()
             .map(|(index, queue)| Self {
                 queue,
-                friend_queue: (1..n)
-                    .map(|j| stealers[(index + j) % n].clone())
-                    .collect(),
+                friend_queue: stealers.clone(),
                 changed: false,
+                index,
             })
             .collect()
     }
 
     /// Pops an item from this queue or steals from another
     ///
+    /// Returns the item along with its source index.
+    ///
     /// Sets `self.changed` to `false`
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<(T, usize)> {
         self.changed = false;
-        self.queue.pop().or_else(|| {
+        self.queue.pop().map(|v| (v, self.index)).or_else(|| {
             // Try stealing from all of our friends
             use crossbeam_deque::Steal;
-            for q in self.friend_queue.iter() {
+            for i in 1..self.friend_queue.len() {
+                let i = (i + self.index) % self.friend_queue.len();
+                let q = &self.friend_queue[i];
                 loop {
                     match q.steal() {
-                        Steal::Success(v) => return Some(v),
+                        Steal::Success(v) => return Some((v, i)),
                         Steal::Empty => break,
                         Steal::Retry => continue,
                     }
