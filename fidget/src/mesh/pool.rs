@@ -195,3 +195,42 @@ impl<T> QueuePool<T> {
         self.changed
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn queue_pool() {
+        let mut queues = QueuePool::new(2);
+        let mut counters = [0i32; 2];
+        const DEPTH: usize = 5;
+        queues[0].push(DEPTH);
+
+        // Confirm that stealing leads to shared work between two threads
+        std::thread::scope(|s| {
+            for (q, c) in queues.iter_mut().zip(counters.iter_mut()) {
+                s.spawn(|| {
+                    while let Some((i, _)) = q.pop() {
+                        *c += 1;
+                        if i != 0 {
+                            q.push(i - 1);
+                            q.push(i - 1);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                });
+            }
+        });
+        assert_eq!(
+            counters[0] + counters[1],
+            (1 << (DEPTH + 1)) - 1,
+            "threads did not complete all work"
+        );
+        assert_eq!(
+            counters[0].abs_diff(counters[1]),
+            1,
+            "unequal work distribution between threads"
+        );
+    }
+}
