@@ -301,6 +301,21 @@ pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
             out.cell(octree, octree.child(cell, i));
         }
 
+        // Helper function for DC face calls
+        fn dc_faces<T: Frame, B: DcBuilder>(
+            octree: &Octree,
+            cell: CellIndex,
+            out: &mut B,
+        ) {
+            let (t, u, v) = T::frame();
+            for c in [Corner::new(0), u.into(), v.into(), u | v] {
+                out.face::<T>(
+                    octree,
+                    octree.child(cell, c),
+                    octree.child(cell, c | t),
+                );
+            }
+        }
         dc_faces::<XYZ, _>(octree, cell, out);
         dc_faces::<YZX, _>(octree, cell, out);
         dc_faces::<ZXY, _>(octree, cell, out);
@@ -329,18 +344,6 @@ pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
                 octree.child(cell, (Z * i) | Y),
             );
         }
-    }
-}
-
-/// Calls [`self.dc_face`] on all four face adjacencies in the given frame
-fn dc_faces<T: Frame, B: DcBuilder>(
-    octree: &Octree,
-    cell: CellIndex,
-    out: &mut B,
-) {
-    let (t, u, v) = T::frame();
-    for c in [Corner::new(0), u.into(), v.into(), u | v] {
-        out.face::<T>(octree, octree.child(cell, c), octree.child(cell, c | t));
     }
 }
 

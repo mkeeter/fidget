@@ -21,7 +21,7 @@ pub use octree::Octree;
 /// An indexed 3D mesh
 #[derive(Default, Debug)]
 pub struct Mesh {
-    /// Triangles, as indexes into [`self.vertices`]
+    /// Triangles, as indexes into [`self.vertices`](Self::vertices)
     pub triangles: Vec<nalgebra::Vector3<usize>>,
     /// Vertex positions
     pub vertices: Vec<nalgebra::Vector3<f32>>,
