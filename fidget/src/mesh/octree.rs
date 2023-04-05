@@ -148,7 +148,7 @@ impl Default for Octree {
 
 impl Octree {
     /// Builds a new octree, which allocates data for 8 root cells
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cells: vec![Cell::Invalid.into(); 8],
             verts: vec![],
@@ -156,7 +156,7 @@ impl Octree {
     }
 
     /// Builds a new empty octree
-    pub fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             cells: vec![],
             verts: vec![],
@@ -170,7 +170,7 @@ impl Octree {
     /// # Panics
     /// If the index exceeds the bounds of the cell vector, or the cell is
     /// already populated.
-    pub fn record(&mut self, index: usize, cell: CellData) {
+    pub(crate) fn record(&mut self, index: usize, cell: CellData) {
         debug_assert_eq!(self.cells[index], Cell::Invalid.into());
         self.cells[index] = cell;
     }
@@ -179,7 +179,7 @@ impl Octree {
     ///
     /// # Panics
     /// All cross-octree references must be valid
-    pub fn merge(os: &[Octree]) -> Octree {
+    pub(crate) fn merge(os: &[Octree]) -> Octree {
         // Calculate offsets within the global merged Octree
         let mut cell_offsets = vec![0];
         let mut vert_offsets = vec![0];
@@ -251,7 +251,7 @@ impl Octree {
     /// Leaf data is stored in `self.verts`; cell results are **not** written
     /// back to the `cells` array, because the cell may be rooted in a different
     /// octree (e.g. on another thread).
-    pub fn eval_cell<I: Family>(
+    pub(crate) fn eval_cell<I: Family>(
         &mut self,
         eval: &Arc<EvalGroup<I>>,
         data: &mut EvalData<I>,
