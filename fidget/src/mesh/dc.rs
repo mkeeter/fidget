@@ -153,7 +153,7 @@ impl<'a> DcWorker<'a> {
         mut self,
         pool: &ThreadPool,
     ) -> (Vec<nalgebra::Vector3<usize>>, Vec<nalgebra::Vector3<f32>>) {
-        let ctx = pool.start(self.thread_index);
+        let mut ctx = pool.start(self.thread_index);
 
         loop {
             if let Some((task, _)) = self.queue.pop() {

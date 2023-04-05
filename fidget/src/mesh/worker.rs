@@ -132,7 +132,7 @@ impl<I: Family> Worker<I> {
 
     /// Runs a single worker to completion as part of a worker group
     pub fn run(mut self, threads: &ThreadPool, settings: Settings) -> Octree {
-        let ctx = threads.start(self.thread_index);
+        let mut ctx = threads.start(self.thread_index);
 
         loop {
             // First, check to see if anyone has finished a task and sent us

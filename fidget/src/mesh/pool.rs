@@ -30,8 +30,10 @@ impl ThreadPool {
         let mut w = self.threads.write().unwrap();
         let thread_count = w.len();
         assert!(index < thread_count);
+
         let my_thread = std::thread::current();
         assert_ne!(my_thread.id(), w[index].id());
+
         w[index] = my_thread;
         self.counter.fetch_add(1, Ordering::Release);
 
@@ -54,6 +56,7 @@ impl ThreadPool {
             threads,
             counter: &self.counter,
             index,
+            phase: 1,
         }
     }
 }
@@ -63,6 +66,23 @@ pub struct ThreadContext<'a> {
     threads: std::sync::RwLockReadGuard<'a, Vec<std::thread::Thread>>,
     counter: &'a AtomicUsize,
     index: usize,
+
+    /// We operate in 4 phases, depending on the value of `phase % 4`:
+    ///
+    /// `phase` | byte | direction | start | end
+    /// --------|------|-----------|-------|-----
+    ///    0    |   0  |  up       | 0     | `N`
+    ///    1    |   1  |  up       | 0     | `N`
+    ///    2    |   0  |  down     | `N`   | 0
+    ///    3    |   1  |  down     | `N`   | 0
+    ///
+    /// (`N` is `self.threads.len()`)
+    ///
+    /// Note that the pairs of adjacent phases are non-interfering: if a thread
+    /// in phase 0 notices that it has hit `N`, then it can immediately enter
+    /// phase 1 and start modifing byte 1 of the counter, without other threads
+    /// in phase 0 noticing.
+    phase: u8,
 }
 
 impl ThreadContext<'_> {
@@ -70,7 +90,15 @@ impl ThreadContext<'_> {
     ///
     /// This function should be called when work is available.
     pub fn wake(&self) {
-        if self.counter.load(Ordering::Acquire) >> 8 != 0 {
+        let mut v = self.counter.load(Ordering::Acquire);
+        if (self.phase % 2) == 1 {
+            v >>= 8;
+        }
+        // Check to see if any other threads are sleeping; otherwise, skip the
+        // unparking step (because it costs time)
+        if (((self.phase % 2) / 2 == 0) && v != 0)
+            || (((self.phase % 2) / 2 == 1) && v != self.threads.len())
+        {
             for (i, t) in self.threads.iter().enumerate() {
                 if i != self.index {
                     t.unpark();
@@ -81,31 +109,60 @@ impl ThreadContext<'_> {
 
     /// Sends the given thread to sleep
     ///
-    /// Returns `true` on success; `false` if all work is done and the thread
-    /// should now exit.
-    pub fn sleep(&self) -> bool {
+    /// Returns `true` if the thread should continue running; `false` if all
+    /// threads in the pool have requested to sleep, indicating that all work is
+    /// done and they should now halt.
+    pub fn sleep(&mut self) -> bool {
         // At this point, the thread doesn't have any work to do, so we'll
         // consider putting it to sleep.  However, if every other thread is
         // sleeping, then we're ready to exit; we'll wake them all up.
-        let c = 1 + (self.counter.fetch_add(256, Ordering::Release) >> 8);
-        if c == self.threads.len() {
+        let n = self.threads.len();
+        let mut done = match self.phase % 4 {
+            0 => (1 + self.counter.fetch_add(1, Ordering::Release)) & 0xFF == n,
+            1 => 1 + (self.counter.fetch_add(256, Ordering::Release) >> 8) == n,
+            2 => (self.counter.fetch_sub(1, Ordering::Release) - 1) & 0xFF == 0,
+            3 => (self.counter.fetch_sub(256, Ordering::Release) >> 8) - 1 == 0,
+            _ => unreachable!(),
+        };
+
+        if done {
             // Wake up the other threads, so they notice that we're done
             for (i, t) in self.threads.iter().enumerate() {
                 if i != self.index {
                     t.unpark();
                 }
             }
-            return false;
+        } else {
+            // There are other active threads, so park ourselves and wait for
+            // someone else to wake us up.
+            std::thread::park();
+
+            // Someone has woken us up!  Check our counter and see whether we've
+            // been woken up because every thread has finished.
+            let c = self.counter.load(Ordering::Acquire);
+            done = match self.phase % 4 {
+                0 => c & 0xFF == n,
+                1 => c >> 8 == n,
+                2 => c & 0xFF == 0,
+                3 => c >> 8 == 0,
+                _ => unreachable!(),
+            };
+            if !done {
+                // Back to the grind
+                match self.phase % 4 {
+                    0 => self.counter.fetch_sub(1, Ordering::Release),
+                    1 => self.counter.fetch_sub(256, Ordering::Release),
+                    2 => self.counter.fetch_add(1, Ordering::Release),
+                    3 => self.counter.fetch_add(256, Ordering::Release),
+                    _ => unreachable!(),
+                };
+            }
         }
-        // There are other active threads, so park ourselves and wait for
-        // someone else to wake us up.
-        std::thread::park();
-        if self.counter.load(Ordering::Acquire) >> 8 == self.threads.len() {
-            return false;
+
+        if done {
+            self.phase += 1;
         }
-        // Back to the grind
-        self.counter.fetch_sub(256, Ordering::Release);
-        true
+        !done
     }
 }
 
@@ -232,5 +289,39 @@ mod test {
             1,
             "unequal work distribution between threads"
         );
+    }
+
+    #[test]
+    fn thread_ctx() {
+        const N: usize = 8;
+        let pool = &ThreadPool::new(N);
+        let done = &AtomicUsize::new(0);
+
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if done.load(Ordering::Acquire) != N {
+                    eprintln!("deadlock in `thread_ctx` test; aborting");
+                    std::process::exit(1);
+                }
+            });
+            for i in 0..N {
+                s.spawn(move || {
+                    let mut ctx = pool.start(i);
+                    let t = std::time::Duration::from_millis(1);
+                    for _ in 0..8 {
+                        for _ in 0..i {
+                            std::thread::sleep(t);
+                            ctx.wake();
+                        }
+                        while ctx.sleep() {
+                            // Loop forever
+                        }
+                    }
+                    done.fetch_add(1, Ordering::Release);
+                });
+            }
+        });
+        assert_eq!(done.load(Ordering::Acquire), N);
     }
 }
