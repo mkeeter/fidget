@@ -14,6 +14,7 @@ use crate::eval::Family;
 /// Specifically, the work is to subdivide the given cell and evaluate its 8
 /// octants, sending results back to the parent (which is numbered implicitly
 /// based on what queue we stole this from).
+#[derive(Clone)]
 struct Task<I: Family> {
     data: Arc<TaskData<I>>,
 }
@@ -45,6 +46,22 @@ impl<I: Family> Task<I> {
             }),
         }
     }
+
+    fn release(self, storage: &mut EvalStorage<I>) {
+        if let Ok(mut t) = Arc::try_unwrap(self.data) {
+            loop {
+                if let Ok(e) = Arc::try_unwrap(t.eval) {
+                    storage.claim(e);
+                }
+                if let Some(next) = t.next.and_then(|n| Arc::try_unwrap(n).ok())
+                {
+                    t = next;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 struct TaskData<I: Family> {
@@ -56,10 +73,9 @@ struct TaskData<I: Family> {
     next: Option<Arc<TaskData<I>>>,
 }
 
-#[derive(Debug)]
-struct Done {
-    /// The cell index within the parent octree, to which we're sending data
-    cell_index: usize,
+struct Done<I: Family> {
+    /// The task that we have finished evaluating
+    task: Task<I>,
 
     /// The resulting cell
     ///
@@ -84,7 +100,7 @@ pub struct Worker<I: Family> {
     octree: Octree,
 
     /// Incoming completed tasks from other threads
-    done: std::sync::mpsc::Receiver<Done>,
+    done: std::sync::mpsc::Receiver<Done<I>>,
 
     /// Our queue of tasks
     queue: QueuePool<Task<I>>,
@@ -94,7 +110,7 @@ pub struct Worker<I: Family> {
     /// Like `friend_queue`, there's one per thread, including the worker's own
     /// thread; it would be silly to send stuff back to your own thread via the
     /// queue (rather than storing it directly).
-    friend_done: Vec<std::sync::mpsc::Sender<Done>>,
+    friend_done: Vec<std::sync::mpsc::Sender<Done<I>>>,
 
     /// Per-thread local data for evaluation, to avoid allocation churn
     data: EvalData<I>,
@@ -107,7 +123,7 @@ impl<I: Family> Worker<I> {
     pub fn scheduler(eval: Arc<EvalGroup<I>>, settings: Settings) -> Octree {
         let task_queues = QueuePool::new(settings.threads as usize);
         let done_queues = (0..settings.threads)
-            .map(|_| std::sync::mpsc::channel::<Done>())
+            .map(|_| std::sync::mpsc::channel::<Done<I>>())
             .collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
@@ -174,7 +190,8 @@ impl<I: Family> Worker<I> {
             // back the result.  Otherwise, keep going.
             match self.done.try_recv() {
                 Ok(v) => {
-                    self.octree.record(v.cell_index, v.child);
+                    self.octree.record(v.task.parent.index, v.child);
+                    v.task.release(&mut self.storage);
                     continue;
                 }
                 Err(TryRecvError::Disconnected) => panic!(),
@@ -232,7 +249,7 @@ impl<I: Family> Worker<I> {
                     // Send the result back on the wire
                     self.friend_done[source]
                         .send(Done {
-                            cell_index: task.parent.index,
+                            task: task.clone(),
                             child: r.into(),
                         })
                         .unwrap();
@@ -248,22 +265,10 @@ impl<I: Family> Worker<I> {
                 } else {
                     // Try to recycle tape storage!
                     //
-                    // We know that we have unique ownership of the task,
-                    // because we didn't push anything to the queue (which would
-                    // introduce further strong references).
-                    let mut t = Arc::try_unwrap(task.data).ok().unwrap();
-                    loop {
-                        if let Ok(e) = Arc::try_unwrap(t.eval) {
-                            self.storage.claim(e);
-                        }
-                        if let Some(next) =
-                            t.next.and_then(|n| Arc::try_unwrap(n).ok())
-                        {
-                            t = next;
-                        } else {
-                            break;
-                        }
-                    }
+                    // We may or may not have unique ownership of the task; we
+                    // didn't push anything to the queue, but may have cloned
+                    // the task when sending a Done message back to the caller.
+                    task.release(&mut self.storage);
                 }
 
                 // We've successfully done some work, so start the loop again
@@ -279,7 +284,7 @@ impl<I: Family> Worker<I> {
         // Cleanup, flushing the done queue
         loop {
             match self.done.try_recv() {
-                Ok(v) => self.octree.record(v.cell_index, v.child),
+                Ok(v) => self.octree.record(v.task.parent.index, v.child),
                 Err(TryRecvError::Disconnected) => panic!(),
                 Err(TryRecvError::Empty) => break,
             }
