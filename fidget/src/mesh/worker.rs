@@ -122,8 +122,8 @@ pub struct Worker<I: Family> {
 impl<I: Family> Worker<I> {
     pub fn scheduler(eval: Arc<EvalGroup<I>>, settings: Settings) -> Octree {
         let task_queues = QueuePool::new(settings.threads as usize);
-        let done_queues = (0..settings.threads)
-            .map(|_| std::sync::mpsc::channel::<Done<I>>())
+        let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)
+            .take(settings.threads as usize)
             .collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
