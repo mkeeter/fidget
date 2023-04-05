@@ -15,10 +15,45 @@ use crate::eval::Family;
 /// octants, sending results back to the parent (which is numbered implicitly
 /// based on what queue we stole this from).
 struct Task<I: Family> {
+    data: Arc<TaskData<I>>,
+}
+
+impl<I: Family> std::ops::Deref for Task<I> {
+    type Target = TaskData<I>;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<I: Family> Task<I> {
+    fn new(eval: Arc<EvalGroup<I>>, parent: CellIndex) -> Self {
+        Self {
+            data: Arc::new(TaskData {
+                eval,
+                parent,
+                next: None,
+            }),
+        }
+    }
+
+    fn next(&self, eval: Arc<EvalGroup<I>>, parent: CellIndex) -> Self {
+        Self {
+            data: Arc::new(TaskData {
+                eval,
+                parent,
+                next: Some(self.data.clone()),
+            }),
+        }
+    }
+}
+
+struct TaskData<I: Family> {
     eval: Arc<EvalGroup<I>>,
 
     /// Parent cell, which must be an `Invalid` cell waiting for population
     parent: CellIndex,
+
+    next: Option<Arc<TaskData<I>>>,
 }
 
 #[derive(Debug)]
@@ -110,7 +145,7 @@ impl<I: Family> Worker<I> {
             CellResult::Leaf(leaf) => Some(Cell::Leaf { leaf, thread: 0 }),
             CellResult::Recurse(eval) => {
                 // Inject the recursive task into worker[0]'s queue
-                workers[0].queue.push(Task { eval, parent: root });
+                workers[0].queue.push(Task::new(eval, root));
                 None
             }
         };
@@ -175,10 +210,7 @@ impl<I: Family> Worker<I> {
                             thread: self.thread_index as u8,
                         }),
                         CellResult::Recurse(eval) => {
-                            self.queue.push(Task {
-                                eval,
-                                parent: sub_cell,
-                            });
+                            self.queue.push(task.next(eval, sub_cell));
                             None
                         }
                     };
@@ -213,11 +245,25 @@ impl<I: Family> Worker<I> {
                 // wake up to try stealing tasks.
                 if self.queue.changed() {
                     ctx.wake();
-                }
-
-                // Try to recycle tape storage
-                if let Ok(e) = Arc::try_unwrap(task.eval) {
-                    self.storage.claim(e);
+                } else {
+                    // Try to recycle tape storage!
+                    //
+                    // We know that we have unique ownership of the task,
+                    // because we didn't push anything to the queue (which would
+                    // introduce further strong references).
+                    let mut t = Arc::try_unwrap(task.data).ok().unwrap();
+                    loop {
+                        if let Ok(e) = Arc::try_unwrap(t.eval) {
+                            self.storage.claim(e);
+                        }
+                        if let Some(next) =
+                            t.next.and_then(|n| Arc::try_unwrap(n).ok())
+                        {
+                            t = next;
+                        } else {
+                            break;
+                        }
+                    }
                 }
 
                 // We've successfully done some work, so start the loop again
