@@ -169,7 +169,7 @@ impl Octree {
     ///
     /// # Panics
     /// If the index exceeds the bounds of the cell vector, or the cell is
-    /// already populated with something other than [`Cell::Invalid`].
+    /// already populated.
     pub fn record(&mut self, index: usize, cell: CellData) {
         debug_assert_eq!(self.cells[index], Cell::Invalid.into());
         self.cells[index] = cell;
