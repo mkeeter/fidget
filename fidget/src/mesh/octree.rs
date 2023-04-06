@@ -626,7 +626,11 @@ impl Octree {
     }
 
     pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
-        !matches!(self.cells[cell.index].into(), Cell::Branch { .. })
+        match self.cells[cell.index].into() {
+            Cell::Leaf { .. } | Cell::Full | Cell::Empty => true,
+            Cell::Branch { .. } => false,
+            Cell::Invalid => panic!(),
+        }
     }
 }
 
