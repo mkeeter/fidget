@@ -27,21 +27,31 @@ impl<I: Family> std::ops::Deref for Task<I> {
 }
 
 impl<I: Family> Task<I> {
-    fn new(eval: Arc<EvalGroup<I>>, parent: CellIndex) -> Self {
+    /// Builds a new root task
+    ///
+    /// The root task is from worker 0 with the default cell index
+    fn new(eval: Arc<EvalGroup<I>>) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
-                parent,
+                parent: CellIndex::default(),
+                source: 0,
                 next: None,
             }),
         }
     }
 
-    fn next(&self, eval: Arc<EvalGroup<I>>, parent: CellIndex) -> Self {
+    fn next(
+        &self,
+        eval: Arc<EvalGroup<I>>,
+        parent: CellIndex,
+        source: usize,
+    ) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
                 parent,
+                source,
                 next: Some(self.data.clone()),
             }),
         }
@@ -66,6 +76,9 @@ impl<I: Family> Task<I> {
 
 struct TaskData<I: Family> {
     eval: Arc<EvalGroup<I>>,
+
+    /// Thread in which the parent cell lives
+    source: usize,
 
     /// Parent cell, which must be an `Invalid` cell waiting for population
     parent: CellIndex,
@@ -161,7 +174,7 @@ impl<I: Family> Worker<I> {
             CellResult::Leaf(leaf) => Some(Cell::Leaf { leaf, thread: 0 }),
             CellResult::Recurse(eval) => {
                 // Inject the recursive task into worker[0]'s queue
-                workers[0].queue.push(Task::new(eval, root));
+                workers[0].queue.push(Task::new(eval));
                 None
             }
         };
@@ -200,7 +213,7 @@ impl<I: Family> Worker<I> {
                 }
             }
 
-            if let Some((task, source)) = self.queue.pop() {
+            if let Some(task) = self.queue.pop() {
                 // Each task represents 8 cells, so evaluate them one by one
                 // here and return results.
 
@@ -227,7 +240,11 @@ impl<I: Family> Worker<I> {
                             thread: self.thread_index as u8,
                         }),
                         CellResult::Recurse(eval) => {
-                            self.queue.push(task.next(eval, sub_cell));
+                            self.queue.push(task.next(
+                                eval,
+                                sub_cell,
+                                self.thread_index,
+                            ));
                             None
                         }
                     };
@@ -245,9 +262,9 @@ impl<I: Family> Worker<I> {
                     index,
                     thread: self.thread_index as u8,
                 };
-                if source != self.thread_index {
+                if task.source != self.thread_index {
                     // Send the result back on the wire
-                    self.friend_done[source]
+                    self.friend_done[task.source]
                         .send(Done {
                             task: task.clone(),
                             child: r.into(),

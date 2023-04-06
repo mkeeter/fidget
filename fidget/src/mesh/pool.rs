@@ -215,12 +215,10 @@ impl<T> QueuePool<T> {
 
     /// Pops an item from this queue or steals from another
     ///
-    /// Returns the item along with its source index.
-    ///
     /// Sets `self.changed` to `false`
-    pub fn pop(&mut self) -> Option<(T, usize)> {
+    pub fn pop(&mut self) -> Option<T> {
         self.changed = false;
-        self.queue.pop().map(|v| (v, self.index)).or_else(|| {
+        self.queue.pop().map(|v| v).or_else(|| {
             // Try stealing from all of our friends
             use crossbeam_deque::Steal;
             for i in 1..self.friend_queue.len() {
@@ -228,7 +226,7 @@ impl<T> QueuePool<T> {
                 let q = &self.friend_queue[i];
                 loop {
                     match q.steal() {
-                        Steal::Success(v) => return Some((v, i)),
+                        Steal::Success(v) => return Some(v),
                         Steal::Empty => break,
                         Steal::Retry => continue,
                     }
@@ -268,7 +266,7 @@ mod test {
         std::thread::scope(|s| {
             for (q, c) in queues.iter_mut().zip(counters.iter_mut()) {
                 s.spawn(|| {
-                    while let Some((i, _)) = q.pop() {
+                    while let Some(i) = q.pop() {
                         *c += 1;
                         if i != 0 {
                             q.push(i - 1);
