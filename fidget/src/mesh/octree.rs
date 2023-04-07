@@ -621,10 +621,44 @@ impl Octree {
 
     pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
         match self.cells[cell.index].into() {
-            Cell::Leaf { .. } | Cell::Full | Cell::Empty => true,
+            Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
             Cell::Branch { .. } => false,
             Cell::Invalid => panic!(),
         }
+    }
+
+    /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
+    ///
+    /// Only topology is checked, based on the three predicates from "Dual
+    /// Contouring of Hermite Data" (Ju et al, 2002), §4.1
+    ///
+    /// # Panics
+    /// `root` must be a multiple of 8, because it points at the root of a
+    /// cluster of 8 cells.
+    pub(crate) fn collapsible(&self, root: usize) -> bool {
+        assert_eq!(root % 8, 0);
+        let cells = &self.cells[root..root + 8];
+        let mut mask = 0;
+        for (i, &c) in cells.iter().enumerate() {
+            let b = match c.into() {
+                Cell::Leaf(Leaf { mask, .. }) => {
+                    if CELL_TO_VERT_TO_EDGES[mask as usize].len() > 1 {
+                        return false;
+                    }
+                    (mask & (1 << i) != 0) as u8
+                }
+                Cell::Empty => 0,
+                Cell::Full => 1,
+                Cell::Branch { .. } => return false,
+                Cell::Invalid => panic!(),
+            };
+            mask |= b << i;
+        }
+        assert_ne!(mask, 255);
+        assert_ne!(mask, 0);
+        // TODO: this check may not be necessary, because we're doing *manifold*
+        // dual contouring; the collapsed cell can have multiple vertices.
+        CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
     }
 }
 
