@@ -196,7 +196,7 @@ impl Octree {
             verts: Vec::with_capacity(*vert_offsets.last().unwrap()),
         };
 
-        for o in os {
+        for (t, o) in os.iter().enumerate() {
             for c in &o.cells {
                 let c: Cell = match (*c).into() {
                     c @ (Cell::Empty | Cell::Full | Cell::Invalid) => c,
@@ -204,16 +204,10 @@ impl Octree {
                         index: cell_offsets[thread as usize] + index,
                         thread: 0,
                     },
-                    Cell::Leaf {
-                        leaf: Leaf { mask, index },
-                        thread,
-                    } => Cell::Leaf {
-                        leaf: Leaf {
-                            index: vert_offsets[thread as usize] + index,
-                            mask,
-                        },
-                        thread: 0,
-                    },
+                    Cell::Leaf(Leaf { mask, index }) => Cell::Leaf(Leaf {
+                        index: vert_offsets[t] + index,
+                        mask,
+                    }),
                 };
                 out.cells.push(c.into());
             }
@@ -303,7 +297,7 @@ impl Octree {
             CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
             CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
             CellResult::Leaf(leaf) => {
-                self.cells[cell.index] = Cell::Leaf { leaf, thread: 0 }.into()
+                self.cells[cell.index] = Cell::Leaf(leaf).into()
             }
             CellResult::Recurse(eval) => {
                 let index = self.cells.len();
@@ -755,10 +749,7 @@ mod test {
         let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(
-            Cell::Leaf {
-                leaf: Leaf { mask: 0, index: 0 },
-                thread: 0
-            },
+            Cell::Leaf(Leaf { mask: 0, index: 0 },),
             octree.cells[0].into(),
         );
         assert_eq!(octree.verts.len(), 0);
@@ -784,7 +775,7 @@ mod test {
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
         for o in &octree.cells[8..] {
-            let Cell::Leaf { leaf: Leaf { index, mask}, .. } = (*o).into()
+            let Cell::Leaf ( Leaf { index, mask}) = (*o).into()
                 else { panic!() };
             assert_eq!(mask.count_ones(), 1);
             assert_eq!(index % 4, 0);

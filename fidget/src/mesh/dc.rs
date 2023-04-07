@@ -410,7 +410,7 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // include a sign change.  TODO: can we make this any -> all if we
         // collapse empty / filled leafs into Empty / Full cells?
         let leafs = cs.map(|cell| match octree.cells[cell.index].into() {
-            Cell::Leaf { leaf, .. } => Some(leaf),
+            Cell::Leaf(leaf) => Some(leaf),
             Cell::Empty | Cell::Full => None,
             Cell::Branch { .. } => unreachable!(),
             Cell::Invalid => panic!(),
