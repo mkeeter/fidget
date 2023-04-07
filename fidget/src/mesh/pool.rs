@@ -86,19 +86,23 @@ pub struct ThreadContext<'a> {
 }
 
 impl ThreadContext<'_> {
-    /// If some threads in the pool are sleeping, wakes them up
-    ///
-    /// This function should be called when work is available.
-    pub fn wake(&self) {
+    /// Returns `true` if any threads in the pool are sleeping
+    fn any_sleeping(&self) -> bool {
         let mut v = self.counter.load(Ordering::Acquire);
         if (self.phase % 2) == 1 {
             v >>= 8;
         }
         // Check to see if any other threads are sleeping; otherwise, skip the
         // unparking step (because it costs time)
-        if (((self.phase % 2) / 2 == 0) && v != 0)
+        (((self.phase % 2) / 2 == 0) && v != 0)
             || (((self.phase % 2) / 2 == 1) && v != self.threads.len())
-        {
+    }
+
+    /// If some threads in the pool are sleeping, wakes them up
+    ///
+    /// This function should be called when work is available.
+    pub fn wake(&self) {
+        if self.any_sleeping() {
             for (i, t) in self.threads.iter().enumerate() {
                 if i != self.index {
                     t.unpark();
@@ -107,23 +111,71 @@ impl ThreadContext<'_> {
         }
     }
 
+    /// Wakes a single thread from the pool
+    ///
+    /// # Panics
+    /// If this is called by a thread to wake itself
+    /// (i.e. with `i == self.index`)
+    pub fn wake_one(&self, i: usize) {
+        assert_ne!(i, self.index);
+        if self.any_sleeping() {
+            self.threads[i].unpark();
+        }
+    }
+
+    /// Used to record that a piece of data has been scheduled for processing
+    ///
+    /// This is necessary because some data is handled by MPSC queues, so you
+    /// could run into this ordering:
+    ///
+    /// |          Thread 1           |         Thread 2        |
+    /// |-----------------------------|-------------------------|
+    /// |                             | Nothing to do, sleeping |
+    /// | Send data to Thread 2       | Zzzzz....               |
+    /// | Nothing to do, sleeping     |                         |
+    /// | Everyone is asleep, exiting |                         |
+    /// |                             | Oh look, data!          |
+    ///
+    /// This would be a false exit on the part of Thread 1, because Thread 2 may
+    /// continue to process data, and even need to send data *back* to Thread 1.
+    pub fn pushed(&self) {
+        self.counter.fetch_add(1 << 16, Ordering::Release);
+    }
+
+    /// Records that a piece of data recorded with `pushed` has been processed
+    pub fn popped(&self) {
+        self.counter.fetch_sub(1 << 16, Ordering::Release);
+    }
+
+    fn done(&self, v: usize) -> bool {
+        (v >> 16 == 0) // No MPSC work queued up
+            & match self.phase % 4 {
+                0 => v & 0xFF == self.threads.len(),
+                1 => v >> 8 == self.threads.len(),
+                2 => v & 0xFF == 0,
+                3 => v >> 8 == 0,
+                _ => unreachable!(),
+            }
+    }
+
     /// Sends the given thread to sleep
     ///
     /// Returns `true` if the thread should continue running; `false` if all
     /// threads in the pool have requested to sleep, indicating that all work is
     /// done and they should now halt.
     pub fn sleep(&mut self) -> bool {
+        let v = match self.phase % 4 {
+            0 => self.counter.fetch_add(1, Ordering::Release) + 1,
+            1 => self.counter.fetch_add(256, Ordering::Release) + 256,
+            2 => self.counter.fetch_sub(1, Ordering::Release) - 1,
+            3 => self.counter.fetch_sub(256, Ordering::Release) - 256,
+            _ => unreachable!(),
+        };
+
         // At this point, the thread doesn't have any work to do, so we'll
         // consider putting it to sleep.  However, if every other thread is
         // sleeping, then we're ready to exit; we'll wake them all up.
-        let n = self.threads.len();
-        let mut done = match self.phase % 4 {
-            0 => (1 + self.counter.fetch_add(1, Ordering::Release)) & 0xFF == n,
-            1 => 1 + (self.counter.fetch_add(256, Ordering::Release) >> 8) == n,
-            2 => (self.counter.fetch_sub(1, Ordering::Release) - 1) & 0xFF == 0,
-            3 => (self.counter.fetch_sub(256, Ordering::Release) >> 8) - 1 == 0,
-            _ => unreachable!(),
-        };
+        let mut done = self.done(v);
 
         if done {
             // Wake up the other threads, so they notice that we're done
@@ -140,27 +192,21 @@ impl ThreadContext<'_> {
             // Someone has woken us up!  Check our counter and see whether we've
             // been woken up because every thread has finished.
             let c = self.counter.load(Ordering::Acquire);
-            done = match self.phase % 4 {
-                0 => c & 0xFF == n,
-                1 => c >> 8 == n,
-                2 => c & 0xFF == 0,
-                3 => c >> 8 == 0,
-                _ => unreachable!(),
-            };
-            if !done {
-                // Back to the grind
-                match self.phase % 4 {
-                    0 => self.counter.fetch_sub(1, Ordering::Release),
-                    1 => self.counter.fetch_sub(256, Ordering::Release),
-                    2 => self.counter.fetch_add(1, Ordering::Release),
-                    3 => self.counter.fetch_add(256, Ordering::Release),
-                    _ => unreachable!(),
-                };
-            }
+
+            done = self.done(c);
         }
 
         if done {
             self.phase += 1;
+        } else {
+            // Back to the grind
+            match self.phase % 4 {
+                0 => self.counter.fetch_sub(1, Ordering::Release),
+                1 => self.counter.fetch_sub(256, Ordering::Release),
+                2 => self.counter.fetch_add(1, Ordering::Release),
+                3 => self.counter.fetch_add(256, Ordering::Release),
+                _ => unreachable!(),
+            };
         }
         !done
     }
@@ -218,7 +264,7 @@ impl<T> QueuePool<T> {
     /// Sets `self.changed` to `false`
     pub fn pop(&mut self) -> Option<T> {
         self.changed = false;
-        self.queue.pop().map(|v| v).or_else(|| {
+        self.queue.pop().or_else(|| {
             // Try stealing from all of our friends
             use crossbeam_deque::Steal;
             for i in 1..self.friend_queue.len() {

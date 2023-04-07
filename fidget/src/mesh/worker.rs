@@ -203,6 +203,7 @@ impl<I: Family> Worker<I> {
             // back the result.  Otherwise, keep going.
             match self.done.try_recv() {
                 Ok(v) => {
+                    ctx.popped();
                     self.octree.record(v.task.parent.index, v.child);
                     v.task.release(&mut self.storage);
                     continue;
@@ -264,12 +265,14 @@ impl<I: Family> Worker<I> {
                 };
                 if task.source != self.thread_index {
                     // Send the result back on the wire
+                    ctx.pushed();
                     self.friend_done[task.source]
                         .send(Done {
                             task: task.clone(),
                             child: r.into(),
                         })
                         .unwrap();
+                    ctx.wake_one(task.source);
                 } else {
                     // Store the result locally
                     self.octree.record(task.parent.index, r.into());
@@ -298,14 +301,9 @@ impl<I: Family> Worker<I> {
             }
         }
 
-        // Cleanup, flushing the done queue
-        loop {
-            match self.done.try_recv() {
-                Ok(v) => self.octree.record(v.task.parent.index, v.child),
-                Err(TryRecvError::Disconnected) => panic!(),
-                Err(TryRecvError::Empty) => break,
-            }
-        }
+        // At this point, the `done` queue should be flushed
+        assert_eq!(self.done.try_recv().err(), Some(TryRecvError::Empty));
+
         self.octree
     }
 }
