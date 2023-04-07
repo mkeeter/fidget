@@ -169,9 +169,7 @@ impl<I: Family> Worker<I> {
             settings,
         );
         let c = match r {
-            CellResult::Full => Some(Cell::Full),
-            CellResult::Empty => Some(Cell::Empty),
-            CellResult::Leaf(leaf) => Some(Cell::Leaf(leaf)),
+            CellResult::Done(cell) => Some(cell),
             CellResult::Recurse(eval) => {
                 // Inject the recursive task into worker[0]'s queue
                 workers[0].queue.push(Task::new(eval));
@@ -238,9 +236,7 @@ impl<I: Family> Worker<I> {
                         sub_cell,
                         settings,
                     ) {
-                        CellResult::Empty => Some(Cell::Empty),
-                        CellResult::Full => Some(Cell::Full),
-                        CellResult::Leaf(leaf) => Some(Cell::Leaf(leaf)),
+                        CellResult::Done(cell) => Some(cell),
                         CellResult::Recurse(eval) => {
                             self.queue.push(task.next(
                                 eval,

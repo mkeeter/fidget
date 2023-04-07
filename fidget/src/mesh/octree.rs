@@ -258,9 +258,9 @@ impl Octree {
             .eval_with(cell.x, cell.y, cell.z, &[], &mut data.interval_data)
             .unwrap();
         if i.upper() < 0.0 {
-            CellResult::Full
+            CellResult::Done(Cell::Full)
         } else if i.lower() > 0.0 {
-            CellResult::Empty
+            CellResult::Done(Cell::Empty)
         } else {
             let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
                 r.map(|r| {
@@ -277,7 +277,7 @@ impl Octree {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                CellResult::Leaf(self.leaf(&eval, data, storage, cell))
+                CellResult::Done(self.leaf(&eval, data, storage, cell))
             } else {
                 CellResult::Recurse(sub_tape.unwrap_or_else(|| eval.clone()))
             }
@@ -294,11 +294,7 @@ impl Octree {
         settings: Settings,
     ) {
         match self.eval_cell(eval, data, storage, cell, settings) {
-            CellResult::Empty => self.cells[cell.index] = Cell::Empty.into(),
-            CellResult::Full => self.cells[cell.index] = Cell::Full.into(),
-            CellResult::Leaf(leaf) => {
-                self.cells[cell.index] = Cell::Leaf(leaf).into()
-            }
+            CellResult::Done(c) => self.cells[cell.index] = c.into(),
             CellResult::Recurse(eval) => {
                 let index = self.cells.len();
                 for _ in Corner::iter() {
@@ -325,7 +321,7 @@ impl Octree {
         data: &mut EvalData<I>,
         storage: &mut EvalStorage<I>,
         cell: CellIndex,
-    ) -> Leaf {
+    ) -> Cell {
         let float_eval = eval.float_slice(&mut storage.float_storage);
 
         let mut xs = [0.0; 8];
@@ -350,6 +346,13 @@ impl Octree {
             .enumerate()
             .filter(|(_i, &v)| v < 0.0)
             .fold(0, |acc, (i, _v)| acc | (1 << i));
+
+        // Early exit if the cell is completely empty or full
+        if mask == 0 {
+            return Cell::Empty;
+        } else if mask == 255 {
+            return Cell::Full;
+        }
 
         // Start and endpoints in 3D space for intersection searches
         let mut start = [nalgebra::Vector3::zeros(); 12];
@@ -575,7 +578,7 @@ impl Octree {
             .extend(intersections.into_iter().map(|pos| CellVertex {
                 pos: pos.map(|i| i as i32),
             }));
-        Leaf { mask, index }
+        Cell::Leaf(Leaf { mask, index })
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -664,9 +667,7 @@ impl Octree {
 
 /// Result of a single cell evaluation
 pub enum CellResult<I: Family> {
-    Empty,
-    Full,
-    Leaf(Leaf),
+    Done(Cell),
     Recurse(Arc<EvalGroup<I>>),
 }
 
@@ -782,12 +783,8 @@ mod test {
         // vertices (since all the corners are empty)
         let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
-        assert_eq!(
-            Cell::Leaf(Leaf { mask: 0, index: 0 },),
-            octree.cells[0].into(),
-        );
+        assert_eq!(Cell::Empty, octree.cells[0].into(),);
         assert_eq!(octree.verts.len(), 0);
-        // TODO: should we transform this into an Empty?
 
         let empty_mesh = octree.walk_dual(DEPTH0_SINGLE_THREAD);
         assert!(empty_mesh.vertices.is_empty());
