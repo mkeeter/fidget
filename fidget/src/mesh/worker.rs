@@ -3,7 +3,7 @@ use std::sync::{mpsc::TryRecvError, Arc};
 use super::{
     cell::{Cell, CellData, CellIndex},
     octree::{CellResult, EvalData, EvalGroup, EvalStorage},
-    pool::{QueuePool, ThreadPool},
+    pool::{QueuePool, ThreadContext, ThreadPool},
     types::Corner,
     Octree, Settings,
 };
@@ -204,8 +204,12 @@ impl<I: Family> Worker<I> {
             match self.done.try_recv() {
                 Ok(v) => {
                     ctx.popped();
-                    self.octree.record(v.task.parent.index, v.child);
-                    v.task.release(&mut self.storage);
+                    self.record(
+                        v.task.parent.index,
+                        v.child,
+                        v.task.next.as_ref(),
+                        &mut ctx,
+                    );
                     continue;
                 }
                 Err(TryRecvError::Disconnected) => panic!(),
@@ -253,29 +257,13 @@ impl<I: Family> Worker<I> {
                     // it's a branching cell, then we'll let a caller fill it in
                     // eventually (via the done queue).
                     if let Some(r) = r {
-                        self.octree.record(sub_cell.index, r.into());
+                        self.record(
+                            sub_cell.index,
+                            r.into(),
+                            Some(&task.data),
+                            &mut ctx,
+                        );
                     }
-                }
-
-                // We're done evaluating the task; record that it is a branch
-                // pointing to this thread's data array.
-                let r = Cell::Branch {
-                    index,
-                    thread: self.thread_index as u8,
-                };
-                if task.source != self.thread_index {
-                    // Send the result back on the wire
-                    ctx.pushed();
-                    self.friend_done[task.source]
-                        .send(Done {
-                            task: task.clone(),
-                            child: r.into(),
-                        })
-                        .unwrap();
-                    ctx.wake_one(task.source);
-                } else {
-                    // Store the result locally
-                    self.octree.record(task.parent.index, r.into());
                 }
 
                 // If we pushed anything to our queue, then let other threads
@@ -305,5 +293,85 @@ impl<I: Family> Worker<I> {
         assert_eq!(self.done.try_recv().err(), Some(TryRecvError::Empty));
 
         self.octree
+    }
+
+    /// Records the cell at the given index and recurses upwards
+    ///
+    /// This cell must be one of the 8 children of the given task.
+    ///
+    /// If complete, the results are sent upstream to the giver of the task;
+    /// this may be the same worker thread or another worker.
+    fn record(
+        &mut self,
+        mut index: usize,
+        cell: CellData,
+        task: Option<&Arc<TaskData<I>>>,
+        ctx: &mut ThreadContext,
+    ) {
+        self.octree.record(index, cell);
+
+        // Check to see whether this is the last cell in the cluster of 8
+        index &= !7;
+        let mut full_count = 0;
+        let mut empty_count = 0;
+        for i in 0..8 {
+            match self.octree.cells[index + i].into() {
+                Cell::Invalid => {
+                    return;
+                }
+                Cell::Full => full_count += 1,
+                Cell::Empty => empty_count += 1,
+                Cell::Branch { .. } | Cell::Leaf { .. } => (),
+            }
+        }
+
+        let r = if full_count == 8 {
+            Cell::Full
+        } else if empty_count == 8 {
+            Cell::Empty
+        } else {
+            Cell::Branch {
+                index,
+                thread: self.thread_index as u8,
+            }
+        };
+
+        if let Some(task) = task {
+            // If all of the branches are empty or full, then we're going to
+            // record an Empty or Full cell in the parent and don't need the 8x
+            // children.
+            //
+            // We can drop them if they happen to be at the tail end of the
+            // octree; otherwise, we'll satisfy ourselves with setting them to
+            // invalid.
+            if matches!(r, Cell::Empty | Cell::Full) {
+                if index == self.octree.cells.len() - 8 {
+                    self.octree.cells.resize(index, Cell::Invalid.into());
+                } else {
+                    self.octree.cells[index..index + 8]
+                        .fill(Cell::Invalid.into())
+                }
+            }
+
+            if task.source == self.thread_index {
+                // Store the result locally, recursing up
+                self.record(
+                    task.parent.index,
+                    r.into(),
+                    task.next.as_ref(),
+                    ctx,
+                );
+            } else {
+                // Send the result back on the wire
+                ctx.pushed();
+                self.friend_done[task.source]
+                    .send(Done {
+                        task: Task { data: task.clone() },
+                        child: r.into(),
+                    })
+                    .unwrap();
+                ctx.wake_one(task.source);
+            }
+        }
     }
 }
