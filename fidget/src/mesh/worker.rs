@@ -1,7 +1,7 @@
 use std::sync::{mpsc::TryRecvError, Arc};
 
 use super::{
-    cell::{Cell, CellData, CellIndex},
+    cell::{Cell, CellData, CellIndex, Leaf},
     octree::{CellResult, EvalData, EvalGroup, EvalStorage},
     pool::{QueuePool, ThreadContext, ThreadPool},
     types::Corner,
@@ -96,6 +96,12 @@ struct Done<I: Family> {
     /// otherwise, this is a leaf or branch and may point to one of the other
     /// worker's data arrays.
     child: CellData,
+
+    /// Minimum vertex error among the children leaf cells
+    ///
+    /// This is -1.0 if the parent _should not_ try to collapse the cell and
+    /// `>= 0.0` otherwise.
+    min_err: f32,
 }
 
 pub struct Worker<I: Family> {
@@ -307,6 +313,11 @@ impl<I: Family> Worker<I> {
         index &= !7;
         let mut full_count = 0;
         let mut empty_count = 0;
+        let mut min_err = if self.octree.collapsible(index) {
+            std::f32::INFINITY
+        } else {
+            -1.0 // Indicating that we shouldn't try collapsing the cell
+        };
         for i in 0..8 {
             match self.octree.cells[index + i].into() {
                 Cell::Invalid => {
@@ -314,7 +325,13 @@ impl<I: Family> Worker<I> {
                 }
                 Cell::Full => full_count += 1,
                 Cell::Empty => empty_count += 1,
-                Cell::Branch { .. } | Cell::Leaf { .. } => (),
+                Cell::Branch { .. } => min_err = -1.0,
+                Cell::Leaf(Leaf { index, .. }) => {
+                    // We'll only collapse cells that contain a single vertex,
+                    // so we don't need to iterate over multiple vertices in the
+                    // cell here.
+                    min_err = min_err.min(self.octree.verts[index].qef_err);
+                }
             }
         }
 
@@ -361,6 +378,7 @@ impl<I: Family> Worker<I> {
                     .send(Done {
                         task: Task { data: task.clone() },
                         child: r.into(),
+                        min_err,
                     })
                     .unwrap();
                 ctx.wake_one(task.source);
