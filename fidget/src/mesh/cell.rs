@@ -116,6 +116,9 @@ pub struct CellVertex {
     /// The lower `u16` represents the cell's bounding box; higher bits are for
     /// vertices that exceed the bounding box.
     pub pos: nalgebra::Vector3<i32>,
+
+    /// Maximum error when solving the QEF for this vertex
+    pub qef_err: f32,
 }
 
 impl CellVertex {
@@ -253,7 +256,11 @@ impl CellIndex {
     ///
     /// The `bool` indicates whether the vertex was clamped into the cell's
     /// bounding box.
-    pub fn relative(&self, p: nalgebra::Vector3<f32>) -> CellVertex {
+    pub fn relative(
+        &self,
+        p: nalgebra::Vector3<f32>,
+        qef_err: f32,
+    ) -> CellVertex {
         let x = (p.x - self.x.lower()) / self.x.width() * u16::MAX as f32;
         let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
         let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
@@ -264,6 +271,7 @@ impl CellIndex {
                 y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
                 z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
             ),
+            qef_err,
         }
     }
 }

@@ -563,7 +563,7 @@ impl Octree {
                 // If the matrix solution is in the cell, then we assume the
                 // solution is good; we _also_ stop iterating if this is the
                 // last possible chance.
-                let pos = cell.relative(pos);
+                let pos = cell.relative(pos, err);
                 if i == EPSILONS.len() - 1 || pos.valid() {
                     verts.push(pos);
                     break;
@@ -577,6 +577,7 @@ impl Octree {
         self.verts
             .extend(intersections.into_iter().map(|pos| CellVertex {
                 pos: pos.map(|i| i as i32),
+                qef_err: 0.0, // edge vertices don't have meaningful errors
             }));
         Cell::Leaf(Leaf { mask, index })
     }
@@ -590,7 +591,7 @@ impl Octree {
 
         if settings.threads == 0 {
             mesh.cell(
-                &self,
+                self,
                 CellIndex {
                     index: 0,
                     x,
