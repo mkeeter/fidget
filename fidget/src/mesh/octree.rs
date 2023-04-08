@@ -631,6 +631,66 @@ impl Octree {
         }
     }
 
+    /// Checks the set of 8 children starting at the given index for completion
+    ///
+    /// Bails out early if any of them are `Invalid` (indicating that they
+    /// haven't been fully populated).  If all are empty or full, then
+    /// pro-actively collapses the cells (freeing them if they're at the tail
+    /// end of the array).
+    ///
+    /// Returns a tuple of `(parent cell data, min QEF error)`; the latter can
+    /// be used for collapsing.
+    pub(crate) fn check_done(&mut self, index: usize) -> Option<(Cell, f32)> {
+        assert_eq!(index % 8, 0);
+        let mut full_count = 0;
+        let mut empty_count = 0;
+        let mut min_err = std::f32::INFINITY;
+        for i in 0..8 {
+            match self.cells[index + i].into() {
+                Cell::Invalid => {
+                    return None;
+                }
+                Cell::Full => full_count += 1,
+                Cell::Empty => empty_count += 1,
+                Cell::Branch { .. } => min_err = -1.0,
+                Cell::Leaf(Leaf { index, .. }) => {
+                    // We'll only collapse cells that contain a single vertex,
+                    // so we don't need to iterate over multiple vertices in the
+                    // cell here.
+                    min_err = min_err.min(self.verts[index].qef_err);
+                }
+            }
+        }
+
+        let r = if full_count == 8 {
+            Cell::Full
+        } else if empty_count == 8 {
+            Cell::Empty
+        } else {
+            Cell::Branch { index, thread: 0 }
+        };
+
+        if matches!(r, Cell::Empty | Cell::Full) || !self.collapsible(index) {
+            min_err = -1.0;
+        }
+
+        // If all of the branches are empty or full, then we're going to
+        // record an Empty or Full cell in the parent and don't need the 8x
+        // children.
+        //
+        // We can drop them if they happen to be at the tail end of the
+        // octree; otherwise, we'll satisfy ourselves with setting them to
+        // invalid.
+        if matches!(r, Cell::Empty | Cell::Full) {
+            if index == self.cells.len() - 8 {
+                self.cells.resize(index, Cell::Invalid.into());
+            } else {
+                self.cells[index..index + 8].fill(Cell::Invalid.into())
+            }
+        }
+        Some((r, min_err))
+    }
+
     /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
     ///
     /// Only topology is checked, based on the three predicates from "Dual

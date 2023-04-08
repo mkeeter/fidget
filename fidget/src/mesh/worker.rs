@@ -1,7 +1,7 @@
 use std::sync::{mpsc::TryRecvError, Arc};
 
 use super::{
-    cell::{Cell, CellData, CellIndex, Leaf},
+    cell::{Cell, CellData, CellIndex},
     octree::{CellResult, EvalData, EvalGroup, EvalStorage},
     pool::{QueuePool, ThreadContext, ThreadPool},
     types::Corner,
@@ -302,7 +302,7 @@ impl<I: Family> Worker<I> {
     /// this may be the same worker thread or another worker.
     fn record(
         &mut self,
-        mut index: usize,
+        index: usize,
         cell: CellData,
         task: Option<&Arc<TaskData<I>>>,
         ctx: &mut ThreadContext,
@@ -310,81 +310,32 @@ impl<I: Family> Worker<I> {
         self.octree.record(index, cell);
 
         // Check to see whether this is the last cell in the cluster of 8
-        index &= !7;
-        let mut full_count = 0;
-        let mut empty_count = 0;
-        let mut min_err = std::f32::INFINITY;
-        for i in 0..8 {
-            match self.octree.cells[index + i].into() {
-                Cell::Invalid => {
-                    return;
-                }
-                Cell::Full => full_count += 1,
-                Cell::Empty => empty_count += 1,
-                Cell::Branch { .. } => min_err = -1.0,
-                Cell::Leaf(Leaf { index, .. }) => {
-                    // We'll only collapse cells that contain a single vertex,
-                    // so we don't need to iterate over multiple vertices in the
-                    // cell here.
-                    min_err = min_err.min(self.octree.verts[index].qef_err);
-                }
-            }
-        }
-
-        let r = if full_count == 8 {
-            Cell::Full
-        } else if empty_count == 8 {
-            Cell::Empty
-        } else {
-            Cell::Branch {
-                index,
-                thread: self.thread_index as u8,
-            }
+        let Some((mut r, min_err)) = self.octree.check_done(index & !7) else {
+            return
         };
-
-        if matches!(r, Cell::Empty | Cell::Full)
-            || !self.octree.collapsible(index)
-        {
-            min_err = -1.0;
+        // Patch up the thread index, which the Octree function doesn't know
+        if let Cell::Branch { thread, .. } = &mut r {
+            *thread = self.thread_index as u8;
         }
 
-        if let Some(task) = task {
-            // If all of the branches are empty or full, then we're going to
-            // record an Empty or Full cell in the parent and don't need the 8x
-            // children.
-            //
-            // We can drop them if they happen to be at the tail end of the
-            // octree; otherwise, we'll satisfy ourselves with setting them to
-            // invalid.
-            if matches!(r, Cell::Empty | Cell::Full) {
-                if index == self.octree.cells.len() - 8 {
-                    self.octree.cells.resize(index, Cell::Invalid.into());
-                } else {
-                    self.octree.cells[index..index + 8]
-                        .fill(Cell::Invalid.into())
-                }
-            }
-
-            if task.source == self.thread_index {
-                // Store the result locally, recursing up
-                self.record(
-                    task.parent.index,
-                    r.into(),
-                    task.next.as_ref(),
-                    ctx,
-                );
-            } else {
-                // Send the result back on the wire
-                ctx.pushed();
-                self.friend_done[task.source]
-                    .send(Done {
-                        task: Task { data: task.clone() },
-                        child: r.into(),
-                        min_err,
-                    })
-                    .unwrap();
-                ctx.wake_one(task.source);
-            }
+        // It's safe to unwrap `task` here because the only task lacking a
+        // parent is at the root of the tree, which is never a set of 8
+        // children; `check_done` will cause us to bail out early.
+        let task = task.unwrap();
+        if task.source == self.thread_index {
+            // Store the result locally, recursing up
+            self.record(task.parent.index, r.into(), task.next.as_ref(), ctx);
+        } else {
+            // Send the result back on the wire
+            ctx.pushed();
+            self.friend_done[task.source]
+                .send(Done {
+                    task: Task { data: task.clone() },
+                    child: r.into(),
+                    min_err,
+                })
+                .unwrap();
+            ctx.wake_one(task.source);
         }
     }
 }
