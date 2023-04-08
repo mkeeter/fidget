@@ -313,11 +313,7 @@ impl<I: Family> Worker<I> {
         index &= !7;
         let mut full_count = 0;
         let mut empty_count = 0;
-        let mut min_err = if self.octree.collapsible(index) {
-            std::f32::INFINITY
-        } else {
-            -1.0 // Indicating that we shouldn't try collapsing the cell
-        };
+        let mut min_err = std::f32::INFINITY;
         for i in 0..8 {
             match self.octree.cells[index + i].into() {
                 Cell::Invalid => {
@@ -345,6 +341,12 @@ impl<I: Family> Worker<I> {
                 thread: self.thread_index as u8,
             }
         };
+
+        if matches!(r, Cell::Empty | Cell::Full)
+            || !self.octree.collapsible(index)
+        {
+            min_err = -1.0;
+        }
 
         if let Some(task) = task {
             // If all of the branches are empty or full, then we're going to
