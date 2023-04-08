@@ -300,12 +300,14 @@ impl Octree {
                 for _ in Corner::iter() {
                     self.cells.push(Cell::Invalid.into());
                 }
-                self.cells[cell.index] =
-                    Cell::Branch { index, thread: 0 }.into();
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
                     self.recurse(&eval, data, storage, cell, settings);
                 }
+
+                let (r, _min_err) = self.check_done(index).unwrap();
+                self.cells[cell.index] = r.into();
+
                 // Try to recycle tape storage
                 if let Ok(e) = Arc::try_unwrap(eval) {
                     storage.claim(e);
@@ -1191,6 +1193,27 @@ mod test {
         let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
+    }
+
+    #[test]
+    fn test_empty_collapse() {
+        // Make a very smol sphere that won't be sampled
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.1; 3], 0.05);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        for threads in [0, 4] {
+            let settings = Settings {
+                min_depth: 1,
+                max_depth: 1,
+                threads,
+            };
+            let octree = Octree::build(&tape, settings);
+            assert_eq!(
+                octree.cells[0],
+                Cell::Empty.into(),
+                "failed to collapse octree with {threads} threads"
+            );
+        }
     }
 
     fn check_for_vertex_dupes(mesh: &Mesh) -> Result<(), String> {
