@@ -640,10 +640,19 @@ impl Octree {
     /// cluster of 8 cells.
     pub(crate) fn collapsible(&self, root: usize) -> bool {
         assert_eq!(root % 8, 0);
-        let cells = &self.cells[root..root + 8];
+
+        // Unpack cells into a friendlier data type
+        let cells = {
+            let mut cells = [Cell::Invalid; 8];
+            for (&c, o) in self.cells[root..root + 8].iter().zip(&mut cells) {
+                *o = c.into();
+            }
+            cells
+        };
+
         let mut mask = 0;
         for (i, &c) in cells.iter().enumerate() {
-            let b = match c.into() {
+            let b = match c {
                 Cell::Leaf(Leaf { mask, .. }) => {
                     if CELL_TO_VERT_TO_EDGES[mask as usize].len() > 1 {
                         return false;
@@ -657,8 +666,59 @@ impl Octree {
             };
             mask |= b << i;
         }
+
+        use super::frame::{Frame, XYZ, YZX, ZXY};
+        for (t, u, v) in [XYZ::frame(), YZX::frame(), ZXY::frame()] {
+            //  - The sign in the middle of a coarse edge must agree with the
+            //    sign of at least one of the edge’s two endpoints.
+            for i in 0..4 {
+                let a = (u * ((i & 1) != 0)) | (v * ((i & 2) != 0));
+                let b = a | t;
+                let center = cells[a.index()].corner(b);
+
+                if [a, b]
+                    .iter()
+                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
+                {
+                    return false;
+                }
+            }
+
+            //  - The sign in the middle of a coarse face must agree with the
+            //    sign of at least one of the face’s four corners.
+            for i in 0..2 {
+                let a: Corner = (t * (i & 1 == 0)).into();
+                let b = a | u;
+                let c = a | v;
+                let d = a | u | v;
+
+                let center = cells[a.index()].corner(d);
+
+                if [a, b, c, d]
+                    .iter()
+                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
+                {
+                    return false;
+                }
+            }
+            //  - The sign in the middle of a coarse cube must agree with the
+            //    sign of at least one of the cube’s eight corners.
+            for _i in 0..1 {
+                // Doing this in the t,u,v loop isn't strictly necessary, but it
+                // preserves the structure nicely.
+                let center = cells[0].corner(t | u | v);
+                if (0..8).all(|v| ((mask & (1 << v)) != 0) != center) {
+                    return false;
+                }
+            }
+        }
+
+        // The outer cell must not be empty or full at this point; if it was
+        // empty or full and the other conditions had been met, then it should
+        // have been collapsed already.
         assert_ne!(mask, 255);
         assert_ne!(mask, 0);
+
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
@@ -1043,6 +1103,33 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_collapsible() {
+        let ctx = BoundContext::new();
+
+        let shape = sphere(&ctx, [0.0; 3], 0.1);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        assert!(!octree.collapsible(8));
+
+        let shape = sphere(&ctx, [-1.0; 3], 0.1);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        assert!(octree.collapsible(8));
+
+        let shape = sphere(&ctx, [-1.0, 0.0, 1.0], 0.1);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        assert!(!octree.collapsible(8));
+
+        let a = sphere(&ctx, [-1.0; 3], 0.1);
+        let b = sphere(&ctx, [1.0; 3], 0.1);
+        let shape = a.min(b);
+        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        assert!(!octree.collapsible(8));
     }
 
     fn check_for_vertex_dupes(mesh: &Mesh) -> Result<(), String> {

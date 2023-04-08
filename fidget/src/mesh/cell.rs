@@ -56,6 +56,22 @@ pub enum Cell {
     Leaf(Leaf),
 }
 
+impl Cell {
+    /// Checks whether the given corner is empty (`false`) or full (`true`)
+    ///
+    /// # Panics
+    /// If the cell is a branch or invalid
+    pub fn corner(self, c: Corner) -> bool {
+        let t = 1 << c.index();
+        match self {
+            Cell::Leaf(Leaf { mask, .. }) => mask & t != 0,
+            Cell::Empty => false,
+            Cell::Full => true,
+            Cell::Branch { .. } | Cell::Invalid => panic!(),
+        }
+    }
+}
+
 impl From<CellData> for Cell {
     fn from(c: CellData) -> Self {
         let i = c.0 as usize;
@@ -287,5 +303,23 @@ mod test {
         ] {
             assert_eq!(c, Cell::from(CellData::from(c)));
         }
+    }
+
+    #[test]
+    fn test_cell_corner() {
+        let c = Cell::Empty;
+        for i in Corner::iter() {
+            assert!(!c.corner(i));
+        }
+        let c = Cell::Full;
+        for i in Corner::iter() {
+            assert!(c.corner(i));
+        }
+        let c = Cell::Leaf(Leaf {
+            mask: 0b00000010,
+            index: 0,
+        });
+        assert!(!c.corner(Corner::new(0)));
+        assert!(c.corner(Corner::new(1)));
     }
 }
