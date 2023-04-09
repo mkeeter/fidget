@@ -308,7 +308,7 @@ impl Octree {
                 let (r, min_err) = self.check_done(index).unwrap();
                 self.cells[cell.index] = self
                     .try_collapse(eval, data, storage, cell, min_err)
-                    .unwrap_or(r.into());
+                    .unwrap_or_else(|| r.into());
 
                 // Try to recycle tape storage
                 if let Ok(e) = Arc::try_unwrap(sub_eval) {
@@ -363,7 +363,7 @@ impl Octree {
         // `collapsible`.
         let new_err = self.verts[index].qef_err;
 
-        if new_err <= min_err * 2.0 {
+        if new_err <= min_err * 1.01 {
             Some(c.into())
         } else {
             self.verts.resize(prev_len, CellVertex::default());
