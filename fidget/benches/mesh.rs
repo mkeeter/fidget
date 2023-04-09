@@ -2,10 +2,10 @@ use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
 
-const COLLONADE: &str = include_str!("../../models/colonnade.vm");
+const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 
 pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(COLLONADE.as_bytes()).unwrap();
+    let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
     let tape_jit = &ctx.get_tape::<fidget::jit::Eval>(root).unwrap();
     let tape_vm = &ctx.get_tape::<fidget::vm::Eval>(root).unwrap();
 
@@ -33,7 +33,7 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
 }
 
 pub fn colonnade_mesh(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(COLLONADE.as_bytes()).unwrap();
+    let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
     let tape_vm = &ctx.get_tape::<fidget::vm::Eval>(root).unwrap();
     let cfg = fidget::mesh::Settings {
         min_depth: 8,

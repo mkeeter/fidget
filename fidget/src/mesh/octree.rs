@@ -1213,6 +1213,7 @@ mod test {
                     assert!(!mesh.vertices.is_empty());
                     assert!(!mesh.triangles.is_empty());
                 }
+
                 if let Err(e) = check_for_vertex_dupes(&mesh) {
                     panic!("mask {i:08b} has {e}");
                 }
@@ -1268,6 +1269,29 @@ mod test {
                 Cell::Empty.into(),
                 "failed to collapse octree with {threads} threads"
             );
+        }
+    }
+
+    #[test]
+    fn test_colonnade_manifold() {
+        const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
+        let (ctx, root) =
+            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        let tape = ctx.get_tape::<crate::vm::Eval>(root).unwrap();
+        for threads in [0, 8] {
+            let settings = Settings {
+                min_depth: 5,
+                max_depth: 5,
+                threads,
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            if let Err(e) = check_for_vertex_dupes(&mesh) {
+                panic!("colonnade model has {e}");
+            }
+            if let Err(e) = check_for_edge_matching(&mesh) {
+                panic!("colonnade model has {e}");
+            }
         }
     }
 
