@@ -295,24 +295,79 @@ impl Octree {
     ) {
         match self.eval_cell(eval, data, storage, cell, settings) {
             CellResult::Done(c) => self.cells[cell.index] = c.into(),
-            CellResult::Recurse(eval) => {
+            CellResult::Recurse(sub_eval) => {
                 let index = self.cells.len();
                 for _ in Corner::iter() {
                     self.cells.push(Cell::Invalid.into());
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&eval, data, storage, cell, settings);
+                    self.recurse(&sub_eval, data, storage, cell, settings);
                 }
 
-                let (r, _min_err) = self.check_done(index).unwrap();
-                self.cells[cell.index] = r.into();
+                let (r, min_err) = self.check_done(index).unwrap();
+                self.cells[cell.index] = self
+                    .try_collapse(eval, data, storage, cell, min_err)
+                    .unwrap_or(r.into());
 
                 // Try to recycle tape storage
-                if let Ok(e) = Arc::try_unwrap(eval) {
+                if let Ok(e) = Arc::try_unwrap(sub_eval) {
                     storage.claim(e);
                 }
             }
+        }
+    }
+
+    /// Attempts to evaluate the given cell as a leaf
+    ///
+    /// If the resulting QEF error is less than `min_err * 2`, then records leaf
+    /// vertex information and returns a `Cell::Leaf`; otherwise, returns
+    /// `None`.
+    ///
+    /// As a special case, if `min_err == -1.0` (indicating that we shouldn't
+    /// even try), it will return `None` immediately.
+    fn try_collapse<I: Family>(
+        &mut self,
+        eval: &Arc<EvalGroup<I>>,
+        data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
+        cell: CellIndex,
+        min_err: f32,
+    ) -> Option<CellData> {
+        if min_err < 0.0 {
+            return None;
+        }
+
+        let prev_len = self.verts.len();
+        let c = self.leaf(eval, data, storage, cell);
+
+        // Empty / full cells should never be produced here.  The only way to
+        // get an empty / full cell is for all eight corners to be empty / full;
+        // if that was the case, then either:
+        //
+        // - The interior vertices match, in which case this should have been
+        //   collapsed into a single empty / full cell in `check_done`
+        // - The interior vertices *do not* match, in which case the cell should
+        //   not be marked as collapsible.
+        let Cell::Leaf(Leaf { mask, index }) = c else {
+            panic!("expected a leaf")
+        };
+
+        // More sanity checking
+        debug_assert!(mask != 0);
+        debug_assert!(mask != 255);
+
+        // The collapsed cell must have a single vertex, because cells with
+        // multiple vertices are not marked as collapsible.  This could change
+        // if we decide to allow multi-vertex cells to collapse; see the TODO in
+        // `collapsible`.
+        let new_err = self.verts[index].qef_err;
+
+        if new_err <= min_err * 2.0 && false {
+            Some(c.into())
+        } else {
+            self.verts.resize(prev_len, CellVertex::default());
+            None
         }
     }
 

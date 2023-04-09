@@ -121,6 +121,15 @@ pub struct CellVertex {
     pub qef_err: f32,
 }
 
+impl Default for CellVertex {
+    fn default() -> Self {
+        Self {
+            pos: nalgebra::Vector3::new(i32::MIN, i32::MIN, i32::MIN),
+            qef_err: std::f32::NAN,
+        }
+    }
+}
+
 impl CellVertex {
     /// Checks whether the vertex is contained within the cell
     pub fn valid(self) -> bool {
