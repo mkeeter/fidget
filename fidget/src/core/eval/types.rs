@@ -170,11 +170,23 @@ impl std::ops::Neg for Grad {
 ///
 /// # Warning
 /// This implementation does not set rounding modes, so it may not be _perfect_.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct Interval {
     lower: f32,
     upper: f32,
+}
+
+impl std::fmt::Debug for Interval {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        f.debug_tuple("")
+            .field(&self.lower)
+            .field(&self.upper)
+            .finish()
+    }
 }
 
 impl Interval {

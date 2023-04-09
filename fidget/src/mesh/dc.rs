@@ -420,31 +420,85 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         }
         let leafs = leafs.map(Option::unwrap);
 
-        // TODO: check for a sign change on this edge
+        // TODO: should we pick a canonically deepest leaf instead of the first
+        // among the four that's at the deepest depth?
+        let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
+
         let (t, u, v) = T::frame();
-        let sign_change_count = leafs
-            .iter()
-            .zip([u | v, v.into(), Corner::new(0), u.into()])
+
+        let index_to_corner: [Corner; 4] =
+            [u | v, v.into(), Corner::new(0), u.into()];
+
+        // Check that every max-depth leaf has a sign change on the relevant
+        // edge.
+        let edge_change_count = index_to_corner
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _c)| cs[*i].depth == cs[deepest].depth)
+            .map(|(i, c)| (leafs[i], c))
             .filter(|(leaf, c)| {
                 (leaf.mask & (1 << c.index()) == 0)
                     != (leaf.mask & (1 << (*c | t).index()) == 0)
             })
             .count();
-        if sign_change_count == 0 {
+
+        // If there are no changes along the relevant edge (in the deepest
+        // leafs), then there's nothing to do here.
+        if edge_change_count == 0 {
             return;
         }
-        debug_assert_eq!(sign_change_count, 4);
 
+        // Every deepest cell must have an edge change
+        debug_assert_eq!(
+            edge_change_count,
+            cs.iter().filter(|c| c.depth == cs[deepest].depth).count()
+        );
+
+        // This part is a little tricky: the deepest leaves may have multiple
+        // vertices, so we have to pick the correct one based on the table; any
+        // non-deepest leaf must only have a single vertex, because otherwise it
+        // wouldn't have been collapsed.
         #[allow(clippy::identity_op)]
-        let verts = [
+        let mut verts = [
             leafs[0].edge(Edge::new((t.index() * 4 + 3) as u8)),
             leafs[1].edge(Edge::new((t.index() * 4 + 2) as u8)),
             leafs[2].edge(Edge::new((t.index() * 4 + 0) as u8)),
             leafs[3].edge(Edge::new((t.index() * 4 + 1) as u8)),
         ];
 
+        // This part is a little tricky: when you have a large cell next to a
+        // pair of small one and the relevant edge is in between the two small
+        // cells, then the large cell doesn't have a single edge that
+        // corresponds to it.  Instead, one of the two available edges is
+        // correct, so we patch that here.
+        //
+        // Here's an example, operating on the edge beginning at O and pointing
+        // into the screen:
+        //
+        //      ____.____________
+        //      | 2 |/          |
+        //      ----O   1, 3    |
+        //      | 0 |/          |
+        //      ----o-----------|
+        //
+        //  The corners marked with o/O are inside the model; however, their
+        //  partners (on the axis going into the screen) are outside.  The
+        //  larger cell (labelled 1,3) has no equivalent to the edge beginning
+        //  at O, so instead we check the edges beginning at 'o' and '.', one of
+        //  which must contain a sign change.
+        for i in 0..4 {
+            if verts[i].is_none() {
+                for j in 0..4 {
+                    if leafs[i] == leafs[j] && verts[j].is_some() {
+                        verts[i] = verts[j];
+                    }
+                }
+            }
+        }
+
+        let verts = verts.map(Option::unwrap);
+
         // Pick the intersection vertex based on the deepest cell
-        let deepest = (0..4).max_by_key(|i| cs[*i].depth).unwrap();
         let i = out.vertex(
             leafs[deepest].index + verts[deepest].edge.0 as usize,
             cs[deepest],
@@ -461,13 +515,19 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         let vs = [vert(0), vert(1), vert(2), vert(3)];
 
         // Pick a triangle winding depending on the edge direction
-        let winding = if leafs[0].mask & (1 << (u | v).index()) == 0 {
+        //
+        // As always, we have to sample the deepest leaf's edge to be sure that
+        // we get the correct value.
+        let e = index_to_corner[deepest];
+        let winding = if leafs[deepest].mask & (1 << e.index()) == 0 {
             3
         } else {
             1
         };
         for j in 0..4 {
-            out.triangle(vs[j], vs[(j + winding) % 4], i)
+            if vs[j] != vs[(j + winding) % 4] {
+                out.triangle(vs[j], vs[(j + winding) % 4], i)
+            }
         }
     } else {
         let (t, u, v) = T::frame();

@@ -363,7 +363,7 @@ impl Octree {
         // `collapsible`.
         let new_err = self.verts[index].qef_err;
 
-        if new_err <= min_err * 2.0 && false {
+        if new_err <= min_err * 2.0 {
             Some(c.into())
         } else {
             self.verts.resize(prev_len, CellVertex::default());
@@ -834,8 +834,8 @@ impl Octree {
         // The outer cell must not be empty or full at this point; if it was
         // empty or full and the other conditions had been met, then it should
         // have been collapsed already.
-        assert_ne!(mask, 255);
-        assert_ne!(mask, 0);
+        debug_assert_ne!(mask, 255);
+        debug_assert_ne!(mask, 0);
 
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
@@ -1286,12 +1286,18 @@ mod test {
         let mut edges: BTreeMap<_, usize> = BTreeMap::new();
         for t in &mesh.triangles {
             for edge in [(t.x, t.y), (t.y, t.z), (t.z, t.x)] {
+                if t.x == t.y || t.y == t.z || t.x == t.z {
+                    return Err(format!("triangle with duplicate edges"));
+                }
                 *edges.entry(edge).or_default() += 1;
             }
         }
         for (&(a, b), &i) in &edges {
             if i != 1 {
-                return Err(format!("duplicate edge ({a}, {b})"));
+                return Err(format!(
+                    "duplicate edge ({a}, {b}) between {:?} {:?}",
+                    mesh.vertices[a], mesh.vertices[b]
+                ));
             }
             if !edges.contains_key(&(b, a)) {
                 return Err("unpaired edges".to_owned());
