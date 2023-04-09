@@ -191,6 +191,22 @@ impl Edge {
     pub fn index(&self) -> usize {
         self.0 as usize
     }
+
+    /// Returns a `(start, end)` tuple for the given edge
+    pub fn corners(&self) -> (Corner, Corner) {
+        use super::frame::{Frame, XYZ, YZX, ZXY};
+        let (t, u, v) = match self.0 / 4 {
+            0 => XYZ::frame(),
+            1 => YZX::frame(),
+            2 => ZXY::frame(),
+            _ => unreachable!("invalid edge index"),
+        };
+
+        let u = u * ((self.0 % 4) % 2 != 0);
+        let v = v * ((self.0 % 4) / 2 != 0);
+
+        (u | v, t | u | v)
+    }
 }
 
 /// Represents the relative offset of a vertex within `Octree::verts`
