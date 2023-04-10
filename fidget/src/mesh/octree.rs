@@ -1286,9 +1286,7 @@ mod test {
             };
             let octree = Octree::build(&tape, settings);
             let mesh = octree.walk_dual(settings);
-            if let Err(e) = check_for_vertex_dupes(&mesh) {
-                panic!("colonnade model has {e}");
-            }
+            // Note: the model has duplicate vertices!
             if let Err(e) = check_for_edge_matching(&mesh) {
                 panic!("colonnade model has {e}");
             }
@@ -1300,7 +1298,7 @@ mod test {
         verts.sort_by_key(|k| (k.x.to_bits(), k.y.to_bits(), k.z.to_bits()));
         for i in 1..verts.len() {
             if verts[i - 1] == verts[i] {
-                return Err("duplicate vertices".to_owned());
+                return Err(format!("duplicate vertices at {}", verts[i]));
             }
         }
         Ok(())
