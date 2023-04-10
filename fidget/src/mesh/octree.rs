@@ -27,7 +27,7 @@ pub struct EvalGroup<I: Family> {
 
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
     // indirection (since the evaluators also contain `Arc`); could we flatten
-    // them out?
+    // them out?  (same with `Tape`, which is an `Arc<Data>`)
     pub interval: OnceCell<IntervalEval<I>>,
     pub float_slice: OnceCell<FloatSliceEval<I>>,
     pub grad_slice: OnceCell<GradSliceEval<I>>,
@@ -64,7 +64,6 @@ impl<I: Family> EvalGroup<I> {
     }
     fn grad_slice(
         &self,
-
         s: &mut Vec<GradSliceEvalStorage<I>>,
     ) -> &GradSliceEval<I> {
         self.grad_slice.get_or_init(|| {
