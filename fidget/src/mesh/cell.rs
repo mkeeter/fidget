@@ -163,9 +163,7 @@ impl From<CellVertex> for nalgebra::Vector3<i32> {
 pub struct CellIndex {
     pub index: usize,
     pub depth: usize,
-    pub x: Interval,
-    pub y: Interval,
-    pub z: Interval,
+    pub bounds: CellBounds,
 }
 
 impl Default for CellIndex {
@@ -176,14 +174,9 @@ impl Default for CellIndex {
 
 impl CellIndex {
     pub fn new() -> Self {
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
         CellIndex {
             index: 0,
-            x,
-            y,
-            z,
+            bounds: CellBounds::default(),
             depth: 0,
         }
     }
@@ -207,6 +200,64 @@ impl CellIndex {
     /// The 8 octree cells are numbered equivalently, based on their corner
     /// vertex.
     pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
+        self.bounds.corner(i)
+    }
+
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner) -> Self {
+        let bounds = self.bounds.child(i);
+        CellIndex {
+            index: index + i.index(),
+            bounds,
+            depth: self.depth + 1,
+        }
+    }
+
+    /// Converts from a relative position in the cell to an absolute position
+    pub fn pos<P: Into<nalgebra::Vector3<i32>>>(
+        &self,
+        p: P,
+    ) -> nalgebra::Vector3<f32> {
+        self.bounds.pos(p)
+    }
+
+    /// Converts from an absolute position to a relative position in the cell
+    ///
+    /// The `bool` indicates whether the vertex was clamped into the cell's
+    /// bounding box.
+    pub fn relative(
+        &self,
+        p: nalgebra::Vector3<f32>,
+        qef_err: f32,
+    ) -> CellVertex {
+        let pos = self.bounds.relative(p);
+
+        CellVertex { pos, qef_err }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct CellBounds {
+    pub x: Interval,
+    pub y: Interval,
+    pub z: Interval,
+}
+
+impl Default for CellBounds {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CellBounds {
+    pub fn new() -> Self {
+        let x = Interval::new(-1.0, 1.0);
+        let y = Interval::new(-1.0, 1.0);
+        let z = Interval::new(-1.0, 1.0);
+        Self { x, y, z }
+    }
+
+    pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
         let x = if i & X {
             self.x.upper()
         } else {
@@ -225,8 +276,7 @@ impl CellIndex {
         (x, y, z)
     }
 
-    /// Returns a child cell for the given corner, rooted at the given index
-    pub fn child(&self, index: usize, i: Corner) -> Self {
+    pub fn child(&self, i: Corner) -> Self {
         let x = if i & X {
             Interval::new(self.x.midpoint(), self.x.upper())
         } else {
@@ -242,13 +292,7 @@ impl CellIndex {
         } else {
             Interval::new(self.z.lower(), self.z.midpoint())
         };
-        CellIndex {
-            index: index + i.index(),
-            x,
-            y,
-            z,
-            depth: self.depth + 1,
-        }
+        Self { x, y, z }
     }
 
     /// Converts from a relative position in the cell to an absolute position
@@ -270,20 +314,16 @@ impl CellIndex {
     pub fn relative(
         &self,
         p: nalgebra::Vector3<f32>,
-        qef_err: f32,
-    ) -> CellVertex {
+    ) -> nalgebra::Vector3<i32> {
         let x = (p.x - self.x.lower()) / self.x.width() * u16::MAX as f32;
         let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
         let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
 
-        CellVertex {
-            pos: nalgebra::Vector3::new(
-                x.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-                y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-                z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-            ),
-            qef_err,
-        }
+        nalgebra::Vector3::new(
+            x.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+            y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+            z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
+        )
     }
 }
 

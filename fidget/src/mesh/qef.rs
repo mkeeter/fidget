@@ -1,4 +1,4 @@
-use super::cell::{CellIndex, CellVertex};
+use super::cell::{CellBounds, CellVertex};
 
 /// Solver for a quadratic error function to position a vertex within a cell
 pub struct QuadraticErrorSolver {
@@ -46,7 +46,7 @@ impl QuadraticErrorSolver {
     ///
     /// Returns a vertex localized within the given cell, and adjusts the solver
     /// to increase the likelyhood that the vertex is bounded in the cell.
-    pub fn solve(&self, cell: CellIndex) -> CellVertex {
+    pub fn solve(&self, cell: CellBounds) -> CellVertex {
         // This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.
@@ -87,7 +87,10 @@ impl QuadraticErrorSolver {
             // If the matrix solution is in the cell, then we assume the
             // solution is good; we _also_ stop iterating if this is the
             // last possible chance.
-            let pos = cell.relative(pos, err);
+            let pos = CellVertex {
+                pos: cell.relative(pos),
+                qef_err: err,
+            };
             if i == EPSILONS.len() - 1 || pos.valid() {
                 return pos;
             }

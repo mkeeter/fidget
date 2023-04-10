@@ -14,9 +14,7 @@ use crate::eval::{
     float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
     grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
     interval::{IntervalEvalData, IntervalEvalStorage},
-    tape,
-    types::Interval,
-    Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
+    tape, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
 };
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
@@ -256,7 +254,13 @@ impl Octree {
     ) -> CellResult<I> {
         let (i, r) = eval
             .interval(&mut storage.interval_storage)
-            .eval_with(cell.x, cell.y, cell.z, &[], &mut data.interval_data)
+            .eval_with(
+                cell.bounds.x,
+                cell.bounds.y,
+                cell.bounds.z,
+                &[],
+                &mut data.interval_data,
+            )
             .unwrap();
         if i.upper() < 0.0 {
             CellResult::Done(Cell::Full)
@@ -566,7 +570,7 @@ impl Octree {
                 qef.add_intersection(pos, grad.xyz());
                 i += 1;
             }
-            verts.push(qef.solve(cell));
+            verts.push(qef.solve(cell.bounds));
         }
 
         let index = self.verts.len();
@@ -581,22 +585,10 @@ impl Octree {
 
     /// Recursively walks the dual of the octree, building a mesh
     pub fn walk_dual(&self, settings: Settings) -> Mesh {
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
         let mut mesh = MeshBuilder::default();
 
         if settings.threads == 0 {
-            mesh.cell(
-                self,
-                CellIndex {
-                    index: 0,
-                    x,
-                    y,
-                    z,
-                    depth: 0,
-                },
-            );
+            mesh.cell(self, CellIndex::default());
             mesh.take()
         } else {
             DcWorker::scheduler(self, settings.threads)
