@@ -8,6 +8,7 @@ mod gen;
 mod octree;
 mod output;
 mod pool;
+mod qef;
 mod worker;
 
 #[doc(hidden)]

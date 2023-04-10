@@ -5,6 +5,7 @@ use super::{
     cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
     gen::CELL_TO_VERT_TO_EDGES,
+    qef::QuadraticErrorSolver,
     types::{Axis, Corner},
     worker::Worker,
     Mesh, Settings,
@@ -561,72 +562,15 @@ impl Octree {
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
-            let mut ata = nalgebra::Matrix3::zeros();
-            let mut atb = nalgebra::Vector3::zeros();
-            let mut btb = 0.0;
-
-            let mut mass_point = nalgebra::Vector3::zeros();
+            let mut qef = QuadraticErrorSolver::new();
             for _ in 0..vs.len() {
                 let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
-                mass_point += pos;
-
-                let grad = grads[i];
-                let norm = nalgebra::Vector3::new(grad.dx, grad.dy, grad.dz)
-                    .normalize();
-
+                let grad: nalgebra::Vector4<f32> = grads[i].into();
                 // TODO: correct for non-zero distance value?
-
-                ata += norm * norm.transpose();
-                atb += norm * norm.dot(&pos);
-                btb += norm.dot(&pos).powi(2);
+                qef.add_intersection(pos, grad.xyz());
                 i += 1;
             }
-            // Minimize towards mass point of intersections, which requires
-            // substituting B' = B - Ac in the QEF equations.
-            let center = mass_point / vs.len() as f32;
-            btb += ((center.transpose() * ata - atb.transpose()) * center
-                - center.transpose() * atb)[0];
-            atb -= ata * center;
-
-            let svd = nalgebra::linalg::SVD::new(ata, true, true);
-            // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
-            // when using normalized gradients, but I've found that fails on
-            // things like the cone model.  Instead, we'll be a little more
-            // clever: we'll pick the smallest epsilon that keeps the feature in
-            // the cell without dramatically increasing QEF error.
-            //
-            // TODO: iterating by epsilons is a _little_ silly, because what we
-            // actually care about is turning off the 0/1/2/3 lowest eigenvalues
-            // in the solution matrix.
-            const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
-            let mut prev = None;
-            for (i, &epsilon) in EPSILONS.iter().enumerate() {
-                let sol = svd.solve(&atb, epsilon);
-                let pos = sol.map(|c| c + center).unwrap_or(center);
-                let err = (pos.transpose() * ata * pos
-                    - 2.0 * pos.transpose() * atb)[0]
-                    + btb;
-
-                // If this epsilon dramatically increases the error, then we'll
-                // assume that the previous (out-of-cell) vertex was genuine and
-                // use it.
-                if let Some((_, prev_pos)) =
-                    prev.filter(|(prev_err, _)| err > prev_err * 2.0)
-                {
-                    verts.push(prev_pos);
-                    break;
-                }
-
-                // If the matrix solution is in the cell, then we assume the
-                // solution is good; we _also_ stop iterating if this is the
-                // last possible chance.
-                let pos = cell.relative(pos, err);
-                if i == EPSILONS.len() - 1 || pos.valid() {
-                    verts.push(pos);
-                    break;
-                }
-                prev = Some((err, pos));
-            }
+            verts.push(qef.solve(cell));
         }
 
         let index = self.verts.len();

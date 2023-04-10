@@ -102,6 +102,12 @@ impl From<f32> for Grad {
     }
 }
 
+impl From<Grad> for nalgebra::Vector4<f32> {
+    fn from(g: Grad) -> Self {
+        nalgebra::Vector4::new(g.dx, g.dy, g.dz, g.v)
+    }
+}
+
 impl std::ops::Add<Grad> for Grad {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
