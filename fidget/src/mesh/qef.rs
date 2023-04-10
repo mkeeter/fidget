@@ -47,6 +47,9 @@ impl QuadraticErrorSolver {
     /// Returns a vertex localized within the given cell, and adjusts the solver
     /// to increase the likelyhood that the vertex is bounded in the cell.
     pub fn solve(&self, cell: CellIndex) -> CellVertex {
+        // This gets a little tricky; see
+        // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
+        // and references to primary sources.
         let center = self.mass_point.xyz() / self.mass_point.w as f32;
         let btb = self.btb
             + ((center.transpose() * self.ata - self.atb.transpose()) * center

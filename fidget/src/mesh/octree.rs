@@ -555,10 +555,6 @@ impl Octree {
             .eval_with(xs, ys, zs, &[], &mut data.grad_data)
             .unwrap();
 
-        // Now, we're going to solve a quadratic error function for every vertex
-        // to position it at the right place.  This gets a little tricky; see
-        // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF
-        // math and references to primary sources.
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
