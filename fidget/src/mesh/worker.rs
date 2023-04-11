@@ -2,7 +2,7 @@ use std::sync::{mpsc::TryRecvError, Arc};
 
 use super::{
     cell::{Cell, CellData, CellIndex},
-    octree::{CellResult, EvalData, EvalGroup, EvalStorage},
+    octree::{CellResult, EvalData, EvalGroup, EvalStorage, OctreeBuilder},
     pool::{QueuePool, ThreadContext, ThreadPool},
     types::Corner,
     Octree, Settings,
@@ -116,7 +116,7 @@ pub struct Worker<I: Family> {
     /// This octree may not be complete; worker 0 is guaranteed to contain the
     /// root, and other works may contain fragmentary branches that point to
     /// each other in a tree structure.
-    octree: Octree,
+    octree: OctreeBuilder,
 
     /// Incoming completed tasks from other threads
     done: std::sync::mpsc::Receiver<Done<I>>,
@@ -154,9 +154,9 @@ impl<I: Family> Worker<I> {
             .map(|(thread_index, (queue, done))| Worker {
                 thread_index,
                 octree: if thread_index == 0 {
-                    Octree::new()
+                    OctreeBuilder::new()
                 } else {
-                    Octree::empty()
+                    OctreeBuilder::empty()
                 },
                 queue,
                 done,
@@ -184,7 +184,7 @@ impl<I: Family> Worker<I> {
         };
         if let Some(c) = c {
             workers[0].octree.record(0, c.into());
-            workers.into_iter().next().unwrap().octree
+            workers.into_iter().next().unwrap().octree.into()
         } else {
             let pool = &ThreadPool::new(settings.threads as usize);
             let out: Vec<Octree> = std::thread::scope(|s| {
@@ -227,9 +227,9 @@ impl<I: Family> Worker<I> {
                 // here and return results.
 
                 // Prepare a set of 8x cells for storage
-                let index = self.octree.cells.len();
+                let index = self.octree.o.cells.len();
                 for _ in Corner::iter() {
-                    self.octree.cells.push(Cell::Invalid.into());
+                    self.octree.o.cells.push(Cell::Invalid.into());
                 }
 
                 for i in Corner::iter() {
@@ -291,7 +291,7 @@ impl<I: Family> Worker<I> {
         // At this point, the `done` queue should be flushed
         assert_eq!(self.done.try_recv().err(), Some(TryRecvError::Empty));
 
-        self.octree
+        self.octree.into()
     }
 
     /// Records the cell at the given index and recurses upwards

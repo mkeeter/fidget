@@ -1,6 +1,7 @@
 use super::cell::{CellBounds, CellVertex};
 
 /// Solver for a quadratic error function to position a vertex within a cell
+#[derive(Debug, Default)]
 pub struct QuadraticErrorSolver {
     /// A^T A term
     ata: nalgebra::Matrix3<f32>,

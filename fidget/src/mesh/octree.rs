@@ -17,7 +17,7 @@ use crate::eval::{
     tape, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
 };
 use once_cell::sync::OnceCell;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 /// Helper struct to contain a set of matched evaluators
 ///
@@ -125,7 +125,7 @@ impl<I: Family> Default for EvalStorage<I> {
 /// Octree storing occupancy and vertex positions for Manifold Dual Contouring
 #[derive(Debug)]
 pub struct Octree {
-    /// The top two bits determine cell types
+    /// The top two bits determine cell type
     pub(crate) cells: Vec<CellData>,
 
     /// Cell vertices, given as positions within the cell
@@ -138,41 +138,7 @@ pub struct Octree {
     pub(crate) verts: Vec<CellVertex>,
 }
 
-impl Default for Octree {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Octree {
-    /// Builds a new octree, which allocates data for 8 root cells
-    pub(crate) fn new() -> Self {
-        Self {
-            cells: vec![Cell::Invalid.into(); 8],
-            verts: vec![],
-        }
-    }
-
-    /// Builds a new empty octree
-    pub(crate) fn empty() -> Self {
-        Self {
-            cells: vec![],
-            verts: vec![],
-        }
-    }
-
-    /// Records the given cell into the provided index
-    ///
-    /// The index must be valid already; this does not modify the cells vector.
-    ///
-    /// # Panics
-    /// If the index exceeds the bounds of the cell vector, or the cell is
-    /// already populated.
-    pub(crate) fn record(&mut self, index: usize, cell: CellData) {
-        debug_assert_eq!(self.cells[index], Cell::Invalid.into());
-        self.cells[index] = cell;
-    }
-
     /// Merges a set of octrees constructed across multiple workers
     ///
     /// # Panics
@@ -221,10 +187,7 @@ impl Octree {
         let eval = Arc::new(EvalGroup::new(tape.clone()));
 
         if settings.threads == 0 {
-            let mut out = Self {
-                cells: vec![Cell::Invalid.into(); 8],
-                verts: vec![],
-            };
+            let mut out = OctreeBuilder::new();
             out.recurse(
                 &eval,
                 &mut EvalData::default(),
@@ -232,10 +195,140 @@ impl Octree {
                 CellIndex::default(),
                 settings,
             );
-            out
+            out.into()
         } else {
             Worker::scheduler(eval, settings)
         }
+    }
+
+    /// Recursively walks the dual of the octree, building a mesh
+    pub fn walk_dual(&self, settings: Settings) -> Mesh {
+        let mut mesh = MeshBuilder::default();
+
+        if settings.threads == 0 {
+            mesh.cell(self, CellIndex::default());
+            mesh.take()
+        } else {
+            DcWorker::scheduler(self, settings.threads)
+        }
+    }
+
+    pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
+        match self.cells[cell.index].into() {
+            Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
+            Cell::Branch { .. } => false,
+            Cell::Invalid => panic!(),
+        }
+    }
+
+    /// Looks up the given child of a cell.
+    ///
+    /// If the cell is a leaf node, returns that cell instead.
+    pub(crate) fn child<C: Into<Corner>>(
+        &self,
+        cell: CellIndex,
+        child: C,
+    ) -> CellIndex {
+        let child = child.into();
+
+        match self.cells[cell.index].into() {
+            Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
+            Cell::Branch { index, .. } => cell.child(index, child),
+            Cell::Invalid => panic!(),
+        }
+    }
+}
+
+/// Data structure for an under-construction octree
+#[derive(Debug)]
+pub(crate) struct OctreeBuilder {
+    /// Internal octree
+    ///
+    /// Note that in this internal octree, the `index` field of leaf nodes
+    /// points into `LeafData`, rather than into `verts` directly.  This is
+    /// necessary because each leaf represents _two_ indices: one into `verts`
+    /// and one (optional) index into `hermite`.
+    pub(crate) o: Octree,
+
+    /// Leaf data contains indexes into `verts` and `hermite`
+    leafs: Vec<LeafData>,
+
+    /// Hermite cell data for active leafs
+    ///
+    /// This should be kept small; we don't need to save it for leafs that are
+    /// no longer active (i.e. no longer in contention for merging)
+    hermite: Vec<LeafHermiteData>,
+}
+
+impl Default for OctreeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<OctreeBuilder> for Octree {
+    fn from(o: OctreeBuilder) -> Self {
+        // Convert from "leaf index into self.leafs" (in the builder) to
+        // "leaf index into self.verts" (in the resulting Octree)
+        let cells =
+            o.o.cells
+                .into_iter()
+                .map(|c| {
+                    if let Cell::Leaf(Leaf { mask, index }) = c.into() {
+                        Cell::Leaf(Leaf {
+                            mask,
+                            index: o.leafs[index].vert_index,
+                        })
+                        .into()
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+        Self {
+            cells,
+            verts: o.o.verts,
+        }
+    }
+}
+
+impl OctreeBuilder {
+    /// Builds a new octree, which allocates data for 8 root cells
+    pub(crate) fn new() -> Self {
+        Self {
+            o: Octree {
+                cells: vec![Cell::Invalid.into(); 8],
+                verts: vec![],
+            },
+            leafs: vec![],
+            hermite: vec![LeafHermiteData::default()],
+        }
+    }
+
+    /// Builds a new empty octree
+    ///
+    /// This still allocates data to reserve the lowest slot in `hermite`
+    pub(crate) fn empty() -> Self {
+        Self {
+            o: Octree {
+                cells: vec![],
+                verts: vec![],
+            },
+            leafs: vec![],
+            hermite: vec![LeafHermiteData::default()],
+        }
+    }
+
+    /// Records the given cell into the provided index
+    ///
+    /// The index must be valid already; this does not modify the cells vector.
+    ///
+    /// # Panics
+    /// If the index exceeds the bounds of the cell vector, or the cell is
+    /// already populated.
+    pub(crate) fn record(&mut self, index: usize, cell: CellData) {
+        debug_assert_eq!(self.o.cells[index], Cell::Invalid.into());
+        self.o.cells[index] = cell;
     }
 
     /// Evaluates a single cell in the octree
@@ -298,11 +391,11 @@ impl Octree {
         settings: Settings,
     ) {
         match self.eval_cell(eval, data, storage, cell, settings) {
-            CellResult::Done(c) => self.cells[cell.index] = c.into(),
+            CellResult::Done(c) => self.o.cells[cell.index] = c.into(),
             CellResult::Recurse(sub_eval) => {
-                let index = self.cells.len();
+                let index = self.o.cells.len();
                 for _ in Corner::iter() {
-                    self.cells.push(Cell::Invalid.into());
+                    self.o.cells.push(Cell::Invalid.into());
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
@@ -310,7 +403,7 @@ impl Octree {
                 }
 
                 let (r, min_err) = self.check_done(index).unwrap();
-                self.cells[cell.index] = self
+                self.o.cells[cell.index] = self
                     .try_collapse(eval, data, storage, cell, min_err)
                     .unwrap_or_else(|| r.into());
 
@@ -342,7 +435,7 @@ impl Octree {
             return None;
         }
 
-        let prev_len = self.verts.len();
+        let prev_len = self.o.verts.len();
         let c = self.leaf(eval, data, storage, cell);
 
         // Empty / full cells should never be produced here.  The only way to
@@ -365,12 +458,12 @@ impl Octree {
         // multiple vertices are not marked as collapsible.  This could change
         // if we decide to allow multi-vertex cells to collapse; see the TODO in
         // `collapsible`.
-        let new_err = self.verts[index].qef_err;
+        let new_err = self.o.verts[index].qef_err;
 
         if new_err <= min_err * 1.01 {
             Some(c.into())
         } else {
-            self.verts.resize(prev_len, CellVertex::default());
+            self.o.verts.resize(prev_len, CellVertex::default());
             None
         }
     }
@@ -560,63 +653,44 @@ impl Octree {
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
+        let mut hermite_cell = LeafHermiteData::new();
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut qef = QuadraticErrorSolver::new();
-            for _ in 0..vs.len() {
+            for e in vs.iter() {
                 let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
                 let grad: nalgebra::Vector4<f32> = grads[i].into();
+                let grad = grad.xyz();
+
                 // TODO: correct for non-zero distance value?
-                qef.add_intersection(pos, grad.xyz());
+                qef.add_intersection(pos, grad);
+
+                // Record this intersection in the Hermite data for the leaf
+                let edge_index = e.to_undirected().index() as usize;
+                hermite_cell.intersections[edge_index] =
+                    LeafIntersection { pos, grad };
+
                 i += 1;
             }
             verts.push(qef.solve(cell.bounds));
         }
 
-        let index = self.verts.len();
-        self.verts.extend(verts.into_iter());
-        self.verts
+        let vert_index = self.o.verts.len();
+        self.o.verts.extend(verts.into_iter());
+        self.o
+            .verts
             .extend(intersections.into_iter().map(|pos| CellVertex {
                 pos: pos.map(|i| i as i32),
                 qef_err: 0.0, // edge vertices don't have meaningful errors
             }));
-        Cell::Leaf(Leaf { mask, index })
-    }
-
-    /// Recursively walks the dual of the octree, building a mesh
-    pub fn walk_dual(&self, settings: Settings) -> Mesh {
-        let mut mesh = MeshBuilder::default();
-
-        if settings.threads == 0 {
-            mesh.cell(self, CellIndex::default());
-            mesh.take()
-        } else {
-            DcWorker::scheduler(self, settings.threads)
-        }
-    }
-
-    /// Looks up the given child of a cell.
-    ///
-    /// If the cell is a leaf node, returns that cell instead.
-    pub(crate) fn child<C: Into<Corner>>(
-        &self,
-        cell: CellIndex,
-        child: C,
-    ) -> CellIndex {
-        let child = child.into();
-
-        match self.cells[cell.index].into() {
-            Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
-            Cell::Branch { index, .. } => cell.child(index, child),
-            Cell::Invalid => panic!(),
-        }
-    }
-
-    pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
-        match self.cells[cell.index].into() {
-            Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
-            Cell::Branch { .. } => false,
-            Cell::Invalid => panic!(),
-        }
+        let leaf_index = self.leafs.len();
+        self.leafs.push(LeafData {
+            vert_index,
+            hermite_data: None,
+        });
+        Cell::Leaf(Leaf {
+            mask,
+            index: leaf_index,
+        })
     }
 
     /// Checks the set of 8 children starting at the given index for completion
@@ -634,7 +708,7 @@ impl Octree {
         let mut empty_count = 0;
         let mut min_err = std::f32::INFINITY;
         for i in 0..8 {
-            match self.cells[index + i].into() {
+            match self.o.cells[index + i].into() {
                 Cell::Invalid => {
                     return None;
                 }
@@ -645,7 +719,7 @@ impl Octree {
                     // We'll only collapse cells that contain a single vertex,
                     // so we don't need to iterate over multiple vertices in the
                     // cell here.
-                    min_err = min_err.min(self.verts[index].qef_err);
+                    min_err = min_err.min(self.o.verts[index].qef_err);
                 }
             }
         }
@@ -670,10 +744,10 @@ impl Octree {
         // octree; otherwise, we'll satisfy ourselves with setting them to
         // invalid.
         if matches!(r, Cell::Empty | Cell::Full) {
-            if index == self.cells.len() - 8 {
-                self.cells.resize(index, Cell::Invalid.into());
+            if index == self.o.cells.len() - 8 {
+                self.o.cells.resize(index, Cell::Invalid.into());
             } else {
-                self.cells[index..index + 8].fill(Cell::Invalid.into())
+                self.o.cells[index..index + 8].fill(Cell::Invalid.into())
             }
         }
         Some((r, min_err))
@@ -693,7 +767,7 @@ impl Octree {
         // Unpack cells into a friendlier data type
         let cells = {
             let mut cells = [Cell::Invalid; 8];
-            for (&c, o) in self.cells[root..root + 8].iter().zip(&mut cells) {
+            for (&c, o) in self.o.cells[root..root + 8].iter().zip(&mut cells) {
                 *o = c.into();
             }
             cells
@@ -778,6 +852,43 @@ impl Octree {
 pub enum CellResult<I: Family> {
     Done(Cell),
     Recurse(Arc<EvalGroup<I>>),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Copy, Clone, Debug)]
+struct LeafData {
+    /// Starting index of vertices within `Octree::verts`
+    ///
+    /// The total vertex count depends on the leaf mask
+    vert_index: usize,
+
+    /// Index of hermite data, if this leaf is still active
+    hermite_data: Option<NonZeroUsize>,
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+struct LeafIntersection {
+    pos: nalgebra::Vector3<f32>,
+    grad: nalgebra::Vector3<f32>,
+}
+
+#[derive(Default, Debug)]
+struct LeafHermiteData {
+    intersections: [LeafIntersection; 12],
+    face_qefs: [QuadraticErrorSolver; 6],
+    center_qef: QuadraticErrorSolver,
+    qef_err: f32,
+}
+
+impl LeafHermiteData {
+    fn new() -> Self {
+        Self::default()
+    }
+    /// Merges an octree subdivision of leaf hermite data
+    fn merge(leafs: [LeafHermiteData; 8]) -> Self {
+        todo!()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1159,26 +1270,36 @@ mod test {
     fn test_collapsible() {
         let ctx = BoundContext::new();
 
+        fn builder(shape: BoundNode, settings: Settings) -> OctreeBuilder {
+            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+            let eval = Arc::new(EvalGroup::new(tape.clone()));
+            let mut out = OctreeBuilder::new();
+            out.recurse(
+                &eval,
+                &mut EvalData::default(),
+                &mut EvalStorage::default(),
+                CellIndex::default(),
+                settings,
+            );
+            out
+        }
+
         let shape = sphere(&ctx, [0.0; 3], 0.1);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
         let shape = sphere(&ctx, [-1.0; 3], 0.1);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(octree.collapsible(8));
 
         let shape = sphere(&ctx, [-1.0, 0.0, 1.0], 0.1);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
         let a = sphere(&ctx, [-1.0; 3], 0.1);
         let b = sphere(&ctx, [1.0; 3], 0.1);
         let shape = a.min(b);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
     }
 

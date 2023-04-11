@@ -220,20 +220,6 @@ impl CellIndex {
     ) -> nalgebra::Vector3<f32> {
         self.bounds.pos(p)
     }
-
-    /// Converts from an absolute position to a relative position in the cell
-    ///
-    /// The `bool` indicates whether the vertex was clamped into the cell's
-    /// bounding box.
-    pub fn relative(
-        &self,
-        p: nalgebra::Vector3<f32>,
-        qef_err: f32,
-    ) -> CellVertex {
-        let pos = self.bounds.relative(p);
-
-        CellVertex { pos, qef_err }
-    }
 }
 
 #[derive(Copy, Clone, Debug)]
