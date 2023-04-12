@@ -118,16 +118,12 @@ pub struct CellVertex {
     /// The lower `u16` represents the cell's bounding box; higher bits are for
     /// vertices that exceed the bounding box.
     pub pos: nalgebra::Vector3<i32>,
-
-    /// Maximum error when solving the QEF for this vertex
-    pub qef_err: f32,
 }
 
 impl Default for CellVertex {
     fn default() -> Self {
         Self {
             pos: nalgebra::Vector3::new(i32::MIN, i32::MIN, i32::MIN),
-            qef_err: std::f32::NAN,
         }
     }
 }

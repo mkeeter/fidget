@@ -1,7 +1,7 @@
 use super::cell::{CellBounds, CellVertex};
 
 /// Solver for a quadratic error function to position a vertex within a cell
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct QuadraticErrorSolver {
     /// A^T A term
     ata: nalgebra::Matrix3<f32>,
@@ -14,6 +14,15 @@ pub struct QuadraticErrorSolver {
 
     /// Mass point of intersections is stored as XYZ / W, so that summing works
     mass_point: nalgebra::Vector4<f32>,
+}
+
+impl std::ops::AddAssign for QuadraticErrorSolver {
+    fn add_assign(&mut self, rhs: Self) {
+        self.ata += rhs.ata;
+        self.atb += rhs.atb;
+        self.btb += rhs.btb;
+        self.mass_point += rhs.mass_point;
+    }
 }
 
 impl QuadraticErrorSolver {
@@ -47,7 +56,9 @@ impl QuadraticErrorSolver {
     ///
     /// Returns a vertex localized within the given cell, and adjusts the solver
     /// to increase the likelyhood that the vertex is bounded in the cell.
-    pub fn solve(&self, cell: CellBounds) -> CellVertex {
+    ///
+    /// Also returns the QEF error as the second item in the tuple
+    pub fn solve(&self, cell: CellBounds) -> (CellVertex, f32) {
         // This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.
@@ -79,10 +90,8 @@ impl QuadraticErrorSolver {
             // If this epsilon dramatically increases the error, then we'll
             // assume that the previous (out-of-cell) vertex was genuine and
             // use it.
-            if let Some((_, prev_pos)) =
-                prev.filter(|(prev_err, _)| err > prev_err * 2.0)
-            {
-                return prev_pos;
+            if let Some(p) = prev.filter(|(_, prev_err)| err > prev_err * 2.0) {
+                return p;
             }
 
             // If the matrix solution is in the cell, then we assume the
@@ -90,12 +99,11 @@ impl QuadraticErrorSolver {
             // last possible chance.
             let pos = CellVertex {
                 pos: cell.relative(pos),
-                qef_err: err,
             };
             if i == EPSILONS.len() - 1 || pos.valid() {
-                return pos;
+                return (pos, err);
             }
-            prev = Some((err, pos));
+            prev = Some((pos, err));
         }
         unreachable!();
     }

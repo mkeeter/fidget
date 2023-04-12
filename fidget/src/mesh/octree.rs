@@ -402,9 +402,9 @@ impl OctreeBuilder {
                     self.recurse(&sub_eval, data, storage, cell, settings);
                 }
 
-                let (r, min_err) = self.check_done(index).unwrap();
+                let (r, hermite) = self.check_done(index).unwrap();
                 self.o.cells[cell.index] = self
-                    .try_collapse(eval, data, storage, cell, min_err)
+                    .try_collapse(eval, data, storage, cell, hermite)
                     .unwrap_or_else(|| r.into());
 
                 // Try to recycle tape storage
@@ -429,9 +429,9 @@ impl OctreeBuilder {
         data: &mut EvalData<I>,
         storage: &mut EvalStorage<I>,
         cell: CellIndex,
-        min_err: f32,
+        hermite: LeafHermiteData,
     ) -> Option<CellData> {
-        if min_err < 0.0 {
+        if hermite.qef_err < 0.0 {
             return None;
         }
 
@@ -458,12 +458,21 @@ impl OctreeBuilder {
         // multiple vertices are not marked as collapsible.  This could change
         // if we decide to allow multi-vertex cells to collapse; see the TODO in
         // `collapsible`.
-        let new_err = self.o.verts[index].qef_err;
+        let hermite_index = self.leafs[index].hermite_index.unwrap().get();
+        let new_err = self.hermite[hermite_index].qef_err;
 
-        if new_err <= min_err * 1.01 {
+        if new_err <= hermite.qef_err * 2.0 {
             Some(c.into())
         } else {
+            // Discard all of the new vertices, which were at the end of the
+            // list.  TODO: is this always just a single pop?
             self.o.verts.resize(prev_len, CellVertex::default());
+
+            // The new leaf was placed at the end of the hermite data stack, so
+            // we can pop it here.
+            debug_assert_eq!(hermite_index, self.hermite.len());
+            self.hermite.pop();
+
             None
         }
     }
@@ -671,7 +680,13 @@ impl OctreeBuilder {
 
                 i += 1;
             }
-            verts.push(qef.solve(cell.bounds));
+            let (pos, err) = qef.solve(cell.bounds);
+            verts.push(pos);
+
+            // We overwrite the error here, because it's only used when
+            // collapsing cells, which only occurs if there's a single vertex;
+            // last-error-wins works fine in that case.
+            hermite_cell.qef_err = err;
         }
 
         let vert_index = self.o.verts.len();
@@ -680,13 +695,17 @@ impl OctreeBuilder {
             .verts
             .extend(intersections.into_iter().map(|pos| CellVertex {
                 pos: pos.map(|i| i as i32),
-                qef_err: 0.0, // edge vertices don't have meaningful errors
             }));
+
+        let hermite_index = self.hermite.len();
+        self.hermite.push(hermite_cell);
+        debug_assert!(hermite_index > 0);
+
         let leaf_index = self.leafs.len();
-        self.leafs.push(LeafData {
+        self.leafs.push(LeafData::new(
             vert_index,
-            hermite_data: None,
-        });
+            NonZeroUsize::new(hermite_index).unwrap(),
+        ));
         Cell::Leaf(Leaf {
             mask,
             index: leaf_index,
@@ -700,13 +719,18 @@ impl OctreeBuilder {
     /// pro-actively collapses the cells (freeing them if they're at the tail
     /// end of the array).
     ///
-    /// Returns a tuple of `(parent cell data, min QEF error)`; the latter can
+    /// Returns a tuple of `(parent cell data, merged QEF)`; the latter can
     /// be used for collapsing.
-    pub(crate) fn check_done(&mut self, index: usize) -> Option<(Cell, f32)> {
+    pub(crate) fn check_done(
+        &mut self,
+        index: usize,
+    ) -> Option<(Cell, LeafHermiteData)> {
         assert_eq!(index % 8, 0);
         let mut full_count = 0;
         let mut empty_count = 0;
-        let mut min_err = std::f32::INFINITY;
+        let mut hermite_data = [LeafHermiteData::default(); 8];
+        let mut hermite_indices = [None; 8];
+        let mut collapsible = true;
         for i in 0..8 {
             match self.o.cells[index + i].into() {
                 Cell::Invalid => {
@@ -714,14 +738,27 @@ impl OctreeBuilder {
                 }
                 Cell::Full => full_count += 1,
                 Cell::Empty => empty_count += 1,
-                Cell::Branch { .. } => min_err = -1.0,
+                Cell::Branch { .. } => collapsible = false,
                 Cell::Leaf(Leaf { index, .. }) => {
-                    // We'll only collapse cells that contain a single vertex,
-                    // so we don't need to iterate over multiple vertices in the
-                    // cell here.
-                    min_err = min_err.min(self.o.verts[index].qef_err);
+                    let j =
+                        self.leafs[index].hermite_index.take().unwrap().get();
+                    hermite_indices[i] = Some(j);
+                    hermite_data[i] = self.hermite[j];
                 }
             }
+        }
+
+        // At this point, if our hermite indices are contiguous and at the end
+        // of the hermite data array, we can shrink it down to reduce allocation
+        // churn.
+        hermite_indices.sort();
+        hermite_indices.reverse();
+        let mut hermite_indices = hermite_indices.as_slice();
+        while let Some((Some(h), rest)) = hermite_indices.split_first() {
+            if *h == self.hermite.len() - 1 {
+                self.hermite.pop();
+            }
+            hermite_indices = rest;
         }
 
         let r = if full_count == 8 {
@@ -733,7 +770,7 @@ impl OctreeBuilder {
         };
 
         if matches!(r, Cell::Empty | Cell::Full) || !self.collapsible(index) {
-            min_err = -1.0;
+            collapsible = false;
         }
 
         // If all of the branches are empty or full, then we're going to
@@ -750,7 +787,15 @@ impl OctreeBuilder {
                 self.o.cells[index..index + 8].fill(Cell::Invalid.into())
             }
         }
-        Some((r, min_err))
+        let hermite = if collapsible {
+            LeafHermiteData::merge(hermite_data)
+        } else {
+            LeafHermiteData {
+                qef_err: -1.0,
+                ..LeafHermiteData::default()
+            }
+        };
+        Some((r, hermite))
     }
 
     /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
@@ -864,7 +909,21 @@ struct LeafData {
     vert_index: usize,
 
     /// Index of hermite data, if this leaf is still active
-    hermite_data: Option<NonZeroUsize>,
+    hermite_index: Option<NonZeroUsize>,
+}
+
+impl LeafData {
+    /// Builds a new leaf data object
+    ///
+    /// When a leaf is first created, it **must** have hermite data associated
+    /// with it; the hermite data may be deleted later in
+    /// [`OctreeBuilder::check_done`].
+    fn new(vert_index: usize, hermite_index: NonZeroUsize) -> Self {
+        Self {
+            vert_index,
+            hermite_index: Some(hermite_index),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -873,8 +932,16 @@ struct LeafIntersection {
     grad: nalgebra::Vector3<f32>,
 }
 
-#[derive(Default, Debug)]
-struct LeafHermiteData {
+impl From<LeafIntersection> for QuadraticErrorSolver {
+    fn from(i: LeafIntersection) -> Self {
+        let mut qef = QuadraticErrorSolver::default();
+        qef.add_intersection(i.pos, i.grad);
+        qef
+    }
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+pub(crate) struct LeafHermiteData {
     intersections: [LeafIntersection; 12],
     face_qefs: [QuadraticErrorSolver; 6],
     center_qef: QuadraticErrorSolver,
@@ -887,6 +954,66 @@ impl LeafHermiteData {
     }
     /// Merges an octree subdivision of leaf hermite data
     fn merge(leafs: [LeafHermiteData; 8]) -> Self {
+        let mut out = Self::default();
+        use super::types::{Edge, X, Y, Z};
+        for t in [X, Y, Z] {
+            let u = t.next();
+            let v = u.next();
+            for edge in 0..4 {
+                let mut start = Corner::new(0);
+                if edge & 1 != 0 {
+                    start = start | u;
+                }
+                if edge & 2 != 0 {
+                    start = start | v;
+                }
+                let end = start | t;
+
+                // Canonical edge as a value in the 0-12 range
+                let edge = Edge::new((t.index() * 4 + edge) as u8);
+
+                // One or the other leaf has an intersection
+                let a = leafs[start.index()].intersections[edge.index()];
+                let b = leafs[end.index()].intersections[edge.index()];
+                if a.grad == nalgebra::Vector3::zeros() {
+                    out.intersections[edge.index()] = b;
+                } else {
+                    out.intersections[edge.index()] = a;
+                }
+            }
+        }
+
+        for t in [X, Y, Z] {
+            let u = t.next();
+            let v = t.next();
+            for face in 0..2 {
+                let a = if face == 1 { t.into() } else { Corner::new(0) };
+                let b = a | u;
+                let c = a | v;
+                let d = a | u | v;
+                let face = t.index() * 2 + face;
+                for q in [a, b, c, d] {
+                    out.face_qefs[face] += leafs[q.index()].face_qefs[face];
+                }
+                // Edges oriented along the v axis
+                let edge_index_v = v.index() * 4 + face * 2 + 1;
+                out.face_qefs[face] +=
+                    leafs[a.index()].intersections[edge_index_v].into();
+                out.face_qefs[face] +=
+                    leafs[b.index()].intersections[edge_index_v].into();
+
+                // Edges oriented along the u axis
+                let edge_index_u = v.index() * 4 + face * 2 + 1;
+                out.face_qefs[face] +=
+                    leafs[a.index()].intersections[edge_index_u].into();
+                out.face_qefs[face] +=
+                    leafs[c.index()].intersections[edge_index_u].into();
+            }
+        }
+
+        for leaf in leafs {
+            out.center_qef += leaf.center_qef;
+        }
         todo!()
     }
 }

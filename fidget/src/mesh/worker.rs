@@ -2,7 +2,10 @@ use std::sync::{mpsc::TryRecvError, Arc};
 
 use super::{
     cell::{Cell, CellData, CellIndex},
-    octree::{CellResult, EvalData, EvalGroup, EvalStorage, OctreeBuilder},
+    octree::{
+        CellResult, EvalData, EvalGroup, EvalStorage, LeafHermiteData,
+        OctreeBuilder,
+    },
     pool::{QueuePool, ThreadContext, ThreadPool},
     types::Corner,
     Octree, Settings,
@@ -101,7 +104,7 @@ struct Done<I: Family> {
     ///
     /// This is -1.0 if the parent _should not_ try to collapse the cell and
     /// `>= 0.0` otherwise.
-    min_err: f32,
+    hermite_data: LeafHermiteData,
 }
 
 pub struct Worker<I: Family> {
@@ -310,7 +313,7 @@ impl<I: Family> Worker<I> {
         self.octree.record(index, cell);
 
         // Check to see whether this is the last cell in the cluster of 8
-        let Some((mut r, min_err)) = self.octree.check_done(index & !7) else {
+        let Some((mut r, hermite)) = self.octree.check_done(index & !7) else {
             return
         };
         // Patch up the thread index, which the Octree function doesn't know
@@ -332,7 +335,7 @@ impl<I: Family> Worker<I> {
                 .send(Done {
                     task: Task { data: task.clone() },
                     child: r.into(),
-                    min_err,
+                    hermite_data: hermite,
                 })
                 .unwrap();
             ctx.wake_one(task.source);
