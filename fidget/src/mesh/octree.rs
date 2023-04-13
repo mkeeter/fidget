@@ -956,6 +956,8 @@ impl LeafHermiteData {
     fn merge(leafs: [LeafHermiteData; 8]) -> Self {
         let mut out = Self::default();
         use super::types::{Edge, X, Y, Z};
+
+        // Accumulate intersections along edges
         for t in [X, Y, Z] {
             let u = t.next();
             let v = u.next();
@@ -983,6 +985,7 @@ impl LeafHermiteData {
             }
         }
 
+        // Accumulate face QEFs along edges
         for t in [X, Y, Z] {
             let u = t.next();
             let v = t.next();
@@ -991,18 +994,18 @@ impl LeafHermiteData {
                 let b = a | u;
                 let c = a | v;
                 let d = a | u | v;
-                let face = t.index() * 2 + face;
+                let face = t.index() * 3 + face;
                 for q in [a, b, c, d] {
                     out.face_qefs[face] += leafs[q.index()].face_qefs[face];
                 }
-                // Edges oriented along the v axis
+                // Edges oriented along the v axis on this face
                 let edge_index_v = v.index() * 4 + face * 2 + 1;
                 out.face_qefs[face] +=
                     leafs[a.index()].intersections[edge_index_v].into();
                 out.face_qefs[face] +=
                     leafs[b.index()].intersections[edge_index_v].into();
 
-                // Edges oriented along the u axis
+                // Edges oriented along the u axis on this face
                 let edge_index_u = v.index() * 4 + face * 2 + 1;
                 out.face_qefs[face] +=
                     leafs[a.index()].intersections[edge_index_u].into();
@@ -1011,10 +1014,34 @@ impl LeafHermiteData {
             }
         }
 
+        // Accumulate center QEFs
+        for t in [X, Y, Z] {
+            let u = t.next();
+            let v = t.next();
+
+            // Accumulate the four inner face QEFs
+            let a = Corner::new(0);
+            let b = a | u;
+            let c = a | v;
+            let d = a | u | v;
+            for q in [a, b, c, d] {
+                out.center_qef += leafs[q.index()].face_qefs[t.index() * 3 + 1];
+            }
+
+            // Edges oriented along the u axis
+            out.center_qef +=
+                leafs[a.index()].intersections[u.index() * 4 + 3].into();
+            out.center_qef +=
+                leafs[b.index()].intersections[u.index() * 4 + 3].into();
+
+            // We skip edges oriented on the v axis, because they'll be counted
+            // by one of the other iterations through the loop
+        }
+
         for leaf in leafs {
             out.center_qef += leaf.center_qef;
         }
-        todo!()
+        out
     }
 }
 
