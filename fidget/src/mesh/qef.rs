@@ -35,6 +35,10 @@ impl QuadraticErrorSolver {
         }
     }
 
+    pub fn mass_point(&self) -> nalgebra::Vector4<f32> {
+        self.mass_point
+    }
+
     /// Adds a new intersection to the QEF
     ///
     /// `pos` is the position of the intersection and is accumulated in the mass
@@ -43,10 +47,11 @@ impl QuadraticErrorSolver {
     pub fn add_intersection(
         &mut self,
         pos: nalgebra::Vector3<f32>,
-        grad: nalgebra::Vector3<f32>,
+        grad: nalgebra::Vector4<f32>,
     ) {
+        // TODO: correct for non-zero distance value in grad.w
         self.mass_point += nalgebra::Vector4::new(pos.x, pos.y, pos.z, 1.0);
-        let norm = grad.normalize();
+        let norm = grad.xyz().normalize();
         self.ata += norm * norm.transpose();
         self.atb += norm * norm.dot(&pos);
         self.btb += norm.dot(&pos).powi(2);

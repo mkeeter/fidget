@@ -668,15 +668,15 @@ impl OctreeBuilder {
             for e in vs.iter() {
                 let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
                 let grad: nalgebra::Vector4<f32> = grads[i].into();
-                let grad = grad.xyz();
 
-                // TODO: correct for non-zero distance value?
                 qef.add_intersection(pos, grad);
 
                 // Record this intersection in the Hermite data for the leaf
                 let edge_index = e.to_undirected().index() as usize;
-                hermite_cell.intersections[edge_index] =
-                    LeafIntersection { pos, grad };
+                hermite_cell.intersections[edge_index] = LeafIntersection {
+                    pos: nalgebra::Vector4::new(pos.x, pos.y, pos.z, 1.0),
+                    grad,
+                };
 
                 i += 1;
             }
@@ -928,14 +928,18 @@ impl LeafData {
 
 #[derive(Copy, Clone, Default, Debug)]
 struct LeafIntersection {
-    pos: nalgebra::Vector3<f32>,
-    grad: nalgebra::Vector3<f32>,
+    /// Intersection position is xyz; w is 1 if the intersection is present
+    pos: nalgebra::Vector4<f32>,
+    /// Gradient is xyz; w is the distance field value at this point
+    grad: nalgebra::Vector4<f32>,
 }
 
 impl From<LeafIntersection> for QuadraticErrorSolver {
     fn from(i: LeafIntersection) -> Self {
         let mut qef = QuadraticErrorSolver::default();
-        qef.add_intersection(i.pos, i.grad);
+        if i.pos.w != 0.0 {
+            qef.add_intersection(i.pos.xyz(), i.grad);
+        }
         qef
     }
 }
@@ -994,22 +998,22 @@ impl LeafHermiteData {
                 let b = a | u;
                 let c = a | v;
                 let d = a | u | v;
-                let face = t.index() * 3 + face;
+                let f = t.index() * 2 + face;
                 for q in [a, b, c, d] {
-                    out.face_qefs[face] += leafs[q.index()].face_qefs[face];
+                    out.face_qefs[f] += leafs[q.index()].face_qefs[f];
                 }
                 // Edges oriented along the v axis on this face
                 let edge_index_v = v.index() * 4 + face * 2 + 1;
-                out.face_qefs[face] +=
+                out.face_qefs[f] +=
                     leafs[a.index()].intersections[edge_index_v].into();
-                out.face_qefs[face] +=
+                out.face_qefs[f] +=
                     leafs[b.index()].intersections[edge_index_v].into();
 
                 // Edges oriented along the u axis on this face
                 let edge_index_u = v.index() * 4 + face * 2 + 1;
-                out.face_qefs[face] +=
+                out.face_qefs[f] +=
                     leafs[a.index()].intersections[edge_index_u].into();
-                out.face_qefs[face] +=
+                out.face_qefs[f] +=
                     leafs[c.index()].intersections[edge_index_u].into();
             }
         }
@@ -1025,7 +1029,7 @@ impl LeafHermiteData {
             let c = a | v;
             let d = a | u | v;
             for q in [a, b, c, d] {
-                out.center_qef += leafs[q.index()].face_qefs[t.index() * 3 + 1];
+                out.center_qef += leafs[q.index()].face_qefs[t.index() * 2 + 1];
             }
 
             // Edges oriented along the u axis
@@ -1037,10 +1041,10 @@ impl LeafHermiteData {
             // We skip edges oriented on the v axis, because they'll be counted
             // by one of the other iterations through the loop
         }
-
         for leaf in leafs {
             out.center_qef += leaf.center_qef;
         }
+
         out
     }
 }
@@ -1426,7 +1430,7 @@ mod test {
 
         fn builder(shape: BoundNode, settings: Settings) -> OctreeBuilder {
             let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-            let eval = Arc::new(EvalGroup::new(tape.clone()));
+            let eval = Arc::new(EvalGroup::new(tape));
             let mut out = OctreeBuilder::new();
             out.recurse(
                 &eval,
@@ -1515,7 +1519,7 @@ mod test {
         for t in &mesh.triangles {
             for edge in [(t.x, t.y), (t.y, t.z), (t.z, t.x)] {
                 if t.x == t.y || t.y == t.z || t.x == t.z {
-                    return Err(format!("triangle with duplicate edges"));
+                    return Err("triangle with duplicate edges".to_string());
                 }
                 *edges.entry(edge).or_default() += 1;
             }
@@ -1532,5 +1536,36 @@ mod test {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_qef_merging() {
+        let mut hermite = LeafHermiteData::new();
+
+        // Add a dummy intersection with a non-zero normal; we'll be counting
+        // mass points to check that the merging went smoothly
+        let grad = nalgebra::Vector4::new(1.0, 0.0, 0.0, 0.0);
+        let pos = nalgebra::Vector4::new(0.0, 0.0, 0.0, 1.0);
+        hermite.intersections.fill(LeafIntersection { pos, grad });
+        let merged = LeafHermiteData::merge([hermite; 8]);
+        for i in merged.intersections {
+            assert_eq!(i.grad, grad);
+            assert_eq!(i.pos, pos);
+        }
+        // Each face in the merged cell should include the accumulation of four
+        // edges from lower cells (but nothing more, because lower cells didn't
+        // have face QEFs populated)
+        for (i, f) in merged.face_qefs.iter().enumerate() {
+            assert_eq!(
+                f.mass_point().w,
+                4.0,
+                "bad accumulated QEF on face {i}"
+            );
+        }
+        assert_eq!(
+            merged.center_qef.mass_point().w,
+            6.0,
+            "bad accumulated QEF in center"
+        );
     }
 }
