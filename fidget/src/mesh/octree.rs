@@ -2,7 +2,7 @@
 
 use super::{
     builder::MeshBuilder,
-    cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
+    cell::{Cell, CellBounds, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
@@ -257,6 +257,9 @@ pub(crate) struct OctreeBuilder {
     ///
     /// This should be kept small; we don't need to save it for leafs that are
     /// no longer active (i.e. no longer in contention for merging)
+    ///
+    /// Slot 0 is reserved and should always be populated with a dummy value, so
+    /// that we can use an `Option<NonZeroUsize>` elsewhere.
     hermite: Vec<LeafHermiteData>,
 }
 
@@ -435,7 +438,23 @@ impl OctreeBuilder {
             return None;
         }
 
+        let (pos, new_err) = hermite.solve(cell.bounds);
+
+        // If solving the combined QEF has dramatically increased the error,
+        // then bail out here.
+        if new_err >= hermite.qef_err * 2.0 {
+            return None;
+        }
+
+        let vert_index = self.o.verts.len();
+        self.o.verts.push(pos);
+        // TODO: track the mask in the LeafHermiteData
+
+        todo!()
+
+        /*
         let prev_len = self.o.verts.len();
+        // XXX NOPE NOPE NOPE SOLVE THE QEF INSTEAD
         let c = self.leaf(eval, data, storage, cell);
 
         // Empty / full cells should never be produced here.  The only way to
@@ -475,6 +494,7 @@ impl OctreeBuilder {
 
             None
         }
+        */
     }
 
     /// Evaluates the given leaf
@@ -663,6 +683,7 @@ impl OctreeBuilder {
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         let mut hermite_cell = LeafHermiteData::new();
+        hermite_cell.mask = mask;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
@@ -720,7 +741,10 @@ impl OctreeBuilder {
     /// end of the array).
     ///
     /// Returns a tuple of `(parent cell data, merged QEF)`; the latter can
-    /// be used for collapsing.
+    /// be used for collapsing.  The [`LeafHermiteData::qef_err`] field
+    /// represents the **minimum** QEF error among child QEFs; after solving the
+    /// combined QEF, the error can be checked against this value to compare
+    /// performance.
     pub(crate) fn check_done(
         &mut self,
         index: usize,
@@ -944,12 +968,25 @@ impl From<LeafIntersection> for QuadraticErrorSolver {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub(crate) struct LeafHermiteData {
     intersections: [LeafIntersection; 12],
     face_qefs: [QuadraticErrorSolver; 6],
     center_qef: QuadraticErrorSolver,
     qef_err: f32,
+    mask: u8,
+}
+
+impl Default for LeafHermiteData {
+    fn default() -> Self {
+        Self {
+            intersections: Default::default(),
+            face_qefs: Default::default(),
+            center_qef: Default::default(),
+            qef_err: -1.0,
+            mask: 0,
+        }
+    }
 }
 
 impl LeafHermiteData {
@@ -1045,7 +1082,30 @@ impl LeafHermiteData {
             out.center_qef += leaf.center_qef;
         }
 
+        // Accumulate minimum QEF error among valid child QEFs
+        out.qef_err = std::f32::INFINITY;
+        for e in leafs.iter().map(|q| q.qef_err).filter(|&e| e >= 0.0) {
+            out.qef_err = out.qef_err.min(e);
+        }
+
+        // Build mask
+        for (i, leaf) in leafs.iter().enumerate() {
+            out.mask |= leaf.mask & (1 << i);
+        }
+
         out
+    }
+
+    /// Solves the combined QEF
+    pub fn solve(&self, cell: CellBounds) -> (CellVertex, f32) {
+        let mut qef = self.center_qef;
+        for &i in &self.intersections {
+            qef += i.into();
+        }
+        for &f in &self.face_qefs {
+            qef += f;
+        }
+        qef.solve(cell)
     }
 }
 
