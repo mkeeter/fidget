@@ -35,6 +35,7 @@ impl QuadraticErrorSolver {
         }
     }
 
+    #[cfg(test)]
     pub fn mass_point(&self) -> nalgebra::Vector4<f32> {
         self.mass_point
     }

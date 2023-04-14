@@ -407,7 +407,7 @@ impl OctreeBuilder {
 
                 let (r, hermite) = self.check_done(index).unwrap();
                 self.o.cells[cell.index] = self
-                    .try_collapse(eval, data, storage, cell, hermite)
+                    .try_collapse(cell, hermite)
                     .unwrap_or_else(|| r.into());
 
                 // Try to recycle tape storage
@@ -418,44 +418,23 @@ impl OctreeBuilder {
         }
     }
 
-    /// Attempts to evaluate the given cell as a leaf
+    /// Attempts to evaluate the given cell as a leaf by solving the combined
+    /// QEF from child cells.
     ///
     /// If the resulting QEF error is less than `min_err * 2`, then records leaf
     /// vertex information and returns a `Cell::Leaf`; otherwise, returns
     /// `None`.
     ///
-    /// As a special case, if `min_err == -1.0` (indicating that we shouldn't
-    /// even try), it will return `None` immediately.
-    fn try_collapse<I: Family>(
+    /// As a special case, if `hermite.qef_err == -1.0` (indicating that we
+    /// shouldn't even try), it will return `None` immediately.
+    fn try_collapse(
         &mut self,
-        eval: &Arc<EvalGroup<I>>,
-        data: &mut EvalData<I>,
-        storage: &mut EvalStorage<I>,
         cell: CellIndex,
-        hermite: LeafHermiteData,
+        mut hermite: LeafHermiteData,
     ) -> Option<CellData> {
         if hermite.qef_err < 0.0 {
             return None;
         }
-
-        let (pos, new_err) = hermite.solve(cell.bounds);
-
-        // If solving the combined QEF has dramatically increased the error,
-        // then bail out here.
-        if new_err >= hermite.qef_err * 2.0 {
-            return None;
-        }
-
-        let vert_index = self.o.verts.len();
-        self.o.verts.push(pos);
-        // TODO: track the mask in the LeafHermiteData
-
-        todo!()
-
-        /*
-        let prev_len = self.o.verts.len();
-        // XXX NOPE NOPE NOPE SOLVE THE QEF INSTEAD
-        let c = self.leaf(eval, data, storage, cell);
 
         // Empty / full cells should never be produced here.  The only way to
         // get an empty / full cell is for all eight corners to be empty / full;
@@ -465,36 +444,48 @@ impl OctreeBuilder {
         //   collapsed into a single empty / full cell in `check_done`
         // - The interior vertices *do not* match, in which case the cell should
         //   not be marked as collapsible.
-        let Cell::Leaf(Leaf { mask, index }) = c else {
-            panic!("expected a leaf")
-        };
+        debug_assert!(hermite.mask != 0);
+        debug_assert!(hermite.mask != 255);
 
-        // More sanity checking
-        debug_assert!(mask != 0);
-        debug_assert!(mask != 255);
+        let (pos, new_err) = hermite.solve(cell.bounds);
 
-        // The collapsed cell must have a single vertex, because cells with
-        // multiple vertices are not marked as collapsible.  This could change
-        // if we decide to allow multi-vertex cells to collapse; see the TODO in
-        // `collapsible`.
-        let hermite_index = self.leafs[index].hermite_index.unwrap().get();
-        let new_err = self.hermite[hermite_index].qef_err;
-
-        if new_err <= hermite.qef_err * 2.0 {
-            Some(c.into())
-        } else {
-            // Discard all of the new vertices, which were at the end of the
-            // list.  TODO: is this always just a single pop?
-            self.o.verts.resize(prev_len, CellVertex::default());
-
-            // The new leaf was placed at the end of the hermite data stack, so
-            // we can pop it here.
-            debug_assert_eq!(hermite_index, self.hermite.len());
-            self.hermite.pop();
-
-            None
+        // If solving the combined QEF has dramatically increased the error,
+        // then bail out here.
+        if new_err >= hermite.qef_err * 2.0 {
+            return None;
         }
-        */
+
+        // The collapse was successful; save the hermite data and build a leaf
+        // that points to it.
+        hermite.qef_err = new_err;
+        let hermite_index = self.hermite.len();
+        self.hermite.push(hermite);
+
+        let vert_index = self.o.verts.len();
+        self.o.verts.push(pos);
+
+        // Install cell intersections
+        debug_assert_eq!(CELL_TO_VERT_TO_EDGES[hermite.mask as usize].len(), 1);
+        for e in CELL_TO_VERT_TO_EDGES[hermite.mask as usize][0] {
+            let i = hermite.intersections[e.to_undirected().index()];
+            self.o.verts.push(CellVertex {
+                pos: cell.bounds.relative(i.pos.xyz()),
+            });
+        }
+
+        let leaf_index = self.leafs.len();
+        self.leafs.push(LeafData {
+            vert_index,
+            hermite_index: NonZeroUsize::new(hermite_index),
+        });
+
+        Some(
+            Cell::Leaf(Leaf {
+                mask: hermite.mask,
+                index: leaf_index,
+            })
+            .into(),
+        )
     }
 
     /// Evaluates the given leaf
@@ -754,7 +745,7 @@ impl OctreeBuilder {
         let mut empty_count = 0;
         let mut hermite_data = [LeafHermiteData::default(); 8];
         let mut hermite_indices = [None; 8];
-        let mut collapsible = true;
+        let mut collapsible = self.collapsible(index);
         for i in 0..8 {
             match self.o.cells[index + i].into() {
                 Cell::Invalid => {
@@ -793,10 +784,6 @@ impl OctreeBuilder {
             Cell::Branch { index, thread: 0 }
         };
 
-        if matches!(r, Cell::Empty | Cell::Full) || !self.collapsible(index) {
-            collapsible = false;
-        }
-
         // If all of the branches are empty or full, then we're going to
         // record an Empty or Full cell in the parent and don't need the 8x
         // children.
@@ -810,7 +797,9 @@ impl OctreeBuilder {
             } else {
                 self.o.cells[index..index + 8].fill(Cell::Invalid.into())
             }
+            collapsible = false;
         }
+
         let hermite = if collapsible {
             LeafHermiteData::merge(hermite_data)
         } else {
