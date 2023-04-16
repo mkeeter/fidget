@@ -916,6 +916,7 @@ pub enum CellResult<I: Family> {
 }
 
 /// Result of a branch evaluation (8-fold division)
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum BranchResult {
     /// The branch can be collapsed into an empty cell
     Empty,
