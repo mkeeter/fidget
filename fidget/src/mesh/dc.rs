@@ -280,6 +280,10 @@ pub trait DcBuilder {
         c: CellIndex,
         d: CellIndex,
     );
+
+    /// Record the given triangle
+    ///
+    /// Vertices are indices given by calls to [`Self::vertex`]
     fn triangle(&mut self, a: usize, b: usize, c: usize);
 
     /// Looks up the given vertex, localizing it within a cell
