@@ -786,7 +786,7 @@ impl OctreeBuilder {
             debug_assert!(hermite.mask != 0);
             debug_assert!(hermite.mask != 255);
             let (pos, new_err) = hermite.solve(cell.bounds);
-            if new_err < hermite.qef_err * 2.0 {
+            if new_err < hermite.qef_err * 2.0 && pos.valid() {
                 hermite.qef_err = new_err;
                 BranchResult::Leaf(pos, hermite)
             } else {

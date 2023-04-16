@@ -69,9 +69,6 @@ impl QuadraticErrorSolver {
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.
         let center = self.mass_point.xyz() / self.mass_point.w as f32;
-        let btb = self.btb
-            + ((center.transpose() * self.ata - self.atb.transpose()) * center
-                - center.transpose() * self.atb)[0];
         let atb = self.atb - self.ata * center;
 
         let svd = nalgebra::linalg::SVD::new(self.ata, true, true);
@@ -89,9 +86,11 @@ impl QuadraticErrorSolver {
         for (i, &epsilon) in EPSILONS.iter().enumerate() {
             let sol = svd.solve(&atb, epsilon);
             let pos = sol.map(|c| c + center).unwrap_or(center);
-            let err = (pos.transpose() * self.ata * pos
-                - 2.0 * pos.transpose() * atb)[0]
-                + btb;
+            // We'll clamp the error to a small > 0 value for ease of comparison
+            let err = ((pos.transpose() * self.ata * pos
+                - 2.0 * pos.transpose() * self.atb)[0]
+                + self.btb)
+                .max(1e-6);
 
             // If this epsilon dramatically increases the error, then we'll
             // assume that the previous (out-of-cell) vertex was genuine and
