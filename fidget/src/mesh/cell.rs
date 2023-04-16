@@ -118,16 +118,12 @@ pub struct CellVertex {
     /// The lower `u16` represents the cell's bounding box; higher bits are for
     /// vertices that exceed the bounding box.
     pub pos: nalgebra::Vector3<i32>,
-
-    /// Maximum error when solving the QEF for this vertex
-    pub qef_err: f32,
 }
 
 impl Default for CellVertex {
     fn default() -> Self {
         Self {
             pos: nalgebra::Vector3::new(i32::MIN, i32::MIN, i32::MIN),
-            qef_err: std::f32::NAN,
         }
     }
 }
@@ -219,20 +215,6 @@ impl CellIndex {
         p: P,
     ) -> nalgebra::Vector3<f32> {
         self.bounds.pos(p)
-    }
-
-    /// Converts from an absolute position to a relative position in the cell
-    ///
-    /// The `bool` indicates whether the vertex was clamped into the cell's
-    /// bounding box.
-    pub fn relative(
-        &self,
-        p: nalgebra::Vector3<f32>,
-        qef_err: f32,
-    ) -> CellVertex {
-        let pos = self.bounds.relative(p);
-
-        CellVertex { pos, qef_err }
     }
 }
 

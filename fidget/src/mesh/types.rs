@@ -43,6 +43,16 @@ impl Axis {
     pub fn index(self) -> usize {
         self.0.trailing_zeros() as usize
     }
+
+    /// Cycles through X-Y-Z axes, returning the next one
+    pub const fn next(self) -> Self {
+        let u = self.0 << 1;
+        if u > Z.0 {
+            X
+        } else {
+            Axis(u)
+        }
+    }
 }
 
 /// The X axis, i.e. `[1, 0, 0]`
@@ -168,6 +178,18 @@ impl DirectedEdge {
     /// Returns the end corner
     pub fn end(self) -> Corner {
         self.end
+    }
+    pub fn to_undirected(self) -> Edge {
+        let t = Axis(self.start.0 ^ self.end.0);
+        let u = t.next();
+        let v = u.next();
+
+        #[allow(clippy::bool_to_int_with_if)]
+        Edge::new(
+            (t.0.trailing_zeros() as u8) * 4
+                + if self.start & v { 2 } else { 0 }
+                + if self.start & u { 1 } else { 0 },
+        )
     }
 }
 
