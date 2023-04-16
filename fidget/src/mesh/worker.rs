@@ -3,7 +3,7 @@ use std::sync::{mpsc::TryRecvError, Arc};
 use super::{
     cell::{Cell, CellData, CellIndex},
     octree::{
-        CellResult, EvalData, EvalGroup, EvalStorage, LeafHermiteData,
+        BranchResult, CellResult, EvalData, EvalGroup, EvalStorage,
         OctreeBuilder,
     },
     pool::{QueuePool, ThreadContext, ThreadPool},
@@ -95,16 +95,14 @@ struct Done<I: Family> {
 
     /// The resulting cell
     ///
-    /// If this is filled / empty, then it's owned by the receiving octree;
-    /// otherwise, this is a leaf or branch and may point to one of the other
-    /// worker's data arrays.
-    child: CellData,
+    /// - Filled and empty cells are owned (trivially) by the receiving octree
+    /// - Leafs must be converted into vertex and hermite data and owned by the
+    ///   receiving octree.
+    /// - Branches point to the sending octree, which may be in another worker
+    result: BranchResult,
 
-    /// Minimum vertex error among the children leaf cells
-    ///
-    /// This is -1.0 if the parent _should not_ try to collapse the cell and
-    /// `>= 0.0` otherwise.
-    hermite_data: LeafHermiteData,
+    /// Thread index of the worker that did this work
+    source: usize,
 }
 
 pub struct Worker<I: Family> {
@@ -211,12 +209,7 @@ impl<I: Family> Worker<I> {
             match self.done.try_recv() {
                 Ok(v) => {
                     ctx.popped();
-                    self.record(
-                        v.task.parent.index,
-                        v.child,
-                        v.task.next.as_ref(),
-                        &mut ctx,
-                    );
+                    self.on_done(v.result, &v.task.data, v.source, &mut ctx);
                     continue;
                 }
                 Err(TryRecvError::Disconnected) => panic!(),
@@ -238,34 +231,30 @@ impl<I: Family> Worker<I> {
                 for i in Corner::iter() {
                     let sub_cell = task.parent.child(index, i);
 
-                    let r = match self.octree.eval_cell(
+                    match self.octree.eval_cell(
                         &task.eval,
                         &mut self.data,
                         &mut self.storage,
                         sub_cell,
                         settings,
                     ) {
-                        CellResult::Done(cell) => Some(cell),
+                        // If this child is finished, then record it locally.
+                        // If it's a branching cell, then we'll let a caller
+                        // fill it in eventually (via the done queue).
+                        CellResult::Done(cell) => self.record(
+                            sub_cell.index,
+                            cell.into(),
+                            &task.data,
+                            &mut ctx,
+                        ),
                         CellResult::Recurse(eval) => {
                             self.queue.push(task.next(
                                 eval,
                                 sub_cell,
                                 self.thread_index,
                             ));
-                            None
                         }
                     };
-                    // If this child is finished, then record it locally.  If
-                    // it's a branching cell, then we'll let a caller fill it in
-                    // eventually (via the done queue).
-                    if let Some(r) = r {
-                        self.record(
-                            sub_cell.index,
-                            r.into(),
-                            Some(&task.data),
-                            &mut ctx,
-                        );
-                    }
                 }
 
                 // If we pushed anything to our queue, then let other threads
@@ -297,6 +286,34 @@ impl<I: Family> Worker<I> {
         self.octree.into()
     }
 
+    fn on_done(
+        &mut self,
+        result: BranchResult,
+        task: &Arc<TaskData<I>>,
+        source: usize,
+        ctx: &mut ThreadContext,
+    ) {
+        let r = match result {
+            BranchResult::Empty => Cell::Empty,
+            BranchResult::Full => Cell::Full,
+            BranchResult::Branch(index) => Cell::Branch {
+                index,
+                thread: source as u8,
+            },
+            BranchResult::Leaf(pos, hermite) => {
+                self.octree.record_leaf(task.parent, pos, hermite)
+            }
+        };
+        if let Some(next) = task.next.as_ref() {
+            // Store the result locally, recursing up
+            self.record(task.parent.index, r.into(), next, ctx);
+        } else {
+            // Store the result locally, but don't recurse (because this is a
+            // root task and has nowhere to go)
+            self.octree.record(task.parent.index, r.into());
+        }
+    }
+
     /// Records the cell at the given index and recurses upwards
     ///
     /// This cell must be one of the 8 children of the given task.
@@ -307,35 +324,28 @@ impl<I: Family> Worker<I> {
         &mut self,
         index: usize,
         cell: CellData,
-        task: Option<&Arc<TaskData<I>>>,
+        task: &Arc<TaskData<I>>,
         ctx: &mut ThreadContext,
     ) {
         self.octree.record(index, cell);
 
         // Check to see whether this is the last cell in the cluster of 8
-        let Some((mut r, hermite)) = self.octree.check_done(index & !7) else {
-            return
-        };
-        // Patch up the thread index, which the Octree function doesn't know
-        if let Cell::Branch { thread, .. } = &mut r {
-            *thread = self.thread_index as u8;
-        }
+        let Some(r) = self.octree.check_done(task.parent, index & !7)
+            else { return };
 
         // It's safe to unwrap `task` here because the only task lacking a
         // parent is at the root of the tree, which is never a set of 8
         // children; `check_done` will cause us to bail out early.
-        let task = task.unwrap();
         if task.source == self.thread_index {
-            // Store the result locally, recursing up
-            self.record(task.parent.index, r.into(), task.next.as_ref(), ctx);
+            self.on_done(r, task, self.thread_index, ctx);
         } else {
             // Send the result back on the wire
             ctx.pushed();
             self.friend_done[task.source]
                 .send(Done {
                     task: Task { data: task.clone() },
-                    child: r.into(),
-                    hermite_data: hermite,
+                    result: r,
+                    source: self.thread_index,
                 })
                 .unwrap();
             ctx.wake_one(task.source);
