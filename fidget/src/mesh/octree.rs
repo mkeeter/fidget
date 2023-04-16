@@ -751,8 +751,14 @@ impl OctreeBuilder {
                 Cell::Invalid => {
                     return None;
                 }
-                Cell::Full => full_count += 1,
-                Cell::Empty => empty_count += 1,
+                Cell::Full => {
+                    full_count += 1;
+                    hermite_data[i].mask = 255;
+                }
+                Cell::Empty => {
+                    empty_count += 1;
+                    hermite_data[i].mask = 0;
+                }
                 Cell::Branch { .. } => collapsible = false,
                 Cell::Leaf(Leaf { index, .. }) => {
                     let j =
@@ -1007,10 +1013,11 @@ impl LeafHermiteData {
                 // One or the other leaf has an intersection
                 let a = leafs[start.index()].intersections[edge.index()];
                 let b = leafs[end.index()].intersections[edge.index()];
-                if a.grad == nalgebra::Vector3::zeros() {
-                    out.intersections[edge.index()] = b;
-                } else {
-                    out.intersections[edge.index()] = a;
+                match (a.pos.w > 0.0, b.pos.w > 0.0) {
+                    (true, false) => out.intersections[edge.index()] = a,
+                    (false, true) => out.intersections[edge.index()] = b,
+                    (false, false) => (),
+                    (true, true) => panic!("duplicate intersection"),
                 }
             }
         }
@@ -1306,10 +1313,10 @@ mod test {
             */
 
             if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
-                panic!("{e}");
+                panic!("{e} (with {threads} threads)");
             }
             if let Err(e) = check_for_edge_matching(&sphere_mesh) {
-                panic!("{e}");
+                panic!("{e} (with {threads} threads)");
             }
         }
     }
