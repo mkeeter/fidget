@@ -3,6 +3,7 @@
 mod builder;
 mod cell;
 mod dc;
+mod fixup;
 mod frame;
 mod gen;
 mod octree;

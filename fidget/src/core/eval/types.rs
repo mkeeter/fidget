@@ -219,6 +219,11 @@ impl Interval {
     pub fn upper(&self) -> f32 {
         self.upper
     }
+    /// Checks whether the given value is (strictly) contained in the interval
+    #[inline]
+    pub fn contains(&self, v: f32) -> bool {
+        v >= self.lower && v <= self.upper
+    }
     /// Returns `true` if either bound of the interval is `NaN`
     pub fn has_nan(&self) -> bool {
         self.lower.is_nan() || self.upper.is_nan()

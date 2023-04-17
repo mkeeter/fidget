@@ -3,7 +3,7 @@ use crate::eval::types::Interval;
 
 use super::{
     gen::CELL_TO_EDGE_TO_VERT,
-    types::{Corner, Edge, Intersection, X, Y, Z},
+    types::{Axis, Corner, Edge, Intersection, X, Y, Z},
 };
 
 /// Raw cell data
@@ -223,6 +223,19 @@ pub struct CellBounds {
     pub x: Interval,
     pub y: Interval,
     pub z: Interval,
+}
+
+impl std::ops::Index<Axis> for CellBounds {
+    type Output = Interval;
+
+    fn index(&self, axis: Axis) -> &Self::Output {
+        match axis {
+            X => &self.x,
+            Y => &self.y,
+            Z => &self.z,
+            _ => panic!("invalid axis: {axis:?}"),
+        }
+    }
 }
 
 impl Default for CellBounds {
