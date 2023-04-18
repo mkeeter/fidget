@@ -40,7 +40,7 @@ impl DcBuilder for DcFixup {
 
     fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex) {
         if a.depth == b.depth && (octree.is_leaf(a) || octree.is_leaf(b)) {
-            // TODO: do an edge compatibility check
+            // TODO: do an face compatibility check
         }
         // ...and recurse
         dc::dc_face::<F, DcFixup>(octree, a, b, self);

@@ -197,6 +197,7 @@ impl DirectedEdge {
 ///
 /// With `(t, u, v)` as a right-handed coordinate system and `t` being the
 /// varying axis of the edge, this is packed as `4 * t + 2 * v + 1 * u`
+/// (where `t`, `u`, and `v` are values in the range 0-2 representing an axis)
 #[derive(Copy, Clone, Debug)]
 pub struct Edge(u8);
 
@@ -244,6 +245,51 @@ pub struct Intersection {
     pub edge: Offset,
 }
 
-/// Cell mask, as an 8-bit value representing set corners
+/// Face mask, as an 4-bit value representing set corners
+///
+/// This value is bound to a particular [`Frame`] and is meaningless in
+/// isolation.  Within that frame `(t, u, v)`, bit 0 represents `u` and bit 1
+/// represents `v`
 #[derive(Copy, Clone, Debug)]
-struct Mask(u8);
+pub struct FaceMask(u8);
+
+impl FaceMask {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face_mask = [0u8; 1][(i >= 16) as usize];
+        Self(i)
+    }
+}
+
+/// Face index, as a value in the range 0-5
+///
+/// Encoded as `axis * 2 + sign`, where `axis` is a value in the range 0-2
+/// and sign is `+1` for the face in the `+axis` direction.
+#[derive(Copy, Clone, Debug)]
+pub struct Face(u8);
+
+impl Face {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face = [0u8; 1][(i >= 6) as usize];
+        Self(i)
+    }
+
+    /// Extracts the main axis of this face
+    pub const fn axis(self) -> Axis {
+        Axis::new(1 << (self.0 / 2))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_face_axis() {
+        assert_eq!(Face::new(0).axis(), X);
+        assert_eq!(Face::new(1).axis(), X);
+        assert_eq!(Face::new(2).axis(), Y);
+        assert_eq!(Face::new(3).axis(), Y);
+        assert_eq!(Face::new(4).axis(), Z);
+        assert_eq!(Face::new(5).axis(), Z);
+    }
+}

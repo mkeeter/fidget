@@ -5,9 +5,10 @@ use super::{
     cell::{Cell, CellBounds, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
     fixup::DcFixup,
+    frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
-    types::{Axis, Corner},
+    types::{Axis, Corner, Face, FaceMask},
     worker::Worker,
     Mesh, Settings,
 };
@@ -855,7 +856,7 @@ impl OctreeBuilder {
             mask |= b << i;
         }
 
-        use super::frame::{Frame, XYZ, YZX, ZXY};
+        use super::frame::{XYZ, YZX, ZXY};
         for (t, u, v) in [XYZ::frame(), YZX::frame(), ZXY::frame()] {
             //  - The sign in the middle of a coarse edge must agree with the
             //    sign of at least one of the edge’s two endpoints.
@@ -910,6 +911,11 @@ impl OctreeBuilder {
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
+    }
+
+    fn face_mask(&self, cell: CellIndex, face: Face) -> Option<FaceMask> {
+        let t = face.axis();
+        todo!()
     }
 }
 
