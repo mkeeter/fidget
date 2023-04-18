@@ -4,6 +4,7 @@ use super::{
     builder::MeshBuilder,
     cell::{Cell, CellBounds, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
+    fixup::DcFixup,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
     types::{Axis, Corner},
@@ -186,7 +187,7 @@ impl Octree {
     pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(tape.clone()));
 
-        if settings.threads == 0 {
+        let octree = if settings.threads == 0 {
             let mut out = OctreeBuilder::new();
             out.recurse(
                 &eval,
@@ -198,7 +199,10 @@ impl Octree {
             out.into()
         } else {
             Worker::scheduler(eval, settings)
-        }
+        };
+        let mut fixup = DcFixup::new(octree.cells.len());
+        fixup.cell(&octree, CellIndex::default());
+        octree
     }
 
     /// Recursively walks the dual of the octree, building a mesh

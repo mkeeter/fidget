@@ -536,7 +536,7 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // we get the correct value.
         let winding = if starting_sign { 3 } else { 1 };
         for j in 0..4 {
-            if vs[j] != vs[(j + winding) % 4] {
+            if cs[j].index != cs[(j + winding) % 4].index {
                 out.triangle(vs[j], vs[(j + winding) % 4], i)
             }
         }

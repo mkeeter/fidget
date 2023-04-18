@@ -10,9 +10,18 @@ use super::{
 };
 
 /// Overload dual contouring's tree walk to mark leafs that need subdivision
-struct DcFixup {
+pub struct DcFixup {
     needs_fixing: Vec<bool>,
     verts: Vec<(nalgebra::Vector3<f32>, CellIndex)>,
+}
+
+impl DcFixup {
+    pub fn new(size: usize) -> Self {
+        Self {
+            needs_fixing: vec![false; size],
+            verts: vec![],
+        }
+    }
 }
 
 impl DcBuilder for DcFixup {
@@ -58,17 +67,21 @@ impl DcBuilder for DcFixup {
         let (va, ca) = self.verts[a];
         let (vb, cb) = self.verts[b];
 
-        // Pick the face which should be intersected by the edge, and the
+        // Pick the face which should be intersected by the edge, and the value
+        // at that shared face.
         // TODO: should we pass a Frame parameter to this function instead?
         let mut common = None;
         for axis in [X, Y, Z] {
             if ca.bounds[axis].upper() == cb.bounds[axis].lower() {
+                assert!(common.is_none());
                 common = Some((axis, ca.bounds[axis].upper()))
-            } else if ca.bounds[axis].lower() == cb.bounds[axis].upper() {
+            }
+            if ca.bounds[axis].lower() == cb.bounds[axis].upper() {
+                assert!(common.is_none());
                 common = Some((axis, ca.bounds[axis].lower()))
             }
         }
-        let Some((axis, v)) = common else { panic!("faces do not touch") };
+        let Some((axis, v)) = common else { panic!("faces do not touch {ca:?} {cb:?}") };
 
         let dist = v - va[axis.index()];
         let hit = va + dist * (vb - va).normalize();
