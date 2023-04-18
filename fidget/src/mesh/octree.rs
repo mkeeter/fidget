@@ -219,7 +219,7 @@ impl Octree {
     }
 
     pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
-        match self.cells[cell.index].into() {
+        match self[cell].into() {
             Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
             Cell::Branch { .. } => false,
             Cell::Invalid => panic!(),
@@ -236,11 +236,101 @@ impl Octree {
     ) -> CellIndex {
         let child = child.into();
 
-        match self.cells[cell.index].into() {
+        match self[cell].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index, .. } => cell.child(index, child),
             Cell::Invalid => panic!(),
         }
+    }
+
+    pub(crate) fn face_mask(
+        &self,
+        cell: CellIndex,
+        face: Face,
+    ) -> Option<FaceMask> {
+        let t = face.axis();
+        let u = t.next();
+        let v = u.next();
+        let f = if face.sign() {
+            t.into()
+        } else {
+            Corner::new(0)
+        };
+        let corners = [f, f | u, f | v, f | u | v];
+        match self[cell].into() {
+            Cell::Empty => Some(FaceMask::new(0b0000)),
+            Cell::Full => Some(FaceMask::new(0b1111)),
+            Cell::Leaf(Leaf { mask, .. }) => {
+                let mut out = 0;
+                for (i, c) in corners.iter().enumerate() {
+                    if mask & (1 << c.index()) != 0 {
+                        out |= 1 << i;
+                    }
+                }
+                Some(FaceMask::new(out))
+            }
+            Cell::Branch { index, .. } => {
+                let masks =
+                    corners.map(|c| self.face_mask(cell.child(index, c), face));
+                if masks.iter().any(Option::is_none) {
+                    return None;
+                }
+                let masks = masks.map(Option::unwrap);
+
+                let center = masks[0].0 & (1 << 3) != 0;
+                let corners = [
+                    masks[0].0 & (1 << 0) != 0,
+                    masks[1].0 & (1 << 1) != 0,
+                    masks[2].0 & (1 << 2) != 0,
+                    masks[3].0 & (1 << 3) != 0,
+                ];
+                // The center must match at least one of the corners; otherwise,
+                // this is non-manifold.
+                if corners.iter().all(|corner| center != *corner) {
+                    return None;
+                }
+                // Each edge's center value must match at least one of the
+                // connected corners; otherwise, this is non-manifold
+                let u_edge_lo = masks[0].0 & (1 << 1) != 0;
+                if u_edge_lo != corners[0] && u_edge_lo != corners[1] {
+                    return None;
+                }
+                let u_edge_hi = masks[3].0 & (1 << 2) != 0;
+                if u_edge_hi != corners[2] && u_edge_hi != corners[3] {
+                    return None;
+                }
+                let v_edge_lo = masks[0].0 & (1 << 2) != 0;
+                if v_edge_lo != corners[0] && v_edge_lo != corners[2] {
+                    return None;
+                }
+                let v_edge_hi = masks[3].0 & (1 << 1) != 0;
+                if v_edge_hi != corners[1] && v_edge_hi != corners[3] {
+                    return None;
+                }
+
+                Some(FaceMask::new(
+                    corners[0] as u8
+                        | (corners[1] as u8) << 1
+                        | (corners[2] as u8) << 2
+                        | (corners[3] as u8) << 3,
+                ))
+            }
+            Cell::Invalid => panic!(),
+        }
+    }
+}
+
+impl std::ops::Index<CellIndex> for Octree {
+    type Output = CellData;
+
+    fn index(&self, i: CellIndex) -> &Self::Output {
+        &self.cells[i.index]
+    }
+}
+
+impl std::ops::IndexMut<CellIndex> for Octree {
+    fn index_mut(&mut self, i: CellIndex) -> &mut Self::Output {
+        &mut self.cells[i.index]
     }
 }
 
@@ -438,7 +528,7 @@ impl OctreeBuilder {
         settings: Settings,
     ) {
         match self.eval_cell(eval, data, storage, cell, settings) {
-            CellResult::Done(c) => self.o.cells[cell.index] = c.into(),
+            CellResult::Done(c) => self.o[cell] = c.into(),
             CellResult::Recurse(sub_eval) => {
                 let index = self.o.cells.len();
                 for _ in Corner::iter() {
@@ -451,7 +541,7 @@ impl OctreeBuilder {
 
                 let r = self.check_done(cell, index).unwrap();
 
-                self.o.cells[cell.index] = match r {
+                self.o[cell] = match r {
                     BranchResult::Empty => Cell::Empty,
                     BranchResult::Full => Cell::Full,
                     BranchResult::Branch(index) => {
@@ -911,11 +1001,6 @@ impl OctreeBuilder {
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
-    }
-
-    fn face_mask(&self, cell: CellIndex, face: Face) -> Option<FaceMask> {
-        let t = face.axis();
-        todo!()
     }
 }
 

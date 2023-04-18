@@ -250,8 +250,8 @@ pub struct Intersection {
 /// This value is bound to a particular [`Frame`] and is meaningless in
 /// isolation.  Within that frame `(t, u, v)`, bit 0 represents `u` and bit 1
 /// represents `v`
-#[derive(Copy, Clone, Debug)]
-pub struct FaceMask(u8);
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct FaceMask(pub u8);
 
 impl FaceMask {
     pub const fn new(i: u8) -> Self {
@@ -276,6 +276,13 @@ impl Face {
     /// Extracts the main axis of this face
     pub const fn axis(self) -> Axis {
         Axis::new(1 << (self.0 / 2))
+    }
+
+    /// Returns the sign of this face, which is a boolean
+    ///
+    /// When true, the face is on the `+axis` side of the cell
+    pub const fn sign(self) -> bool {
+        self.0 % 2 != 0
     }
 }
 

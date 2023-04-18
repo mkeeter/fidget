@@ -5,6 +5,7 @@ use super::{
     dc::{self, DcBuilder},
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
+    types::Face,
     types::{X, Y, Z},
     Octree,
 };
@@ -40,7 +41,28 @@ impl DcBuilder for DcFixup {
 
     fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex) {
         if a.depth == b.depth && (octree.is_leaf(a) || octree.is_leaf(b)) {
-            // TODO: do an face compatibility check
+            let mut common = None;
+            for axis in [X, Y, Z] {
+                if a.bounds[axis].upper() == b.bounds[axis].lower() {
+                    assert!(common.is_none());
+                    common = Some((axis, 1))
+                }
+                if a.bounds[axis].lower() == b.bounds[axis].upper() {
+                    assert!(common.is_none());
+                    common = Some((axis, 0))
+                }
+            }
+            let Some((axis, v)) = common else { panic!("faces do not touch") };
+            let fa = Face::new((axis.index() * 2 + v).try_into().unwrap());
+            let fb = Face::new((axis.index() * 2 + 1 - v).try_into().unwrap());
+
+            let ma = octree.face_mask(a, fa);
+            let mb = octree.face_mask(b, fb);
+
+            // For now, we know that face masks are always equal, because we
+            // aren't doing any fixing up (which could introduce non-manifold
+            // cells next to each other).
+            assert_eq!(ma, mb);
         }
         // ...and recurse
         dc::dc_face::<F, DcFixup>(octree, a, b, self);
@@ -81,7 +103,7 @@ impl DcBuilder for DcFixup {
                 common = Some((axis, ca.bounds[axis].lower()))
             }
         }
-        let Some((axis, v)) = common else { panic!("faces do not touch {ca:?} {cb:?}") };
+        let Some((axis, v)) = common else { panic!("faces do not touch") };
 
         let dist = v - va[axis.index()];
         let hit = va + dist * (vb - va).normalize();

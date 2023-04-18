@@ -96,7 +96,7 @@ impl From<CellData> for Cell {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Leaf {
-    pub mask: u8,
+    pub mask: u8, // TODO make this a stronger type, e.g. CellMask?
     pub index: usize,
 }
 
