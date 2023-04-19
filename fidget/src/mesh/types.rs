@@ -216,6 +216,10 @@ impl Edge {
     }
 
     /// Returns a `(start, end)` tuple for the given edge
+    ///
+    /// In the `t, u, v` coordinate system, the start always the `t` bit clear
+    /// and the end always has the `t` bit set; the `u` and `v` bits are the
+    /// same at both start and end.
     pub fn corners(&self) -> (Corner, Corner) {
         use super::frame::{Frame, XYZ, YZX, ZXY};
         let (t, u, v) = match self.0 / 4 {
@@ -248,14 +252,41 @@ pub struct Intersection {
 /// Face mask, as an 4-bit value representing set corners
 ///
 /// This value is bound to a particular [`Frame`] and is meaningless in
-/// isolation.  Within that frame `(t, u, v)`, bit 0 represents `u` and bit 1
-/// represents `v`
+/// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
+///
+///   Bit | Corner
+///   ----|--------
+///    0  | 0
+///    1  | u
+///    2  | v
+///    3  | u | v
+///
+/// (i.e. `u` is bit 0 of the mask and `v` is bit 1 of the mask)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FaceMask(pub u8);
 
 impl FaceMask {
     pub const fn new(i: u8) -> Self {
         let _bad_face_mask = [0u8; 1][(i >= 16) as usize];
+        Self(i)
+    }
+}
+
+/// Edge mask, as an 2-bit value representing set corners
+///
+/// This value is bound to a particular [`Frame`] and is meaningless in
+/// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
+///
+///   Bit | Corner
+///   ----|--------
+///    0  | 0
+///    1  | t
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct EdgeMask(pub u8);
+
+impl EdgeMask {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face_mask = [0u8; 1][(i >= 4) as usize];
         Self(i)
     }
 }

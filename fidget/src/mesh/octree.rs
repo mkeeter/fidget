@@ -8,7 +8,7 @@ use super::{
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
-    types::{Axis, Corner, Face, FaceMask},
+    types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     worker::Worker,
     Mesh, Settings,
 };
@@ -239,6 +239,40 @@ impl Octree {
         match self[cell].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index, .. } => cell.child(index, child),
+            Cell::Invalid => panic!(),
+        }
+    }
+
+    pub(crate) fn edge_mask(
+        &self,
+        cell: CellIndex,
+        edge: Edge,
+    ) -> Option<EdgeMask> {
+        let (a, b) = edge.corners();
+        match self[cell].into() {
+            Cell::Empty => Some(EdgeMask::new(0b00)),
+            Cell::Full => Some(EdgeMask::new(0b11)),
+            Cell::Leaf(Leaf { mask, .. }) => {
+                let lo = mask & (1 << a.index()) != 0;
+                let hi = mask & (1 << b.index()) != 0;
+                Some(EdgeMask::new(lo as u8 + ((hi as u8) << 1)))
+            }
+            Cell::Branch { index, .. } => {
+                let Some(lo) = self.edge_mask(cell.child(index, a), edge) else {
+                    return None;
+                };
+                let Some(hi) = self.edge_mask(cell.child(index, b), edge) else {
+                    return None;
+                };
+                let center = lo.0 & (0b10) != 0;
+                if center == (lo.0 & 0b01 != 0)
+                    || center == (hi.0 & (0b10) != 0)
+                {
+                    Some(EdgeMask::new((lo.0 & 0b01) | (hi.0 & 0b10)))
+                } else {
+                    None
+                }
+            }
             Cell::Invalid => panic!(),
         }
     }
@@ -1102,7 +1136,7 @@ impl LeafHermiteData {
     /// Merges an octree subdivision of leaf hermite data
     fn merge(leafs: [LeafHermiteData; 8]) -> Self {
         let mut out = Self::default();
-        use super::types::{Edge, X, Y, Z};
+        use super::types::{X, Y, Z};
 
         // Accumulate intersections along edges
         for t in [X, Y, Z] {

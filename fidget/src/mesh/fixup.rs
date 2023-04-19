@@ -5,7 +5,7 @@ use super::{
     dc::{self, DcBuilder},
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
-    types::Face,
+    types::{Edge, Face},
     types::{X, Y, Z},
     Octree,
 };
@@ -63,6 +63,13 @@ impl DcBuilder for DcFixup {
             // aren't doing any fixing up (which could introduce non-manifold
             // cells next to each other).
             assert_eq!(ma, mb);
+
+            if ma.is_none() {
+                self.needs_fixing[a.index] = true;
+            }
+            if mb.is_none() {
+                self.needs_fixing[b.index] = true;
+            }
         }
         // ...and recurse
         dc::dc_face::<F, DcFixup>(octree, a, b, self);
@@ -77,10 +84,38 @@ impl DcBuilder for DcFixup {
         d: CellIndex,
     ) {
         let cs = [a, b, c, d];
+        #[allow(clippy::identity_op)]
         if cs.iter().all(|v| v.depth == a.depth)
             && cs.iter().any(|v| octree.is_leaf(*v))
         {
-            // TODO: do an edge compatibility check
+            let (t, _u, _v) = F::frame();
+            let e = 4 * t.index();
+            let ea =
+                octree.edge_mask(a, Edge::new((e + 3).try_into().unwrap()));
+            let eb =
+                octree.edge_mask(b, Edge::new((e + 2).try_into().unwrap()));
+            let ec =
+                octree.edge_mask(c, Edge::new((e + 0).try_into().unwrap()));
+            let ed =
+                octree.edge_mask(d, Edge::new((e + 1).try_into().unwrap()));
+
+            // This won't always be true!
+            assert_eq!(ea, eb);
+            assert_eq!(ea, ec);
+            assert_eq!(ea, ed);
+
+            if ea.is_none() {
+                self.needs_fixing[a.index] = true;
+            }
+            if eb.is_none() {
+                self.needs_fixing[b.index] = true;
+            }
+            if ec.is_none() {
+                self.needs_fixing[c.index] = true;
+            }
+            if ed.is_none() {
+                self.needs_fixing[d.index] = true;
+            }
         }
         dc::dc_edge::<F, DcFixup>(octree, a, b, c, d, self);
     }

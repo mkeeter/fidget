@@ -272,6 +272,11 @@ impl DcBuilder for DcWorker<'_> {
 pub trait DcBuilder {
     fn cell(&mut self, octree: &Octree, cell: CellIndex);
     fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex);
+
+    /// Handles four cells that share a common edge aligned on axis `T`
+    ///
+    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
+    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
     fn edge<F: Frame>(
         &mut self,
         octree: &Octree,
