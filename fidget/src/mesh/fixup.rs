@@ -144,6 +144,8 @@ impl DcBuilder for DcFixup {
         let hit = va + dist * (vb - va).normalize();
         // TODO: what if va ≈ vb?
 
+        // We check against the bounds of the deeper cell, which is physically
+        // smaller and has a numerically higher `depth`
         let bounds = if ca.depth > cb.depth {
             ca.bounds
         } else {
@@ -159,7 +161,8 @@ impl DcBuilder for DcFixup {
             || !bounds[v].contains(hit[v.index()])
         {
             use std::cmp::Ordering;
-            // The less-deep (larger) cell gets tagged for fixup
+            // We tag the larger cell for fixup, which has a numerically smaller
+            // `depth`.  If both cells are at the same depth, then we tag both!
             match ca.depth.cmp(&cb.depth) {
                 Ordering::Greater => self.needs_fixing[cb.index] = true,
                 Ordering::Less => self.needs_fixing[ca.index] = true,
