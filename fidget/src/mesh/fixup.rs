@@ -7,20 +7,27 @@ use super::{
     gen::CELL_TO_VERT_TO_EDGES,
     types::{Edge, Face},
     types::{X, Y, Z},
-    Octree,
+    Octree, Settings,
 };
 
 /// Overload dual contouring's tree walk to mark leafs that need subdivision
 pub struct DcFixup {
     pub needs_fixing: Vec<bool>,
+    max_depth: usize,
     verts: Vec<(nalgebra::Vector3<f32>, CellIndex)>,
 }
 
 impl DcFixup {
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: usize, settings: &Settings) -> Self {
         Self {
             needs_fixing: vec![false; size],
+            max_depth: settings.max_depth as usize,
             verts: vec![],
+        }
+    }
+    pub fn mark(&mut self, cell: CellIndex) {
+        if cell.depth < self.max_depth {
+            self.needs_fixing[cell.index] = true;
         }
     }
 }
@@ -32,7 +39,7 @@ impl DcBuilder for DcFixup {
         {
             for i in 0..CELL_TO_VERT_TO_EDGES[mask as usize].len() {
                 if !octree.verts[index + i].valid() {
-                    self.needs_fixing[cell.index] = true;
+                    self.mark(cell);
                 }
             }
         }
@@ -65,10 +72,10 @@ impl DcBuilder for DcFixup {
             assert_eq!(ma, mb);
 
             if ma.is_none() {
-                self.needs_fixing[a.index] = true;
+                self.mark(a);
             }
             if mb.is_none() {
-                self.needs_fixing[b.index] = true;
+                self.mark(b);
             }
         }
         // ...and recurse
@@ -105,16 +112,16 @@ impl DcBuilder for DcFixup {
             assert_eq!(ea, ed);
 
             if ea.is_none() {
-                self.needs_fixing[a.index] = true;
+                self.mark(a);
             }
             if eb.is_none() {
-                self.needs_fixing[b.index] = true;
+                self.mark(b);
             }
             if ec.is_none() {
-                self.needs_fixing[c.index] = true;
+                self.mark(c);
             }
             if ed.is_none() {
-                self.needs_fixing[d.index] = true;
+                self.mark(d);
             }
         }
         dc::dc_edge::<F, DcFixup>(octree, a, b, c, d, self);
@@ -164,11 +171,11 @@ impl DcBuilder for DcFixup {
             // We tag the larger cell for fixup, which has a numerically smaller
             // `depth`.  If both cells are at the same depth, then we tag both!
             match ca.depth.cmp(&cb.depth) {
-                Ordering::Greater => self.needs_fixing[cb.index] = true,
-                Ordering::Less => self.needs_fixing[ca.index] = true,
+                Ordering::Greater => self.mark(cb),
+                Ordering::Less => self.mark(ca),
                 Ordering::Equal => {
-                    self.needs_fixing[ca.index] = true;
-                    self.needs_fixing[cb.index] = true;
+                    self.mark(ca);
+                    self.mark(cb);
                 }
             }
         }
@@ -186,7 +193,7 @@ impl DcBuilder for DcFixup {
     }
 
     fn invalid_leaf_vert(&mut self, a: CellIndex) {
-        self.needs_fixing[a.index] = true;
+        self.mark(a)
     }
 
     fn fan_done(&mut self) {

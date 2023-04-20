@@ -201,8 +201,9 @@ impl Octree {
         } else {
             Worker::scheduler(eval, settings)
         };
-        let mut fixup = DcFixup::new(octree.cells.len());
+        let mut fixup = DcFixup::new(octree.cells.len(), &settings);
         fixup.cell(&octree, CellIndex::default());
+        let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
         octree
     }
 
