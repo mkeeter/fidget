@@ -12,7 +12,7 @@ use super::{
 
 /// Overload dual contouring's tree walk to mark leafs that need subdivision
 pub struct DcFixup {
-    needs_fixing: Vec<bool>,
+    pub needs_fixing: Vec<bool>,
     verts: Vec<(nalgebra::Vector3<f32>, CellIndex)>,
 }
 
@@ -140,7 +140,7 @@ impl DcBuilder for DcFixup {
         }
         let Some((axis, v)) = common else { panic!("faces do not touch") };
 
-        let dist = v - va[axis.index()];
+        let dist = (v - va[axis.index()]) / (vb - va).normalize()[axis.index()];
         let hit = va + dist * (vb - va).normalize();
         // TODO: what if va ≈ vb?
 
