@@ -53,7 +53,7 @@ impl DcBuilder for DcFixup {
             octree.cells[cell.index].into()
         {
             for i in 0..CELL_TO_VERT_TO_EDGES[mask as usize].len() {
-                if !octree.verts[index + i].valid() {
+                if !cell.bounds.contains(octree.verts[index + i]) {
                     self.mark(cell);
                     self.out_of_cell += 1;
                 }
@@ -209,7 +209,7 @@ impl DcBuilder for DcFixup {
         verts: &[CellVertex],
     ) -> usize {
         let next_vert = self.verts.len();
-        self.verts.push((cell.pos(verts[v]), cell));
+        self.verts.push((verts[v].pos, cell));
         next_vert
     }
 

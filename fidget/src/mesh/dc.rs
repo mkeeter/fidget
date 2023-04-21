@@ -243,7 +243,7 @@ impl DcBuilder for DcWorker<'_> {
     fn vertex(
         &mut self,
         i: usize,
-        cell: CellIndex,
+        _cell: CellIndex,
         verts: &[CellVertex],
     ) -> usize {
         // Build our thread + vertex index
@@ -259,7 +259,7 @@ impl DcBuilder for DcWorker<'_> {
             Ordering::Relaxed,
         ) {
             Ok(_) => {
-                self.verts.push(cell.pos(verts[i]));
+                self.verts.push(verts[i].pos);
                 next
             }
             Err(i) => i,

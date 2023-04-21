@@ -301,7 +301,7 @@ impl<I: Family> Worker<I> {
                 thread: source as u8,
             },
             BranchResult::Leaf(pos, hermite) => {
-                self.octree.record_leaf(task.parent, pos, hermite)
+                self.octree.record_leaf(pos, hermite)
             }
         };
         if let Some(next) = task.next.as_ref() {

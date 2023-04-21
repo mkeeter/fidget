@@ -2,7 +2,7 @@
 
 use super::{
     builder::MeshBuilder,
-    cell::{Cell, CellBounds, CellData, CellIndex, CellVertex, Leaf},
+    cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
     fixup::DcFixup,
     frame::Frame,
@@ -598,7 +598,6 @@ impl OctreeBuilder {
     /// record.
     pub(crate) fn record_leaf(
         &mut self,
-        cell: CellIndex,
         pos: CellVertex,
         hermite: LeafHermiteData,
     ) -> Cell {
@@ -613,9 +612,7 @@ impl OctreeBuilder {
         debug_assert_eq!(edges.len(), 1);
         for e in edges[0] {
             let i = hermite.intersections[e.to_undirected().index()];
-            self.o.verts.push(CellVertex {
-                pos: cell.bounds.relative(i.pos.xyz()),
-            });
+            self.o.verts.push(CellVertex { pos: i.pos.xyz() });
         }
 
         let leaf_index = self.leafs.len();
@@ -660,7 +657,7 @@ impl OctreeBuilder {
                         Cell::Branch { index, thread: 0 }
                     }
                     BranchResult::Leaf(pos, hermite) => {
-                        self.record_leaf(cell, pos, hermite)
+                        self.record_leaf(pos, hermite)
                     }
                 }
                 .into();
@@ -787,7 +784,7 @@ impl OctreeBuilder {
                         / ((EDGE_SEARCH_SIZE - 1) as u32);
                     debug_assert!(pos.max() <= u16::MAX.into());
 
-                    let pos = cell.pos(pos.map(|v| v as i32));
+                    let pos = cell.pos(pos.map(|p| p as u16));
                     xs[i] = pos.x;
                     ys[i] = pos.y;
                     zs[i] = pos.z;
@@ -848,7 +845,7 @@ impl OctreeBuilder {
                 .collect();
 
         for (i, xyz) in intersections.iter().enumerate() {
-            let pos = cell.pos(xyz.map(|i| i as i32));
+            let pos = cell.pos(*xyz);
             xs[i] = pos.x;
             ys[i] = pos.y;
             zs[i] = pos.z;
@@ -881,7 +878,7 @@ impl OctreeBuilder {
 
                 i += 1;
             }
-            let (pos, err) = qef.solve(cell.bounds);
+            let (pos, err) = qef.solve();
             verts.push(pos);
 
             // We overwrite the error here, because it's only used when
@@ -893,11 +890,11 @@ impl OctreeBuilder {
         // TODO: use self.record_leaf here?
         let vert_index = self.o.verts.len();
         self.o.verts.extend(verts.into_iter());
-        self.o
-            .verts
-            .extend(intersections.into_iter().map(|pos| CellVertex {
-                pos: pos.map(|i| i as i32),
-            }));
+        self.o.verts.extend(
+            intersections
+                .into_iter()
+                .map(|pos| CellVertex { pos: cell.pos(pos) }),
+        );
 
         let hermite_index = self.push_hermite(hermite_cell);
         debug_assert!(hermite_index > 0);
@@ -981,8 +978,8 @@ impl OctreeBuilder {
             //   not be marked as collapsible.
             debug_assert!(hermite.mask != 0);
             debug_assert!(hermite.mask != 255);
-            let (pos, new_err) = hermite.solve(cell.bounds);
-            if new_err < hermite.qef_err * 2.0 && pos.valid() {
+            let (pos, new_err) = hermite.solve();
+            if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
                 hermite.qef_err = new_err;
                 BranchResult::Leaf(pos, hermite)
             } else {
@@ -1361,7 +1358,7 @@ impl LeafHermiteData {
     }
 
     /// Solves the combined QEF
-    pub fn solve(&self, cell: CellBounds) -> (CellVertex, f32) {
+    pub fn solve(&self) -> (CellVertex, f32) {
         let mut qef = self.center_qef;
         for &i in &self.intersections {
             qef += i.into();
@@ -1369,7 +1366,7 @@ impl LeafHermiteData {
         for &f in &self.face_qefs {
             qef += f;
         }
-        qef.solve(cell)
+        qef.solve()
     }
 }
 
@@ -1432,7 +1429,7 @@ mod test {
         let tape = cube.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
-        let v = CellIndex::default().pos(octree.verts[0]);
+        let v = octree.verts[0].pos;
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
         assert!(
             (v - expected).norm() < EPSILON,
@@ -1571,14 +1568,12 @@ mod test {
             };
             let octree = Octree::build(&tape, settings);
             let sphere_mesh = octree.walk_dual(settings);
-            /*
             sphere_mesh
                 .write_stl(
                     &mut std::fs::File::create(format!("sphere{threads}.stl"))
                         .unwrap(),
                 )
                 .unwrap();
-            */
 
             if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
                 panic!("{e} (with {threads} threads)");
@@ -1648,10 +1643,10 @@ mod test {
                     let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
-                    let pos = CellIndex::default().pos(octree.verts[0]);
+                    let pos = octree.verts[0].pos;
                     let mut mass_point = nalgebra::Vector3::zeros();
                     for v in &octree.verts[1..] {
-                        mass_point += CellIndex::default().pos(*v);
+                        mass_point += v.pos;
                     }
                     mass_point /= (octree.verts.len() - 1) as f32;
                     assert!(
@@ -1661,7 +1656,7 @@ mod test {
                     );
                     let eval = tape.new_point_evaluator();
                     for v in &octree.verts {
-                        let v = CellIndex::default().pos(*v);
+                        let v = v.pos;
                         let (r, _) = eval.eval(v.x, v.y, v.z, &[]).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
@@ -1692,7 +1687,7 @@ mod test {
             assert_eq!(octree.cells.len(), 8);
             assert_eq!(octree.verts.len(), 4);
 
-            let pos = CellIndex::default().pos(octree.verts[0]);
+            let pos = octree.verts[0].pos;
             assert!(
                 (pos - tip).norm() < 1e-3,
                 "bad vertex position: expected {tip:?}, got {pos:?}"
