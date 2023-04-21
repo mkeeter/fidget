@@ -77,13 +77,13 @@ impl QuadraticErrorSolver {
         // things like the cone model.  Instead, we'll be a little more
         // clever: we'll pick the smallest epsilon that keeps the feature in
         // the cell without dramatically increasing QEF error.
-        //
-        // TODO: iterating by epsilons is a _little_ silly, because what we
-        // actually care about is turning off the 0/1/2/3 lowest eigenvalues
-        // in the solution matrix.
-        const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
         let mut prev = None;
-        for (i, &epsilon) in EPSILONS.iter().enumerate() {
+        for i in 0..4 {
+            let epsilon = if i == 3 {
+                std::f32::INFINITY
+            } else {
+                svd.singular_values[2 - i]
+            };
             let sol = svd.solve(&atb, epsilon);
             let pos = sol.map(|c| c + center).unwrap_or(center);
             // We'll clamp the error to a small > 0 value for ease of comparison
@@ -105,7 +105,7 @@ impl QuadraticErrorSolver {
             let pos = CellVertex {
                 pos: cell.relative(pos),
             };
-            if i == EPSILONS.len() - 1 || pos.valid() {
+            if i == 3 {
                 return (pos, err);
             }
             prev = Some((pos, err));

@@ -188,7 +188,7 @@ impl Octree {
     pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(tape.clone()));
 
-        let octree = if settings.threads == 0 {
+        let mut octree = if settings.threads == 0 {
             let mut out = OctreeBuilder::new();
             out.recurse(
                 &eval,
@@ -199,11 +199,67 @@ impl Octree {
             );
             out.into()
         } else {
-            Worker::scheduler(eval, settings)
+            Worker::scheduler(eval.clone(), settings)
         };
-        let mut fixup = DcFixup::new(octree.cells.len(), &settings);
-        fixup.cell(&octree, CellIndex::default());
-        let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
+
+        // If we can't refine any further, then return right away
+        if settings.min_depth == settings.max_depth {
+            return octree;
+        }
+
+        loop {
+            let mut fixup = DcFixup::new(octree.cells.len(), &settings);
+            fixup.cell(&octree, CellIndex::default());
+            let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
+            println!("fixing {num_fix} / {} cells", octree.cells.len());
+            println!("    {} out of cell", fixup.out_of_cell);
+            println!("    {} nonmanifold faces", fixup.nonmanifold_face);
+            println!("    {} nonmanifold edges", fixup.nonmanifold_edge);
+            println!("    {} nonmanifold neighbor", fixup.nonmanifold_neighbor);
+            println!("    {} invalid edges", fixup.bad_edge);
+            println!("    {} unfixed", fixup.depth_exceeded);
+            if num_fix == 0 {
+                break;
+            }
+            // Translate from an Octree back to an OctreeBuilder; specifically,
+            // the index field in a Cell::Leaf points into the `leafs` array,
+            // rather than the `verts` array.
+            let mut cells = vec![];
+            let mut leafs = vec![];
+            for c in octree.cells {
+                cells.push(if let Cell::Leaf(Leaf { mask, index }) = c.into() {
+                    let leaf_index = leafs.len();
+                    leafs.push(LeafData {
+                        vert_index: index,
+                        hermite_index: None,
+                    });
+                    Cell::Leaf(Leaf {
+                        mask,
+                        index: leaf_index,
+                    })
+                    .into()
+                } else {
+                    c
+                })
+            }
+            let mut b = OctreeBuilder {
+                o: Octree {
+                    cells,
+                    verts: octree.verts,
+                },
+                leafs,
+                hermite: vec![LeafHermiteData::default()],
+                hermite_slots: vec![],
+            };
+            b.refine(
+                &eval,
+                &mut EvalData::default(),
+                &mut EvalStorage::default(),
+                CellIndex::default(),
+                &fixup.needs_fixing,
+            );
+            octree = b.into();
+        }
         octree
     }
 
@@ -1518,7 +1574,7 @@ mod test {
             /*
             sphere_mesh
                 .write_stl(
-                    &mut std::fs::File::create(format!("out{threads}.stl"))
+                    &mut std::fs::File::create(format!("sphere{threads}.stl"))
                         .unwrap(),
                 )
                 .unwrap();
