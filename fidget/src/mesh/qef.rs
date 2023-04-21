@@ -82,7 +82,8 @@ impl QuadraticErrorSolver {
             let epsilon = if i == 3 {
                 std::f32::INFINITY
             } else {
-                svd.singular_values[2 - i]
+                use ieee754::Ieee754;
+                svd.singular_values[2 - i].prev()
             };
             let sol = svd.solve(&atb, epsilon);
             let pos = sol.map(|c| c + center).unwrap_or(center);
