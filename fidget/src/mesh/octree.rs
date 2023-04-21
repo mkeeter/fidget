@@ -391,6 +391,9 @@ pub(crate) struct OctreeBuilder {
     /// Slot 0 is reserved and should always be populated with a dummy value, so
     /// that we can use an `Option<NonZeroUsize>` elsewhere.
     hermite: Vec<LeafHermiteData>,
+
+    /// Available slots in the `hermite` array
+    hermite_slots: Vec<usize>,
 }
 
 impl Default for OctreeBuilder {
@@ -435,6 +438,7 @@ impl OctreeBuilder {
             },
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
+            hermite_slots: vec![],
         }
     }
 
@@ -449,7 +453,25 @@ impl OctreeBuilder {
             },
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
+            hermite_slots: vec![],
         }
+    }
+
+    /// Stores hermite data in the local array
+    fn push_hermite(&mut self, d: LeafHermiteData) -> usize {
+        if let Some(s) = self.hermite_slots.pop() {
+            self.hermite[s] = d;
+            s
+        } else {
+            let s = self.hermite.len();
+            self.hermite.push(d);
+            s
+        }
+    }
+
+    /// Releases hermite data from the local array
+    fn pop_hermite(&mut self, i: usize) {
+        self.hermite_slots.push(i);
     }
 
     /// Records the given cell into the provided index
@@ -524,8 +546,7 @@ impl OctreeBuilder {
         pos: CellVertex,
         hermite: LeafHermiteData,
     ) -> Cell {
-        let hermite_index = self.hermite.len();
-        self.hermite.push(hermite);
+        let hermite_index = self.push_hermite(hermite);
 
         let vert_index = self.o.verts.len();
         self.o.verts.push(pos);
@@ -597,6 +618,10 @@ impl OctreeBuilder {
     }
 
     /// Evaluates the given leaf
+    ///
+    /// Writes the leaf vertex to `self.o.verts`, hermite data to
+    /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
+    /// anything to `self.o.cells`; the cell is returned instead.
     fn leaf<I: Family>(
         &mut self,
         eval: &EvalGroup<I>,
@@ -818,8 +843,7 @@ impl OctreeBuilder {
                 pos: pos.map(|i| i as i32),
             }));
 
-        let hermite_index = self.hermite.len();
-        self.hermite.push(hermite_cell);
+        let hermite_index = self.push_hermite(hermite_cell);
         debug_assert!(hermite_index > 0);
 
         let leaf_index = self.leafs.len();
@@ -874,28 +898,14 @@ impl OctreeBuilder {
         // If we haven't returned early due to having an invalid cell, then we
         // can proceed with removing hermite data from the leaf cells, since
         // they won't need it anymore (one way or another).
-        let mut hermite_indices = [None; 8];
-        for i in 0..8 {
+        for (i, h) in hermite_data.iter_mut().enumerate() {
             if let Cell::Leaf(Leaf { index, .. }) =
                 self.o.cells[index + i].into()
             {
                 let j = self.leafs[index].hermite_index.take().unwrap().get();
-                hermite_indices[i] = Some(j);
-                hermite_data[i] = self.hermite[j];
+                *h = self.hermite[j];
+                self.pop_hermite(j);
             }
-        }
-
-        // At this point, if our hermite indices are contiguous and at the end
-        // of the hermite data array, we can shrink it down to reduce allocation
-        // churn.
-        hermite_indices.sort();
-        hermite_indices.reverse();
-        let mut hermite_indices = hermite_indices.as_slice();
-        while let Some((Some(h), rest)) = hermite_indices.split_first() {
-            if *h == self.hermite.len() - 1 {
-                self.hermite.pop();
-            }
-            hermite_indices = rest;
         }
 
         let r = if full_count == 8 {
@@ -1036,6 +1046,62 @@ impl OctreeBuilder {
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
+    }
+
+    /// Recurse down the octree, splitting the given leaf cells
+    fn refine<I: Family>(
+        &mut self,
+        eval: &Arc<EvalGroup<I>>,
+        data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
+        cell: CellIndex,
+        needs_fixing: &[bool],
+    ) {
+        match self.o[cell].into() {
+            Cell::Empty | Cell::Full | Cell::Leaf(..)
+                if needs_fixing[cell.index] =>
+            {
+                // We're going to split this cell and refine it
+                let index = self.o.cells.len();
+                self.o[cell] = Cell::Branch { index, thread: 0 }.into();
+
+                // Evaluate all 8 leafs
+                for i in Corner::iter() {
+                    let subcell = cell.child(index, i);
+                    let leaf = self.leaf(eval, data, storage, subcell);
+                    match leaf {
+                        Cell::Leaf(Leaf { index, .. }) => {
+                            // Discard hermite data immediately, because we
+                            // aren't collapsing leaves here.
+                            let hermite_index =
+                                self.leafs[index].hermite_index.take().unwrap();
+                            self.pop_hermite(hermite_index.get());
+                        }
+                        Cell::Empty | Cell::Full => (),
+                        Cell::Branch { .. } | Cell::Invalid => panic!(),
+                    }
+                    // We aren't going to collapse the leafs, so just record
+                    // them right away.
+                    self.o.cells.push(leaf.into());
+                }
+            }
+            Cell::Empty | Cell::Full | Cell::Leaf(..) => {
+                assert!(!needs_fixing[cell.index])
+            }
+            Cell::Branch { index, .. } => {
+                assert!(!needs_fixing[cell.index]);
+                for i in Corner::iter() {
+                    self.refine(
+                        eval,
+                        data,
+                        storage,
+                        cell.child(index, i),
+                        needs_fixing,
+                    )
+                }
+            }
+            Cell::Invalid => panic!(),
+        }
     }
 }
 
