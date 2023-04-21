@@ -90,6 +90,10 @@ struct MeshSettings {
     #[clap(short, long)]
     depth: u8,
 
+    /// Maximum octree depth
+    #[clap(long)]
+    max_depth: Option<u8>,
+
     /// Name of a `.stl` file to write
     #[clap(short, long)]
     out: Option<PathBuf>,
@@ -266,7 +270,7 @@ fn run_mesh<I: fidget::eval::Family>(
         let settings = fidget::mesh::Settings {
             threads: settings.threads,
             min_depth: settings.depth,
-            max_depth: settings.depth,
+            max_depth: settings.max_depth.unwrap_or(settings.depth),
         };
         let octree = fidget::mesh::Octree::build(&tape, settings);
         mesh = octree.walk_dual(settings);
