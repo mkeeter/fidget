@@ -94,21 +94,14 @@ impl QuadraticErrorSolver {
                 .max(1e-6);
 
             // If this epsilon dramatically increases the error, then we'll
-            // assume that the previous (out-of-cell) vertex was genuine and
-            // use it.
+            // assume that the previous (possibly out-of-cell) vertex was
+            // genuine and use it.
             if let Some(p) = prev.filter(|(_, prev_err)| err > prev_err * 2.0) {
                 return p;
             }
 
-            // If the matrix solution is in the cell, then we assume the
-            // solution is good; we _also_ stop iterating if this is the
-            // last possible chance.
-            let pos = CellVertex { pos };
-            if i == 3 {
-                return (pos, err);
-            }
-            prev = Some((pos, err));
+            prev = Some((CellVertex { pos }, err));
         }
-        unreachable!();
+        prev.unwrap()
     }
 }
