@@ -211,13 +211,6 @@ impl Octree {
             let mut fixup = DcFixup::new(octree.cells.len(), &settings);
             fixup.cell(&octree, CellIndex::default());
             let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
-            println!("fixing {num_fix} / {} cells", octree.cells.len());
-            println!("    {} out of cell", fixup.out_of_cell);
-            println!("    {} nonmanifold faces", fixup.nonmanifold_face);
-            println!("    {} nonmanifold edges", fixup.nonmanifold_edge);
-            println!("    {} nonmanifold neighbor", fixup.nonmanifold_neighbor);
-            println!("    {} invalid edges", fixup.bad_edge);
-            println!("    {} unfixed", fixup.depth_exceeded);
             if num_fix == 0 {
                 break;
             }
