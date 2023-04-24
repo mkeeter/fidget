@@ -34,8 +34,8 @@ impl Axis {
     /// const A: Axis = Axis::new(0b1000);
     /// ```
     pub const fn new(i: u8) -> Self {
-        let _bad_axis_const = [0u8; 1][(i.count_ones() != 1) as usize];
-        let _bad_axis = [0u8; 1][(i.trailing_zeros() >= 3) as usize];
+        assert!(i.count_ones() == 1);
+        assert!(i.trailing_zeros() < 3);
         Self(i)
     }
 
@@ -207,7 +207,7 @@ impl Edge {
     /// # Panics
     /// If `i >= 12`, since that's an invalid edge
     pub const fn new(i: u8) -> Self {
-        let _bad_index_const = [0; 12][i as usize];
+        assert!(i < 12);
         Self(i)
     }
     /// Converts from an edge to an index
@@ -251,7 +251,7 @@ pub struct Intersection {
 
 /// Face mask, as an 4-bit value representing set corners
 ///
-/// This value is bound to a particular [`Frame`] and is meaningless in
+/// This value is bound to a particular coordinate frame and is meaningless in
 /// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
 ///
 ///   Bit | Corner
@@ -263,7 +263,7 @@ pub struct Intersection {
 ///
 /// (i.e. `u` is bit 0 of the mask and `v` is bit 1 of the mask)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct FaceMask(pub u8);
+pub(crate) struct FaceMask(pub u8);
 
 impl FaceMask {
     pub const fn new(i: u8) -> Self {
@@ -274,7 +274,7 @@ impl FaceMask {
 
 /// Edge mask, as an 2-bit value representing set corners
 ///
-/// This value is bound to a particular [`Frame`] and is meaningless in
+/// This value is bound to a particular coordinate frame and is meaningless in
 /// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
 ///
 ///   Bit | Corner
@@ -282,7 +282,7 @@ impl FaceMask {
 ///    0  | 0
 ///    1  | t
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct EdgeMask(pub u8);
+pub(crate) struct EdgeMask(pub u8);
 
 impl EdgeMask {
     pub const fn new(i: u8) -> Self {
@@ -296,7 +296,7 @@ impl EdgeMask {
 /// Encoded as `axis * 2 + sign`, where `axis` is a value in the range 0-2
 /// and sign is `+1` for the face in the `+axis` direction.
 #[derive(Copy, Clone, Debug)]
-pub struct Face(u8);
+pub(crate) struct Face(u8);
 
 impl Face {
     pub const fn new(i: u8) -> Self {

@@ -1,4 +1,5 @@
 # 0.2.0 (unreleased)
+- Improve meshing quality (better vertex placement, etc)
 - Add parallelism to meshing implementation, configured by the new
   `fidget::mesh::Settings`.
 

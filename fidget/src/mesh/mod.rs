@@ -49,5 +49,11 @@ pub struct Settings {
     pub min_depth: u8,
 
     /// Maximum depth to recurse in the octree
+    ///
+    /// If this is `> min_depth`, then after the octree is initially built
+    /// (recursing to `min_depth`), cells with escaped vertices are subdivided
+    /// recursively up to a limit of `max_depth`.
+    ///
+    /// This is **much slower**.
     pub max_depth: u8,
 }
