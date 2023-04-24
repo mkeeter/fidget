@@ -157,7 +157,7 @@ pub struct DirectedEdge {
 }
 
 impl DirectedEdge {
-    /// Builds a new directed edge
+    /// Builds a new directed edge within a cube
     ///
     /// # Panics
     /// If the start and end aren't the same
@@ -167,8 +167,19 @@ impl DirectedEdge {
     /// const START: Corner = Corner::new(0);
     /// const E: DirectedEdge = DirectedEdge::new(START, START);
     /// ```
+    ///
+    /// If the start and end point are different on more than one axis (e.g.
+    /// there are no diagonal edges in a cube):
+    ///
+    /// ```compile_fail
+    /// # use fidget::mesh::types::{Corner, DirectedEdge};
+    /// const START: Corner = Corner::new(0);
+    /// const END: Corner = Corner::new(0b111);
+    /// const E: DirectedEdge = DirectedEdge::new(START, END);
+    /// ```
     pub const fn new(start: Corner, end: Corner) -> Self {
-        let _corners_must_not_match = [0; 1][(start.0 == end.0) as usize];
+        assert!(start.0 != end.0);
+        assert!((start.0 ^ end.0).count_ones() == 1);
         Self { start, end }
     }
     /// Returns the start corner
@@ -266,8 +277,12 @@ pub struct Intersection {
 pub(crate) struct FaceMask(pub u8);
 
 impl FaceMask {
+    /// Builds a new `FaceMask`
+    ///
+    /// # Panics
+    /// If `i >= 16`, since that's an invalid mask for a 4-bit value
     pub const fn new(i: u8) -> Self {
-        let _bad_face_mask = [0u8; 1][(i >= 16) as usize];
+        assert!(i < 16);
         Self(i)
     }
 }
@@ -285,8 +300,12 @@ impl FaceMask {
 pub(crate) struct EdgeMask(pub u8);
 
 impl EdgeMask {
+    /// Builds a new `FaceMask`
+    ///
+    /// # Panics
+    /// If `i >= 4`, since that's an invalid mask for a 2-bit value
     pub const fn new(i: u8) -> Self {
-        let _bad_face_mask = [0u8; 1][(i >= 4) as usize];
+        assert!(i < 4);
         Self(i)
     }
 }
@@ -299,8 +318,12 @@ impl EdgeMask {
 pub(crate) struct Face(u8);
 
 impl Face {
+    /// Builds a new `Face`
+    ///
+    /// # Panics
+    /// If `i >= 6`, since that's an invalid face
     pub const fn new(i: u8) -> Self {
-        let _bad_face = [0u8; 1][(i >= 6) as usize];
+        assert!(i < 6);
         Self(i)
     }
 
