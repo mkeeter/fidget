@@ -11,6 +11,7 @@ readme = "../README.md"
 [dependencies]
 arrayvec = "0.7"
 document-features = "0.2"
+ieee754 = "0.2"
 num-derive = "0.3"
 num-traits = "0.2"
 once_cell = "1"

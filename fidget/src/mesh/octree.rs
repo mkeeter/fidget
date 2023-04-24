@@ -2,11 +2,13 @@
 
 use super::{
     builder::MeshBuilder,
-    cell::{Cell, CellBounds, CellData, CellIndex, CellVertex, Leaf},
+    cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
     dc::{DcBuilder, DcWorker},
+    fixup::DcFixup,
+    frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
-    types::{Axis, Corner},
+    types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     worker::Worker,
     Mesh, Settings,
 };
@@ -186,7 +188,7 @@ impl Octree {
     pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(tape.clone()));
 
-        if settings.threads == 0 {
+        let mut octree = if settings.threads == 0 {
             let mut out = OctreeBuilder::new();
             out.recurse(
                 &eval,
@@ -197,8 +199,61 @@ impl Octree {
             );
             out.into()
         } else {
-            Worker::scheduler(eval, settings)
+            Worker::scheduler(eval.clone(), settings)
+        };
+
+        // If we can't refine any further, then return right away
+        if settings.min_depth == settings.max_depth {
+            return octree;
         }
+
+        loop {
+            let mut fixup = DcFixup::new(octree.cells.len(), &settings);
+            fixup.cell(&octree, CellIndex::default());
+            let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
+            if num_fix == 0 {
+                break;
+            }
+            // Translate from an Octree back to an OctreeBuilder; specifically,
+            // the index field in a Cell::Leaf points into the `leafs` array,
+            // rather than the `verts` array.
+            let mut cells = vec![];
+            let mut leafs = vec![];
+            for c in octree.cells {
+                cells.push(if let Cell::Leaf(Leaf { mask, index }) = c.into() {
+                    let leaf_index = leafs.len();
+                    leafs.push(LeafData {
+                        vert_index: index,
+                        hermite_index: None,
+                    });
+                    Cell::Leaf(Leaf {
+                        mask,
+                        index: leaf_index,
+                    })
+                    .into()
+                } else {
+                    c
+                })
+            }
+            let mut b = OctreeBuilder {
+                o: Octree {
+                    cells,
+                    verts: octree.verts,
+                },
+                leafs,
+                hermite: vec![LeafHermiteData::default()],
+                hermite_slots: vec![],
+            };
+            b.refine(
+                &eval,
+                &mut EvalData::default(),
+                &mut EvalStorage::default(),
+                CellIndex::default(),
+                &fixup.needs_fixing,
+            );
+            octree = b.into();
+        }
+        octree
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -214,7 +269,7 @@ impl Octree {
     }
 
     pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
-        match self.cells[cell.index].into() {
+        match self[cell].into() {
             Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
             Cell::Branch { .. } => false,
             Cell::Invalid => panic!(),
@@ -231,11 +286,135 @@ impl Octree {
     ) -> CellIndex {
         let child = child.into();
 
-        match self.cells[cell.index].into() {
+        match self[cell].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index, .. } => cell.child(index, child),
             Cell::Invalid => panic!(),
         }
+    }
+
+    pub(crate) fn edge_mask(
+        &self,
+        cell: CellIndex,
+        edge: Edge,
+    ) -> Option<EdgeMask> {
+        let (a, b) = edge.corners();
+        match self[cell].into() {
+            Cell::Empty => Some(EdgeMask::new(0b00)),
+            Cell::Full => Some(EdgeMask::new(0b11)),
+            Cell::Leaf(Leaf { mask, .. }) => {
+                let lo = mask & (1 << a.index()) != 0;
+                let hi = mask & (1 << b.index()) != 0;
+                Some(EdgeMask::new(lo as u8 + ((hi as u8) << 1)))
+            }
+            Cell::Branch { index, .. } => {
+                let Some(lo) = self.edge_mask(cell.child(index, a), edge) else {
+                    return None;
+                };
+                let Some(hi) = self.edge_mask(cell.child(index, b), edge) else {
+                    return None;
+                };
+                let center = lo.0 & (0b10) != 0;
+                if center == (lo.0 & 0b01 != 0)
+                    || center == (hi.0 & (0b10) != 0)
+                {
+                    Some(EdgeMask::new((lo.0 & 0b01) | (hi.0 & 0b10)))
+                } else {
+                    None
+                }
+            }
+            Cell::Invalid => panic!(),
+        }
+    }
+
+    pub(crate) fn face_mask(
+        &self,
+        cell: CellIndex,
+        face: Face,
+    ) -> Option<FaceMask> {
+        let t = face.axis();
+        let u = t.next();
+        let v = u.next();
+        let f = if face.sign() {
+            t.into()
+        } else {
+            Corner::new(0)
+        };
+        let corners = [f, f | u, f | v, f | u | v];
+        match self[cell].into() {
+            Cell::Empty => Some(FaceMask::new(0b0000)),
+            Cell::Full => Some(FaceMask::new(0b1111)),
+            Cell::Leaf(Leaf { mask, .. }) => {
+                let mut out = 0;
+                for (i, c) in corners.iter().enumerate() {
+                    if mask & (1 << c.index()) != 0 {
+                        out |= 1 << i;
+                    }
+                }
+                Some(FaceMask::new(out))
+            }
+            Cell::Branch { index, .. } => {
+                let masks =
+                    corners.map(|c| self.face_mask(cell.child(index, c), face));
+                if masks.iter().any(Option::is_none) {
+                    return None;
+                }
+                let masks = masks.map(Option::unwrap);
+
+                let center = masks[0].0 & (1 << 3) != 0;
+                let corners = [
+                    masks[0].0 & (1 << 0) != 0,
+                    masks[1].0 & (1 << 1) != 0,
+                    masks[2].0 & (1 << 2) != 0,
+                    masks[3].0 & (1 << 3) != 0,
+                ];
+                // The center must match at least one of the corners; otherwise,
+                // this is non-manifold.
+                if corners.iter().all(|corner| center != *corner) {
+                    return None;
+                }
+                // Each edge's center value must match at least one of the
+                // connected corners; otherwise, this is non-manifold
+                let u_edge_lo = masks[0].0 & (1 << 1) != 0;
+                if u_edge_lo != corners[0] && u_edge_lo != corners[1] {
+                    return None;
+                }
+                let u_edge_hi = masks[3].0 & (1 << 2) != 0;
+                if u_edge_hi != corners[2] && u_edge_hi != corners[3] {
+                    return None;
+                }
+                let v_edge_lo = masks[0].0 & (1 << 2) != 0;
+                if v_edge_lo != corners[0] && v_edge_lo != corners[2] {
+                    return None;
+                }
+                let v_edge_hi = masks[3].0 & (1 << 1) != 0;
+                if v_edge_hi != corners[1] && v_edge_hi != corners[3] {
+                    return None;
+                }
+
+                Some(FaceMask::new(
+                    corners[0] as u8
+                        | (corners[1] as u8) << 1
+                        | (corners[2] as u8) << 2
+                        | (corners[3] as u8) << 3,
+                ))
+            }
+            Cell::Invalid => panic!(),
+        }
+    }
+}
+
+impl std::ops::Index<CellIndex> for Octree {
+    type Output = CellData;
+
+    fn index(&self, i: CellIndex) -> &Self::Output {
+        &self.cells[i.index]
+    }
+}
+
+impl std::ops::IndexMut<CellIndex> for Octree {
+    fn index_mut(&mut self, i: CellIndex) -> &mut Self::Output {
+        &mut self.cells[i.index]
     }
 }
 
@@ -261,6 +440,9 @@ pub(crate) struct OctreeBuilder {
     /// Slot 0 is reserved and should always be populated with a dummy value, so
     /// that we can use an `Option<NonZeroUsize>` elsewhere.
     hermite: Vec<LeafHermiteData>,
+
+    /// Available slots in the `hermite` array
+    hermite_slots: Vec<usize>,
 }
 
 impl Default for OctreeBuilder {
@@ -305,6 +487,7 @@ impl OctreeBuilder {
             },
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
+            hermite_slots: vec![],
         }
     }
 
@@ -319,7 +502,25 @@ impl OctreeBuilder {
             },
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
+            hermite_slots: vec![],
         }
+    }
+
+    /// Stores hermite data in the local array
+    fn push_hermite(&mut self, d: LeafHermiteData) -> usize {
+        if let Some(s) = self.hermite_slots.pop() {
+            self.hermite[s] = d;
+            s
+        } else {
+            let s = self.hermite.len();
+            self.hermite.push(d);
+            s
+        }
+    }
+
+    /// Releases hermite data from the local array
+    fn pop_hermite(&mut self, i: usize) {
+        self.hermite_slots.push(i);
     }
 
     /// Records the given cell into the provided index
@@ -390,12 +591,10 @@ impl OctreeBuilder {
     /// record.
     pub(crate) fn record_leaf(
         &mut self,
-        cell: CellIndex,
         pos: CellVertex,
         hermite: LeafHermiteData,
     ) -> Cell {
-        let hermite_index = self.hermite.len();
-        self.hermite.push(hermite);
+        let hermite_index = self.push_hermite(hermite);
 
         let vert_index = self.o.verts.len();
         self.o.verts.push(pos);
@@ -406,9 +605,7 @@ impl OctreeBuilder {
         debug_assert_eq!(edges.len(), 1);
         for e in edges[0] {
             let i = hermite.intersections[e.to_undirected().index()];
-            self.o.verts.push(CellVertex {
-                pos: cell.bounds.relative(i.pos.xyz()),
-            });
+            self.o.verts.push(CellVertex { pos: i.pos.xyz() });
         }
 
         let leaf_index = self.leafs.len();
@@ -433,7 +630,7 @@ impl OctreeBuilder {
         settings: Settings,
     ) {
         match self.eval_cell(eval, data, storage, cell, settings) {
-            CellResult::Done(c) => self.o.cells[cell.index] = c.into(),
+            CellResult::Done(c) => self.o[cell] = c.into(),
             CellResult::Recurse(sub_eval) => {
                 let index = self.o.cells.len();
                 for _ in Corner::iter() {
@@ -446,14 +643,14 @@ impl OctreeBuilder {
 
                 let r = self.check_done(cell, index).unwrap();
 
-                self.o.cells[cell.index] = match r {
+                self.o[cell] = match r {
                     BranchResult::Empty => Cell::Empty,
                     BranchResult::Full => Cell::Full,
                     BranchResult::Branch(index) => {
                         Cell::Branch { index, thread: 0 }
                     }
                     BranchResult::Leaf(pos, hermite) => {
-                        self.record_leaf(cell, pos, hermite)
+                        self.record_leaf(pos, hermite)
                     }
                 }
                 .into();
@@ -467,6 +664,10 @@ impl OctreeBuilder {
     }
 
     /// Evaluates the given leaf
+    ///
+    /// Writes the leaf vertex to `self.o.verts`, hermite data to
+    /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
+    /// anything to `self.o.cells`; the cell is returned instead.
     fn leaf<I: Family>(
         &mut self,
         eval: &EvalGroup<I>,
@@ -576,7 +777,7 @@ impl OctreeBuilder {
                         / ((EDGE_SEARCH_SIZE - 1) as u32);
                     debug_assert!(pos.max() <= u16::MAX.into());
 
-                    let pos = cell.pos(pos.map(|v| v as i32));
+                    let pos = cell.pos(pos.map(|p| p as u16));
                     xs[i] = pos.x;
                     ys[i] = pos.y;
                     zs[i] = pos.z;
@@ -637,7 +838,7 @@ impl OctreeBuilder {
                 .collect();
 
         for (i, xyz) in intersections.iter().enumerate() {
-            let pos = cell.pos(xyz.map(|i| i as i32));
+            let pos = cell.pos(*xyz);
             xs[i] = pos.x;
             ys[i] = pos.y;
             zs[i] = pos.z;
@@ -670,7 +871,7 @@ impl OctreeBuilder {
 
                 i += 1;
             }
-            let (pos, err) = qef.solve(cell.bounds);
+            let (pos, err) = qef.solve();
             verts.push(pos);
 
             // We overwrite the error here, because it's only used when
@@ -682,14 +883,13 @@ impl OctreeBuilder {
         // TODO: use self.record_leaf here?
         let vert_index = self.o.verts.len();
         self.o.verts.extend(verts.into_iter());
-        self.o
-            .verts
-            .extend(intersections.into_iter().map(|pos| CellVertex {
-                pos: pos.map(|i| i as i32),
-            }));
+        self.o.verts.extend(
+            intersections
+                .into_iter()
+                .map(|pos| CellVertex { pos: cell.pos(pos) }),
+        );
 
-        let hermite_index = self.hermite.len();
-        self.hermite.push(hermite_cell);
+        let hermite_index = self.push_hermite(hermite_cell);
         debug_assert!(hermite_index > 0);
 
         let leaf_index = self.leafs.len();
@@ -744,28 +944,14 @@ impl OctreeBuilder {
         // If we haven't returned early due to having an invalid cell, then we
         // can proceed with removing hermite data from the leaf cells, since
         // they won't need it anymore (one way or another).
-        let mut hermite_indices = [None; 8];
-        for i in 0..8 {
+        for (i, h) in hermite_data.iter_mut().enumerate() {
             if let Cell::Leaf(Leaf { index, .. }) =
                 self.o.cells[index + i].into()
             {
                 let j = self.leafs[index].hermite_index.take().unwrap().get();
-                hermite_indices[i] = Some(j);
-                hermite_data[i] = self.hermite[j];
+                *h = self.hermite[j];
+                self.pop_hermite(j);
             }
-        }
-
-        // At this point, if our hermite indices are contiguous and at the end
-        // of the hermite data array, we can shrink it down to reduce allocation
-        // churn.
-        hermite_indices.sort();
-        hermite_indices.reverse();
-        let mut hermite_indices = hermite_indices.as_slice();
-        while let Some((Some(h), rest)) = hermite_indices.split_first() {
-            if *h == self.hermite.len() - 1 {
-                self.hermite.pop();
-            }
-            hermite_indices = rest;
         }
 
         let r = if full_count == 8 {
@@ -785,8 +971,8 @@ impl OctreeBuilder {
             //   not be marked as collapsible.
             debug_assert!(hermite.mask != 0);
             debug_assert!(hermite.mask != 255);
-            let (pos, new_err) = hermite.solve(cell.bounds);
-            if new_err < hermite.qef_err * 2.0 && pos.valid() {
+            let (pos, new_err) = hermite.solve();
+            if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
                 hermite.qef_err = new_err;
                 BranchResult::Leaf(pos, hermite)
             } else {
@@ -851,7 +1037,7 @@ impl OctreeBuilder {
             mask |= b << i;
         }
 
-        use super::frame::{Frame, XYZ, YZX, ZXY};
+        use super::frame::{XYZ, YZX, ZXY};
         for (t, u, v) in [XYZ::frame(), YZX::frame(), ZXY::frame()] {
             //  - The sign in the middle of a coarse edge must agree with the
             //    sign of at least one of the edge’s two endpoints.
@@ -906,6 +1092,62 @@ impl OctreeBuilder {
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
+    }
+
+    /// Recurse down the octree, splitting the given leaf cells
+    fn refine<I: Family>(
+        &mut self,
+        eval: &Arc<EvalGroup<I>>,
+        data: &mut EvalData<I>,
+        storage: &mut EvalStorage<I>,
+        cell: CellIndex,
+        needs_fixing: &[bool],
+    ) {
+        match self.o[cell].into() {
+            Cell::Empty | Cell::Full | Cell::Leaf(..)
+                if needs_fixing[cell.index] =>
+            {
+                // We're going to split this cell and refine it
+                let index = self.o.cells.len();
+                self.o[cell] = Cell::Branch { index, thread: 0 }.into();
+
+                // Evaluate all 8 leafs
+                for i in Corner::iter() {
+                    let subcell = cell.child(index, i);
+                    let leaf = self.leaf(eval, data, storage, subcell);
+                    match leaf {
+                        Cell::Leaf(Leaf { index, .. }) => {
+                            // Discard hermite data immediately, because we
+                            // aren't collapsing leaves here.
+                            let hermite_index =
+                                self.leafs[index].hermite_index.take().unwrap();
+                            self.pop_hermite(hermite_index.get());
+                        }
+                        Cell::Empty | Cell::Full => (),
+                        Cell::Branch { .. } | Cell::Invalid => panic!(),
+                    }
+                    // We aren't going to collapse the leafs, so just record
+                    // them right away.
+                    self.o.cells.push(leaf.into());
+                }
+            }
+            Cell::Empty | Cell::Full | Cell::Leaf(..) => {
+                assert!(!needs_fixing[cell.index])
+            }
+            Cell::Branch { index, .. } => {
+                assert!(!needs_fixing[cell.index]);
+                for i in Corner::iter() {
+                    self.refine(
+                        eval,
+                        data,
+                        storage,
+                        cell.child(index, i),
+                        needs_fixing,
+                    )
+                }
+            }
+            Cell::Invalid => panic!(),
+        }
     }
 }
 
@@ -1007,7 +1249,7 @@ impl LeafHermiteData {
     /// Merges an octree subdivision of leaf hermite data
     fn merge(leafs: [LeafHermiteData; 8]) -> Self {
         let mut out = Self::default();
-        use super::types::{Edge, X, Y, Z};
+        use super::types::{X, Y, Z};
 
         // Accumulate intersections along edges
         for t in [X, Y, Z] {
@@ -1109,7 +1351,7 @@ impl LeafHermiteData {
     }
 
     /// Solves the combined QEF
-    pub fn solve(&self, cell: CellBounds) -> (CellVertex, f32) {
+    pub fn solve(&self) -> (CellVertex, f32) {
         let mut qef = self.center_qef;
         for &i in &self.intersections {
             qef += i.into();
@@ -1117,7 +1359,7 @@ impl LeafHermiteData {
         for &f in &self.face_qefs {
             qef += f;
         }
-        qef.solve(cell)
+        qef.solve()
     }
 }
 
@@ -1180,7 +1422,7 @@ mod test {
         let tape = cube.get_tape::<crate::vm::Eval>().unwrap();
         let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
-        let v = CellIndex::default().pos(octree.verts[0]);
+        let v = octree.verts[0].pos;
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
         assert!(
             (v - expected).norm() < EPSILON,
@@ -1319,14 +1561,12 @@ mod test {
             };
             let octree = Octree::build(&tape, settings);
             let sphere_mesh = octree.walk_dual(settings);
-            /*
             sphere_mesh
                 .write_stl(
-                    &mut std::fs::File::create(format!("out{threads}.stl"))
+                    &mut std::fs::File::create(format!("sphere{threads}.stl"))
                         .unwrap(),
                 )
                 .unwrap();
-            */
 
             if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
                 panic!("{e} (with {threads} threads)");
@@ -1396,10 +1636,10 @@ mod test {
                     let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
-                    let pos = CellIndex::default().pos(octree.verts[0]);
+                    let pos = octree.verts[0].pos;
                     let mut mass_point = nalgebra::Vector3::zeros();
                     for v in &octree.verts[1..] {
-                        mass_point += CellIndex::default().pos(*v);
+                        mass_point += v.pos;
                     }
                     mass_point /= (octree.verts.len() - 1) as f32;
                     assert!(
@@ -1409,7 +1649,7 @@ mod test {
                     );
                     let eval = tape.new_point_evaluator();
                     for v in &octree.verts {
-                        let v = CellIndex::default().pos(*v);
+                        let v = v.pos;
                         let (r, _) = eval.eval(v.x, v.y, v.z, &[]).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
@@ -1440,7 +1680,7 @@ mod test {
             assert_eq!(octree.cells.len(), 8);
             assert_eq!(octree.verts.len(), 4);
 
-            let pos = CellIndex::default().pos(octree.verts[0]);
+            let pos = octree.verts[0].pos;
             assert!(
                 (pos - tip).norm() < 1e-3,
                 "bad vertex position: expected {tip:?}, got {pos:?}"

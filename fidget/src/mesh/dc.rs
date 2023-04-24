@@ -243,7 +243,7 @@ impl DcBuilder for DcWorker<'_> {
     fn vertex(
         &mut self,
         i: usize,
-        cell: CellIndex,
+        _cell: CellIndex,
         verts: &[CellVertex],
     ) -> usize {
         // Build our thread + vertex index
@@ -259,7 +259,7 @@ impl DcBuilder for DcWorker<'_> {
             Ordering::Relaxed,
         ) {
             Ok(_) => {
-                self.verts.push(cell.pos(verts[i]));
+                self.verts.push(verts[i].pos);
                 next
             }
             Err(i) => i,
@@ -272,6 +272,11 @@ impl DcBuilder for DcWorker<'_> {
 pub trait DcBuilder {
     fn cell(&mut self, octree: &Octree, cell: CellIndex);
     fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex);
+
+    /// Handles four cells that share a common edge aligned on axis `T`
+    ///
+    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
+    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
     fn edge<F: Frame>(
         &mut self,
         octree: &Octree,
@@ -321,7 +326,7 @@ pub trait DcBuilder {
 }
 
 pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
-    if let Cell::Branch { index, .. } = octree.cells[cell.index].into() {
+    if let Cell::Branch { index, .. } = octree[cell].into() {
         debug_assert_eq!(index % 8, 0);
         for i in Corner::iter() {
             out.cell(octree, octree.child(cell, i));
@@ -435,7 +440,7 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // If any of the leafs are Empty or Full, then this edge can't
         // include a sign change.  TODO: can we make this any -> all if we
         // collapse empty / filled leafs into Empty / Full cells?
-        let leafs = cs.map(|cell| match octree.cells[cell.index].into() {
+        let leafs = cs.map(|cell| match octree[cell].into() {
             Cell::Leaf(leaf) => Some(leaf),
             Cell::Empty | Cell::Full => None,
             Cell::Branch { .. } => unreachable!(),
@@ -536,7 +541,7 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // we get the correct value.
         let winding = if starting_sign { 3 } else { 1 };
         for j in 0..4 {
-            if vs[j] != vs[(j + winding) % 4] {
+            if cs[j].index != cs[(j + winding) % 4].index {
                 out.triangle(vs[j], vs[(j + winding) % 4], i)
             }
         }

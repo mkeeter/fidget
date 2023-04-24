@@ -197,6 +197,7 @@ impl DirectedEdge {
 ///
 /// With `(t, u, v)` as a right-handed coordinate system and `t` being the
 /// varying axis of the edge, this is packed as `4 * t + 2 * v + 1 * u`
+/// (where `t`, `u`, and `v` are values in the range 0-2 representing an axis)
 #[derive(Copy, Clone, Debug)]
 pub struct Edge(u8);
 
@@ -215,6 +216,10 @@ impl Edge {
     }
 
     /// Returns a `(start, end)` tuple for the given edge
+    ///
+    /// In the `t, u, v` coordinate system, the start always the `t` bit clear
+    /// and the end always has the `t` bit set; the `u` and `v` bits are the
+    /// same at both start and end.
     pub fn corners(&self) -> (Corner, Corner) {
         use super::frame::{Frame, XYZ, YZX, ZXY};
         let (t, u, v) = match self.0 / 4 {
@@ -244,6 +249,85 @@ pub struct Intersection {
     pub edge: Offset,
 }
 
-/// Cell mask, as an 8-bit value representing set corners
+/// Face mask, as an 4-bit value representing set corners
+///
+/// This value is bound to a particular [`Frame`] and is meaningless in
+/// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
+///
+///   Bit | Corner
+///   ----|--------
+///    0  | 0
+///    1  | u
+///    2  | v
+///    3  | u | v
+///
+/// (i.e. `u` is bit 0 of the mask and `v` is bit 1 of the mask)
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct FaceMask(pub u8);
+
+impl FaceMask {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face_mask = [0u8; 1][(i >= 16) as usize];
+        Self(i)
+    }
+}
+
+/// Edge mask, as an 2-bit value representing set corners
+///
+/// This value is bound to a particular [`Frame`] and is meaningless in
+/// isolation.  Within that frame `(t, u, v)`, the corners are encoded as
+///
+///   Bit | Corner
+///   ----|--------
+///    0  | 0
+///    1  | t
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct EdgeMask(pub u8);
+
+impl EdgeMask {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face_mask = [0u8; 1][(i >= 4) as usize];
+        Self(i)
+    }
+}
+
+/// Face index, as a value in the range 0-5
+///
+/// Encoded as `axis * 2 + sign`, where `axis` is a value in the range 0-2
+/// and sign is `+1` for the face in the `+axis` direction.
 #[derive(Copy, Clone, Debug)]
-struct Mask(u8);
+pub struct Face(u8);
+
+impl Face {
+    pub const fn new(i: u8) -> Self {
+        let _bad_face = [0u8; 1][(i >= 6) as usize];
+        Self(i)
+    }
+
+    /// Extracts the main axis of this face
+    pub const fn axis(self) -> Axis {
+        Axis::new(1 << (self.0 / 2))
+    }
+
+    /// Returns the sign of this face, which is a boolean
+    ///
+    /// When true, the face is on the `+axis` side of the cell
+    pub const fn sign(self) -> bool {
+        self.0 % 2 != 0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_face_axis() {
+        assert_eq!(Face::new(0).axis(), X);
+        assert_eq!(Face::new(1).axis(), X);
+        assert_eq!(Face::new(2).axis(), Y);
+        assert_eq!(Face::new(3).axis(), Y);
+        assert_eq!(Face::new(4).axis(), Z);
+        assert_eq!(Face::new(5).axis(), Z);
+    }
+}

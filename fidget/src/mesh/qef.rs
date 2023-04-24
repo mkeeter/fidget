@@ -1,4 +1,4 @@
-use super::cell::{CellBounds, CellVertex};
+use super::cell::CellVertex;
 
 /// Solver for a quadratic error function to position a vertex within a cell
 #[derive(Copy, Clone, Debug, Default)]
@@ -64,7 +64,7 @@ impl QuadraticErrorSolver {
     /// to increase the likelyhood that the vertex is bounded in the cell.
     ///
     /// Also returns the QEF error as the second item in the tuple
-    pub fn solve(&self, cell: CellBounds) -> (CellVertex, f32) {
+    pub fn solve(&self) -> (CellVertex, f32) {
         // This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.
@@ -77,13 +77,14 @@ impl QuadraticErrorSolver {
         // things like the cone model.  Instead, we'll be a little more
         // clever: we'll pick the smallest epsilon that keeps the feature in
         // the cell without dramatically increasing QEF error.
-        //
-        // TODO: iterating by epsilons is a _little_ silly, because what we
-        // actually care about is turning off the 0/1/2/3 lowest eigenvalues
-        // in the solution matrix.
-        const EPSILONS: &[f32] = &[1e-4, 1e-3, 1e-2];
         let mut prev = None;
-        for (i, &epsilon) in EPSILONS.iter().enumerate() {
+        for i in 0..4 {
+            let epsilon = if i == 3 {
+                std::f32::INFINITY
+            } else {
+                use ieee754::Ieee754;
+                svd.singular_values[2 - i].prev()
+            };
             let sol = svd.solve(&atb, epsilon);
             let pos = sol.map(|c| c + center).unwrap_or(center);
             // We'll clamp the error to a small > 0 value for ease of comparison
@@ -93,23 +94,14 @@ impl QuadraticErrorSolver {
                 .max(1e-6);
 
             // If this epsilon dramatically increases the error, then we'll
-            // assume that the previous (out-of-cell) vertex was genuine and
-            // use it.
+            // assume that the previous (possibly out-of-cell) vertex was
+            // genuine and use it.
             if let Some(p) = prev.filter(|(_, prev_err)| err > prev_err * 2.0) {
                 return p;
             }
 
-            // If the matrix solution is in the cell, then we assume the
-            // solution is good; we _also_ stop iterating if this is the
-            // last possible chance.
-            let pos = CellVertex {
-                pos: cell.relative(pos),
-            };
-            if i == EPSILONS.len() - 1 || pos.valid() {
-                return (pos, err);
-            }
-            prev = Some((pos, err));
+            prev = Some((CellVertex { pos }, err));
         }
-        unreachable!();
+        prev.unwrap()
     }
 }

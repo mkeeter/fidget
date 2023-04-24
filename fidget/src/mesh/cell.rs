@@ -96,7 +96,7 @@ impl From<CellData> for Cell {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Leaf {
-    pub mask: u8,
+    pub mask: u8, // TODO make this a stronger type, e.g. CellMask?
     pub index: usize,
 }
 
@@ -113,36 +113,28 @@ impl Leaf {
 
 #[derive(Copy, Clone, Debug)]
 pub struct CellVertex {
-    /// Position, as a relative offset within a cell's bounding box
-    ///
-    /// The lower `u16` represents the cell's bounding box; higher bits are for
-    /// vertices that exceed the bounding box.
-    pub pos: nalgebra::Vector3<i32>,
+    /// Position of this vertex
+    pub pos: nalgebra::Vector3<f32>,
 }
 
 impl Default for CellVertex {
     fn default() -> Self {
         Self {
-            pos: nalgebra::Vector3::new(i32::MIN, i32::MIN, i32::MIN),
+            pos: nalgebra::Vector3::new(f32::NAN, f32::NAN, f32::NAN),
         }
     }
 }
 
-impl CellVertex {
-    /// Checks whether the vertex is contained within the cell
-    pub fn valid(self) -> bool {
-        self.pos.x >= 0
-            && self.pos.x <= u16::MAX as i32
-            && self.pos.y >= 0
-            && self.pos.y <= u16::MAX as i32
-            && self.pos.z >= 0
-            && self.pos.z <= u16::MAX as i32
-    }
-}
+impl std::ops::Index<Axis> for CellVertex {
+    type Output = f32;
 
-impl From<CellVertex> for nalgebra::Vector3<i32> {
-    fn from(v: CellVertex) -> Self {
-        v.pos
+    fn index(&self, axis: Axis) -> &Self::Output {
+        match axis {
+            X => &self.pos.x,
+            Y => &self.pos.y,
+            Z => &self.pos.z,
+            _ => panic!("invalid axis: {axis:?}"),
+        }
     }
 }
 
@@ -210,10 +202,7 @@ impl CellIndex {
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    pub fn pos<P: Into<nalgebra::Vector3<i32>>>(
-        &self,
-        p: P,
-    ) -> nalgebra::Vector3<f32> {
+    pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         self.bounds.pos(p)
     }
 }
@@ -291,34 +280,16 @@ impl CellBounds {
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    pub fn pos<P: Into<nalgebra::Vector3<i32>>>(
-        &self,
-        p: P,
-    ) -> nalgebra::Vector3<f32> {
-        let p = p.into();
+    pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
         let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
         let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
         nalgebra::Vector3::new(x, y, z)
     }
 
-    /// Converts from an absolute position to a relative position in the cell
-    ///
-    /// The `bool` indicates whether the vertex was clamped into the cell's
-    /// bounding box.
-    pub fn relative(
-        &self,
-        p: nalgebra::Vector3<f32>,
-    ) -> nalgebra::Vector3<i32> {
-        let x = (p.x - self.x.lower()) / self.x.width() * u16::MAX as f32;
-        let y = (p.y - self.y.lower()) / self.y.width() * u16::MAX as f32;
-        let z = (p.z - self.z.lower()) / self.z.width() * u16::MAX as f32;
-
-        nalgebra::Vector3::new(
-            x.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-            y.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-            z.clamp(i32::MIN as f32, i32::MAX as f32) as i32,
-        )
+    /// Checks whether the given position is within the cell
+    pub fn contains(&self, p: CellVertex) -> bool {
+        [X, Y, Z].iter().all(|&i| self[i].contains(p[i]))
     }
 }
 

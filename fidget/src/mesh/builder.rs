@@ -51,7 +51,7 @@ impl DcBuilder for MeshBuilder {
     fn vertex(
         &mut self,
         v: usize,
-        cell: CellIndex,
+        _cell: CellIndex,
         verts: &[CellVertex],
     ) -> usize {
         if v >= self.map.len() {
@@ -60,7 +60,7 @@ impl DcBuilder for MeshBuilder {
         match self.map[v] {
             usize::MAX => {
                 let next_vert = self.out.vertices.len();
-                self.out.vertices.push(cell.pos(verts[v]));
+                self.out.vertices.push(verts[v].pos);
                 self.map[v] = next_vert;
 
                 next_vert
