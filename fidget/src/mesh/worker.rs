@@ -37,25 +37,25 @@ impl<I: Family> Task<I> {
         Self {
             data: Arc::new(TaskData {
                 eval,
-                parent: CellIndex::default(),
+                target_cell: CellIndex::default(),
                 assigned_by: 0,
-                next: None,
+                parent: None,
             }),
         }
     }
 
-    fn next(
+    fn child(
         &self,
         eval: Arc<EvalGroup<I>>,
-        parent: CellIndex,
+        target_cell: CellIndex,
         assigned_by: usize,
     ) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
-                parent,
+                target_cell,
                 assigned_by,
-                next: Some(self.data.clone()),
+                parent: Some(self.data.clone()),
             }),
         }
     }
@@ -66,9 +66,10 @@ impl<I: Family> Task<I> {
                 if let Ok(e) = Arc::try_unwrap(t.eval) {
                     storage.claim(e);
                 }
-                if let Some(next) = t.next.and_then(|n| Arc::try_unwrap(n).ok())
+                if let Some(parent) =
+                    t.parent.and_then(|n| Arc::try_unwrap(n).ok())
                 {
-                    t = next;
+                    t = parent;
                 } else {
                     break;
                 }
@@ -84,9 +85,9 @@ struct TaskData<I: Family> {
     assigned_by: usize,
 
     /// Parent cell, which must be an `Invalid` cell waiting for population
-    parent: CellIndex,
+    target_cell: CellIndex,
 
-    next: Option<Arc<TaskData<I>>>,
+    parent: Option<Arc<TaskData<I>>>,
 }
 
 struct Done<I: Family> {
@@ -234,7 +235,7 @@ impl<I: Family> Worker<I> {
                 }
 
                 for i in Corner::iter() {
-                    let sub_cell = task.parent.child(index, i);
+                    let sub_cell = task.target_cell.child(index, i);
 
                     match self.octree.eval_cell(
                         &task.eval,
@@ -253,7 +254,7 @@ impl<I: Family> Worker<I> {
                             &mut ctx,
                         ),
                         CellResult::Recurse(eval) => {
-                            self.queue.push(task.next(
+                            self.queue.push(task.child(
                                 eval,
                                 sub_cell,
                                 self.thread_index,
@@ -309,13 +310,13 @@ impl<I: Family> Worker<I> {
                 self.octree.record_leaf(pos, hermite)
             }
         };
-        if let Some(next) = task.next.as_ref() {
+        if let Some(parent) = task.parent.as_ref() {
             // Store the result locally, recursing up
-            self.record(task.parent.index, r.into(), next, ctx);
+            self.record(task.target_cell.index, r.into(), parent, ctx);
         } else {
             // Store the result locally, but don't recurse (because this is a
             // root task and has nowhere to go)
-            self.octree.record(task.parent.index, r.into());
+            self.octree.record(task.target_cell.index, r.into());
         }
     }
 
@@ -329,31 +330,34 @@ impl<I: Family> Worker<I> {
         &mut self,
         index: usize,
         cell: CellData,
-        task: &Arc<TaskData<I>>,
+        parent_task: &Arc<TaskData<I>>,
         ctx: &mut ThreadContext,
     ) {
         self.octree.record(index, cell);
 
         // Check to see whether this is the last cell in the cluster of 8
-        let Some(r) = self.octree.check_done(task.parent, index & !7)
+        let target_cell = parent_task.target_cell;
+        let Some(r) = self.octree.check_done(target_cell, index & !7)
             else { return };
 
         // It's safe to unwrap `task` here because the only task lacking a
         // parent is at the root of the tree, which is never a set of 8
         // children; `check_done` will cause us to bail out early.
-        if task.assigned_by == self.thread_index {
-            self.on_done(r, task, self.thread_index, ctx);
+        if parent_task.assigned_by == self.thread_index {
+            self.on_done(r, parent_task, self.thread_index, ctx);
         } else {
             // Send the result back on the wire
             ctx.pushed();
-            self.friend_done[task.assigned_by]
+            self.friend_done[parent_task.assigned_by]
                 .send(Done {
-                    task: Task { data: task.clone() },
+                    task: Task {
+                        data: parent_task.clone(),
+                    },
                     result: r,
                     completed_by: self.thread_index,
                 })
                 .unwrap();
-            ctx.wake_one(task.assigned_by);
+            ctx.wake_one(parent_task.assigned_by);
         }
     }
 }
