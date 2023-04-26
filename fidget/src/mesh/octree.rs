@@ -3,13 +3,13 @@
 use super::{
     builder::MeshBuilder,
     cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
-    dc::{DcBuilder, DcWorker},
+    dc::DcBuilder,
     fixup::DcFixup,
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
+    mt::{DcWorker, OctreeWorker},
     qef::QuadraticErrorSolver,
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
-    worker::Worker,
     Mesh, Settings,
 };
 use crate::eval::{
@@ -199,7 +199,7 @@ impl Octree {
             );
             out.into()
         } else {
-            Worker::scheduler(eval.clone(), settings)
+            OctreeWorker::scheduler(eval.clone(), settings)
         };
 
         // If we can't refine any further, then return right away

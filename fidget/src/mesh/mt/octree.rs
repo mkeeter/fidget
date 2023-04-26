@@ -1,16 +1,18 @@
-use std::sync::{mpsc::TryRecvError, Arc};
-
-use super::{
-    cell::{Cell, CellData, CellIndex},
-    octree::{
-        BranchResult, CellResult, EvalData, EvalGroup, EvalStorage,
-        OctreeBuilder,
+//! Multithreaded octree construction
+use super::pool::{QueuePool, ThreadContext, ThreadPool};
+use crate::{
+    eval::Family,
+    mesh::{
+        cell::{Cell, CellData, CellIndex},
+        octree::{
+            BranchResult, CellResult, EvalData, EvalGroup, EvalStorage,
+            OctreeBuilder,
+        },
+        types::Corner,
+        Octree, Settings,
     },
-    pool::{QueuePool, ThreadContext, ThreadPool},
-    types::Corner,
-    Octree, Settings,
 };
-use crate::eval::Family;
+use std::sync::{mpsc::TryRecvError, Arc};
 
 /// Represents a chunk of work that should be handled by a worker
 ///
@@ -106,7 +108,7 @@ struct Done<I: Family> {
     completed_by: usize,
 }
 
-pub struct Worker<I: Family> {
+pub struct OctreeWorker<I: Family> {
     /// Global index of this worker thread
     ///
     /// For example, this is the thread's own index in `friend_queue` and
@@ -140,7 +142,7 @@ pub struct Worker<I: Family> {
     storage: EvalStorage<I>,
 }
 
-impl<I: Family> Worker<I> {
+impl<I: Family> OctreeWorker<I> {
     pub fn scheduler(eval: Arc<EvalGroup<I>>, settings: Settings) -> Octree {
         let task_queues = QueuePool::new(settings.threads as usize);
         let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)
@@ -153,7 +155,7 @@ impl<I: Family> Worker<I> {
             .into_iter()
             .zip(done_queues.into_iter().map(|t| t.1))
             .enumerate()
-            .map(|(thread_index, (queue, done))| Worker {
+            .map(|(thread_index, (queue, done))| OctreeWorker {
                 thread_index,
                 octree: if thread_index == 0 {
                     OctreeBuilder::new()

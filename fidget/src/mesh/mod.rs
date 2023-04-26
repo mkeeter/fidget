@@ -6,11 +6,10 @@ mod dc;
 mod fixup;
 mod frame;
 mod gen;
+mod mt;
 mod octree;
 mod output;
-mod pool;
 mod qef;
-mod worker;
 
 #[doc(hidden)]
 pub mod types;
