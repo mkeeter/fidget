@@ -38,7 +38,7 @@ impl<I: Family> Task<I> {
             data: Arc::new(TaskData {
                 eval,
                 parent: CellIndex::default(),
-                source: 0,
+                assigned_by: 0,
                 next: None,
             }),
         }
@@ -48,13 +48,13 @@ impl<I: Family> Task<I> {
         &self,
         eval: Arc<EvalGroup<I>>,
         parent: CellIndex,
-        source: usize,
+        assigned_by: usize,
     ) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
                 parent,
-                source,
+                assigned_by,
                 next: Some(self.data.clone()),
             }),
         }
@@ -81,7 +81,7 @@ struct TaskData<I: Family> {
     eval: Arc<EvalGroup<I>>,
 
     /// Thread in which the parent cell lives
-    source: usize,
+    assigned_by: usize,
 
     /// Parent cell, which must be an `Invalid` cell waiting for population
     parent: CellIndex,
@@ -102,7 +102,7 @@ struct Done<I: Family> {
     result: BranchResult,
 
     /// Thread index of the worker that did this work
-    source: usize,
+    completed_by: usize,
 }
 
 pub struct Worker<I: Family> {
@@ -209,7 +209,12 @@ impl<I: Family> Worker<I> {
             match self.done.try_recv() {
                 Ok(v) => {
                     ctx.popped();
-                    self.on_done(v.result, &v.task.data, v.source, &mut ctx);
+                    self.on_done(
+                        v.result,
+                        &v.task.data,
+                        v.completed_by,
+                        &mut ctx,
+                    );
                     continue;
                 }
                 Err(TryRecvError::Disconnected) => panic!(),
@@ -290,7 +295,7 @@ impl<I: Family> Worker<I> {
         &mut self,
         result: BranchResult,
         task: &Arc<TaskData<I>>,
-        source: usize,
+        completed_by: usize,
         ctx: &mut ThreadContext,
     ) {
         let r = match result {
@@ -298,7 +303,7 @@ impl<I: Family> Worker<I> {
             BranchResult::Full => Cell::Full,
             BranchResult::Branch(index) => Cell::Branch {
                 index,
-                thread: source as u8,
+                thread: completed_by as u8,
             },
             BranchResult::Leaf(pos, hermite) => {
                 self.octree.record_leaf(pos, hermite)
@@ -336,19 +341,19 @@ impl<I: Family> Worker<I> {
         // It's safe to unwrap `task` here because the only task lacking a
         // parent is at the root of the tree, which is never a set of 8
         // children; `check_done` will cause us to bail out early.
-        if task.source == self.thread_index {
+        if task.assigned_by == self.thread_index {
             self.on_done(r, task, self.thread_index, ctx);
         } else {
             // Send the result back on the wire
             ctx.pushed();
-            self.friend_done[task.source]
+            self.friend_done[task.assigned_by]
                 .send(Done {
                     task: Task { data: task.clone() },
                     result: r,
-                    source: self.thread_index,
+                    completed_by: self.thread_index,
                 })
                 .unwrap();
-            ctx.wake_one(task.source);
+            ctx.wake_one(task.assigned_by);
         }
     }
 }
