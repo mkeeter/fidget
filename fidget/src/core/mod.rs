@@ -51,6 +51,8 @@ pub mod eval;
 pub mod ssa;
 pub mod vm;
 
+mod chunky;
+
 #[cfg(test)]
 mod test {
     use crate::context::*;
