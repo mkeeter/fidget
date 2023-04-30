@@ -774,7 +774,7 @@ impl Context {
     }
 
     /// Looks up an operation by `Node` handle
-    fn get_op(&self, node: Node) -> Option<&Op> {
+    pub fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
     }
 }

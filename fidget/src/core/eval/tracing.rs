@@ -27,7 +27,7 @@ use crate::{
 /// Choice::Both as u8 == Choice::Left as u8 | Choice::Right as u8
 /// # );
 /// ```
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(u8)]
 pub enum Choice {
     /// This choice has not yet been assigned
