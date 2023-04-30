@@ -37,7 +37,54 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn buildy(&mut self, root: Node) -> Result<(), Error> {
-        self.recurse(root, None)?;
+        let mut todo = vec![(root, None)];
+        while let Some((node, dnf)) = todo.pop() {
+            let op = self.ctx.get_op(node).ok_or(Error::BadNode)?;
+            if matches!(op, Op::Const(..)) {
+                return Ok(());
+            }
+
+            // If we've already seen this node + DNF, then no need to recurse
+            if !self.node_dnfs.entry(node).or_default().insert(dnf) {
+                return Ok(());
+            }
+            match op {
+                Op::Input(..) | Op::Var(..) => {
+                    // Nothing to do here
+                }
+                Op::Unary(_op, child) => {
+                    todo.push((*child, dnf));
+                }
+                Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
+                    let i = self.choice_id.len();
+                    let choice_index =
+                        *self.choice_id.entry(node).or_insert(ChoiceIndex(i));
+
+                    // LHS recursion
+                    todo.push((
+                        *lhs,
+                        Some(DnfClause {
+                            root: choice_index,
+                            choice: Choice::Left,
+                        }),
+                    ));
+
+                    // RHS recursion
+                    todo.push((
+                        *rhs,
+                        Some(DnfClause {
+                            root: choice_index,
+                            choice: Choice::Right,
+                        }),
+                    ));
+                }
+                Op::Binary(_op, lhs, rhs) => {
+                    todo.push((*lhs, dnf));
+                    todo.push((*rhs, dnf));
+                }
+                Op::Const(..) => unreachable!(),
+            }
+        }
 
         let mut dnf_nodes: BTreeMap<_, Vec<Node>> = BTreeMap::new();
         for (n, d) in &self.node_dnfs {
@@ -59,59 +106,6 @@ impl<'a> Compiler<'a> {
         }
         for (size, count) in hist {
             println!("{size} => {count}");
-        }
-        Ok(())
-    }
-
-    fn recurse(
-        &mut self,
-        node: Node,
-        dnf: Option<DnfClause>,
-    ) -> Result<(), Error> {
-        let op = self.ctx.get_op(node).ok_or(Error::BadNode)?;
-        if matches!(op, Op::Const(..)) {
-            return Ok(());
-        }
-
-        // If we've already seen this node + DNF, then no need to recurse
-        if !self.node_dnfs.entry(node).or_default().insert(dnf) {
-            return Ok(());
-        }
-        match op {
-            Op::Input(..) | Op::Var(..) => {
-                // Nothing to do here
-            }
-            Op::Unary(_op, child) => {
-                self.recurse(*child, dnf)?;
-            }
-            Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
-                let i = self.choice_id.len();
-                let choice_index =
-                    *self.choice_id.entry(node).or_insert(ChoiceIndex(i));
-
-                // LHS recursion
-                self.recurse(
-                    *lhs,
-                    Some(DnfClause {
-                        root: choice_index,
-                        choice: Choice::Left,
-                    }),
-                )?;
-
-                // RHS recursion
-                self.recurse(
-                    *rhs,
-                    Some(DnfClause {
-                        root: choice_index,
-                        choice: Choice::Right,
-                    }),
-                )?;
-            }
-            Op::Binary(_op, lhs, rhs) => {
-                self.recurse(*lhs, dnf)?;
-                self.recurse(*rhs, dnf)?;
-            }
-            Op::Const(..) => unreachable!(),
         }
         Ok(())
     }
