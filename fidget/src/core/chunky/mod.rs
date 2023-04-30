@@ -41,12 +41,12 @@ impl<'a> Compiler<'a> {
         while let Some((node, dnf)) = todo.pop() {
             let op = self.ctx.get_op(node).ok_or(Error::BadNode)?;
             if matches!(op, Op::Const(..)) {
-                return Ok(());
+                continue;
             }
 
             // If we've already seen this node + DNF, then no need to recurse
             if !self.node_dnfs.entry(node).or_default().insert(dnf) {
-                return Ok(());
+                continue;
             }
             match op {
                 Op::Input(..) | Op::Var(..) => {
@@ -119,7 +119,7 @@ mod test {
     fn test_foo() {
         const PROSPERO: &str = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../models/ring.txt"
+            "/../models/prospero.vm"
         ));
         let (ctx, root) =
             crate::Context::from_text(PROSPERO.as_bytes()).unwrap();
