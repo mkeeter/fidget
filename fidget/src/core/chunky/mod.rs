@@ -39,44 +39,6 @@ impl<'a> Compiler<'a> {
     pub fn buildy(&mut self, root: Node) -> Result<(), Error> {
         self.recurse(root, None)?;
 
-        println!("got {} choices", self.choice_id.len());
-        for d in self.node_dnfs.values_mut() {
-            let mut collapsible = vec![];
-            for o in d.iter() {
-                match o {
-                    Some(DnfClause {
-                        root,
-                        choice: Choice::Left,
-                    }) => {
-                        if d.contains(&Some(DnfClause {
-                            root: *root,
-                            choice: Choice::Right,
-                        })) {
-                            collapsible.push(*root);
-                        }
-                    }
-                    Some(..) | None => (),
-                }
-            }
-            println!("got {} collapsible", collapsible.len());
-            for root in collapsible {
-                let r = d.remove(&Some(DnfClause {
-                    root,
-                    choice: Choice::Left,
-                }));
-                assert!(r);
-                let r = d.remove(&Some(DnfClause {
-                    root,
-                    choice: Choice::Right,
-                }));
-                assert!(r);
-                d.insert(Some(DnfClause {
-                    root,
-                    choice: Choice::Both,
-                }));
-            }
-        }
-
         let mut dnf_nodes: BTreeMap<_, Vec<Node>> = BTreeMap::new();
         for (n, d) in &self.node_dnfs {
             println!(
