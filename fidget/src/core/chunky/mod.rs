@@ -177,6 +177,21 @@ impl<'a> Compiler<'a> {
         println!("got {} nodes", self.node_dnfs.len());
         println!("got {} DNF -> node clusters", dnf_nodes.len());
 
+        // Any node which reaches out of a cluster must be from another cluster.
+        let mut globals = BTreeSet::new();
+        for nodes in dnf_nodes.values() {
+            for &node in nodes.iter() {
+                let op = self.ctx.get_op(node).unwrap();
+                for c in op.iter_children() {
+                    if !nodes.contains(&c) {
+                        globals.insert(c);
+                    }
+                }
+            }
+        }
+        println!("got {} globals", globals.len());
+        assert!(globals.intersection(&inline).count() == 0);
+
         let mut hist: BTreeMap<_, usize> = BTreeMap::new();
         for d in dnf_nodes.values() {
             *hist.entry(d.len()).or_default() += 1;
