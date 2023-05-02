@@ -65,17 +65,10 @@ impl<'a> Compiler<'a> {
             }
             match a {
                 Action::Down => {
+                    todo.push((Action::Up, node));
                     let op = ctx.get_op(node).unwrap();
-                    match op {
-                        Op::Var(..) | Op::Input(..) | Op::Const(..) => {
-                            weights.insert(node, 1);
-                        }
-                        Op::Unary(..) | Op::Binary(..) => {
-                            todo.push((Action::Up, node));
-                            for c in op.iter_children() {
-                                todo.push((Action::Down, c));
-                            }
-                        }
+                    for c in op.iter_children() {
+                        todo.push((Action::Down, c));
                     }
                 }
                 Action::Up => {
@@ -96,7 +89,7 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn buildy(&mut self, root: Node) -> Result<(), Error> {
-        let inline = Self::pick_inline(self.ctx, root, 9);
+        let inline = Self::pick_inline(self.ctx, root, 7);
         println!("got {} inline nodes", inline.len());
 
         let mut todo = vec![(root, None)];
@@ -248,6 +241,20 @@ impl<'a> Compiler<'a> {
                 *parent_count.get_mut(&child).unwrap() -= 1;
             }
             ordered_groups.push(group);
+        }
+
+        for o in &ordered_groups {
+            println!("=======================");
+            let g = dnf_nodes.values().nth(o.0).unwrap();
+            for n in g {
+                if globals.contains(n) {
+                    print!("GLOBAL ");
+                }
+                if inline.contains(n) {
+                    print!("INLINE ");
+                }
+                println!("{:?}", self.ctx.get_op(*n).unwrap());
+            }
         }
 
         // At this point, ordered_groups is a list of groups from root to leafs.
