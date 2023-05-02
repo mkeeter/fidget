@@ -10,6 +10,10 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 struct ChoiceIndex(usize);
 
+/// Globally unique index for a particular DNF group
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+struct GroupIndex(usize);
+
 /// A single choice at a particular node
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 struct DnfClause {
@@ -79,7 +83,8 @@ impl<'a> Compiler<'a> {
                     let w: usize = op
                         .iter_children()
                         .map(|c| weights.get(&c).unwrap())
-                        .sum();
+                        .sum::<usize>()
+                        + 1;
                     weights.insert(node, w);
                     if w <= max_weight {
                         inline.insert(node);
@@ -91,7 +96,7 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn buildy(&mut self, root: Node) -> Result<(), Error> {
-        let inline = Self::pick_inline(self.ctx, root, 6);
+        let inline = Self::pick_inline(self.ctx, root, 9);
         println!("got {} inline nodes", inline.len());
 
         let mut todo = vec![(root, None)];
@@ -149,14 +154,6 @@ impl<'a> Compiler<'a> {
         // Swap around, fron node -> DNF to DNF -> [Nodes]
         let mut dnf_nodes: BTreeMap<_, BTreeSet<Node>> = BTreeMap::new();
         for (n, d) in &self.node_dnfs {
-            println!(
-                "node {n:?} {:?} has {} DNFs",
-                self.ctx.get_op(*n).unwrap(),
-                d.len()
-            );
-            for d in d {
-                println!("    {d:?}");
-            }
             dnf_nodes.entry(d.clone()).or_default().insert(*n);
         }
 
@@ -174,36 +171,120 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
-        println!("got {} nodes", self.node_dnfs.len());
-        println!("got {} DNF -> node clusters", dnf_nodes.len());
 
         // Any node which reaches out of a cluster must be from another cluster.
         let mut globals = BTreeSet::new();
         for nodes in dnf_nodes.values() {
-            for &node in nodes.iter() {
-                let op = self.ctx.get_op(node).unwrap();
-                for c in op.iter_children() {
-                    if !nodes.contains(&c) {
-                        globals.insert(c);
-                    }
-                }
+            globals.extend(nodes.iter().flat_map(|node| {
+                self.ctx
+                    .get_op(*node)
+                    .unwrap()
+                    .iter_children()
+                    .filter(|c| !nodes.contains(c))
+            }));
+        }
+        assert!(globals.intersection(&inline).count() == 0);
+        assert!(!globals.contains(&root));
+        globals.insert(root);
+
+        // Mapping for any global node to the group that contains it.
+        let global_node_to_group: BTreeMap<Node, GroupIndex> = dnf_nodes
+            .values()
+            .enumerate()
+            .flat_map(|(i, nodes)| {
+                nodes
+                    .iter()
+                    .filter(|n| globals.contains(n))
+                    .map(move |n| (*n, GroupIndex(i)))
+            })
+            .collect();
+
+        // Compute the child groups of every individual group
+        let mut children: BTreeMap<GroupIndex, BTreeSet<GroupIndex>> =
+            BTreeMap::new();
+        for (g, nodes) in dnf_nodes.values().enumerate() {
+            let g = GroupIndex(g);
+            let map: BTreeSet<GroupIndex> = nodes
+                .iter()
+                .flat_map(|node| {
+                    self.ctx
+                        .get_op(*node)
+                        .unwrap()
+                        .iter_children()
+                        .filter_map(|c| global_node_to_group.get(&c).cloned())
+                        .filter(|cg| *cg != g)
+                })
+                .collect();
+            children.insert(g, map);
+        }
+
+        // For every group, count how many parents it has.  When flattening,
+        // we'll add a group once all of its parents have been seen.
+        let mut parent_count: BTreeMap<GroupIndex, usize> = BTreeMap::new();
+        let mut todo = vec![global_node_to_group[&root]];
+        let mut seen = BTreeSet::new();
+        while let Some(group) = todo.pop() {
+            if !seen.insert(group) {
+                continue;
+            }
+            for &child in children[&group].iter() {
+                *parent_count.entry(child).or_default() += 1;
+                todo.push(child);
             }
         }
+
+        // Now that we've populated our parents, flatten the graph
+        let mut ordered_groups = vec![];
+        let mut todo = vec![global_node_to_group[&root]];
+        let mut seen = BTreeSet::new();
+        while let Some(group) = todo.pop() {
+            if *parent_count.get(&group).unwrap_or(&0) > 0
+                || !seen.insert(group)
+            {
+                continue;
+            }
+            for &child in children[&group].iter() {
+                todo.push(child);
+                *parent_count.get_mut(&child).unwrap() -= 1;
+            }
+            ordered_groups.push(group);
+        }
+
+        // At this point, ordered_groups is a list of groups from root to leafs.
+        assert_eq!(ordered_groups[0], global_node_to_group[&root]);
+
+        ////////////////////////////////////////////////////////////////////////
+
+        println!("got {} nodes", self.node_dnfs.len());
+        println!("got {} DNF -> node clusters", dnf_nodes.len());
         println!("got {} globals", globals.len());
-        assert!(globals.intersection(&inline).count() == 0);
 
         let mut hist: BTreeMap<_, usize> = BTreeMap::new();
         for d in dnf_nodes.values() {
             *hist.entry(d.len()).or_default() += 1;
         }
+        println!(" OPS | COUNT");
+        println!("-----|------");
         for (size, count) in &hist {
-            println!("{size} => {count}");
+            println!(" {size:>3} | {count:<5}");
         }
         println!("total functions: {}", hist.values().sum::<usize>());
         println!(
             "total instructions: {}",
             hist.iter().map(|(a, b)| a * b).sum::<usize>()
         );
+        println!();
+
+        let mut hist: BTreeMap<_, usize> = BTreeMap::new();
+        for d in dnf_nodes.values() {
+            let outputs = d.iter().filter(|n| globals.contains(n)).count();
+            *hist.entry((d.len(), outputs)).or_default() += 1;
+        }
+        println!(" OPS | OUT | COUNT");
+        println!("-----|-----|------");
+        for ((size, out), count) in &hist {
+            println!(" {size:>3} | {out:^3} | {count:<5}");
+        }
         Ok(())
     }
 }
