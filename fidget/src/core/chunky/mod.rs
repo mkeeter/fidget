@@ -14,6 +14,10 @@ struct ChoiceIndex(usize);
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 struct GroupIndex(usize);
 
+/// Globally unique index for a pseudo-register
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+struct Register(usize);
+
 /// A single choice at a particular node
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 struct DnfClause {
@@ -98,16 +102,13 @@ impl<'a> Compiler<'a> {
                 continue;
             }
             let op = self.ctx.get_op(node).ok_or(Error::BadNode)?;
-            if matches!(op, Op::Const(..)) {
-                continue;
-            }
 
             // If we've already seen this node + DNF, then no need to recurse
             if !self.node_dnfs.entry(node).or_default().insert(dnf) {
                 continue;
             }
             match op {
-                Op::Input(..) | Op::Var(..) => {
+                Op::Input(..) | Op::Var(..) | Op::Const(..) => {
                     // Nothing to do here
                 }
                 Op::Unary(_op, child) => {
@@ -140,7 +141,14 @@ impl<'a> Compiler<'a> {
                     todo.push((*lhs, dnf));
                     todo.push((*rhs, dnf));
                 }
-                Op::Const(..) => unreachable!(),
+            }
+        }
+
+        // Any root-accessible node must always be alive, so we can collapse its
+        // conditional down to just `None`
+        for dnf in self.node_dnfs.values_mut() {
+            if dnf.len() > 1 && dnf.contains(&None) {
+                dnf.retain(Option::is_none)
             }
         }
 
@@ -242,32 +250,150 @@ impl<'a> Compiler<'a> {
             }
             ordered_groups.push(group);
         }
-
-        for o in &ordered_groups {
-            println!("=======================");
-            let g = dnf_nodes.values().nth(o.0).unwrap();
-            for n in g {
-                if globals.contains(n) {
-                    print!("GLOBAL ");
-                }
-                if inline.contains(n) {
-                    print!("INLINE ");
-                }
-                println!("{:?}", self.ctx.get_op(*n).unwrap());
-            }
-        }
-
         // At this point, ordered_groups is a list of groups from root to leafs.
         assert_eq!(ordered_groups[0], global_node_to_group[&root]);
+        let mut group_order = vec![0; ordered_groups.len()];
+        for (i, g) in ordered_groups.into_iter().enumerate() {
+            group_order[g.0] = i;
+        }
+
+        // Flatten the BTreeMap into groups and DNFs
+        let mut groups = vec![BTreeSet::new(); group_order.len()];
+        let mut dnfs = vec![BTreeSet::new(); group_order.len()];
+        for (i, (d, g)) in dnf_nodes.into_iter().enumerate() {
+            let j = group_order[i];
+            groups[j] = g;
+            dnfs[j] = d;
+        }
+
+        // Perform node ordering within each group
+        let mut ordered_groups = vec![];
+        for g in &groups {
+            let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
+
+            // Find starting roots for this cluster, which are defined as any
+            // node that's not an input to other nodes in the cluster.
+            let children: BTreeSet<Node> = g
+                .iter()
+                .flat_map(|n| self.ctx.get_op(*n).unwrap().iter_children())
+                .filter(|n| g.contains(n))
+                .collect();
+
+            let start: Vec<Node> = g
+                .iter()
+                .filter(|n| !children.contains(n))
+                .cloned()
+                .collect();
+
+            // Compute the number of within-group parents of each group node
+            let mut seen = BTreeSet::new();
+            let mut todo = start.clone();
+            while let Some(n) = todo.pop() {
+                if !seen.insert(n) {
+                    continue;
+                }
+                for child in self
+                    .ctx
+                    .get_op(n)
+                    .unwrap()
+                    .iter_children()
+                    .filter(|n| g.contains(n))
+                {
+                    *parent_count.entry(child).or_default() += 1;
+                    todo.push(child);
+                }
+            }
+
+            // Great, we can now generate an ordering within the group
+            let mut ordered_nodes = vec![];
+            let mut seen = BTreeSet::new();
+            let mut todo = start.clone();
+            while let Some(n) = todo.pop() {
+                if *parent_count.get(&n).unwrap_or(&0) > 0 || !seen.insert(n) {
+                    continue;
+                }
+                for child in self
+                    .ctx
+                    .get_op(n)
+                    .unwrap()
+                    .iter_children()
+                    .filter(|n| g.contains(n))
+                {
+                    todo.push(child);
+                    *parent_count.get_mut(&child).unwrap() -= 1;
+                }
+                ordered_nodes.push(n);
+            }
+            ordered_groups.push(ordered_nodes);
+        }
+        let groups = ordered_groups;
+
+        // Assign global nodes to pseudo-registers.
+        //
+        // Global nodes cannot move once assigned (unlike local nodes), because
+        // they have to be invariant even if groups are removed from the graph.
+        //
+        // As such, they get priority assignment.
+        let mut assigned = BTreeMap::new();
+        assigned.insert(root, Register(0));
+        let mut global_reg_assignments = BTreeMap::new();
+        let mut spare = BTreeSet::new();
+        for g in groups.iter() {
+            for n in g.iter() {
+                if globals.contains(n) {
+                    let Some(reg) = assigned.remove(n) else {
+                        panic!("unassigned global {n:?}");
+                    };
+                    assert!(!global_reg_assignments.contains_key(n));
+                    global_reg_assignments.insert(n, reg);
+                    spare.insert(reg);
+                }
+                assert!(!assigned.contains_key(n));
+                for child in self
+                    .ctx
+                    .get_op(*n)
+                    .unwrap()
+                    .iter_children()
+                    .filter(|n| globals.contains(n))
+                {
+                    let next = Register(assigned.len());
+                    assigned.entry(child).or_insert_with(|| {
+                        match spare.iter().next().cloned() {
+                            Some(t) => {
+                                spare.remove(&t);
+                                t
+                            }
+                            None => next,
+                        }
+                    });
+                }
+            }
+        }
+        println!("{assigned:?}");
+        println!("{spare:?}");
 
         ////////////////////////////////////////////////////////////////////////
 
+        for (group, dnf) in groups.iter().zip(&dnfs) {
+            println!("=======================");
+            println!("{dnf:?}");
+            for n in group {
+                print!("{n:?} = {:?}", self.ctx.get_op(*n).unwrap());
+                if globals.contains(n) {
+                    print!(" (GLOBAL)");
+                } else if inline.contains(n) {
+                    print!(" (INLINE)");
+                }
+                println!();
+            }
+        }
+
         println!("got {} nodes", self.node_dnfs.len());
-        println!("got {} DNF -> node clusters", dnf_nodes.len());
+        println!("got {} DNF -> node clusters", dnfs.len());
         println!("got {} globals", globals.len());
 
         let mut hist: BTreeMap<_, usize> = BTreeMap::new();
-        for d in dnf_nodes.values() {
+        for d in &groups {
             *hist.entry(d.len()).or_default() += 1;
         }
         println!(" OPS | COUNT");
@@ -283,7 +409,7 @@ impl<'a> Compiler<'a> {
         println!();
 
         let mut hist: BTreeMap<_, usize> = BTreeMap::new();
-        for d in dnf_nodes.values() {
+        for d in &groups {
             let outputs = d.iter().filter(|n| globals.contains(n)).count();
             *hist.entry((d.len(), outputs)).or_default() += 1;
         }
