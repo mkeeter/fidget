@@ -643,4 +643,9 @@ impl RegisterAllocator {
     fn op_var(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| Op::Var(out, i));
     }
+
+    #[inline]
+    pub fn tape_len(&self) -> usize {
+        self.out.len()
+    }
 }
