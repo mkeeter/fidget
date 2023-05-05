@@ -92,7 +92,7 @@ fn find_groups(
     root: Node,
     inline: &BTreeSet<Node>,
     choice_id: &BTreeMap<Node, ChoiceIndex>,
-) -> BTreeMap<BTreeSet<Option<DnfClause>>, BTreeSet<Node>> {
+) -> (Vec<Option<BTreeSet<DnfClause>>>, Vec<BTreeSet<Node>>) {
     // Conditional that activates a particular node
     //
     // This is recorded as an `OR` of multiple [`DnfClause`] values
@@ -155,52 +155,69 @@ fn find_groups(
 
     // Swap around, fron node -> DNF to DNF -> [Nodes]
     let mut dnf_nodes: BTreeMap<_, BTreeSet<Node>> = BTreeMap::new();
-    for (n, d) in &node_dnfs {
-        dnf_nodes.entry(d.clone()).or_default().insert(*n);
+    for (n, d) in node_dnfs {
+        if d.contains(&None) {
+            assert_eq!(d.len(), 1);
+            dnf_nodes.entry(None)
+        } else {
+            dnf_nodes.entry(Some(d.into_iter().map(|v| v.unwrap()).collect()))
+        }
+        .or_default()
+        .insert(n);
     }
 
-    dnf_nodes
+    let mut keys = vec![];
+    let mut groups = vec![];
+    for (k, g) in dnf_nodes.into_iter() {
+        keys.push(k);
+        groups.push(g);
+    }
+    (keys, groups)
 }
 
-pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
-    let inline = pick_inline(ctx, root, 7);
-    println!("got {} inline nodes", inline.len());
-
-    let choice_id = assign_choices(ctx, root);
-    let mut dnf_nodes = find_groups(ctx, root, &inline, &choice_id);
-
-    // For each DNF, add all of the inlined nodes
-    for nodes in dnf_nodes.values_mut() {
-        let mut todo = BTreeSet::new();
-        for node in nodes.iter() {
-            let op = ctx.get_op(*node).unwrap();
-            todo.extend(op.iter_children().filter(|c| inline.contains(c)));
-        }
-        let mut todo: Vec<_> = todo.into_iter().collect();
-        while let Some(node) = todo.pop() {
-            if nodes.insert(node) {
-                todo.extend(ctx.get_op(node).unwrap().iter_children());
-            }
+fn insert_inline_nodes(
+    ctx: &Context,
+    inline: &BTreeSet<Node>,
+    group: &mut BTreeSet<Node>,
+) {
+    let mut todo = BTreeSet::new();
+    for node in group.iter() {
+        let op = ctx.get_op(*node).unwrap();
+        todo.extend(op.iter_children().filter(|c| inline.contains(c)));
+    }
+    let mut todo: Vec<_> = todo.into_iter().collect();
+    while let Some(node) = todo.pop() {
+        if group.insert(node) {
+            todo.extend(ctx.get_op(node).unwrap().iter_children());
         }
     }
+}
 
-    // Any node which reaches out of a cluster must be from another cluster.
-    let mut globals = BTreeSet::new();
-    for nodes in dnf_nodes.values() {
-        globals.extend(nodes.iter().flat_map(|node| {
-            ctx.get_op(*node)
-                .unwrap()
-                .iter_children()
-                .filter(|c| !nodes.contains(c))
-        }));
-    }
-    assert!(globals.intersection(&inline).count() == 0);
-    assert!(!globals.contains(&root));
-    globals.insert(root);
+/// Find any nodes within this group whose children are **not** in the group
+fn find_globals<'a>(
+    ctx: &'a Context,
+    group: &'a BTreeSet<Node>,
+) -> impl Iterator<Item = Node> + 'a {
+    group.iter().flat_map(|node| {
+        ctx.get_op(*node)
+            .unwrap()
+            .iter_children()
+            .filter(|c| !group.contains(c))
+    })
+}
 
+fn compute_group_order(
+    ctx: &Context,
+    root: Node,
+    groups: &[BTreeSet<Node>],
+    globals: &BTreeSet<Node>,
+) -> Vec<usize> {
     // Mapping for any global node to the group that contains it.
-    let global_node_to_group: BTreeMap<Node, GroupIndex> = dnf_nodes
-        .values()
+    //
+    // At this point, a GroupIndex refers to order within the `keys` and
+    // `groups` vectors.
+    let global_node_to_group: BTreeMap<Node, GroupIndex> = groups
+        .iter()
         .enumerate()
         .flat_map(|(i, nodes)| {
             nodes
@@ -213,7 +230,7 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
     // Compute the child groups of every individual group
     let mut children: BTreeMap<GroupIndex, BTreeSet<GroupIndex>> =
         BTreeMap::new();
-    for (g, nodes) in dnf_nodes.values().enumerate() {
+    for (g, nodes) in groups.iter().enumerate() {
         let g = GroupIndex(g);
         let map: BTreeSet<GroupIndex> = nodes
             .iter()
@@ -263,75 +280,122 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
     for (i, g) in ordered_groups.into_iter().enumerate() {
         group_order[g.0] = i;
     }
+    group_order
+}
 
-    // Flatten the BTreeMap into groups and DNFs
-    let mut groups = vec![BTreeSet::new(); group_order.len()];
-    let mut dnfs = vec![BTreeSet::new(); group_order.len()];
-    for (i, (d, g)) in dnf_nodes.into_iter().enumerate() {
+fn apply_group_order(
+    keys: Vec<Option<BTreeSet<DnfClause>>>,
+    groups: Vec<BTreeSet<Node>>,
+    group_order: Vec<usize>,
+) -> (Vec<Option<BTreeSet<DnfClause>>>, Vec<BTreeSet<Node>>) {
+    let mut groups_out = vec![BTreeSet::new(); group_order.len()];
+    let mut keys_out = vec![None; group_order.len()];
+    for (i, (d, g)) in keys.into_iter().zip(groups.into_iter()).enumerate() {
         let j = group_order[i];
-        groups[j] = g;
-        dnfs[j] = d;
+        keys_out[j] = d;
+        groups_out[j] = g;
     }
+    (keys_out, groups_out)
+}
+
+fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
+    let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
+
+    // Find starting roots for this cluster, which are defined as any
+    // node that's not an input to other nodes in the cluster.
+    let children: BTreeSet<Node> = group
+        .iter()
+        .flat_map(|n| ctx.get_op(*n).unwrap().iter_children())
+        .filter(|n| group.contains(n))
+        .collect();
+
+    let start: Vec<Node> = group
+        .iter()
+        .filter(|n| !children.contains(n))
+        .cloned()
+        .collect();
+
+    // Compute the number of within-group parents of each group node
+    let mut seen = BTreeSet::new();
+    let mut todo = start.clone();
+    while let Some(n) = todo.pop() {
+        if !seen.insert(n) {
+            continue;
+        }
+        for child in ctx
+            .get_op(n)
+            .unwrap()
+            .iter_children()
+            .filter(|n| group.contains(n))
+        {
+            *parent_count.entry(child).or_default() += 1;
+            todo.push(child);
+        }
+    }
+
+    // Great, we can now generate an ordering within the group
+    let mut ordered_nodes = vec![];
+    let mut seen = BTreeSet::new();
+    let mut todo = start.clone();
+    while let Some(n) = todo.pop() {
+        if *parent_count.get(&n).unwrap_or(&0) > 0 || !seen.insert(n) {
+            continue;
+        }
+        for child in ctx
+            .get_op(n)
+            .unwrap()
+            .iter_children()
+            .filter(|n| group.contains(n))
+        {
+            todo.push(child);
+            *parent_count.get_mut(&child).unwrap() -= 1;
+        }
+        ordered_nodes.push(n);
+    }
+    ordered_nodes
+}
+
+pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
+    let inline = pick_inline(ctx, root, 7);
+    println!("got {} inline nodes", inline.len());
+
+    // TODO: use nodes here instead, because some min/max nodes are inlined?
+    let choice_id = assign_choices(ctx, root);
+
+    let (keys, mut groups) = find_groups(ctx, root, &inline, &choice_id);
+
+    // For each DNF, add all of the inlined nodes
+    for group in groups.iter_mut() {
+        insert_inline_nodes(ctx, &inline, group);
+    }
+    let groups = groups; // remove mutability
+
+    // Compute all of the global nodes
+    let globals = {
+        let mut globals: BTreeSet<Node> =
+            groups.iter().flat_map(|g| find_globals(ctx, g)).collect();
+
+        // Sanity-checking our globals and inlined variables
+        assert!(globals.intersection(&inline).count() == 0);
+
+        // The root is considered a global (TODO is this required?)
+        assert!(!globals.contains(&root));
+        globals.insert(root);
+        globals
+    };
+
+    // Reorder the groups from root-to-leaf order
+    //
+    // Note that the nodes within each group remain unordered
+    let group_order = compute_group_order(ctx, root, &groups, &globals);
+    let (keys, groups) = apply_group_order(keys, groups, group_order);
 
     // Perform node ordering within each group
-    let mut ordered_groups = vec![];
-    for g in &groups {
-        let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
+    let groups: Vec<Vec<Node>> =
+        groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
-        // Find starting roots for this cluster, which are defined as any
-        // node that's not an input to other nodes in the cluster.
-        let children: BTreeSet<Node> = g
-            .iter()
-            .flat_map(|n| ctx.get_op(*n).unwrap().iter_children())
-            .filter(|n| g.contains(n))
-            .collect();
-
-        let start: Vec<Node> = g
-            .iter()
-            .filter(|n| !children.contains(n))
-            .cloned()
-            .collect();
-
-        // Compute the number of within-group parents of each group node
-        let mut seen = BTreeSet::new();
-        let mut todo = start.clone();
-        while let Some(n) = todo.pop() {
-            if !seen.insert(n) {
-                continue;
-            }
-            for child in ctx
-                .get_op(n)
-                .unwrap()
-                .iter_children()
-                .filter(|n| g.contains(n))
-            {
-                *parent_count.entry(child).or_default() += 1;
-                todo.push(child);
-            }
-        }
-
-        // Great, we can now generate an ordering within the group
-        let mut ordered_nodes = vec![];
-        let mut seen = BTreeSet::new();
-        let mut todo = start.clone();
-        while let Some(n) = todo.pop() {
-            if *parent_count.get(&n).unwrap_or(&0) > 0 || !seen.insert(n) {
-                continue;
-            }
-            for child in ctx
-                .get_op(n)
-                .unwrap()
-                .iter_children()
-                .filter(|n| g.contains(n))
-            {
-                todo.push(child);
-                *parent_count.get_mut(&child).unwrap() -= 1;
-            }
-            ordered_nodes.push(n);
-        }
-        ordered_groups.push(ordered_nodes);
-    }
-    let groups = ordered_groups;
+    ////////////////////////////////////////////////////////////////////////
+    // XXX Everything below here is in flux
 
     // Convert from nodes to SsaOp
     let mut builder = crate::ssa::Builder::new();
@@ -453,9 +517,7 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
     println!("{assigned:?}");
     println!("{spare:?}");
 
-    ////////////////////////////////////////////////////////////////////////
-
-    for (group, dnf) in groups.iter().zip(&dnfs) {
+    for (group, dnf) in groups.iter().zip(&keys) {
         println!("=======================");
         println!("{dnf:?}");
         for n in group {
@@ -469,7 +531,7 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
         }
     }
 
-    println!("got {} DNF -> node clusters", dnfs.len());
+    println!("got {} DNF -> node clusters", keys.len());
     println!("got {} globals", globals.len());
 
     let mut hist: BTreeMap<_, usize> = BTreeMap::new();
