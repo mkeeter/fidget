@@ -57,14 +57,17 @@ impl Builder {
     ///
     /// This must be called before `step` uses the node (as either parent or
     /// child).
-    pub fn declare_node(&mut self, node: Node, op: Op) {
+    ///
+    /// Returns the SSA index assigned to this node.
+    pub fn declare_node(&mut self, node: Node, op: Op) -> Option<u32> {
         match op {
             Op::Const(c) => {
                 self.constants.insert(node, c.0 as f32);
+                None
             }
             _ => {
                 let index: u32 = self.mapping.len().try_into().unwrap();
-                self.mapping.entry(node).or_insert(index);
+                Some(*self.mapping.entry(node).or_insert(index))
             }
         }
     }
