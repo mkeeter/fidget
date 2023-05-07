@@ -4,6 +4,8 @@ use crate::{
     Error,
 };
 
+mod alloc;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Globally unique index for a particular choice node
@@ -394,6 +396,10 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
     let groups: Vec<Vec<Node>> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
+    for group in groups.iter() {
+        for node in group.iter() {}
+    }
+
     ////////////////////////////////////////////////////////////////////////
     // XXX Everything below here is in flux
 
@@ -451,12 +457,12 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
     for i in t.iter() {
         println!("{i:?}");
     }
-    println!("{cutoffs:?}");
 
     let mut alloc_tapes = vec![];
     let mut tape_slice = t.iter();
     let mut cumsize = 0;
     for size in cutoffs {
+        println!("{size}, {cumsize}");
         let mut t = vec![];
         for _i in 0..(size - cumsize) {
             t.push(tape_slice.next().unwrap());
@@ -571,7 +577,7 @@ mod test {
     fn test_foo() {
         const PROSPERO: &str = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../models/example.txt"
+            "/../models/prospero.vm"
         ));
         let (ctx, root) =
             crate::Context::from_text(PROSPERO.as_bytes()).unwrap();
