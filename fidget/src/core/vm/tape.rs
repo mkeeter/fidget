@@ -8,7 +8,7 @@ pub struct Tape {
     tape: Vec<Op>,
 
     /// Total allocated slots
-    pub(super) slot_count: u32,
+    pub(crate) slot_count: u32,
 
     /// Number of registers, before we fall back to Load/Store operations
     reg_limit: u8,
