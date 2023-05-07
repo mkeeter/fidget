@@ -357,8 +357,13 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
     ordered_nodes
 }
 
-pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
-    let inline = pick_inline(ctx, root, 7);
+pub fn buildy(
+    ctx: &Context,
+    root: Node,
+    inline: usize,
+    _registers: u8,
+) -> Result<(), Error> {
+    let inline = pick_inline(ctx, root, inline);
     println!("got {} inline nodes", inline.len());
 
     // TODO: use nodes here instead, because some min/max nodes are inlined?
@@ -397,7 +402,9 @@ pub fn buildy(ctx: &Context, root: Node) -> Result<(), Error> {
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     for group in groups.iter() {
-        for node in group.iter() {}
+        for node in group.iter() {
+            // TODO
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////
@@ -581,8 +588,7 @@ mod test {
         ));
         let (ctx, root) =
             crate::Context::from_text(PROSPERO.as_bytes()).unwrap();
-        std::fs::write("out.dot", ctx.dot());
-
-        buildy(&ctx, root);
+        std::fs::write("out.dot", ctx.dot()).unwrap();
+        buildy(&ctx, root, 9, 24).unwrap();
     }
 }
