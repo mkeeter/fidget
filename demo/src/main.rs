@@ -51,6 +51,20 @@ enum Command {
         #[clap(flatten)]
         settings: MeshSettings,
     },
+    Chunky {
+        /// Maximum weight for inlining
+        #[clap(default_value_t = 9)]
+        inline: usize,
+
+        /// Number of registers to use when tape planning
+        #[clap(default_value_t = 24)]
+        registers: u8,
+    },
+    Dot {
+        /// Name of a `.dot` file to write
+        #[clap(short, long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(ValueEnum, Clone)]
@@ -374,6 +388,17 @@ fn main() -> Result<()> {
             if let Some(out) = settings.out {
                 info!("Writing STL to {out:?}");
                 mesh.write_stl(&mut std::fs::File::create(out)?)?;
+            }
+        }
+        Command::Chunky { inline, registers } => {
+            fidget::chunky::buildy(&ctx, root, inline, registers)?;
+        }
+        Command::Dot { out } => {
+            let dot = ctx.dot_node(root);
+            if let Some(out) = out {
+                std::fs::write(out, dot)?;
+            } else {
+                println!("{dot}");
             }
         }
     }

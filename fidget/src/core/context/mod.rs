@@ -748,7 +748,7 @@ impl Context {
     ///
     /// (this is a local function instead of a function on `Op` because it
     ///  requires looking up variables by name)
-    fn dot_node(&self, i: Node) -> String {
+    pub fn dot_node(&self, i: Node) -> String {
         let mut out = format!(r#"n{} [label = ""#, i.get());
         let op = self.get_op(i).unwrap();
         match op {
