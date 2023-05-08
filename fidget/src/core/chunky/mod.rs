@@ -338,7 +338,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
     // Great, we can now generate an ordering within the group
     let mut ordered_nodes = vec![];
     let mut seen = BTreeSet::new();
-    let mut todo = start.clone();
+    let mut todo = start;
     while let Some(n) = todo.pop() {
         if *parent_count.get(&n).unwrap_or(&0) > 0 || !seen.insert(n) {
             continue;
@@ -361,7 +361,7 @@ pub fn buildy(
     ctx: &Context,
     root: Node,
     inline: usize,
-    _registers: u8,
+    registers: u8,
 ) -> Result<(), Error> {
     let inline = pick_inline(ctx, root, inline);
     println!("got {} inline nodes", inline.len());
@@ -401,134 +401,24 @@ pub fn buildy(
     let groups: Vec<Vec<Node>> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
-    for group in groups.iter() {
-        for node in group.iter() {
-            // TODO
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////////////
-    // XXX Everything below here is in flux
-
-    // Convert from nodes to SsaOp
-    let mut builder = crate::ssa::Builder::new();
-    for &node in groups.iter().flatten() {
-        // Declare, if you have understanding
-        builder.declare_node(node, *ctx.get_op(node).unwrap());
-    }
-    for &node in groups.iter().flatten() {
-        builder.step(node, *ctx.get_op(node).unwrap(), ctx);
-    }
-    let tape = builder.finish();
-    assert_eq!(
-        tape.tape.len(),
-        groups
-            .iter()
-            .flatten()
-            .filter(|n| !matches!(ctx.get_op(**n).unwrap(), Op::Const(..),))
-            .count()
-    );
-
-    // Now that we've got a tape of SsaOp's, let's split it into smaller
-    // subtapes for each group
     let mut group_tapes = vec![];
-    let mut tape_slice = tape.tape.as_slice();
-    for g in &groups {
-        let size = g
-            .iter()
-            .filter(|n| ctx.const_value(**n).unwrap().is_none())
-            .count();
-        let (start, rest) = tape_slice.split_at(size);
-        tape_slice = rest;
-        group_tapes.push(start.to_owned());
-    }
-    assert!(tape_slice.is_empty());
-    for t in &group_tapes {
-        for n in t {
-            println!("{n:?}");
+    let mut prev_bindings = vec![(root, alloc::Allocation::Register(0))];
+    for group in groups.iter() {
+        let mut alloc = alloc::RegisterAllocator::new(ctx, registers);
+        alloc.bind(&prev_bindings);
+        for node in group.iter() {
+            alloc.op(*node);
         }
-        println!("---------------------------------------");
-    }
-
-    use crate::vm::RegisterAllocator;
-    let mut alloc = RegisterAllocator::new(24, groups.iter().flatten().count());
-    let mut cutoffs = vec![];
-    for g in &group_tapes {
-        for &node in g {
-            alloc.op(node);
+        let (tape, bindings) = alloc.finalize();
+        for op in &tape {
+            println!("{op:?}");
         }
-        cutoffs.push(alloc.tape_len());
+        group_tapes.push(tape);
+        println!("bindings: {bindings:?}");
+        prev_bindings = bindings;
+        println!("-----------------------");
     }
-    println!("flat allocated tape:");
-    let t = alloc.finalize();
-    for i in t.iter() {
-        println!("{i:?}");
-    }
-
-    let mut alloc_tapes = vec![];
-    let mut tape_slice = t.iter();
-    let mut cumsize = 0;
-    for size in cutoffs {
-        println!("{size}, {cumsize}");
-        let mut t = vec![];
-        for _i in 0..(size - cumsize) {
-            t.push(tape_slice.next().unwrap());
-        }
-        cumsize += size;
-        alloc_tapes.push(t);
-    }
-
-    println!("---------------------------------------");
-    println!("REGISTER-ALLOCATED TAPES");
-    for t in &alloc_tapes {
-        for n in t {
-            println!("{n:?}");
-        }
-        println!("---------------------------------------");
-    }
-
-    // Assign global nodes to pseudo-registers.
-    //
-    // Global nodes cannot move once assigned (unlike local nodes), because
-    // they have to be invariant even if groups are removed from the graph.
-    //
-    // As such, they get priority assignment.
-    let mut assigned = BTreeMap::new();
-    assigned.insert(root, Register(0));
-    let mut global_reg_assignments = BTreeMap::new();
-    let mut spare = BTreeSet::new();
-    for g in groups.iter() {
-        for n in g.iter() {
-            if globals.contains(n) {
-                let Some(reg) = assigned.remove(n) else {
-                        panic!("unassigned global {n:?}");
-                    };
-                assert!(!global_reg_assignments.contains_key(n));
-                global_reg_assignments.insert(n, reg);
-                spare.insert(reg);
-            }
-            assert!(!assigned.contains_key(n));
-            for child in ctx
-                .get_op(*n)
-                .unwrap()
-                .iter_children()
-                .filter(|n| globals.contains(n))
-            {
-                let next = Register(assigned.len());
-                assigned.entry(child).or_insert_with(|| {
-                    match spare.iter().next().cloned() {
-                        Some(t) => {
-                            spare.remove(&t);
-                            t
-                        }
-                        None => next,
-                    }
-                });
-            }
-        }
-    }
-    println!("{assigned:?}");
-    println!("{spare:?}");
+    println!();
 
     for (group, dnf) in groups.iter().zip(&keys) {
         println!("=======================");
