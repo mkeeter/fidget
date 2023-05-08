@@ -53,11 +53,11 @@ enum Command {
     },
     Chunky {
         /// Maximum weight for inlining
-        #[clap(default_value_t = 9)]
+        #[clap(long, default_value_t = 9)]
         inline: usize,
 
         /// Number of registers to use when tape planning
-        #[clap(default_value_t = 24)]
+        #[clap(long, default_value_t = 24)]
         registers: u8,
     },
     Dot {

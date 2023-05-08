@@ -2,19 +2,19 @@ use crate::{
     context::{self, Context, Node, VarNode},
     vm::{lru::Lru, Op, Tape},
 };
-use std::collections::BTreeMap;
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
 use arrayvec::ArrayVec;
 
 #[derive(Copy, Clone, Debug)]
-enum AbstractAllocation {
+pub enum Allocation {
     Register(u8),
     Memory(u32),
     Both(u8, u32),
 }
 
 #[derive(Copy, Clone, Debug)]
-enum Allocation {
+enum Binding {
     Register(u8),
     Memory(u32),
 }
@@ -28,7 +28,7 @@ pub struct RegisterAllocator<'a> {
 
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
-    allocations: BTreeMap<Node, AbstractAllocation>,
+    allocations: BTreeMap<Node, Allocation>,
 
     /// Map from a particular register to the original node that's using that
     /// register.  This is the reverse of `allocations`.
@@ -80,10 +80,53 @@ impl<'a> RegisterAllocator<'a> {
         }
     }
 
-    /// Claims the internal `Vec<Op>`, leaving it empty
+    pub fn bind(&mut self, data: &[(Node, Allocation)]) {
+        for &(n, b) in data {
+            self.bind_one(n, b);
+        }
+        let used: BTreeSet<u32> = data
+            .iter()
+            .flat_map(|(_n, b)| match b {
+                Allocation::Both(reg, mem) => [Some(*reg as u32), Some(*mem)],
+                Allocation::Register(reg) => [Some(*reg as u32), None],
+                Allocation::Memory(mem) => [Some(*mem), None],
+            })
+            .flatten()
+            .collect();
+        self.out.slot_count = used.iter().max().map(|m| m + 1).unwrap_or(0);
+        for i in (0..self.out.slot_count)
+            .into_iter()
+            .filter(|i| !used.contains(i))
+        {
+            if i < self.reg_limit as u32 {
+                self.spare_registers.push(i as u8);
+            } else {
+                self.spare_memory.push(i);
+            }
+        }
+    }
+
+    fn bind_one(&mut self, n: Node, b: Allocation) {
+        match self.allocations.entry(n) {
+            Entry::Occupied(..) => panic!("node is already bound"),
+            Entry::Vacant(e) => e.insert(b),
+        };
+        match b {
+            Allocation::Both(reg, ..) | Allocation::Register(reg) => {
+                match self.registers.entry(reg) {
+                    Entry::Occupied(..) => panic!("register is already used"),
+                    Entry::Vacant(v) => v.insert(n),
+                };
+                self.register_lru.poke(reg);
+            }
+            Allocation::Memory(..) => (),
+        };
+    }
+
+    /// Destroys the allocator and claims its state
     #[inline]
-    pub fn finalize(&mut self) -> Tape {
-        std::mem::take(&mut self.out)
+    pub fn finalize(self) -> (Tape, Vec<(Node, Allocation)>) {
+        (self.out, self.allocations.into_iter().collect())
     }
 
     /// Returns an available memory slot.
@@ -119,14 +162,13 @@ impl<'a> RegisterAllocator<'a> {
     ///
     /// If the output is a register, then it's poked to update recency
     #[inline]
-    fn get_allocation(&mut self, n: Node) -> Option<Allocation> {
+    fn get_allocation(&mut self, n: Node) -> Option<Binding> {
         match self.allocations.get(&n)? {
-            AbstractAllocation::Register(reg)
-            | AbstractAllocation::Both(reg, ..) => {
+            Allocation::Register(reg) | Allocation::Both(reg, ..) => {
                 self.register_lru.poke(*reg);
-                Some(Allocation::Register(*reg))
+                Some(Binding::Register(*reg))
             }
-            AbstractAllocation::Memory(mem) => Some(Allocation::Memory(*mem)),
+            Allocation::Memory(mem) => Some(Binding::Memory(*mem)),
         }
     }
 
@@ -165,11 +207,11 @@ impl<'a> RegisterAllocator<'a> {
             // If the previous user of this register _also_ has a memory slot
             // associated with it, then we'll reuse that slot here.
             let mem = match self.allocations.get(&prev_node) {
-                Some(AbstractAllocation::Both(prev_reg, mem)) => {
+                Some(Allocation::Both(prev_reg, mem)) => {
                     assert_eq!(*prev_reg, reg);
                     *mem
                 }
-                Some(AbstractAllocation::Register(prev_reg)) => {
+                Some(Allocation::Register(prev_reg)) => {
                     // Otherwise, assign a new slot for it.
                     assert_eq!(*prev_reg, reg);
                     self.get_memory()
@@ -178,8 +220,7 @@ impl<'a> RegisterAllocator<'a> {
             };
 
             // The previous node is now only bound to memory.
-            self.allocations
-                .insert(prev_node, AbstractAllocation::Memory(mem));
+            self.allocations.insert(prev_node, Allocation::Memory(mem));
 
             // The output register is now unassigned
             self.registers.remove(&reg);
@@ -193,11 +234,11 @@ impl<'a> RegisterAllocator<'a> {
     /// Remove the register associated with the given node
     fn alloc_remove_reg(&mut self, n: Node) -> u8 {
         match self.allocations.get_mut(&n).cloned() {
-            Some(AbstractAllocation::Both(reg, mem)) => {
-                self.allocations.insert(n, AbstractAllocation::Memory(mem));
+            Some(Allocation::Both(reg, mem)) => {
+                self.allocations.insert(n, Allocation::Memory(mem));
                 reg
             }
-            Some(AbstractAllocation::Register(reg)) => {
+            Some(Allocation::Register(reg)) => {
                 self.allocations.remove(&n);
                 reg
             }
@@ -226,13 +267,11 @@ impl<'a> RegisterAllocator<'a> {
         self.registers.insert(reg, n);
         self.register_lru.poke(reg);
         match self.allocations.get_mut(&n).cloned() {
-            Some(AbstractAllocation::Memory(mem)) => {
-                self.allocations
-                    .insert(n, AbstractAllocation::Both(reg, mem));
+            Some(Allocation::Memory(mem)) => {
+                self.allocations.insert(n, Allocation::Both(reg, mem));
             }
             None => {
-                self.allocations
-                    .insert(n, AbstractAllocation::Register(reg));
+                self.allocations.insert(n, Allocation::Register(reg));
             }
             v => panic!("cannot insert register into {v:?}"),
         }
@@ -270,7 +309,6 @@ impl<'a> RegisterAllocator<'a> {
                 self.op_input(node, arg);
             }
             context::Op::Var(v) => {
-                use std::collections::btree_map::Entry;
                 let next_var = self.vars.len().try_into().unwrap();
                 let arg = match self.vars.entry(v) {
                     Entry::Vacant(e) => {
@@ -367,18 +405,18 @@ impl<'a> RegisterAllocator<'a> {
             .get(&out)
             .expect("out register must be bound")
         {
-            AbstractAllocation::Register(r_x) => {
+            Allocation::Register(r_x) => {
                 assert_eq!(self.registers.get(&r_x), Some(&out));
                 r_x
             }
-            AbstractAllocation::Memory(m_x) => {
+            Allocation::Memory(m_x) => {
                 let r_a = self.get_register();
 
                 self.push_store(r_a, m_x);
                 self.bind_register(out, r_a);
                 r_a
             }
-            AbstractAllocation::Both(r_x, m_x) => {
+            Allocation::Both(r_x, m_x) => {
                 self.push_store(r_x, m_x);
                 assert_eq!(self.registers.get(&r_x), Some(&out));
                 r_x
@@ -390,12 +428,12 @@ impl<'a> RegisterAllocator<'a> {
     fn op_reg_fn(&mut self, out: Node, arg: Node, op: impl Fn(u8, u8) -> Op) {
         let r_x = self.get_out_reg(out);
         match self.get_allocation(arg) {
-            Some(Allocation::Register(r_y)) => {
+            Some(Binding::Register(r_y)) => {
                 assert!(r_x != r_y);
                 self.out.push(op(r_x, r_y));
                 self.release_reg(r_x);
             }
-            Some(Allocation::Memory(..)) | None => {
+            Some(Binding::Memory(..)) | None => {
                 self.out.push(op(r_x, r_x));
                 self.rebind_register(arg, r_x);
             }
@@ -421,30 +459,27 @@ impl<'a> RegisterAllocator<'a> {
     ) {
         let r_x = self.get_out_reg(out);
         match (self.get_allocation(lhs), self.get_allocation(rhs)) {
-            (
-                Some(Allocation::Register(r_y)),
-                Some(Allocation::Register(r_z)),
-            ) => {
+            (Some(Binding::Register(r_y)), Some(Binding::Register(r_z))) => {
                 self.out.push(op(r_x, r_y, r_z));
                 self.release_reg(r_x);
             }
             (
-                Some(Allocation::Memory(..)) | None,
-                Some(Allocation::Register(r_z)),
+                Some(Binding::Memory(..)) | None,
+                Some(Binding::Register(r_z)),
             ) => {
                 self.out.push(op(r_x, r_x, r_z));
                 self.rebind_register(lhs, r_x);
             }
             (
-                Some(Allocation::Register(r_y)),
-                Some(Allocation::Memory(..)) | None,
+                Some(Binding::Register(r_y)),
+                Some(Binding::Memory(..)) | None,
             ) => {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
             (
-                Some(Allocation::Memory(..)) | None,
-                Some(Allocation::Memory(..)) | None,
+                Some(Binding::Memory(..)) | None,
+                Some(Binding::Memory(..)) | None,
             ) => {
                 let r_a = if lhs == rhs { r_x } else { self.get_register() };
 
@@ -464,12 +499,6 @@ impl<'a> RegisterAllocator<'a> {
         self.release_reg(r_x);
     }
 
-    /// Pushes a [`CopyImm`](crate::vm::Op::CopyImm) operation to the tape
-    #[inline(always)]
-    fn op_copy_imm(&mut self, out: Node, imm: f32) {
-        self.op_out_only(out, |out| Op::CopyImm(out, imm));
-    }
-
     /// Pushes an [`Input`](crate::vm::Op::Input) operation to the tape
     #[inline(always)]
     fn op_input(&mut self, out: Node, i: u8) {
@@ -480,10 +509,5 @@ impl<'a> RegisterAllocator<'a> {
     #[inline(always)]
     fn op_var(&mut self, out: Node, i: u32) {
         self.op_out_only(out, |out| Op::Var(out, i));
-    }
-
-    #[inline]
-    pub fn tape_len(&self) -> usize {
-        self.out.len()
     }
 }
