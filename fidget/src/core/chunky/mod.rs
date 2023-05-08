@@ -363,6 +363,8 @@ pub fn buildy(
     inline: usize,
     registers: u8,
 ) -> Result<(), Error> {
+    let start = std::time::Instant::now();
+
     let inline = pick_inline(ctx, root, inline);
     println!("got {} inline nodes", inline.len());
 
@@ -402,21 +404,26 @@ pub fn buildy(
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     let mut group_tapes = vec![];
-    let mut prev_bindings = vec![(root, alloc::Allocation::Register(0))];
+    let mut alloc = alloc::RegisterAllocator::new(ctx, registers);
+    alloc.bind(&[(root, alloc::Allocation::Register(0))]);
     for group in groups.iter() {
-        let mut alloc = alloc::RegisterAllocator::new(ctx, registers);
-        alloc.bind(&prev_bindings);
         for node in group.iter() {
             alloc.op(*node);
         }
-        let (tape, bindings) = alloc.finalize();
-        for op in &tape {
+        let tape = alloc.finalize();
+        group_tapes.push(tape);
+    }
+
+    println!("done in {:?}", start.elapsed());
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Verbose logging and debug info
+    //
+    for tape in &group_tapes {
+        for op in tape {
             println!("{op:?}");
         }
-        group_tapes.push(tape);
-        println!("bindings: {bindings:?}");
-        prev_bindings = bindings;
-        println!("-----------------------");
+        println!("--------");
     }
     println!();
 

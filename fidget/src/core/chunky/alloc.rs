@@ -123,10 +123,42 @@ impl<'a> RegisterAllocator<'a> {
         };
     }
 
-    /// Destroys the allocator and claims its state
+    /// Removes and returns the current tape
+    ///
+    /// At this point, every remaining allocation must be associated with a
+    /// memory slot, because we're exiting the node group; if that's not the
+    /// case, then we make such an association before returning.
     #[inline]
-    pub fn finalize(self) -> (Tape, Vec<(Node, Allocation)>) {
-        (self.out, self.allocations.into_iter().collect())
+    pub fn finalize(&mut self) -> Tape {
+        // Prepare to allocate memory slots
+        while self.out.slot_count < self.reg_limit as u32 {
+            self.spare_registers.push(self.out.slot_count as u8);
+            self.out.slot_count += 1;
+        }
+
+        // Add Load operations for global allocations
+        let mut allocations = std::mem::take(&mut self.allocations);
+        for b in allocations.values_mut() {
+            match *b {
+                Allocation::Register(reg) => {
+                    let mem = self.get_memory();
+                    self.out.push(Op::Load(reg, mem));
+                    *b = Allocation::Both(reg, mem);
+                }
+                Allocation::Both(reg, mem) => {
+                    self.out.push(Op::Load(reg, mem));
+                }
+                Allocation::Memory(..) => (),
+            }
+        }
+        self.allocations = allocations;
+
+        // Extract the tape
+        let out = std::mem::take(&mut self.out);
+
+        // Reset the slot count
+        self.out.slot_count = out.slot_count;
+        out
     }
 
     /// Returns an available memory slot.
@@ -180,7 +212,7 @@ impl<'a> RegisterAllocator<'a> {
                 let reg = self.out.slot_count.try_into().unwrap();
                 assert!(!self.registers.contains_key(&reg));
                 self.out.slot_count += 1;
-                Some(reg.try_into().unwrap())
+                Some(reg)
             } else {
                 None
             }
@@ -249,7 +281,7 @@ impl<'a> RegisterAllocator<'a> {
     /// Moves the given node's binding from memory to a register
     #[inline]
     fn rebind_register(&mut self, n: Node, reg: u8) {
-        assert!(self.registers.contains_key(&reg));
+        assert!(self.registers.contains_key(&reg), "could not find {reg}");
 
         let prev_node = self.registers[&reg];
         let prev_reg = self.alloc_remove_reg(prev_node);
@@ -400,7 +432,7 @@ impl<'a> RegisterAllocator<'a> {
     /// appropriate set of LOAD/STORE operations.
     #[inline]
     fn get_out_reg(&mut self, out: Node) -> u8 {
-        match *self
+        let out = match *self
             .allocations
             .get(&out)
             .expect("out register must be bound")
@@ -421,7 +453,9 @@ impl<'a> RegisterAllocator<'a> {
                 assert_eq!(self.registers.get(&r_x), Some(&out));
                 r_x
             }
-        }
+        };
+        self.register_lru.poke(out);
+        out
     }
 
     #[inline(always)]
