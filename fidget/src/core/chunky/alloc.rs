@@ -34,6 +34,9 @@ pub struct RegisterAllocator<'a> {
     /// register.  This is the reverse of `allocations`.
     registers: BTreeMap<u8, Node>,
 
+    /// Inputs that were used in this tape
+    used: BTreeSet<Node>,
+
     /// Stores a least-recently-used list of register
     ///
     /// This is sized with a backing array that can hold the maximum register
@@ -69,6 +72,7 @@ impl<'a> RegisterAllocator<'a> {
 
             allocations: BTreeMap::new(),
             registers: BTreeMap::new(),
+            used: BTreeSet::new(),
 
             register_lru: Lru::new(reg_limit),
 
@@ -138,20 +142,25 @@ impl<'a> RegisterAllocator<'a> {
 
         // Add Load operations for global allocations
         let mut allocations = std::mem::take(&mut self.allocations);
-        for b in allocations.values_mut() {
+        for (n, b) in allocations.iter_mut() {
             match *b {
                 Allocation::Register(reg) => {
                     let mem = self.get_memory();
-                    self.out.push(Op::Load(reg, mem));
                     *b = Allocation::Both(reg, mem);
+                    if self.used.contains(n) {
+                        self.out.push(Op::Load(reg, mem));
+                    }
                 }
                 Allocation::Both(reg, mem) => {
-                    self.out.push(Op::Load(reg, mem));
+                    if self.used.contains(n) {
+                        self.out.push(Op::Load(reg, mem));
+                    }
                 }
                 Allocation::Memory(..) => (),
             }
         }
         self.allocations = allocations;
+        self.used.clear();
 
         // Extract the tape
         let out = std::mem::take(&mut self.out);
@@ -330,7 +339,9 @@ impl<'a> RegisterAllocator<'a> {
     /// if there aren't enough spare registers.
     #[inline(always)]
     pub fn op(&mut self, node: Node) {
-        match *self.ctx.get_op(node).unwrap() {
+        let op = *self.ctx.get_op(node).unwrap();
+        self.used.extend(op.iter_children());
+        match op {
             context::Op::Input(v) => {
                 let arg = match self.ctx.get_var_by_index(v).unwrap() {
                     "X" => 0,
