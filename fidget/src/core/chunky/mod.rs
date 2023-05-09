@@ -23,7 +23,7 @@ struct Register(usize);
 /// A single choice at a particular node
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 struct DnfClause {
-    root: ChoiceIndex,
+    root: Node,
     choice: Choice,
 }
 
@@ -93,7 +93,6 @@ fn find_groups(
     ctx: &Context,
     root: Node,
     inline: &BTreeSet<Node>,
-    choice_id: &BTreeMap<Node, ChoiceIndex>,
 ) -> (Vec<Option<BTreeSet<DnfClause>>>, Vec<BTreeSet<Node>>) {
     // Conditional that activates a particular node
     //
@@ -120,13 +119,11 @@ fn find_groups(
                 todo.push((*child, dnf));
             }
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
-                let choice_index = choice_id[&node];
-
                 // LHS recursion
                 todo.push((
                     *lhs,
                     Some(DnfClause {
-                        root: choice_index,
+                        root: node,
                         choice: Choice::Left,
                     }),
                 ));
@@ -135,7 +132,7 @@ fn find_groups(
                 todo.push((
                     *rhs,
                     Some(DnfClause {
-                        root: choice_index,
+                        root: node,
                         choice: Choice::Right,
                     }),
                 ));
@@ -371,7 +368,7 @@ pub fn buildy(
     // TODO: use nodes here instead, because some min/max nodes are inlined?
     let choice_id = assign_choices(ctx, root);
 
-    let (keys, mut groups) = find_groups(ctx, root, &inline, &choice_id);
+    let (keys, mut groups) = find_groups(ctx, root, &inline);
 
     // For each DNF, add all of the inlined nodes
     for group in groups.iter_mut() {
@@ -414,18 +411,68 @@ pub fn buildy(
         group_tapes.push(tape);
     }
 
-    println!("done in {:?}", start.elapsed());
+    // Hooray, we've got group tapes!
+    //
+    // Tapes were planned conservatively, assuming that global values have to be
+    // moved to RAM (rather than persisting in registers).  We're going to do a
+    // cleanup pass to check that assumption and remove Load and Store
+    // operations that proved unnecessary.
+
+    // Records the active register -> memory mapping.  If a register is only
+    // used as a local value, then this map does not contain its value.
+    let mut reg_mem = BTreeMap::new();
+
+    // Eliminate any Load which cannot be invalidated
+    let mut pruned_groups = vec![];
+    for group in group_tapes.iter().rev() {
+        let mut pruned_group = vec![];
+        for op in group.iter().rev() {
+            use crate::vm;
+            match *op {
+                vm::Op::Load(reg, mem) => {
+                    // If the reg-mem binding matches, then we don't need this
+                    // Load operation in the tape.
+                    if Some(&mem) == reg_mem.get(&reg) {
+                        continue; // skip this node
+                    } else {
+                        // This register is now invalidated, since it may be
+                        // bound to a different memory address; we can't be
+                        // *sure* of that binding, though, because groups can be
+                        // deactivated.
+                        reg_mem.remove(&reg);
+                    }
+                }
+                vm::Op::Store(reg, mem) => {
+                    // Update the reg-mem binding based on this Store
+                    reg_mem.insert(reg, mem);
+                }
+                _ => {
+                    // All other operations invalidate the reg-mem binding
+                    reg_mem.remove(&op.out_reg().unwrap());
+                }
+            }
+            pruned_group.push(*op);
+        }
+        pruned_group.reverse();
+        pruned_groups.push(pruned_group);
+    }
+    pruned_groups.reverse();
 
     ////////////////////////////////////////////////////////////////////////////
     // Verbose logging and debug info
-    //
     for tape in &group_tapes {
         for op in tape {
             println!("{op:?}");
         }
         println!("--------");
     }
-    println!();
+    println!("=======================\nPruned results");
+    for tape in &pruned_groups {
+        for op in tape {
+            println!("{op:?}");
+        }
+        println!("--------");
+    }
 
     for (group, dnf) in groups.iter().zip(&keys) {
         println!("=======================");

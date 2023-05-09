@@ -72,6 +72,42 @@ pub enum Op {
     Store(u8, u32),
 }
 
+impl Op {
+    /// Returns the output register associated with this operation
+    ///
+    /// Every operation has an output register except [`Store`](Op::Store)
+    /// (which takes a single input register and writes it to memory)
+    pub fn out_reg(&self) -> Option<u8> {
+        match self {
+            Op::Load(..) => None,
+            Op::Store(reg, ..)
+            | Op::Var(reg, ..)
+            | Op::Input(reg, ..)
+            | Op::CopyImm(reg, ..)
+            | Op::CopyReg(reg, ..)
+            | Op::AddRegReg(reg, ..)
+            | Op::AddRegImm(reg, ..)
+            | Op::NegReg(reg, ..)
+            | Op::AbsReg(reg, ..)
+            | Op::RecipReg(reg, ..)
+            | Op::SqrtReg(reg, ..)
+            | Op::SquareReg(reg, ..)
+            | Op::MulRegReg(reg, ..)
+            | Op::MulRegImm(reg, ..)
+            | Op::MinRegReg(reg, ..)
+            | Op::MinRegImm(reg, ..)
+            | Op::MaxRegReg(reg, ..)
+            | Op::MaxRegImm(reg, ..)
+            | Op::DivRegReg(reg, ..)
+            | Op::DivRegImm(reg, ..)
+            | Op::DivImmReg(reg, ..)
+            | Op::SubRegReg(reg, ..)
+            | Op::SubRegImm(reg, ..)
+            | Op::SubImmReg(reg, ..) => Some(*reg),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
