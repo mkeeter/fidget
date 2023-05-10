@@ -1,10 +1,11 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
     eval::tracing::Choice,
-    vm, Error,
+    Error,
 };
 
 mod alloc;
+mod op;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,24 +70,6 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
         }
     }
     inline
-}
-
-fn assign_choices(ctx: &Context, root: Node) -> BTreeMap<Node, ChoiceIndex> {
-    let mut todo = vec![root];
-    let mut seen = BTreeSet::new();
-    let mut choice_id = BTreeMap::new();
-    while let Some(node) = todo.pop() {
-        if !seen.insert(node) {
-            continue;
-        }
-        let op = ctx.get_op(node).unwrap();
-        if matches!(op, Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..)) {
-            let next = ChoiceIndex(choice_id.len());
-            choice_id.entry(node).or_insert(next);
-        }
-        todo.extend(op.iter_children());
-    }
-    choice_id
 }
 
 fn find_groups(
@@ -355,7 +338,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
 }
 
 /// Eliminates any Load operation which already has the value in the register
-fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
     let mut reg_mem = BTreeMap::new();
@@ -365,7 +348,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
         let mut out = vec![];
         for op in group.iter().rev() {
             match *op {
-                vm::Op::Load(reg, mem) => {
+                op::Op::Load(reg, mem) => {
                     // If the reg-mem binding matches, then we don't need this
                     // Load operation in the tape.
                     if Some(&mem) == reg_mem.get(&reg) {
@@ -378,7 +361,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                         reg_mem.remove(&reg);
                     }
                 }
-                vm::Op::Store(reg, mem) => {
+                op::Op::Store(reg, mem) => {
                     // Update the reg-mem binding based on this Store
                     reg_mem.insert(reg, mem);
                 }
@@ -397,7 +380,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
 }
 
 /// Eliminates any Load operation which does not use the register
-fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     // Next up, do a pass and eliminate any Load operation which isn't used
     //
     // We do this by walking in reverse-evaluation order through each group,
@@ -410,7 +393,7 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
         let mut active = BTreeSet::new();
         let mut out = vec![];
         for op in group {
-            if let vm::Op::Load(reg, ..) = op {
+            if let op::Op::Load(reg, ..) = op {
                 if !active.contains(reg) {
                     continue; // skip this Load
                 }
@@ -426,15 +409,15 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
 }
 
 /// Eliminates any Store operation which does not have a matching Load
-fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
     for group in group_tapes.iter() {
         let mut out = vec![];
         for op in group {
-            if let vm::Op::Load(_reg, mem) = op {
+            if let op::Op::Load(_reg, mem) = op {
                 active.insert(mem);
-            } else if let vm::Op::Store(_reg, mem) = op {
+            } else if let op::Op::Store(_reg, mem) = op {
                 if !active.remove(mem) {
                     continue; // skip this node
                 }
@@ -456,9 +439,6 @@ pub fn buildy(
 
     let inline = pick_inline(ctx, root, inline);
     println!("got {} inline nodes", inline.len());
-
-    // TODO: use nodes here instead, because some min/max nodes are inlined?
-    let choice_id = assign_choices(ctx, root);
 
     let (keys, mut groups) = find_groups(ctx, root, &inline);
 
@@ -488,6 +468,15 @@ pub fn buildy(
     let group_order = compute_group_order(ctx, root, &groups, &globals);
     let (keys, groups) = apply_group_order(keys, groups, group_order);
 
+    // Build a map from nodes-used-as-choices to indices in a flat list
+    let choice_id: BTreeMap<Node, usize> = keys
+        .iter()
+        .flat_map(|k| k.iter().flatten())
+        .map(|v| v.root)
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
+
     // Perform node ordering within each group
     let groups: Vec<Vec<Node>> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
@@ -497,7 +486,7 @@ pub fn buildy(
     alloc.bind(&[(root, alloc::Allocation::Register(0))]);
     for group in groups.iter() {
         for node in group.iter() {
-            alloc.op(*node);
+            alloc.op(*node, choice_id.get(node).copied());
         }
         let tape = alloc.finalize();
         group_tapes.push(tape);
@@ -513,6 +502,8 @@ pub fn buildy(
     let pruned_groups = eliminate_forward_loads(&group_tapes);
     let pruned_groups2 = eliminate_reverse_loads(&pruned_groups);
     let pruned_groups3 = eliminate_reverse_stores(&pruned_groups2);
+
+    println!("done in {:?}", start.elapsed());
 
     ////////////////////////////////////////////////////////////////////////////
     // Verbose logging and debug info
