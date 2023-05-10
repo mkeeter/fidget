@@ -1,6 +1,6 @@
 use crate::{
     context::{self, Context, Node, VarNode},
-    vm::{lru::Lru, Op, Tape},
+    vm::{lru::Lru, Op},
 };
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
@@ -59,7 +59,12 @@ pub struct RegisterAllocator<'a> {
     spare_memory: Vec<u32>,
 
     /// Output slots, assembled in reverse order
-    out: Tape,
+    out: Vec<Op>,
+
+    /// Total number of slots in use
+    ///
+    /// Slots below `self.reg_limit` are registers; above are values in memory
+    slot_count: u32,
 }
 
 impl<'a> RegisterAllocator<'a> {
@@ -80,7 +85,8 @@ impl<'a> RegisterAllocator<'a> {
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::new(),
 
-            out: Tape::new(reg_limit),
+            out: vec![],
+            slot_count: 0,
         }
     }
 
@@ -97,8 +103,8 @@ impl<'a> RegisterAllocator<'a> {
             })
             .flatten()
             .collect();
-        self.out.slot_count = used.iter().max().map(|m| m + 1).unwrap_or(0);
-        for i in (0..self.out.slot_count)
+        self.slot_count = used.iter().max().map(|m| m + 1).unwrap_or(0);
+        for i in (0..self.slot_count)
             .into_iter()
             .filter(|i| !used.contains(i))
         {
@@ -133,11 +139,11 @@ impl<'a> RegisterAllocator<'a> {
     /// memory slot, because we're exiting the node group; if that's not the
     /// case, then we make such an association before returning.
     #[inline]
-    pub fn finalize(&mut self) -> Tape {
+    pub fn finalize(&mut self) -> Vec<Op> {
         // Prepare to allocate memory slots
-        while self.out.slot_count < self.reg_limit as u32 {
-            self.spare_registers.push(self.out.slot_count as u8);
-            self.out.slot_count += 1;
+        while self.slot_count < self.reg_limit as u32 {
+            self.spare_registers.push(self.slot_count as u8);
+            self.slot_count += 1;
         }
 
         // Add Load operations for global allocations
@@ -163,11 +169,7 @@ impl<'a> RegisterAllocator<'a> {
         self.used.clear();
 
         // Extract the tape
-        let out = std::mem::take(&mut self.out);
-
-        // Reset the slot count
-        self.out.slot_count = out.slot_count;
-        out
+        std::mem::take(&mut self.out)
     }
 
     /// Returns an available memory slot.
@@ -184,9 +186,9 @@ impl<'a> RegisterAllocator<'a> {
         if let Some(p) = self.spare_memory.pop() {
             p
         } else {
-            let out = self.out.slot_count;
-            self.out.slot_count += 1;
-            assert!(out >= self.out.reg_limit().into());
+            let out = self.slot_count;
+            self.slot_count += 1;
+            assert!(out >= self.reg_limit.into());
             out
         }
     }
@@ -217,10 +219,11 @@ impl<'a> RegisterAllocator<'a> {
     #[inline]
     fn get_spare_register(&mut self) -> Option<u8> {
         self.spare_registers.pop().or_else(|| {
-            if self.out.slot_count < self.reg_limit as u32 {
-                let reg = self.out.slot_count.try_into().unwrap();
+            if self.slot_count < self.reg_limit as u32 {
+                let reg = self.slot_count.try_into().unwrap();
                 assert!(!self.registers.contains_key(&reg));
-                self.out.slot_count += 1;
+                assert!(reg < self.reg_limit);
+                self.slot_count += 1;
                 Some(reg)
             } else {
                 None
