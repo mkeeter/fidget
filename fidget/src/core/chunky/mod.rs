@@ -355,7 +355,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
 }
 
 /// Eliminates any Load operation which already has the value in the register
-fn eliminate_forward_loads(group_tapes: &[vm::Tape]) -> Vec<Vec<vm::Op>> {
+fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
     let mut reg_mem = BTreeMap::new();
