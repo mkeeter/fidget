@@ -1,6 +1,7 @@
 use crate::{
+    chunky::op::Op,
     context::{self, Context, Node, VarNode},
-    vm::{lru::Lru, Op},
+    vm::lru::Lru,
 };
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
@@ -341,7 +342,7 @@ impl<'a> RegisterAllocator<'a> {
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
     #[inline(always)]
-    pub fn op(&mut self, node: Node) {
+    pub fn op(&mut self, node: Node, choice: Option<usize>) {
         let op = *self.ctx.get_op(node).unwrap();
         self.used.extend(op.iter_children());
         match op {
@@ -388,47 +389,119 @@ impl<'a> RegisterAllocator<'a> {
             }
 
             context::Op::Binary(op, lhs, rhs) => {
-                type RegFn = fn(u8, u8, u8) -> Op;
-                type ImmFn = fn(u8, u8, f32) -> Op;
-                let f: (RegFn, ImmFn, ImmFn) = match op {
-                    context::BinaryOpcode::Add => {
-                        (Op::AddRegReg, Op::AddRegImm, Op::AddRegImm)
+                match (op, choice) {
+                    (context::BinaryOpcode::Add, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::AddRegReg,
+                        Op::AddRegImm,
+                        Op::AddRegImm,
+                    ),
+                    (context::BinaryOpcode::Sub, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::SubRegReg,
+                        Op::SubRegImm,
+                        Op::SubImmReg,
+                    ),
+                    (context::BinaryOpcode::Mul, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::MulRegReg,
+                        Op::MulRegImm,
+                        Op::MulRegImm,
+                    ),
+                    (context::BinaryOpcode::Div, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::DivRegReg,
+                        Op::DivRegImm,
+                        Op::DivImmReg,
+                    ),
+                    (context::BinaryOpcode::Min, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::MinRegReg,
+                        Op::MinRegImm,
+                        Op::MinRegImm,
+                    ),
+                    (context::BinaryOpcode::Max, None) => self.op_binary(
+                        node,
+                        lhs,
+                        rhs,
+                        Op::MaxRegReg,
+                        Op::MaxRegImm,
+                        Op::MaxRegImm,
+                    ),
+                    (context::BinaryOpcode::Min, Some(c)) => {
+                        let c = c.try_into().unwrap();
+                        self.op_binary(
+                            node,
+                            lhs,
+                            rhs,
+                            |reg, lhs, rhs| {
+                                Op::MinRegRegChoice(reg, lhs, rhs, c)
+                            },
+                            |reg, arg, imm| {
+                                Op::MinRegImmChoice(reg, arg, c, imm)
+                            },
+                            |reg, arg, imm| {
+                                Op::MinRegImmChoice(reg, arg, c, imm)
+                            },
+                        )
                     }
-                    context::BinaryOpcode::Sub => {
-                        (Op::SubRegReg, Op::SubRegImm, Op::SubImmReg)
+                    (context::BinaryOpcode::Max, Some(c)) => {
+                        let c = c.try_into().unwrap();
+                        self.op_binary(
+                            node,
+                            lhs,
+                            rhs,
+                            |reg, lhs, rhs| {
+                                Op::MaxRegRegChoice(reg, lhs, rhs, c)
+                            },
+                            |reg, arg, imm| {
+                                Op::MaxRegImmChoice(reg, arg, c, imm)
+                            },
+                            |reg, arg, imm| {
+                                Op::MaxRegImmChoice(reg, arg, c, imm)
+                            },
+                        )
                     }
-                    context::BinaryOpcode::Mul => {
-                        (Op::MulRegReg, Op::MulRegImm, Op::MulRegImm)
-                    }
-                    context::BinaryOpcode::Div => {
-                        (Op::DivRegReg, Op::DivRegImm, Op::DivImmReg)
-                    }
-                    context::BinaryOpcode::Min => {
-                        (Op::MinRegReg, Op::MinRegImm, Op::MinRegImm)
-                    }
-                    context::BinaryOpcode::Max => {
-                        (Op::MaxRegReg, Op::MaxRegImm, Op::MaxRegImm)
+                    (op, Some(..)) => {
+                        panic!("cannot provide Choice with opcode {op:?}")
                     }
                 };
-                match (
-                    self.ctx.const_value(lhs).unwrap(),
-                    self.ctx.const_value(rhs).unwrap(),
-                ) {
-                    (None, None) => self.op_reg_reg_fn(node, lhs, rhs, f.0),
-                    (None, Some(rhs)) => {
-                        self.op_reg_fn(node, lhs, |a, b| {
-                            (f.2)(a, b, rhs as f32)
-                        });
-                    }
-                    (Some(lhs), None) => {
-                        self.op_reg_fn(node, rhs, |a, b| {
-                            (f.2)(a, b, lhs as f32)
-                        });
-                    }
-                    (Some(_lhs), Some(_rhs)) => {
-                        panic!("Cannot handle f(imm, imm)");
-                    }
-                }
+            }
+        }
+    }
+
+    fn op_binary(
+        &mut self,
+        node: Node,
+        lhs: Node,
+        rhs: Node,
+        reg_reg_fn: impl Fn(u8, u8, u8) -> Op,
+        reg_imm_fn: impl Fn(u8, u8, f32) -> Op,
+        imm_reg_fn: impl Fn(u8, u8, f32) -> Op,
+    ) {
+        match (
+            self.ctx.const_value(lhs).unwrap(),
+            self.ctx.const_value(rhs).unwrap(),
+        ) {
+            (None, None) => self.op_reg_reg_fn(node, lhs, rhs, reg_reg_fn),
+            (None, Some(rhs)) => {
+                self.op_reg_fn(node, lhs, |a, b| reg_imm_fn(a, b, rhs as f32));
+            }
+            (Some(lhs), None) => {
+                self.op_reg_fn(node, rhs, |a, b| imm_reg_fn(a, b, lhs as f32));
+            }
+            (Some(_lhs), Some(_rhs)) => {
+                panic!("Cannot handle f(imm, imm)");
             }
         }
     }
