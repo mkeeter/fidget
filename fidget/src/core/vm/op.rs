@@ -106,6 +106,39 @@ impl Op {
             | Op::SubImmReg(reg, ..) => Some(*reg),
         }
     }
+
+    /// Returns an iterator over input registers
+    pub fn input_reg_iter(&self) -> impl Iterator<Item = u8> {
+        match *self {
+            Op::Input(..)
+            | Op::Var(..)
+            | Op::CopyReg(..)
+            | Op::CopyImm(..)
+            | Op::Load(..) => [None, None],
+            Op::NegReg(_out, arg)
+            | Op::AbsReg(_out, arg)
+            | Op::RecipReg(_out, arg)
+            | Op::SqrtReg(_out, arg)
+            | Op::SquareReg(_out, arg)
+            | Op::AddRegImm(_out, arg, ..)
+            | Op::MulRegImm(_out, arg, ..)
+            | Op::DivRegImm(_out, arg, ..)
+            | Op::DivImmReg(_out, arg, ..)
+            | Op::SubImmReg(_out, arg, ..)
+            | Op::SubRegImm(_out, arg, ..)
+            | Op::MinRegImm(_out, arg, ..)
+            | Op::MaxRegImm(_out, arg, ..) => [Some(arg), None],
+            Op::AddRegReg(_out, lhs, rhs)
+            | Op::MulRegReg(_out, lhs, rhs)
+            | Op::DivRegReg(_out, lhs, rhs)
+            | Op::SubRegReg(_out, lhs, rhs)
+            | Op::MinRegReg(_out, lhs, rhs)
+            | Op::MaxRegReg(_out, lhs, rhs) => [Some(lhs), Some(rhs)],
+            Op::Store(reg, _mem) => [Some(reg), None],
+        }
+        .into_iter()
+        .flatten()
+    }
 }
 
 #[cfg(test)]

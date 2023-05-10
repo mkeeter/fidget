@@ -1,7 +1,7 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
     eval::tracing::Choice,
-    Error,
+    vm, Error,
 };
 
 mod alloc;
@@ -354,6 +354,75 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
     ordered_nodes
 }
 
+fn eliminate_forward_loads(group_tapes: &[vm::Tape]) -> Vec<Vec<vm::Op>> {
+    // Records the active register -> memory mapping.  If a register is only
+    // used as a local value, then this map does not contain its value.
+    let mut reg_mem = BTreeMap::new();
+    let mut out_groups = vec![];
+
+    for group in group_tapes.iter().rev() {
+        let mut out = vec![];
+        for op in group.iter().rev() {
+            match *op {
+                vm::Op::Load(reg, mem) => {
+                    // If the reg-mem binding matches, then we don't need this
+                    // Load operation in the tape.
+                    if Some(&mem) == reg_mem.get(&reg) {
+                        continue; // skip this node
+                    } else {
+                        // This register is now invalidated, since it may be
+                        // bound to a different memory address; we can't be
+                        // *sure* of that binding, though, because groups can be
+                        // deactivated.
+                        reg_mem.remove(&reg);
+                    }
+                }
+                vm::Op::Store(reg, mem) => {
+                    // Update the reg-mem binding based on this Store
+                    reg_mem.insert(reg, mem);
+                }
+                _ => {
+                    // All other operations invalidate the reg-mem binding
+                    reg_mem.remove(&op.out_reg().unwrap());
+                }
+            }
+            out.push(*op);
+        }
+        out.reverse();
+        out_groups.push(out);
+    }
+    out_groups.reverse();
+    out_groups
+}
+
+fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+    // Next up, do a pass and eliminate any Store operation which isn't used
+    //
+    // We do this by walking in reverse-evaluation order through each group,
+    // keeping track of which registers are active (i.e. have been used as
+    // inputs since they were last written).
+    //
+    // If there is a load operation to a non-active register, we can skip it.
+    let mut out_groups = vec![];
+    for group in group_tapes.iter() {
+        let mut active = BTreeSet::new();
+        let mut out = vec![];
+        for op in group {
+            if let vm::Op::Load(reg, ..) = op {
+                if !active.contains(reg) {
+                    continue;
+                }
+            } else {
+                active.remove(&op.out_reg().unwrap());
+                active.extend(op.input_reg_iter());
+            }
+            out.push(*op);
+        }
+        out_groups.push(out);
+    }
+    out_groups
+}
+
 pub fn buildy(
     ctx: &Context,
     root: Node,
@@ -418,45 +487,8 @@ pub fn buildy(
     // cleanup pass to check that assumption and remove Load and Store
     // operations that proved unnecessary.
 
-    // Records the active register -> memory mapping.  If a register is only
-    // used as a local value, then this map does not contain its value.
-    let mut reg_mem = BTreeMap::new();
-
-    // Eliminate any Load which cannot be invalidated
-    let mut pruned_groups = vec![];
-    for group in group_tapes.iter().rev() {
-        let mut pruned_group = vec![];
-        for op in group.iter().rev() {
-            use crate::vm;
-            match *op {
-                vm::Op::Load(reg, mem) => {
-                    // If the reg-mem binding matches, then we don't need this
-                    // Load operation in the tape.
-                    if Some(&mem) == reg_mem.get(&reg) {
-                        continue; // skip this node
-                    } else {
-                        // This register is now invalidated, since it may be
-                        // bound to a different memory address; we can't be
-                        // *sure* of that binding, though, because groups can be
-                        // deactivated.
-                        reg_mem.remove(&reg);
-                    }
-                }
-                vm::Op::Store(reg, mem) => {
-                    // Update the reg-mem binding based on this Store
-                    reg_mem.insert(reg, mem);
-                }
-                _ => {
-                    // All other operations invalidate the reg-mem binding
-                    reg_mem.remove(&op.out_reg().unwrap());
-                }
-            }
-            pruned_group.push(*op);
-        }
-        pruned_group.reverse();
-        pruned_groups.push(pruned_group);
-    }
-    pruned_groups.reverse();
+    let pruned_groups = eliminate_forward_loads(&group_tapes);
+    let pruned_groups2 = eliminate_reverse_loads(&pruned_groups);
 
     ////////////////////////////////////////////////////////////////////////////
     // Verbose logging and debug info
@@ -468,6 +500,13 @@ pub fn buildy(
     }
     println!("=======================\nPruned results");
     for tape in &pruned_groups {
+        for op in tape {
+            println!("{op:?}");
+        }
+        println!("--------");
+    }
+    println!("=======================\nPruned 2 results 2");
+    for tape in &pruned_groups2 {
         for op in tape {
             println!("{op:?}");
         }
