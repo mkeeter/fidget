@@ -354,6 +354,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
     ordered_nodes
 }
 
+/// Eliminates any Load operation which already has the value in the register
 fn eliminate_forward_loads(group_tapes: &[vm::Tape]) -> Vec<Vec<vm::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
@@ -395,8 +396,9 @@ fn eliminate_forward_loads(group_tapes: &[vm::Tape]) -> Vec<Vec<vm::Op>> {
     out_groups
 }
 
+/// Eliminates any Load operation which does not use the register
 fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
-    // Next up, do a pass and eliminate any Store operation which isn't used
+    // Next up, do a pass and eliminate any Load operation which isn't used
     //
     // We do this by walking in reverse-evaluation order through each group,
     // keeping track of which registers are active (i.e. have been used as
@@ -410,11 +412,32 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
         for op in group {
             if let vm::Op::Load(reg, ..) = op {
                 if !active.contains(reg) {
-                    continue;
+                    continue; // skip this Load
                 }
             } else {
                 active.remove(&op.out_reg().unwrap());
                 active.extend(op.input_reg_iter());
+            }
+            out.push(*op);
+        }
+        out_groups.push(out);
+    }
+    out_groups
+}
+
+/// Eliminates any Store operation which does not have a matching Load
+fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+    let mut out_groups = vec![];
+    let mut active = BTreeSet::new();
+    for group in group_tapes.iter() {
+        let mut out = vec![];
+        for op in group {
+            if let vm::Op::Load(_reg, mem) = op {
+                active.insert(mem);
+            } else if let vm::Op::Store(_reg, mem) = op {
+                if !active.remove(mem) {
+                    continue; // skip this node
+                }
             }
             out.push(*op);
         }
@@ -484,11 +507,12 @@ pub fn buildy(
     //
     // Tapes were planned conservatively, assuming that global values have to be
     // moved to RAM (rather than persisting in registers).  We're going to do a
-    // cleanup pass to check that assumption and remove Load and Store
-    // operations that proved unnecessary.
+    // few cleanup passes to remove dead Load and Store operations introduced by
+    // that assumption.
 
     let pruned_groups = eliminate_forward_loads(&group_tapes);
     let pruned_groups2 = eliminate_reverse_loads(&pruned_groups);
+    let pruned_groups3 = eliminate_reverse_stores(&pruned_groups2);
 
     ////////////////////////////////////////////////////////////////////////////
     // Verbose logging and debug info
@@ -507,6 +531,13 @@ pub fn buildy(
     }
     println!("=======================\nPruned 2 results 2");
     for tape in &pruned_groups2 {
+        for op in tape {
+            println!("{op:?}");
+        }
+        println!("--------");
+    }
+    println!("=======================\nPruned 3 results 3");
+    for tape in &pruned_groups3 {
         for op in tape {
             println!("{op:?}");
         }
