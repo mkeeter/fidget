@@ -437,6 +437,12 @@ pub fn buildy(
 ) -> Result<(), Error> {
     let start = std::time::Instant::now();
 
+    // TODO: build a one-operation CopyImm tape in this case
+    if let Some(c) = ctx.const_value(root).unwrap() {
+        println!("this is a constant: {c:?}");
+        return Ok(());
+    }
+
     let inline = pick_inline(ctx, root, inline);
     println!("got {} inline nodes", inline.len());
 
