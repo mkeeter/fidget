@@ -173,6 +173,11 @@ impl<'a> RegisterAllocator<'a> {
         std::mem::take(&mut self.out)
     }
 
+    /// Consumes the allocator, returning the map of variable names
+    pub fn var_names(self) -> BTreeMap<String, u32> {
+        self.var_names
+    }
+
     /// Returns an available memory slot.
     ///
     /// Memory is treated as unlimited; if we don't have any spare slots, then

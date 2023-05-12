@@ -1,25 +1,14 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
-    eval::tracing::Choice,
+    eval::{Choice, Family},
     Error,
 };
 
 mod alloc;
 mod op;
+mod tape;
 
 use std::collections::{BTreeMap, BTreeSet};
-
-/// Globally unique index for a particular choice node
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct ChoiceIndex(usize);
-
-/// Globally unique index for a particular DNF group
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct GroupIndex(usize);
-
-/// Globally unique index for a pseudo-register
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct Register(usize);
 
 /// A single choice at a particular node
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -72,11 +61,17 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
     inline
 }
 
+/// Finds groups of nodes based on choices at `min` / `max` operations
+///
+/// Returns a tuple of `(keys, values)`.  Each item in `keys` is a set of
+/// choices that activate the corresponding set of nodes in `values`; as a
+/// special case, nodes which are always accessible are indicated with an empty
+/// set.
 fn find_groups(
     ctx: &Context,
     root: Node,
     inline: &BTreeSet<Node>,
-) -> (Vec<Option<BTreeSet<DnfClause>>>, Vec<BTreeSet<Node>>) {
+) -> (Vec<BTreeSet<DnfClause>>, Vec<BTreeSet<Node>>) {
     // Conditional that activates a particular node
     //
     // This is recorded as an `OR` of multiple [`DnfClause`] values
@@ -140,9 +135,10 @@ fn find_groups(
     for (n, d) in node_dnfs {
         if d.contains(&None) {
             assert_eq!(d.len(), 1);
-            dnf_nodes.entry(None)
+            dnf_nodes.entry(BTreeSet::new())
         } else {
-            dnf_nodes.entry(Some(d.into_iter().map(|v| v.unwrap()).collect()))
+            assert!(!d.is_empty());
+            dnf_nodes.entry(d.into_iter().map(Option::unwrap).collect())
         }
         .or_default()
         .insert(n);
@@ -195,26 +191,21 @@ fn compute_group_order(
     globals: &BTreeSet<Node>,
 ) -> Vec<usize> {
     // Mapping for any global node to the group that contains it.
-    //
-    // At this point, a GroupIndex refers to order within the `keys` and
-    // `groups` vectors.
-    let global_node_to_group: BTreeMap<Node, GroupIndex> = groups
+    let global_node_to_group: BTreeMap<Node, usize> = groups
         .iter()
         .enumerate()
         .flat_map(|(i, nodes)| {
             nodes
                 .iter()
                 .filter(|n| globals.contains(n))
-                .map(move |n| (*n, GroupIndex(i)))
+                .map(move |n| (*n, i))
         })
         .collect();
 
     // Compute the child groups of every individual group
-    let mut children: BTreeMap<GroupIndex, BTreeSet<GroupIndex>> =
-        BTreeMap::new();
+    let mut children: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
     for (g, nodes) in groups.iter().enumerate() {
-        let g = GroupIndex(g);
-        let map: BTreeSet<GroupIndex> = nodes
+        let map: BTreeSet<_> = nodes
             .iter()
             .flat_map(|node| {
                 ctx.get_op(*node)
@@ -229,7 +220,7 @@ fn compute_group_order(
 
     // For every group, count how many parents it has.  When flattening,
     // we'll add a group once all of its parents have been seen.
-    let mut parent_count: BTreeMap<GroupIndex, usize> = BTreeMap::new();
+    let mut parent_count: BTreeMap<usize, usize> = BTreeMap::new();
     let mut todo = vec![global_node_to_group[&root]];
     let mut seen = BTreeSet::new();
     while let Some(group) = todo.pop() {
@@ -260,18 +251,18 @@ fn compute_group_order(
     assert_eq!(ordered_groups[0], global_node_to_group[&root]);
     let mut group_order = vec![0; ordered_groups.len()];
     for (i, g) in ordered_groups.into_iter().enumerate() {
-        group_order[g.0] = i;
+        group_order[g] = i;
     }
     group_order
 }
 
 fn apply_group_order(
-    keys: Vec<Option<BTreeSet<DnfClause>>>,
+    keys: Vec<BTreeSet<DnfClause>>,
     groups: Vec<BTreeSet<Node>>,
     group_order: Vec<usize>,
-) -> (Vec<Option<BTreeSet<DnfClause>>>, Vec<BTreeSet<Node>>) {
+) -> (Vec<BTreeSet<DnfClause>>, Vec<BTreeSet<Node>>) {
     let mut groups_out = vec![BTreeSet::new(); group_order.len()];
-    let mut keys_out = vec![None; group_order.len()];
+    let mut keys_out = vec![BTreeSet::new(); group_order.len()];
     for (i, (d, g)) in keys.into_iter().zip(groups.into_iter()).enumerate() {
         let j = group_order[i];
         keys_out[j] = d;
@@ -337,7 +328,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
     ordered_nodes
 }
 
-/// Eliminates any Load operation which already has the value in the register
+/// Eliminates any `Load` operation which already has the value in the register
 fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
@@ -379,7 +370,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     out_groups
 }
 
-/// Eliminates any Load operation which does not use the register
+/// Eliminates any `Load` operation which does not use the register
 fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     // Next up, do a pass and eliminate any Load operation which isn't used
     //
@@ -408,7 +399,7 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     out_groups
 }
 
-/// Eliminates any Store operation which does not have a matching Load
+/// Eliminates any `Store` operation which does not have a matching Load
 fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
@@ -429,22 +420,21 @@ fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     out_groups
 }
 
-pub fn buildy(
+pub fn buildy<F: Family>(
     ctx: &Context,
     root: Node,
     inline: usize,
-    registers: u8,
-) -> Result<(), Error> {
-    let start = std::time::Instant::now();
-
+) -> Result<tape::Tape<F>, Error> {
     // TODO: build a one-operation CopyImm tape in this case
     if let Some(c) = ctx.const_value(root).unwrap() {
-        println!("this is a constant: {c:?}");
-        return Ok(());
+        let t = tape::ChoiceTape {
+            tape: vec![op::Op::CopyImm(0, c as f32)],
+            choices: vec![],
+        };
+        return Ok(tape::Tape::new(vec![t], BTreeMap::new()));
     }
 
     let inline = pick_inline(ctx, root, inline);
-    println!("got {} inline nodes", inline.len());
 
     let (keys, mut groups) = find_groups(ctx, root, &inline);
 
@@ -477,7 +467,7 @@ pub fn buildy(
     // Build a map from nodes-used-as-choices to indices in a flat list
     let choice_id: BTreeMap<Node, usize> = keys
         .iter()
-        .flat_map(|k| k.iter().flatten())
+        .flatten()
         .map(|v| v.root)
         .enumerate()
         .map(|(i, n)| (n, i))
@@ -488,7 +478,7 @@ pub fn buildy(
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     let mut group_tapes = vec![];
-    let mut alloc = alloc::RegisterAllocator::new(ctx, registers);
+    let mut alloc = alloc::RegisterAllocator::new(ctx, F::REG_LIMIT);
     alloc.bind(&[(root, alloc::Allocation::Register(0))]);
     for group in groups.iter() {
         for node in group.iter() {
@@ -505,86 +495,27 @@ pub fn buildy(
     // few cleanup passes to remove dead Load and Store operations introduced by
     // that assumption.
 
-    let pruned_groups = eliminate_forward_loads(&group_tapes);
-    let pruned_groups2 = eliminate_reverse_loads(&pruned_groups);
-    let pruned_groups3 = eliminate_reverse_stores(&pruned_groups2);
-
-    println!("done in {:?}", start.elapsed());
-
-    ////////////////////////////////////////////////////////////////////////////
-    // Verbose logging and debug info
-    for tape in &group_tapes {
-        for op in tape {
-            println!("{op:?}");
-        }
-        println!("--------");
-    }
-    println!("=======================\nPruned results");
-    for tape in &pruned_groups {
-        for op in tape {
-            println!("{op:?}");
-        }
-        println!("--------");
-    }
-    println!("=======================\nPruned 2 results 2");
-    for tape in &pruned_groups2 {
-        for op in tape {
-            println!("{op:?}");
-        }
-        println!("--------");
-    }
-    println!("=======================\nPruned 3 results 3");
-    for tape in &pruned_groups3 {
-        for op in tape {
-            println!("{op:?}");
-        }
-        println!("--------");
+    for pass in [
+        eliminate_forward_loads,
+        eliminate_reverse_loads,
+        eliminate_reverse_stores,
+    ] {
+        group_tapes = pass(&group_tapes);
     }
 
-    for (group, dnf) in groups.iter().zip(&keys) {
-        println!("=======================");
-        println!("{dnf:?}");
-        for n in group {
-            print!("{n:?} = {:?}", ctx.get_op(*n).unwrap());
-            if globals.contains(n) {
-                print!(" (GLOBAL)");
-            } else if inline.contains(n) {
-                print!(" (INLINE)");
-            }
-            println!();
-        }
-    }
-
-    println!("got {} DNF -> node clusters", keys.len());
-    println!("got {} globals", globals.len());
-
-    let mut hist: BTreeMap<_, usize> = BTreeMap::new();
-    for d in &groups {
-        *hist.entry(d.len()).or_default() += 1;
-    }
-    println!(" OPS | COUNT");
-    println!("-----|------");
-    for (size, count) in &hist {
-        println!(" {size:>3} | {count:<5}");
-    }
-    println!("total functions: {}", hist.values().sum::<usize>());
-    println!(
-        "total instructions: {}",
-        hist.iter().map(|(a, b)| a * b).sum::<usize>()
-    );
-    println!();
-
-    let mut hist: BTreeMap<_, usize> = BTreeMap::new();
-    for d in &groups {
-        let outputs = d.iter().filter(|n| globals.contains(n)).count();
-        *hist.entry((d.len(), outputs)).or_default() += 1;
-    }
-    println!(" OPS | OUT | COUNT");
-    println!("-----|-----|------");
-    for ((size, out), count) in &hist {
-        println!(" {size:>3} | {out:^3} | {count:<5}");
-    }
-    Ok(())
+    assert_eq!(group_tapes.len(), keys.len());
+    let gt = group_tapes
+        .into_iter()
+        .zip(keys.into_iter())
+        .map(|(g, k)| tape::ChoiceTape {
+            tape: g,
+            choices: k
+                .into_iter()
+                .map(|d| (choice_id[&d.root], d.choice))
+                .collect(),
+        })
+        .collect();
+    Ok(tape::Tape::new(gt, alloc.var_names()))
 }
 
 #[cfg(test)]
@@ -592,14 +523,20 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_foo() {
+    fn test_dead_load_store() {
         const PROSPERO: &str = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../models/prospero.vm"
         ));
         let (ctx, root) =
             crate::Context::from_text(PROSPERO.as_bytes()).unwrap();
-        std::fs::write("out.dot", ctx.dot()).unwrap();
-        buildy(&ctx, root, 9, 24).unwrap();
+
+        // When planning for the interpreter, we get tons of registers, so we
+        // should never see a Load or Store operation.
+        let t = buildy::<crate::vm::Eval>(&ctx, root, 9).unwrap();
+        assert!(t.slot_count <= 255);
+        for op in t.data.iter().flat_map(|t| t.tape.iter()) {
+            assert!(!matches!(op, op::Op::Load(..) | op::Op::Store(..)));
+        }
     }
 }
