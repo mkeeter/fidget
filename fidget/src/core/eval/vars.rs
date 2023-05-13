@@ -1,16 +1,16 @@
-use crate::eval::tape::Data;
-use std::{collections::BTreeMap, sync::Arc};
+use crate::vm::Tape;
+use std::collections::BTreeMap;
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
 /// which is suitably sized for use in evaluation.
-pub struct Vars {
-    names: Arc<BTreeMap<String, u32>>,
+pub struct Vars<'a> {
+    names: &'a BTreeMap<String, u32>,
     values: Vec<f32>,
 }
 
-impl Vars {
+impl<'a> Vars<'a> {
     /// Builds a new variable binding, initializing them all to 0
-    pub fn new(tape: &Data) -> Self {
+    pub fn new<F>(tape: &'a Tape<F>) -> Self {
         let names = tape.vars();
         let values = vec![0.0; names.len()];
         Self { names, values }
@@ -22,7 +22,7 @@ impl Vars {
     /// present in this structure; they will be silently discarded.
     ///
     /// Unbound variables are assigned to `std::f32::NAN`.
-    pub fn bind<'a, I: Iterator<Item = (&'a str, f32)>>(
+    pub fn bind<'b, I: Iterator<Item = (&'b str, f32)>>(
         &mut self,
         iter: I,
     ) -> &[f32] {

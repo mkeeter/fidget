@@ -1,72 +1,132 @@
-//! Tape used for evaluation
-use crate::vm::Op;
+use std::{collections::BTreeMap, sync::Arc};
 
-/// Low-level tape for use with the Fidget virtual machine (or to be lowered
-/// further into machine instructions).
-#[derive(Clone, Default)]
-pub struct Tape {
-    tape: Vec<Op>,
+use crate::{
+    eval::{Choice, Family},
+    vm::Op,
+};
 
-    /// Total allocated slots
-    pub(crate) slot_count: u32,
+/// Evaluation tape, which is an ordered set of functions
+///
+/// It is parameterized by an [`Family`](Family) type, which sets the register
+/// count of the inner VM tapes.
+///
+/// This is a heavy-weight value and should not change once constructed;
+/// consider wrapping it in an `Arc` for shared light-weight use.
+pub struct Tape<F> {
+    /// The tape groups are stored in reverse order, such that the root of the
+    /// tree is the first item in the first tape
+    pub data: Vec<ChoiceTape>,
 
-    /// Number of registers, before we fall back to Load/Store operations
-    reg_limit: u8,
+    /// Number of choice operations
+    choice_count: usize,
+
+    /// Number of slots used by the tape
+    slot_count: usize,
+
+    /// Mapping from variable names (in the original
+    /// [`Context`](crate::context::Context)) to indexes in the variable array
+    /// used during evaluation.
+    vars: BTreeMap<String, u32>,
+
+    _p: std::marker::PhantomData<fn() -> F>,
 }
 
-impl Tape {
-    /// Constructs a new tape with the given register limit
-    pub fn new(reg_limit: u8) -> Self {
+impl<F> Tape<F> {
+    /// Returns the number of slots used by this tape
+    pub fn slot_count(&self) -> usize {
+        self.slot_count
+    }
+    /// Returns the number of variables used by this tape
+    pub fn var_count(&self) -> usize {
+        self.vars.len()
+    }
+    /// Returns the mapping from variable name to slot
+    pub fn vars(&self) -> &BTreeMap<String, u32> {
+        &self.vars
+    }
+    /// Returns the number of choices written by this tape
+    pub fn choice_count(&self) -> usize {
+        self.choice_count
+    }
+
+    /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
+    /// evaluation order.
+    pub fn iter_asm<'a>(
+        &'a self,
+        active_groups: &'a [usize],
+    ) -> impl Iterator<Item = Op> + 'a {
+        active_groups
+            .iter()
+            .rev()
+            .flat_map(|i| self.data[*i].tape.iter().rev())
+            .cloned()
+    }
+}
+
+impl<F: Family> Tape<F> {
+    /// Returns the register limit used when planning this tape
+    pub fn reg_limit(&self) -> u8 {
+        F::REG_LIMIT
+    }
+}
+
+/// A tape alongside the choices which lead it to being selected
+pub struct ChoiceTape {
+    /// List of instructions in reverse-evaluation order
+    pub tape: Vec<Op>,
+
+    /// Array of `(choice index, choice)` tuples
+    ///
+    /// If any of the tuples matches, then this tape is active
+    ///
+    /// As a special case, the always-selected (root) tape is represented with
+    /// an empty vector.
+    pub choices: Vec<(usize, Choice)>,
+}
+
+impl<F: Family> Tape<F> {
+    /// Builds a new tape, built from many operation groups
+    pub fn new(data: Vec<ChoiceTape>, vars: BTreeMap<String, u32>) -> Self {
+        let choice_count = data
+            .iter()
+            .flat_map(|t| t.choices.iter())
+            .map(|c| c.0 + 1)
+            .max()
+            .unwrap_or(0) as usize;
+        let slot_count = data
+            .iter()
+            .flat_map(|t| t.tape.iter())
+            .flat_map(|op| op.iter_slots())
+            .map(|s| s + 1)
+            .max()
+            .unwrap_or(0) as usize;
         Self {
-            tape: vec![],
-            slot_count: 1,
-            reg_limit,
+            data,
+            vars,
+            choice_count,
+            slot_count,
+            _p: std::marker::PhantomData,
         }
     }
-    /// Resets this tape, retaining its allocations
-    pub fn reset(&mut self, reg_limit: u8) {
-        self.tape.clear();
-        self.slot_count = 1;
-        self.reg_limit = reg_limit;
-    }
-    /// Returns the register limit with which this tape was planned
-    pub fn reg_limit(&self) -> u8 {
-        self.reg_limit
-    }
-    /// Returns the number of unique register and memory locations that are used
-    /// by this tape.
-    #[inline]
-    pub fn slot_count(&self) -> usize {
-        self.slot_count as usize
-    }
-    /// Returns the number of elements in the tape
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.tape.len()
-    }
-    /// Returns `true` if the tape contains no elements
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.tape.is_empty()
-    }
-    /// Returns a front-to-back iterator
-    ///
-    /// This is the opposite of evaluation order; it will visit the root of the
-    /// tree first, and end at the leaves.
-    #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, Op> {
-        self.into_iter()
-    }
-    #[inline]
-    pub(crate) fn push(&mut self, op: Op) {
-        self.tape.push(op)
-    }
 }
 
-impl<'a> IntoIterator for &'a Tape {
-    type Item = &'a Op;
-    type IntoIter = std::slice::Iter<'a, Op>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.tape.iter()
+/// Represents a tape specialized with a set of choices and active groups
+///
+/// This is a handle expected to be passed by value
+pub struct SpecializedTape<F> {
+    /// Root tape, which contains all groups
+    pub tape: Arc<Tape<F>>,
+
+    /// Set of choices, indicating which `min` and `max` clauses are specialized
+    pub choices: Vec<Choice>,
+
+    /// Currently active groups, as indexes into the root tape
+    active_groups: Vec<usize>,
+}
+
+impl<F> SpecializedTape<F> {
+    /// Iterates over active clauses in the tape in evaluation order
+    pub fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
+        self.tape.iter_asm(&self.active_groups)
     }
 }

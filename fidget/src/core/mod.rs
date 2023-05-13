@@ -48,10 +48,7 @@ pub mod context;
 pub use context::Context;
 
 pub mod eval;
-pub mod ssa;
 pub mod vm;
-
-pub mod chunky;
 
 #[cfg(test)]
 mod test {
