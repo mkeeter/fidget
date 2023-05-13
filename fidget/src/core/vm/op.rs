@@ -57,14 +57,14 @@ pub enum Op {
         out: u8,
         arg: u8,
         imm: f32,
-        choice: u16,
+        choice: u32,
     },
     /// Compute the maximum of a register and an immediate
     MaxRegImmChoice {
         out: u8,
         arg: u8,
         imm: f32,
-        choice: u16,
+        choice: u32,
     },
 
     /// Add two registers
@@ -85,14 +85,14 @@ pub enum Op {
         out: u8,
         lhs: u8,
         rhs: u8,
-        choice: u16,
+        choice: u32,
     },
     /// Take the maximum of two registers
     MaxRegRegChoice {
         out: u8,
         lhs: u8,
         rhs: u8,
-        choice: u16,
+        choice: u32,
     },
 
     /// Copy an immediate to a register
@@ -227,6 +227,6 @@ mod test {
     use super::*;
     #[test]
     fn test_vm_op_size() {
-        assert_eq!(std::mem::size_of::<Op>(), 8);
+        assert_eq!(std::mem::size_of::<Op>(), 12);
     }
 }
