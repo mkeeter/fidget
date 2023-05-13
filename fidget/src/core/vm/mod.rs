@@ -9,4 +9,4 @@ pub(crate) mod build;
 
 pub use eval::Eval;
 pub use op::Op;
-pub use tape::{SpecializedTape, TapeData};
+pub use tape::{Tape, TapeData};

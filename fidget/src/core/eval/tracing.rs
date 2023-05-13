@@ -12,7 +12,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{SpecializedTape, TapeData},
+    vm::{Tape, TapeData},
     Error,
 };
 
@@ -111,7 +111,7 @@ impl<F> TracingEvaluatorData<F> for () {
 #[derive(Clone)]
 pub struct TracingEval<T, E, F> {
     eval: E,
-    tape: Arc<SpecializedTape<F>>,
+    tape: Tape<F>,
 
     _p: std::marker::PhantomData<fn(T) -> T>,
 }
@@ -121,20 +121,17 @@ where
     E: TracingEvaluator<T, F> + EvaluatorStorage<F>,
 {
     /// Builds a new evaluator for the given tape, allocating new storage
-    pub fn new(tape: Arc<SpecializedTape<F>>) -> Self {
+    pub fn new(tape: Tape<F>) -> Self {
         Self::new_with_storage(tape, E::Storage::default())
     }
 
     /// Returns the tape being used by this evaluator
-    pub fn tape(&self) -> Arc<SpecializedTape<F>> {
+    pub fn tape(&self) -> Tape<F> {
         self.tape.clone()
     }
 
     /// Builds a new evaluator for the given tape, reusing the given storage
-    pub fn new_with_storage(
-        tape: Arc<SpecializedTape<F>>,
-        storage: E::Storage,
-    ) -> Self {
+    pub fn new_with_storage(tape: Tape<F>, storage: E::Storage) -> Self {
         let eval = E::new_with_storage(&tape, storage);
         Self {
             eval,
@@ -282,7 +279,7 @@ impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
 /// respectively.
 pub struct TracingEvalResult<D, F, B> {
     choices: B,
-    tape: Arc<SpecializedTape<F>>,
+    tape: Tape<F>,
     _p: std::marker::PhantomData<*const D>,
 }
 
@@ -299,9 +296,9 @@ where
     B: std::borrow::Borrow<[Choice]>,
 {
     /// Simplifies the tape based on the most recent evaluation
-    pub fn simplify(&self) -> Result<Arc<Vec<usize>>, Error> {
-        let _ = &self.tape;
-        todo!()
+    pub fn simplify(&self) -> Result<Tape<F>, Error> {
+        // TODO
+        Ok(self.tape.clone())
     }
 
     /// Returns a read-only view into the [`Choice`](Choice) slice.

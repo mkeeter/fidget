@@ -16,10 +16,9 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{SpecializedTape, TapeData},
+    vm::{Tape, TapeData},
     Error,
 };
-use std::sync::Arc;
 
 /// Trait for bulk evaluation returning the given type `T`
 ///
@@ -86,7 +85,7 @@ impl<F> BulkEvaluatorData<F> for () {
 #[derive(Clone)]
 pub struct BulkEval<T, E, F> {
     eval: E,
-    tape: Arc<SpecializedTape<F>>,
+    tape: Tape<F>,
 
     _p: std::marker::PhantomData<fn(T) -> T>,
 }
@@ -97,20 +96,17 @@ where
     T: Clone + From<f32>,
 {
     /// Builds a new evaluator for the given tape, allocating new storage
-    pub fn new(tape: &Arc<SpecializedTape<F>>) -> Self {
+    pub fn new(tape: &Tape<F>) -> Self {
         Self::new_with_storage(tape, E::Storage::default())
     }
 
     /// Returns a copy of the inner tape
-    pub fn tape(&self) -> Arc<SpecializedTape<F>> {
+    pub fn tape(&self) -> Tape<F> {
         self.tape.clone()
     }
 
     /// Builds a new evaluator for the given tape, reusing the given storage
-    pub fn new_with_storage(
-        tape: &Arc<SpecializedTape<F>>,
-        storage: E::Storage,
-    ) -> Self {
+    pub fn new_with_storage(tape: &Tape<F>, storage: E::Storage) -> Self {
         let eval = E::new_with_storage(tape, storage);
         Self {
             eval,

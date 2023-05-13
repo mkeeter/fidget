@@ -57,19 +57,6 @@ impl<F> TapeData<F> {
     pub fn len(&self) -> usize {
         self.data.iter().map(|c| c.tape.len()).sum()
     }
-
-    /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
-    /// evaluation order.
-    pub fn iter_asm<'a>(
-        &'a self,
-        active_groups: &'a [usize],
-    ) -> impl Iterator<Item = Op> + 'a {
-        active_groups
-            .iter()
-            .rev()
-            .flat_map(|i| self.data[*i].tape.iter().rev())
-            .cloned()
-    }
 }
 
 impl<F: Family> TapeData<F> {
@@ -121,8 +108,9 @@ impl<F: Family> TapeData<F> {
 
 /// Represents a tape specialized with a set of choices and active groups
 ///
-/// This is a handle expected to be passed by value
-pub struct SpecializedTape<F> {
+/// This is a heavy-weight data structure that's typically wrapped in a
+/// [`Tape`] for ease of use.
+pub struct InnerTape<F> {
     /// Root tape, which contains all groups
     pub tape: Arc<TapeData<F>>,
 
@@ -133,9 +121,79 @@ pub struct SpecializedTape<F> {
     active_groups: Vec<usize>,
 }
 
-impl<F> SpecializedTape<F> {
+/// Represents a tape specialized with a set of choices and active groups
+///
+/// This is a cheap handle that should be passed by value and cloned
+#[derive(Clone)]
+pub struct Tape<F>(Arc<InnerTape<F>>);
+
+impl<F: Family> Tape<F> {
+    /// Builds a point evaluator from the given `Tape`
+    pub fn new_point_evaluator(&self) -> crate::eval::point::PointEval<F> {
+        crate::eval::point::PointEval::new(self.clone())
+    }
+
+    /// Builds an interval evaluator from the given `Tape`
+    pub fn new_interval_evaluator(
+        &self,
+    ) -> crate::eval::interval::IntervalEval<F> {
+        crate::eval::interval::IntervalEval::new(self.clone())
+    }
+
+    /// Builds a float evaluator from the given `Tape`
+    pub fn new_float_slice_evaluator(
+        &self,
+    ) -> crate::eval::float_slice::FloatSliceEval<F> {
+        crate::eval::float_slice::FloatSliceEval::new(self)
+    }
+
+    /// Builds a float evaluator from the given `Tape`
+    pub fn new_grad_slice_evaluator(
+        &self,
+    ) -> crate::eval::grad_slice::GradSliceEval<F> {
+        crate::eval::grad_slice::GradSliceEval::new(self)
+    }
+}
+
+impl<E> std::ops::Deref for Tape<E> {
+    type Target = InnerTape<E>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<F> From<TapeData<F>> for Tape<F> {
+    fn from(t: TapeData<F>) -> Self {
+        let tape = Arc::new(t);
+        let choices = vec![Choice::Both; tape.choice_count()];
+        let active_groups = (0..tape.choice_count()).into_iter().collect();
+        let inner = InnerTape {
+            tape,
+            choices,
+            active_groups,
+        };
+        Self(Arc::new(inner))
+    }
+}
+
+impl<F> InnerTape<F> {
     /// Iterates over active clauses in the tape in evaluation order
     pub fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
-        self.tape.iter_asm(&self.active_groups)
+        self.active_groups
+            .iter()
+            .rev()
+            .flat_map(|i| self.tape.data[*i].tape.iter().rev())
+            .cloned()
+    }
+    /// Returns the number of active operations in this tape
+    ///
+    /// Due to inlining and `Load` / `Store` operations, this may be larger than
+    /// the expected number of raw arithmetic operations.
+    pub fn len(&self) -> usize {
+        self.active_groups
+            .iter()
+            .rev()
+            .map(|i| self.tape.data[*i].tape.len())
+            .sum()
     }
 }

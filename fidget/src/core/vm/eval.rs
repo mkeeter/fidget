@@ -5,9 +5,8 @@ use crate::{
         types::{Grad, Interval},
         Choice, EvaluatorStorage, Family,
     },
-    vm::{Op, SpecializedTape, TapeData},
+    vm::{Op, Tape, TapeData},
 };
-use std::sync::Arc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -64,7 +63,7 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 /// Generic tracing evaluator
 #[derive(Clone)]
-pub struct AsmEval(Arc<SpecializedTape<Eval>>);
+pub struct AsmEval(Tape<Eval>);
 
 /// Generic scratch data a tracing evaluator
 pub struct AsmTracingEvalData<T> {
@@ -92,10 +91,7 @@ where
 
 impl EvaluatorStorage<Eval> for AsmEval {
     type Storage = ();
-    fn new_with_storage(
-        tape: &Arc<SpecializedTape<Eval>>,
-        _storage: (),
-    ) -> Self {
+    fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
         Self(tape.clone())
     }
     fn take(self) -> Option<Self::Storage> {
