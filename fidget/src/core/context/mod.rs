@@ -8,7 +8,7 @@ pub(crate) mod bound;
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
-use crate::{eval::Family, vm::Tape, Error};
+use crate::{eval::Family, vm::TapeData, Error};
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -465,7 +465,10 @@ impl Context {
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn get_tape<E: Family>(&self, root: Node) -> Result<Tape<E>, Error> {
+    pub fn get_tape<E: Family>(
+        &self,
+        root: Node,
+    ) -> Result<TapeData<E>, Error> {
         // TODO: make inlining a parameter here?
         crate::vm::build::buildy(self, root, 7)
     }
