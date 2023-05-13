@@ -421,7 +421,7 @@ pub fn buildy<F: Family>(
     ctx: &Context,
     root: Node,
     inline: usize,
-) -> Result<tape::Tape<F>, Error> {
+) -> Result<tape::TapeData<F>, Error> {
     if let Some(c) = ctx.const_value(root).unwrap() {
         let t = tape::ChoiceTape {
             tape: vec![op::Op::CopyImm {
@@ -430,7 +430,7 @@ pub fn buildy<F: Family>(
             }],
             choices: vec![],
         };
-        return Ok(tape::Tape::new(vec![t], BTreeMap::new()));
+        return Ok(tape::TapeData::new(vec![t], BTreeMap::new()));
     }
 
     let inline = pick_inline(ctx, root, inline);
@@ -514,7 +514,7 @@ pub fn buildy<F: Family>(
                 .collect(),
         })
         .collect();
-    Ok(tape::Tape::new(gt, alloc.var_names()))
+    Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ use crate::{
 ///
 /// This is a heavy-weight value and should not change once constructed;
 /// consider wrapping it in an `Arc` for shared light-weight use.
-pub struct Tape<F> {
+pub struct TapeData<F> {
     /// The tape groups are stored in reverse order, such that the root of the
     /// tree is the first item in the first tape
     pub data: Vec<ChoiceTape>,
@@ -31,7 +31,7 @@ pub struct Tape<F> {
     _p: std::marker::PhantomData<fn() -> F>,
 }
 
-impl<F> Tape<F> {
+impl<F> TapeData<F> {
     /// Returns the number of slots used by this tape
     pub fn slot_count(&self) -> usize {
         self.slot_count
@@ -72,7 +72,7 @@ impl<F> Tape<F> {
     }
 }
 
-impl<F: Family> Tape<F> {
+impl<F: Family> TapeData<F> {
     /// Returns the register limit used when planning this tape
     pub fn reg_limit(&self) -> u8 {
         F::REG_LIMIT
@@ -93,7 +93,7 @@ pub struct ChoiceTape {
     pub choices: Vec<(usize, Choice)>,
 }
 
-impl<F: Family> Tape<F> {
+impl<F: Family> TapeData<F> {
     /// Builds a new tape, built from many operation groups
     pub fn new(data: Vec<ChoiceTape>, vars: BTreeMap<String, u32>) -> Self {
         let choice_count = data
@@ -124,7 +124,7 @@ impl<F: Family> Tape<F> {
 /// This is a handle expected to be passed by value
 pub struct SpecializedTape<F> {
     /// Root tape, which contains all groups
-    pub tape: Arc<Tape<F>>,
+    pub tape: Arc<TapeData<F>>,
 
     /// Set of choices, indicating which `min` and `max` clauses are specialized
     pub choices: Vec<Choice>,

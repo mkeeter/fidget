@@ -12,7 +12,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{SpecializedTape, Tape},
+    vm::{SpecializedTape, TapeData},
     Error,
 };
 
@@ -92,11 +92,11 @@ pub trait TracingEvaluatorData<F> {
     ///
     /// This is vague; as a specific example, it may include resizing internal
     /// data arrays based on the tape's slot count.
-    fn prepare(&mut self, tape: &Tape<F>);
+    fn prepare(&mut self, tape: &TapeData<F>);
 }
 
 impl<F> TracingEvaluatorData<F> for () {
-    fn prepare(&mut self, _tape: &Tape<F>) {
+    fn prepare(&mut self, _tape: &TapeData<F>) {
         // Nothing to do here
     }
 }
@@ -266,7 +266,7 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     /// Prepares for a tracing evaluation with the given tape size
-    fn prepare(&mut self, tape: &Tape<F>) {
+    fn prepare(&mut self, tape: &TapeData<F>) {
         self.choices.resize(tape.choice_count(), Choice::Unknown);
         self.choices.fill(Choice::Unknown);
         self.data.prepare(tape);

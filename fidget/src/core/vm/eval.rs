@@ -5,7 +5,7 @@ use crate::{
         types::{Grad, Interval},
         Choice, EvaluatorStorage, Family,
     },
-    vm::{Op, SpecializedTape, Tape},
+    vm::{Op, SpecializedTape, TapeData},
 };
 use std::sync::Arc;
 
@@ -81,7 +81,7 @@ impl<T> TracingEvaluatorData<Eval> for AsmTracingEvalData<T>
 where
     T: From<f32> + Clone,
 {
-    fn prepare(&mut self, tape: &Tape<Eval>) {
+    fn prepare(&mut self, tape: &TapeData<Eval>) {
         assert!(tape.reg_limit() == u8::MAX);
 
         let slot_count = tape.slot_count();
@@ -500,7 +500,7 @@ impl<T> BulkEvaluatorData<Eval> for AsmBulkEvalData<T>
 where
     T: From<f32> + Clone,
 {
-    fn prepare(&mut self, tape: &Tape<Eval>, size: usize) {
+    fn prepare(&mut self, tape: &TapeData<Eval>, size: usize) {
         assert!(tape.reg_limit() == u8::MAX);
         self.slots.resize_with(tape.slot_count(), || {
             vec![std::f32::NAN.into(); size.max(self.slice_size)]

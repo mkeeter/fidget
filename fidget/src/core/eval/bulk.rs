@@ -16,7 +16,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{SpecializedTape, Tape},
+    vm::{SpecializedTape, TapeData},
     Error,
 };
 use std::sync::Arc;
@@ -61,12 +61,12 @@ pub trait BulkEvaluatorData<F> {
     ///
     /// This is vague; as a specific example, it may include resizing internal
     /// data arrays based on the tape's slot count.
-    fn prepare(&mut self, tape: &Tape<F>, size: usize);
+    fn prepare(&mut self, tape: &TapeData<F>, size: usize);
 }
 
 /// Some bulk evaluators have no need for scratch data!
 impl<F> BulkEvaluatorData<F> for () {
-    fn prepare(&mut self, _tape: &Tape<F>, _size: usize) {
+    fn prepare(&mut self, _tape: &TapeData<F>, _size: usize) {
         // Nothing to do here
     }
 }
@@ -195,7 +195,7 @@ impl<D: BulkEvaluatorData<F>, T, F> BulkEvalData<D, T, F>
 where
     T: Clone + From<f32>,
 {
-    fn prepare(&mut self, tape: &Tape<F>, size: usize) {
+    fn prepare(&mut self, tape: &TapeData<F>, size: usize) {
         self.out.resize(size, std::f32::NAN.into());
         self.out.fill(std::f32::NAN.into());
         self.data.prepare(tape, size);
