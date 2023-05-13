@@ -178,7 +178,7 @@ pub struct BulkEvalData<D, T, F> {
     /// Inner data
     data: D,
 
-    _p: std::marker::PhantomData<*const F>,
+    _p: std::marker::PhantomData<fn() -> F>,
 }
 
 impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {
@@ -190,10 +190,6 @@ impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {
         }
     }
 }
-
-// SAFETY: this can't be derived because of Rust limitations, but we're sending
-// around a Vec<T> and a D, which should be fine.
-unsafe impl<D: Send, T: Send, F> Send for BulkEvalData<D, T, F> {}
 
 impl<D: BulkEvaluatorData<F>, T, F> BulkEvalData<D, T, F>
 where
