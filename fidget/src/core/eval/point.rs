@@ -155,12 +155,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
-        let t = tape.simplify(&[Choice::Left]).unwrap();
+        let t = tape.simplify(&[Choice::Left]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]).unwrap();
+        let t = tape.simplify(&[Choice::Right]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -171,12 +171,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
-        let t = tape.simplify(&[Choice::Left]).unwrap();
+        let t = tape.simplify(&[Choice::Left]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]).unwrap();
+        let t = tape.simplify(&[Choice::Right]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);

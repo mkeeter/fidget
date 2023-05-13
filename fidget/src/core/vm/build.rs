@@ -49,7 +49,7 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
                     .sum::<usize>()
                     + 1;
                 weights.insert(node, w);
-                if w <= max_weight {
+                if w <= max_weight && node != root {
                     inline.insert(node);
                 }
             }
@@ -456,6 +456,7 @@ pub fn buildy<F: Family>(
         globals.insert(root);
         globals
     };
+    assert!(globals.intersection(&inline).next().is_none());
 
     // Reorder the groups from root-to-leaf order
     //

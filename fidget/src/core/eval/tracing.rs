@@ -16,8 +16,6 @@ use crate::{
     Error,
 };
 
-use std::sync::Arc;
-
 /// A single choice made at a min/max node.
 ///
 /// Explicitly stored in a `u8` so that this can be written by JIT functions,
