@@ -153,6 +153,15 @@ impl<F: Family> Tape<F> {
     ) -> crate::eval::grad_slice::GradSliceEval<F> {
         crate::eval::grad_slice::GradSliceEval::new(self)
     }
+
+    /// Simplifies the current tape given a set of choices
+    ///
+    /// # Panics
+    /// The input `choices` must match our internal choice array size
+    pub fn simplify(&self, choices: &[Choice]) -> Self {
+        assert_eq!(choices.len(), self.tape.choice_count());
+        self.clone()
+    }
 }
 
 impl<E> std::ops::Deref for Tape<E> {
@@ -166,7 +175,7 @@ impl<F> From<TapeData<F>> for Tape<F> {
     fn from(t: TapeData<F>) -> Self {
         let tape = Arc::new(t);
         let choices = vec![Choice::Both; tape.choice_count()];
-        let active_groups = (0..tape.choice_count()).into_iter().collect();
+        let active_groups = (0..tape.data.len()).into_iter().collect();
         let inner = InnerTape {
             tape,
             choices,
