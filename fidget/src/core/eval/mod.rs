@@ -26,7 +26,6 @@ pub mod interval;
 pub mod point;
 
 pub mod bulk;
-pub mod tape;
 pub mod tracing;
 pub mod types;
 
@@ -37,12 +36,14 @@ pub use float_slice::FloatSliceEval;
 pub use grad_slice::GradSliceEval;
 pub use interval::IntervalEval;
 pub use point::PointEval;
-pub use tape::Tape;
 pub use tracing::Choice;
 pub use vars::Vars;
 
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
+
+use crate::vm::SpecializedTape;
+use std::sync::Arc;
 
 /// A "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
@@ -94,18 +95,17 @@ pub trait Family: Clone {
 
 /// An evaluator with some internal (immutable) storage
 ///
-/// For example, the JIT evaluators declare their allocated `mmap` data as their
-/// `Storage`, which allows us to reuse pages.
+/// For example, the JIT evaluators declare their `Vec<*const u8>` as their
+/// `Storage`, which allows us to reuse allocations.
 pub trait EvaluatorStorage<F> {
     /// Storage type associated with this evaluator
     type Storage: Default + Send;
 
     /// Constructs the evaluator, giving it a chance to reuse storage
-    ///
-    /// The incoming `Storage` is consumed, though it may not necessarily be
-    /// used to construct the new tape (e.g. if it's a memory-mapped region and
-    /// is too small).
-    fn new_with_storage(tape: &Tape<F>, storage: Self::Storage) -> Self;
+    fn new_with_storage(
+        tape: &Arc<SpecializedTape<F>>,
+        storage: Self::Storage,
+    ) -> Self;
 
     /// Extract the internal storage for reuse, if possible
     fn take(self) -> Option<Self::Storage>;

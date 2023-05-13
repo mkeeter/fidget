@@ -74,6 +74,7 @@ impl Grad {
 
     /// Minimum of two values
     pub fn min(self, rhs: Self) -> Self {
+        // TODO is this NAN-correct?
         if self.v < rhs.v {
             self
         } else {
@@ -83,6 +84,7 @@ impl Grad {
 
     /// Maximum of two values
     pub fn max(self, rhs: Self) -> Self {
+        // TODO is this NAN-correct?
         if self.v > rhs.v {
             self
         } else {
@@ -102,6 +104,7 @@ impl From<f32> for Grad {
     }
 }
 
+#[cfg(feature = "render")]
 impl From<Grad> for nalgebra::Vector4<f32> {
     fn from(g: Grad) -> Self {
         nalgebra::Vector4::new(g.dx, g.dy, g.dz, g.v)

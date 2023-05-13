@@ -1,12 +1,9 @@
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
     eval::{Choice, Family},
+    vm::{alloc, op, tape},
     Error,
 };
-
-mod alloc;
-mod op;
-mod tape;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -425,7 +422,6 @@ pub fn buildy<F: Family>(
     root: Node,
     inline: usize,
 ) -> Result<tape::Tape<F>, Error> {
-    // TODO: build a one-operation CopyImm tape in this case
     if let Some(c) = ctx.const_value(root).unwrap() {
         let t = tape::ChoiceTape {
             tape: vec![op::Op::CopyImm(0, c as f32)],

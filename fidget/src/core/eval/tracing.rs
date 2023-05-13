@@ -11,9 +11,12 @@
 //! they're implementation details to minimize code duplication.
 
 use crate::{
-    eval::{EvaluatorStorage, Family, Tape},
+    eval::{EvaluatorStorage, Family},
+    vm::{SpecializedTape, Tape},
     Error,
 };
+
+use std::sync::Arc;
 
 /// A single choice made at a min/max node.
 ///
@@ -108,7 +111,7 @@ impl<F> TracingEvaluatorData<F> for () {
 #[derive(Clone)]
 pub struct TracingEval<T, E, F> {
     eval: E,
-    tape: Tape<F>,
+    tape: Arc<SpecializedTape<F>>,
 
     _p: std::marker::PhantomData<fn(T) -> T>,
 }
@@ -118,21 +121,24 @@ where
     E: TracingEvaluator<T, F> + EvaluatorStorage<F>,
 {
     /// Builds a new evaluator for the given tape, allocating new storage
-    pub fn new(tape: &Tape<F>) -> Self {
+    pub fn new(tape: Arc<SpecializedTape<F>>) -> Self {
         Self::new_with_storage(tape, E::Storage::default())
     }
 
     /// Returns the tape being used by this evaluator
-    pub fn tape(&self) -> Tape<F> {
+    pub fn tape(&self) -> Arc<SpecializedTape<F>> {
         self.tape.clone()
     }
 
     /// Builds a new evaluator for the given tape, reusing the given storage
-    pub fn new_with_storage(tape: &Tape<F>, storage: E::Storage) -> Self {
-        let eval = E::new_with_storage(tape, storage);
+    pub fn new_with_storage(
+        tape: Arc<SpecializedTape<F>>,
+        storage: E::Storage,
+    ) -> Self {
+        let eval = E::new_with_storage(&tape, storage);
         Self {
             eval,
-            tape: tape.clone(),
+            tape,
             _p: std::marker::PhantomData,
         }
     }
@@ -155,10 +161,11 @@ where
         vars: &[f32],
         data: &'a mut TracingEvalData<E::Data, F>,
     ) -> Result<(T, Option<BorrowedTracingEvalResult<'a, T, F>>), Error> {
-        if vars.len() != self.tape.var_count() {
-            return Err(Error::BadVarSlice(vars.len(), self.tape.var_count()));
+        let expected_var_count = self.tape.tape.var_count();
+        if vars.len() != expected_var_count {
+            return Err(Error::BadVarSlice(vars.len(), expected_var_count));
         }
-        data.prepare(&self.tape);
+        data.prepare(&self.tape.tape);
         let (value, simplify) = self.eval.eval_with(
             x.into(),
             y.into(),
@@ -244,12 +251,8 @@ pub struct TracingEvalData<D, F> {
     /// Inner data
     data: D,
 
-    _p: std::marker::PhantomData<*const F>,
+    _p: std::marker::PhantomData<fn() -> F>,
 }
-
-// SAFETY: this can't be derived because of Rust limitations, but we're sending
-// around a Vec<Choice> and a D, which should be fine.
-unsafe impl<D: Send, F> Send for TracingEvalData<D, F> {}
 
 impl<D: Default, F> Default for TracingEvalData<D, F> {
     fn default() -> Self {
@@ -258,6 +261,15 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
             data: D::default(),
             _p: std::marker::PhantomData,
         }
+    }
+}
+
+impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
+    /// Prepares for a tracing evaluation with the given tape size
+    fn prepare(&mut self, tape: &Tape<F>) {
+        self.choices.resize(tape.choice_count(), Choice::Unknown);
+        self.choices.fill(Choice::Unknown);
+        self.data.prepare(tape);
     }
 }
 
@@ -270,7 +282,7 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 /// respectively.
 pub struct TracingEvalResult<D, F, B> {
     choices: B,
-    tape: Tape<F>,
+    tape: Arc<SpecializedTape<F>>,
     _p: std::marker::PhantomData<*const D>,
 }
 
@@ -281,23 +293,15 @@ pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
 pub type BorrowedTracingEvalResult<'a, T, F> =
     TracingEvalResult<T, F, &'a [Choice]>;
 
-impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
-    /// Prepares for a tracing evaluation with the given tape size
-    fn prepare(&mut self, tape: &Tape<F>) {
-        self.choices.resize(tape.choice_count(), Choice::Unknown);
-        self.choices.fill(Choice::Unknown);
-        self.data.prepare(tape);
-    }
-}
-
 impl<D, F, B> TracingEvalResult<D, F, B>
 where
     F: Family,
     B: std::borrow::Borrow<[Choice]>,
 {
     /// Simplifies the tape based on the most recent evaluation
-    pub fn simplify(&self) -> Result<Tape<F>, Error> {
-        self.simplify_with(&mut Default::default(), Default::default())
+    pub fn simplify(&self) -> Result<Arc<Vec<usize>>, Error> {
+        let _ = &self.tape;
+        todo!()
     }
 
     /// Returns a read-only view into the [`Choice`](Choice) slice.
@@ -305,15 +309,5 @@ where
     /// This is a convenience function for unit testing.
     pub fn choices(&self) -> &[Choice] {
         self.choices.borrow()
-    }
-
-    /// Simplifies the tape based on the most recent evaluation, reusing
-    /// allocations to reduce memory churn.
-    pub fn simplify_with(
-        &self,
-        workspace: &mut crate::eval::tape::Workspace,
-        prev: crate::eval::tape::Data,
-    ) -> Result<Tape<F>, Error> {
-        Tape::simplify_with(&self.tape, self.choices.borrow(), workspace, prev)
     }
 }

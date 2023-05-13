@@ -8,13 +8,9 @@ pub(crate) mod bound;
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
-use crate::{
-    eval::{Family, Tape},
-    ssa::Builder,
-    Error,
-};
+use crate::{eval::Family, vm::Tape, Error};
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
@@ -470,48 +466,7 @@ impl Context {
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
     pub fn get_tape<E: Family>(&self, root: Node) -> Result<Tape<E>, Error> {
-        let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
-        let mut seen = BTreeSet::new();
-        let mut todo = vec![root];
-        let mut builder = Builder::new();
-
-        // Accumulate parent counts and declare all the nodes into the builder
-        while let Some(node) = todo.pop() {
-            if !seen.insert(node) {
-                continue;
-            }
-            let op = self.get_op(node).ok_or(Error::BadNode)?;
-            builder.declare_node(node, *op);
-            for child in op.iter_children() {
-                *parent_count.entry(child).or_default() += 1;
-                todo.push(child);
-            }
-        }
-
-        // Now that we've populated our parents, flatten the graph
-        let mut todo = vec![root];
-        let mut seen = BTreeSet::new();
-        while let Some(node) = todo.pop() {
-            if *parent_count.get(&node).unwrap_or(&0) > 0 || !seen.insert(node)
-            {
-                continue;
-            }
-            let op = self.get_op(node).unwrap();
-            for child in op.iter_children() {
-                todo.push(child);
-                *parent_count.get_mut(&child).unwrap() -= 1;
-            }
-            builder.step(node, *op, self);
-        }
-        let mut ssa_tape = builder.finish();
-
-        // Special case if the Node is a single constant, which isn't usually
-        // recorded in the tape
-        if ssa_tape.tape.is_empty() {
-            let c = self.const_value(root).unwrap().unwrap() as f32;
-            ssa_tape.tape.push(crate::ssa::Op::CopyImm(0, c));
-        }
-        Ok(Tape::from_ssa(ssa_tape))
+        crate::vm::build::buildy(self, root, 7)
     }
 
     ////////////////////////////////////////////////////////////////////////////

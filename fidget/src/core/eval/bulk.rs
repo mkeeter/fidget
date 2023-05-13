@@ -15,9 +15,11 @@
 //! they're implementation details to minimize code duplication.
 
 use crate::{
-    eval::{EvaluatorStorage, Family, Tape},
+    eval::{EvaluatorStorage, Family},
+    vm::{SpecializedTape, Tape},
     Error,
 };
+use std::sync::Arc;
 
 /// Trait for bulk evaluation returning the given type `T`
 ///
@@ -84,7 +86,7 @@ impl<F> BulkEvaluatorData<F> for () {
 #[derive(Clone)]
 pub struct BulkEval<T, E, F> {
     eval: E,
-    tape: Tape<F>,
+    tape: Arc<SpecializedTape<F>>,
 
     _p: std::marker::PhantomData<fn(T) -> T>,
 }
@@ -95,17 +97,20 @@ where
     T: Clone + From<f32>,
 {
     /// Builds a new evaluator for the given tape, allocating new storage
-    pub fn new(tape: &Tape<F>) -> Self {
+    pub fn new(tape: &Arc<SpecializedTape<F>>) -> Self {
         Self::new_with_storage(tape, E::Storage::default())
     }
 
     /// Returns a copy of the inner tape
-    pub fn tape(&self) -> Tape<F> {
+    pub fn tape(&self) -> Arc<SpecializedTape<F>> {
         self.tape.clone()
     }
 
     /// Builds a new evaluator for the given tape, reusing the given storage
-    pub fn new_with_storage(tape: &Tape<F>, storage: E::Storage) -> Self {
+    pub fn new_with_storage(
+        tape: &Arc<SpecializedTape<F>>,
+        storage: E::Storage,
+    ) -> Self {
         let eval = E::new_with_storage(tape, storage);
         Self {
             eval,
@@ -132,10 +137,12 @@ where
     ) -> Result<&'a [T], Error> {
         if x.len() != y.len() || x.len() != z.len() {
             return Err(Error::MismatchedSlices);
-        } else if vars.len() != self.tape.var_count() {
-            return Err(Error::BadVarSlice(vars.len(), self.tape.var_count()));
         }
-        data.prepare(&self.tape, x.len());
+        let expected_var_count = self.tape.tape.var_count();
+        if vars.len() != expected_var_count {
+            return Err(Error::BadVarSlice(vars.len(), expected_var_count));
+        }
+        data.prepare(&self.tape.tape, x.len());
         self.eval
             .eval_with(x, y, z, vars, &mut data.out, &mut data.data);
         Ok(&data.out)

@@ -30,9 +30,6 @@ pub enum Op {
     /// Square the given register
     SquareReg(u8, u8),
 
-    /// Copies the given register
-    CopyReg(u8, u8),
-
     /// Add a register and an immediate
     AddRegImm(u8, u8, f32),
     /// Multiply a register and an immediate
@@ -45,10 +42,16 @@ pub enum Op {
     SubImmReg(u8, u8, f32),
     /// Subtract an immediate from a register
     SubRegImm(u8, u8, f32),
+
     /// Compute the minimum of a register and an immediate
     MinRegImm(u8, u8, f32),
     /// Compute the maximum of a register and an immediate
     MaxRegImm(u8, u8, f32),
+
+    /// Compute the minimum of a register and an immediate
+    MinRegImmChoice(u8, u8, u16, f32),
+    /// Compute the maximum of a register and an immediate
+    MaxRegImmChoice(u8, u8, u16, f32),
 
     /// Add two registers
     AddRegReg(u8, u8, u8),
@@ -62,6 +65,11 @@ pub enum Op {
     MinRegReg(u8, u8, u8),
     /// Take the maximum of two registers
     MaxRegReg(u8, u8, u8),
+
+    /// Take the minimum of two registers
+    MinRegRegChoice(u8, u8, u8, u16),
+    /// Take the maximum of two registers
+    MaxRegRegChoice(u8, u8, u8, u16),
 
     /// Copy an immediate to a register
     CopyImm(u8, f32),
@@ -84,7 +92,6 @@ impl Op {
             | Op::Var(reg, ..)
             | Op::Input(reg, ..)
             | Op::CopyImm(reg, ..)
-            | Op::CopyReg(reg, ..)
             | Op::AddRegReg(reg, ..)
             | Op::AddRegImm(reg, ..)
             | Op::NegReg(reg, ..)
@@ -98,6 +105,10 @@ impl Op {
             | Op::MinRegImm(reg, ..)
             | Op::MaxRegReg(reg, ..)
             | Op::MaxRegImm(reg, ..)
+            | Op::MinRegRegChoice(reg, ..)
+            | Op::MinRegImmChoice(reg, ..)
+            | Op::MaxRegRegChoice(reg, ..)
+            | Op::MaxRegImmChoice(reg, ..)
             | Op::DivRegReg(reg, ..)
             | Op::DivRegImm(reg, ..)
             | Op::DivImmReg(reg, ..)
@@ -110,11 +121,9 @@ impl Op {
     /// Returns an iterator over input registers
     pub fn input_reg_iter(&self) -> impl Iterator<Item = u8> {
         match *self {
-            Op::Input(..)
-            | Op::Var(..)
-            | Op::CopyReg(..)
-            | Op::CopyImm(..)
-            | Op::Load(..) => [None, None],
+            Op::Input(..) | Op::Var(..) | Op::CopyImm(..) | Op::Load(..) => {
+                [None, None]
+            }
             Op::NegReg(_out, arg)
             | Op::AbsReg(_out, arg)
             | Op::RecipReg(_out, arg)
@@ -127,14 +136,59 @@ impl Op {
             | Op::SubImmReg(_out, arg, ..)
             | Op::SubRegImm(_out, arg, ..)
             | Op::MinRegImm(_out, arg, ..)
-            | Op::MaxRegImm(_out, arg, ..) => [Some(arg), None],
+            | Op::MaxRegImm(_out, arg, ..)
+            | Op::MinRegImmChoice(_out, arg, ..)
+            | Op::MaxRegImmChoice(_out, arg, ..) => [Some(arg), None],
             Op::AddRegReg(_out, lhs, rhs)
             | Op::MulRegReg(_out, lhs, rhs)
             | Op::DivRegReg(_out, lhs, rhs)
             | Op::SubRegReg(_out, lhs, rhs)
             | Op::MinRegReg(_out, lhs, rhs)
-            | Op::MaxRegReg(_out, lhs, rhs) => [Some(lhs), Some(rhs)],
+            | Op::MaxRegReg(_out, lhs, rhs)
+            | Op::MinRegRegChoice(_out, lhs, rhs, ..)
+            | Op::MaxRegRegChoice(_out, lhs, rhs, ..) => [Some(lhs), Some(rhs)],
             Op::Store(reg, _mem) => [Some(reg), None],
+        }
+        .into_iter()
+        .flatten()
+    }
+
+    /// Returns an iterator over input registers
+    pub fn iter_slots(&self) -> impl Iterator<Item = u32> {
+        match *self {
+            Op::Input(out, ..) | Op::Var(out, ..) | Op::CopyImm(out, ..) => {
+                [Some(out as u32), None, None]
+            }
+            Op::NegReg(out, arg)
+            | Op::AbsReg(out, arg)
+            | Op::RecipReg(out, arg)
+            | Op::SqrtReg(out, arg)
+            | Op::SquareReg(out, arg)
+            | Op::AddRegImm(out, arg, ..)
+            | Op::MulRegImm(out, arg, ..)
+            | Op::DivRegImm(out, arg, ..)
+            | Op::DivImmReg(out, arg, ..)
+            | Op::SubImmReg(out, arg, ..)
+            | Op::SubRegImm(out, arg, ..)
+            | Op::MinRegImm(out, arg, ..)
+            | Op::MaxRegImm(out, arg, ..)
+            | Op::MinRegImmChoice(out, arg, ..)
+            | Op::MaxRegImmChoice(out, arg, ..) => {
+                [Some(out as u32), Some(arg as u32), None]
+            }
+            Op::AddRegReg(out, lhs, rhs)
+            | Op::MulRegReg(out, lhs, rhs)
+            | Op::DivRegReg(out, lhs, rhs)
+            | Op::SubRegReg(out, lhs, rhs)
+            | Op::MinRegReg(out, lhs, rhs)
+            | Op::MaxRegReg(out, lhs, rhs)
+            | Op::MinRegRegChoice(out, lhs, rhs, ..)
+            | Op::MaxRegRegChoice(out, lhs, rhs, ..) => {
+                [Some(out as u32), Some(lhs as u32), Some(rhs as u32)]
+            }
+            Op::Store(reg, mem) | Op::Load(reg, mem) => {
+                [Some(reg as u32), Some(mem as u32), None]
+            }
         }
         .into_iter()
         .flatten()
