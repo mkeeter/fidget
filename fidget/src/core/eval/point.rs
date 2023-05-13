@@ -49,8 +49,9 @@ pub mod eval_tests {
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.5);
 
+        // This should simplify to the variable, followed by a `min`
         let next = data.unwrap().simplify().unwrap();
-        assert_eq!(next.len(), 1);
+        assert_eq!(next.len(), 2);
 
         let eval = next.new_point_evaluator();
         assert_eq!(eval.eval(2.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
@@ -79,6 +80,8 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(min).unwrap();
+        assert_eq!(tape.tape.choice_count(), 1);
+
         let eval = tape.new_point_evaluator();
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
@@ -108,6 +111,8 @@ pub mod eval_tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(max).unwrap();
+        assert_eq!(tape.tape.choice_count(), 1);
+
         let eval = tape.new_point_evaluator();
 
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();

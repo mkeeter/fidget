@@ -12,6 +12,7 @@ use crate::{
 ///
 /// This is a heavy-weight value and should not change once constructed;
 /// consider wrapping it in an `Arc` for shared light-weight use.
+#[derive(Debug)]
 pub struct TapeData<F> {
     /// The tape groups are stored in reverse order, such that the root of the
     /// tree is the first item in the first tape
@@ -67,6 +68,7 @@ impl<F: Family> TapeData<F> {
 }
 
 /// A tape alongside the choices which lead it to being selected
+#[derive(Debug)]
 pub struct ChoiceTape {
     /// List of instructions in reverse-evaluation order
     pub tape: Vec<Op>,
@@ -160,7 +162,22 @@ impl<F: Family> Tape<F> {
     /// The input `choices` must match our internal choice array size
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         assert_eq!(choices.len(), self.tape.choice_count());
-        self.clone()
+        let mut new_groups = self
+            .active_groups
+            .iter()
+            .cloned()
+            .filter(|i| {
+                self.tape.data[*i]
+                    .choices
+                    .iter()
+                    .any(|(j, c)| choices[*j] as u8 & (*c as u8) != 0)
+            })
+            .collect();
+        Self(Arc::new(InnerTape {
+            tape: self.tape.clone(),
+            choices: choices.iter().cloned().collect(),
+            active_groups: new_groups,
+        }))
     }
 }
 

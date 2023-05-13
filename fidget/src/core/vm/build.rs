@@ -469,6 +469,8 @@ pub fn buildy<F: Family>(
         .iter()
         .flatten()
         .map(|v| v.root)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .enumerate()
         .map(|(i, n)| (n, i))
         .collect();
