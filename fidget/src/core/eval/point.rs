@@ -49,9 +49,9 @@ pub mod eval_tests {
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.5);
 
-        // This should simplify to the variable, followed by a `min`
-        let next = data.unwrap().simplify().unwrap();
-        assert_eq!(next.len(), 2);
+        // This should simplify to just the `min` operation
+        let next = data.unwrap().simplify();
+        assert_eq!(next.len(), 1);
 
         let eval = next.new_point_evaluator();
         assert_eq!(eval.eval(2.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
