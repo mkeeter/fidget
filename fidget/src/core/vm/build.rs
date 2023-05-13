@@ -336,7 +336,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
         let mut out = vec![];
         for op in group.iter().rev() {
             match *op {
-                op::Op::Load(reg, mem) => {
+                op::Op::Load { reg, mem } => {
                     // If the reg-mem binding matches, then we don't need this
                     // Load operation in the tape.
                     if Some(&mem) == reg_mem.get(&reg) {
@@ -349,7 +349,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
                         reg_mem.remove(&reg);
                     }
                 }
-                op::Op::Store(reg, mem) => {
+                op::Op::Store { reg, mem } => {
                     // Update the reg-mem binding based on this Store
                     reg_mem.insert(reg, mem);
                 }
@@ -381,7 +381,7 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
         let mut active = BTreeSet::new();
         let mut out = vec![];
         for op in group {
-            if let op::Op::Load(reg, ..) = op {
+            if let op::Op::Load { reg, .. } = op {
                 if !active.contains(reg) {
                     continue; // skip this Load
                 }
@@ -403,9 +403,9 @@ fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     for group in group_tapes.iter() {
         let mut out = vec![];
         for op in group {
-            if let op::Op::Load(_reg, mem) = op {
+            if let op::Op::Load { mem, .. } = op {
                 active.insert(mem);
-            } else if let op::Op::Store(_reg, mem) = op {
+            } else if let op::Op::Store { mem, .. } = op {
                 if !active.remove(mem) {
                     continue; // skip this node
                 }
@@ -424,7 +424,10 @@ pub fn buildy<F: Family>(
 ) -> Result<tape::Tape<F>, Error> {
     if let Some(c) = ctx.const_value(root).unwrap() {
         let t = tape::ChoiceTape {
-            tape: vec![op::Op::CopyImm(0, c as f32)],
+            tape: vec![op::Op::CopyImm {
+                out: 0,
+                imm: c as f32,
+            }],
             choices: vec![],
         };
         return Ok(tape::Tape::new(vec![t], BTreeMap::new()));
@@ -530,9 +533,9 @@ mod test {
         // When planning for the interpreter, we get tons of registers, so we
         // should never see a Load or Store operation.
         let t = buildy::<crate::vm::Eval>(&ctx, root, 9).unwrap();
-        assert!(t.slot_count <= 255);
+        assert!(t.slot_count() <= 255);
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
-            assert!(!matches!(op, op::Op::Load(..) | op::Op::Store(..)));
+            assert!(!matches!(op, op::Op::Load { .. } | op::Op::Store { .. }));
         }
     }
 }
