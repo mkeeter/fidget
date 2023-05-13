@@ -205,6 +205,7 @@ pub mod eval_tests {
         let max = ctx.max(min, z).unwrap();
         let tape = ctx.get_tape::<I>(max).unwrap();
 
+        // max(min(x, y), z)
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
             eval.eval(&[2.0], &[3.0], &[0.0], &[]).unwrap()[0],

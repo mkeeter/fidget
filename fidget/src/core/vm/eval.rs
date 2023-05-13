@@ -881,7 +881,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = match self.0.choices[choice as usize] {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
-                            Choice::Both => v[rhs][i].min(v[rhs][i]),
+                            Choice::Both => v[lhs][i].min(v[rhs][i]),
                             Choice::Unknown => panic!(),
                         };
                     }
@@ -896,7 +896,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = match self.0.choices[choice as usize] {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
-                            Choice::Both => v[rhs][i].max(v[rhs][i]),
+                            Choice::Both => v[lhs][i].max(v[rhs][i]),
                             Choice::Unknown => panic!(),
                         };
                     }
