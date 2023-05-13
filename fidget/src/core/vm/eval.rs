@@ -226,7 +226,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => v[lhs].max_choice(v[rhs]),
+                        Choice::Both => v[lhs].min_choice(v[rhs]),
                         Choice::Unknown => {
                             panic!("invalid choice in evaluation")
                         }
