@@ -49,6 +49,15 @@ impl<F> Tape<F> {
         self.choice_count
     }
 
+    /// Returns the total number of operations in the tape
+    ///
+    /// This is the sum of all operations in the node groups.  Due to inlining
+    /// and the insertion of `Load` and `Store` operations, it may be larger
+    /// than the raw number of arithmetic operations in the expression!
+    pub fn len(&self) -> usize {
+        self.data.iter().map(|c| c.tape.len()).sum()
+    }
+
     /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
     /// evaluation order.
     pub fn iter_asm<'a>(

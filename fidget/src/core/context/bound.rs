@@ -1,6 +1,7 @@
 use crate::{
     context::{Context, IntoNode, Node},
-    eval::{Family, Tape},
+    eval::Family,
+    vm::Tape,
     Error,
 };
 use std::{cell::RefCell, rc::Rc};

@@ -466,6 +466,7 @@ impl Context {
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
     pub fn get_tape<E: Family>(&self, root: Node) -> Result<Tape<E>, Error> {
+        // TODO: make inlining a parameter here?
         crate::vm::build::buildy(self, root, 7)
     }
 
