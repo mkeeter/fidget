@@ -294,9 +294,8 @@ where
     B: std::borrow::Borrow<[Choice]>,
 {
     /// Simplifies the tape based on the most recent evaluation
-    pub fn simplify(&self) -> Result<Tape<F>, Error> {
-        // TODO
-        Ok(self.tape.clone())
+    pub fn simplify(&self) -> Tape<F> {
+        self.tape.simplify(self.choices())
     }
 
     /// Returns a read-only view into the [`Choice`](Choice) slice.

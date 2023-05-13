@@ -162,15 +162,16 @@ impl<F: Family> Tape<F> {
     /// The input `choices` must match our internal choice array size
     pub fn simplify(&self, choices: &[Choice]) -> Self {
         assert_eq!(choices.len(), self.tape.choice_count());
-        let mut new_groups = self
+        let new_groups = self
             .active_groups
             .iter()
             .cloned()
             .filter(|i| {
-                self.tape.data[*i]
-                    .choices
-                    .iter()
-                    .any(|(j, c)| choices[*j] as u8 & (*c as u8) != 0)
+                let cs = &self.tape.data[*i].choices;
+                cs.is_empty()
+                    || cs
+                        .iter()
+                        .any(|(j, c)| choices[*j] as u8 & (*c as u8) != 0)
             })
             .collect();
         Self(Arc::new(InnerTape {

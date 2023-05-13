@@ -94,6 +94,15 @@ fn find_groups(
                 todo.push((*child, dnf));
             }
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
+                // Special case: min(reg, imm) and min(imm, reg) both become
+                // MinRegImm nodes, so we swap Left and Right in that case
+                let (lhs, rhs) =
+                    if matches!(ctx.get_op(*lhs).unwrap(), Op::Const(..)) {
+                        (rhs, lhs)
+                    } else {
+                        (lhs, rhs)
+                    };
+
                 // LHS recursion
                 todo.push((
                     *lhs,
