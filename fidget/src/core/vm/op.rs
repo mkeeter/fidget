@@ -3,81 +3,105 @@
 /// Note that these operations **are not** in SSA form; they operate on a
 /// limited number of registers and will reuse them when needed.
 ///
-/// Arguments, in order, are
-/// - Output register
-/// - LHS register (or input slot for [`Input`](Op::Input))
-/// - RHS register (or immediate for `*Imm`)
+/// Arguments, by name, are
+/// - `out`: Output register
+/// - `lhs`: LHS register
+/// - `rhs`: RHS register
+/// - `imm`: immediate value
+/// - `input`: input index (0, 1, 2 for X, Y, Z)
+/// - `var`: variable index
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Debug)]
 pub enum Op {
     /// Read one of the inputs (X, Y, Z)
-    Input(u8, u8),
+    Input { out: u8, input: u8 },
 
     /// Reads one of the variables
-    Var(u8, u32),
+    Var { out: u8, var: u32 },
 
     /// Negate the given register
-    NegReg(u8, u8),
+    NegReg { out: u8, arg: u8 },
 
     /// Take the absolute value of the given register
-    AbsReg(u8, u8),
+    AbsReg { out: u8, arg: u8 },
 
     /// Take the reciprocal of the given register (1.0 / value)
-    RecipReg(u8, u8),
+    RecipReg { out: u8, arg: u8 },
 
     /// Take the square root of the given register
-    SqrtReg(u8, u8),
+    SqrtReg { out: u8, arg: u8 },
 
     /// Square the given register
-    SquareReg(u8, u8),
+    SquareReg { out: u8, arg: u8 },
 
     /// Add a register and an immediate
-    AddRegImm(u8, u8, f32),
+    AddRegImm { out: u8, arg: u8, imm: f32 },
     /// Multiply a register and an immediate
-    MulRegImm(u8, u8, f32),
+    MulRegImm { out: u8, arg: u8, imm: f32 },
     /// Divides a register and an immediate
-    DivRegImm(u8, u8, f32),
+    DivRegImm { out: u8, arg: u8, imm: f32 },
     /// Divides an immediate by a register
-    DivImmReg(u8, u8, f32),
+    DivImmReg { out: u8, arg: u8, imm: f32 },
     /// Subtract a register from an immediate
-    SubImmReg(u8, u8, f32),
+    SubImmReg { out: u8, arg: u8, imm: f32 },
     /// Subtract an immediate from a register
-    SubRegImm(u8, u8, f32),
+    SubRegImm { out: u8, arg: u8, imm: f32 },
 
     /// Compute the minimum of a register and an immediate
-    MinRegImm(u8, u8, f32),
+    MinRegImm { out: u8, arg: u8, imm: f32 },
     /// Compute the maximum of a register and an immediate
-    MaxRegImm(u8, u8, f32),
+    MaxRegImm { out: u8, arg: u8, imm: f32 },
 
     /// Compute the minimum of a register and an immediate
-    MinRegImmChoice(u8, u8, u16, f32),
+    MinRegImmChoice {
+        out: u8,
+        arg: u8,
+        imm: f32,
+        choice: u16,
+    },
     /// Compute the maximum of a register and an immediate
-    MaxRegImmChoice(u8, u8, u16, f32),
+    MaxRegImmChoice {
+        out: u8,
+        arg: u8,
+        imm: f32,
+        choice: u16,
+    },
 
     /// Add two registers
-    AddRegReg(u8, u8, u8),
+    AddRegReg { out: u8, lhs: u8, rhs: u8 },
     /// Multiply two registers
-    MulRegReg(u8, u8, u8),
+    MulRegReg { out: u8, lhs: u8, rhs: u8 },
     /// Divides two registers
-    DivRegReg(u8, u8, u8),
+    DivRegReg { out: u8, lhs: u8, rhs: u8 },
     /// Subtract one register from another
-    SubRegReg(u8, u8, u8),
+    SubRegReg { out: u8, lhs: u8, rhs: u8 },
     /// Take the minimum of two registers
-    MinRegReg(u8, u8, u8),
+    MinRegReg { out: u8, lhs: u8, rhs: u8 },
     /// Take the maximum of two registers
-    MaxRegReg(u8, u8, u8),
+    MaxRegReg { out: u8, lhs: u8, rhs: u8 },
 
     /// Take the minimum of two registers
-    MinRegRegChoice(u8, u8, u8, u16),
+    MinRegRegChoice {
+        out: u8,
+        lhs: u8,
+        rhs: u8,
+        choice: u16,
+    },
     /// Take the maximum of two registers
-    MaxRegRegChoice(u8, u8, u8, u16),
+    MaxRegRegChoice {
+        out: u8,
+        lhs: u8,
+        rhs: u8,
+        choice: u16,
+    },
 
     /// Copy an immediate to a register
-    CopyImm(u8, f32),
+    CopyImm { out: u8, imm: f32 },
 
     /// Read from a memory slot to a register
-    Load(u8, u32),
+    Load { reg: u8, mem: u32 },
     /// Write from a register to a memory slot
-    Store(u8, u32),
+    Store { reg: u8, mem: u32 },
 }
 
 impl Op {
@@ -87,106 +111,109 @@ impl Op {
     /// (which takes a single input register and writes it to memory)
     pub fn out_reg(&self) -> Option<u8> {
         match self {
-            Op::Load(..) => None,
-            Op::Store(reg, ..)
-            | Op::Var(reg, ..)
-            | Op::Input(reg, ..)
-            | Op::CopyImm(reg, ..)
-            | Op::AddRegReg(reg, ..)
-            | Op::AddRegImm(reg, ..)
-            | Op::NegReg(reg, ..)
-            | Op::AbsReg(reg, ..)
-            | Op::RecipReg(reg, ..)
-            | Op::SqrtReg(reg, ..)
-            | Op::SquareReg(reg, ..)
-            | Op::MulRegReg(reg, ..)
-            | Op::MulRegImm(reg, ..)
-            | Op::MinRegReg(reg, ..)
-            | Op::MinRegImm(reg, ..)
-            | Op::MaxRegReg(reg, ..)
-            | Op::MaxRegImm(reg, ..)
-            | Op::MinRegRegChoice(reg, ..)
-            | Op::MinRegImmChoice(reg, ..)
-            | Op::MaxRegRegChoice(reg, ..)
-            | Op::MaxRegImmChoice(reg, ..)
-            | Op::DivRegReg(reg, ..)
-            | Op::DivRegImm(reg, ..)
-            | Op::DivImmReg(reg, ..)
-            | Op::SubRegReg(reg, ..)
-            | Op::SubRegImm(reg, ..)
-            | Op::SubImmReg(reg, ..) => Some(*reg),
+            Op::Load { .. } => None,
+            Op::Store { reg: out, .. }
+            | Op::Var { out, .. }
+            | Op::Input { out, .. }
+            | Op::CopyImm { out, .. }
+            | Op::AddRegReg { out, .. }
+            | Op::AddRegImm { out, .. }
+            | Op::NegReg { out, .. }
+            | Op::AbsReg { out, .. }
+            | Op::RecipReg { out, .. }
+            | Op::SqrtReg { out, .. }
+            | Op::SquareReg { out, .. }
+            | Op::MulRegReg { out, .. }
+            | Op::MulRegImm { out, .. }
+            | Op::MinRegReg { out, .. }
+            | Op::MinRegImm { out, .. }
+            | Op::MaxRegReg { out, .. }
+            | Op::MaxRegImm { out, .. }
+            | Op::MinRegRegChoice { out, .. }
+            | Op::MinRegImmChoice { out, .. }
+            | Op::MaxRegRegChoice { out, .. }
+            | Op::MaxRegImmChoice { out, .. }
+            | Op::DivRegReg { out, .. }
+            | Op::DivRegImm { out, .. }
+            | Op::DivImmReg { out, .. }
+            | Op::SubRegReg { out, .. }
+            | Op::SubRegImm { out, .. }
+            | Op::SubImmReg { out, .. } => Some(*out),
         }
     }
 
     /// Returns an iterator over input registers
     pub fn input_reg_iter(&self) -> impl Iterator<Item = u8> {
         match *self {
-            Op::Input(..) | Op::Var(..) | Op::CopyImm(..) | Op::Load(..) => {
-                [None, None]
-            }
-            Op::NegReg(_out, arg)
-            | Op::AbsReg(_out, arg)
-            | Op::RecipReg(_out, arg)
-            | Op::SqrtReg(_out, arg)
-            | Op::SquareReg(_out, arg)
-            | Op::AddRegImm(_out, arg, ..)
-            | Op::MulRegImm(_out, arg, ..)
-            | Op::DivRegImm(_out, arg, ..)
-            | Op::DivImmReg(_out, arg, ..)
-            | Op::SubImmReg(_out, arg, ..)
-            | Op::SubRegImm(_out, arg, ..)
-            | Op::MinRegImm(_out, arg, ..)
-            | Op::MaxRegImm(_out, arg, ..)
-            | Op::MinRegImmChoice(_out, arg, ..)
-            | Op::MaxRegImmChoice(_out, arg, ..) => [Some(arg), None],
-            Op::AddRegReg(_out, lhs, rhs)
-            | Op::MulRegReg(_out, lhs, rhs)
-            | Op::DivRegReg(_out, lhs, rhs)
-            | Op::SubRegReg(_out, lhs, rhs)
-            | Op::MinRegReg(_out, lhs, rhs)
-            | Op::MaxRegReg(_out, lhs, rhs)
-            | Op::MinRegRegChoice(_out, lhs, rhs, ..)
-            | Op::MaxRegRegChoice(_out, lhs, rhs, ..) => [Some(lhs), Some(rhs)],
-            Op::Store(reg, _mem) => [Some(reg), None],
+            Op::Input { .. }
+            | Op::Var { .. }
+            | Op::CopyImm { .. }
+            | Op::Load { .. } => [None, None],
+            Op::NegReg { arg, .. }
+            | Op::AbsReg { arg, .. }
+            | Op::RecipReg { arg, .. }
+            | Op::SqrtReg { arg, .. }
+            | Op::SquareReg { arg, .. }
+            | Op::AddRegImm { arg, .. }
+            | Op::MulRegImm { arg, .. }
+            | Op::DivRegImm { arg, .. }
+            | Op::DivImmReg { arg, .. }
+            | Op::SubImmReg { arg, .. }
+            | Op::SubRegImm { arg, .. }
+            | Op::MinRegImm { arg, .. }
+            | Op::MaxRegImm { arg, .. }
+            | Op::MinRegImmChoice { arg, .. }
+            | Op::MaxRegImmChoice { arg, .. } => [Some(arg), None],
+            Op::AddRegReg { lhs, rhs, .. }
+            | Op::MulRegReg { lhs, rhs, .. }
+            | Op::DivRegReg { lhs, rhs, .. }
+            | Op::SubRegReg { lhs, rhs, .. }
+            | Op::MinRegReg { lhs, rhs, .. }
+            | Op::MaxRegReg { lhs, rhs, .. }
+            | Op::MinRegRegChoice { lhs, rhs, .. }
+            | Op::MaxRegRegChoice { lhs, rhs, .. } => [Some(lhs), Some(rhs)],
+            Op::Store { reg, .. } => [Some(reg), None],
         }
         .into_iter()
         .flatten()
     }
 
-    /// Returns an iterator over input registers
+    /// Returns an iterator over all slots
+    ///
+    /// This includes both inputs and output, and both registers and memory.
     pub fn iter_slots(&self) -> impl Iterator<Item = u32> {
         match *self {
-            Op::Input(out, ..) | Op::Var(out, ..) | Op::CopyImm(out, ..) => {
-                [Some(out as u32), None, None]
-            }
-            Op::NegReg(out, arg)
-            | Op::AbsReg(out, arg)
-            | Op::RecipReg(out, arg)
-            | Op::SqrtReg(out, arg)
-            | Op::SquareReg(out, arg)
-            | Op::AddRegImm(out, arg, ..)
-            | Op::MulRegImm(out, arg, ..)
-            | Op::DivRegImm(out, arg, ..)
-            | Op::DivImmReg(out, arg, ..)
-            | Op::SubImmReg(out, arg, ..)
-            | Op::SubRegImm(out, arg, ..)
-            | Op::MinRegImm(out, arg, ..)
-            | Op::MaxRegImm(out, arg, ..)
-            | Op::MinRegImmChoice(out, arg, ..)
-            | Op::MaxRegImmChoice(out, arg, ..) => {
+            Op::Input { out, .. }
+            | Op::Var { out, .. }
+            | Op::CopyImm { out, .. } => [Some(out as u32), None, None],
+            Op::NegReg { out, arg }
+            | Op::AbsReg { out, arg }
+            | Op::RecipReg { out, arg }
+            | Op::SqrtReg { out, arg }
+            | Op::SquareReg { out, arg }
+            | Op::AddRegImm { out, arg, .. }
+            | Op::MulRegImm { out, arg, .. }
+            | Op::DivRegImm { out, arg, .. }
+            | Op::DivImmReg { out, arg, .. }
+            | Op::SubImmReg { out, arg, .. }
+            | Op::SubRegImm { out, arg, .. }
+            | Op::MinRegImm { out, arg, .. }
+            | Op::MaxRegImm { out, arg, .. }
+            | Op::MinRegImmChoice { out, arg, .. }
+            | Op::MaxRegImmChoice { out, arg, .. } => {
                 [Some(out as u32), Some(arg as u32), None]
             }
-            Op::AddRegReg(out, lhs, rhs)
-            | Op::MulRegReg(out, lhs, rhs)
-            | Op::DivRegReg(out, lhs, rhs)
-            | Op::SubRegReg(out, lhs, rhs)
-            | Op::MinRegReg(out, lhs, rhs)
-            | Op::MaxRegReg(out, lhs, rhs)
-            | Op::MinRegRegChoice(out, lhs, rhs, ..)
-            | Op::MaxRegRegChoice(out, lhs, rhs, ..) => {
+            Op::AddRegReg { out, lhs, rhs }
+            | Op::MulRegReg { out, lhs, rhs }
+            | Op::DivRegReg { out, lhs, rhs }
+            | Op::SubRegReg { out, lhs, rhs }
+            | Op::MinRegReg { out, lhs, rhs }
+            | Op::MaxRegReg { out, lhs, rhs }
+            | Op::MinRegRegChoice { out, lhs, rhs, .. }
+            | Op::MaxRegRegChoice { out, lhs, rhs, .. } => {
                 [Some(out as u32), Some(lhs as u32), Some(rhs as u32)]
             }
-            Op::Store(reg, mem) | Op::Load(reg, mem) => {
+            Op::Store { reg, mem } | Op::Load { reg, mem } => {
                 [Some(reg as u32), Some(mem as u32), None]
             }
         }

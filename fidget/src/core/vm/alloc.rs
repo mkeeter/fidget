@@ -154,12 +154,12 @@ impl<'a> RegisterAllocator<'a> {
                     let mem = self.get_memory();
                     *b = Allocation::Both(reg, mem);
                     if self.used.contains(n) {
-                        self.out.push(Op::Load(reg, mem));
+                        self.out.push(Op::Load { reg, mem });
                     }
                 }
                 Allocation::Both(reg, mem) => {
                     if self.used.contains(n) {
-                        self.out.push(Op::Load(reg, mem));
+                        self.out.push(Op::Load { reg, mem });
                     }
                 }
                 Allocation::Memory(..) => (),
@@ -275,7 +275,7 @@ impl<'a> RegisterAllocator<'a> {
             self.registers.remove(&reg);
 
             // This operation keeps things in sync
-            self.out.push(Op::Load(reg, mem));
+            self.out.push(Op::Load { reg, mem });
             reg
         }
     }
@@ -383,11 +383,21 @@ impl<'a> RegisterAllocator<'a> {
                     panic!("cannot handle f(imm)");
                 }
                 let op = match op {
-                    context::UnaryOpcode::Neg => Op::NegReg,
-                    context::UnaryOpcode::Abs => Op::AbsReg,
-                    context::UnaryOpcode::Recip => Op::RecipReg,
-                    context::UnaryOpcode::Sqrt => Op::SqrtReg,
-                    context::UnaryOpcode::Square => Op::SquareReg,
+                    context::UnaryOpcode::Neg => {
+                        |out, arg| Op::NegReg { out, arg }
+                    }
+                    context::UnaryOpcode::Abs => {
+                        |out, arg| Op::AbsReg { out, arg }
+                    }
+                    context::UnaryOpcode::Recip => {
+                        |out, arg| Op::RecipReg { out, arg }
+                    }
+                    context::UnaryOpcode::Sqrt => {
+                        |out, arg| Op::SqrtReg { out, arg }
+                    }
+                    context::UnaryOpcode::Square => {
+                        |out, arg| Op::SquareReg { out, arg }
+                    }
                 };
                 self.op_reg_fn(node, arg, op);
             }
@@ -398,81 +408,99 @@ impl<'a> RegisterAllocator<'a> {
                         node,
                         lhs,
                         rhs,
-                        Op::AddRegReg,
-                        Op::AddRegImm,
-                        Op::AddRegImm,
+                        |out, lhs, rhs| Op::AddRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::AddRegImm { out, arg, imm },
+                        |out, arg, imm| Op::AddRegImm { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Sub, None) => self.op_binary(
                         node,
                         lhs,
                         rhs,
-                        Op::SubRegReg,
-                        Op::SubRegImm,
-                        Op::SubImmReg,
+                        |out, lhs, rhs| Op::SubRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::SubRegImm { out, arg, imm },
+                        |out, arg, imm| Op::SubImmReg { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Mul, None) => self.op_binary(
                         node,
                         lhs,
                         rhs,
-                        Op::MulRegReg,
-                        Op::MulRegImm,
-                        Op::MulRegImm,
+                        |out, lhs, rhs| Op::MulRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::MulRegImm { out, arg, imm },
+                        |out, arg, imm| Op::MulRegImm { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Div, None) => self.op_binary(
                         node,
                         lhs,
                         rhs,
-                        Op::DivRegReg,
-                        Op::DivRegImm,
-                        Op::DivImmReg,
+                        |out, lhs, rhs| Op::DivRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::DivRegImm { out, arg, imm },
+                        |out, arg, imm| Op::DivImmReg { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Min, None) => self.op_binary(
                         node,
                         lhs,
                         rhs,
-                        Op::MinRegReg,
-                        Op::MinRegImm,
-                        Op::MinRegImm,
+                        |out, lhs, rhs| Op::MinRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::MinRegImm { out, arg, imm },
+                        |out, arg, imm| Op::MinRegImm { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Max, None) => self.op_binary(
                         node,
                         lhs,
                         rhs,
-                        Op::MaxRegReg,
-                        Op::MaxRegImm,
-                        Op::MaxRegImm,
+                        |out, lhs, rhs| Op::MaxRegReg { out, lhs, rhs },
+                        |out, arg, imm| Op::MaxRegImm { out, arg, imm },
+                        |out, arg, imm| Op::MaxRegImm { out, arg, imm },
                     ),
                     (context::BinaryOpcode::Min, Some(c)) => {
-                        let c = c.try_into().unwrap();
+                        let choice = c.try_into().unwrap();
                         self.op_binary(
                             node,
                             lhs,
                             rhs,
-                            |reg, lhs, rhs| {
-                                Op::MinRegRegChoice(reg, lhs, rhs, c)
+                            |out, lhs, rhs| Op::MinRegRegChoice {
+                                out,
+                                lhs,
+                                rhs,
+                                choice,
                             },
-                            |reg, arg, imm| {
-                                Op::MinRegImmChoice(reg, arg, c, imm)
+                            |out, arg, imm| Op::MinRegImmChoice {
+                                out,
+                                arg,
+                                choice,
+                                imm,
                             },
-                            |reg, arg, imm| {
-                                Op::MinRegImmChoice(reg, arg, c, imm)
+                            |out, arg, imm| Op::MinRegImmChoice {
+                                out,
+                                arg,
+                                choice,
+                                imm,
                             },
                         )
                     }
                     (context::BinaryOpcode::Max, Some(c)) => {
-                        let c = c.try_into().unwrap();
+                        let choice = c.try_into().unwrap();
                         self.op_binary(
                             node,
                             lhs,
                             rhs,
-                            |reg, lhs, rhs| {
-                                Op::MaxRegRegChoice(reg, lhs, rhs, c)
+                            |out, lhs, rhs| Op::MaxRegRegChoice {
+                                out,
+                                lhs,
+                                rhs,
+                                choice,
                             },
-                            |reg, arg, imm| {
-                                Op::MaxRegImmChoice(reg, arg, c, imm)
+                            |out, arg, imm| Op::MaxRegImmChoice {
+                                out,
+                                arg,
+                                imm,
+                                choice,
                             },
-                            |reg, arg, imm| {
-                                Op::MaxRegImmChoice(reg, arg, c, imm)
+                            |out, arg, imm| Op::MaxRegImmChoice {
+                                out,
+                                arg,
+                                imm,
+                                choice,
                             },
                         )
                     }
@@ -512,7 +540,7 @@ impl<'a> RegisterAllocator<'a> {
 
     fn push_store(&mut self, reg: u8, mem: u32) {
         assert!(mem >= self.reg_limit as u32);
-        self.out.push(Op::Store(reg, mem));
+        self.out.push(Op::Store { reg, mem });
         self.spare_memory.push(mem);
     }
 
@@ -626,13 +654,13 @@ impl<'a> RegisterAllocator<'a> {
 
     /// Pushes an [`Input`](crate::vm::Op::Input) operation to the tape
     #[inline(always)]
-    fn op_input(&mut self, out: Node, i: u8) {
-        self.op_out_only(out, |out| Op::Input(out, i));
+    fn op_input(&mut self, out: Node, input: u8) {
+        self.op_out_only(out, |out| Op::Input { out, input });
     }
 
     /// Pushes an [`Var`](crate::vm::Op::Var) operation to the tape
     #[inline(always)]
-    fn op_var(&mut self, out: Node, i: u32) {
-        self.op_out_only(out, |out| Op::Var(out, i));
+    fn op_var(&mut self, out: Node, var: u32) {
+        self.op_out_only(out, |out| Op::Var { out, var });
     }
 }
