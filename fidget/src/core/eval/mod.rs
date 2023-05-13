@@ -42,9 +42,7 @@ pub use vars::Vars;
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
 
-use crate::vm::SpecializedTape;
-use std::sync::Arc;
-
+use crate::vm::Tape;
 /// A "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
     /// Register limit for this evaluator family.
@@ -102,10 +100,7 @@ pub trait EvaluatorStorage<F> {
     type Storage: Default + Send;
 
     /// Constructs the evaluator, giving it a chance to reuse storage
-    fn new_with_storage(
-        tape: &Arc<SpecializedTape<F>>,
-        storage: Self::Storage,
-    ) -> Self;
+    fn new_with_storage(tape: &Tape<F>, storage: Self::Storage) -> Self;
 
     /// Extract the internal storage for reuse, if possible
     fn take(self) -> Option<Self::Storage>;
