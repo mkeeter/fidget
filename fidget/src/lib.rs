@@ -163,7 +163,7 @@
 //! # let (sum, ctx) = eval("min(x, y)")?;
 //! # let tape = ctx.get_tape::<vm::Eval>(sum)?;
 //! # let mut interval_eval = tape.new_interval_evaluator();
-//! # let (out, simplify) = interval_eval.eval(
+//! # let (out, r) = interval_eval.eval(
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
@@ -171,8 +171,8 @@
 //! #     )?;
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = simplify.unwrap().simplify()?;
-//! assert_eq!(new_tape.len(), 1); // just the 'X' term
+//! let new_tape = r.unwrap().simplify();
+//! assert_eq!(new_tape.len(), 2); // the Y is skipped, so this is min(X, ...)
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
