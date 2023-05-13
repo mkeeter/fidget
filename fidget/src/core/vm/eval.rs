@@ -407,7 +407,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => max_choice(v[lhs], v[rhs]),
+                        Choice::Both => min_choice(v[lhs], v[rhs]),
                         Choice::Unknown => {
                             panic!("invalid choice in evaluation")
                         }

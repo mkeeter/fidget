@@ -468,7 +468,7 @@ impl Context {
     pub fn get_tape<E: Family>(&self, root: Node) -> Result<Tape<E>, Error> {
         // TODO: make inlining a parameter here?
         // TODO buildy should return an error
-        let data = crate::vm::build::buildy(self, root, 7)?;
+        let data = crate::vm::build::buildy(self, root, 0)?;
         Ok(data.into())
     }
 
