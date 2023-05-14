@@ -51,15 +51,6 @@ enum Command {
         #[clap(flatten)]
         settings: MeshSettings,
     },
-    Chunky {
-        /// Maximum weight for inlining
-        #[clap(long, default_value_t = 9)]
-        inline: usize,
-
-        /// Number of registers to use when tape planning
-        #[clap(long, default_value_t = 24)]
-        registers: u8,
-    },
     Dot {
         /// Name of a `.dot` file to write
         #[clap(short, long)]
@@ -389,9 +380,6 @@ fn main() -> Result<()> {
                 info!("Writing STL to {out:?}");
                 mesh.write_stl(&mut std::fs::File::create(out)?)?;
             }
-        }
-        Command::Chunky { inline, registers } => {
-            fidget::chunky::buildy(&ctx, root, inline, registers)?;
         }
         Command::Dot { out } => {
             let dot = ctx.dot_node(root);

@@ -116,7 +116,6 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         let mut simplify = false;
         assert_eq!(vars.len(), self.0.var_count());
 
-        let mut choice_index = 0;
         let mut v = SlotArray(&mut data.slots);
         for op in self.0.iter_asm() {
             match op {
@@ -180,7 +179,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => v[arg].min_choice(imm.into()),
@@ -189,9 +188,8 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MaxRegImmChoice {
@@ -200,7 +198,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => v[arg].max_choice(imm.into()),
@@ -209,9 +207,8 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MinRegRegChoice {
@@ -220,7 +217,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => v[lhs].min_choice(v[rhs]),
@@ -229,9 +226,8 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MaxRegRegChoice {
@@ -240,7 +236,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => v[lhs].max_choice(v[rhs]),
@@ -249,9 +245,8 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::AddRegReg { out, lhs, rhs } => v[out] = v[lhs] + v[rhs],
@@ -294,7 +289,6 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         data: &mut Self::Data,
     ) -> (f32, bool) {
         assert_eq!(vars.len(), self.0.var_count());
-        let mut choice_index = 0;
         let mut simplify = false;
         let mut v = SlotArray(&mut data.slots);
         for op in self.0.iter_asm() {
@@ -357,7 +351,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => min_choice(v[arg], imm.into()),
@@ -366,9 +360,8 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MaxRegImmChoice {
@@ -377,7 +370,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => max_choice(v[arg], imm),
@@ -386,9 +379,8 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MinRegRegChoice {
@@ -397,7 +389,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => min_choice(v[lhs], v[rhs]),
@@ -406,9 +398,8 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
 
                 Op::MaxRegRegChoice {
@@ -417,7 +408,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choice(choice as usize) {
+                    let (value, c) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => max_choice(v[lhs], v[rhs]),
@@ -426,9 +417,8 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                         }
                     };
                     v[out] = value;
-                    choices[choice_index] |= choice;
-                    choice_index += 1;
-                    simplify |= choice != Choice::Both;
+                    choices[choice as usize] |= c;
+                    simplify |= c != Choice::Both;
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
                     v[out] = v[lhs] + v[rhs];
