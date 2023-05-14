@@ -19,7 +19,7 @@ use crate::{
         interval::{IntervalEvalData, IntervalEvalStorage},
         Family, FloatSliceEval, GradSliceEval, IntervalEval,
     },
-    vm::{InnerTape, Tape},
+    vm::{Tape, TapeSpecialization},
 };
 use once_cell::sync::OnceCell;
 use std::{num::NonZeroUsize, sync::Arc};
@@ -96,7 +96,7 @@ impl<I: Family> Default for EvalData<I> {
 }
 
 pub struct EvalStorage<I: Family> {
-    pub tape_storage: Vec<InnerTape<I>>,
+    pub tape_storage: Vec<TapeSpecialization>,
     pub float_storage: Vec<FloatSliceEvalStorage<I>>,
     pub interval_storage: Vec<IntervalEvalStorage<I>>,
     pub grad_storage: Vec<GradSliceEvalStorage<I>>,
@@ -566,12 +566,9 @@ impl OctreeBuilder {
         } else {
             let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
                 r.map(|r| {
-                    Arc::new(EvalGroup::new(
-                        r.simplify_with(
-                            storage.tape_storage.pop().unwrap_or_default(),
-                        )
-                        .unwrap(),
-                    ))
+                    Arc::new(EvalGroup::new(r.simplify_with(
+                        storage.tape_storage.pop().unwrap_or_default(),
+                    )))
                 })
             } else {
                 None
