@@ -80,7 +80,7 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(min).unwrap();
-        assert_eq!(tape.tape.choice_count(), 1);
+        assert_eq!(tape.choice_count(), 1);
 
         let eval = tape.new_point_evaluator();
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
@@ -111,7 +111,7 @@ pub mod eval_tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(max).unwrap();
-        assert_eq!(tape.tape.choice_count(), 1);
+        assert_eq!(tape.choice_count(), 1);
 
         let eval = tape.new_point_evaluator();
 

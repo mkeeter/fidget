@@ -12,11 +12,14 @@ use super::{
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
-use crate::eval::{
-    float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
-    grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
-    interval::{IntervalEvalData, IntervalEvalStorage},
-    tape, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
+use crate::{
+    eval::{
+        float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
+        grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
+        interval::{IntervalEvalData, IntervalEvalStorage},
+        Family, FloatSliceEval, GradSliceEval, IntervalEval,
+    },
+    vm::{InnerTape, Tape},
 };
 use once_cell::sync::OnceCell;
 use std::{num::NonZeroUsize, sync::Arc};
@@ -93,8 +96,7 @@ impl<I: Family> Default for EvalData<I> {
 }
 
 pub struct EvalStorage<I: Family> {
-    pub workspace: tape::Workspace,
-    pub tape_storage: Vec<tape::Data>,
+    pub tape_storage: Vec<InnerTape<I>>,
     pub float_storage: Vec<FloatSliceEvalStorage<I>>,
     pub interval_storage: Vec<IntervalEvalStorage<I>>,
     pub grad_storage: Vec<GradSliceEvalStorage<I>>,
@@ -115,7 +117,6 @@ impl<I: Family> EvalStorage<I> {
 impl<I: Family> Default for EvalStorage<I> {
     fn default() -> Self {
         Self {
-            workspace: Default::default(),
             tape_storage: Default::default(),
             float_storage: Default::default(),
             grad_storage: Default::default(),
@@ -567,7 +568,6 @@ impl OctreeBuilder {
                 r.map(|r| {
                     Arc::new(EvalGroup::new(
                         r.simplify_with(
-                            &mut storage.workspace,
                             storage.tape_storage.pop().unwrap_or_default(),
                         )
                         .unwrap(),

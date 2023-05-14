@@ -12,7 +12,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{InnerTape, Tape, TapeData},
+    vm::{Tape, TapeData, TapeSpecialization},
     Error,
 };
 
@@ -156,11 +156,11 @@ where
         vars: &[f32],
         data: &'a mut TracingEvalData<E::Data, F>,
     ) -> Result<(T, Option<BorrowedTracingEvalResult<'a, T, F>>), Error> {
-        let expected_var_count = self.tape.tape.var_count();
+        let expected_var_count = self.tape.data().var_count();
         if vars.len() != expected_var_count {
             return Err(Error::BadVarSlice(vars.len(), expected_var_count));
         }
-        data.prepare(&self.tape.tape);
+        data.prepare(self.tape.data());
         let (value, simplify) = self.eval.eval_with(
             x.into(),
             y.into(),
@@ -299,7 +299,7 @@ where
     }
 
     /// Simplifies based on the most recent evaluation, reusing allocations
-    pub fn simplify_with(&self, prev: InnerTape<F>) -> Tape<F> {
+    pub fn simplify_with(&self, prev: TapeSpecialization) -> Tape<F> {
         self.tape.simplify_with(self.choices(), prev)
     }
 

@@ -10,7 +10,7 @@ use crate::{
         Choice, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
-    vm::{InnerTape, Tape},
+    vm::{Tape, TapeSpecialization},
 };
 
 use nalgebra::{Point3, Vector3};
@@ -147,11 +147,11 @@ struct Worker<'a, I: Family> {
     ///
     /// This has `n + 1` slots: one for each render level, and one for per-voxel
     /// evaluation (after the final tape simplification).
-    spare_tapes: Vec<Option<InnerTape<I>>>,
+    spare_tapes: Vec<Option<TapeSpecialization>>,
 }
 
 impl<I: Family> Worker<'_, I> {
-    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> InnerTape<I> {
+    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> TapeSpecialization {
         if let Some(float) = eval.float_slice {
             self.float_storage[eval.level].give(float.take().unwrap());
         }
@@ -570,7 +570,7 @@ fn worker<I: Family>(
             .collect(),
 
         spare_tapes: (0..=config.tile_sizes.len())
-            .map(|_| Some(tape.data().clone().into()))
+            .map(|_| Some(Default::default()))
             .collect(),
     };
 

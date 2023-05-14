@@ -134,11 +134,11 @@ where
         if x.len() != y.len() || x.len() != z.len() {
             return Err(Error::MismatchedSlices);
         }
-        let expected_var_count = self.tape.tape.var_count();
+        let expected_var_count = self.tape.data().var_count();
         if vars.len() != expected_var_count {
             return Err(Error::BadVarSlice(vars.len(), expected_var_count));
         }
-        data.prepare(&self.tape.tape, x.len());
+        data.prepare(self.tape.data(), x.len());
         self.eval
             .eval_with(x, y, z, vars, &mut data.out, &mut data.data);
         Ok(&data.out)

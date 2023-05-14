@@ -11,7 +11,7 @@ pub struct Vars<'a> {
 impl<'a> Vars<'a> {
     /// Builds a new variable binding, initializing them all to 0
     pub fn new<F>(tape: &'a Tape<F>) -> Self {
-        let names = tape.tape.vars();
+        let names = tape.data().vars();
         let values = vec![0.0; names.len()];
         Self { names, values }
     }
