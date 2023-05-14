@@ -525,6 +525,7 @@ pub fn buildy<F: Family>(
                 .map(|d| (choice_id[&d.root], d.choice))
                 .collect(),
         })
+        .filter(|t| !t.tape.is_empty())
         .collect();
     Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
