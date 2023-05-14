@@ -198,7 +198,7 @@ struct Worker<'a, I: Family, M: RenderMode> {
 impl<I: Family, M: RenderMode> Worker<'_, I, M> {
     fn render_tile_recurse(
         &mut self,
-        i_handle: &mut IntervalEval<I>,
+        i_handle: &IntervalEval<I>,
         depth: usize,
         tile: Tile<2>,
         float_handle: &mut Option<FloatSliceEval<I>>,
@@ -383,7 +383,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: Family, M: RenderMode>(
-    mut tape: Tape<I>,
+    tape: &Tape<I>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
     mode: &M,
@@ -407,10 +407,10 @@ fn worker<I: Family, M: RenderMode>(
             .collect(),
         float_data: Default::default(),
     };
-    let mut i_handle = tape.new_interval_evaluator();
+    let i_handle = tape.new_interval_evaluator();
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None, mode);
+        w.render_tile_recurse(&i_handle, 0, tile, &mut None, mode);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -453,8 +453,10 @@ pub fn render<I: Family, M: RenderMode + Sync>(
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            handles
-                .push(s.spawn(|| worker::<I, M>(tape, &queue, &config, mode)));
+            let tape_ref = &tape;
+            handles.push(
+                s.spawn(|| worker::<I, M>(tape_ref, &queue, &config, mode)),
+            );
         }
         let mut out = vec![];
         for h in handles {

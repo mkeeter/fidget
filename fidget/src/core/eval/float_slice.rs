@@ -35,12 +35,12 @@ pub mod eval_tests {
         let tape_x = ctx.get_tape(x).unwrap();
         let tape_y = ctx.get_tape(y).unwrap();
 
-        let eval = FloatSliceEval::<I>::new(tape_y);
+        let eval = FloatSliceEval::<I>::new(tape_y.clone());
         let mut t = eval.take().unwrap();
 
         // This is a fuzz test for icache issues
         for _ in 0..10000 {
-            let eval = FloatSliceEval::<I>::new_with_storage(tape_x, t);
+            let eval = FloatSliceEval::<I>::new_with_storage(tape_x.clone(), t);
             let out = eval
                 .eval(
                     &[0.0, 1.0, 2.0, 3.0],
@@ -52,7 +52,7 @@ pub mod eval_tests {
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
             t = eval.take().unwrap();
 
-            let eval = FloatSliceEval::<I>::new_with_storage(tape_y, t);
+            let eval = FloatSliceEval::<I>::new_with_storage(tape_y.clone(), t);
             let out = eval
                 .eval(
                     &[0.0, 1.0, 2.0, 3.0],
