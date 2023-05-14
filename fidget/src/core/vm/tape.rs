@@ -36,6 +36,13 @@ pub struct TapeData<F> {
     _p: std::marker::PhantomData<fn() -> F>,
 }
 
+impl<F> std::ops::Index<usize> for TapeData<F> {
+    type Output = ChoiceTape;
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.data[i]
+    }
+}
+
 impl<F> TapeData<F> {
     /// Returns the number of slots used by this tape
     pub fn slot_count(&self) -> usize {
@@ -112,14 +119,12 @@ impl<F: Family> TapeData<F> {
     }
 }
 
-/// Represents a tape specialized with a set of choices and active groups
+/// Represents choices and active groups used to specialize a tape
 ///
 /// This is a heavy-weight data structure that's typically wrapped in a
 /// [`Tape`] for ease of use.
-pub struct InnerTape<F> {
-    /// Root tape, which contains all groups
-    pub tape: Arc<TapeData<F>>,
-
+#[derive(Default)]
+pub struct TapeSpecialization {
     /// Set of choices, indicating which `min` and `max` clauses are specialized
     pub choices: Vec<Choice>,
 
@@ -131,14 +136,9 @@ pub struct InnerTape<F> {
 ///
 /// This is a cheap handle that should be passed by value and cloned
 #[derive(Clone)]
-pub struct Tape<F>(Arc<InnerTape<F>>);
+pub struct Tape<F>(Arc<(Arc<TapeData<F>>, TapeSpecialization)>);
 
 impl<F: Family> Tape<F> {
-    /// Returns a reference to the root tape data
-    pub fn data(&self) -> &Arc<TapeData<F>> {
-        &self.tape
-    }
-
     /// Builds a point evaluator from the given `Tape`
     pub fn new_point_evaluator(&self) -> PointEval<F> {
         PointEval::new(self.clone())
@@ -190,37 +190,66 @@ impl<F: Family> Tape<F> {
     ) -> GradSliceEval<F> {
         GradSliceEval::new_with_storage(self.clone(), storage)
     }
+}
+
+impl<F> Tape<F> {
+    /// Looks up a (constant) choice by index
+    pub fn choice(&self, i: usize) -> Choice {
+        (self.0).1.choices[i]
+    }
+
+    /// Returns the number of choices associated with the root tape
+    ///
+    /// Note that not all choices may be active (depending on tape
+    /// specialization), but the caller should operate using the full count.
+    pub fn choice_count(&self) -> usize {
+        self.data().choice_count()
+    }
+
+    /// Returns the number of variables associated with the root tape
+    ///
+    /// Note that not all variables may be active (depending on tape
+    /// specialization), but the caller should operate using the full count.
+    pub fn var_count(&self) -> usize {
+        self.data().var_count()
+    }
+
+    /// Returns the number of slots associated with the root tape
+    ///
+    /// Note that not all slot may be active (depending on tape specialization),
+    /// but the caller should operate using the full count.
+    pub fn slot_count(&self) -> usize {
+        self.data().slot_count()
+    }
 
     /// Simplifies the current tape given a set of choices
     ///
     /// # Panics
     /// The input `choices` must match our internal choice array size
     pub fn simplify(&self, choices: &[Choice]) -> Self {
-        self.simplify_with(
-            choices,
-            InnerTape {
-                tape: self.tape.clone(),
-                choices: vec![],
-                active_groups: vec![],
-            },
-        )
+        self.simplify_with(choices, TapeSpecialization::default())
     }
 
-    /// Simplifies a tape, reusing allocations from an `InnerTape`
-    ///
-    /// # Panics
-    /// `prev.tape` and `self.tape` must be the same
+    /// Returns the inner tape data
+    pub fn data(&self) -> &Arc<TapeData<F>> {
+        &(self.0).0
+    }
+
+    /// Returns the inner tape data
+    pub fn active_groups(&self) -> &[usize] {
+        &(self.0).1.active_groups
+    }
+
+    /// Simplifies a tape, reusing allocations from an [`TapeSpecialization`]
     pub fn simplify_with(
         &self,
         choices: &[Choice],
-        mut prev: InnerTape<F>,
+        mut prev: TapeSpecialization,
     ) -> Self {
-        assert_eq!(Arc::as_ptr(&prev.tape), Arc::as_ptr(&self.tape));
-
         prev.active_groups.clear();
         prev.active_groups
-            .extend(self.active_groups.iter().cloned().filter(|i| {
-                let cs = &self.tape.data[*i].choices;
+            .extend(self.active_groups().iter().cloned().filter(|i| {
+                let cs = &self.data()[*i].choices;
                 cs.is_empty()
                     || cs
                         .iter()
@@ -230,42 +259,20 @@ impl<F: Family> Tape<F> {
         prev.choices.clear();
         prev.choices.extend(choices.iter().cloned());
 
-        Self(Arc::new(prev))
+        Self(Arc::new((self.data().clone(), prev)))
     }
 
     /// Moves internal allocations into a new object, leaving this one empty
-    pub fn take(self) -> Option<InnerTape<F>> {
-        Arc::try_unwrap(self.0).ok()
+    pub fn take(self) -> Option<TapeSpecialization> {
+        Arc::try_unwrap(self.0).ok().map(|t| t.1)
     }
-}
 
-impl<E> std::ops::Deref for Tape<E> {
-    type Target = InnerTape<E>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<F> From<TapeData<F>> for Tape<F> {
-    fn from(t: TapeData<F>) -> Self {
-        Self::from(Arc::new(t))
-    }
-}
-
-impl<F> From<Arc<TapeData<F>>> for Tape<F> {
-    fn from(tape: Arc<TapeData<F>>) -> Self {
-        let inner = InnerTape::from(tape);
-        Self(Arc::new(inner))
-    }
-}
-
-impl<F> InnerTape<F> {
     /// Iterates over active clauses in the tape in evaluation order
     pub fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
-        self.active_groups
+        self.active_groups()
             .iter()
             .rev()
-            .flat_map(|i| self.tape.data[*i].tape.iter().rev())
+            .flat_map(|i| self.data()[*i].tape.iter().rev())
             .cloned()
     }
     /// Returns the number of active operations in this tape
@@ -273,31 +280,24 @@ impl<F> InnerTape<F> {
     /// Due to inlining and `Load` / `Store` operations, this may be larger than
     /// the expected number of raw arithmetic operations.
     pub fn len(&self) -> usize {
-        self.active_groups
+        self.active_groups()
             .iter()
             .rev()
-            .map(|i| self.tape.data[*i].tape.len())
+            .map(|i| self.data()[*i].tape.len())
             .sum()
-    }
-
-    /// Moves internal allocations into a new object, leaving this one empty
-    pub fn take(&mut self) -> Self {
-        Self {
-            tape: self.tape.clone(),
-            choices: std::mem::take(&mut self.choices),
-            active_groups: std::mem::take(&mut self.active_groups),
-        }
     }
 }
 
-impl<F> From<Arc<TapeData<F>>> for InnerTape<F> {
-    fn from(tape: Arc<TapeData<F>>) -> Self {
+impl<F> From<TapeData<F>> for Tape<F> {
+    fn from(tape: TapeData<F>) -> Self {
         let choices = vec![Choice::Both; tape.choice_count()];
         let active_groups = (0..tape.data.len()).into_iter().collect();
-        Self {
-            tape,
-            choices,
-            active_groups,
-        }
+        Self(Arc::new((
+            Arc::new(tape),
+            TapeSpecialization {
+                choices,
+                active_groups,
+            },
+        )))
     }
 }

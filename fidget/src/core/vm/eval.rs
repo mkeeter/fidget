@@ -114,7 +114,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         data: &mut Self::Data,
     ) -> (Interval, bool) {
         let mut simplify = false;
-        assert_eq!(vars.len(), self.0.tape.var_count());
+        assert_eq!(vars.len(), self.0.var_count());
 
         let mut choice_index = 0;
         let mut v = SlotArray(&mut data.slots);
@@ -180,8 +180,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => v[arg].min_choice(imm.into()),
@@ -201,8 +200,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => v[arg].max_choice(imm.into()),
@@ -222,8 +220,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => v[lhs].min_choice(v[rhs]),
@@ -243,8 +240,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => v[lhs].max_choice(v[rhs]),
@@ -297,7 +293,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         choices: &mut [Choice],
         data: &mut Self::Data,
     ) -> (f32, bool) {
-        assert_eq!(vars.len(), self.0.tape.var_count());
+        assert_eq!(vars.len(), self.0.var_count());
         let mut choice_index = 0;
         let mut simplify = false;
         let mut v = SlotArray(&mut data.slots);
@@ -361,8 +357,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => min_choice(v[arg], imm.into()),
@@ -382,8 +377,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     imm,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[arg], Choice::Left),
                         Choice::Right => (imm.into(), Choice::Right),
                         Choice::Both => max_choice(v[arg], imm),
@@ -403,8 +397,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => min_choice(v[lhs], v[rhs]),
@@ -424,8 +417,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     rhs,
                     choice,
                 } => {
-                    let (value, choice) = match self.0.choices[choice as usize]
-                    {
+                    let (value, choice) = match self.0.choice(choice as usize) {
                         Choice::Left => (v[lhs], Choice::Left),
                         Choice::Right => (v[rhs], Choice::Right),
                         Choice::Both => max_choice(v[lhs], v[rhs]),
@@ -525,8 +517,8 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.0.tape.var_count());
-        assert_eq!(data.slots.len(), self.0.tape.slot_count());
+        assert_eq!(vars.len(), self.0.var_count());
+        assert_eq!(data.slots.len(), self.0.slot_count());
 
         let size = xs.len();
         assert!(data.slice_size >= size);
@@ -663,7 +655,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[arg][i],
                             Choice::Right => imm,
                             Choice::Both => v[arg][i].min(imm),
@@ -678,7 +670,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[arg][i],
                             Choice::Right => imm,
                             Choice::Both => v[arg][i].max(imm),
@@ -693,7 +685,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
                             Choice::Both => v[rhs][i].min(v[rhs][i]),
@@ -708,7 +700,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
                             Choice::Both => v[rhs][i].max(v[rhs][i]),
@@ -739,8 +731,8 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.0.tape.var_count());
-        assert_eq!(data.slots.len(), self.0.tape.slot_count());
+        assert_eq!(vars.len(), self.0.var_count());
+        assert_eq!(data.slots.len(), self.0.slot_count());
 
         let size = xs.len();
         assert!(data.slice_size >= size);
@@ -847,7 +839,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                 } => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[arg][i],
                             Choice::Right => imm,
                             Choice::Both => v[arg][i].min(imm),
@@ -863,7 +855,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                 } => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[arg][i],
                             Choice::Right => imm,
                             Choice::Both => v[arg][i].max(imm),
@@ -878,7 +870,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
                             Choice::Both => v[lhs][i].min(v[rhs][i]),
@@ -893,7 +885,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     choice,
                 } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choices[choice as usize] {
+                        v[out][i] = match self.0.choice(choice as usize) {
                             Choice::Left => v[lhs][i],
                             Choice::Right => v[rhs][i],
                             Choice::Both => v[lhs][i].max(v[rhs][i]),

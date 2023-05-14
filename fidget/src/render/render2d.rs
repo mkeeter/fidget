@@ -7,7 +7,7 @@ use crate::{
         Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
-    vm::{InnerTape, Tape},
+    vm::{Tape, TapeSpecialization},
 };
 use nalgebra::{Point2, Vector2};
 
@@ -187,7 +187,8 @@ struct Worker<'a, I: Family, M: RenderMode> {
     /// Workspace for interval evaluators, based on recursion depth
     interval_data: Vec<IntervalEvalData<I>>,
 
-    spare_tapes: Vec<InnerTape<I>>,
+    /// Spare specialization data, to reduce allocation churn
+    spare_tapes: Vec<TapeSpecialization>,
 }
 
 impl<I: Family, M: RenderMode> Worker<'_, I, M> {
@@ -238,7 +239,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             self.config.tile_sizes.get(depth + 1)
         {
             let sub_tape = if let Some(data) = simplify.as_ref() {
-                data.simplify_with(self.spare_tapes[depth].take())
+                data.simplify_with(std::mem::take(&mut self.spare_tapes[depth]))
             } else {
                 i_handle.tape()
             };
@@ -271,8 +272,9 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else {
             // TODO this is not a place of honor
             let sub_tape = if let Some(simplify) = simplify.as_ref() {
-                simplify
-                    .simplify_with(self.spare_tapes.last_mut().unwrap().take())
+                simplify.simplify_with(std::mem::take(
+                    &mut self.spare_tapes.last_mut().unwrap(),
+                ))
             } else {
                 i_handle.tape()
             };
@@ -386,7 +388,7 @@ fn worker<I: Family, M: RenderMode>(
             .map(|_| Default::default())
             .collect(),
         spare_tapes: (0..config.tile_sizes.len())
-            .map(|_| tape.data().clone().into())
+            .map(|_| Default::default())
             .collect(),
     };
     let i_handle = tape.new_interval_evaluator();
