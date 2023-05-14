@@ -96,7 +96,7 @@ where
     T: Clone + From<f32>,
 {
     /// Builds a new evaluator for the given tape, allocating new storage
-    pub fn new(tape: &Tape<F>) -> Self {
+    pub fn new(tape: Tape<F>) -> Self {
         Self::new_with_storage(tape, E::Storage::default())
     }
 
@@ -106,11 +106,11 @@ where
     }
 
     /// Builds a new evaluator for the given tape, reusing the given storage
-    pub fn new_with_storage(tape: &Tape<F>, storage: E::Storage) -> Self {
-        let eval = E::new_with_storage(tape, storage);
+    pub fn new_with_storage(tape: Tape<F>, storage: E::Storage) -> Self {
+        let eval = E::new_with_storage(&tape, storage);
         Self {
             eval,
-            tape: tape.clone(),
+            tape,
             _p: std::marker::PhantomData,
         }
     }

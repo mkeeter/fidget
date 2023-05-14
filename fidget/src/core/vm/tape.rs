@@ -1,7 +1,11 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    eval::{Choice, Family},
+    eval::{
+        float_slice::FloatSliceEvalStorage, grad_slice::GradSliceEvalStorage,
+        interval::IntervalEvalStorage, point::PointEvalStorage, Choice, Family,
+        FloatSliceEval, GradSliceEval, IntervalEval, PointEval,
+    },
     vm::Op,
 };
 
@@ -130,30 +134,61 @@ pub struct InnerTape<F> {
 pub struct Tape<F>(Arc<InnerTape<F>>);
 
 impl<F: Family> Tape<F> {
+    /// Returns a reference to the root tape data
+    pub fn data(&self) -> &Arc<TapeData<F>> {
+        &self.tape
+    }
+
     /// Builds a point evaluator from the given `Tape`
-    pub fn new_point_evaluator(&self) -> crate::eval::point::PointEval<F> {
-        crate::eval::point::PointEval::new(self.clone())
+    pub fn new_point_evaluator(&self) -> PointEval<F> {
+        PointEval::new(self.clone())
+    }
+
+    /// Builds a point evaluator from the given `Tape`
+    pub fn new_point_evaluator_with_storage(
+        &self,
+        storage: PointEvalStorage<F>,
+    ) -> PointEval<F> {
+        PointEval::new_with_storage(self.clone(), storage)
     }
 
     /// Builds an interval evaluator from the given `Tape`
-    pub fn new_interval_evaluator(
+    pub fn new_interval_evaluator(&self) -> IntervalEval<F> {
+        IntervalEval::new(self.clone())
+    }
+
+    /// Builds an interval evaluator from the given `Tape`
+    pub fn new_interval_evaluator_with_storage(
         &self,
-    ) -> crate::eval::interval::IntervalEval<F> {
-        crate::eval::interval::IntervalEval::new(self.clone())
+        storage: IntervalEvalStorage<F>,
+    ) -> IntervalEval<F> {
+        IntervalEval::new_with_storage(self.clone(), storage)
     }
 
     /// Builds a float evaluator from the given `Tape`
-    pub fn new_float_slice_evaluator(
+    pub fn new_float_slice_evaluator(&self) -> FloatSliceEval<F> {
+        FloatSliceEval::new(self.clone())
+    }
+
+    /// Builds an interval evaluator from the given `Tape`
+    pub fn new_float_slice_evaluator_with_storage(
         &self,
-    ) -> crate::eval::float_slice::FloatSliceEval<F> {
-        crate::eval::float_slice::FloatSliceEval::new(self)
+        storage: FloatSliceEvalStorage<F>,
+    ) -> FloatSliceEval<F> {
+        FloatSliceEval::new_with_storage(self.clone(), storage)
     }
 
     /// Builds a float evaluator from the given `Tape`
-    pub fn new_grad_slice_evaluator(
+    pub fn new_grad_slice_evaluator(&self) -> GradSliceEval<F> {
+        GradSliceEval::new(self.clone())
+    }
+
+    /// Builds an interval evaluator from the given `Tape`
+    pub fn new_grad_slice_evaluator_with_storage(
         &self,
-    ) -> crate::eval::grad_slice::GradSliceEval<F> {
-        crate::eval::grad_slice::GradSliceEval::new(self)
+        storage: GradSliceEvalStorage<F>,
+    ) -> GradSliceEval<F> {
+        GradSliceEval::new_with_storage(self.clone(), storage)
     }
 
     /// Simplifies the current tape given a set of choices
@@ -161,24 +196,46 @@ impl<F: Family> Tape<F> {
     /// # Panics
     /// The input `choices` must match our internal choice array size
     pub fn simplify(&self, choices: &[Choice]) -> Self {
-        assert_eq!(choices.len(), self.tape.choice_count());
-        let new_groups = self
-            .active_groups
-            .iter()
-            .cloned()
-            .filter(|i| {
+        self.simplify_with(
+            choices,
+            InnerTape {
+                tape: self.tape.clone(),
+                choices: vec![],
+                active_groups: vec![],
+            },
+        )
+    }
+
+    /// Simplifies a tape, reusing allocations from an `InnerTape`
+    ///
+    /// # Panics
+    /// `prev.tape` and `self.tape` must be the same
+    pub fn simplify_with(
+        &self,
+        choices: &[Choice],
+        mut prev: InnerTape<F>,
+    ) -> Self {
+        assert_eq!(Arc::as_ptr(&prev.tape), Arc::as_ptr(&self.tape));
+
+        prev.active_groups.clear();
+        prev.active_groups
+            .extend(self.active_groups.iter().cloned().filter(|i| {
                 let cs = &self.tape.data[*i].choices;
                 cs.is_empty()
                     || cs
                         .iter()
                         .any(|(j, c)| choices[*j] as u8 & (*c as u8) != 0)
-            })
-            .collect();
-        Self(Arc::new(InnerTape {
-            tape: self.tape.clone(),
-            choices: choices.iter().cloned().collect(),
-            active_groups: new_groups,
-        }))
+            }));
+
+        prev.choices.clear();
+        prev.choices.extend(choices.iter().cloned());
+
+        Self(Arc::new(prev))
+    }
+
+    /// Moves internal allocations into a new object, leaving this one empty
+    pub fn take(mut self) -> Option<InnerTape<F>> {
+        Arc::try_unwrap(self.0).ok()
     }
 }
 
@@ -191,14 +248,13 @@ impl<E> std::ops::Deref for Tape<E> {
 
 impl<F> From<TapeData<F>> for Tape<F> {
     fn from(t: TapeData<F>) -> Self {
-        let tape = Arc::new(t);
-        let choices = vec![Choice::Both; tape.choice_count()];
-        let active_groups = (0..tape.data.len()).into_iter().collect();
-        let inner = InnerTape {
-            tape,
-            choices,
-            active_groups,
-        };
+        Self::from(Arc::new(t))
+    }
+}
+
+impl<F> From<Arc<TapeData<F>>> for Tape<F> {
+    fn from(tape: Arc<TapeData<F>>) -> Self {
+        let inner = InnerTape::from(tape);
         Self(Arc::new(inner))
     }
 }
@@ -222,5 +278,26 @@ impl<F> InnerTape<F> {
             .rev()
             .map(|i| self.tape.data[*i].tape.len())
             .sum()
+    }
+
+    /// Moves internal allocations into a new object, leaving this one empty
+    pub fn take(&mut self) -> Self {
+        Self {
+            tape: self.tape.clone(),
+            choices: std::mem::take(&mut self.choices),
+            active_groups: std::mem::take(&mut self.active_groups),
+        }
+    }
+}
+
+impl<F> From<Arc<TapeData<F>>> for InnerTape<F> {
+    fn from(tape: Arc<TapeData<F>>) -> Self {
+        let choices = vec![Choice::Both; tape.choice_count()];
+        let active_groups = (0..tape.data.len()).into_iter().collect();
+        Self {
+            tape,
+            choices,
+            active_groups,
+        }
     }
 }
