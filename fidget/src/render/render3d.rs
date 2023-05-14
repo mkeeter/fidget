@@ -6,11 +6,11 @@ use crate::{
         },
         grad_slice::{GradSliceEval, GradSliceEvalData, GradSliceEvalStorage},
         interval::{IntervalEval, IntervalEvalData},
-        tape::{Data as TapeData, Tape, Workspace},
         types::{Grad, Interval},
         Choice, EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    vm::{InnerTape, Tape},
 };
 
 use nalgebra::{Point3, Vector3};
@@ -147,14 +147,11 @@ struct Worker<'a, I: Family> {
     ///
     /// This has `n + 1` slots: one for each render level, and one for per-voxel
     /// evaluation (after the final tape simplification).
-    spare_tapes: Vec<Option<TapeData>>,
-
-    /// Reusable workspace for tape simplification, to minimize allocation
-    workspace: Workspace,
+    spare_tapes: Vec<Option<InnerTape<I>>>,
 }
 
 impl<I: Family> Worker<'_, I> {
-    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> TapeData {
+    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> InnerTape<I> {
         if let Some(float) = eval.float_slice {
             self.float_storage[eval.level].give(float.take().unwrap());
         }
@@ -273,9 +270,7 @@ impl<I: Family> Worker<'_, I> {
             let out = match res {
                 Ok(out) => Some(out),
                 Err((tape, mut choices)) => {
-                    let sub_tape = simplify
-                        .simplify_with(&mut self.workspace, tape)
-                        .unwrap();
+                    let sub_tape = simplify.simplify_with(tape);
 
                     if sub_tape.len() < eval.tape.len() {
                         choices
@@ -546,7 +541,7 @@ impl Image {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: Family>(
-    i_handle: IntervalEval<I>,
+    tape: &Tape<I>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
@@ -574,9 +569,8 @@ fn worker<I: Family>(
             .map(|_| Some(Default::default()))
             .collect(),
 
-        workspace: Workspace::default(),
         spare_tapes: (0..=config.tile_sizes.len())
-            .map(|_| Some(Default::default()))
+            .map(|_| Some(tape.data().clone().into()))
             .collect(),
     };
 
@@ -585,6 +579,7 @@ fn worker<I: Family>(
     // begins stealing from other thread queues; if every single thread queue is
     // empty, then we return.
     let start = index;
+    let i_handle = tape.new_interval_evaluator();
     loop {
         while let Some(tile) = queues[index].next() {
             let image = out
@@ -661,7 +656,6 @@ pub fn render<I: Family>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
@@ -682,7 +676,7 @@ pub fn render<I: Family>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out = if config.threads == 1 {
-        worker::<I>(i_handle, tile_queues.as_slice(), 0, &config)
+        worker::<I>(&tape, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
     } else {
@@ -690,11 +684,11 @@ pub fn render<I: Family>(
         std::thread::scope(|s| {
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
+            let tape_ref = &tape;
             for i in 0..config.threads {
-                let handle = i_handle.clone();
-                handles.push(
-                    s.spawn(move || worker::<I>(handle, queues, i, config_ref)),
-                );
+                handles.push(s.spawn(move || {
+                    worker::<I>(tape_ref, queues, i, config_ref)
+                }));
             }
             let mut out = vec![];
             for h in handles {

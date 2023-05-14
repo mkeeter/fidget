@@ -298,7 +298,8 @@ where
         self.tape.simplify(self.choices())
     }
 
-    pub fn simplify_with(&self, mut prev: InnerTape<F>) -> Tape<F> {
+    /// Simplifies based on the most recent evaluation, reusing allocations
+    pub fn simplify_with(&self, prev: InnerTape<F>) -> Tape<F> {
         self.tape.simplify_with(self.choices(), prev)
     }
 

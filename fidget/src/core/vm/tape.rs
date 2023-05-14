@@ -234,7 +234,7 @@ impl<F: Family> Tape<F> {
     }
 
     /// Moves internal allocations into a new object, leaving this one empty
-    pub fn take(mut self) -> Option<InnerTape<F>> {
+    pub fn take(self) -> Option<InnerTape<F>> {
         Arc::try_unwrap(self.0).ok()
     }
 }
