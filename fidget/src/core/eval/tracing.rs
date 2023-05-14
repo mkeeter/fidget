@@ -12,7 +12,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{Tape, TapeData},
+    vm::{InnerTape, Tape, TapeData},
     Error,
 };
 
@@ -296,6 +296,10 @@ where
     /// Simplifies the tape based on the most recent evaluation
     pub fn simplify(&self) -> Tape<F> {
         self.tape.simplify(self.choices())
+    }
+
+    pub fn simplify_with(&self, mut prev: InnerTape<F>) -> Tape<F> {
+        self.tape.simplify_with(self.choices(), prev)
     }
 
     /// Returns a read-only view into the [`Choice`](Choice) slice.

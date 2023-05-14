@@ -5,11 +5,11 @@ use crate::{
             FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
         },
         interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
-        tape::{Data as TapeData, Tape, Workspace},
         types::Interval,
         Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    vm::{InnerTape, Tape},
 };
 use nalgebra::{Point2, Vector2};
 
@@ -192,8 +192,7 @@ struct Worker<'a, I: Family, M: RenderMode> {
     /// Workspace for pixel evaluators
     float_data: FloatSliceEvalData<I>,
 
-    spare_tapes: Vec<TapeData>,
-    workspace: Workspace,
+    spare_tapes: Vec<InnerTape<I>>,
 }
 
 impl<I: Family, M: RenderMode> Worker<'_, I, M> {
@@ -244,11 +243,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             self.config.tile_sizes.get(depth + 1)
         {
             let sub_tape = if let Some(data) = simplify.as_ref() {
-                data.simplify_with(
-                    &mut self.workspace,
-                    std::mem::take(&mut self.spare_tapes[depth]),
-                )
-                .unwrap()
+                data.simplify_with(self.spare_tapes[depth].take())
             } else {
                 i_handle.tape()
             };
@@ -282,11 +277,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             // TODO this is not a place of honor
             let sub_tape = if let Some(simplify) = simplify.as_ref() {
                 simplify
-                    .simplify_with(
-                        &mut self.workspace,
-                        std::mem::take(self.spare_tapes.last_mut().unwrap()),
-                    )
-                    .unwrap()
+                    .simplify_with(self.spare_tapes.last_mut().unwrap().take())
             } else {
                 i_handle.tape()
             };
@@ -392,7 +383,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<I: Family, M: RenderMode>(
-    mut i_handle: IntervalEval<I>,
+    mut tape: Tape<I>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
     mode: &M,
@@ -412,11 +403,11 @@ fn worker<I: Family, M: RenderMode>(
             .map(|_| Default::default())
             .collect(),
         spare_tapes: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
+            .map(|_| tape.data().clone().into())
             .collect(),
         float_data: Default::default(),
-        workspace: Default::default(),
     };
+    let mut i_handle = tape.new_interval_evaluator();
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
         w.render_tile_recurse(&mut i_handle, 0, tile, &mut None, mode);
@@ -448,7 +439,6 @@ pub fn render<I: Family, M: RenderMode + Sync>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
@@ -463,8 +453,8 @@ pub fn render<I: Family, M: RenderMode + Sync>(
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I, M>(i, &queue, &config, mode)));
+            handles
+                .push(s.spawn(|| worker::<I, M>(tape, &queue, &config, mode)));
         }
         let mut out = vec![];
         for h in handles {
