@@ -160,7 +160,7 @@ where
         if vars.len() != expected_var_count {
             return Err(Error::BadVarSlice(vars.len(), expected_var_count));
         }
-        data.prepare(self.tape.data());
+        data.prepare(&self.tape);
         let (value, simplify) = self.eval.eval_with(
             x.into(),
             y.into(),
@@ -261,10 +261,16 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     /// Prepares for a tracing evaluation with the given tape size
-    fn prepare(&mut self, tape: &TapeData<F>) {
+    fn prepare(&mut self, tape: &Tape<F>) {
         self.choices.resize(tape.choice_count(), Choice::Unknown);
-        self.choices.fill(Choice::Unknown);
-        self.data.prepare(tape);
+        for (o, i) in self.choices.iter_mut().zip(tape.choices()) {
+            *o = if matches!(*i, Choice::Left | Choice::Right) {
+                *i
+            } else {
+                Choice::Unknown
+            };
+        }
+        self.data.prepare(tape.data());
     }
 }
 
