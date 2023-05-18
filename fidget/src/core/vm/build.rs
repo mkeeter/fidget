@@ -438,6 +438,7 @@ pub fn buildy<F: Family>(
                 imm: c as f32,
             }],
             choices: vec![],
+            skip: None,
         };
         return Ok(tape::TapeData::new(vec![t], BTreeMap::new()));
     }
@@ -489,8 +490,7 @@ pub fn buildy<F: Family>(
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     let mut group_tapes = vec![];
-    let mut alloc = alloc::RegisterAllocator::new(ctx, F::REG_LIMIT);
-    alloc.bind(&[(root, alloc::Allocation::Register(0))]);
+    let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
     for group in groups.iter() {
         for node in group.iter() {
             alloc.op(*node, choice_id.get(node).copied());
@@ -518,12 +518,47 @@ pub fn buildy<F: Family>(
     let gt = group_tapes
         .into_iter()
         .zip(keys.into_iter())
-        .map(|(g, k)| tape::ChoiceTape {
-            tape: g,
-            choices: k
-                .into_iter()
-                .map(|d| (choice_id[&d.root], d.choice))
-                .collect(),
+        .map(|(g, k)| {
+            let skip = if g.len() == 1 {
+                match g[0] {
+                    op::Op::MinRegRegChoice {
+                        out, lhs, choice, ..
+                    }
+                    | op::Op::MaxRegRegChoice {
+                        out, lhs, choice, ..
+                    }
+                    | op::Op::MinRegImmChoice {
+                        out,
+                        arg: lhs,
+                        choice,
+                        ..
+                    }
+                    | op::Op::MaxRegImmChoice {
+                        out,
+                        arg: lhs,
+                        choice,
+                        ..
+                    } if out == lhs => Some((choice as usize, Choice::Left)),
+
+                    op::Op::MinRegRegChoice {
+                        out, rhs, choice, ..
+                    }
+                    | op::Op::MaxRegRegChoice {
+                        out, rhs, choice, ..
+                    } if out == rhs => Some((choice as usize, Choice::Right)),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            tape::ChoiceTape {
+                tape: g,
+                choices: k
+                    .into_iter()
+                    .map(|d| (choice_id[&d.root], d.choice))
+                    .collect(),
+                skip,
+            }
         })
         .filter(|t| !t.tape.is_empty())
         .collect();

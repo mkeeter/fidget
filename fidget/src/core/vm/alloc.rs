@@ -68,8 +68,8 @@ pub struct RegisterAllocator<'a> {
 }
 
 impl<'a> RegisterAllocator<'a> {
-    pub fn new(ctx: &'a Context, reg_limit: u8) -> Self {
-        Self {
+    pub fn new(ctx: &'a Context, root: Node, reg_limit: u8) -> Self {
+        let mut out = Self {
             ctx,
 
             vars: BTreeMap::new(),
@@ -82,55 +82,16 @@ impl<'a> RegisterAllocator<'a> {
             register_lru: Lru::new(reg_limit),
 
             reg_limit,
-            spare_registers: ArrayVec::new(),
+            spare_registers: (1..reg_limit).into_iter().rev().collect(),
             spare_memory: Vec::new(),
 
             out: vec![],
-            slot_count: 0,
-        }
-    }
-
-    pub fn bind(&mut self, data: &[(Node, Allocation)]) {
-        for &(n, b) in data {
-            self.bind_one(n, b);
-        }
-        let used: BTreeSet<u32> = data
-            .iter()
-            .flat_map(|(_n, b)| match b {
-                Allocation::Both(reg, mem) => [Some(*reg as u32), Some(*mem)],
-                Allocation::Register(reg) => [Some(*reg as u32), None],
-                Allocation::Memory(mem) => [Some(*mem), None],
-            })
-            .flatten()
-            .collect();
-        self.slot_count = used.iter().max().map(|m| m + 1).unwrap_or(0);
-        for i in (0..self.slot_count)
-            .into_iter()
-            .filter(|i| !used.contains(i))
-        {
-            if i < self.reg_limit as u32 {
-                self.spare_registers.push(i as u8);
-            } else {
-                self.spare_memory.push(i);
-            }
-        }
-    }
-
-    fn bind_one(&mut self, n: Node, b: Allocation) {
-        match self.allocations.entry(n) {
-            Entry::Occupied(..) => panic!("node is already bound"),
-            Entry::Vacant(e) => e.insert(b),
+            slot_count: reg_limit as u32,
         };
-        match b {
-            Allocation::Both(reg, ..) | Allocation::Register(reg) => {
-                match self.registers.entry(reg) {
-                    Entry::Occupied(..) => panic!("register is already used"),
-                    Entry::Vacant(v) => v.insert(n),
-                };
-                self.register_lru.poke(reg);
-            }
-            Allocation::Memory(..) => (),
-        };
+        out.allocations.insert(root, Allocation::Register(0));
+        out.registers.insert(0, root);
+        out.register_lru.poke(0);
+        out
     }
 
     /// Removes and returns the current tape
@@ -140,12 +101,6 @@ impl<'a> RegisterAllocator<'a> {
     /// case, then we make such an association before returning.
     #[inline]
     pub fn finalize(&mut self) -> Vec<Op> {
-        // Prepare to allocate memory slots
-        while self.slot_count < self.reg_limit as u32 {
-            self.spare_registers.push(self.slot_count as u8);
-            self.slot_count += 1;
-        }
-
         // Add Load operations for global allocations
         let mut allocations = std::mem::take(&mut self.allocations);
         for (n, b) in allocations.iter_mut() {

@@ -172,7 +172,7 @@
 //! // (same code as above)
 //! assert_eq!(interval_eval.tape().len(), 3);
 //! let new_tape = r.unwrap().simplify();
-//! assert_eq!(new_tape.len(), 2); // the Y is skipped, so this is min(X, ...)
+//! assert_eq!(new_tape.len(), 1);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
