@@ -525,42 +525,50 @@ impl Context {
         self.check_node(root)?;
         xyz.iter().try_for_each(|x| self.check_node(*x))?;
 
-        // TODO: make this iterative instead of recursive, to avoid the
-        // potential for stack overflows.
-        Ok(self.remap_xyz_recurse(root, xyz, &mut BTreeMap::new()))
-    }
-
-    fn remap_xyz_recurse(
-        &mut self,
-        root: Node,
-        xyz: [Node; 3],
-        done: &mut BTreeMap<Node, Node>,
-    ) -> Node {
-        if let Some(e) = done.get(&root) {
-            return *e;
+        let mut done = BTreeMap::new();
+        enum Action {
+            Down,
+            Up,
         }
-        let m = match root {
-            r if r == self.x() => xyz[0],
-            r if r == self.y() => xyz[1],
-            r if r == self.z() => xyz[2],
-            _ => {
-                let op = *self.get_op(root).unwrap();
-                match op {
-                    Op::Var(..) | Op::Input(..) | Op::Const(..) => root,
-                    Op::Unary(op, v) => {
-                        let v = self.remap_xyz_recurse(v, xyz, done);
-                        self.op_unary(v, op).unwrap()
-                    }
-                    Op::Binary(op, a, b) => {
-                        let a = self.remap_xyz_recurse(a, xyz, done);
-                        let b = self.remap_xyz_recurse(b, xyz, done);
-                        self.op_binary(a, b, op).unwrap()
-                    }
+
+        let mut todo = vec![(Action::Down, root)];
+        while let Some((action, node)) = todo.pop() {
+            if done.contains_key(&node) {
+                continue;
+            }
+            match action {
+                Action::Down => {
+                    todo.push((Action::Up, node));
+                    todo.extend(
+                        self.get_op(node)
+                            .unwrap()
+                            .iter_children()
+                            .map(|c| (Action::Down, c)),
+                    );
+                }
+                Action::Up => {
+                    let r = match node {
+                        r if r == self.x() => xyz[0],
+                        r if r == self.y() => xyz[1],
+                        r if r == self.z() => xyz[2],
+                        _ => match self.get_op(node).unwrap() {
+                            Op::Binary(op, lhs, rhs) => {
+                                let a = done.get(lhs).unwrap();
+                                let b = done.get(rhs).unwrap();
+                                self.op_binary(*a, *b, *op).unwrap()
+                            }
+                            Op::Unary(op, arg) => {
+                                let a = done.get(arg).unwrap();
+                                self.op_unary(*a, *op).unwrap()
+                            }
+                            Op::Var(..) | Op::Input(..) | Op::Const(..) => node,
+                        },
+                    };
+                    done.insert(node, r);
                 }
             }
-        };
-        done.insert(root, m);
-        m
+        }
+        Ok(*done.get(&root).unwrap())
     }
 
     ////////////////////////////////////////////////////////////////////////////
