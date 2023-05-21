@@ -101,6 +101,7 @@ pub struct ChoiceTape {
     /// ```
     /// # use fidget::vm::Op::MinRegRegChoice;
     /// MinRegRegChoice { out: 0, lhs: 0, rhs: 1, choice: 0 }
+    /// # ;
     /// ```
     ///
     /// A `ChoiceTape` containing only this value would be skippable if
