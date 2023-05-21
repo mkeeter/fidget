@@ -539,11 +539,11 @@ impl Context {
         let mut todo = vec![(Action::Down, root)];
         let mut seen = BTreeSet::new();
         while let Some((action, node)) = todo.pop() {
-            if !seen.insert(node) {
-                continue;
-            }
             match action {
                 Action::Down => {
+                    if !seen.insert(node) {
+                        continue;
+                    }
                     todo.push((Action::Up, node));
                     todo.extend(
                         self.get_op(node)
@@ -563,8 +563,8 @@ impl Context {
                             let a = done.get(arg).unwrap();
                             self.op_unary(*a, *op).unwrap()
                         }
-                        Op::Input(..) | Op::Const(..) => node,
-                        Op::Var(..) => *done.get(&node).unwrap_or(&node),
+                        Op::Var(..) | Op::Const(..) => node,
+                        Op::Input(..) => *done.get(&node).unwrap_or(&node),
                     };
                     done.insert(node, r);
                 }
