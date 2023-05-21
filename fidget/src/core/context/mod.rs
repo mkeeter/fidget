@@ -525,15 +525,21 @@ impl Context {
         self.check_node(root)?;
         xyz.iter().try_for_each(|x| self.check_node(*x))?;
 
-        let mut done = BTreeMap::new();
+        let mut done = [self.x(), self.y(), self.z()]
+            .into_iter()
+            .zip(xyz)
+            .collect::<BTreeMap<_, _>>();
+
+        // Depth-first recursion on the heap, to protect against stack overflows
         enum Action {
             Down,
             Up,
         }
 
         let mut todo = vec![(Action::Down, root)];
+        let mut seen = BTreeSet::new();
         while let Some((action, node)) = todo.pop() {
-            if done.contains_key(&node) {
+            if !seen.insert(node) {
                 continue;
             }
             match action {
@@ -547,22 +553,18 @@ impl Context {
                     );
                 }
                 Action::Up => {
-                    let r = match node {
-                        r if r == self.x() => xyz[0],
-                        r if r == self.y() => xyz[1],
-                        r if r == self.z() => xyz[2],
-                        _ => match self.get_op(node).unwrap() {
-                            Op::Binary(op, lhs, rhs) => {
-                                let a = done.get(lhs).unwrap();
-                                let b = done.get(rhs).unwrap();
-                                self.op_binary(*a, *b, *op).unwrap()
-                            }
-                            Op::Unary(op, arg) => {
-                                let a = done.get(arg).unwrap();
-                                self.op_unary(*a, *op).unwrap()
-                            }
-                            Op::Var(..) | Op::Input(..) | Op::Const(..) => node,
-                        },
+                    let r = match self.get_op(node).unwrap() {
+                        Op::Binary(op, lhs, rhs) => {
+                            let a = done.get(lhs).unwrap();
+                            let b = done.get(rhs).unwrap();
+                            self.op_binary(*a, *b, *op).unwrap()
+                        }
+                        Op::Unary(op, arg) => {
+                            let a = done.get(arg).unwrap();
+                            self.op_unary(*a, *op).unwrap()
+                        }
+                        Op::Input(..) | Op::Const(..) => node,
+                        Op::Var(..) => *done.get(&node).unwrap_or(&node),
                     };
                     done.insert(node, r);
                 }
