@@ -137,8 +137,8 @@ pub mod eval_tests {
         let a = ctx.var("a").unwrap();
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
-        let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let div = ctx.div(sum, b).unwrap();
+        let tape = ctx.get_tape::<I>(div).unwrap();
         let mut vars = Vars::new(&tape);
         let eval = tape.new_float_slice_evaluator();
 
