@@ -140,15 +140,23 @@ fn find_groups(
             }
         }
 
+        // If this is a child, then we increment the choice clause counter here;
+        // we always decrement it when reading.  This seems weird, but is the
+        // easiest way to make the value correct for both child nodes (i.e.
+        // direct arguments to the n-ary operation) and lower-down nodes where
+        // `child = false`.
+        if child {
+            if let Some(choice) = &choice {
+                choice.next.set(choice.next.get() + 1);
+            }
+        }
+
+        let choice_clause = choice.as_ref().map(|c| ChoiceClause {
+            root: c.root,
+            choice: c.next.get() - 1,
+        });
         // If we've already seen this node + choice, then no need to recurse
-        if node_choices
-            .entry(node)
-            .or_default()
-            .insert(choice.as_ref().map(|c| ChoiceClause {
-                root: c.root,
-                choice: c.next.get(),
-            }))
-        {
+        if !node_choices.entry(node).or_default().insert(choice_clause) {
             continue;
         }
 
@@ -160,22 +168,7 @@ fn find_groups(
             }
         }
 
-        // Increment the choice index here
-        if let Some(c) = &choice {
-            c.next.set(c.next.get() + 1);
-        }
-
         match op {
-            Op::Input(..) | Op::Var(..) | Op::Const(..) => {
-                // Nothing to do here
-            }
-            Op::Unary(_op, child) => {
-                todo.push(Action {
-                    node: *child,
-                    choice,
-                    child: false,
-                });
-            }
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
                 // Special case: min(reg, imm) and min(imm, reg) both become
                 // MinRegImm nodes, so we swap Left and Right in that case
@@ -209,17 +202,14 @@ fn find_groups(
                     child: true,
                 });
             }
-            Op::Binary(_op, lhs, rhs) => {
-                todo.push(Action {
-                    node: *lhs,
-                    choice: choice.clone(),
-                    child: false,
-                });
-                todo.push(Action {
-                    node: *rhs,
-                    choice: choice.clone(),
-                    child: false,
-                });
+            op => {
+                for c in op.iter_children() {
+                    todo.push(Action {
+                        node: c,
+                        choice: choice.clone(),
+                        child: false,
+                    });
+                }
             }
         }
     }
