@@ -1,6 +1,6 @@
 use crate::{
     context::{self, Context, Node, VarNode},
-    vm::{lru::Lru, Op},
+    vm::{lru::Lru, ChoiceIndex, Op},
 };
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
@@ -295,13 +295,68 @@ impl<'a> RegisterAllocator<'a> {
         self.allocations.remove(&node);
     }
 
+    pub fn virtual_op(&mut self, root: Node, arg: Node, choice: ChoiceIndex) {
+        let op = *self.ctx.get_op(root).unwrap();
+        self.used.insert(arg);
+        self.used.insert(root);
+        if let context::Op::Binary(
+            op @ (context::BinaryOpcode::Min | context::BinaryOpcode::Max),
+            ..,
+        ) = op
+        {
+            let r_x = self.get_out_reg(root);
+            if let Some(c) = self.ctx.const_value(arg).unwrap() {
+                let op = match op {
+                    context::BinaryOpcode::Min => Op::MinRegImmChoice {
+                        inout: r_x,
+                        imm: c as f32,
+                        choice,
+                    },
+                    context::BinaryOpcode::Max => Op::MaxRegImmChoice {
+                        inout: r_x,
+                        imm: c as f32,
+                        choice,
+                    },
+                    _ => unreachable!(), // checked above
+                };
+                self.out.push(op);
+            } else {
+                let op = |r| match op {
+                    context::BinaryOpcode::Min => Op::MinRegRegChoice {
+                        inout: r_x,
+                        arg: r,
+                        choice,
+                    },
+                    context::BinaryOpcode::Max => Op::MaxRegRegChoice {
+                        inout: r_x,
+                        arg: r,
+                        choice,
+                    },
+                    _ => unreachable!(), // checked above
+                };
+                match self.get_allocation(arg) {
+                    Some(Binding::Register(r_y)) => {
+                        self.out.push(op(r_y));
+                    }
+                    Some(Binding::Memory(..)) | None => {
+                        let r_a = self.get_register();
+                        self.out.push(op(r_a));
+                        self.bind_register(arg, r_a);
+                    }
+                }
+            }
+        } else {
+            panic!("invalid root for a virtual op: {op:?}");
+        }
+    }
+
     /// Lowers an operation into an [`Op`](crate::vm::Op), pushing it to the
     /// internal tape.
     ///
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
     #[inline(always)]
-    pub fn op(&mut self, node: Node, choice: Option<usize>) {
+    pub fn op(&mut self, node: Node) {
         let op = *self.ctx.get_op(node).unwrap();
         self.used.extend(op.iter_children());
         match op {
@@ -358,8 +413,8 @@ impl<'a> RegisterAllocator<'a> {
             }
 
             context::Op::Binary(op, lhs, rhs) => {
-                match (op, choice) {
-                    (context::BinaryOpcode::Add, None) => self.op_binary(
+                match op {
+                    context::BinaryOpcode::Add => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -367,7 +422,7 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::AddRegImm { out, arg, imm },
                         |out, arg, imm| Op::AddRegImm { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Sub, None) => self.op_binary(
+                    context::BinaryOpcode::Sub => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -375,7 +430,7 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::SubRegImm { out, arg, imm },
                         |out, arg, imm| Op::SubImmReg { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Mul, None) => self.op_binary(
+                    context::BinaryOpcode::Mul => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -383,7 +438,7 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::MulRegImm { out, arg, imm },
                         |out, arg, imm| Op::MulRegImm { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Div, None) => self.op_binary(
+                    context::BinaryOpcode::Div => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -391,7 +446,7 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::DivRegImm { out, arg, imm },
                         |out, arg, imm| Op::DivImmReg { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Min, None) => self.op_binary(
+                    context::BinaryOpcode::Min => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -399,7 +454,7 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::MinRegImm { out, arg, imm },
                         |out, arg, imm| Op::MinRegImm { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Max, None) => self.op_binary(
+                    context::BinaryOpcode::Max => self.op_binary(
                         node,
                         lhs,
                         rhs,
@@ -407,61 +462,6 @@ impl<'a> RegisterAllocator<'a> {
                         |out, arg, imm| Op::MaxRegImm { out, arg, imm },
                         |out, arg, imm| Op::MaxRegImm { out, arg, imm },
                     ),
-                    (context::BinaryOpcode::Min, Some(c)) => {
-                        let choice = c.try_into().unwrap();
-                        self.op_binary(
-                            node,
-                            lhs,
-                            rhs,
-                            |out, lhs, rhs| Op::MinRegRegChoice {
-                                out,
-                                lhs,
-                                rhs,
-                                choice,
-                            },
-                            |out, arg, imm| Op::MinRegImmChoice {
-                                out,
-                                arg,
-                                choice,
-                                imm,
-                            },
-                            |out, arg, imm| Op::MinRegImmChoice {
-                                out,
-                                arg,
-                                choice,
-                                imm,
-                            },
-                        )
-                    }
-                    (context::BinaryOpcode::Max, Some(c)) => {
-                        let choice = c.try_into().unwrap();
-                        self.op_binary(
-                            node,
-                            lhs,
-                            rhs,
-                            |out, lhs, rhs| Op::MaxRegRegChoice {
-                                out,
-                                lhs,
-                                rhs,
-                                choice,
-                            },
-                            |out, arg, imm| Op::MaxRegImmChoice {
-                                out,
-                                arg,
-                                imm,
-                                choice,
-                            },
-                            |out, arg, imm| Op::MaxRegImmChoice {
-                                out,
-                                arg,
-                                imm,
-                                choice,
-                            },
-                        )
-                    }
-                    (op, Some(..)) => {
-                        panic!("cannot provide Choice with opcode {op:?}")
-                    }
                 };
             }
         }

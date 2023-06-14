@@ -36,13 +36,13 @@ pub use float_slice::FloatSliceEval;
 pub use grad_slice::GradSliceEval;
 pub use interval::IntervalEval;
 pub use point::PointEval;
-pub use tracing::Choice;
 pub use vars::Vars;
 
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
 
 use crate::vm::Tape;
+
 /// A "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
     /// Register limit for this evaluator family.

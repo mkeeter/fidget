@@ -26,10 +26,7 @@ pub type PointEvalStorage<F> =
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{
-        context::Context,
-        eval::{Choice, Vars},
-    };
+    use crate::{context::Context, eval::Vars};
 
     pub fn test_constant<I: Family>() {
         let mut ctx = Context::new();
@@ -80,7 +77,7 @@ pub mod eval_tests {
         let min = ctx.min(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(min).unwrap();
-        assert_eq!(tape.choice_count(), 1);
+        assert_eq!(tape.choice_array_size(), 1);
 
         let eval = tape.new_point_evaluator();
         let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
@@ -89,11 +86,11 @@ pub mod eval_tests {
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[1]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[2]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
@@ -111,7 +108,7 @@ pub mod eval_tests {
         let max = ctx.max(x, y).unwrap();
 
         let tape = ctx.get_tape::<I>(max).unwrap();
-        assert_eq!(tape.choice_count(), 1);
+        assert_eq!(tape.choice_array_size(), 1);
 
         let eval = tape.new_point_evaluator();
 
@@ -121,11 +118,11 @@ pub mod eval_tests {
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().choices(), &[2]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 2.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().choices(), &[1]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
@@ -160,12 +157,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
-        let t = tape.simplify(&[Choice::Left]);
+        let t = tape.simplify(&[1]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]);
+        let t = tape.simplify(&[2]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -176,12 +173,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
-        let t = tape.simplify(&[Choice::Left]);
+        let t = tape.simplify(&[1]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]);
+        let t = tape.simplify(&[2]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);

@@ -2,10 +2,10 @@ use crate::{
     eval::{
         bulk::{BulkEvaluator, BulkEvaluatorData},
         tracing::{TracingEvaluator, TracingEvaluatorData},
-        types::{Grad, Interval},
-        Choice, EvaluatorStorage, Family,
+        types::{Choice, Grad, Interval},
+        EvaluatorStorage, Family,
     },
-    vm::{Op, Tape, TapeData},
+    vm::{Choices, Op, Tape, TapeData},
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -110,7 +110,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         y: Interval,
         z: Interval,
         vars: &[f32],
-        choices: &mut [Choice],
+        choices: &mut Choices,
         data: &mut Self::Data,
     ) -> (Interval, bool) {
         let mut simplify = false;
@@ -173,80 +173,64 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[arg], Choice::Left),
-                        Choice::Right => (imm.into(), Choice::Right),
-                        Choice::Both => v[arg].min_choice(imm.into()),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MinRegImmChoice { inout, imm, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        v[inout].min_choice(imm.into())
+                    } else {
+                        (imm.into(), Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[arg], Choice::Left),
-                        Choice::Right => (imm.into(), Choice::Right),
-                        Choice::Both => v[arg].max_choice(imm.into()),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MaxRegImmChoice { inout, imm, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        v[inout].max_choice(imm.into())
+                    } else {
+                        (imm.into(), Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[lhs], Choice::Left),
-                        Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => v[lhs].min_choice(v[rhs]),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MinRegRegChoice { inout, arg, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        v[inout].min_choice(v[arg])
+                    } else {
+                        (v[arg], Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[lhs], Choice::Left),
-                        Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => v[lhs].max_choice(v[rhs]),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MaxRegRegChoice { inout, arg, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        v[inout].max_choice(v[arg])
+                    } else {
+                        (v[arg], Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
                 Op::AddRegReg { out, lhs, rhs } => v[out] = v[lhs] + v[rhs],
@@ -285,7 +269,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         y: f32,
         z: f32,
         vars: &[f32],
-        choices: &mut [Choice],
+        choices: &mut Choices,
         data: &mut Self::Data,
     ) -> (f32, bool) {
         assert_eq!(vars.len(), self.0.var_count());
@@ -345,80 +329,64 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[arg], Choice::Left),
-                        Choice::Right => (imm.into(), Choice::Right),
-                        Choice::Both => min_choice(v[arg], imm.into()),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MinRegImmChoice { inout, imm, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        min_choice(v[inout], imm)
+                    } else {
+                        (imm, Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[arg], Choice::Left),
-                        Choice::Right => (imm.into(), Choice::Right),
-                        Choice::Both => max_choice(v[arg], imm),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MaxRegImmChoice { inout, imm, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        max_choice(v[inout], imm)
+                    } else {
+                        (imm, Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[lhs], Choice::Left),
-                        Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => min_choice(v[lhs], v[rhs]),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MinRegRegChoice { inout, arg, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        min_choice(v[inout], v[arg])
+                    } else {
+                        (v[arg], Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
-                    let (value, c) = match self.0.choice(choice as usize) {
-                        Choice::Left => (v[lhs], Choice::Left),
-                        Choice::Right => (v[rhs], Choice::Right),
-                        Choice::Both => max_choice(v[lhs], v[rhs]),
-                        Choice::Unknown => {
-                            panic!("invalid choice in evaluation")
-                        }
+                Op::MaxRegRegChoice { inout, arg, choice } => {
+                    let (value, c) = if choices.has_value(choice) {
+                        max_choice(v[inout], v[arg])
+                    } else {
+                        (v[arg], Choice::BothValues)
                     };
-                    v[out] = value;
-                    choices[choice as usize] |= c;
-                    simplify |= c != Choice::Both;
+                    v[inout] = value;
+                    match c {
+                        Choice::PrevValue => (),
+                        Choice::BothValues => choices.set(choice),
+                        Choice::NewValue => choices.set_exclusive(choice),
+                    }
+                    simplify |= c != Choice::BothValues;
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
                     v[out] = v[lhs] + v[rhs];
@@ -638,64 +606,24 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                         v[mem][i] = v[reg][i];
                     }
                 }
-                Op::MinRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
+                Op::MinRegImmChoice { inout, imm, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[arg][i],
-                            Choice::Right => imm,
-                            Choice::Both => v[arg][i].min(imm),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].min(imm);
                     }
                 }
-                Op::MaxRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
+                Op::MaxRegImmChoice { inout, imm, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[arg][i],
-                            Choice::Right => imm,
-                            Choice::Both => v[arg][i].max(imm),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].max(imm);
                     }
                 }
-                Op::MinRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
+                Op::MinRegRegChoice { inout, arg, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[lhs][i],
-                            Choice::Right => v[rhs][i],
-                            Choice::Both => v[lhs][i].min(v[rhs][i]),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].min(v[arg][i]);
                     }
                 }
-                Op::MaxRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
+                Op::MaxRegRegChoice { inout, arg, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[lhs][i],
-                            Choice::Right => v[rhs][i],
-                            Choice::Both => v[lhs][i].max(v[rhs][i]),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].max(v[arg][i]);
                     }
                 }
             }
@@ -821,66 +749,26 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::MinRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
+                Op::MinRegImmChoice { inout, imm, .. } => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[arg][i],
-                            Choice::Right => imm,
-                            Choice::Both => v[arg][i].min(imm),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].min(imm);
                     }
                 }
-                Op::MaxRegImmChoice {
-                    out,
-                    arg,
-                    imm,
-                    choice,
-                } => {
+                Op::MaxRegImmChoice { inout, imm, .. } => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[arg][i],
-                            Choice::Right => imm,
-                            Choice::Both => v[arg][i].max(imm),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].max(imm);
                     }
                 }
-                Op::MinRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
+                Op::MinRegRegChoice { inout, arg, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[lhs][i],
-                            Choice::Right => v[rhs][i],
-                            Choice::Both => v[lhs][i].min(v[rhs][i]),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].min(v[arg][i]);
                     }
                 }
-                Op::MaxRegRegChoice {
-                    out,
-                    lhs,
-                    rhs,
-                    choice,
-                } => {
+                Op::MaxRegRegChoice { inout, arg, .. } => {
                     for i in 0..size {
-                        v[out][i] = match self.0.choice(choice as usize) {
-                            Choice::Left => v[lhs][i],
-                            Choice::Right => v[rhs][i],
-                            Choice::Both => v[lhs][i].max(v[rhs][i]),
-                            Choice::Unknown => panic!(),
-                        };
+                        v[inout][i] = v[inout][i].min(v[arg][i]);
                     }
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
@@ -940,30 +828,30 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
 /// Calculate the `min` value and a `Choice`, given two floating-point values
 ///
 /// Unlike `f32::min`, this value will be `NAN` if _either_ input is `NAN`
-fn min_choice(a: f32, b: f32) -> (f32, Choice) {
-    if a < b {
-        (a, Choice::Left)
-    } else if b < a {
-        (b, Choice::Right)
-    } else if a.is_nan() || b.is_nan() {
-        (std::f32::NAN, Choice::Both)
+fn min_choice(prev: f32, new: f32) -> (f32, Choice) {
+    if prev < new {
+        (prev, Choice::PrevValue)
+    } else if new < prev {
+        (new, Choice::NewValue)
+    } else if prev.is_nan() || new.is_nan() {
+        (std::f32::NAN, Choice::BothValues)
     } else {
-        (b, Choice::Both)
+        (prev, Choice::BothValues)
     }
 }
 
 /// Calculate the `max` value and a `Choice`, given two floating-point values
 ///
 /// Unlike `f32::max`, this value will be `NAN` if _either_ input is `NAN`
-fn max_choice(a: f32, b: f32) -> (f32, Choice) {
-    if a > b {
-        (a, Choice::Left)
-    } else if b > a {
-        (b, Choice::Right)
-    } else if a.is_nan() || b.is_nan() {
-        (std::f32::NAN, Choice::Both)
+fn max_choice(prev: f32, new: f32) -> (f32, Choice) {
+    if prev > new {
+        (prev, Choice::PrevValue)
+    } else if new > prev {
+        (new, Choice::NewValue)
+    } else if prev.is_nan() || new.is_nan() {
+        (std::f32::NAN, Choice::BothValues)
     } else {
-        (b, Choice::Both)
+        (prev, Choice::BothValues)
     }
 }
 

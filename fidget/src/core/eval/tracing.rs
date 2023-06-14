@@ -12,51 +12,9 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{Tape, TapeData, TapeSpecialization},
+    vm::{Choices, Tape, TapeData, TapeSpecialization},
     Error,
 };
-
-/// A single choice made at a min/max node.
-///
-/// Explicitly stored in a `u8` so that this can be written by JIT functions,
-/// which have no notion of Rust enums.
-///
-/// Note that this is a bitfield such that
-/// ```rust
-/// # use fidget::eval::Choice;
-/// # assert!(
-/// Choice::Both as u8 == Choice::Left as u8 | Choice::Right as u8
-/// # );
-/// ```
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-#[repr(u8)]
-pub enum Choice {
-    /// This choice has not yet been assigned
-    ///
-    /// A value of `Unknown` is invalid after evaluation
-    Unknown = 0,
-
-    /// The operation always picks the left-hand input
-    Left = 1,
-
-    /// The operation always picks the right-hand input
-    Right = 2,
-
-    /// The operation may pick either input
-    Both = 3,
-}
-
-impl std::ops::BitOrAssign<Choice> for Choice {
-    fn bitor_assign(&mut self, other: Self) {
-        *self = match (*self as u8) | (other as u8) {
-            0 => Self::Unknown,
-            1 => Self::Left,
-            2 => Self::Right,
-            3 => Self::Both,
-            _ => unreachable!(),
-        }
-    }
-}
 
 /// A tracing evaluator performs evaluation of a single `T`, capturing a trace
 /// of execution for further simplification.
@@ -78,7 +36,7 @@ pub trait TracingEvaluator<T, F> {
         y: T,
         z: T,
         vars: &[f32],
-        choices: &mut [Choice],
+        choices: &mut Choices,
         data: &mut Self::Data,
     ) -> (T, bool);
 }
@@ -199,7 +157,7 @@ where
         // Vec<Choice> itself.
         let r = if r.is_some() {
             Some(TracingEvalResult {
-                choices: data.choices,
+                choices: data.choices.take(),
                 tape: self.tape.clone(),
                 _p: std::marker::PhantomData,
             })
@@ -241,7 +199,7 @@ where
 ///
 /// This data is used during evaluator.
 pub struct TracingEvalData<D, F> {
-    choices: Vec<Choice>,
+    choices: Choices,
 
     /// Inner data
     data: D,
@@ -252,7 +210,7 @@ pub struct TracingEvalData<D, F> {
 impl<D: Default, F> Default for TracingEvalData<D, F> {
     fn default() -> Self {
         Self {
-            choices: vec![],
+            choices: Choices::new(),
             data: D::default(),
             _p: std::marker::PhantomData,
         }
@@ -262,14 +220,7 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     /// Prepares for a tracing evaluation with the given tape size
     fn prepare(&mut self, tape: &Tape<F>) {
-        self.choices.resize(tape.choice_count(), Choice::Unknown);
-        for (o, i) in self.choices.iter_mut().zip(tape.choices()) {
-            *o = if matches!(*i, Choice::Left | Choice::Right) {
-                *i
-            } else {
-                Choice::Unknown
-            };
-        }
+        self.choices.resize_and_fill(tape.choice_array_size(), 0);
         self.data.prepare(tape.data());
     }
 }
@@ -287,17 +238,17 @@ pub struct TracingEvalResult<D, F, B> {
     _p: std::marker::PhantomData<*const D>,
 }
 
-/// Result of a tracing evaluation using owned data for the `Choice` array
-pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<Choice>>;
+/// Result of a tracing evaluation using owned data for the choice array
+pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<u8>>;
 
-/// Result of a tracing evaluation using borrowed data for the `Choice` array
+/// Result of a tracing evaluation using borrowed data for the choice array
 pub type BorrowedTracingEvalResult<'a, T, F> =
-    TracingEvalResult<T, F, &'a [Choice]>;
+    TracingEvalResult<T, F, &'a [u8]>;
 
 impl<D, F, B> TracingEvalResult<D, F, B>
 where
     F: Family,
-    B: std::borrow::Borrow<[Choice]>,
+    B: std::borrow::Borrow<[u8]>,
 {
     /// Simplifies the tape based on the most recent evaluation
     pub fn simplify(&self) -> Tape<F> {
@@ -309,10 +260,10 @@ where
         self.tape.simplify_with(self.choices(), prev)
     }
 
-    /// Returns a read-only view into the [`Choice`](Choice) slice.
+    /// Returns a read-only view into the choice bitfield data.
     ///
     /// This is a convenience function for unit testing.
-    pub fn choices(&self) -> &[Choice] {
+    pub fn choices(&self) -> &[u8] {
         self.choices.borrow()
     }
 }
