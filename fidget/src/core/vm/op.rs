@@ -1,3 +1,5 @@
+use super::ChoiceIndex;
+
 /// Operation that can be passed directly to the assembler
 ///
 /// Note that these operations **are not** in SSA form; they operate on a
@@ -52,19 +54,17 @@ pub enum Op {
     /// Compute the maximum of a register and an immediate
     MaxRegImm { out: u8, arg: u8, imm: f32 },
 
-    /// Compute the minimum of a register and an immediate
+    /// Compute the in-place minimum of a register and an immediate
     MinRegImmChoice {
-        out: u8,
-        arg: u8,
+        inout: u8,
         imm: f32,
-        choice: u32,
+        choice: ChoiceIndex,
     },
-    /// Compute the maximum of a register and an immediate
+    /// Compute the in-place maximum of a register and an immediate
     MaxRegImmChoice {
-        out: u8,
-        arg: u8,
+        inout: u8,
         imm: f32,
-        choice: u32,
+        choice: ChoiceIndex,
     },
 
     /// Add two registers
@@ -82,17 +82,15 @@ pub enum Op {
 
     /// Take the minimum of two registers
     MinRegRegChoice {
-        out: u8,
-        lhs: u8,
-        rhs: u8,
-        choice: u32,
+        inout: u8,
+        arg: u8,
+        choice: ChoiceIndex,
     },
     /// Take the maximum of two registers
     MaxRegRegChoice {
-        out: u8,
-        lhs: u8,
-        rhs: u8,
-        choice: u32,
+        inout: u8,
+        arg: u8,
+        choice: ChoiceIndex,
     },
 
     /// Copy an immediate to a register
@@ -129,10 +127,10 @@ impl Op {
             | Op::MinRegImm { out, .. }
             | Op::MaxRegReg { out, .. }
             | Op::MaxRegImm { out, .. }
-            | Op::MinRegRegChoice { out, .. }
-            | Op::MinRegImmChoice { out, .. }
-            | Op::MaxRegRegChoice { out, .. }
-            | Op::MaxRegImmChoice { out, .. }
+            | Op::MinRegRegChoice { inout: out, .. }
+            | Op::MinRegImmChoice { inout: out, .. }
+            | Op::MaxRegRegChoice { inout: out, .. }
+            | Op::MaxRegImmChoice { inout: out, .. }
             | Op::DivRegReg { out, .. }
             | Op::DivRegImm { out, .. }
             | Op::DivImmReg { out, .. }
@@ -161,17 +159,19 @@ impl Op {
             | Op::SubImmReg { arg, .. }
             | Op::SubRegImm { arg, .. }
             | Op::MinRegImm { arg, .. }
-            | Op::MaxRegImm { arg, .. }
-            | Op::MinRegImmChoice { arg, .. }
-            | Op::MaxRegImmChoice { arg, .. } => [Some(arg), None],
+            | Op::MaxRegImm { arg, .. } => [Some(arg), None],
+            Op::MinRegImmChoice { inout, .. }
+            | Op::MaxRegImmChoice { inout, .. } => [Some(inout), None],
             Op::AddRegReg { lhs, rhs, .. }
             | Op::MulRegReg { lhs, rhs, .. }
             | Op::DivRegReg { lhs, rhs, .. }
             | Op::SubRegReg { lhs, rhs, .. }
             | Op::MinRegReg { lhs, rhs, .. }
-            | Op::MaxRegReg { lhs, rhs, .. }
-            | Op::MinRegRegChoice { lhs, rhs, .. }
-            | Op::MaxRegRegChoice { lhs, rhs, .. } => [Some(lhs), Some(rhs)],
+            | Op::MaxRegReg { lhs, rhs, .. } => [Some(lhs), Some(rhs)],
+            Op::MinRegRegChoice { inout, arg, .. }
+            | Op::MaxRegRegChoice { inout, arg, .. } => {
+                [Some(inout), Some(arg)]
+            }
             Op::Store { reg, .. } => [Some(reg), None],
         }
         .into_iter()
@@ -198,20 +198,24 @@ impl Op {
             | Op::SubImmReg { out, arg, .. }
             | Op::SubRegImm { out, arg, .. }
             | Op::MinRegImm { out, arg, .. }
-            | Op::MaxRegImm { out, arg, .. }
-            | Op::MinRegImmChoice { out, arg, .. }
-            | Op::MaxRegImmChoice { out, arg, .. } => {
+            | Op::MaxRegImm { out, arg, .. } => {
                 [Some(out as u32), Some(arg as u32), None]
+            }
+            Op::MinRegImmChoice { inout, .. }
+            | Op::MaxRegImmChoice { inout, .. } => {
+                [Some(inout as u32), None, None]
             }
             Op::AddRegReg { out, lhs, rhs }
             | Op::MulRegReg { out, lhs, rhs }
             | Op::DivRegReg { out, lhs, rhs }
             | Op::SubRegReg { out, lhs, rhs }
             | Op::MinRegReg { out, lhs, rhs }
-            | Op::MaxRegReg { out, lhs, rhs }
-            | Op::MinRegRegChoice { out, lhs, rhs, .. }
-            | Op::MaxRegRegChoice { out, lhs, rhs, .. } => {
+            | Op::MaxRegReg { out, lhs, rhs } => {
                 [Some(out as u32), Some(lhs as u32), Some(rhs as u32)]
+            }
+            Op::MinRegRegChoice { inout, arg, .. }
+            | Op::MaxRegRegChoice { inout, arg, .. } => {
+                [Some(inout as u32), Some(arg as u32), None]
             }
             Op::Store { reg, mem } | Op::Load { reg, mem } => {
                 [Some(reg as u32), Some(mem as u32), None]

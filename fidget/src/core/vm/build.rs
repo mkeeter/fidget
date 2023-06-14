@@ -1,7 +1,9 @@
+use std::{cell::Cell, sync::Arc};
+
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
-    eval::{Choice, Family},
-    vm::{alloc, op, tape},
+    eval::Family,
+    vm::{alloc, op, tape, ChoiceIndex},
     Error,
 };
 
@@ -9,9 +11,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// A single choice at a particular node
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-struct DnfClause {
+struct ChoiceClause {
     root: Node,
-    choice: Choice,
+    choice: usize,
 }
 
 /// Compute which nodes should be inlined
@@ -58,6 +60,20 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
     inline
 }
 
+#[derive(Clone, Default)]
+struct UnorderedGroup {
+    key: BTreeSet<ChoiceClause>,
+    values: BTreeSet<Node>,
+    parents: BTreeSet<Node>,
+}
+
+#[derive(Default)]
+struct OrderedGroup {
+    key: BTreeSet<ChoiceClause>,
+    values: Vec<Node>,
+    parents: BTreeSet<Node>,
+}
+
 /// Finds groups of nodes based on choices at `min` / `max` operations
 ///
 /// Returns a tuple of `(keys, values)`.  Each item in `keys` is a set of
@@ -68,30 +84,97 @@ fn find_groups(
     ctx: &Context,
     root: Node,
     inline: &BTreeSet<Node>,
-) -> (Vec<BTreeSet<DnfClause>>, Vec<BTreeSet<Node>>) {
-    // Conditional that activates a particular node
-    //
-    // This is recorded as an `OR` of multiple [`DnfClause`] values
-    let mut todo = vec![(root, None)];
-    let mut node_dnfs: BTreeMap<Node, BTreeSet<Option<DnfClause>>> =
+) -> Vec<UnorderedGroup> {
+    struct Action {
+        node: Node,
+        choice: Option<ActiveChoice>,
+        child: bool,
+    }
+    #[derive(Clone)]
+    struct ActiveChoice {
+        root: Node,
+        next: Arc<Cell<usize>>,
+    }
+    let mut todo: Vec<Action> = vec![Action {
+        node: root,
+        choice: None,
+        child: true,
+    }];
+    let mut node_parents: BTreeMap<Node, BTreeSet<Node>> = BTreeMap::new();
+    let mut virtual_nodes: BTreeSet<Node> = BTreeSet::new();
+    let mut node_choices: BTreeMap<Node, BTreeSet<Option<ChoiceClause>>> =
         BTreeMap::new();
 
-    while let Some((node, dnf)) = todo.pop() {
+    while let Some(Action {
+        node,
+        choice,
+        child,
+    }) = todo.pop()
+    {
+        // Skip inlined nodes
         if inline.contains(&node) {
             continue;
         }
         let op = ctx.get_op(node).unwrap();
 
-        // If we've already seen this node + DNF, then no need to recurse
-        if !node_dnfs.entry(node).or_default().insert(dnf) {
+        // Special handling to flatten out commutative min/max trees
+        if let Some(choice) = &choice {
+            let root_op = ctx.get_op(choice.root).unwrap();
+            let Op::Binary(prev_opcode, ..) = root_op else { panic!() };
+            if let Op::Binary(this_opcode, lhs, rhs) = op {
+                if prev_opcode == this_opcode {
+                    // Special case: skip this node in the tree, because we're
+                    // inserting its children instead
+                    todo.push(Action {
+                        node: *lhs,
+                        choice: Some(choice.clone()),
+                        child: true,
+                    });
+                    todo.push(Action {
+                        node: *rhs,
+                        choice: Some(choice.clone()),
+                        child: true,
+                    });
+                    continue;
+                }
+            }
+        }
+
+        // If we've already seen this node + choice, then no need to recurse
+        if node_choices
+            .entry(node)
+            .or_default()
+            .insert(choice.as_ref().map(|c| ChoiceClause {
+                root: c.root,
+                choice: c.next.get(),
+            }))
+        {
             continue;
         }
+
+        // If this node is a direct child of an n-ary operation, then record it
+        // in the node_parents array.
+        if child {
+            if let Some(choice) = &choice {
+                node_parents.entry(node).or_default().insert(choice.root);
+            }
+        }
+
+        // Increment the choice index here
+        if let Some(c) = &choice {
+            c.next.set(c.next.get() + 1);
+        }
+
         match op {
             Op::Input(..) | Op::Var(..) | Op::Const(..) => {
                 // Nothing to do here
             }
             Op::Unary(_op, child) => {
-                todo.push((*child, dnf));
+                todo.push(Action {
+                    node: *child,
+                    choice,
+                    child: false,
+                });
             }
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, lhs, rhs) => {
                 // Special case: min(reg, imm) and min(imm, reg) both become
@@ -103,42 +186,58 @@ fn find_groups(
                         (lhs, rhs)
                     };
 
+                virtual_nodes.insert(node);
+
+                let d = Arc::new(Cell::new(0));
                 // LHS recursion
-                todo.push((
-                    *lhs,
-                    Some(DnfClause {
+                todo.push(Action {
+                    node: *lhs,
+                    choice: Some(ActiveChoice {
                         root: node,
-                        choice: Choice::Left,
+                        next: d.clone(),
                     }),
-                ));
+                    child: true,
+                });
 
                 // RHS recursion
-                todo.push((
-                    *rhs,
-                    Some(DnfClause {
+                todo.push(Action {
+                    node: *rhs,
+                    choice: Some(ActiveChoice {
                         root: node,
-                        choice: Choice::Right,
+                        next: d.clone(),
                     }),
-                ));
+                    child: true,
+                });
             }
             Op::Binary(_op, lhs, rhs) => {
-                todo.push((*lhs, dnf));
-                todo.push((*rhs, dnf));
+                todo.push(Action {
+                    node: *lhs,
+                    choice: choice.clone(),
+                    child: false,
+                });
+                todo.push(Action {
+                    node: *rhs,
+                    choice: choice.clone(),
+                    child: false,
+                });
             }
         }
     }
 
+    // At this point, we've populated node_choices and node_parents with
+    // everything that we need to build groups.
+
     // Any root-accessible node must always be alive, so we can collapse its
     // conditional down to just `None`
-    for dnf in node_dnfs.values_mut() {
-        if dnf.len() > 1 && dnf.contains(&None) {
+    for dnf in node_choices.values_mut() {
+        if dnf.contains(&None) {
             dnf.retain(Option::is_none)
         }
     }
 
     // Swap around, fron node -> DNF to DNF -> [Nodes]
     let mut dnf_nodes: BTreeMap<_, BTreeSet<Node>> = BTreeMap::new();
-    for (n, d) in node_dnfs {
+    for (n, d) in node_choices {
         if d.contains(&None) {
             assert_eq!(d.len(), 1);
             dnf_nodes.entry(BTreeSet::new())
@@ -150,13 +249,30 @@ fn find_groups(
         .insert(n);
     }
 
-    let mut keys = vec![];
-    let mut groups = vec![];
-    for (k, g) in dnf_nodes.into_iter() {
-        keys.push(k);
-        groups.push(g);
+    let mut out = vec![];
+    for (key, mut values) in dnf_nodes.into_iter() {
+        // Each group only has one output node; we find it here and copy the
+        // parents from that node to the group.
+        let mut parents = BTreeSet::new();
+        for node in &values {
+            if let Some(p) = node_parents.get(node) {
+                assert!(parents.is_empty());
+                parents = p.clone();
+            }
+        }
+        // Skip virtual nodes, which serve as the root for n-ary trees but
+        // aren't explicitly in the node list.  This means that some groups
+        // could be empty, because they only contain a virtual node; in that
+        // case, the work for that node would be done in child groups that
+        // populate it.
+        values.retain(|n| !virtual_nodes.contains(n));
+        out.push(UnorderedGroup {
+            key,
+            values,
+            parents,
+        });
     }
-    (keys, groups)
+    out
 }
 
 fn insert_inline_nodes(
@@ -193,15 +309,15 @@ fn find_globals<'a>(
 fn compute_group_order(
     ctx: &Context,
     root: Node,
-    groups: &[BTreeSet<Node>],
+    groups: &[UnorderedGroup],
     globals: &BTreeSet<Node>,
 ) -> Vec<usize> {
     // Mapping for any global node to the group that contains it.
     let global_node_to_group: BTreeMap<Node, usize> = groups
         .iter()
         .enumerate()
-        .flat_map(|(i, nodes)| {
-            nodes
+        .flat_map(|(i, g)| {
+            g.values
                 .iter()
                 .filter(|n| globals.contains(n))
                 .map(move |n| (*n, i))
@@ -210,8 +326,9 @@ fn compute_group_order(
 
     // Compute the child groups of every individual group
     let mut children: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-    for (g, nodes) in groups.iter().enumerate() {
-        let map: BTreeSet<_> = nodes
+    for (g, group) in groups.iter().enumerate() {
+        let map: BTreeSet<_> = group
+            .values
             .iter()
             .flat_map(|node| {
                 ctx.get_op(*node)
@@ -222,6 +339,16 @@ fn compute_group_order(
             })
             .collect();
         children.insert(g, map);
+    }
+
+    // Add parent-child relationships based on virtual nodes
+    for (g, group) in groups.iter().enumerate() {
+        for p in &group.parents {
+            children
+                .entry(global_node_to_group[&p])
+                .or_default()
+                .insert(g);
+        }
     }
 
     // For every group, count how many parents it has.  When flattening,
@@ -263,32 +390,31 @@ fn compute_group_order(
 }
 
 fn apply_group_order(
-    keys: Vec<BTreeSet<DnfClause>>,
-    groups: Vec<BTreeSet<Node>>,
+    groups: Vec<UnorderedGroup>,
     group_order: Vec<usize>,
-) -> (Vec<BTreeSet<DnfClause>>, Vec<BTreeSet<Node>>) {
-    let mut groups_out = vec![BTreeSet::new(); group_order.len()];
-    let mut keys_out = vec![BTreeSet::new(); group_order.len()];
-    for (i, (d, g)) in keys.into_iter().zip(groups.into_iter()).enumerate() {
+) -> Vec<UnorderedGroup> {
+    let mut groups_out = vec![Default::default(); group_order.len()];
+    for (i, g) in groups.into_iter().enumerate() {
         let j = group_order[i];
-        keys_out[j] = d;
         groups_out[j] = g;
     }
-    (keys_out, groups_out)
+    groups_out
 }
 
-fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
+fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
     let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
 
     // Find starting roots for this cluster, which are defined as any
     // node that's not an input to other nodes in the cluster.
     let children: BTreeSet<Node> = group
+        .values
         .iter()
         .flat_map(|n| ctx.get_op(*n).unwrap().iter_children())
-        .filter(|n| group.contains(n))
+        .filter(|n| group.values.contains(n))
         .collect();
 
     let start: Vec<Node> = group
+        .values
         .iter()
         .filter(|n| !children.contains(n))
         .cloned()
@@ -305,7 +431,7 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
             .get_op(n)
             .unwrap()
             .iter_children()
-            .filter(|n| group.contains(n))
+            .filter(|n| group.values.contains(n))
         {
             *parent_count.entry(child).or_default() += 1;
             todo.push(child);
@@ -324,14 +450,18 @@ fn sort_nodes(ctx: &Context, group: BTreeSet<Node>) -> Vec<Node> {
             .get_op(n)
             .unwrap()
             .iter_children()
-            .filter(|n| group.contains(n))
+            .filter(|n| group.values.contains(n))
         {
             todo.push(child);
             *parent_count.get_mut(&child).unwrap() -= 1;
         }
         ordered_nodes.push(n);
     }
-    ordered_nodes
+    OrderedGroup {
+        key: group.key,
+        values: ordered_nodes,
+        parents: group.parents,
+    }
 }
 
 /// Eliminates any `Load` operation which already has the value in the register
@@ -438,25 +568,26 @@ pub fn buildy<F: Family>(
                 imm: c as f32,
             }],
             choices: vec![],
-            skip: None,
         };
         return Ok(tape::TapeData::new(vec![t], BTreeMap::new()));
     }
 
     let inline = pick_inline(ctx, root, inline);
 
-    let (keys, mut groups) = find_groups(ctx, root, &inline);
+    let mut groups = find_groups(ctx, root, &inline);
 
     // For each DNF, add all of the inlined nodes
     for group in groups.iter_mut() {
-        insert_inline_nodes(ctx, &inline, group);
+        insert_inline_nodes(ctx, &inline, &mut group.values);
     }
     let groups = groups; // remove mutability
 
     // Compute all of the global nodes
     let globals = {
-        let mut globals: BTreeSet<Node> =
-            groups.iter().flat_map(|g| find_globals(ctx, g)).collect();
+        let mut globals: BTreeSet<Node> = groups
+            .iter()
+            .flat_map(|g| find_globals(ctx, &g.values))
+            .collect();
 
         // Sanity-checking our globals and inlined variables
         assert!(globals.intersection(&inline).count() == 0);
@@ -472,28 +603,49 @@ pub fn buildy<F: Family>(
     //
     // Note that the nodes within each group remain unordered
     let group_order = compute_group_order(ctx, root, &groups, &globals);
-    let (keys, groups) = apply_group_order(keys, groups, group_order);
+    let groups = apply_group_order(groups, group_order);
 
-    // Build a map from nodes-used-as-choices to indices in a flat list
-    let choice_id: BTreeMap<Node, usize> = keys
-        .iter()
-        .flatten()
-        .map(|v| v.root)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .enumerate()
-        .map(|(i, n)| (n, i))
-        .collect();
+    // Build a mapping from choice nodes to indices in the choice data array
+    let mut choices_per_node: BTreeMap<Node, usize> = BTreeMap::new();
+    for t in &groups {
+        for k in &t.key {
+            *choices_per_node.entry(k.root).or_default() += 1;
+        }
+    }
+    let mut node_to_choice_index: BTreeMap<Node, usize> = BTreeMap::new();
+    let mut offset = 0;
+    for (node, choice_count) in choices_per_node {
+        node_to_choice_index.insert(node, offset);
+        offset += choice_count / 8 + 1;
+    }
 
     // Perform node ordering within each group
-    let groups: Vec<Vec<Node>> =
+    let groups: Vec<OrderedGroup> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     let mut group_tapes = vec![];
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
     for group in groups.iter() {
-        for node in group.iter() {
-            alloc.op(*node, choice_id.get(node).copied());
+        // Because the group is sorted, the output node will be the first one
+        let out = group.values[0];
+
+        // Add virtual nodes for any n-ary operations associated with this group
+        for k in group.key.iter() {
+            if group.parents.contains(&k.root) {
+                let c = node_to_choice_index[&k.root];
+                alloc.virtual_op(
+                    k.root,
+                    out,
+                    ChoiceIndex {
+                        index: c,
+                        bit: k.choice,
+                    },
+                );
+            }
+        }
+
+        for node in group.values.iter() {
+            alloc.op(*node);
         }
         let tape = alloc.finalize();
         group_tapes.push(tape);
@@ -514,51 +666,19 @@ pub fn buildy<F: Family>(
         group_tapes = pass(&group_tapes);
     }
 
-    assert_eq!(group_tapes.len(), keys.len());
     let gt = group_tapes
         .into_iter()
-        .zip(keys.into_iter())
-        .map(|(g, k)| {
-            let skip = if g.len() == 1 {
-                match g[0] {
-                    op::Op::MinRegRegChoice {
-                        out, lhs, choice, ..
-                    }
-                    | op::Op::MaxRegRegChoice {
-                        out, lhs, choice, ..
-                    }
-                    | op::Op::MinRegImmChoice {
-                        out,
-                        arg: lhs,
-                        choice,
-                        ..
-                    }
-                    | op::Op::MaxRegImmChoice {
-                        out,
-                        arg: lhs,
-                        choice,
-                        ..
-                    } if out == lhs => Some((choice as usize, Choice::Left)),
-
-                    op::Op::MinRegRegChoice {
-                        out, rhs, choice, ..
-                    }
-                    | op::Op::MaxRegRegChoice {
-                        out, rhs, choice, ..
-                    } if out == rhs => Some((choice as usize, Choice::Right)),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            tape::ChoiceTape {
-                tape: g,
-                choices: k
-                    .into_iter()
-                    .map(|d| (choice_id[&d.root], d.choice))
-                    .collect(),
-                skip,
-            }
+        .zip(groups.into_iter())
+        .map(|(g, k)| tape::ChoiceTape {
+            tape: g,
+            choices: k
+                .key
+                .into_iter()
+                .map(|d| ChoiceIndex {
+                    index: node_to_choice_index[&d.root],
+                    bit: d.choice,
+                })
+                .collect(),
         })
         .filter(|t| !t.tape.is_empty())
         .collect();

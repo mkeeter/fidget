@@ -1,5 +1,11 @@
 //! Custom types used during evaluation
-use crate::eval::Choice;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Choice {
+    PrevValue,
+    NewValue,
+    BothValues,
+}
 
 /// A point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -288,20 +294,21 @@ impl Interval {
     /// Returns both the result and a [`Choice`] indicating whether one side is
     /// always less than the other.
     ///
-    /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
-    pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
-        if self.has_nan() || rhs.has_nan() {
-            return (std::f32::NAN.into(), Choice::Both);
+    /// If either side is `NAN`, returns the `NAN` interval and
+    /// `Choice::BothValues`.
+    pub fn min_choice(self, new: Self) -> (Self, Choice) {
+        if self.has_nan() || new.has_nan() {
+            return (std::f32::NAN.into(), Choice::BothValues);
         }
-        let choice = if self.upper < rhs.lower {
-            Choice::Left
-        } else if rhs.upper < self.lower {
-            Choice::Right
+        let choice = if self.upper < new.lower {
+            Choice::PrevValue
+        } else if new.upper < self.lower {
+            Choice::NewValue
         } else {
-            Choice::Both
+            Choice::BothValues
         };
         (
-            Interval::new(self.lower.min(rhs.lower), self.upper.min(rhs.upper)),
+            Interval::new(self.lower.min(new.lower), self.upper.min(new.upper)),
             choice,
         )
     }
@@ -310,20 +317,21 @@ impl Interval {
     /// Returns both the result and a [`Choice`] indicating whether one side is
     /// always greater than the other.
     ///
-    /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
-    pub fn max_choice(self, rhs: Self) -> (Self, Choice) {
-        if self.has_nan() || rhs.has_nan() {
-            return (std::f32::NAN.into(), Choice::Both);
+    /// If either side is `NAN`, returns the `NAN` interval and
+    /// `Choice::BothValues`.
+    pub fn max_choice(self, new: Self) -> (Self, Choice) {
+        if self.has_nan() || new.has_nan() {
+            return (std::f32::NAN.into(), Choice::BothValues);
         }
-        let choice = if self.lower > rhs.upper {
-            Choice::Left
-        } else if rhs.lower > self.upper {
-            Choice::Right
+        let choice = if self.lower > new.upper {
+            Choice::PrevValue
+        } else if new.lower > self.upper {
+            Choice::NewValue
         } else {
-            Choice::Both
+            Choice::BothValues
         };
         (
-            Interval::new(self.lower.max(rhs.lower), self.upper.max(rhs.upper)),
+            Interval::new(self.lower.max(new.lower), self.upper.max(new.upper)),
             choice,
         )
     }

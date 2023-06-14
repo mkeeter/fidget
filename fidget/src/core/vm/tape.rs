@@ -3,10 +3,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use crate::{
     eval::{
         float_slice::FloatSliceEvalStorage, grad_slice::GradSliceEvalStorage,
-        interval::IntervalEvalStorage, point::PointEvalStorage, Choice, Family,
+        interval::IntervalEvalStorage, point::PointEvalStorage, Family,
         FloatSliceEval, GradSliceEval, IntervalEval, PointEval,
     },
-    vm::Op,
+    vm::{ChoiceIndex, Op},
 };
 
 /// Evaluation tape, which is an ordered set of functions
@@ -22,8 +22,8 @@ pub struct TapeData<F> {
     /// tree is the first item in the first tape
     pub data: Vec<ChoiceTape>,
 
-    /// Number of choice operations
-    choice_count: usize,
+    /// Size of the choice array
+    choice_array_size: usize,
 
     /// Number of slots used by the tape
     slot_count: usize,
@@ -57,8 +57,8 @@ impl<F> TapeData<F> {
         &self.vars
     }
     /// Returns the number of choices written by this tape
-    pub fn choice_count(&self) -> usize {
-        self.choice_count
+    pub fn choice_array_size(&self) -> usize {
+        self.choice_array_size
     }
 
     /// Returns the total number of operations in the tape
@@ -87,36 +87,20 @@ pub struct ChoiceTape {
     /// List of instructions in reverse-evaluation order
     pub tape: Vec<Op>,
 
-    /// Array of `(choice index, choice)` tuples
-    ///
-    /// If any of the tuples matches, then this tape is active
+    /// Array of choice indices which are set when this tape is active
     ///
     /// As a special case, the always-selected (root) tape is represented with
     /// an empty vector.
-    pub choices: Vec<(usize, Choice)>,
-
-    /// Condition under which this tape can be skipped
-    ///
-    /// This is used in the case of single-clause tapes.  For example, consider
-    /// ```
-    /// # use fidget::vm::Op::MinRegRegChoice;
-    /// MinRegRegChoice { out: 0, lhs: 0, rhs: 1, choice: 0 }
-    /// # ;
-    /// ```
-    ///
-    /// A `ChoiceTape` containing only this value would be skippable if
-    /// `choices[0] == Choice::Left`, because the expression becomes a no-op
-    /// (copying from register 0 to register 0).
-    pub skip: Option<(usize, Choice)>,
+    pub choices: Vec<ChoiceIndex>,
 }
 
 impl<F: Family> TapeData<F> {
     /// Builds a new tape, built from many operation groups
     pub fn new(data: Vec<ChoiceTape>, vars: BTreeMap<String, u32>) -> Self {
-        let choice_count = data
+        let choice_array_size = data
             .iter()
             .flat_map(|t| t.choices.iter())
-            .map(|c| c.0 + 1)
+            .map(|c| c.index + c.bit / 8)
             .max()
             .unwrap_or(0) as usize;
         let slot_count = data
@@ -129,7 +113,7 @@ impl<F: Family> TapeData<F> {
         Self {
             data,
             vars,
-            choice_count,
+            choice_array_size,
             slot_count,
             _p: std::marker::PhantomData,
         }
@@ -142,14 +126,8 @@ impl<F: Family> TapeData<F> {
 /// [`Tape`] for ease of use.
 #[derive(Default)]
 pub struct TapeSpecialization {
-    /// Set of choices, indicating which `min` and `max` clauses are specialized
-    pub choices: Vec<Choice>,
-
     /// Currently active groups, as indexes into the root tape
     active_groups: Vec<usize>,
-
-    /// Currently active and skipped groups, as indexes into the root tape
-    active_and_skipped_groups: Vec<usize>,
 }
 
 /// Represents a tape specialized with a set of choices and active groups
@@ -213,22 +191,12 @@ impl<F: Family> Tape<F> {
 }
 
 impl<F> Tape<F> {
-    /// Looks up a (constant) choice by index
-    pub fn choice(&self, i: usize) -> Choice {
-        self.choices()[i]
-    }
-
-    /// Returns the choice data that led to this tape
-    pub fn choices(&self) -> &[Choice] {
-        &(self.0).1.choices
-    }
-
-    /// Returns the number of choices associated with the root tape
+    /// Returns the size of the choice array associated with the tape
     ///
     /// Note that not all choices may be active (depending on tape
     /// specialization), but the caller should operate using the full count.
-    pub fn choice_count(&self) -> usize {
-        self.data().choice_count()
+    pub fn choice_array_size(&self) -> usize {
+        self.data().choice_array_size()
     }
 
     /// Returns the number of variables associated with the root tape
@@ -251,7 +219,7 @@ impl<F> Tape<F> {
     ///
     /// # Panics
     /// The input `choices` must match our internal choice array size
-    pub fn simplify(&self, choices: &[Choice]) -> Self {
+    pub fn simplify(&self, choices: &[u8]) -> Self {
         self.simplify_with(choices, TapeSpecialization::default())
     }
 
@@ -268,43 +236,19 @@ impl<F> Tape<F> {
     /// Simplifies a tape, reusing allocations from an [`TapeSpecialization`]
     pub fn simplify_with(
         &self,
-        choices: &[Choice],
+        choices: &[u8],
         mut prev: TapeSpecialization,
     ) -> Self {
-        prev.choices.clear();
-        prev.choices.extend(choices.iter().cloned());
-
         prev.active_groups.clear();
-        prev.active_and_skipped_groups.clear();
-        for &g in &(self.0).1.active_and_skipped_groups {
+        for &g in &(self.0).1.active_groups {
             let choice_tape = &self.data()[g];
             let choice_sel = &choice_tape.choices;
             let still_active = choice_sel.is_empty()
-                || choice_sel
-                    .iter()
-                    .any(|&(j, c)| prev.choices[j] as u8 & (c as u8) != 0);
-            let should_skip = if let Some((i, v)) = choice_tape.skip {
-                prev.choices[i] == v
-            } else {
-                false
-            };
+                || choice_sel.iter().any(|&c| {
+                    choices[c.index + c.bit / 8] & (1 << (c.bit % 8)) != 0
+                });
             if still_active {
-                prev.active_and_skipped_groups.push(g);
-                if !should_skip {
-                    prev.active_groups.push(g);
-                }
-            } else {
-                // Each group can only contain one choice node, and it must be
-                // at the beginning, so we can clear it here in O(1)
-                match choice_tape.tape[0] {
-                    Op::MinRegImmChoice { choice, .. }
-                    | Op::MaxRegImmChoice { choice, .. }
-                    | Op::MinRegRegChoice { choice, .. }
-                    | Op::MaxRegRegChoice { choice, .. } => {
-                        prev.choices[choice as usize] = Choice::Unknown
-                    }
-                    _ => (),
-                }
+                prev.active_groups.push(g);
             }
         }
 
@@ -338,15 +282,11 @@ impl<F> Tape<F> {
 
 impl<F> From<TapeData<F>> for Tape<F> {
     fn from(tape: TapeData<F>) -> Self {
-        let choices = vec![Choice::Both; tape.choice_count()];
-        let all_groups: Vec<usize> = (0..tape.data.len()).into_iter().collect();
+        let active_groups: Vec<usize> =
+            (0..tape.data.len()).into_iter().collect();
         Self(Arc::new((
             Arc::new(tape),
-            TapeSpecialization {
-                choices,
-                active_groups: all_groups.clone(),
-                active_and_skipped_groups: all_groups,
-            },
+            TapeSpecialization { active_groups },
         )))
     }
 }

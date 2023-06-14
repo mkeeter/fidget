@@ -7,7 +7,7 @@ use crate::{
         grad_slice::{GradSliceEval, GradSliceEvalData, GradSliceEvalStorage},
         interval::{IntervalEval, IntervalEvalData},
         types::{Grad, Interval},
-        Choice, EvaluatorStorage, Family,
+        EvaluatorStorage, Family,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
     vm::{Tape, TapeSpecialization},
@@ -170,10 +170,10 @@ impl<I: Family> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
         eval: &mut Evaluators<I>,
-        sibling: Option<(Vec<Choice>, Evaluators<I>)>,
+        sibling: Option<(Vec<u8>, Evaluators<I>)>,
         level: usize,
         tile: Tile<3>,
-    ) -> Option<(Vec<Choice>, Evaluators<I>)> {
+    ) -> Option<(Vec<u8>, Evaluators<I>)> {
         // Early exit if every single pixel is filled
         let tile_size = self.config.tile_sizes[level];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
@@ -241,70 +241,68 @@ impl<I: Family> Worker<'_, I> {
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let (mut sub_eval, mut prev_sibling) = if let Some(simplify) =
-            simplify.as_ref()
-        {
-            // See if our previous tape shortening used the exact same set of
-            // choices; in that case, then we can reuse it.
-            //
-            // This is likely because of spatial locality!
-            let res = if let Some((choices, sibling_eval)) = sibling {
-                if choices == simplify.choices() {
-                    Ok((choices, sibling_eval))
-                } else {
-                    // The sibling didn't make the same choices, so we'll tear
-                    // it down for parts and build our own tape here.
-                    //
-                    // Release all of the sibling evaluators, which should free
-                    // up the tape for reuse.
-                    let tape = self.reclaim_storage(sibling_eval);
-
-                    // Use Err to indicate that we have to shorten the tape
-                    // (basically a bootleg Either)
-                    Err((tape, choices))
-                }
-            } else {
-                Err((self.spare_tapes[eval.level].take().unwrap(), vec![]))
-            };
-
-            let out = match res {
-                Ok(out) => Some(out),
-                Err((tape, mut choices)) => {
-                    let sub_tape = simplify.simplify_with(tape);
-
-                    if sub_tape.len() < eval.tape.len() {
-                        choices
-                            .resize(simplify.choices().len(), Choice::Unknown);
-                        choices.copy_from_slice(simplify.choices());
-                        Some((
-                            choices,
-                            Evaluators {
-                                level: eval.level + 1,
-                                tape: sub_tape,
-                                interval: None,
-                                float_slice: None,
-                                grad: None,
-                            },
-                        ))
+        let (mut sub_eval, mut prev_sibling) =
+            if let Some(simplify) = simplify.as_ref() {
+                // See if our previous tape shortening used the exact same set of
+                // choices; in that case, then we can reuse it.
+                //
+                // This is likely because of spatial locality!
+                let res = if let Some((choices, sibling_eval)) = sibling {
+                    if choices == simplify.choices() {
+                        Ok((choices, sibling_eval))
                     } else {
-                        // Immediately return the spare tape
+                        // The sibling didn't make the same choices, so we'll tear
+                        // it down for parts and build our own tape here.
                         //
-                        // TODO: reuse choices
-                        self.spare_tapes[eval.level]
-                            .give(sub_tape.take().unwrap());
+                        // Release all of the sibling evaluators, which should free
+                        // up the tape for reuse.
+                        let tape = self.reclaim_storage(sibling_eval);
 
-                        // Alas, the sibling has been consumed, so we can't
-                        // reuse it at all.
-                        None
+                        // Use Err to indicate that we have to shorten the tape
+                        // (basically a bootleg Either)
+                        Err((tape, choices))
                     }
-                }
+                } else {
+                    Err((self.spare_tapes[eval.level].take().unwrap(), vec![]))
+                };
+
+                let out = match res {
+                    Ok(out) => Some(out),
+                    Err((tape, mut choices)) => {
+                        let sub_tape = simplify.simplify_with(tape);
+
+                        if sub_tape.len() < eval.tape.len() {
+                            choices.resize(simplify.choices().len(), 0);
+                            choices.copy_from_slice(simplify.choices());
+                            Some((
+                                choices,
+                                Evaluators {
+                                    level: eval.level + 1,
+                                    tape: sub_tape,
+                                    interval: None,
+                                    float_slice: None,
+                                    grad: None,
+                                },
+                            ))
+                        } else {
+                            // Immediately return the spare tape
+                            //
+                            // TODO: reuse choices
+                            self.spare_tapes[eval.level]
+                                .give(sub_tape.take().unwrap());
+
+                            // Alas, the sibling has been consumed, so we can't
+                            // reuse it at all.
+                            None
+                        }
+                    }
+                };
+                (out, None) // prev_sibling is always consumed
+            } else {
+                // If we're not simplifying this tape, then keep the sibling around,
+                // since it's still useful.
+                (None, sibling)
             };
-            (out, None) // prev_sibling is always consumed
-        } else {
-            // If we're not simplifying this tape, then keep the sibling around,
-            // since it's still useful.
-            (None, sibling)
-        };
 
         // Return `data_interval` to our scratch buffer
         self.scratch.data_interval = data_interval;
