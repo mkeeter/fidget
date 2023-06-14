@@ -102,6 +102,7 @@ impl<F: Family> TapeData<F> {
             .flat_map(|t| t.choices.iter())
             .map(|c| c.index + c.bit / 8)
             .max()
+            .map(|i| i + 1)
             .unwrap_or(0) as usize;
         let slot_count = data
             .iter()

@@ -63,23 +63,20 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
 #[derive(Clone, Default)]
 struct UnorderedGroup {
     key: BTreeSet<ChoiceClause>,
-    values: BTreeSet<Node>,
+    actual_nodes: BTreeSet<Node>,
+    virtual_nodes: BTreeSet<Node>,
     parents: BTreeSet<Node>,
 }
 
 #[derive(Default)]
 struct OrderedGroup {
     key: BTreeSet<ChoiceClause>,
-    values: Vec<Node>,
+    actual_nodes: Vec<Node>,
+    virtual_nodes: BTreeSet<Node>,
     parents: BTreeSet<Node>,
 }
 
 /// Finds groups of nodes based on choices at `min` / `max` operations
-///
-/// Returns a tuple of `(keys, values)`.  Each item in `keys` is a set of
-/// choices that activate the corresponding set of nodes in `values`; as a
-/// special case, nodes which are always accessible are indicated with an empty
-/// set.
 fn find_groups(
     ctx: &Context,
     root: Node,
@@ -90,7 +87,7 @@ fn find_groups(
         choice: Option<ActiveChoice>,
         child: bool,
     }
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     struct ActiveChoice {
         root: Node,
         next: Arc<Cell<usize>>,
@@ -240,7 +237,7 @@ fn find_groups(
     }
 
     let mut out = vec![];
-    for (key, mut values) in dnf_nodes.into_iter() {
+    for (key, values) in dnf_nodes.into_iter() {
         // Each group only has one output node; we find it here and copy the
         // parents from that node to the group.
         let mut parents = BTreeSet::new();
@@ -255,10 +252,12 @@ fn find_groups(
         // could be empty, because they only contain a virtual node; in that
         // case, the work for that node would be done in child groups that
         // populate it.
-        values.retain(|n| !virtual_nodes.contains(n));
+        let (virtual_nodes, actual_nodes) =
+            values.into_iter().partition(|n| virtual_nodes.contains(n));
         out.push(UnorderedGroup {
             key,
-            values,
+            actual_nodes,
+            virtual_nodes,
             parents,
         });
     }
@@ -286,14 +285,18 @@ fn insert_inline_nodes(
 /// Find any nodes within this group whose children are **not** in the group
 fn find_globals<'a>(
     ctx: &'a Context,
-    group: &'a BTreeSet<Node>,
+    group: &'a UnorderedGroup,
 ) -> impl Iterator<Item = Node> + 'a {
-    group.iter().flat_map(|node| {
-        ctx.get_op(*node)
-            .unwrap()
-            .iter_children()
-            .filter(|c| !group.contains(c))
-    })
+    group
+        .actual_nodes
+        .iter()
+        .flat_map(|node| {
+            ctx.get_op(*node).unwrap().iter_children().filter(|c| {
+                !(group.actual_nodes.contains(c)
+                    || group.virtual_nodes.contains(c))
+            })
+        })
+        .chain(group.virtual_nodes.iter().cloned())
 }
 
 fn compute_group_order(
@@ -307,8 +310,9 @@ fn compute_group_order(
         .iter()
         .enumerate()
         .flat_map(|(i, g)| {
-            g.values
+            g.actual_nodes
                 .iter()
+                .chain(g.virtual_nodes.iter())
                 .filter(|n| globals.contains(n))
                 .map(move |n| (*n, i))
         })
@@ -318,7 +322,7 @@ fn compute_group_order(
     let mut children: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
     for (g, group) in groups.iter().enumerate() {
         let map: BTreeSet<_> = group
-            .values
+            .actual_nodes
             .iter()
             .flat_map(|node| {
                 ctx.get_op(*node)
@@ -397,14 +401,16 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
     // Find starting roots for this cluster, which are defined as any
     // node that's not an input to other nodes in the cluster.
     let children: BTreeSet<Node> = group
-        .values
+        .actual_nodes
         .iter()
         .flat_map(|n| ctx.get_op(*n).unwrap().iter_children())
-        .filter(|n| group.values.contains(n))
+        .filter(|n| {
+            group.actual_nodes.contains(n) || group.virtual_nodes.contains(n)
+        })
         .collect();
 
     let start: Vec<Node> = group
-        .values
+        .actual_nodes
         .iter()
         .filter(|n| !children.contains(n))
         .cloned()
@@ -421,7 +427,7 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
             .get_op(n)
             .unwrap()
             .iter_children()
-            .filter(|n| group.values.contains(n))
+            .filter(|n| group.actual_nodes.contains(n))
         {
             *parent_count.entry(child).or_default() += 1;
             todo.push(child);
@@ -440,7 +446,7 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
             .get_op(n)
             .unwrap()
             .iter_children()
-            .filter(|n| group.values.contains(n))
+            .filter(|n| group.actual_nodes.contains(n))
         {
             todo.push(child);
             *parent_count.get_mut(&child).unwrap() -= 1;
@@ -449,7 +455,8 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
     }
     OrderedGroup {
         key: group.key,
-        values: ordered_nodes,
+        actual_nodes: ordered_nodes,
+        virtual_nodes: group.virtual_nodes,
         parents: group.parents,
     }
 }
@@ -568,26 +575,19 @@ pub fn buildy<F: Family>(
 
     // For each DNF, add all of the inlined nodes
     for group in groups.iter_mut() {
-        insert_inline_nodes(ctx, &inline, &mut group.values);
+        insert_inline_nodes(ctx, &inline, &mut group.actual_nodes);
     }
     let groups = groups; // remove mutability
 
     // Compute all of the global nodes
-    let globals = {
-        let mut globals: BTreeSet<Node> = groups
-            .iter()
-            .flat_map(|g| find_globals(ctx, &g.values))
-            .collect();
+    let globals: BTreeSet<Node> = groups
+        .iter()
+        .flat_map(|g| find_globals(ctx, &g))
+        .chain(std::iter::once(root))
+        .collect();
 
-        // Sanity-checking our globals and inlined variables
-        assert!(globals.intersection(&inline).count() == 0);
-
-        // The root is considered a global (TODO is this required?)
-        assert!(!globals.contains(&root));
-        globals.insert(root);
-        globals
-    };
-    assert!(globals.intersection(&inline).next().is_none());
+    // Sanity-checking our globals and inlined variables
+    assert!(globals.intersection(&inline).count() == 0);
 
     // Reorder the groups from root-to-leaf order
     //
@@ -617,7 +617,15 @@ pub fn buildy<F: Family>(
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
     for group in groups.iter() {
         // Because the group is sorted, the output node will be the first one
-        let out = group.values[0];
+        //
+        // If there are no actual nodes, then there must be a single virtual
+        // node and that must be the output of the group.
+        let out = if group.actual_nodes.len() == 0 {
+            assert_eq!(group.virtual_nodes.len(), 1);
+            group.virtual_nodes.iter().cloned().next().unwrap()
+        } else {
+            group.actual_nodes[0]
+        };
 
         // Add virtual nodes for any n-ary operations associated with this group
         for k in group.key.iter() {
@@ -634,7 +642,7 @@ pub fn buildy<F: Family>(
             }
         }
 
-        for node in group.values.iter() {
+        for node in group.actual_nodes.iter() {
             alloc.op(*node);
         }
         let tape = alloc.finalize();
