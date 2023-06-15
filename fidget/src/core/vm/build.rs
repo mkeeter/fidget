@@ -635,8 +635,15 @@ pub fn buildy<F: Family>(
     }
 
     // Perform node ordering within each group
-    let groups: Vec<OrderedGroup> =
-        groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
+    let groups: Vec<OrderedGroup> = groups
+        .into_iter()
+        .map(|g| sort_nodes(ctx, g))
+        .filter(|g| {
+            // If the root of the tree is an n-ary operator and it has no
+            // parents, then it doesn't actually do any work and can be skipped.
+            !g.actual_nodes.is_empty() || !g.parents.is_empty()
+        })
+        .collect();
 
     let mut group_tapes = vec![];
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
@@ -645,7 +652,7 @@ pub fn buildy<F: Family>(
         //
         // If there are no actual nodes, then there must be a single virtual
         // node and that must be the output of the group.
-        let out = if group.actual_nodes.len() == 0 {
+        let out = if group.actual_nodes.is_empty() {
             assert_eq!(group.virtual_nodes.len(), 1);
             group.virtual_nodes.iter().cloned().next().unwrap()
         } else {
@@ -656,14 +663,7 @@ pub fn buildy<F: Family>(
         for k in group.key.iter() {
             if group.parents.contains(&k.root) {
                 let c = node_to_choice_index[&k.root];
-                alloc.virtual_op(
-                    k.root,
-                    out,
-                    ChoiceIndex {
-                        index: c,
-                        bit: k.choice,
-                    },
-                );
+                alloc.virtual_op(k.root, out, ChoiceIndex::new(c, k.choice));
             }
         }
 
@@ -698,9 +698,8 @@ pub fn buildy<F: Family>(
             choices: k
                 .key
                 .into_iter()
-                .map(|d| ChoiceIndex {
-                    index: node_to_choice_index[&d.root],
-                    bit: d.choice,
+                .map(|d| {
+                    ChoiceIndex::new(node_to_choice_index[&d.root], d.choice)
                 })
                 .collect(),
         })

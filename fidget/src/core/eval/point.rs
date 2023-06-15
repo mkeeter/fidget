@@ -140,6 +140,7 @@ pub mod eval_tests {
         let sum = ctx.add(x, 1.0).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = ctx.get_tape::<I>(min).unwrap();
+        assert_eq!(tape.choice_array_size(), 1);
         let eval = tape.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
         assert_eq!(eval.eval(1.0, 3.0, 0.0, &[]).unwrap().0, 2.0);

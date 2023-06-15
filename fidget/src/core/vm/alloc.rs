@@ -299,54 +299,52 @@ impl<'a> RegisterAllocator<'a> {
         let op = *self.ctx.get_op(root).unwrap();
         self.used.insert(arg);
         self.used.insert(root);
-        if let context::Op::Binary(
+        let context::Op::Binary(
             op @ (context::BinaryOpcode::Min | context::BinaryOpcode::Max),
             ..,
-        ) = op
-        {
-            let r_x = self.get_out_reg(root);
-            if let Some(c) = self.ctx.const_value(arg).unwrap() {
-                let op = match op {
-                    context::BinaryOpcode::Min => Op::MinRegImmChoice {
-                        inout: r_x,
-                        imm: c as f32,
-                        choice,
-                    },
-                    context::BinaryOpcode::Max => Op::MaxRegImmChoice {
-                        inout: r_x,
-                        imm: c as f32,
-                        choice,
-                    },
-                    _ => unreachable!(), // checked above
-                };
-                self.out.push(op);
-            } else {
-                let op = |r| match op {
-                    context::BinaryOpcode::Min => Op::MinRegRegChoice {
-                        inout: r_x,
-                        arg: r,
-                        choice,
-                    },
-                    context::BinaryOpcode::Max => Op::MaxRegRegChoice {
-                        inout: r_x,
-                        arg: r,
-                        choice,
-                    },
-                    _ => unreachable!(), // checked above
-                };
-                match self.get_allocation(arg) {
-                    Some(Binding::Register(r_y)) => {
-                        self.out.push(op(r_y));
-                    }
-                    Some(Binding::Memory(..)) | None => {
-                        let r_a = self.get_register();
-                        self.out.push(op(r_a));
-                        self.bind_register(arg, r_a);
-                    }
+        ) = op else {
+            panic!("invalid root for a virtual op: {op:?}");
+        };
+        let r_x = self.get_out_reg(root);
+        if let Some(c) = self.ctx.const_value(arg).unwrap() {
+            let op = match op {
+                context::BinaryOpcode::Min => Op::MinRegImmChoice {
+                    inout: r_x,
+                    imm: c as f32,
+                    choice,
+                },
+                context::BinaryOpcode::Max => Op::MaxRegImmChoice {
+                    inout: r_x,
+                    imm: c as f32,
+                    choice,
+                },
+                _ => unreachable!(), // checked above
+            };
+            self.out.push(op);
+        } else {
+            let op = |r| match op {
+                context::BinaryOpcode::Min => Op::MinRegRegChoice {
+                    inout: r_x,
+                    arg: r,
+                    choice,
+                },
+                context::BinaryOpcode::Max => Op::MaxRegRegChoice {
+                    inout: r_x,
+                    arg: r,
+                    choice,
+                },
+                _ => unreachable!(), // checked above
+            };
+            match self.get_allocation(arg) {
+                Some(Binding::Register(r_y)) => {
+                    self.out.push(op(r_y));
+                }
+                Some(Binding::Memory(..)) | None => {
+                    let r_a = self.get_register();
+                    self.out.push(op(r_a));
+                    self.bind_register(arg, r_a);
                 }
             }
-        } else {
-            panic!("invalid root for a virtual op: {op:?}");
         }
     }
 
