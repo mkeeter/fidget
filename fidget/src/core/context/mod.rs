@@ -808,7 +808,7 @@ mod test {
         let c9 = ctx.max(c8, c6).unwrap();
 
         let tape = ctx.get_tape::<crate::vm::Eval>(c9).unwrap();
-        assert_eq!(tape.len(), 8);
+        assert_eq!(tape.len(), 9);
     }
 
     #[test]

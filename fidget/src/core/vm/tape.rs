@@ -245,9 +245,9 @@ impl<F> Tape<F> {
             let choice_tape = &self.data()[g];
             let choice_sel = &choice_tape.choices;
             let still_active = choice_sel.is_empty()
-                || choice_sel.iter().any(|&c| {
-                    choices[c.index + c.bit / 8] & (1 << (c.bit % 8)) != 0
-                });
+                || choice_sel
+                    .iter()
+                    .any(|&c| choices[c.end()] & (1 << (c.bit % 8)) != 0);
             if still_active {
                 prev.active_groups.push(g);
             }

@@ -768,7 +768,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                 }
                 Op::MaxRegRegChoice { inout, arg, .. } => {
                     for i in 0..size {
-                        v[inout][i] = v[inout][i].min(v[arg][i]);
+                        v[inout][i] = v[inout][i].max(v[arg][i]);
                     }
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
