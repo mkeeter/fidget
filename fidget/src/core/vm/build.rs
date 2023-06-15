@@ -532,7 +532,7 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     out_groups
 }
 
-/// Eliminates any `Store` operation which does not have a matching Load
+/// Eliminates any `Store` operation which does not have a matching `Load`
 fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
@@ -550,6 +550,29 @@ fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
         }
         out_groups.push(out);
     }
+    out_groups
+}
+
+/// Eliminate any `Load` operations that occur before a `Store`
+fn eliminate_dead_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
+    let mut out_groups = vec![];
+    let mut stored = BTreeSet::new();
+    for group in group_tapes.iter().rev() {
+        let mut out = vec![];
+        for op in group.iter().rev() {
+            if let op::Op::Load { mem, .. } = op {
+                if !stored.contains(mem) {
+                    continue;
+                }
+            } else if let op::Op::Store { mem, .. } = op {
+                stored.insert(mem);
+            }
+            out.push(*op);
+        }
+        out.reverse();
+        out_groups.push(out);
+    }
+    out_groups.reverse();
     out_groups
 }
 
@@ -660,6 +683,7 @@ pub fn buildy<F: Family>(
         eliminate_forward_loads,
         eliminate_reverse_loads,
         eliminate_reverse_stores,
+        eliminate_dead_loads,
     ] {
         group_tapes = pass(&group_tapes);
     }
