@@ -395,20 +395,21 @@ pub mod eval_tests {
         let max_xy_z = ctx.max(max, z).unwrap();
         let tape = ctx.get_tape::<I>(max_xy_z).unwrap();
         let eval = tape.new_interval_evaluator();
+
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [4.0, 5.0], &[]).unwrap();
         assert_eq!(r, [4.0, 5.0].into());
-        assert_eq!(data.unwrap().choices(), &[1, 2]);
+        assert_eq!(data.unwrap().choices(), &[1 << 2]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 4.0], &[]).unwrap();
         assert_eq!(r, [2.0, 4.0].into());
-        assert_eq!(data.unwrap().choices(), &[1, 3]);
+        assert_eq!(data.unwrap().choices(), &[1 << 0 | 1 << 2]);
 
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [1.0, 1.5], &[]).unwrap();
         assert_eq!(r, [2.0, 3.0].into());
-        assert_eq!(data.unwrap().choices(), &[1, 1]);
+        assert_eq!(data.unwrap().choices(), &[1 << 0]);
     }
 
     pub fn test_i_simplify<I: Family>() {

@@ -123,12 +123,12 @@ fn find_groups(
                     // Special case: skip this node in the tree, because we're
                     // inserting its children instead
                     todo.push(Action {
-                        node: *lhs,
+                        node: *rhs,
                         choice: Some(choice.clone()),
                         child: true,
                     });
                     todo.push(Action {
-                        node: *rhs,
+                        node: *lhs,
                         choice: Some(choice.clone()),
                         child: true,
                     });
