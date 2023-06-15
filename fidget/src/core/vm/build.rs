@@ -179,9 +179,11 @@ fn find_groups(
                 virtual_nodes.insert(node);
 
                 let d = Arc::new(Cell::new(0));
-                // LHS recursion
+
+                // RHS recursion; we push this first so that the LHS gets the
+                // first choice (since this is a stack, not a queue).
                 todo.push(Action {
-                    node: *lhs,
+                    node: *rhs,
                     choice: Some(ActiveChoice {
                         root: node,
                         next: d.clone(),
@@ -189,9 +191,9 @@ fn find_groups(
                     child: true,
                 });
 
-                // RHS recursion
+                // LHS recursion
                 todo.push(Action {
-                    node: *rhs,
+                    node: *lhs,
                     choice: Some(ActiveChoice {
                         root: node,
                         next: d.clone(),
