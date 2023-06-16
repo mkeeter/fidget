@@ -30,6 +30,10 @@ enum Command {
         #[clap(short, long)]
         brute: bool,
 
+        /// Use tree-walk evaluation (very slow)
+        #[clap(short, long, conflicts_with = "brute")]
+        dumb: bool,
+
         /// Render as a color-gradient SDF
         #[clap(long)]
         sdf: bool,
@@ -184,13 +188,31 @@ fn run2d<I: fidget::eval::Family>(
     node: Node,
     settings: &ImageSettings,
     brute: bool,
+    dumb: bool,
     sdf: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
     let tape = ctx.get_tape::<I>(node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
-    if brute {
+    if dumb {
+        let mut out = vec![];
+        let div = (settings.size - 1) as f64;
+        for i in 0..settings.size {
+            let y = -(-1.0 + 2.0 * (i as f64) / div);
+            for j in 0..settings.size {
+                let x = -1.0 + 2.0 * (j as f64) / div;
+                out.push(ctx.eval_xyz(node, x, y, 0.0).unwrap() < 0.0);
+            }
+        }
+        // Convert from Vec<bool> to an image
+        let out = out
+            .into_iter()
+            .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
+            .flat_map(|i| i.into_iter())
+            .collect();
+        (out, start)
+    } else if brute {
         let eval = tape.new_float_slice_evaluator();
         let mut out: Vec<bool> = vec![];
         let start = Instant::now();
@@ -297,16 +319,17 @@ fn main() -> Result<()> {
         Command::Render2d {
             settings,
             brute,
+            dumb,
             sdf,
         } => {
             let (buffer, start) = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => run2d::<fidget::jit::Eval>(
-                    &ctx, root, &settings, brute, sdf,
+                    &ctx, root, &settings, brute, dumb, sdf,
                 ),
-                EvalMode::Vm => {
-                    run2d::<fidget::vm::Eval>(&ctx, root, &settings, brute, sdf)
-                }
+                EvalMode::Vm => run2d::<fidget::vm::Eval>(
+                    &ctx, root, &settings, brute, dumb, sdf,
+                ),
             };
 
             info!(
