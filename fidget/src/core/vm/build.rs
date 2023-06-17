@@ -624,7 +624,8 @@ pub fn buildy<F: Family>(
     let mut choices_per_node: BTreeMap<Node, usize> = BTreeMap::new();
     for t in &groups {
         for k in &t.key {
-            *choices_per_node.entry(k.root).or_default() += 1;
+            let c = choices_per_node.entry(k.root).or_default();
+            *c = (*c).max(k.choice);
         }
     }
     let mut node_to_choice_index: BTreeMap<Node, usize> = BTreeMap::new();
