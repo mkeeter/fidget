@@ -470,6 +470,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         zs: &[f32],
         vars: &[f32],
         out: &mut [f32],
+        choices: &mut Choices,
         data: &mut Self::Data,
     ) {
         assert_eq!(xs.len(), ys.len());
@@ -606,25 +607,53 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                         v[mem][i] = v[reg][i];
                     }
                 }
-                Op::MinRegImmChoice { inout, imm, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].min(imm);
+                Op::MinRegImmChoice { inout, imm, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].min(imm);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = imm;
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MaxRegImmChoice { inout, imm, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].max(imm);
+                Op::MaxRegImmChoice { inout, imm, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].max(imm);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = imm;
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MinRegRegChoice { inout, arg, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].min(v[arg][i]);
+                Op::MinRegRegChoice { inout, arg, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].min(v[arg][i]);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = v[arg][i];
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MaxRegRegChoice { inout, arg, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].max(v[arg][i]);
+                Op::MaxRegRegChoice { inout, arg, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].max(v[arg][i]);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = v[arg][i];
+                        }
                     }
+                    choices.set(choice);
                 }
             }
         }
@@ -644,6 +673,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
         zs: &[f32],
         vars: &[f32],
         out: &mut [Grad],
+        choices: &mut Choices,
         data: &mut Self::Data,
     ) {
         assert_eq!(xs.len(), ys.len());
@@ -749,27 +779,55 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::MinRegImmChoice { inout, imm, .. } => {
+                Op::MinRegImmChoice { inout, imm, choice } => {
                     let imm: Grad = imm.into();
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].min(imm);
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].min(imm);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = imm;
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MaxRegImmChoice { inout, imm, .. } => {
+                Op::MaxRegImmChoice { inout, imm, choice } => {
                     let imm: Grad = imm.into();
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].max(imm);
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].max(imm);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = imm;
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MinRegRegChoice { inout, arg, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].min(v[arg][i]);
+                Op::MinRegRegChoice { inout, arg, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].min(v[arg][i]);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = v[arg][i];
+                        }
                     }
+                    choices.set(choice);
                 }
-                Op::MaxRegRegChoice { inout, arg, .. } => {
-                    for i in 0..size {
-                        v[inout][i] = v[inout][i].max(v[arg][i]);
+                Op::MaxRegRegChoice { inout, arg, choice } => {
+                    if choices.has_value(choice) {
+                        for i in 0..size {
+                            v[inout][i] = v[inout][i].max(v[arg][i]);
+                        }
+                    } else {
+                        for i in 0..size {
+                            v[inout][i] = v[arg][i];
+                        }
                     }
+                    choices.set(choice);
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
                     for i in 0..size {

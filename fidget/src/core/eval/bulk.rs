@@ -16,7 +16,7 @@
 
 use crate::{
     eval::{EvaluatorStorage, Family},
-    vm::{Tape, TapeData},
+    vm::{Choices, Tape, TapeData},
     Error,
 };
 
@@ -49,6 +49,7 @@ pub trait BulkEvaluator<T, F> {
         z: &[f32],
         vars: &[f32],
         out: &mut [T],
+        choices: &mut Choices,
         data: &mut Self::Data,
     );
 }
@@ -139,8 +140,15 @@ where
             return Err(Error::BadVarSlice(vars.len(), expected_var_count));
         }
         data.prepare(self.tape.data(), x.len());
-        self.eval
-            .eval_with(x, y, z, vars, &mut data.out, &mut data.data);
+        self.eval.eval_with(
+            x,
+            y,
+            z,
+            vars,
+            &mut data.out,
+            &mut data.choices,
+            &mut data.data,
+        );
         Ok(&data.out)
     }
 
@@ -171,6 +179,9 @@ where
 pub struct BulkEvalData<D, T, F> {
     out: Vec<T>,
 
+    /// Choice data array
+    choices: Choices,
+
     /// Inner data
     data: D,
 
@@ -181,6 +192,7 @@ impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {
     fn default() -> Self {
         Self {
             out: vec![],
+            choices: Choices::default(),
             data: D::default(),
             _p: std::marker::PhantomData,
         }
@@ -194,6 +206,7 @@ where
     fn prepare(&mut self, tape: &TapeData<F>, size: usize) {
         self.out.resize(size, std::f32::NAN.into());
         self.out.fill(std::f32::NAN.into());
+        self.choices.resize_and_fill(tape.choice_array_size(), 0);
         self.data.prepare(tape, size);
     }
 }
