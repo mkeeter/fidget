@@ -252,7 +252,6 @@ impl<F> Tape<F> {
                 prev.active_groups.push(g);
             }
         }
-
         Self(Arc::new((self.data().clone(), prev)))
     }
 
