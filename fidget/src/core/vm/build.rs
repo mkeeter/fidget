@@ -493,8 +493,10 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
                     reg_mem.insert(reg, mem);
                 }
                 _ => {
-                    // All other operations invalidate the reg-mem binding
-                    reg_mem.remove(&op.out_reg().unwrap());
+                    if let Some(out) = op.out_reg() {
+                        // All other operations invalidate the reg-mem binding
+                        reg_mem.remove(&out);
+                    }
                 }
             }
             out.push(*op);
@@ -516,8 +518,9 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     //
     // If there is a load operation to a non-active register, we can skip it.
     let mut out_groups = vec![];
+    let mut active = BTreeSet::new();
+    active.insert(0); // Register 0 starts active
     for group in group_tapes.iter() {
-        let mut active = BTreeSet::new();
         let mut out = vec![];
         for op in group {
             if let op::Op::Load { reg, .. } = op {
@@ -525,12 +528,15 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
                     continue; // skip this Load
                 }
             } else {
-                active.remove(&op.out_reg().unwrap());
+                if let Some(out) = op.out_reg() {
+                    active.remove(&out);
+                }
                 active.extend(op.input_reg_iter());
             }
             out.push(*op);
         }
         out_groups.push(out);
+        active.clear();
     }
     out_groups
 }
@@ -563,12 +569,20 @@ fn eliminate_dead_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     for group in group_tapes.iter().rev() {
         let mut out = vec![];
         for op in group.iter().rev() {
-            if let op::Op::Load { mem, .. } = op {
-                if !stored.contains(mem) {
-                    continue;
+            match op {
+                op::Op::Store { mem, .. }
+                | op::Op::MaxRegImmChoice { mem, .. }
+                | op::Op::MinRegImmChoice { mem, .. }
+                | op::Op::MaxRegRegChoice { mem, .. }
+                | op::Op::MinRegRegChoice { mem, .. } => {
+                    stored.insert(mem);
                 }
-            } else if let op::Op::Store { mem, .. } = op {
-                stored.insert(mem);
+                op::Op::Load { mem, .. } => {
+                    if !stored.contains(mem) {
+                        continue;
+                    }
+                }
+                _ => (),
             }
             out.push(*op);
         }
@@ -677,16 +691,14 @@ pub fn buildy<F: Family>(
     // few cleanup passes to remove dead Load and Store operations introduced by
     // that assumption.
 
-    /*
     for pass in [
-        eliminate_forward_loads,  // BAD
-        eliminate_reverse_loads,  // OKAY
-        eliminate_reverse_stores, // OKAY
-        eliminate_dead_loads,     // OKAY
+        eliminate_forward_loads,
+        eliminate_reverse_loads,
+        eliminate_reverse_stores,
+        eliminate_dead_loads,
     ] {
         group_tapes = pass(&group_tapes);
     }
-    */
 
     let gt = group_tapes
         .into_iter()
@@ -704,6 +716,17 @@ pub fn buildy<F: Family>(
         .filter(|t| !t.tape.is_empty())
         .collect::<Vec<_>>();
 
+    /*
+    println!("------------------------------------------------------------");
+    for g in gt.iter().rev() {
+        println!("{:?}", g.choices);
+        println!("{}", g.choices.len());
+        for op in g.tape.iter().rev() {
+            println!("{op:?}");
+        }
+        println!();
+    }
+    */
     Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
 
