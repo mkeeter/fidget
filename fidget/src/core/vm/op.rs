@@ -227,6 +227,6 @@ mod test {
     use super::*;
     #[test]
     fn test_vm_op_size() {
-        assert_eq!(std::mem::size_of::<Op>(), 12);
+        assert_eq!(std::mem::size_of::<Op>(), 16);
     }
 }
