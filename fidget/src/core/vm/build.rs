@@ -654,9 +654,16 @@ pub fn buildy<F: Family>(
     let groups: Vec<OrderedGroup> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
+    let mut first_seen = BTreeMap::new();
+    for (i, group) in groups.iter().enumerate().rev() {
+        for c in &group.parents {
+            first_seen.entry(c.root).or_insert(i);
+        }
+    }
+
     let mut group_tapes = vec![];
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
-    for group in groups.iter() {
+    for (i, group) in groups.iter().enumerate() {
         // Because the group is sorted, the output node will be the first one
         //
         // If there are no actual nodes, then there must be a single virtual
@@ -672,6 +679,9 @@ pub fn buildy<F: Family>(
         for k in group.parents.iter() {
             let c = node_to_choice_index[&k.root];
             alloc.nary_op(k.root, out, ChoiceIndex::new(c, k.choice));
+            if first_seen[&k.root] == i {
+                alloc.release_nary_op(k.root);
+            }
         }
 
         for node in group.actual_nodes.iter() {
