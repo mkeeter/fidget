@@ -295,6 +295,15 @@ impl<'a> RegisterAllocator<'a> {
         self.allocations.remove(&node);
     }
 
+    pub fn release_nary_op(&mut self, root: Node) {
+        match self.allocations.remove_entry(&root).unwrap().1 {
+            Allocation::Register(..) | Allocation::Both(..) => {
+                panic!("inout nodes must be bound to memory only")
+            }
+            Allocation::Memory(mem) => self.spare_memory.push(mem),
+        }
+    }
+
     pub fn nary_op(&mut self, root: Node, arg: Node, choice: ChoiceIndex) {
         let op = *self.ctx.get_op(root).unwrap();
         self.used.insert(arg);
