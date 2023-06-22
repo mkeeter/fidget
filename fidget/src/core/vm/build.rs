@@ -65,7 +65,7 @@ struct UnorderedGroup {
     key: BTreeSet<ChoiceClause>,
     actual_nodes: BTreeSet<Node>,
     virtual_nodes: BTreeSet<Node>,
-    parents: BTreeSet<Node>,
+    parents: BTreeSet<ChoiceClause>,
 }
 
 #[derive(Default)]
@@ -73,7 +73,7 @@ struct OrderedGroup {
     key: BTreeSet<ChoiceClause>,
     actual_nodes: Vec<Node>,
     virtual_nodes: BTreeSet<Node>,
-    parents: BTreeSet<Node>,
+    parents: BTreeSet<ChoiceClause>,
 }
 
 /// Finds groups of nodes based on choices at `min` / `max` operations
@@ -97,7 +97,8 @@ fn find_groups(
         choice: None,
         child: true,
     }];
-    let mut node_parents: BTreeMap<Node, BTreeSet<Node>> = BTreeMap::new();
+    let mut node_parents: BTreeMap<Node, BTreeSet<ChoiceClause>> =
+        BTreeMap::new();
     let mut virtual_nodes: BTreeSet<Node> = BTreeSet::new();
     let mut node_choices: BTreeMap<Node, BTreeSet<Option<ChoiceClause>>> =
         BTreeMap::new();
@@ -160,8 +161,8 @@ fn find_groups(
         // If this node is a direct child of an n-ary operation, then record it
         // in the node_parents array.
         if child {
-            if let Some(choice) = &choice {
-                node_parents.entry(node).or_default().insert(choice.root);
+            if let Some(choice_clause) = &choice_clause {
+                node_parents.entry(node).or_default().insert(*choice_clause);
             }
         }
 
@@ -341,7 +342,7 @@ fn compute_group_order(
     for (g, group) in groups.iter().enumerate() {
         for p in &group.parents {
             children
-                .entry(global_node_to_group[&p])
+                .entry(global_node_to_group[&p.root])
                 .or_default()
                 .insert(g);
         }
@@ -636,15 +637,8 @@ pub fn buildy<F: Family>(
     }
 
     // Perform node ordering within each group
-    let groups: Vec<OrderedGroup> = groups
-        .into_iter()
-        .map(|g| sort_nodes(ctx, g))
-        .filter(|g| {
-            // If the root of the tree is an n-ary operator and it has no
-            // parents, then it doesn't actually do any work and can be skipped.
-            !g.actual_nodes.is_empty() || !g.parents.is_empty()
-        })
-        .collect();
+    let groups: Vec<OrderedGroup> =
+        groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
     let mut group_tapes = vec![];
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
@@ -661,15 +655,16 @@ pub fn buildy<F: Family>(
         };
 
         // Add virtual nodes for any n-ary operations associated with this group
-        for k in group.key.iter() {
-            if group.parents.contains(&k.root) {
-                let c = node_to_choice_index[&k.root];
-                alloc.virtual_op(k.root, out, ChoiceIndex::new(c, k.choice));
-            }
+        for k in group.parents.iter() {
+            let c = node_to_choice_index[&k.root];
+            alloc.nary_op(k.root, out, ChoiceIndex::new(c, k.choice));
         }
 
         for node in group.actual_nodes.iter() {
             alloc.op(*node);
+        }
+        for node in group.virtual_nodes.iter() {
+            alloc.virtual_op(*node);
         }
         let tape = alloc.finalize();
         group_tapes.push(tape);
@@ -682,14 +677,16 @@ pub fn buildy<F: Family>(
     // few cleanup passes to remove dead Load and Store operations introduced by
     // that assumption.
 
+    /*
     for pass in [
-        eliminate_forward_loads,
-        eliminate_reverse_loads,
-        eliminate_reverse_stores,
-        eliminate_dead_loads,
+        eliminate_forward_loads,  // BAD
+        eliminate_reverse_loads,  // OKAY
+        eliminate_reverse_stores, // OKAY
+        eliminate_dead_loads,     // OKAY
     ] {
         group_tapes = pass(&group_tapes);
     }
+    */
 
     let gt = group_tapes
         .into_iter()
@@ -705,7 +702,8 @@ pub fn buildy<F: Family>(
                 .collect(),
         })
         .filter(|t| !t.tape.is_empty())
-        .collect();
+        .collect::<Vec<_>>();
+
     Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
 

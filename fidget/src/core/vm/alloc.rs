@@ -295,7 +295,7 @@ impl<'a> RegisterAllocator<'a> {
         self.allocations.remove(&node);
     }
 
-    pub fn virtual_op(&mut self, root: Node, arg: Node, choice: ChoiceIndex) {
+    pub fn nary_op(&mut self, root: Node, arg: Node, choice: ChoiceIndex) {
         let op = *self.ctx.get_op(root).unwrap();
         self.used.insert(arg);
         self.used.insert(root);
@@ -305,16 +305,16 @@ impl<'a> RegisterAllocator<'a> {
         ) = op else {
             panic!("invalid root for a virtual op: {op:?}");
         };
-        let r_x = self.get_inout_reg(root);
+        let m_x = self.get_inout_mem(root);
         if let Some(c) = self.ctx.const_value(arg).unwrap() {
             let op = match op {
                 context::BinaryOpcode::Min => Op::MinRegImmChoice {
-                    inout: r_x,
+                    mem: m_x,
                     imm: c as f32,
                     choice,
                 },
                 context::BinaryOpcode::Max => Op::MaxRegImmChoice {
-                    inout: r_x,
+                    mem: m_x,
                     imm: c as f32,
                     choice,
                 },
@@ -324,12 +324,12 @@ impl<'a> RegisterAllocator<'a> {
         } else {
             let op = |r| match op {
                 context::BinaryOpcode::Min => Op::MinRegRegChoice {
-                    inout: r_x,
+                    mem: m_x,
                     arg: r,
                     choice,
                 },
                 context::BinaryOpcode::Max => Op::MaxRegRegChoice {
-                    inout: r_x,
+                    mem: m_x,
                     arg: r,
                     choice,
                 },
@@ -344,6 +344,31 @@ impl<'a> RegisterAllocator<'a> {
                     self.out.push(op(r_a));
                     self.bind_register(arg, r_a);
                 }
+            }
+        }
+    }
+
+    pub fn virtual_op(&mut self, node: Node) {
+        let op = *self.ctx.get_op(node).unwrap();
+        self.used.insert(node);
+        if !matches!(
+            op,
+            context::Op::Binary(
+                context::BinaryOpcode::Min | context::BinaryOpcode::Max,
+                ..,
+            )
+        ) {
+            panic!("invalid node for a virtual op: {op:?}");
+        }
+        let mem = self.get_memory();
+        match self.get_allocation(node) {
+            Some(Binding::Register(reg)) => {
+                self.out.push(Op::Load { reg, mem });
+                self.release_reg(reg);
+                self.allocations.insert(node, Allocation::Memory(mem));
+            }
+            Some(Binding::Memory(..)) | None => {
+                panic!("invalid binding for virtual op");
             }
         }
     }
@@ -531,31 +556,17 @@ impl<'a> RegisterAllocator<'a> {
     }
 
     #[inline]
-    fn get_inout_reg(&mut self, out: Node) -> u8 {
-        let out = match *self
+    fn get_inout_mem(&mut self, out: Node) -> u32 {
+        match *self
             .allocations
             .get(&out)
-            .expect("out register must be bound")
+            .expect("inout node must be bound")
         {
-            Allocation::Register(r_x) => {
-                assert_eq!(self.registers.get(&r_x), Some(&out));
-                r_x
+            Allocation::Register(..) | Allocation::Both(..) => {
+                panic!("inout nodes must be bound to memory only")
             }
-            Allocation::Memory(m_x) => {
-                let r_a = self.get_register();
-
-                self.out.push(Op::Store { reg: r_a, mem: m_x });
-                self.bind_register(out, r_a);
-                r_a
-            }
-            Allocation::Both(r_x, m_x) => {
-                self.out.push(Op::Store { reg: r_x, mem: m_x });
-                assert_eq!(self.registers.get(&r_x), Some(&out));
-                r_x
-            }
-        };
-        self.register_lru.poke(out);
-        out
+            Allocation::Memory(m_x) => m_x,
+        }
     }
 
     #[inline(always)]

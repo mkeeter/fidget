@@ -173,13 +173,13 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice { inout, imm, choice } => {
+                Op::MinRegImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        v[inout].min_choice(imm.into())
+                        v[mem].min_choice(imm.into())
                     } else {
                         (imm.into(), Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -188,13 +188,13 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice { inout, imm, choice } => {
+                Op::MaxRegImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        v[inout].max_choice(imm.into())
+                        v[mem].max_choice(imm.into())
                     } else {
                         (imm.into(), Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -203,13 +203,13 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice { inout, arg, choice } => {
+                Op::MinRegRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        v[inout].min_choice(v[arg])
+                        v[mem].min_choice(v[arg])
                     } else {
                         (v[arg], Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -218,13 +218,13 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice { inout, arg, choice } => {
+                Op::MaxRegRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        v[inout].max_choice(v[arg])
+                        v[mem].max_choice(v[arg])
                     } else {
                         (v[arg], Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -329,13 +329,13 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice { inout, imm, choice } => {
+                Op::MinRegImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        min_choice(v[inout], imm)
+                        min_choice(v[mem], imm)
                     } else {
                         (imm, Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -344,13 +344,13 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice { inout, imm, choice } => {
+                Op::MaxRegImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        max_choice(v[inout], imm)
+                        max_choice(v[mem], imm)
                     } else {
                         (imm, Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -359,13 +359,13 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice { inout, arg, choice } => {
+                Op::MinRegRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        min_choice(v[inout], v[arg])
+                        min_choice(v[mem], v[arg])
                     } else {
                         (v[arg], Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -374,13 +374,13 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice { inout, arg, choice } => {
+                Op::MaxRegRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
-                        max_choice(v[inout], v[arg])
+                        max_choice(v[mem], v[arg])
                     } else {
                         (v[arg], Choice::BothValues)
                     };
-                    v[inout] = value;
+                    v[mem] = value;
                     match c {
                         Choice::PrevValue => (),
                         Choice::BothValues => choices.set(choice),
@@ -447,7 +447,7 @@ where
     T: From<f32> + Clone,
 {
     fn prepare(&mut self, tape: &TapeData<Eval>, size: usize) {
-        assert!(tape.reg_limit() == u8::MAX);
+        //assert!(tape.reg_limit() == u8::MAX);
         self.slots.resize_with(tape.slot_count(), || {
             vec![std::f32::NAN.into(); size.max(self.slice_size)]
         });
@@ -607,50 +607,50 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                         v[mem][i] = v[reg][i];
                     }
                 }
-                Op::MinRegImmChoice { inout, imm, choice } => {
+                Op::MinRegImmChoice { mem, imm, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].min(imm);
+                            v[mem][i] = v[mem][i].min(imm);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = imm;
+                            v[mem][i] = imm;
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegImmChoice { inout, imm, choice } => {
+                Op::MaxRegImmChoice { mem, imm, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].max(imm);
+                            v[mem][i] = v[mem][i].max(imm);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = imm;
+                            v[mem][i] = imm;
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MinRegRegChoice { inout, arg, choice } => {
+                Op::MinRegRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].min(v[arg][i]);
+                            v[mem][i] = v[mem][i].min(v[arg][i]);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = v[arg][i];
+                            v[mem][i] = v[arg][i];
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegRegChoice { inout, arg, choice } => {
+                Op::MaxRegRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].max(v[arg][i]);
+                            v[mem][i] = v[mem][i].max(v[arg][i]);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = v[arg][i];
+                            v[mem][i] = v[arg][i];
                         }
                     }
                     choices.set(choice);
@@ -779,52 +779,52 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::MinRegImmChoice { inout, imm, choice } => {
+                Op::MinRegImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].min(imm);
+                            v[mem][i] = v[mem][i].min(imm);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = imm;
+                            v[mem][i] = imm;
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegImmChoice { inout, imm, choice } => {
+                Op::MaxRegImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].max(imm);
+                            v[mem][i] = v[mem][i].max(imm);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = imm;
+                            v[mem][i] = imm;
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MinRegRegChoice { inout, arg, choice } => {
+                Op::MinRegRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].min(v[arg][i]);
+                            v[mem][i] = v[mem][i].min(v[arg][i]);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = v[arg][i];
+                            v[mem][i] = v[arg][i];
                         }
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegRegChoice { inout, arg, choice } => {
+                Op::MaxRegRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
-                            v[inout][i] = v[inout][i].max(v[arg][i]);
+                            v[mem][i] = v[mem][i].max(v[arg][i]);
                         }
                     } else {
                         for i in 0..size {
-                            v[inout][i] = v[arg][i];
+                            v[mem][i] = v[arg][i];
                         }
                     }
                     choices.set(choice);
