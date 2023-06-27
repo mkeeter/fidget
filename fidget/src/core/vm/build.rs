@@ -116,24 +116,26 @@ fn find_groups(
         let op = ctx.get_op(node).unwrap();
 
         // Special handling to flatten out commutative min/max trees
-        if let Some(choice) = &choice {
-            let root_op = ctx.get_op(choice.root).unwrap();
-            let Op::Binary(prev_opcode, ..) = root_op else { panic!() };
-            if let Op::Binary(this_opcode, lhs, rhs) = op {
-                if prev_opcode == this_opcode {
-                    // Special case: skip this node in the tree, because we're
-                    // inserting its children instead
-                    todo.push(Action {
-                        node: *rhs,
-                        choice: Some(choice.clone()),
-                        child: true,
-                    });
-                    todo.push(Action {
-                        node: *lhs,
-                        choice: Some(choice.clone()),
-                        child: true,
-                    });
-                    continue;
+        if child {
+            if let Some(choice) = &choice {
+                let root_op = ctx.get_op(choice.root).unwrap();
+                let Op::Binary(prev_opcode, ..) = root_op else { panic!() };
+                if let Op::Binary(this_opcode, lhs, rhs) = op {
+                    if prev_opcode == this_opcode {
+                        // Special case: skip this node in the tree, because
+                        // we're inserting its children instead
+                        todo.push(Action {
+                            node: *rhs,
+                            choice: Some(choice.clone()),
+                            child: true,
+                        });
+                        todo.push(Action {
+                            node: *lhs,
+                            choice: Some(choice.clone()),
+                            child: true,
+                        });
+                        continue;
+                    }
                 }
             }
         }
@@ -613,6 +615,20 @@ pub fn buildy<F: Family>(
 
     let mut groups = find_groups(ctx, root, &inline);
 
+    // Remove duplicate parents, i.e. if we do `max(max(x, y), max(x, z))`, we
+    // only need to store `x` once in the n-ary operation.
+    for g in &mut groups {
+        let mut new_parents = BTreeSet::new();
+        let mut roots = BTreeSet::new();
+        for v in g.parents.iter() {
+            if roots.insert(v.root) {
+                new_parents.insert(*v);
+            }
+        }
+        g.parents = new_parents;
+    }
+    // TODO compress choices here, since we may have removed some of them
+
     // For each DNF, add all of the inlined nodes
     for group in groups.iter_mut() {
         insert_inline_nodes(ctx, &inline, &mut group.actual_nodes);
@@ -760,5 +776,27 @@ mod test {
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
             assert!(!matches!(op, op::Op::Load { .. } | op::Op::Store { .. }));
         }
+    }
+
+    #[test]
+    fn test_groups() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+
+        let one = ctx.constant(1.0);
+        let max1 = ctx.max(x, one).unwrap();
+        let sum = ctx.add(max1, y).unwrap();
+        let max2 = ctx.max(sum, z).unwrap();
+
+        // max(max(x, 1) + y, z)
+
+        let r = find_groups(&ctx, max2, &BTreeSet::new());
+        let roots = r
+            .iter()
+            .flat_map(|g| g.key.iter().map(|k| k.root))
+            .collect::<BTreeSet<Node>>();
+        assert_eq!(roots.len(), 2);
     }
 }
