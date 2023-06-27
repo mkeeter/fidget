@@ -447,7 +447,7 @@ where
     T: From<f32> + Copy + Clone,
 {
     fn prepare(&mut self, tape: &TapeData<Eval>, size: usize) {
-        //assert!(tape.reg_limit() == u8::MAX);
+        assert!(tape.reg_limit() == u8::MAX);
         let v: T = std::f32::NAN.into();
         for s in self.slots.iter_mut() {
             s.fill(v);
