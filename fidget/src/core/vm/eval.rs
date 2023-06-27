@@ -444,16 +444,20 @@ impl<T> Default for AsmBulkEvalData<T> {
 
 impl<T> BulkEvaluatorData<Eval> for AsmBulkEvalData<T>
 where
-    T: From<f32> + Clone,
+    T: From<f32> + Copy + Clone,
 {
     fn prepare(&mut self, tape: &TapeData<Eval>, size: usize) {
         //assert!(tape.reg_limit() == u8::MAX);
+        let v: T = std::f32::NAN.into();
+        for s in self.slots.iter_mut() {
+            s.fill(v);
+        }
         self.slots.resize_with(tape.slot_count(), || {
-            vec![std::f32::NAN.into(); size.max(self.slice_size)]
+            vec![v; size.max(self.slice_size)]
         });
         if size > self.slice_size {
             for s in self.slots.iter_mut() {
-                s.resize(size, std::f32::NAN.into());
+                s.resize(size, v);
             }
             self.slice_size = size;
         }
@@ -877,7 +881,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                 }
             }
         }
-        out.copy_from_slice(&data.slots[0][0..size])
+        out[0..size].copy_from_slice(&data.slots[0][0..size])
     }
 }
 
