@@ -317,12 +317,12 @@ impl<'a> RegisterAllocator<'a> {
         let m_x = self.get_inout_mem(root);
         if let Some(c) = self.ctx.const_value(arg).unwrap() {
             let op = match op {
-                context::BinaryOpcode::Min => Op::MinRegImmChoice {
+                context::BinaryOpcode::Min => Op::MinMemImmChoice {
                     mem: m_x,
                     imm: c as f32,
                     choice,
                 },
-                context::BinaryOpcode::Max => Op::MaxRegImmChoice {
+                context::BinaryOpcode::Max => Op::MaxMemImmChoice {
                     mem: m_x,
                     imm: c as f32,
                     choice,
@@ -332,12 +332,12 @@ impl<'a> RegisterAllocator<'a> {
             self.out.push(op);
         } else {
             let op = |r| match op {
-                context::BinaryOpcode::Min => Op::MinRegRegChoice {
+                context::BinaryOpcode::Min => Op::MinMemRegChoice {
                     mem: m_x,
                     arg: r,
                     choice,
                 },
-                context::BinaryOpcode::Max => Op::MaxRegRegChoice {
+                context::BinaryOpcode::Max => Op::MaxMemRegChoice {
                     mem: m_x,
                     arg: r,
                     choice,

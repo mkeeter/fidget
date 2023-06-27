@@ -173,7 +173,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice { mem, imm, choice } => {
+                Op::MinMemImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         v[mem].min_choice(imm.into())
                     } else {
@@ -188,7 +188,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice { mem, imm, choice } => {
+                Op::MaxMemImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         v[mem].max_choice(imm.into())
                     } else {
@@ -203,7 +203,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice { mem, arg, choice } => {
+                Op::MinMemRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         v[mem].min_choice(v[arg])
                     } else {
@@ -218,7 +218,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice { mem, arg, choice } => {
+                Op::MaxMemRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         v[mem].max_choice(v[arg])
                     } else {
@@ -329,7 +329,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     v[out] = value;
                 }
 
-                Op::MinRegImmChoice { mem, imm, choice } => {
+                Op::MinMemImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         min_choice(v[mem], imm)
                     } else {
@@ -344,7 +344,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegImmChoice { mem, imm, choice } => {
+                Op::MaxMemImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         max_choice(v[mem], imm)
                     } else {
@@ -359,7 +359,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MinRegRegChoice { mem, arg, choice } => {
+                Op::MinMemRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         min_choice(v[mem], v[arg])
                     } else {
@@ -374,7 +374,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= c != Choice::BothValues;
                 }
 
-                Op::MaxRegRegChoice { mem, arg, choice } => {
+                Op::MaxMemRegChoice { mem, arg, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         max_choice(v[mem], v[arg])
                     } else {
@@ -611,7 +611,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                         v[mem][i] = v[reg][i];
                     }
                 }
-                Op::MinRegImmChoice { mem, imm, choice } => {
+                Op::MinMemImmChoice { mem, imm, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].min(imm);
@@ -623,7 +623,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegImmChoice { mem, imm, choice } => {
+                Op::MaxMemImmChoice { mem, imm, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].max(imm);
@@ -635,7 +635,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MinRegRegChoice { mem, arg, choice } => {
+                Op::MinMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].min(v[arg][i]);
@@ -647,7 +647,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegRegChoice { mem, arg, choice } => {
+                Op::MaxMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].max(v[arg][i]);
@@ -783,7 +783,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                Op::MinRegImmChoice { mem, imm, choice } => {
+                Op::MinMemImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
                     if choices.has_value(choice) {
                         for i in 0..size {
@@ -796,7 +796,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegImmChoice { mem, imm, choice } => {
+                Op::MaxMemImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
                     if choices.has_value(choice) {
                         for i in 0..size {
@@ -809,7 +809,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MinRegRegChoice { mem, arg, choice } => {
+                Op::MinMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].min(v[arg][i]);
@@ -821,7 +821,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     }
                     choices.set(choice);
                 }
-                Op::MaxRegRegChoice { mem, arg, choice } => {
+                Op::MaxMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
                             v[mem][i] = v[mem][i].max(v[arg][i]);

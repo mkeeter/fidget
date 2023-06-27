@@ -573,10 +573,10 @@ fn eliminate_dead_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
         for op in group.iter().rev() {
             match op {
                 op::Op::Store { mem, .. }
-                | op::Op::MaxRegImmChoice { mem, .. }
-                | op::Op::MinRegImmChoice { mem, .. }
-                | op::Op::MaxRegRegChoice { mem, .. }
-                | op::Op::MinRegRegChoice { mem, .. } => {
+                | op::Op::MaxMemImmChoice { mem, .. }
+                | op::Op::MinMemImmChoice { mem, .. }
+                | op::Op::MaxMemRegChoice { mem, .. }
+                | op::Op::MinMemRegChoice { mem, .. } => {
                     stored.insert(mem);
                 }
                 op::Op::Load { mem, .. } => {
@@ -745,8 +745,6 @@ pub fn buildy<F: Family>(
     /*
     println!("------------------------------------------------------------");
     for g in gt.iter().rev() {
-        println!("{:?}", g.choices);
-        println!("{}", g.choices.len());
         for op in g.tape.iter().rev() {
             println!("{op:?}");
         }
