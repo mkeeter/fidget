@@ -1,4 +1,5 @@
 //! Instruction tapes in the form of assembly for a simple virtual machine
+mod active;
 mod alloc;
 mod choice;
 mod eval;
