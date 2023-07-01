@@ -1,6 +1,7 @@
 #[derive(Copy, Clone, Default)]
 struct RegisterSet([u32; 8]);
 
+#[derive(Clone)]
 struct Node<S> {
     /// Bottom-up values, populated by pushing individual items
     accum: S,
@@ -26,6 +27,7 @@ impl Set for RegisterSet {
 }
 
 // Look upon my tree, ye mighty, and despair!
+// (this is here for reference so I can check it when writing code below)
 //
 //                  -------------------------------
 //                 /               |               \
@@ -33,20 +35,21 @@ impl Set for RegisterSet {
 //         /       |       \       |       /       |       \
 //      -------    |    -------    |    -------    |    -------
 //     /   |   \   |   /   |   \   |   /   |   \   |   /   |   \
-//     0   1   2   3   4   5   6   7   8   9  10  11  12  13  14    index
-//     0       1       2       3       4       5       6       7    item index
+//     0   1   2   3   4   5   6   7   8   9  10  11  12  13  14      index
+//     0       1       2       3       4       5       6       7      item index
 //
-//     0   1   0   1   0   1   0   1   0   1   0   1   0   1   0   1
+//     0   1   0   1   0   1   0   1   0   1   0   1   0   1   0   1  LSB
 //     0   0   1   1   0   0   1   1   0   0   1   1   0   0   1   1
 //     0   0   0   0   1   1   1   1   0   0   0   0   1   1   1   1
 //     0   0   0   0   0   0   0   0   1   1   1   1   1   1   1   1
 
-/// Set of active registers with efficient range queries
+/// Set of a bitfield-like type with efficient range queries and updates
 ///
-/// Under the hood, this is implemented as an implicit in-order forest; see
-/// [the original post](https://thume.ca/2021/03/14/iforests/) and
-/// [https://github.com/havelessbemore/dastal/blob/main/src/segmentTree/inOrderSegmentTree.md](this excellent writeup)
+/// Under the hood, this is implemented as a modified implicit in-order forest;
+/// see [the original post](https://thume.ca/2021/03/14/iforests/) and
+/// [this excellent writeup](https://github.com/havelessbemore/dastal/blob/main/src/segmentTree/inOrderSegmentTree.md)
 /// for details.
+#[derive(Clone, Default)]
 struct RangeBitset<S>(Vec<Node<S>>);
 
 impl<S> RangeBitset<S> {
@@ -73,7 +76,7 @@ impl<S> RangeBitset<S> {
     /// The iterator is specified in terms of array indexes that cover the
     /// provided range, using accumulator nodes to take large steps when
     /// possible.
-    pub fn range_iter<R>(r: R) -> impl Iterator<Item = usize>
+    fn range_iter<R>(r: R) -> impl Iterator<Item = usize>
     where
         R: std::ops::RangeBounds<usize>,
     {
@@ -127,13 +130,14 @@ impl<S> RangeBitset<S> {
     }
 }
 impl<S: Set + Copy + Clone> RangeBitset<S> {
+    /// Builds a new empty data structure
     pub fn new() -> Self {
         Self(vec![])
     }
 
     /// Pushes the given value to the list
     pub fn push(&mut self, value: S) {
-        let mut i = self.0.len(); // index of newly-pushed item
+        let i = self.0.len(); // index of newly-pushed item
 
         // Push the actual node data to the even position
         self.0.push(Node {
@@ -159,10 +163,12 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
         }
     }
 
+    /// Returns the number of items stored in this data structure
     pub fn len(&self) -> usize {
         self.0.len() / 2
     }
 
+    /// Computes a merged result across the given range
     pub fn range_query<R>(&self, r: R) -> S
     where
         R: std::ops::RangeBounds<usize>,
@@ -170,9 +176,33 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
         let mut out = S::zero();
         for i in Self::range_iter(r) {
             out.merge(&self.0[i].accum);
+            for j in Self::up(i) {
+                if let Some(v) = self.0.get(j) {
+                    out.merge(&v.value);
+                } else {
+                    break;
+                }
+            }
         }
 
         out
+    }
+
+    /// Inserts the given value across the provided range
+    pub fn update_range<R>(&mut self, r: R, new_value: S)
+    where
+        R: std::ops::RangeBounds<usize>,
+    {
+        for i in Self::range_iter(r) {
+            self.0[i].value.merge(&new_value);
+            for j in Self::up(i) {
+                if let Some(v) = self.0.get_mut(j) {
+                    v.accum.merge(&new_value);
+                } else {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -204,6 +234,32 @@ mod test {
             .prop_flat_map(|(vec, start, end)| (Just(vec), Just(start..end)))
     }
 
+    /// Returns a strategy for checking a modify operation
+    ///
+    /// The strategy is encoded in a single tuple as
+    /// `(initial values, write range, value to write, read range)`
+    fn modify_strategy() -> impl Strategy<
+        Value = (
+            Vec<u16>,
+            u16,
+            std::ops::Range<usize>,
+            std::ops::Range<usize>,
+        ),
+    > {
+        prop::collection::vec(0..u16::MAX, 1..1000)
+            .prop_flat_map(|vec| {
+                let len = vec.len();
+                (Just(vec), 0..u16::MAX, 0..len, 0..len)
+            })
+            .prop_flat_map(|(vec, v, s1, s2)| {
+                let len = vec.len();
+                (Just(vec), Just(v), Just(s1), Just(s2), s1..len, s2..len)
+            })
+            .prop_flat_map(|(vec, v, s1, s2, e1, e2)| {
+                (Just(vec), Just(v), Just(s1..e1), Just(s2..e2))
+            })
+    }
+
     fn check_bitset_construction(data: Vec<u16>, r: std::ops::Range<usize>) {
         let mut a: RangeBitset<u16> = RangeBitset::new();
         for v in &data {
@@ -213,10 +269,35 @@ mod test {
         assert_eq!(out, data[r].iter().fold(0, |a, b| a | b));
     }
 
+    fn check_bitset_modify(
+        mut data: Vec<u16>,
+        new_value: u16,
+        write_range: std::ops::Range<usize>,
+        read_range: std::ops::Range<usize>,
+    ) {
+        let mut a: RangeBitset<u16> = RangeBitset::new();
+        for v in &data {
+            a.push(*v);
+        }
+        a.update_range(write_range.clone(), new_value);
+        for i in write_range {
+            data[i] |= new_value;
+        }
+
+        let out = a.range_query(read_range.clone());
+        assert_eq!(out, data[read_range].iter().fold(0, |a, b| a | b));
+    }
+
     proptest! {
         #[test]
         fn test_bitset_construction((vec, r) in vec_and_range()) {
             check_bitset_construction(vec, r);
+        }
+        #[test]
+        fn test_bitset_modify(
+            (vec, new_value, write_range, read_range) in modify_strategy()
+        ) {
+            check_bitset_modify(vec, new_value, write_range, read_range);
         }
     }
 
