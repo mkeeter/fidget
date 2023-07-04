@@ -1,29 +1,14 @@
-#[derive(Copy, Clone, Default)]
-struct RegisterSet([u32; 8]);
+/// Trait for a bounded meet-semilattice
+pub trait Semilattice {
+    /// Returns a new identity value
+    ///
+    /// The identity does not modify other values when combined with [`meet`]
+    fn identity() -> Self;
 
-#[derive(Clone)]
-struct Node<S> {
-    /// Bottom-up values, populated by pushing individual items
-    accum: S,
-
-    /// Top-down values, populated by updating ranges
-    value: S,
-}
-
-trait Set {
-    fn zero() -> Self;
-    fn merge(&mut self, other: &Self);
-}
-
-impl Set for RegisterSet {
-    fn zero() -> Self {
-        Self([0; 8])
-    }
-    fn merge(&mut self, other: &RegisterSet) {
-        for (a, b) in self.0.iter_mut().zip(other.0.iter()) {
-            *a |= *b;
-        }
-    }
+    /// Combines two values
+    ///
+    /// This operator must be associative, commutative, and idempotent
+    fn meet(&mut self, other: &Self);
 }
 
 // Look upon my tree, ye mighty, and despair!
@@ -43,16 +28,31 @@ impl Set for RegisterSet {
 //     0   0   0   0   1   1   1   1   0   0   0   0   1   1   1
 //     0   0   0   0   0   0   0   0   1   1   1   1   1   1   1
 
-/// Set of a bitfield-like type with efficient range queries and updates
+#[derive(Clone)]
+struct Node<S> {
+    /// Bottom-up values, populated by pushing individual items
+    accum: S,
+
+    /// Top-down values, populated by updating ranges
+    value: S,
+}
+
+/// A type with efficient range queries and updates
+///
+/// This data structure stores a type that implements [`Semilattice`], which is
+/// less exotic that it sounds: one example would be integers combined with
+/// the `max` operator.
+///
+/// It supports efficient aggregate range queries, e.g. finding the `max` across
+/// a range of values; in addition, it supports range **updates**.
 ///
 /// Under the hood, this is implemented as a modified implicit in-order forest;
-/// see [the original post](https://thume.ca/2021/03/14/iforests/) and
-/// [this excellent writeup](https://github.com/havelessbemore/dastal/blob/main/src/segmentTree/inOrderSegmentTree.md)
-/// for details.
+/// see [this blog post](https://www.mattkeeter.com/blog/2023-07-03-iforest/)
+/// for details and further citations.
 #[derive(Clone, Default)]
-struct RangeBitset<S>(Vec<Node<S>>);
+pub struct RangeData<S>(Vec<Node<S>>);
 
-impl<S> RangeBitset<S> {
+impl<S> RangeData<S> {
     /// Given an array index, returns an iterator that walks to the root
     ///
     /// Note that the returned iterator does not terminate, because there could
@@ -129,7 +129,8 @@ impl<S> RangeBitset<S> {
         })
     }
 }
-impl<S: Set + Copy + Clone> RangeBitset<S> {
+
+impl<S: Semilattice + Copy + Clone> RangeData<S> {
     /// Builds a new empty data structure
     pub fn new() -> Self {
         Self(vec![])
@@ -142,20 +143,20 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
         // Push the actual node data to the even position
         self.0.push(Node {
             value,
-            accum: S::zero(),
+            accum: S::identity(),
         });
 
         // Push an empty accumulator node to the odd position
         self.0.push(Node {
-            value: S::zero(),
-            accum: S::zero(),
+            value: S::identity(),
+            accum: S::identity(),
         });
 
         // Accumulate values up the tree
         let mut value = value;
         for i in Self::up(i) {
             if let Some(n) = self.0.get_mut(i) {
-                n.accum.merge(&value);
+                n.accum.meet(&value);
                 value = n.accum;
             } else {
                 break;
@@ -168,17 +169,17 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
         self.0.len() / 2
     }
 
-    /// Computes a merged result across the given range
+    /// Computes an aggregate result across the given range
     pub fn range_query<R>(&self, r: R) -> S
     where
         R: std::ops::RangeBounds<usize>,
     {
-        let mut out = S::zero();
+        let mut out = S::identity();
         for i in Self::range_iter(r) {
-            out.merge(&self.0[i].accum);
+            out.meet(&self.0[i].accum);
             for j in Self::up(i) {
                 if let Some(v) = self.0.get(j) {
-                    out.merge(&v.value);
+                    out.meet(&v.value);
                 } else {
                     break;
                 }
@@ -194,10 +195,10 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
         R: std::ops::RangeBounds<usize>,
     {
         for i in Self::range_iter(r) {
-            self.0[i].value.merge(&new_value);
+            self.0[i].value.meet(&new_value);
             for j in Self::up(i) {
                 if let Some(v) = self.0.get_mut(j) {
-                    v.accum.merge(&new_value);
+                    v.accum.meet(&new_value);
                 } else {
                     break;
                 }
@@ -206,16 +207,40 @@ impl<S: Set + Copy + Clone> RangeBitset<S> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+/// Bitset representing active registers
+///
+/// This is 256 bits wide, since we use a `u8` to store a register index
+#[derive(Copy, Clone, Default)]
+pub struct RegisterSet([u32; 8]);
+
+impl Semilattice for RegisterSet {
+    fn identity() -> Self {
+        Self([0; 8])
+    }
+    fn meet(&mut self, other: &RegisterSet) {
+        for (a, b) in self.0.iter_mut().zip(other.0.iter()) {
+            *a |= *b;
+        }
+    }
+}
+
+/// Active registers across time, with efficient range queries and updates
+pub type ActiveRegisterRange = RangeData<RegisterSet>;
+
+////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(test)]
 mod test {
     use super::*;
     use proptest::prelude::*;
 
-    impl Set for u16 {
-        fn zero() -> u16 {
+    impl Semilattice for u16 {
+        fn identity() -> u16 {
             0
         }
-        fn merge(&mut self, v: &u16) {
+        fn meet(&mut self, v: &u16) {
             *self |= v;
         }
     }
@@ -261,7 +286,7 @@ mod test {
     }
 
     fn check_bitset_construction(data: Vec<u16>, r: std::ops::Range<usize>) {
-        let mut a: RangeBitset<u16> = RangeBitset::new();
+        let mut a: RangeData<u16> = RangeData::new();
         for v in &data {
             a.push(*v);
         }
@@ -275,7 +300,7 @@ mod test {
         write_range: std::ops::Range<usize>,
         read_range: std::ops::Range<usize>,
     ) {
-        let mut a: RangeBitset<u16> = RangeBitset::new();
+        let mut a: RangeData<u16> = RangeData::new();
         for v in &data {
             a.push(*v);
         }
@@ -303,34 +328,34 @@ mod test {
 
     #[test]
     fn test_tree_up() {
-        let mut iter = RangeBitset::<u16>::up(0);
+        let mut iter = RangeData::<u16>::up(0);
         assert_eq!(iter.next(), Some(0));
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next(), Some(3));
         assert_eq!(iter.next(), Some(7));
         assert_eq!(iter.next(), Some(15));
 
-        let mut iter = RangeBitset::<u16>::up(2);
+        let mut iter = RangeData::<u16>::up(2);
         assert_eq!(iter.next(), Some(2));
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next(), Some(3));
         assert_eq!(iter.next(), Some(7));
         assert_eq!(iter.next(), Some(15));
 
-        let mut iter = RangeBitset::<u16>::up(5);
+        let mut iter = RangeData::<u16>::up(5);
         assert_eq!(iter.next(), Some(5));
         assert_eq!(iter.next(), Some(3));
         assert_eq!(iter.next(), Some(7));
         assert_eq!(iter.next(), Some(15));
 
-        let mut iter = RangeBitset::<u16>::up(10);
+        let mut iter = RangeData::<u16>::up(10);
         assert_eq!(iter.next(), Some(10));
         assert_eq!(iter.next(), Some(9));
         assert_eq!(iter.next(), Some(11));
         assert_eq!(iter.next(), Some(7));
         assert_eq!(iter.next(), Some(15));
 
-        let mut iter = RangeBitset::<u16>::up(9);
+        let mut iter = RangeData::<u16>::up(9);
         assert_eq!(iter.next(), Some(9));
         assert_eq!(iter.next(), Some(11));
         assert_eq!(iter.next(), Some(7));
@@ -340,19 +365,19 @@ mod test {
     #[test]
     fn test_range_iter() {
         assert_eq!(
-            RangeBitset::<u16>::range_iter(1..=2).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(1..=2).collect::<Vec<_>>(),
             vec![2, 4],
         );
         assert_eq!(
-            RangeBitset::<u16>::range_iter(0..=1).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(0..=1).collect::<Vec<_>>(),
             vec![1],
         );
         assert_eq!(
-            RangeBitset::<u16>::range_iter(0..=2).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(0..=2).collect::<Vec<_>>(),
             vec![1, 4],
         );
         assert_eq!(
-            RangeBitset::<u16>::range_iter(1..6).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(1..6).collect::<Vec<_>>(),
             vec![2, 5, 9],
         );
     }
