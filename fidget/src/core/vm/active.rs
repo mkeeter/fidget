@@ -215,6 +215,32 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
 #[derive(Copy, Clone, Default)]
 pub struct RegisterSet([u32; 8]);
 
+impl RegisterSet {
+    /// Returns a new empty register set
+    pub fn new() -> Self {
+        Self::identity()
+    }
+
+    /// Marks the given register as present
+    ///
+    /// # Panics
+    /// `i` must be within the valid range (i.e. `i < 256`)
+    pub fn insert(&mut self, i: usize) {
+        self.0[i / 32] |= 1 << (i % 32);
+    }
+
+    /// Returns the lowest available register, or `None`
+    pub fn available(&self) -> Option<usize> {
+        self.0
+            .iter()
+            .enumerate()
+            .find_map(|(i, r)| match r.trailing_ones() {
+                32 => None,
+                n => Some(i as usize * 32 + n as usize),
+            })
+    }
+}
+
 impl Semilattice for RegisterSet {
     fn identity() -> Self {
         Self([0; 8])
@@ -380,5 +406,21 @@ mod test {
             RangeData::<u16>::range_iter(1..6).collect::<Vec<_>>(),
             vec![2, 5, 9],
         );
+    }
+
+    #[test]
+    fn test_registerset() {
+        let mut r = RegisterSet::new();
+        assert_eq!(r.available(), Some(0));
+        r.insert(1);
+        assert_eq!(r.available(), Some(0));
+        r.insert(0);
+        assert_eq!(r.available(), Some(2));
+        r.insert(2);
+        assert_eq!(r.available(), Some(3));
+        for i in 0..256 {
+            r.insert(i);
+        }
+        assert_eq!(r.available(), None);
     }
 }
