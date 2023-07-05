@@ -726,6 +726,24 @@ pub fn buildy<F: Family>(
         group_tapes = pass(&group_tapes);
     }
 
+    // TODO: walk the tape and accumulate active registers
+    use super::active::{ActiveRegisterRange, RegisterSet};
+    let mut active_register_range = ActiveRegisterRange::new();
+    let mut active_registers = RegisterSet::new();
+    for g in group_tapes.iter() {
+        for node in g.iter() {
+            if let Some(r) = node.out_reg() {
+                active_registers.remove(r);
+            }
+            for r in node.input_reg_iter() {
+                active_registers.insert(r);
+            }
+            active_register_range.push(active_registers);
+        }
+    }
+
+    // Convert into ChoiceTape data, which requires remapping choice keys from
+    // nodes to choice indices.
     let gt = group_tapes
         .into_iter()
         .zip(groups.into_iter())

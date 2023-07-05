@@ -76,25 +76,10 @@ impl<S> RangeData<S> {
     /// The iterator is specified in terms of array indexes that cover the
     /// provided range, using accumulator nodes to take large steps when
     /// possible.
-    fn range_iter<R>(r: R) -> impl Iterator<Item = usize>
-    where
-        R: std::ops::RangeBounds<usize>,
-    {
-        use std::ops::Bound;
-
-        // Starting point as an **item** index (not an array index!)
-        let mut start = match r.start_bound() {
-            Bound::Unbounded => 0,
-            Bound::Included(i) => *i,
-            Bound::Excluded(i) => *i + 1,
-        };
-        // Number of items remaining
-        let mut rem = match r.end_bound() {
-            Bound::Unbounded => usize::MAX,
-            Bound::Included(i) => *i + 1,
-            Bound::Excluded(i) => *i,
-        }
-        .saturating_sub(start);
+    fn range_iter(r: std::ops::Range<usize>) -> impl Iterator<Item = usize> {
+        // Remember that these are item indices, not array indices!
+        let mut start = r.start;
+        let mut rem = r.end - r.start;
 
         std::iter::from_fn(move || {
             if rem == 0 {
@@ -169,13 +154,34 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
         self.0.len() / 2
     }
 
+    /// Converts from range bounds to a valid range within this list
+    ///
+    /// The input and output are in terms of item indices, not array indices.
+    fn range_bounds_to_range<R>(&self, r: R) -> std::ops::Range<usize>
+    where
+        R: std::ops::RangeBounds<usize>,
+    {
+        use std::ops::Bound;
+        let mut start = match r.start_bound() {
+            Bound::Unbounded => 0,
+            Bound::Included(i) => *i,
+            Bound::Excluded(i) => *i + 1,
+        };
+        let mut end = match r.end_bound() {
+            Bound::Unbounded => self.0.len() / 2,
+            Bound::Included(i) => *i + 1,
+            Bound::Excluded(i) => *i,
+        };
+        start..end
+    }
+
     /// Computes an aggregate result across the given range
     pub fn range_query<R>(&self, r: R) -> S
     where
         R: std::ops::RangeBounds<usize>,
     {
         let mut out = S::identity();
-        for i in Self::range_iter(r) {
+        for i in Self::range_iter(self.range_bounds_to_range(r)) {
             out.meet(&self.0[i].accum);
             for j in Self::up(i) {
                 if let Some(v) = self.0.get(j) {
@@ -194,7 +200,7 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
     where
         R: std::ops::RangeBounds<usize>,
     {
-        for i in Self::range_iter(r) {
+        for i in Self::range_iter(self.range_bounds_to_range(r)) {
             self.0[i].value.meet(&new_value);
             for j in Self::up(i) {
                 if let Some(v) = self.0.get_mut(j) {
@@ -212,7 +218,7 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
 /// Bitset representing active registers
 ///
 /// This is 256 bits wide, since we use a `u8` to store a register index
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct RegisterSet([u32; 8]);
 
 impl RegisterSet {
@@ -225,8 +231,14 @@ impl RegisterSet {
     ///
     /// # Panics
     /// `i` must be within the valid range (i.e. `i < 256`)
-    pub fn insert(&mut self, i: usize) {
+    pub fn insert(&mut self, i: u8) {
+        let i = i as usize;
         self.0[i / 32] |= 1 << (i % 32);
+    }
+
+    pub fn remove(&mut self, i: u8) {
+        let i = i as usize;
+        self.0[i / 32] &= !(1 << (i % 32));
     }
 
     /// Returns the lowest available register, or `None`
@@ -285,6 +297,19 @@ mod test {
             .prop_flat_map(|(vec, start, end)| (Just(vec), Just(start..end)))
     }
 
+    fn vec_and_open_range(
+    ) -> impl Strategy<Value = (Vec<u16>, std::ops::RangeFrom<usize>)> {
+        prop::collection::vec(0..u16::MAX, 1..10)
+            .prop_flat_map(|vec| {
+                let len = vec.len();
+                (Just(vec), 0..len)
+            })
+            .prop_flat_map(|(vec, start)| {
+                let len = vec.len();
+                (Just(vec), Just(start..))
+            })
+    }
+
     /// Returns a strategy for checking a modify operation
     ///
     /// The strategy is encoded in a single tuple as
@@ -311,12 +336,16 @@ mod test {
             })
     }
 
-    fn check_bitset_construction(data: Vec<u16>, r: std::ops::Range<usize>) {
+    fn check_bitset_construction<R: std::ops::RangeBounds<usize> + Clone>(
+        data: Vec<u16>,
+        r: R,
+    ) {
         let mut a: RangeData<u16> = RangeData::new();
         for v in &data {
             a.push(*v);
         }
         let out = a.range_query(r.clone());
+        let r = a.range_bounds_to_range(r);
         assert_eq!(out, data[r].iter().fold(0, |a, b| a | b));
     }
 
@@ -349,6 +378,10 @@ mod test {
             (vec, new_value, write_range, read_range) in modify_strategy()
         ) {
             check_bitset_modify(vec, new_value, write_range, read_range);
+        }
+        #[test]
+        fn test_bitset_construction_open((vec, r) in vec_and_open_range()) {
+            check_bitset_construction(vec, r);
         }
     }
 
@@ -391,15 +424,15 @@ mod test {
     #[test]
     fn test_range_iter() {
         assert_eq!(
-            RangeData::<u16>::range_iter(1..=2).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(1..3).collect::<Vec<_>>(),
             vec![2, 4],
         );
         assert_eq!(
-            RangeData::<u16>::range_iter(0..=1).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(0..2).collect::<Vec<_>>(),
             vec![1],
         );
         assert_eq!(
-            RangeData::<u16>::range_iter(0..=2).collect::<Vec<_>>(),
+            RangeData::<u16>::range_iter(0..3).collect::<Vec<_>>(),
             vec![1, 4],
         );
         assert_eq!(
@@ -418,7 +451,7 @@ mod test {
         assert_eq!(r.available(), Some(2));
         r.insert(2);
         assert_eq!(r.available(), Some(3));
-        for i in 0..256 {
+        for i in 0..=u8::MAX {
             r.insert(i);
         }
         assert_eq!(r.available(), None);
