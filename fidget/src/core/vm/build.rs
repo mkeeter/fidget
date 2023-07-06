@@ -3,7 +3,7 @@ use std::{cell::Cell, sync::Arc};
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
     eval::Family,
-    vm::{alloc, op, tape, ChoiceIndex},
+    vm::{self, alloc, tape, ChoiceIndex},
     Error,
 };
 
@@ -467,7 +467,7 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
 }
 
 /// Eliminates any `Load` operation which already has the value in the register
-fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
+fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
     let mut reg_mem = BTreeMap::new();
@@ -477,7 +477,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
         let mut out = vec![];
         for op in group.iter().rev() {
             match *op {
-                op::Op::Load { reg, mem } => {
+                vm::Op::Load { reg, mem } => {
                     // If the reg-mem binding matches, then we don't need this
                     // Load operation in the tape.
                     if Some(&mem) == reg_mem.get(&reg) {
@@ -490,7 +490,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
                         reg_mem.remove(&reg);
                     }
                 }
-                op::Op::Store { reg, mem } => {
+                vm::Op::Store { reg, mem } => {
                     // Update the reg-mem binding based on this Store
                     reg_mem.insert(reg, mem);
                 }
@@ -511,7 +511,7 @@ fn eliminate_forward_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
 }
 
 /// Eliminates any `Load` operation which does not use the register
-fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
+fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     // Next up, do a pass and eliminate any Load operation which isn't used
     //
     // We do this by walking in reverse-evaluation order through each group,
@@ -525,7 +525,7 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     for group in group_tapes.iter() {
         let mut out = vec![];
         for op in group {
-            if let op::Op::Load { reg, .. } = op {
+            if let vm::Op::Load { reg, .. } = op {
                 if !active.contains(reg) {
                     continue; // skip this Load
                 }
@@ -544,15 +544,15 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
 }
 
 /// Eliminates any `Store` operation which does not have a matching `Load`
-fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
+fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
     for group in group_tapes.iter() {
         let mut out = vec![];
         for op in group {
-            if let op::Op::Load { mem, .. } = op {
+            if let vm::Op::Load { mem, .. } = op {
                 active.insert(mem);
-            } else if let op::Op::Store { mem, .. } = op {
+            } else if let vm::Op::Store { mem, .. } = op {
                 if !active.remove(mem) {
                     continue; // skip this node
                 }
@@ -565,21 +565,21 @@ fn eliminate_reverse_stores(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
 }
 
 /// Eliminate any `Load` operations that occur before a `Store`
-fn eliminate_dead_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
+fn eliminate_dead_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut stored = BTreeSet::new();
     for group in group_tapes.iter().rev() {
         let mut out = vec![];
         for op in group.iter().rev() {
             match op {
-                op::Op::Store { mem, .. }
-                | op::Op::MaxMemImmChoice { mem, .. }
-                | op::Op::MinMemImmChoice { mem, .. }
-                | op::Op::MaxMemRegChoice { mem, .. }
-                | op::Op::MinMemRegChoice { mem, .. } => {
+                vm::Op::Store { mem, .. }
+                | vm::Op::MaxMemImmChoice { mem, .. }
+                | vm::Op::MinMemImmChoice { mem, .. }
+                | vm::Op::MaxMemRegChoice { mem, .. }
+                | vm::Op::MinMemRegChoice { mem, .. } => {
                     stored.insert(mem);
                 }
-                op::Op::Load { mem, .. } => {
+                vm::Op::Load { mem, .. } => {
                     if !stored.contains(mem) {
                         continue;
                     }
@@ -595,6 +595,145 @@ fn eliminate_dead_loads(group_tapes: &[Vec<op::Op>]) -> Vec<Vec<op::Op>> {
     out_groups
 }
 
+/// Moves the persistent value in `*Choice` operations from memory to registers
+fn lower_mem_to_reg(
+    group_tapes: &[Vec<vm::Op>],
+    reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
+    use super::active::{ActiveRegisterRange, RegisterSet};
+
+    let flat: Vec<vm::Op> =
+        group_tapes.iter().flat_map(|g| g.iter()).cloned().collect();
+
+    let mut active_register_range = ActiveRegisterRange::new();
+    let mut active_registers = RegisterSet::new();
+    for node in &flat {
+        if let Some(r) = node.out_reg() {
+            active_registers.remove(r);
+        }
+        for r in node.input_reg_iter() {
+            active_registers.insert(r);
+        }
+        active_register_range.push(active_registers);
+    }
+
+    // Iterate over the list in evaluation order, tracking the lifetimes of
+    // choice operations `mem` values.
+    let mut first_seen: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut last_seen: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut lifetimes = vec![];
+    for (i, node) in flat.iter().enumerate().rev() {
+        println!("{node:?}");
+        match node {
+            vm::Op::MaxMemRegChoice { mem, .. }
+            | vm::Op::MinMemRegChoice { mem, .. }
+            | vm::Op::MaxMemImmChoice { mem, .. }
+            | vm::Op::MinMemImmChoice { mem, .. } => {
+                // If we have seen a `Load` for this memory location, then a
+                // store begins a new lifetime; flush out the previous
+                // data.
+                if let Some(last) = last_seen.remove(mem) {
+                    let first = first_seen.remove(mem).unwrap();
+                    lifetimes.push((*mem, last..=first));
+                }
+
+                // If this is the first time we're seeing this memory
+                // location, then record the index in our map
+                first_seen.entry(*mem).or_insert(i);
+            }
+            vm::Op::Store { mem, .. } => {
+                // Same as above; a Store ends the lifetime for this memory
+                // location.  However, we don't begin a new lifetime,
+                // because we're only tracking Choice operations here
+                if let Some(last) = last_seen.remove(mem) {
+                    let first = first_seen.remove(mem).unwrap();
+                    lifetimes.push((*mem, last..=first));
+                }
+            }
+            vm::Op::Load { mem, .. } => {
+                if first_seen.contains_key(mem) {
+                    last_seen.insert(*mem, i);
+                }
+            }
+            _ => (),
+        }
+    }
+    // Flush remaining elements
+    for (mem, last) in last_seen.into_iter() {
+        let first = first_seen.remove(&mem).unwrap();
+        lifetimes.push((mem, last..=first));
+    }
+
+    // Decide and apply register remapping
+    let mut flat = flat;
+    for (target_mem, range) in lifetimes {
+        if let Some(new_reg) = active_register_range
+            .range_query(range.clone())
+            .available()
+            .filter(|reg| (*reg as u8) < reg_limit)
+        {
+            for op in &mut flat[range.clone()] {
+                *op = match *op {
+                    vm::Op::MaxMemRegChoice { mem, arg, choice }
+                        if mem == target_mem =>
+                    {
+                        vm::Op::MaxRegRegChoice {
+                            reg: new_reg,
+                            arg,
+                            choice,
+                        }
+                    }
+                    vm::Op::MinMemRegChoice { mem, arg, choice }
+                        if mem == target_mem =>
+                    {
+                        vm::Op::MinRegRegChoice {
+                            reg: new_reg,
+                            arg,
+                            choice,
+                        }
+                    }
+                    vm::Op::MaxMemImmChoice { mem, imm, choice }
+                        if mem == target_mem =>
+                    {
+                        vm::Op::MaxRegImmChoice {
+                            reg: new_reg,
+                            imm,
+                            choice,
+                        }
+                    }
+                    vm::Op::MinMemImmChoice { mem, imm, choice }
+                        if mem == target_mem =>
+                    {
+                        vm::Op::MinRegImmChoice {
+                            reg: new_reg,
+                            imm,
+                            choice,
+                        }
+                    }
+                    vm::Op::Load { mem, reg } if mem == target_mem => {
+                        vm::Op::CopyReg {
+                            out: reg,
+                            arg: new_reg,
+                        }
+                    }
+                    op => op,
+                }
+            }
+            active_register_range.update_range(range, new_reg.into());
+        }
+    }
+
+    // Unflatten back into a nested structure
+    let mut out = vec![];
+    let mut slice = flat.as_slice();
+    for n in group_tapes.iter().map(|g| g.len()) {
+        let (first, rest) = slice.split_at(n);
+        out.push(first.iter().cloned().collect());
+        slice = rest;
+    }
+    out
+}
+
 pub fn buildy<F: Family>(
     ctx: &Context,
     root: Node,
@@ -602,7 +741,7 @@ pub fn buildy<F: Family>(
 ) -> Result<tape::TapeData<F>, Error> {
     if let Some(c) = ctx.const_value(root).unwrap() {
         let t = tape::ChoiceTape {
-            tape: vec![op::Op::CopyImm {
+            tape: vec![vm::Op::CopyImm {
                 out: 0,
                 imm: c as f32,
             }],
@@ -726,22 +865,10 @@ pub fn buildy<F: Family>(
         group_tapes = pass(&group_tapes);
     }
 
-    // TODO: walk the tape and accumulate active registers
-    use super::active::{ActiveRegisterRange, RegisterSet};
-    let mut active_register_range = ActiveRegisterRange::new();
-    let mut active_registers = RegisterSet::new();
-    for g in group_tapes.iter() {
-        for node in g.iter() {
-            if let Some(r) = node.out_reg() {
-                active_registers.remove(r);
-            }
-            for r in node.input_reg_iter() {
-                active_registers.insert(r);
-            }
-            active_register_range.push(active_registers);
-        }
-    }
+    // More optimizations!
+    group_tapes = lower_mem_to_reg(&group_tapes, F::REG_LIMIT);
 
+    //
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
     let gt = group_tapes
@@ -760,7 +887,6 @@ pub fn buildy<F: Family>(
         .filter(|t| !t.tape.is_empty())
         .collect::<Vec<_>>();
 
-    /*
     println!("------------------------------------------------------------");
     for g in gt.iter().rev() {
         for op in g.tape.iter().rev() {
@@ -768,7 +894,7 @@ pub fn buildy<F: Family>(
         }
         println!();
     }
-    */
+
     Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
 
@@ -790,7 +916,7 @@ mod test {
         let t = buildy::<crate::vm::Eval>(&ctx, root, 9).unwrap();
         assert!(t.slot_count() <= 255);
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
-            assert!(!matches!(op, op::Op::Load { .. } | op::Op::Store { .. }));
+            assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
     }
 

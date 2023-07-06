@@ -149,11 +149,6 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
         }
     }
 
-    /// Returns the number of items stored in this data structure
-    pub fn len(&self) -> usize {
-        self.0.len() / 2
-    }
-
     /// Converts from range bounds to a valid range within this list
     ///
     /// The input and output are in terms of item indices, not array indices.
@@ -162,12 +157,12 @@ impl<S: Semilattice + Copy + Clone> RangeData<S> {
         R: std::ops::RangeBounds<usize>,
     {
         use std::ops::Bound;
-        let mut start = match r.start_bound() {
+        let start = match r.start_bound() {
             Bound::Unbounded => 0,
             Bound::Included(i) => *i,
             Bound::Excluded(i) => *i + 1,
         };
-        let mut end = match r.end_bound() {
+        let end = match r.end_bound() {
             Bound::Unbounded => self.0.len() / 2,
             Bound::Included(i) => *i + 1,
             Bound::Excluded(i) => *i,
@@ -242,14 +237,22 @@ impl RegisterSet {
     }
 
     /// Returns the lowest available register, or `None`
-    pub fn available(&self) -> Option<usize> {
+    pub fn available(&self) -> Option<u8> {
         self.0
             .iter()
             .enumerate()
             .find_map(|(i, r)| match r.trailing_ones() {
                 32 => None,
-                n => Some(i as usize * 32 + n as usize),
+                n => Some(i as u8 * 32 + n as u8),
             })
+    }
+}
+
+impl From<u8> for RegisterSet {
+    fn from(i: u8) -> Self {
+        let mut out = Self::new();
+        out.insert(i);
+        out
     }
 }
 
@@ -304,10 +307,7 @@ mod test {
                 let len = vec.len();
                 (Just(vec), 0..len)
             })
-            .prop_flat_map(|(vec, start)| {
-                let len = vec.len();
-                (Just(vec), Just(start..))
-            })
+            .prop_flat_map(|(vec, start)| (Just(vec), Just(start..)))
     }
 
     /// Returns a strategy for checking a modify operation

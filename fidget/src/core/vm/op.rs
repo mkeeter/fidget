@@ -54,15 +54,27 @@ pub enum Op {
     /// Compute the maximum of a register and an immediate
     MaxRegImm { out: u8, arg: u8, imm: f32 },
 
-    /// Compute the in-place minimum of a register and an immediate
+    /// Compute the in-place minimum of a memory slot and an immediate
     MinMemImmChoice {
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     },
-    /// Compute the in-place maximum of a register and an immediate
+    /// Compute the in-place maximum of a memory slot and an immediate
     MaxMemImmChoice {
         mem: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    },
+    /// Compute the in-place minimum of a register and an immediate
+    MinRegImmChoice {
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    },
+    /// Compute the in-place maximum of a register and an immediate
+    MaxRegImmChoice {
+        reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     },
@@ -80,21 +92,36 @@ pub enum Op {
     /// Take the maximum of two registers
     MaxRegReg { out: u8, lhs: u8, rhs: u8 },
 
-    /// Take the minimum of two registers
+    /// Compute the in-place minimum of a memory slot and a register
     MinMemRegChoice {
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
     },
-    /// Take the maximum of two registers
+    /// Compute the in-place maximum of a memory slot and a register
     MaxMemRegChoice {
         mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    },
+    /// Compute the in-place minimum of two registers
+    MinRegRegChoice {
+        reg: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    },
+    /// Compute the in-place maximum of two registers
+    MaxRegRegChoice {
+        reg: u8,
         arg: u8,
         choice: ChoiceIndex,
     },
 
     /// Copy an immediate to a register
     CopyImm { out: u8, imm: f32 },
+
+    /// Copy from one register to another
+    CopyReg { out: u8, arg: u8 },
 
     /// Read from a memory slot to a register
     Load { reg: u8, mem: u32 },
@@ -106,7 +133,9 @@ impl Op {
     /// Returns the output register associated with this operation
     ///
     /// Every operation has an output register except [`Store`](Op::Store)
-    /// (which takes a single input register and writes it to memory)
+    /// (which takes a single input register and writes it to memory) and the
+    /// `(Min|Max)Mem(Reg|Imm)Choice` family of operations, which operate
+    /// in-place on a memory slot.
     pub fn out_reg(&self) -> Option<u8> {
         match self {
             Op::Load { .. }
@@ -136,7 +165,12 @@ impl Op {
             | Op::DivImmReg { out, .. }
             | Op::SubRegReg { out, .. }
             | Op::SubRegImm { out, .. }
-            | Op::SubImmReg { out, .. } => Some(*out),
+            | Op::SubImmReg { out, .. }
+            | Op::CopyReg { out, .. } => Some(*out),
+            Op::MinRegRegChoice { reg, .. }
+            | Op::MaxRegRegChoice { reg, .. }
+            | Op::MinRegImmChoice { reg, .. }
+            | Op::MaxRegImmChoice { reg, .. } => Some(*reg),
         }
     }
 
@@ -163,7 +197,8 @@ impl Op {
             | Op::MinRegImm { arg, .. }
             | Op::MaxRegImm { arg, .. }
             | Op::MinMemRegChoice { arg, .. }
-            | Op::MaxMemRegChoice { arg, .. } => [Some(arg), None],
+            | Op::MaxMemRegChoice { arg, .. }
+            | Op::CopyReg { arg, .. } => [Some(arg), None],
             Op::AddRegReg { lhs, rhs, .. }
             | Op::MulRegReg { lhs, rhs, .. }
             | Op::DivRegReg { lhs, rhs, .. }
@@ -171,6 +206,10 @@ impl Op {
             | Op::MinRegReg { lhs, rhs, .. }
             | Op::MaxRegReg { lhs, rhs, .. } => [Some(lhs), Some(rhs)],
             Op::Store { reg, .. } => [Some(reg), None],
+            Op::MinRegRegChoice { reg, arg, .. }
+            | Op::MaxRegRegChoice { reg, arg, .. } => [Some(reg), Some(arg)],
+            Op::MinRegImmChoice { reg, .. }
+            | Op::MaxRegImmChoice { reg, .. } => [Some(reg), None],
         }
         .into_iter()
         .flatten()
@@ -196,7 +235,8 @@ impl Op {
             | Op::SubImmReg { out, arg, .. }
             | Op::SubRegImm { out, arg, .. }
             | Op::MinRegImm { out, arg, .. }
-            | Op::MaxRegImm { out, arg, .. } => {
+            | Op::MaxRegImm { out, arg, .. }
+            | Op::CopyReg { out, arg } => {
                 [Some(out as u32), Some(arg as u32), None]
             }
             Op::MinMemImmChoice { mem, .. }
@@ -216,6 +256,12 @@ impl Op {
             Op::Store { reg, mem } | Op::Load { reg, mem } => {
                 [Some(reg as u32), Some(mem as u32), None]
             }
+            Op::MinRegRegChoice { reg, arg, .. }
+            | Op::MaxRegRegChoice { reg, arg, .. } => {
+                [Some(reg as u32), Some(arg as u32), None]
+            }
+            Op::MinRegImmChoice { reg, .. }
+            | Op::MaxRegImmChoice { reg, .. } => [Some(reg as u32), None, None],
         }
         .into_iter()
         .flatten()
