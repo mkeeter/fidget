@@ -623,7 +623,6 @@ fn lower_mem_to_reg(
     let mut last_seen: BTreeMap<u32, usize> = BTreeMap::new();
     let mut lifetimes = vec![];
     for (i, node) in flat.iter().enumerate().rev() {
-        println!("{node:?}");
         match node {
             vm::Op::MaxMemRegChoice { mem, .. }
             | vm::Op::MinMemRegChoice { mem, .. }
@@ -868,7 +867,13 @@ pub fn buildy<F: Family>(
     // More optimizations!
     group_tapes = lower_mem_to_reg(&group_tapes, F::REG_LIMIT);
 
-    //
+    // I'm not sure why spurious Store operations are left in the tape at this
+    // point, but we'll do one more pass to clean them out.
+    group_tapes = eliminate_reverse_stores(&group_tapes);
+
+    // TODO: eliminate CopyReg operations?
+    // TODO: compactify remaining memory slots?
+
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
     let gt = group_tapes
@@ -887,6 +892,7 @@ pub fn buildy<F: Family>(
         .filter(|t| !t.tape.is_empty())
         .collect::<Vec<_>>();
 
+    /*
     println!("------------------------------------------------------------");
     for g in gt.iter().rev() {
         for op in g.tape.iter().rev() {
@@ -894,6 +900,7 @@ pub fn buildy<F: Family>(
         }
         println!();
     }
+    */
 
     Ok(tape::TapeData::new(gt, alloc.var_names()))
 }
