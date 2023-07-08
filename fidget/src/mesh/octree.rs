@@ -565,7 +565,7 @@ impl OctreeBuilder {
             CellResult::Done(Cell::Empty)
         } else {
             let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
-                r.map(|r| {
+                r.map(|mut r| {
                     Arc::new(EvalGroup::new(r.simplify_with(
                         storage.tape_storage.pop().unwrap_or_default(),
                     )))

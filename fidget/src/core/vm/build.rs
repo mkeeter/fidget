@@ -64,7 +64,23 @@ fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
 struct UnorderedGroup {
     key: BTreeSet<ChoiceClause>,
     actual_nodes: BTreeSet<Node>,
+
+    /// Nodes which belong to this group, but are in practice written by
+    /// in-place operations at the end of other groups.
+    ///
+    /// For example, `min(x, y)` would have three groups:
+    /// ```
+    /// [x, InPlaceMin(out, x)]
+    /// [y, InPlaceMin(out, y)]
+    /// []
+    /// ```
+    /// The last group has a virtual node representing the result of the `min`.
     virtual_nodes: BTreeSet<Node>,
+
+    /// Parent `min` and `max` nodes
+    ///
+    /// These must be written by the output of the group, and should be a subset
+    /// of [`self.key`]
     parents: BTreeSet<ChoiceClause>,
 }
 
@@ -73,7 +89,34 @@ struct OrderedGroup {
     key: BTreeSet<ChoiceClause>,
     actual_nodes: Vec<Node>,
     virtual_nodes: BTreeSet<Node>,
+
+    /// Virtual input node, for when we peel off an in-place operation
+    virtual_input: Option<Node>,
+
     parents: BTreeSet<ChoiceClause>,
+}
+
+impl OrderedGroup {
+    fn output(&self) -> Node {
+        // Because the group is sorted, the output node will be the first one
+        //
+        // If there are no actual nodes, then there must be a single virtual
+        // node (either in `virtual_nodes` or `virtual_input`, but not both),
+        // and that must be the output of the group.
+        if self.actual_nodes.is_empty() {
+            if self.virtual_nodes.len() > 0 {
+                assert_eq!(self.virtual_nodes.len(), 1);
+                self.virtual_nodes.iter().cloned().next().unwrap()
+            } else if let Some(out) = self.virtual_input {
+                out
+            } else {
+                panic!("no output");
+            }
+        } else {
+            assert!(self.virtual_input.is_none());
+            self.actual_nodes[0]
+        }
+    }
 }
 
 /// Finds groups of nodes based on choices at `min` / `max` operations
@@ -462,6 +505,7 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
         key: group.key,
         actual_nodes: ordered_nodes,
         virtual_nodes: group.virtual_nodes,
+        virtual_input: None,
         parents: group.parents,
     }
 }
@@ -745,6 +789,7 @@ pub fn buildy<F: Family>(
                 imm: c as f32,
             }],
             choices: vec![],
+            clear: vec![],
         };
         return Ok(tape::TapeData::new(vec![t], BTreeMap::new()));
     }
@@ -799,7 +844,7 @@ pub fn buildy<F: Family>(
     }
     let mut node_to_choice_index: BTreeMap<Node, usize> = BTreeMap::new();
     let mut offset = 0;
-    for (node, choice_count) in choices_per_node {
+    for (&node, &choice_count) in &choices_per_node {
         node_to_choice_index.insert(node, offset);
         offset += choice_count / 8 + 1;
     }
@@ -808,6 +853,52 @@ pub fn buildy<F: Family>(
     let groups: Vec<OrderedGroup> =
         groups.into_iter().map(|g| sort_nodes(ctx, g)).collect();
 
+    // At this point, we have an ordered set of ordered groups.  We'll do one
+    // more pass here to peel off min/max nodes if their choice is a subset of
+    // the group choice, for more efficient tape simplification.
+    //
+    // In other words, if we had a group with a multi-element key:
+    // ```
+    //  [ChoiceIndex { index: 0, bit: 1 }, ChoiceIndex { index: 1, bit: 1 }]
+    //    MaxRegReg { reg: 3, arg: 1, choice: ChoiceIndex { index: 0, bit: 1 } }
+    //    Input { out: 1, input: 1 }
+    // ```
+    //
+    // It will split into two groups; notice that the upper group can then be
+    // skipped during tape pruning.
+    // ```
+    // [ChoiceIndex { index: 0, bit: 1 }]
+    //    MaxRegReg { reg: 3, arg: 1, choice: ChoiceIndex { index: 0, bit: 1 } }
+    //
+    // [ChoiceIndex { index: 0, bit: 1 }, ChoiceIndex { index: 1, bit: 1 }]
+    //    Input { out: 1, input: 1 }
+    // ```
+    let mut new_groups = vec![];
+    for mut g in groups.into_iter() {
+        let mut to_remove = BTreeSet::new();
+        for p in &g.parents {
+            if g.key.len() > 1 {
+                let key: BTreeSet<_> = [*p].into_iter().collect();
+                new_groups.push(OrderedGroup {
+                    key: key.clone(),
+                    actual_nodes: vec![],
+                    virtual_input: Some(g.output()),
+                    virtual_nodes: BTreeSet::new(),
+                    parents: key.clone(),
+                });
+                to_remove.insert(*p);
+            } else {
+                assert_eq!(g.key.iter().next().unwrap(), p);
+            }
+        }
+        for r in to_remove {
+            g.parents.remove(&r);
+        }
+        new_groups.push(g);
+    }
+    let groups = new_groups;
+
+    // Prepare for register allocation!
     let mut first_seen = BTreeMap::new();
     for (i, group) in groups.iter().enumerate().rev() {
         for c in &group.parents {
@@ -815,21 +906,13 @@ pub fn buildy<F: Family>(
         }
     }
 
+    // Perform register allocation, collecting group tapes
     let mut group_tapes = vec![];
     let mut alloc = alloc::RegisterAllocator::new(ctx, root, F::REG_LIMIT);
     for (i, group) in groups.iter().enumerate() {
-        // Because the group is sorted, the output node will be the first one
-        //
-        // If there are no actual nodes, then there must be a single virtual
-        // node and that must be the output of the group.
-        let out = if group.actual_nodes.is_empty() {
-            assert_eq!(group.virtual_nodes.len(), 1);
-            group.virtual_nodes.iter().cloned().next().unwrap()
-        } else {
-            group.actual_nodes[0]
-        };
+        let out = group.output();
 
-        // Add virtual nodes for any n-ary operations associated with this group
+        // Add in-place nodes for n-ary operations associated with this group
         for k in group.parents.iter() {
             let c = node_to_choice_index[&k.root];
             alloc.nary_op(k.root, out, ChoiceIndex::new(c, k.choice));
@@ -879,15 +962,28 @@ pub fn buildy<F: Family>(
     let gt = group_tapes
         .into_iter()
         .zip(groups.into_iter())
-        .map(|(g, k)| tape::ChoiceTape {
-            tape: g,
-            choices: k
+        .map(|(g, k)| {
+            let choices = k
                 .key
                 .into_iter()
                 .map(|d| {
                     ChoiceIndex::new(node_to_choice_index[&d.root], d.choice)
                 })
-                .collect(),
+                .collect();
+            let clear = k
+                .virtual_nodes
+                .iter()
+                .map(|n| {
+                    let start = node_to_choice_index[n];
+                    let count = choices_per_node[n];
+                    start..(start + (count + 7) / 8)
+                })
+                .collect();
+            tape::ChoiceTape {
+                tape: g,
+                choices,
+                clear,
+            }
         })
         .filter(|t| !t.tape.is_empty())
         .collect::<Vec<_>>();

@@ -129,7 +129,7 @@ where
         );
         let r = if simplify {
             Some(TracingEvalResult {
-                choices: data.choices.as_slice(),
+                choices: data.choices.as_mut(),
                 tape: self.tape.clone(),
                 _p: std::marker::PhantomData,
             })
@@ -243,21 +243,24 @@ pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<u8>>;
 
 /// Result of a tracing evaluation using borrowed data for the choice array
 pub type BorrowedTracingEvalResult<'a, T, F> =
-    TracingEvalResult<T, F, &'a [u8]>;
+    TracingEvalResult<T, F, &'a mut [u8]>;
 
 impl<D, F, B> TracingEvalResult<D, F, B>
 where
     F: Family,
-    B: std::borrow::Borrow<[u8]>,
+    B: std::borrow::BorrowMut<[u8]>,
 {
     /// Simplifies the tape based on the most recent evaluation
-    pub fn simplify(&self) -> Tape<F> {
-        self.tape.simplify(self.choices())
+    pub fn simplify(&mut self) -> Tape<F> {
+        self.tape.simplify(self.choices.borrow_mut())
     }
 
     /// Simplifies based on the most recent evaluation, reusing allocations
-    pub fn simplify_with(&self, prev: TapeSpecialization) -> Tape<F> {
-        self.tape.simplify_with(self.choices(), prev)
+    ///
+    /// This takes a mutable reference because `self.choices` is modified during
+    /// simplification; earlier groups can de-activate later groups.
+    pub fn simplify_with(&mut self, prev: TapeSpecialization) -> Tape<F> {
+        self.tape.simplify_with(self.choices.borrow_mut(), prev)
     }
 
     /// Returns a read-only view into the choice bitfield data.

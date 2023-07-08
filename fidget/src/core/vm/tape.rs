@@ -92,6 +92,9 @@ pub struct ChoiceTape {
     /// As a special case, the always-selected (root) tape is represented with
     /// an empty vector.
     pub choices: Vec<ChoiceIndex>,
+
+    /// When this group is inactive, clear the given choice ranges
+    pub clear: Vec<std::ops::Range<usize>>,
 }
 
 impl<F: Family> TapeData<F> {
@@ -220,7 +223,7 @@ impl<F> Tape<F> {
     ///
     /// # Panics
     /// The input `choices` must match our internal choice array size
-    pub fn simplify(&self, choices: &[u8]) -> Self {
+    pub fn simplify(&self, choices: &mut [u8]) -> Self {
         self.simplify_with(choices, TapeSpecialization::default())
     }
 
@@ -237,7 +240,7 @@ impl<F> Tape<F> {
     /// Simplifies a tape, reusing allocations from an [`TapeSpecialization`]
     pub fn simplify_with(
         &self,
-        choices: &[u8],
+        choices: &mut [u8],
         mut prev: TapeSpecialization,
     ) -> Self {
         prev.active_groups.clear();
@@ -250,6 +253,12 @@ impl<F> Tape<F> {
                     .any(|&c| choices[c.end()] & (1 << (c.bit % 8)) != 0);
             if still_active {
                 prev.active_groups.push(g);
+            } else {
+                for clear_range in choice_tape.clear.iter() {
+                    for c in &mut choices[clear_range.clone()] {
+                        *c = 0;
+                    }
+                }
             }
         }
         Self(Arc::new((self.data().clone(), prev)))

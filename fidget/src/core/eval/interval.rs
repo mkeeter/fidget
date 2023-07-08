@@ -521,6 +521,71 @@ pub mod eval_tests {
         );
     }
 
+    pub fn test_i_fancy_simplify<I: Family>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let corner = ctx.max(x, y).unwrap();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let sum = ctx.add(x2, y2).unwrap();
+        let r = ctx.sqrt(sum).unwrap();
+        let circle = ctx.sub(r, 0.5).unwrap();
+        let out = ctx.min(corner, circle).unwrap();
+
+        let tape = ctx.get_tape::<I>(out).unwrap();
+        let initial_size = tape.len();
+
+        // Rough visualization of our model:
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                                                 |
+        //                                 XX                              |
+        //                           XXXXXXXXXXXXXX                        |
+        //                       XXXXXXXXXXXXXXXXXXXXXX                    |
+        //                     XXXXXXXXXXXXXXXXXXXXXXXXXX                  |
+        //                     XXXXXXXXXXXXXXXXXXXXXXXXXX                  |
+        //                   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        //                   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        //                   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                  |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                  |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                    |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                        |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                                |
+        //
+        // We're going to perform interval evaluation on the upper-right corner,
+        // which should flatten out to the circle.
+
+        let eval = tape.new_interval_evaluator();
+        let (_out, data) =
+            eval.eval([0.6, 0.7], [0.6, 0.7], [0.0; 2], &[]).unwrap();
+        let tape = data.unwrap().simplify();
+
+        // We expect to prune the following:
+        // - MinRegRegChoice (to combine the corner with the circle)
+        // - CopyReg (setup for that MinRegRegChoice)
+        // - MaxRegRegChoice (for x side of corner)
+        // - MaxRegRegChoice (for y side of corner)
+        assert_eq!(tape.len(), initial_size - 4);
+    }
+
     #[macro_export]
     macro_rules! interval_test {
         ($i:ident, $t:ty) => {
@@ -550,6 +615,7 @@ pub mod eval_tests {
             $crate::interval_test!(test_i_max, $t);
             $crate::interval_test!(test_i_max_imm, $t);
             $crate::interval_test!(test_i_simplify, $t);
+            $crate::interval_test!(test_i_fancy_simplify, $t);
             $crate::interval_test!(test_i_var, $t);
         };
     }

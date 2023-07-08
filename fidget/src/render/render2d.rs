@@ -230,7 +230,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let z = Interval::new(0.0, 0.0);
 
         let mut data = std::mem::take(&mut self.interval_data[depth]);
-        let (i, simplify) =
+        let (i, mut simplify) =
             i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
 
         let fill = mode.interval(i, depth);
@@ -243,7 +243,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         } else if let Some(next_tile_size) =
             self.config.tile_sizes.get(depth + 1)
         {
-            let sub_tape = if let Some(data) = simplify.as_ref() {
+            let sub_tape = if let Some(data) = simplify.as_mut() {
                 data.simplify_with(std::mem::take(&mut self.spare_tapes[depth]))
             } else {
                 i_handle.tape()
@@ -276,7 +276,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         } else {
             // TODO this is not a place of honor
-            let sub_tape = if let Some(simplify) = simplify.as_ref() {
+            let sub_tape = if let Some(simplify) = simplify.as_mut() {
                 simplify.simplify_with(std::mem::take(
                     &mut self.spare_tapes.last_mut().unwrap(),
                 ))

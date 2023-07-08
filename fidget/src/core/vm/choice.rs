@@ -54,9 +54,9 @@ impl Choices {
         self.0.fill(t);
     }
 
-    /// Returns an immutable view into the choice data array
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
+    /// Returns an mutable view into the choice data array
+    pub fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
     }
 
     /// Returns the inner data array

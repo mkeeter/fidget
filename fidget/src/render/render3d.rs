@@ -213,7 +213,7 @@ impl<I: Family> Worker<'_, I> {
         let z = Interval::new(z_min, z_max);
 
         let mut data_interval = std::mem::take(&mut self.scratch.data_interval);
-        let (i, simplify) = eval
+        let (i, mut simplify) = eval
             .interval
             .get_or_insert_with(|| {
                 let storage = self.interval_storage[eval.level].take().unwrap();
@@ -242,7 +242,7 @@ impl<I: Family> Worker<'_, I> {
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
         let (mut sub_eval, mut prev_sibling) =
-            if let Some(simplify) = simplify.as_ref() {
+            if let Some(simplify) = simplify.as_mut() {
                 // See if our previous tape shortening used the exact same set of
                 // choices; in that case, then we can reuse it.
                 //
