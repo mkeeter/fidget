@@ -10,7 +10,7 @@ pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
 use crate::{eval::Family, vm::Tape, Error};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
