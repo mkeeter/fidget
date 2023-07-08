@@ -1,7 +1,9 @@
 //! 2D bitmap rendering / rasterization
 use crate::{
     eval::{
-        float_slice::{FloatSliceEval, FloatSliceEvalStorage},
+        float_slice::{
+            FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
+        },
         interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
         tape::{Data as TapeData, Tape, Workspace},
         types::Interval,
@@ -187,6 +189,9 @@ struct Worker<'a, I: Family, M: RenderMode> {
     /// Workspace for interval evaluators, based on recursion depth
     interval_data: Vec<IntervalEvalData<I>>,
 
+    /// Workspace for pixel evaluators
+    float_data: FloatSliceEvalData<I>,
+
     spare_tapes: Vec<TapeData>,
     workspace: Workspace,
 }
@@ -338,7 +343,13 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             let func = sub_tape.new_float_slice_evaluator_with_storage(storage);
 
             let out = func
-                .eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
+                .eval_with(
+                    &self.scratch.x,
+                    &self.scratch.y,
+                    &self.scratch.z,
+                    &[],
+                    &mut self.float_data,
+                )
                 .unwrap();
 
             // We consume the evaluator, so any reuse of memory between the
@@ -354,8 +365,14 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 prev_tape.new_float_slice_evaluator_with_storage(storage)
             });
 
-            func.eval(&self.scratch.x, &self.scratch.y, &self.scratch.z, &[])
-                .unwrap()
+            func.eval_with(
+                &self.scratch.x,
+                &self.scratch.y,
+                &self.scratch.z,
+                &[],
+                &mut self.float_data,
+            )
+            .unwrap()
 
             // Don't release func to self.float_storage[0] here; it's done by
             // the parent caller at the end of subtile iteration.
@@ -397,6 +414,7 @@ fn worker<I: Family, M: RenderMode>(
         spare_tapes: (0..config.tile_sizes.len())
             .map(|_| Default::default())
             .collect(),
+        float_data: Default::default(),
         workspace: Default::default(),
     };
     while let Some(tile) = queue.next() {
