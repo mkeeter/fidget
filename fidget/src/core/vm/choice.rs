@@ -11,6 +11,13 @@ pub struct ChoiceIndex {
     pub bit: u16,
 }
 
+/// A masked lookup for use in the [`Choices`] array
+#[derive(Copy, Clone, Debug)]
+pub struct ChoiceMask {
+    pub index: u16,
+    pub mask: u8,
+}
+
 impl ChoiceIndex {
     pub fn new(index: usize, bit: usize) -> Self {
         Self {

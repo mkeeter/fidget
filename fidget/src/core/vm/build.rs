@@ -3,7 +3,7 @@ use std::{cell::Cell, sync::Arc};
 use crate::{
     context::{BinaryOpcode, Context, Node, Op},
     eval::Family,
-    vm::{self, alloc, tape, ChoiceIndex},
+    vm::{self, alloc, tape, ChoiceIndex, ChoiceMask},
     Error,
 };
 
@@ -959,15 +959,23 @@ pub fn buildy<F: Family>(
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
-    let gt = group_tapes
+    let mut gt = group_tapes
         .into_iter()
         .zip(groups.into_iter())
         .map(|(g, k)| {
-            let choices = k
-                .key
+            let mut choices = BTreeMap::new();
+            for d in k.key.into_iter() {
+                let mut index = node_to_choice_index[&d.root];
+                let mut choice = d.choice;
+                index += choice / 8;
+                let bit = choice % 8;
+                *choices.entry(index).or_default() |= 1 << bit;
+            }
+            let choices = choices
                 .into_iter()
-                .map(|d| {
-                    ChoiceIndex::new(node_to_choice_index[&d.root], d.choice)
+                .map(|(index, mask)| ChoiceMask {
+                    index: index.try_into().unwrap(),
+                    mask,
                 })
                 .collect();
             let clear = k

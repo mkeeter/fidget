@@ -6,7 +6,7 @@ use crate::{
         interval::IntervalEvalStorage, point::PointEvalStorage, Family,
         FloatSliceEval, GradSliceEval, IntervalEval, PointEval,
     },
-    vm::{ChoiceIndex, Op},
+    vm::{ChoiceMask, Op},
 };
 
 /// Evaluation tape, which is an ordered set of functions
@@ -91,7 +91,7 @@ pub struct ChoiceTape {
     ///
     /// As a special case, the always-selected (root) tape is represented with
     /// an empty vector.
-    pub choices: Vec<ChoiceIndex>,
+    pub choices: Vec<ChoiceMask>,
 
     /// When this group is inactive, clear the given choice ranges
     pub clear: Vec<std::ops::Range<usize>>,
@@ -103,7 +103,7 @@ impl<F: Family> TapeData<F> {
         let choice_array_size = data
             .iter()
             .flat_map(|t| t.choices.iter())
-            .map(|c| c.index + c.bit / 8)
+            .map(|c| c.index)
             .max()
             .map(|i| i + 1)
             .unwrap_or(0) as usize;
@@ -250,7 +250,7 @@ impl<F> Tape<F> {
             let still_active = choice_sel.is_empty()
                 || choice_sel
                     .iter()
-                    .any(|&c| choices[c.end()] & (1 << (c.bit % 8)) != 0);
+                    .any(|&c| choices[c.index as usize] & c.mask != 0);
             if still_active {
                 prev.active_groups.push(g);
             } else {

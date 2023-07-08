@@ -9,7 +9,7 @@ mod tape;
 
 pub(crate) mod build;
 
-pub use choice::{ChoiceIndex, Choices};
+pub use choice::{ChoiceIndex, ChoiceMask, Choices};
 pub use eval::Eval;
 pub use op::Op;
 pub use tape::{Tape, TapeData, TapeSpecialization};
