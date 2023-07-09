@@ -1047,7 +1047,19 @@ mod test {
 
     #[test]
     fn test_inlining() {
-        let (ctx, root) = Context::from_text(PROSPERO.as_bytes()).unwrap();
+        // Manually reduced test case
+        let mut ctx = Context::new();
+        let y = ctx.y();
+        let f1 = ctx.constant(1.0);
+        let a = ctx.sub(y, f1).unwrap();
+        let x = ctx.x();
+        let f2 = ctx.constant(2.0);
+        let b = ctx.sub(x, f1).unwrap();
+        let c = ctx.neg(x).unwrap();
+        let d = ctx.max(a, b).unwrap();
+        let e = ctx.max(d, c).unwrap();
+        let f = ctx.sub(y, f2).unwrap();
+        let root = ctx.max(e, f).unwrap();
 
         let t0: Tape<_> = buildy::<Eval>(&ctx, root, 0).unwrap().into();
         let t9: Tape<_> = buildy::<Eval>(&ctx, root, 9).unwrap().into();
