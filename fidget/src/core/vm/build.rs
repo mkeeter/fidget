@@ -1022,23 +1022,43 @@ pub fn buildy<F: Family>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{
+        vm::{Eval, Tape},
+        Context,
+    };
+
+    const PROSPERO: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../models/prospero.vm"
+    ));
 
     #[test]
     fn test_dead_load_store() {
-        const PROSPERO: &str = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../models/prospero.vm"
-        ));
-        let (ctx, root) =
-            crate::Context::from_text(PROSPERO.as_bytes()).unwrap();
+        let (ctx, root) = Context::from_text(PROSPERO.as_bytes()).unwrap();
 
         // When planning for the interpreter, we get tons of registers, so we
         // should never see a Load or Store operation.
-        let t = buildy::<crate::vm::Eval>(&ctx, root, 9).unwrap();
+        let t = buildy::<Eval>(&ctx, root, 0).unwrap();
         assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
+    }
+
+    #[test]
+    fn test_inlining() {
+        let (ctx, root) = Context::from_text(PROSPERO.as_bytes()).unwrap();
+
+        let t0: Tape<_> = buildy::<Eval>(&ctx, root, 0).unwrap().into();
+        let t9: Tape<_> = buildy::<Eval>(&ctx, root, 9).unwrap().into();
+
+        let eval0 = t0.new_point_evaluator();
+        let eval9 = t9.new_point_evaluator();
+
+        assert_eq!(
+            eval0.eval(0.0, 0.0, 0.0, &[]).unwrap().0,
+            eval9.eval(0.0, 0.0, 0.0, &[]).unwrap().0
+        );
     }
 
     #[test]
