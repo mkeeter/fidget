@@ -270,6 +270,17 @@ fn find_groups(
         }
     }
 
+    // If nodes are inlined, then we may have virtual nodes without any actual
+    // children (because all of their children are inlined).
+    let actual_virtual_nodes: BTreeSet<_> = node_parents
+        .values()
+        .flat_map(|r| r.iter().map(|k| k.root))
+        .collect();
+    let virtual_nodes: BTreeSet<_> = virtual_nodes
+        .intersection(&actual_virtual_nodes)
+        .cloned()
+        .collect();
+
     // Swap around, fron node -> DNF to DNF -> [Nodes]
     let mut dnf_nodes: BTreeMap<_, BTreeSet<Node>> = BTreeMap::new();
     for (n, d) in node_choices {
@@ -959,16 +970,15 @@ pub fn buildy<F: Family>(
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
-    let mut gt = group_tapes
+    let gt = group_tapes
         .into_iter()
         .zip(groups.into_iter())
         .map(|(g, k)| {
             let mut choices = BTreeMap::new();
             for d in k.key.into_iter() {
                 let mut index = node_to_choice_index[&d.root];
-                let mut choice = d.choice;
-                index += choice / 8;
-                let bit = choice % 8;
+                index += d.choice / 8;
+                let bit = d.choice % 8;
                 *choices.entry(index).or_default() |= 1 << bit;
             }
             let choices = choices
@@ -1025,7 +1035,7 @@ mod test {
         // When planning for the interpreter, we get tons of registers, so we
         // should never see a Load or Store operation.
         let t = buildy::<crate::vm::Eval>(&ctx, root, 9).unwrap();
-        assert!(t.slot_count() <= 255);
+        assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
