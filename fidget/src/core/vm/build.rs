@@ -848,7 +848,7 @@ pub fn buildy<F: Family>(
     // Build a mapping from choice nodes to indices in the choice data array
     let mut choices_per_node: BTreeMap<Node, usize> = BTreeMap::new();
     for t in &groups {
-        for k in &t.key {
+        for k in &t.parents {
             let c = choices_per_node.entry(k.root).or_default();
             *c = (*c).max(k.choice);
         }
