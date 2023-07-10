@@ -16,50 +16,6 @@ struct ChoiceClause {
     choice: usize,
 }
 
-/// Compute which nodes should be inlined
-fn pick_inline(ctx: &Context, root: Node, max_weight: usize) -> BTreeSet<Node> {
-    enum Action {
-        Down,
-        Up,
-    }
-
-    // Recursively assign weights to nodes in the graph, using a loop with
-    // manual recursion to avoid blowing the stack.
-    //
-    // A rank is `sum(rank(c) for c in children) + 1`, i.e. the total number
-    // of operations required for a node.
-    let mut todo = vec![(Action::Down, root)];
-    let mut weights = BTreeMap::new();
-    let mut inline = BTreeSet::new();
-    while let Some((a, node)) = todo.pop() {
-        if weights.contains_key(&node) {
-            continue;
-        }
-        match a {
-            Action::Down => {
-                todo.push((Action::Up, node));
-                let op = ctx.get_op(node).unwrap();
-                for c in op.iter_children() {
-                    todo.push((Action::Down, c));
-                }
-            }
-            Action::Up => {
-                let op = ctx.get_op(node).unwrap();
-                let w: usize = op
-                    .iter_children()
-                    .map(|c| weights.get(&c).unwrap())
-                    .sum::<usize>()
-                    + 1;
-                weights.insert(node, w);
-                if w <= max_weight && node != root {
-                    inline.insert(node);
-                }
-            }
-        }
-    }
-    inline
-}
-
 #[derive(Clone, Default)]
 struct UnorderedGroup {
     key: BTreeSet<ChoiceClause>,
@@ -120,11 +76,7 @@ impl OrderedGroup {
 }
 
 /// Finds groups of nodes based on choices at `min` / `max` operations
-fn find_groups(
-    ctx: &Context,
-    root: Node,
-    inline: &BTreeSet<Node>,
-) -> Vec<UnorderedGroup> {
+fn find_groups(ctx: &Context, root: Node) -> Vec<UnorderedGroup> {
     struct Action {
         node: Node,
         choice: Option<ActiveChoice>,
@@ -152,10 +104,6 @@ fn find_groups(
         child,
     }) = todo.pop()
     {
-        // Skip inlined nodes
-        if inline.contains(&node) {
-            continue;
-        }
         let op = ctx.get_op(node).unwrap();
 
         // Special handling to flatten out commutative min/max trees
@@ -270,17 +218,6 @@ fn find_groups(
         }
     }
 
-    // If nodes are inlined, then we may have virtual nodes without any actual
-    // children (because all of their children are inlined).
-    let actual_virtual_nodes: BTreeSet<_> = node_parents
-        .values()
-        .flat_map(|r| r.iter().map(|k| k.root))
-        .collect();
-    let virtual_nodes: BTreeSet<_> = virtual_nodes
-        .intersection(&actual_virtual_nodes)
-        .cloned()
-        .collect();
-
     // Swap around, fron node -> DNF to DNF -> [Nodes]
     let mut dnf_nodes: BTreeMap<_, BTreeSet<Node>> = BTreeMap::new();
     for (n, d) in node_choices {
@@ -321,24 +258,6 @@ fn find_groups(
         });
     }
     out
-}
-
-fn insert_inline_nodes(
-    ctx: &Context,
-    inline: &BTreeSet<Node>,
-    group: &mut BTreeSet<Node>,
-) {
-    let mut todo = BTreeSet::new();
-    for node in group.iter() {
-        let op = ctx.get_op(*node).unwrap();
-        todo.extend(op.iter_children().filter(|c| inline.contains(c)));
-    }
-    let mut todo: Vec<_> = todo.into_iter().collect();
-    while let Some(node) = todo.pop() {
-        if group.insert(node) {
-            todo.extend(ctx.get_op(node).unwrap().iter_children());
-        }
-    }
 }
 
 /// Find any nodes within this group whose children are **not** in the group
@@ -791,7 +710,6 @@ fn lower_mem_to_reg(
 pub fn buildy<F: Family>(
     ctx: &Context,
     root: Node,
-    inline: usize,
 ) -> Result<tape::TapeData<F>, Error> {
     if let Some(c) = ctx.const_value(root).unwrap() {
         let t = tape::ChoiceTape {
@@ -805,9 +723,7 @@ pub fn buildy<F: Family>(
         return Ok(tape::TapeData::new(vec![t], BTreeMap::new()));
     }
 
-    let inline = pick_inline(ctx, root, inline);
-
-    let mut groups = find_groups(ctx, root, &inline);
+    let mut groups = find_groups(ctx, root);
 
     // Remove duplicate parents, i.e. if we do `max(max(x, y), max(x, z))`, we
     // only need to store `x` once in the n-ary operation.
@@ -823,12 +739,6 @@ pub fn buildy<F: Family>(
     }
     // TODO compress choices here, since we may have removed some of them
 
-    // For each DNF, add all of the inlined nodes
-    for group in groups.iter_mut() {
-        insert_inline_nodes(ctx, &inline, &mut group.actual_nodes);
-    }
-    let groups = groups; // remove mutability
-
     // Compute all of the global nodes
     let globals: BTreeSet<Node> = groups
         .iter()
@@ -836,14 +746,13 @@ pub fn buildy<F: Family>(
         .chain(std::iter::once(root))
         .collect();
 
-    // Sanity-checking our globals and inlined variables
-    assert!(globals.intersection(&inline).count() == 0);
-
     // Reorder the groups from root-to-leaf order
     //
     // Note that the nodes within each group remain unordered
     let group_order = compute_group_order(ctx, root, &groups, &globals);
     let groups = apply_group_order(groups, group_order);
+
+    // TODO: inlining here?
 
     // Build a mapping from choice nodes to indices in the choice data array
     let mut choices_per_node: BTreeMap<Node, usize> = BTreeMap::new();
@@ -941,6 +850,7 @@ pub fn buildy<F: Family>(
         let tape = alloc.finalize();
         group_tapes.push(tape);
     }
+    alloc.assert_done();
 
     // Hooray, we've got group tapes!
     //
@@ -1022,10 +932,7 @@ pub fn buildy<F: Family>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        vm::{Eval, Tape},
-        Context,
-    };
+    use crate::{vm::Eval, Context};
 
     const PROSPERO: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1038,13 +945,14 @@ mod test {
 
         // When planning for the interpreter, we get tons of registers, so we
         // should never see a Load or Store operation.
-        let t = buildy::<Eval>(&ctx, root, 0).unwrap();
+        let t = buildy::<Eval>(&ctx, root).unwrap();
         assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
         for op in t.data.iter().flat_map(|t| t.tape.iter()) {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
     }
 
+    /*
     #[test]
     fn test_inlining() {
         // Manually reduced test case
@@ -1062,16 +970,22 @@ mod test {
         let root = ctx.max(e, f).unwrap();
 
         let t0: Tape<_> = buildy::<Eval>(&ctx, root, 0).unwrap().into();
+        println!("----");
         let t9: Tape<_> = buildy::<Eval>(&ctx, root, 9).unwrap().into();
 
         let eval0 = t0.new_point_evaluator();
         let eval9 = t9.new_point_evaluator();
 
         assert_eq!(
+            ctx.eval_xyz(root, 0.0, 0.0, 0.0).unwrap() as f32,
+            eval0.eval(0.0, 0.0, 0.0, &[]).unwrap().0
+        );
+        assert_eq!(
             eval0.eval(0.0, 0.0, 0.0, &[]).unwrap().0,
             eval9.eval(0.0, 0.0, 0.0, &[]).unwrap().0
         );
     }
+    */
 
     #[test]
     fn test_groups() {
@@ -1087,7 +1001,7 @@ mod test {
 
         // max(max(x, 1) + y, z)
 
-        let r = find_groups(&ctx, max2, &BTreeSet::new());
+        let r = find_groups(&ctx, max2);
         let roots = r
             .iter()
             .flat_map(|g| g.key.iter().map(|k| k.root))

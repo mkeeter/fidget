@@ -127,6 +127,16 @@ impl<'a> RegisterAllocator<'a> {
         std::mem::take(&mut self.out)
     }
 
+    /// Asserts that we have no remaining register allocations
+    ///
+    /// Memory allocations may remain
+    ///
+    /// This must be true after planning the entire tape.
+    pub fn assert_done(&self) {
+        let n = self.allocations.len();
+        assert!(n == 0, "expected 0 allocations; found {n}");
+    }
+
     /// Consumes the allocator, returning the map of variable names
     pub fn var_names(self) -> BTreeMap<String, u32> {
         self.var_names
@@ -236,12 +246,10 @@ impl<'a> RegisterAllocator<'a> {
     }
 
     /// Remove the register associated with the given node
+    ///
+    /// The node must be bound to a single register
     fn alloc_remove_reg(&mut self, n: Node) -> u8 {
         match self.allocations.get_mut(&n).cloned() {
-            Some(Allocation::Both(reg, mem)) => {
-                self.allocations.insert(n, Allocation::Memory(mem));
-                reg
-            }
             Some(Allocation::Register(reg)) => {
                 self.allocations.remove(&n);
                 reg
@@ -551,11 +559,13 @@ impl<'a> RegisterAllocator<'a> {
                 let r_a = self.get_register();
 
                 self.push_store(r_a, m_x);
+                self.allocations.remove(&out);
                 self.bind_register(out, r_a);
                 r_a
             }
             Allocation::Both(r_x, m_x) => {
                 self.push_store(r_x, m_x);
+                self.allocations.insert(out, Allocation::Register(r_x));
                 assert_eq!(self.registers.get(&r_x), Some(&out));
                 r_x
             }
