@@ -97,6 +97,13 @@ pub struct ChoiceTape {
     pub clear: Vec<std::ops::Range<usize>>,
 }
 
+#[derive(Debug)]
+pub struct GroupMetadata<F: Family> {
+    pub data: F::GroupMetadata,
+    pub choice_mask_range: std::ops::Range<usize>,
+    pub clear_range: std::ops::Range<usize>,
+}
+
 impl<F: Family> TapeData<F> {
     /// Builds a new tape, built from many operation groups
     pub fn new(data: Vec<ChoiceTape>, vars: BTreeMap<String, u32>) -> Self {

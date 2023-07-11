@@ -23,6 +23,9 @@ impl Family for Eval {
     type FloatSliceEval = AsmEval;
     type GradSliceEval = AsmEval;
 
+    type TapeData = Vec<Op>;
+    type GroupMetadata = std::ops::Range<usize>;
+
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
     }

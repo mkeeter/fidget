@@ -74,6 +74,18 @@ pub trait Family: Clone {
         + Send
         + Sync;
 
+    /// Associated tape data
+    ///
+    /// For the VM evaluator, this is a `Vec<Op>`; for the JIT evaluator, this
+    /// is a raw block of memory filled with executable code.
+    type TapeData;
+
+    /// Associated type for group metadata
+    ///
+    /// For the VM evaluator, this is a slice range into the [`TapeData`] (which
+    /// is a `Vec<Op>`); for the JIT evaluator, it's a raw pointer.
+    type GroupMetadata;
+
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
 
