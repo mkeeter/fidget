@@ -737,7 +737,6 @@ pub fn buildy<F: Family>(
         }
         g.parents = new_parents;
     }
-
     // Compress choices to only include active values, because some may have
     // been removed in the duplicate parent pruning step above.
     let mut compressed_choices: BTreeMap<Node, BTreeMap<usize, usize>> =
@@ -770,6 +769,9 @@ pub fn buildy<F: Family>(
             .map(compress)
             .collect();
     }
+
+    // TODO: in some cases, nodes only end up with one choice associated with
+    // them (which is weird!); we could replace this with a single Copy?
 
     // Compute all of the global nodes
     let globals: BTreeSet<Node> = groups
