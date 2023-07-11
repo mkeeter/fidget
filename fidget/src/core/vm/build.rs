@@ -745,7 +745,7 @@ pub fn buildy<F: Family>(
         for v in g.parents.iter() {
             let e = compressed_choices.entry(v.root).or_default();
             let next = e.len();
-            e.insert(v.choice, next);
+            e.entry(v.choice).or_insert(next);
         }
     }
     let compress = |k: ChoiceClause| {
@@ -909,8 +909,28 @@ pub fn buildy<F: Family>(
     // point, but we'll do one more pass to clean them out.
     group_tapes = eliminate_reverse_stores(&group_tapes);
 
+    // Compactify remaining memory slots, since many Load / Store operations may
+    // have been removed from the tape.
+    let mut compact_mem = BTreeMap::new();
+    for g in group_tapes.iter_mut().rev() {
+        for op in g.iter_mut().rev() {
+            match op {
+                vm::Op::Load { mem, .. }
+                | vm::Op::Store { mem, .. }
+                | vm::Op::MinMemImmChoice { mem, .. }
+                | vm::Op::MaxMemImmChoice { mem, .. }
+                | vm::Op::MinMemRegChoice { mem, .. }
+                | vm::Op::MaxMemRegChoice { mem, .. } => {
+                    let next = compact_mem.len();
+                    let e = compact_mem.entry(*mem).or_insert(next);
+                    *mem = *e as u32 + F::REG_LIMIT as u32;
+                }
+                _ => (),
+            }
+        }
+    }
+
     // TODO: eliminate CopyReg operations?
-    // TODO: compactify remaining memory slots?
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
