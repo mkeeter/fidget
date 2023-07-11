@@ -712,8 +712,9 @@ fn compact_memory_slots(
     group_tapes: &[Vec<vm::Op>],
     reg_limit: u8,
 ) -> Vec<Vec<vm::Op>> {
+    let mut out = group_tapes.to_vec();
     let mut compact_mem = BTreeMap::new();
-    for g in group_tapes.iter_mut().rev() {
+    for g in out.iter_mut().rev() {
         for op in g.iter_mut().rev() {
             match op {
                 vm::Op::Load { mem, .. }
@@ -730,7 +731,7 @@ fn compact_memory_slots(
             }
         }
     }
-    group_tapes.to_vec()
+    out
 }
 
 pub fn buildy<F: Family>(
