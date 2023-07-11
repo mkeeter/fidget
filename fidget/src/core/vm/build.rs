@@ -737,7 +737,39 @@ pub fn buildy<F: Family>(
         }
         g.parents = new_parents;
     }
-    // TODO compress choices here, since we may have removed some of them
+
+    // Compress choices to only include active values, because some may have
+    // been removed in the duplicate parent pruning step above.
+    let mut compressed_choices: BTreeMap<Node, BTreeMap<usize, usize>> =
+        BTreeMap::new();
+    for g in &groups {
+        for v in g.parents.iter() {
+            let e = compressed_choices.entry(v.root).or_default();
+            let next = e.len();
+            e.insert(v.choice, next);
+        }
+    }
+    let compress = |k: ChoiceClause| {
+        let choice = *compressed_choices
+            .get(&k.root)
+            .unwrap()
+            .get(&k.choice)
+            .unwrap();
+        ChoiceClause {
+            root: k.root,
+            choice,
+        }
+    };
+    for g in &mut groups {
+        g.parents = std::mem::take(&mut g.parents)
+            .into_iter()
+            .map(compress)
+            .collect();
+        g.key = std::mem::take(&mut g.key)
+            .into_iter()
+            .map(compress)
+            .collect();
+    }
 
     // Compute all of the global nodes
     let globals: BTreeSet<Node> = groups
