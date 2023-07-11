@@ -707,6 +707,32 @@ fn lower_mem_to_reg(
     out
 }
 
+/// Ensure that memory slots are densely packed
+fn compact_memory_slots(
+    group_tapes: &[Vec<vm::Op>],
+    reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
+    let mut compact_mem = BTreeMap::new();
+    for g in group_tapes.iter_mut().rev() {
+        for op in g.iter_mut().rev() {
+            match op {
+                vm::Op::Load { mem, .. }
+                | vm::Op::Store { mem, .. }
+                | vm::Op::MinMemImmChoice { mem, .. }
+                | vm::Op::MaxMemImmChoice { mem, .. }
+                | vm::Op::MinMemRegChoice { mem, .. }
+                | vm::Op::MaxMemRegChoice { mem, .. } => {
+                    let next = compact_mem.len();
+                    let e = compact_mem.entry(*mem).or_insert(next);
+                    *mem = *e as u32 + reg_limit as u32;
+                }
+                _ => (),
+            }
+        }
+    }
+    group_tapes.to_vec()
+}
+
 pub fn buildy<F: Family>(
     ctx: &Context,
     root: Node,
@@ -909,26 +935,9 @@ pub fn buildy<F: Family>(
     // point, but we'll do one more pass to clean them out.
     group_tapes = eliminate_reverse_stores(&group_tapes);
 
-    // Compactify remaining memory slots, since many Load / Store operations may
-    // have been removed from the tape.
-    let mut compact_mem = BTreeMap::new();
-    for g in group_tapes.iter_mut().rev() {
-        for op in g.iter_mut().rev() {
-            match op {
-                vm::Op::Load { mem, .. }
-                | vm::Op::Store { mem, .. }
-                | vm::Op::MinMemImmChoice { mem, .. }
-                | vm::Op::MaxMemImmChoice { mem, .. }
-                | vm::Op::MinMemRegChoice { mem, .. }
-                | vm::Op::MaxMemRegChoice { mem, .. } => {
-                    let next = compact_mem.len();
-                    let e = compact_mem.entry(*mem).or_insert(next);
-                    *mem = *e as u32 + F::REG_LIMIT as u32;
-                }
-                _ => (),
-            }
-        }
-    }
+    // Now that we've removed a bunch of Load / Store operations, there may be
+    // gaps in the memory slot map; remove them for efficiency.
+    group_tapes = compact_memory_slots(&group_tapes, F::REG_LIMIT);
 
     // TODO: eliminate CopyReg operations?
 
