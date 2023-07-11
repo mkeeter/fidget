@@ -85,7 +85,6 @@ where
 
         let slot_count = tape.slot_count();
         self.slots.resize(slot_count, T::from(std::f32::NAN));
-        self.slots.fill(T::from(std::f32::NAN));
     }
 }
 
@@ -575,9 +574,6 @@ where
     fn prepare(&mut self, tape: &TapeData<Eval>, size: usize) {
         assert!(tape.reg_limit() == u8::MAX);
         let v: T = std::f32::NAN.into();
-        for s in self.slots.iter_mut() {
-            s.fill(v);
-        }
         self.slots.resize_with(tape.slot_count(), || {
             vec![v; size.max(self.slice_size)]
         });
