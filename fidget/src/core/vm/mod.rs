@@ -12,4 +12,4 @@ pub(crate) mod build;
 pub use choice::{ChoiceIndex, ChoiceMask, Choices};
 pub use eval::Eval;
 pub use op::Op;
-pub use tape::{Tape, TapeData, TapeSpecialization};
+pub use tape::{ChoiceTape, Tape, TapeData, TapeSpecialization};

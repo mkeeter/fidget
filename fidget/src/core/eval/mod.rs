@@ -41,7 +41,7 @@ pub use vars::Vars;
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
 
-use crate::vm::Tape;
+use crate::vm::{ChoiceTape, Tape};
 
 /// A "family" of evaluators (JIT, interpreter, etc)
 pub trait Family: Clone {
@@ -78,13 +78,20 @@ pub trait Family: Clone {
     ///
     /// For the VM evaluator, this is a `Vec<Op>`; for the JIT evaluator, this
     /// is a raw block of memory filled with executable code.
-    type TapeData;
+    type TapeData: Send + Sync;
 
     /// Associated type for group metadata
     ///
     /// For the VM evaluator, this is a slice range into the [`TapeData`] (which
     /// is a `Vec<Op>`); for the JIT evaluator, it's a raw pointer.
-    type GroupMetadata;
+    type GroupMetadata: Send + Sync;
+
+    /// Builds family-specific data for the given groups
+    ///
+    /// `tapes` must be in reverse-evaluation (root-to-leaf) order
+    fn build(
+        tapes: &[ChoiceTape],
+    ) -> (Self::TapeData, Vec<Self::GroupMetadata>);
 
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
@@ -107,7 +114,7 @@ pub trait Family: Clone {
 ///
 /// For example, the JIT evaluators declare their `Vec<*const u8>` as their
 /// `Storage`, which allows us to reuse allocations.
-pub trait EvaluatorStorage<F> {
+pub trait EvaluatorStorage<F: Family> {
     /// Storage type associated with this evaluator
     type Storage: Default + Send;
 

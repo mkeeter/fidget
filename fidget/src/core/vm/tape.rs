@@ -16,11 +16,26 @@ use crate::{
 ///
 /// This is a heavy-weight value and should not change once constructed;
 /// consider wrapping it in an `Arc` for shared light-weight use.
-#[derive(Debug)]
-pub struct TapeData<F> {
-    /// The tape groups are stored in reverse order, such that the root of the
-    /// tree is the first item in the first tape
-    pub data: Vec<ChoiceTape>,
+pub struct TapeData<F: Family> {
+    pub data: F::TapeData,
+
+    /// Group metadata
+    pub groups: Vec<GroupMetadata<F>>,
+
+    /// Array of choice indices which are set when a group is active
+    ///
+    /// Each group owns a slice of this `Vec`, denoted by
+    /// [`GroupMetadata::choice_mask_range`].
+    pub choice_masks: Vec<ChoiceMask>,
+
+    /// When a group is inactive, clear the associated choice ranges
+    ///
+    /// Each group owns a slice of this `Vec`, denoted by
+    /// [`GroupMetadata::clear_range`].
+    ///
+    /// This means that a single group can clear multiple (disjoint) ranges in
+    /// the choice array.
+    pub clear_ranges: Vec<std::ops::Range<usize>>,
 
     /// Size of the choice array
     choice_array_size: usize,
@@ -36,14 +51,7 @@ pub struct TapeData<F> {
     _p: std::marker::PhantomData<fn() -> F>,
 }
 
-impl<F> std::ops::Index<usize> for TapeData<F> {
-    type Output = ChoiceTape;
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.data[i]
-    }
-}
-
-impl<F> TapeData<F> {
+impl<F: Family> TapeData<F> {
     /// Returns the number of slots used by this tape
     pub fn slot_count(&self) -> usize {
         self.slot_count
@@ -67,7 +75,7 @@ impl<F> TapeData<F> {
     /// and the insertion of `Load` and `Store` operations, it may be larger
     /// than the raw number of arithmetic operations in the expression!
     pub fn len(&self) -> usize {
-        self.data.iter().map(|c| c.tape.len()).sum()
+        self.groups.iter().map(|c| c.len).sum()
     }
 }
 
@@ -87,25 +95,40 @@ pub struct ChoiceTape {
     /// List of instructions in reverse-evaluation order
     pub tape: Vec<Op>,
 
-    /// Array of choice indices which are set when this tape is active
+    /// If any of the given bits are set, then this group is active
     ///
     /// As a special case, the always-selected (root) tape is represented with
     /// an empty vector.
     pub choices: Vec<ChoiceMask>,
 
-    /// When this group is inactive, clear the given choice ranges
+    /// When this group is inactive, clear the given choice range(s)
     pub clear: Vec<std::ops::Range<usize>>,
 }
 
 #[derive(Debug)]
 pub struct GroupMetadata<F: Family> {
     pub data: F::GroupMetadata,
+
+    /// Number of operations in this group
+    pub len: usize,
+
+    /// Slice into [`TapeData::choice_masks`] to check if this group is selected
+    ///
+    /// As a special case, the always-selected (root) tape is represented with
+    /// an empty slice (0..0).
     pub choice_mask_range: std::ops::Range<usize>,
+
+    /// Slice into [`TapeData::clear_ranges`] for this group
+    ///
+    /// As a special case, the always-selected (root) tape is represented with
+    /// an empty slice (0..0).
     pub clear_range: std::ops::Range<usize>,
 }
 
 impl<F: Family> TapeData<F> {
     /// Builds a new tape, built from many operation groups
+    ///
+    /// `data` should be ordered in reverse-evaluation order (root to leaf)
     pub fn new(data: Vec<ChoiceTape>, vars: BTreeMap<String, u32>) -> Self {
         let choice_array_size = data
             .iter()
@@ -121,8 +144,33 @@ impl<F: Family> TapeData<F> {
             .map(|s| s + 1)
             .max()
             .unwrap_or(0) as usize;
+
+        let mut choice_masks = vec![];
+        let mut clear_ranges = vec![];
+        let mut groups = vec![];
+        let (tape_data, group_data) = F::build(&data);
+        for (c, g) in data.iter().zip(group_data) {
+            let choice_start = choice_masks.len();
+            choice_masks.extend(c.choices.iter().cloned());
+            let choice_end = choice_masks.len();
+
+            let clear_start = clear_ranges.len();
+            clear_ranges.extend(c.clear.iter().cloned());
+            let clear_end = clear_ranges.len();
+
+            groups.push(GroupMetadata {
+                choice_mask_range: choice_start..choice_end,
+                clear_range: clear_start..clear_end,
+                len: c.tape.len(),
+                data: g,
+            });
+        }
+
         Self {
-            data,
+            choice_masks,
+            clear_ranges,
+            groups,
+            data: tape_data,
             vars,
             choice_array_size,
             slot_count,
@@ -137,15 +185,15 @@ impl<F: Family> TapeData<F> {
 /// [`Tape`] for ease of use.
 #[derive(Default)]
 pub struct TapeSpecialization {
-    /// Currently active groups, as indexes into the root tape
-    active_groups: Vec<usize>,
+    /// Currently active groups, as indexes into the [`TapeData::groups`] array
+    active_groups: Vec<usize>, // TODO should this be ranges instead?
 }
 
 /// Represents a tape specialized with a set of choices and active groups
 ///
 /// This is a cheap handle that can be passed by value and cloned
 #[derive(Clone)]
-pub struct Tape<F>(Arc<(Arc<TapeData<F>>, TapeSpecialization)>);
+pub struct Tape<F: Family>(Arc<(Arc<TapeData<F>>, TapeSpecialization)>);
 
 impl<F: Family> Tape<F> {
     /// Builds a point evaluator from the given `Tape`
@@ -201,7 +249,7 @@ impl<F: Family> Tape<F> {
     }
 }
 
-impl<F> Tape<F> {
+impl<F: Family> Tape<F> {
     /// Returns the size of the choice array associated with the tape
     ///
     /// Note that not all choices may be active (depending on tape
@@ -223,6 +271,7 @@ impl<F> Tape<F> {
     /// Note that not all slot may be active (depending on tape specialization),
     /// but the caller should operate using the full count.
     pub fn slot_count(&self) -> usize {
+        // TODO: move this to the family-specific code?
         self.data().slot_count()
     }
 
@@ -251,20 +300,25 @@ impl<F> Tape<F> {
         mut prev: TapeSpecialization,
     ) -> Self {
         prev.active_groups.clear();
+        let data = self.data().as_ref();
         for &g in &(self.0).1.active_groups {
-            let choice_tape = &self.data()[g];
-            let choice_sel = &choice_tape.choices;
+            let metadata = &data.groups[g];
+            let choice_sel = metadata.choice_mask_range.clone();
             let still_active = choice_sel.is_empty()
                 || choice_sel
-                    .iter()
-                    .any(|&c| choices[c.index as usize] & c.mask != 0);
+                    .into_iter()
+                    .map(|i| data.choice_masks[i])
+                    .any(|c| choices[c.index as usize] & c.mask != 0);
             if still_active {
                 prev.active_groups.push(g);
             } else {
-                for clear_range in choice_tape.clear.iter() {
-                    for c in &mut choices[clear_range.clone()] {
-                        *c = 0;
-                    }
+                for c in metadata
+                    .clear_range
+                    .clone()
+                    .into_iter()
+                    .flat_map(|r| data.clear_ranges[r].clone().into_iter())
+                {
+                    choices[c] = 0;
                 }
             }
         }
@@ -276,14 +330,6 @@ impl<F> Tape<F> {
         Arc::try_unwrap(self.0).ok().map(|t| t.1)
     }
 
-    /// Iterates over active clauses in the tape in evaluation order
-    pub fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
-        self.active_groups()
-            .iter()
-            .rev()
-            .flat_map(|i| self.data()[*i].tape.iter().rev())
-            .cloned()
-    }
     /// Returns the number of active operations in this tape
     ///
     /// Due to inlining and `Load` / `Store` operations, this may be larger than
@@ -291,15 +337,16 @@ impl<F> Tape<F> {
     pub fn len(&self) -> usize {
         self.active_groups()
             .iter()
-            .map(|i| self.data()[*i].tape.len())
+            .map(|i| self.data().groups[*i].len)
             .sum()
     }
 }
 
-impl<F> From<TapeData<F>> for Tape<F> {
+impl<F: Family> From<TapeData<F>> for Tape<F> {
     fn from(tape: TapeData<F>) -> Self {
+        // Initially, all groups are active!
         let active_groups: Vec<usize> =
-            (0..tape.data.len()).into_iter().collect();
+            (0..tape.groups.len()).into_iter().collect();
         Self(Arc::new((
             Arc::new(tape),
             TapeSpecialization { active_groups },

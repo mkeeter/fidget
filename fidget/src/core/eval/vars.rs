@@ -1,4 +1,4 @@
-use crate::vm::Tape;
+use crate::{eval::Family, vm::Tape};
 use std::collections::BTreeMap;
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
@@ -10,7 +10,7 @@ pub struct Vars<'a> {
 
 impl<'a> Vars<'a> {
     /// Builds a new variable binding, initializing them all to 0
-    pub fn new<F>(tape: &'a Tape<F>) -> Self {
+    pub fn new<F: Family>(tape: &'a Tape<F>) -> Self {
         let names = tape.data().vars();
         let values = vec![0.0; names.len()];
         Self { names, values }

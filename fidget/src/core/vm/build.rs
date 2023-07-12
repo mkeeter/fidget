@@ -971,6 +971,7 @@ pub fn buildy<F: Family>(
                     start..(start + (count + 7) / 8)
                 })
                 .collect();
+            // TODO: collect contiguous ranges here
             tape::ChoiceTape {
                 tape: g,
                 choices,
@@ -1011,7 +1012,7 @@ mod test {
         // should never see a Load or Store operation.
         let t = buildy::<Eval>(&ctx, root).unwrap();
         assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
-        for op in t.data.iter().flat_map(|t| t.tape.iter()) {
+        for op in t.data.iter() {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
     }

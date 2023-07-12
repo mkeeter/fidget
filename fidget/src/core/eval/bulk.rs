@@ -25,7 +25,7 @@ use crate::{
 /// It's uncommon to use this trait outside the library itself; it's an
 /// abstraction to reduce code duplication, and is public because it's used as a
 /// constraint on other public APIs.
-pub trait BulkEvaluator<T, F> {
+pub trait BulkEvaluator<T, F: Family> {
     /// Data type used during evaluation
     ///
     /// For example, an interpreter would put its intermediate slot storage into
@@ -55,7 +55,7 @@ pub trait BulkEvaluator<T, F> {
 }
 
 /// Trait for data associated with a particular bulk evaluator.
-pub trait BulkEvaluatorData<F> {
+pub trait BulkEvaluatorData<F: Family> {
     /// Prepares the given data structure to be used for evaluation of the
     /// specified tape with the specified number of items.
     ///
@@ -65,7 +65,7 @@ pub trait BulkEvaluatorData<F> {
 }
 
 /// Some bulk evaluators have no need for scratch data!
-impl<F> BulkEvaluatorData<F> for () {
+impl<F: Family> BulkEvaluatorData<F> for () {
     fn prepare(&mut self, _tape: &TapeData<F>, _size: usize) {
         // Nothing to do here
     }
@@ -84,7 +84,7 @@ impl<F> BulkEvaluatorData<F> for () {
 /// The internal `tape` is planned with
 /// [`F::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
 #[derive(Clone)]
-pub struct BulkEval<T, E, F> {
+pub struct BulkEval<T, E, F: Family> {
     eval: E,
     tape: Tape<F>,
 
@@ -202,6 +202,7 @@ impl<D: Default, T, F> Default for BulkEvalData<D, T, F> {
 impl<D: BulkEvaluatorData<F>, T, F> BulkEvalData<D, T, F>
 where
     T: Clone + From<f32>,
+    F: Family,
 {
     fn prepare(&mut self, tape: &TapeData<F>, size: usize) {
         self.out.resize(size, std::f32::NAN.into());

@@ -5,7 +5,7 @@ use crate::{
         types::{Choice, Grad, Interval},
         EvaluatorStorage, Family,
     },
-    vm::{Choices, Op, Tape, TapeData},
+    vm::{ChoiceTape, Choices, Op, Tape, TapeData},
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -32,6 +32,21 @@ impl Family for Eval {
 
     fn tile_sizes_2d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
+    }
+
+    fn build(
+        tapes: &[ChoiceTape],
+    ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
+        let mut tape_out = vec![];
+        let mut ranges_out = vec![];
+        for t in tapes.iter().rev() {
+            let start = tape_out.len();
+            tape_out.extend(t.tape.iter().rev().clone());
+            let end = tape_out.len();
+            ranges_out.push(start..end);
+        }
+        ranges_out.reverse();
+        (tape_out, ranges_out)
     }
 }
 
@@ -586,6 +601,17 @@ where
             }
             self.slice_size = size;
         }
+    }
+}
+
+impl Tape<Eval> {
+    fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
+        let data = &self.data().as_ref().data;
+        self.active_groups()
+            .iter()
+            .rev()
+            .flat_map(|i| self.data().groups[*i].data.clone().into_iter())
+            .map(|i| data[i])
     }
 }
 

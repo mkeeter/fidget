@@ -21,7 +21,7 @@ use crate::{
 ///
 /// This trait is unlikely to be used directly; instead, use a
 /// [`TracingEval`](TracingEval), which offers a user-friendly API.
-pub trait TracingEvaluator<T, F> {
+pub trait TracingEvaluator<T, F: Family> {
     /// Scratch (mutable) data used during evaluation
     type Data: TracingEvaluatorData<F> + Default + Send;
 
@@ -42,7 +42,7 @@ pub trait TracingEvaluator<T, F> {
 }
 
 /// Trait for data associated with a particular tracing evaluator.
-pub trait TracingEvaluatorData<F> {
+pub trait TracingEvaluatorData<F: Family> {
     /// Prepares the given data structure to be used for evaluation of the
     /// specified tape.
     ///
@@ -51,7 +51,7 @@ pub trait TracingEvaluatorData<F> {
     fn prepare(&mut self, tape: &TapeData<F>);
 }
 
-impl<F> TracingEvaluatorData<F> for () {
+impl<F: Family> TracingEvaluatorData<F> for () {
     fn prepare(&mut self, _tape: &TapeData<F>) {
         // Nothing to do here
     }
@@ -65,7 +65,7 @@ impl<F> TracingEvaluatorData<F> for () {
 /// The internal `tape` is planned with
 /// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
 #[derive(Clone)]
-pub struct TracingEval<T, E, F> {
+pub struct TracingEval<T, E, F: Family> {
     eval: E,
     tape: Tape<F>,
 
@@ -232,7 +232,7 @@ impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
 /// It either owns or borrows a `&[Choice]`; for convenience, these are
 /// represented by [`OwnedTracingEvalResult`] or [`BorrowedTracingEvalResult`]
 /// respectively.
-pub struct TracingEvalResult<D, F, B> {
+pub struct TracingEvalResult<D, F: Family, B> {
     choices: B,
     tape: Tape<F>,
     _p: std::marker::PhantomData<*const D>,
