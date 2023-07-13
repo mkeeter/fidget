@@ -81,7 +81,16 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 
 /// Generic tracing evaluator
 #[derive(Clone)]
-pub struct AsmEval(Tape<Eval>);
+pub struct AsmEval {
+    tape: Tape<Eval>,
+    active: Vec<Op>,
+}
+
+impl AsmEval {
+    fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
+        self.active.iter().cloned()
+    }
+}
 
 /// Generic scratch data a tracing evaluator
 pub struct AsmTracingEvalData<T> {
@@ -107,12 +116,23 @@ where
 }
 
 impl EvaluatorStorage<Eval> for AsmEval {
-    type Storage = ();
-    fn new_with_storage(tape: &Tape<Eval>, _storage: ()) -> Self {
-        Self(tape.clone())
+    type Storage = Vec<Op>;
+    fn new_with_storage(tape: &Tape<Eval>, mut storage: Self::Storage) -> Self {
+        storage.clear();
+        let data = &tape.data().as_ref().data;
+        for i in tape.active_groups().iter().rev() {
+            let r = tape.data().groups[*i].data.clone();
+            for j in r.into_iter() {
+                storage.push(data[j]);
+            }
+        }
+        Self {
+            tape: tape.clone(),
+            active: storage,
+        }
     }
     fn take(self) -> Option<Self::Storage> {
-        Some(())
+        Some(self.active)
     }
 }
 
@@ -131,10 +151,10 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         data: &mut Self::Data,
     ) -> (Interval, bool) {
         let mut simplify = false;
-        assert_eq!(vars.len(), self.0.var_count());
+        assert_eq!(vars.len(), self.tape.var_count());
 
         let mut v = SlotArray(&mut data.slots);
-        for op in self.0.iter_asm() {
+        for op in self.iter_asm() {
             match op {
                 Op::Input { out, input } => {
                     v[out] = match input {
@@ -352,10 +372,10 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         choices: &mut Choices,
         data: &mut Self::Data,
     ) -> (f32, bool) {
-        assert_eq!(vars.len(), self.0.var_count());
+        assert_eq!(vars.len(), self.tape.var_count());
         let mut simplify = false;
         let mut v = SlotArray(&mut data.slots);
-        for op in self.0.iter_asm() {
+        for op in self.iter_asm() {
             match op {
                 Op::Input { out, input } => {
                     v[out] = match input {
@@ -604,17 +624,6 @@ where
     }
 }
 
-impl Tape<Eval> {
-    fn iter_asm<'a>(&'a self) -> impl Iterator<Item = Op> + 'a {
-        let data = &self.data().as_ref().data;
-        self.active_groups()
-            .iter()
-            .rev()
-            .flat_map(|i| self.data().groups[*i].data.clone().into_iter())
-            .map(|i| data[i])
-    }
-}
-
 impl BulkEvaluator<f32, Eval> for AsmEval {
     type Data = AsmBulkEvalData<f32>;
 
@@ -631,14 +640,14 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.0.var_count());
-        assert_eq!(data.slots.len(), self.0.slot_count());
+        assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(data.slots.len(), self.tape.slot_count());
 
         let size = xs.len();
         assert!(data.slice_size >= size);
 
         let mut v = SlotArray(&mut data.slots);
-        for op in self.0.iter_asm() {
+        for op in self.iter_asm() {
             match op {
                 Op::Input { out, input } => {
                     v[out][0..size].copy_from_slice(match input {
@@ -887,14 +896,14 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.0.var_count());
-        assert_eq!(data.slots.len(), self.0.slot_count());
+        assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(data.slots.len(), self.tape.slot_count());
 
         let size = xs.len();
         assert!(data.slice_size >= size);
 
         let mut v = SlotArray(&mut data.slots);
-        for op in self.0.iter_asm() {
+        for op in self.iter_asm() {
             match op {
                 Op::Input { out, input } => {
                     for i in 0..size {

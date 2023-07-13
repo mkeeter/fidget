@@ -107,6 +107,10 @@ pub struct ChoiceTape {
 
 #[derive(Debug)]
 pub struct GroupMetadata<F: Family> {
+    /// Per-family group metadata
+    ///
+    /// For example, in the VM evaluator, this is a range into the data `Vec`
+    /// that covers the group's operations.
     pub data: F::GroupMetadata,
 
     /// Number of operations in this group
