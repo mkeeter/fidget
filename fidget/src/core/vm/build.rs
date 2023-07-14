@@ -1028,7 +1028,10 @@ pub fn buildy<F: Family>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{vm::Eval, Context};
+    use crate::{
+        vm::{Eval, Tape},
+        Context,
+    };
 
     const PROSPERO: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1045,6 +1048,27 @@ mod test {
         assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
         for op in t.data.iter() {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
+        }
+    }
+
+    #[test]
+    fn test_evaluation() {
+        let (ctx, root) = Context::from_text(PROSPERO.as_bytes()).unwrap();
+        let t: Tape<_> = buildy::<Eval>(&ctx, root).unwrap().into();
+
+        // This is a smoke test which compares the naive tree-walk evaluator
+        // with the VM evaluator.  It's meant to detect issues with tape
+        // planning.
+        let eval = t.new_point_evaluator();
+        for x in [-0.3, 0.0, 0.3] {
+            for y in [-0.3, 0.0, 0.3] {
+                let u = eval.eval(x, y, 0.0, &[]).unwrap().0;
+                let v = ctx.eval_xyz(root, x as f64, y as f64, 0.0).unwrap();
+                assert!(
+                    (u - (v as f32)).abs() < 1e-12,
+                    "evaluation mismatch at {x} {y}: expected {v}, got {u}"
+                );
+            }
         }
     }
 
