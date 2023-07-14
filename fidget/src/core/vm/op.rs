@@ -215,6 +215,52 @@ impl Op {
         .flatten()
     }
 
+    /// Returns a mutable iterator over all registers (input and output)
+    pub fn reg_iter_mut(&mut self) -> impl Iterator<Item = &mut u8> {
+        match self {
+            Op::MinMemImmChoice { .. } | Op::MaxMemImmChoice { .. } => {
+                [None, None, None]
+            }
+            Op::Input { out, .. }
+            | Op::Var { out, .. }
+            | Op::CopyImm { out, .. } => [Some(out), None, None],
+            Op::Load { reg, .. } => [Some(reg), None, None],
+            Op::MinMemRegChoice { arg, .. }
+            | Op::MaxMemRegChoice { arg, .. } => [Some(arg), None, None],
+            Op::NegReg { out, arg, .. }
+            | Op::AbsReg { out, arg, .. }
+            | Op::RecipReg { out, arg, .. }
+            | Op::SqrtReg { out, arg, .. }
+            | Op::SquareReg { out, arg, .. }
+            | Op::AddRegImm { out, arg, .. }
+            | Op::MulRegImm { out, arg, .. }
+            | Op::DivRegImm { out, arg, .. }
+            | Op::DivImmReg { out, arg, .. }
+            | Op::SubImmReg { out, arg, .. }
+            | Op::SubRegImm { out, arg, .. }
+            | Op::MinRegImm { out, arg, .. }
+            | Op::MaxRegImm { out, arg, .. }
+            | Op::CopyReg { arg, out } => [Some(out), Some(arg), None],
+            Op::AddRegReg { out, lhs, rhs }
+            | Op::MulRegReg { out, lhs, rhs }
+            | Op::DivRegReg { out, lhs, rhs }
+            | Op::SubRegReg { out, lhs, rhs }
+            | Op::MinRegReg { out, lhs, rhs }
+            | Op::MaxRegReg { out, lhs, rhs } => {
+                [Some(out), Some(lhs), Some(rhs)]
+            }
+            Op::Store { reg, .. } => [Some(reg), None, None],
+            Op::MinRegRegChoice { reg, arg, .. }
+            | Op::MaxRegRegChoice { reg, arg, .. } => {
+                [Some(reg), Some(arg), None]
+            }
+            Op::MinRegImmChoice { reg, .. }
+            | Op::MaxRegImmChoice { reg, .. } => [Some(reg), None, None],
+        }
+        .into_iter()
+        .flatten()
+    }
+
     /// Returns an iterator over all slots
     ///
     /// This includes both inputs and output, and both registers and memory.

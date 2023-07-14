@@ -707,6 +707,36 @@ fn lower_mem_to_reg(
     out
 }
 
+fn strip_copy_reg(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+    let mut out = vec![];
+    let mut remap = vec![];
+    for g in group_tapes.iter() {
+        let mut group = vec![];
+        for &(mut op) in g {
+            // TODO make this not the worst possible implementation
+            for (a, b) in &remap {
+                for r in op.reg_iter_mut() {
+                    if *r == *a {
+                        *r = *b;
+                    } else if *r == *b {
+                        *r = *a;
+                    }
+                }
+            }
+            // Install any new remappings
+            if let vm::Op::CopyReg { out, arg } = op {
+                if out != arg {
+                    remap.push((out, arg));
+                    continue;
+                }
+            }
+            group.push(op);
+        }
+        out.push(group);
+    }
+    out
+}
+
 /// Ensure that memory slots are densely packed
 fn compact_memory_slots(
     group_tapes: &[Vec<vm::Op>],
@@ -940,7 +970,8 @@ pub fn buildy<F: Family>(
     // gaps in the memory slot map; remove them for efficiency.
     group_tapes = compact_memory_slots(&group_tapes, F::REG_LIMIT);
 
-    // TODO: eliminate CopyReg operations?
+    // Strip CopyReg operations from the tape; registers are fungible!
+    group_tapes = strip_copy_reg(&group_tapes);
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
