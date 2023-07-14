@@ -580,10 +580,9 @@ pub mod eval_tests {
 
         // We expect to prune the following:
         // - MinRegRegChoice (to combine the corner with the circle)
-        // - CopyReg (setup for that MinRegRegChoice)
         // - MaxRegRegChoice (for x side of corner)
         // - MaxRegRegChoice (for y side of corner)
-        assert_eq!(tape.len(), initial_size - 4);
+        assert_eq!(tape.len(), initial_size - 3);
     }
 
     #[macro_export]
