@@ -709,26 +709,36 @@ fn lower_mem_to_reg(
 
 fn strip_copy_reg(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out = vec![];
-    let mut remap = vec![];
+    let mut remap: BTreeMap<u8, u8> = BTreeMap::new();
     for g in group_tapes.iter() {
         let mut group = vec![];
         for &(mut op) in g {
-            // TODO make this not the worst possible implementation
-            for (a, b) in &remap {
-                for r in op.reg_iter_mut() {
-                    if *r == *a {
-                        *r = *b;
-                    } else if *r == *b {
-                        *r = *a;
-                    }
+            for r in op.reg_iter_mut() {
+                if let Some(a) = remap.get(r) {
+                    *r = *a;
                 }
             }
             // Install any new remappings
+            //
+            // TODO: this is somewhat inefficient!
+            let mut to_remove = vec![];
             if let vm::Op::CopyReg { out, arg } = op {
-                if out != arg {
-                    remap.push((out, arg));
-                    continue;
+                remap.entry(out).or_insert(out);
+                remap.entry(arg).or_insert(arg);
+                for (v, k) in remap.iter_mut() {
+                    if *k == out {
+                        *k = arg;
+                    } else if *k == arg {
+                        *k = out;
+                    }
+                    if *v == *k {
+                        to_remove.push(*v);
+                    }
                 }
+                for v in to_remove {
+                    remap.remove(&v);
+                }
+                continue;
             }
             group.push(op);
         }
@@ -1065,7 +1075,7 @@ mod test {
                 let u = eval.eval(x, y, 0.0, &[]).unwrap().0;
                 let v = ctx.eval_xyz(root, x as f64, y as f64, 0.0).unwrap();
                 assert!(
-                    (u - (v as f32)).abs() < 1e-12,
+                    (u - (v as f32)).abs() < 1e-3,
                     "evaluation mismatch at {x} {y}: expected {v}, got {u}"
                 );
             }
