@@ -720,7 +720,8 @@ fn strip_copy_reg(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
             }
             // Install any new remappings
             //
-            // TODO: this is somewhat inefficient!
+            // TODO: this is somewhat inefficient; a bidirectional map would let
+            // us skip some iteration.
             let mut to_remove = vec![];
             if let vm::Op::CopyReg { out, arg } = op {
                 remap.entry(out).or_insert(out);
@@ -766,6 +767,62 @@ fn compact_memory_slots(
                     let next = compact_mem.len();
                     let e = compact_mem.entry(*mem).or_insert(next);
                     *mem = *e as u32 + reg_limit as u32;
+                }
+                _ => (),
+            }
+        }
+    }
+    out
+}
+
+/// Makes the first `Choice` operation on a particular slot unconditional
+///
+/// For example, `MinRegRegChoice` would become `CopyRegRegChoice`
+fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+    let mut out = group_tapes.to_vec();
+    let mut seen = BTreeSet::new();
+    for g in out.iter_mut().rev() {
+        for op in g.iter_mut().rev() {
+            match *op {
+                vm::Op::MinRegRegChoice { reg, arg, choice }
+                    if choice.bit == 0 =>
+                {
+                    assert!(seen.insert(choice.index));
+                    *op = vm::Op::CopyRegRegChoice {
+                        out: reg,
+                        arg,
+                        choice,
+                    }
+                }
+                vm::Op::MinRegImmChoice { reg, imm, choice }
+                    if choice.bit == 0 =>
+                {
+                    assert!(seen.insert(choice.index));
+                    *op = vm::Op::CopyImmRegChoice {
+                        out: reg,
+                        imm,
+                        choice,
+                    }
+                }
+                vm::Op::MinMemRegChoice { mem, arg, choice }
+                    if choice.bit == 0 =>
+                {
+                    assert!(seen.insert(choice.index));
+                    *op = vm::Op::CopyRegMemChoice {
+                        out: mem,
+                        arg,
+                        choice,
+                    }
+                }
+                vm::Op::MinMemImmChoice { mem, imm, choice }
+                    if choice.bit == 0 =>
+                {
+                    assert!(seen.insert(choice.index));
+                    *op = vm::Op::CopyImmMemChoice {
+                        out: mem,
+                        imm,
+                        choice,
+                    }
                 }
                 _ => (),
             }
@@ -982,6 +1039,9 @@ pub fn buildy<F: Family>(
 
     // Strip CopyReg operations from the tape; registers are fungible!
     group_tapes = strip_copy_reg(&group_tapes);
+
+    // Convert the first Choice operation to make it unconditional
+    group_tapes = simplify_first_choice(&group_tapes);
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
