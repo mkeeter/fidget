@@ -210,6 +210,26 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                     v[out] = value;
                 }
 
+                Op::CopyImmRegChoice { out, imm, choice } => {
+                    v[out] = imm.into();
+                    choices.set(choice);
+                }
+
+                Op::CopyImmMemChoice { out, imm, choice } => {
+                    v[out] = imm.into();
+                    choices.set(choice);
+                }
+
+                Op::CopyRegRegChoice { out, arg, choice } => {
+                    v[out] = v[arg];
+                    choices.set(choice);
+                }
+
+                Op::CopyRegMemChoice { out, arg, choice } => {
+                    v[out] = v[arg];
+                    choices.set(choice);
+                }
+
                 Op::MinMemImmChoice { mem, imm, choice } => {
                     let (value, c) = if choices.has_value(choice) {
                         v[mem].min_choice(imm.into())
@@ -427,6 +447,26 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                 Op::MaxRegImm { out, arg, imm } => {
                     let (value, _choice) = max_choice(v[arg], imm);
                     v[out] = value;
+                }
+
+                Op::CopyImmRegChoice { out, imm, choice } => {
+                    v[out] = imm.into();
+                    choices.set(choice);
+                }
+
+                Op::CopyImmMemChoice { out, imm, choice } => {
+                    v[out] = imm.into();
+                    choices.set(choice);
+                }
+
+                Op::CopyRegRegChoice { out, arg, choice } => {
+                    v[out] = v[arg];
+                    choices.set(choice);
+                }
+
+                Op::CopyRegMemChoice { out, arg, choice } => {
+                    v[out] = v[arg];
+                    choices.set(choice);
                 }
 
                 Op::MinMemImmChoice { mem, imm, choice } => {
@@ -776,6 +816,35 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                         v[mem][i] = v[reg][i];
                     }
                 }
+
+                Op::CopyImmRegChoice { out, imm, choice } => {
+                    for i in 0..size {
+                        v[out][i] = imm.into();
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyImmMemChoice { out, imm, choice } => {
+                    for i in 0..size {
+                        v[out][i] = imm.into();
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyRegRegChoice { out, arg, choice } => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i];
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyRegMemChoice { out, arg, choice } => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i];
+                    }
+                    choices.set(choice);
+                }
+
                 Op::MinMemImmChoice { mem, imm, choice } => {
                     if choices.has_value(choice) {
                         for i in 0..size {
@@ -996,6 +1065,35 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
+
+                Op::CopyImmRegChoice { out, imm, choice } => {
+                    for i in 0..size {
+                        v[out][i] = imm.into();
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyImmMemChoice { out, imm, choice } => {
+                    for i in 0..size {
+                        v[out][i] = imm.into();
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyRegRegChoice { out, arg, choice } => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i];
+                    }
+                    choices.set(choice);
+                }
+
+                Op::CopyRegMemChoice { out, arg, choice } => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i];
+                    }
+                    choices.set(choice);
+                }
+
                 Op::MinMemImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
                     if choices.has_value(choice) {
