@@ -360,6 +360,49 @@ impl Op {
         .into_iter()
         .flatten()
     }
+
+    /// Returns a `choice` field, if present
+    pub fn choice(&self) -> Option<ChoiceIndex> {
+        match self {
+            Op::MinMemImmChoice { choice, .. }
+            | Op::MaxMemImmChoice { choice, .. }
+            | Op::CopyImmMemChoice { choice, .. }
+            | Op::CopyImmRegChoice { choice, .. }
+            | Op::MinMemRegChoice { choice, .. }
+            | Op::MaxMemRegChoice { choice, .. }
+            | Op::CopyRegMemChoice { choice, .. }
+            | Op::CopyRegRegChoice { choice, .. }
+            | Op::MinRegRegChoice { choice, .. }
+            | Op::MaxRegRegChoice { choice, .. }
+            | Op::MinRegImmChoice { choice, .. }
+            | Op::MaxRegImmChoice { choice, .. } => Some(*choice),
+            Op::Input { .. }
+            | Op::Var { .. }
+            | Op::CopyImm { .. }
+            | Op::Load { .. }
+            | Op::NegReg { .. }
+            | Op::AbsReg { .. }
+            | Op::RecipReg { .. }
+            | Op::SqrtReg { .. }
+            | Op::SquareReg { .. }
+            | Op::AddRegImm { .. }
+            | Op::MulRegImm { .. }
+            | Op::DivRegImm { .. }
+            | Op::DivImmReg { .. }
+            | Op::SubImmReg { .. }
+            | Op::SubRegImm { .. }
+            | Op::MinRegImm { .. }
+            | Op::MaxRegImm { .. }
+            | Op::CopyReg { .. }
+            | Op::AddRegReg { .. }
+            | Op::MulRegReg { .. }
+            | Op::DivRegReg { .. }
+            | Op::SubRegReg { .. }
+            | Op::MinRegReg { .. }
+            | Op::MaxRegReg { .. }
+            | Op::Store { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]

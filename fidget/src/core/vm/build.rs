@@ -441,7 +441,10 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
 }
 
 /// Eliminates any `Load` operation which already has the value in the register
-fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_forward_loads(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
     let mut reg_mem = BTreeMap::new();
@@ -485,7 +488,10 @@ fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
 }
 
 /// Eliminates any `Load` operation which does not use the register
-fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_loads(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     // Next up, do a pass and eliminate any Load operation which isn't used
     //
     // We do this by walking in reverse-evaluation order through each group,
@@ -518,7 +524,10 @@ fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
 }
 
 /// Eliminates any `Store` operation which does not have a matching `Load`
-fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_stores(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
     for group in group_tapes.iter() {
@@ -539,7 +548,10 @@ fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
 }
 
 /// Eliminate any `Load` operations that occur before a `Store`
-fn eliminate_dead_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+fn eliminate_dead_loads(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut stored = BTreeSet::new();
     for group in group_tapes.iter().rev() {
@@ -707,7 +719,11 @@ fn lower_mem_to_reg(
     out
 }
 
-fn strip_copy_reg(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+/// Removes `CopyReg` opertions from the tape
+fn strip_copy_reg(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     let mut out = vec![];
     let mut remap: BTreeMap<u8, u8> = BTreeMap::new();
     for g in group_tapes.iter() {
@@ -778,16 +794,31 @@ fn compact_memory_slots(
 /// Makes the first `Choice` operation on a particular slot unconditional
 ///
 /// For example, `MinRegRegChoice` would become `CopyRegRegChoice`
-fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
+///
+/// # Panics
+/// For each choice `index`, the choice with `bit: 0` must appear first in the
+/// tape when walking in evaluation order.
+fn simplify_first_choice(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
     let mut out = group_tapes.to_vec();
     let mut seen = BTreeSet::new();
     for g in out.iter_mut().rev() {
         for op in g.iter_mut().rev() {
+            // Invariant checking: the choice with bit 0 must appear first in
+            // the tape when walking in evaluation order.
+            if let Some(c) = op.choice() {
+                if c.bit == 0 {
+                    assert!(!seen.contains(&c.index));
+                }
+                seen.insert(c.index);
+            }
             match *op {
                 vm::Op::MinRegRegChoice { reg, arg, choice }
+                | vm::Op::MaxRegRegChoice { reg, arg, choice }
                     if choice.bit == 0 =>
                 {
-                    assert!(seen.insert(choice.index));
                     *op = vm::Op::CopyRegRegChoice {
                         out: reg,
                         arg,
@@ -795,9 +826,9 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                     }
                 }
                 vm::Op::MinRegImmChoice { reg, imm, choice }
+                | vm::Op::MaxRegImmChoice { reg, imm, choice }
                     if choice.bit == 0 =>
                 {
-                    assert!(seen.insert(choice.index));
                     *op = vm::Op::CopyImmRegChoice {
                         out: reg,
                         imm,
@@ -805,9 +836,9 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                     }
                 }
                 vm::Op::MinMemRegChoice { mem, arg, choice }
+                | vm::Op::MaxMemRegChoice { mem, arg, choice }
                     if choice.bit == 0 =>
                 {
-                    assert!(seen.insert(choice.index));
                     *op = vm::Op::CopyRegMemChoice {
                         out: mem,
                         arg,
@@ -815,9 +846,9 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                     }
                 }
                 vm::Op::MinMemImmChoice { mem, imm, choice }
+                | vm::Op::MaxMemImmChoice { mem, imm, choice }
                     if choice.bit == 0 =>
                 {
-                    assert!(seen.insert(choice.index));
                     *op = vm::Op::CopyImmMemChoice {
                         out: mem,
                         imm,
@@ -1022,26 +1053,18 @@ pub fn buildy<F: Family>(
         eliminate_reverse_loads,
         eliminate_reverse_stores,
         eliminate_dead_loads,
+        lower_mem_to_reg,
+        // I'm not sure why spurious Store operations are left in the tape at
+        // this point, but we'll do one more pass to clean them out.
+        eliminate_reverse_stores,
+        // Now that we've removed a bunch of Load / Store operations, there may
+        // be gaps in the memory slot map; remove them for efficiency.
+        compact_memory_slots,
+        strip_copy_reg,
+        //simplify_first_choice, // TODO
     ] {
-        group_tapes = pass(&group_tapes);
+        group_tapes = pass(&group_tapes, F::REG_LIMIT);
     }
-
-    // More optimizations!
-    group_tapes = lower_mem_to_reg(&group_tapes, F::REG_LIMIT);
-
-    // I'm not sure why spurious Store operations are left in the tape at this
-    // point, but we'll do one more pass to clean them out.
-    group_tapes = eliminate_reverse_stores(&group_tapes);
-
-    // Now that we've removed a bunch of Load / Store operations, there may be
-    // gaps in the memory slot map; remove them for efficiency.
-    group_tapes = compact_memory_slots(&group_tapes, F::REG_LIMIT);
-
-    // Strip CopyReg operations from the tape; registers are fungible!
-    group_tapes = strip_copy_reg(&group_tapes);
-
-    // Convert the first Choice operation to make it unconditional
-    group_tapes = simplify_first_choice(&group_tapes);
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
@@ -1050,11 +1073,9 @@ pub fn buildy<F: Family>(
         .zip(groups.into_iter())
         .map(|(g, k)| {
             let mut choices = BTreeMap::new();
-            for d in k.key.into_iter() {
-                let mut index = node_to_choice_index[&d.root];
-                index += d.choice / 8;
-                let bit = d.choice % 8;
-                *choices.entry(index).or_default() |= 1 << bit;
+            for c in g.iter().filter_map(vm::Op::choice) {
+                *choices.entry(c.index + (c.bit / 8)).or_default() |=
+                    1 << (c.bit % 8);
             }
             let choices = choices
                 .into_iter()
