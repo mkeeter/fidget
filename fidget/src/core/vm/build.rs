@@ -791,6 +791,24 @@ fn compact_memory_slots(
     out
 }
 
+fn renumber_choices(
+    group_tapes: &[Vec<vm::Op>],
+    _reg_limit: u8,
+) -> Vec<Vec<vm::Op>> {
+    let mut out = group_tapes.to_vec();
+    let mut next = BTreeMap::new();
+    for g in out.iter_mut().rev() {
+        for op in g.iter_mut().rev() {
+            if let Some(c) = op.choice_mut() {
+                let i = next.entry(c.index).or_default();
+                c.bit = *i;
+                *i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// Makes the first `Choice` operation on a particular slot unconditional
 ///
 /// For example, `MinRegRegChoice` would become `CopyRegRegChoice`
@@ -1061,7 +1079,8 @@ pub fn buildy<F: Family>(
         // be gaps in the memory slot map; remove them for efficiency.
         compact_memory_slots,
         strip_copy_reg,
-        //simplify_first_choice, // TODO
+        renumber_choices,
+        simplify_first_choice,
     ] {
         group_tapes = pass(&group_tapes, F::REG_LIMIT);
     }
