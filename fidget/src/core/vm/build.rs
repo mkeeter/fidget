@@ -793,15 +793,17 @@ fn compact_memory_slots(
 
 fn renumber_choices(
     group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
+    remap: &mut BTreeMap<ChoiceIndex, ChoiceIndex>,
 ) -> Vec<Vec<vm::Op>> {
     let mut out = group_tapes.to_vec();
     let mut next = BTreeMap::new();
     for g in out.iter_mut().rev() {
         for op in g.iter_mut().rev() {
             if let Some(c) = op.choice_mut() {
+                let prev = *c;
                 let i = next.entry(c.index).or_default();
                 c.bit = *i;
+                remap.insert(prev, *c);
                 *i += 1;
             }
         }
@@ -816,10 +818,7 @@ fn renumber_choices(
 /// # Panics
 /// For each choice `index`, the choice with `bit: 0` must appear first in the
 /// tape when walking in evaluation order.
-fn simplify_first_choice(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out = group_tapes.to_vec();
     let mut seen = BTreeSet::new();
     for g in out.iter_mut().rev() {
@@ -1079,11 +1078,15 @@ pub fn buildy<F: Family>(
         // be gaps in the memory slot map; remove them for efficiency.
         compact_memory_slots,
         strip_copy_reg,
-        renumber_choices,
-        simplify_first_choice,
     ] {
         group_tapes = pass(&group_tapes, F::REG_LIMIT);
     }
+
+    // Remap choices so that bit 0 always appears first, then convert the first
+    // choice operation on each index into an unconditional operation.
+    let mut choice_remap = BTreeMap::new();
+    group_tapes = renumber_choices(&group_tapes, &mut choice_remap);
+    group_tapes = simplify_first_choice(&group_tapes);
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.
@@ -1092,9 +1095,13 @@ pub fn buildy<F: Family>(
         .zip(groups.into_iter())
         .map(|(g, k)| {
             let mut choices = BTreeMap::new();
-            for c in g.iter().filter_map(vm::Op::choice) {
-                *choices.entry(c.index + (c.bit / 8)).or_default() |=
-                    1 << (c.bit % 8);
+            for d in k.key.into_iter() {
+                let index = node_to_choice_index[&d.root];
+                let c = ChoiceIndex::new(index, d.choice);
+                let c = choice_remap.get(&c).unwrap();
+                let index = c.index + c.bit / 8;
+                let bit = c.bit % 8;
+                *choices.entry(index).or_default() |= 1 << bit;
             }
             let choices = choices
                 .into_iter()
@@ -1112,7 +1119,8 @@ pub fn buildy<F: Family>(
                     start..(start + (count + 7) / 8)
                 })
                 .collect();
-            // TODO: collect contiguous ranges here
+            // TODO: collect contiguous clear ranges here
+
             tape::ChoiceTape {
                 tape: g,
                 choices,

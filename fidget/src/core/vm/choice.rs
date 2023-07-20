@@ -5,7 +5,7 @@
 /// The base offset is needed because choices need to know where a particular
 /// choice set **starts**; this allows us to look up whether a value has already
 /// been written when doing an in-place `min` or `max` operation.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ChoiceIndex {
     pub index: u16,
     pub bit: u16,
