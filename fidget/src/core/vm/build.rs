@@ -1164,7 +1164,7 @@ mod test {
         // should never see a Load or Store operation.
         let t = buildy::<Eval>(&ctx, root).unwrap();
         assert!(t.slot_count() <= 255, "too many slots: {}", t.slot_count());
-        for op in t.data.iter() {
+        for op in t.groups.iter().flat_map(|g| g.data.chunk.iter()) {
             assert!(!matches!(op, vm::Op::Load { .. } | vm::Op::Store { .. }));
         }
     }

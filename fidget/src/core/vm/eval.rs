@@ -14,6 +14,10 @@ use crate::{
 #[derive(Clone)]
 pub enum Eval {}
 
+pub struct VmEvalGroup {
+    pub chunk: Vec<Op>,
+}
+
 impl Family for Eval {
     /// This is interpreted, so we can use the maximum number of registers
     const REG_LIMIT: u8 = u8::MAX;
@@ -23,8 +27,8 @@ impl Family for Eval {
     type FloatSliceEval = AsmEval;
     type GradSliceEval = AsmEval;
 
-    type TapeData = Vec<Op>;
-    type GroupMetadata = std::ops::Range<usize>;
+    type TapeData = ();
+    type GroupMetadata = VmEvalGroup;
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
@@ -37,16 +41,14 @@ impl Family for Eval {
     fn build(
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
-        let mut tape_out = vec![];
-        let mut ranges_out = vec![];
-        for t in tapes.iter().rev() {
-            let start = tape_out.len();
-            tape_out.extend(t.tape.iter().rev().clone());
-            let end = tape_out.len();
-            ranges_out.push(start..end);
+        let mut out = vec![];
+        for t in tapes.iter() {
+            let t = VmEvalGroup {
+                chunk: t.tape.iter().rev().cloned().collect(),
+            };
+            out.push(t);
         }
-        ranges_out.reverse();
-        (tape_out, ranges_out)
+        ((), out)
     }
 }
 
@@ -82,8 +84,17 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 /// Generic tracing evaluator
 #[derive(Clone)]
 pub struct AsmEval {
-    tape: Tape<Eval>,
+    /// Flattened tape, in evaluation order
     active: Vec<Op>,
+
+    /// Indices in `choices` for which we should set bit 0
+    set: Vec<usize>,
+
+    /// Number of variables in the tape (used for assertions)
+    var_count: usize,
+
+    /// Number of slots in the tape (used for assertions)
+    slot_count: usize,
 }
 
 impl AsmEval {
@@ -119,16 +130,13 @@ impl EvaluatorStorage<Eval> for AsmEval {
     type Storage = Vec<Op>;
     fn new_with_storage(tape: &Tape<Eval>, mut storage: Self::Storage) -> Self {
         storage.clear();
-        let data = &tape.data().as_ref().data;
         for i in tape.active_groups().iter().rev() {
-            let r = tape.data().groups[*i].data.clone();
-            for j in r.into_iter() {
-                storage.push(data[j]);
-            }
+            storage.extend(tape.data().groups[*i].data.chunk.iter().cloned());
         }
         Self {
-            tape: tape.clone(),
             active: storage,
+            slot_count: tape.slot_count(),
+            var_count: tape.var_count(),
         }
     }
     fn take(self) -> Option<Self::Storage> {
@@ -151,7 +159,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         data: &mut Self::Data,
     ) -> (Interval, bool) {
         let mut simplify = false;
-        assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(vars.len(), self.var_count);
 
         let mut v = SlotArray(&mut data.slots);
         for op in self.iter_asm() {
@@ -392,7 +400,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         choices: &mut Choices,
         data: &mut Self::Data,
     ) -> (f32, bool) {
-        assert_eq!(vars.len(), self.tape.var_count());
+        assert_eq!(vars.len(), self.var_count);
         let mut simplify = false;
         let mut v = SlotArray(&mut data.slots);
         for op in self.iter_asm() {
@@ -680,8 +688,8 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.tape.var_count());
-        assert_eq!(data.slots.len(), self.tape.slot_count());
+        assert_eq!(vars.len(), self.var_count);
+        assert_eq!(data.slots.len(), self.slot_count);
 
         let size = xs.len();
         assert!(data.slice_size >= size);
@@ -965,8 +973,8 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.tape.var_count());
-        assert_eq!(data.slots.len(), self.tape.slot_count());
+        assert_eq!(vars.len(), self.var_count);
+        assert_eq!(data.slots.len(), self.slot_count);
 
         let size = xs.len();
         assert!(data.slice_size >= size);
