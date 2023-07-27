@@ -87,9 +87,6 @@ pub struct AsmEval {
     /// Flattened tape, in evaluation order
     active: Vec<Op>,
 
-    /// Indices in `choices` for which we should set bit 0
-    set: Vec<usize>,
-
     /// Number of variables in the tape (used for assertions)
     var_count: usize,
 
