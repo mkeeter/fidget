@@ -87,7 +87,7 @@ pub struct ChoiceTape {
     pub choices: Vec<ChoiceMask>,
 
     /// When this group is inactive, clear the given choice range(s)
-    pub clear: Vec<std::ops::Range<usize>>,
+    pub clear: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -105,7 +105,7 @@ pub struct GroupMetadata<F: Family> {
     pub choice_mask_range: Vec<ChoiceMask>,
 
     /// When a group is inactive, clear the associated choice ranges
-    pub clear_range: Vec<std::ops::Range<usize>>,
+    pub clear_range: Vec<usize>,
 }
 
 impl<F: Family> TapeData<F> {
@@ -132,8 +132,8 @@ impl<F: Family> TapeData<F> {
         let (tape_data, group_data) = F::build(&data);
         for (c, g) in data.iter().zip(group_data) {
             groups.push(GroupMetadata {
-                choice_mask_range: c.choices.iter().cloned().collect(),
-                clear_range: c.clear.iter().cloned().collect(),
+                choice_mask_range: c.choices.clone(),
+                clear_range: c.clear.clone(),
                 len: c.tape.len(),
                 data: g,
             });
@@ -282,12 +282,8 @@ impl<F: Family> Tape<F> {
             if still_active {
                 prev.active_groups.push(g);
             } else {
-                for c in metadata
-                    .clear_range
-                    .iter()
-                    .flat_map(|r| r.clone().into_iter())
-                {
-                    choices[c] = 0;
+                for c in metadata.clear_range.iter() {
+                    choices[*c] = 0;
                 }
             }
         }

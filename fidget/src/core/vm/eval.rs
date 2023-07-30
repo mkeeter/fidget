@@ -130,6 +130,7 @@ impl EvaluatorStorage<Eval> for AsmEval {
         for i in tape.active_groups().iter().rev() {
             storage.extend(tape.data().groups[*i].data.chunk.iter().cloned());
         }
+
         Self {
             active: storage,
             slot_count: tape.slot_count(),

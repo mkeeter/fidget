@@ -12,7 +12,7 @@ pub struct ChoiceIndex {
 }
 
 /// A masked lookup for use in the [`Choices`] array
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ChoiceMask {
     pub index: u16,
     pub mask: u8,

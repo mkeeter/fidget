@@ -1103,22 +1103,24 @@ pub fn buildy<F: Family>(
                 let bit = c.bit % 8;
                 *choices.entry(index).or_default() |= 1 << bit;
             }
-            let choices = choices
+            let mut choices: Vec<_> = choices
                 .into_iter()
                 .map(|(index, mask)| ChoiceMask {
                     index: index.try_into().unwrap(),
                     mask,
                 })
                 .collect();
-            let clear = k
+            choices.sort();
+            let mut clear: Vec<_> = k
                 .virtual_nodes
                 .iter()
-                .map(|n| {
+                .flat_map(|n| {
                     let start = node_to_choice_index[n];
                     let count = choices_per_node[n];
-                    start..(start + (count + 7) / 8)
+                    (start..(start + (count + 7) / 8)).into_iter()
                 })
                 .collect();
+            clear.sort();
             // TODO: collect contiguous clear ranges here
 
             tape::ChoiceTape {
