@@ -22,21 +22,6 @@ pub struct TapeData<F: Family> {
     /// Group metadata
     pub groups: Vec<GroupMetadata<F>>,
 
-    /// Array of choice indices which are set when a group is active
-    ///
-    /// Each group owns a slice of this `Vec`, denoted by
-    /// [`GroupMetadata::choice_mask_range`].
-    pub choice_masks: Vec<ChoiceMask>,
-
-    /// When a group is inactive, clear the associated choice ranges
-    ///
-    /// Each group owns a slice of this `Vec`, denoted by
-    /// [`GroupMetadata::clear_range`].
-    ///
-    /// This means that a single group can clear multiple (disjoint) ranges in
-    /// the choice array.
-    pub clear_ranges: Vec<std::ops::Range<usize>>,
-
     /// Size of the choice array
     choice_array_size: usize,
 
@@ -116,17 +101,11 @@ pub struct GroupMetadata<F: Family> {
     /// Number of operations in this group
     pub len: usize,
 
-    /// Slice into [`TapeData::choice_masks`] to check if this group is selected
-    ///
-    /// As a special case, the always-selected (root) tape is represented with
-    /// an empty slice (0..0).
-    pub choice_mask_range: std::ops::Range<usize>,
+    /// Array of choice indices which are set when a group is active
+    pub choice_mask_range: Vec<ChoiceMask>,
 
-    /// Slice into [`TapeData::clear_ranges`] for this group
-    ///
-    /// As a special case, the always-selected (root) tape is represented with
-    /// an empty slice (0..0).
-    pub clear_range: std::ops::Range<usize>,
+    /// When a group is inactive, clear the associated choice ranges
+    pub clear_range: Vec<std::ops::Range<usize>>,
 }
 
 impl<F: Family> TapeData<F> {
@@ -149,30 +128,18 @@ impl<F: Family> TapeData<F> {
             .max()
             .unwrap_or(0) as usize;
 
-        let mut choice_masks = vec![];
-        let mut clear_ranges = vec![];
         let mut groups = vec![];
         let (tape_data, group_data) = F::build(&data);
         for (c, g) in data.iter().zip(group_data) {
-            let choice_start = choice_masks.len();
-            choice_masks.extend(c.choices.iter().cloned());
-            let choice_end = choice_masks.len();
-
-            let clear_start = clear_ranges.len();
-            clear_ranges.extend(c.clear.iter().cloned());
-            let clear_end = clear_ranges.len();
-
             groups.push(GroupMetadata {
-                choice_mask_range: choice_start..choice_end,
-                clear_range: clear_start..clear_end,
+                choice_mask_range: c.choices.iter().cloned().collect(),
+                clear_range: c.clear.iter().cloned().collect(),
                 len: c.tape.len(),
                 data: g,
             });
         }
 
         Self {
-            choice_masks,
-            clear_ranges,
             groups,
             data: tape_data,
             vars,
@@ -307,20 +274,18 @@ impl<F: Family> Tape<F> {
         let data = self.data().as_ref();
         for &g in &(self.0).1.active_groups {
             let metadata = &data.groups[g];
-            let choice_sel = metadata.choice_mask_range.clone();
+            let choice_sel = &metadata.choice_mask_range;
             let still_active = choice_sel.is_empty()
                 || choice_sel
                     .into_iter()
-                    .map(|i| data.choice_masks[i])
                     .any(|c| choices[c.index as usize] & c.mask != 0);
             if still_active {
                 prev.active_groups.push(g);
             } else {
                 for c in metadata
                     .clear_range
-                    .clone()
-                    .into_iter()
-                    .flat_map(|r| data.clear_ranges[r].clone().into_iter())
+                    .iter()
+                    .flat_map(|r| r.clone().into_iter())
                 {
                     choices[c] = 0;
                 }
