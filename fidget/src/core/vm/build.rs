@@ -441,10 +441,7 @@ fn sort_nodes(ctx: &Context, group: UnorderedGroup) -> OrderedGroup {
 }
 
 /// Eliminates any `Load` operation which already has the value in the register
-fn eliminate_forward_loads(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn eliminate_forward_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     // Records the active register -> memory mapping.  If a register is only
     // used as a local value, then this map does not contain its value.
     let mut reg_mem = BTreeMap::new();
@@ -488,10 +485,7 @@ fn eliminate_forward_loads(
 }
 
 /// Eliminates any `Load` operation which does not use the register
-fn eliminate_reverse_loads(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     // Next up, do a pass and eliminate any Load operation which isn't used
     //
     // We do this by walking in reverse-evaluation order through each group,
@@ -524,10 +518,7 @@ fn eliminate_reverse_loads(
 }
 
 /// Eliminates any `Store` operation which does not have a matching `Load`
-fn eliminate_reverse_stores(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn eliminate_reverse_stores(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut active = BTreeSet::new();
     for group in group_tapes.iter() {
@@ -548,10 +539,7 @@ fn eliminate_reverse_stores(
 }
 
 /// Eliminate any `Load` operations that occur before a `Store`
-fn eliminate_dead_loads(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn eliminate_dead_loads(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out_groups = vec![];
     let mut stored = BTreeSet::new();
     for group in group_tapes.iter().rev() {
@@ -720,12 +708,11 @@ fn lower_mem_to_reg(
 }
 
 /// Removes `CopyReg` opertions from the tape
-fn strip_copy_reg(
-    group_tapes: &[Vec<vm::Op>],
-    _reg_limit: u8,
-) -> Vec<Vec<vm::Op>> {
+fn strip_copy_reg(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
     let mut out = vec![];
     let mut remap: BTreeMap<u8, u8> = BTreeMap::new();
+    let mut active = BTreeSet::new();
+    active.insert(0);
     for g in group_tapes.iter() {
         let mut group = vec![];
         for &(mut op) in g {
@@ -740,22 +727,35 @@ fn strip_copy_reg(
             // us skip some iteration.
             let mut to_remove = vec![];
             if let vm::Op::CopyReg { out, arg } = op {
-                remap.entry(out).or_insert(out);
-                remap.entry(arg).or_insert(arg);
-                for (v, k) in remap.iter_mut() {
-                    if *k == out {
-                        *k = arg;
-                    } else if *k == arg {
-                        *k = out;
+                if !active.contains(&arg) {
+                    remap.entry(out).or_insert(out);
+                    remap.entry(arg).or_insert(arg);
+                    for (v, k) in remap.iter_mut() {
+                        if *k == out {
+                            *k = arg;
+                        } else if *k == arg {
+                            *k = out;
+                        }
+                        if *v == *k {
+                            to_remove.push(*v);
+                        }
                     }
-                    if *v == *k {
-                        to_remove.push(*v);
+                    for v in to_remove {
+                        remap.remove(&v);
                     }
+                    continue;
                 }
-                for v in to_remove {
-                    remap.remove(&v);
+            } else {
+                if let Some(r) = op.out_reg() {
+                    let prev = active.remove(&r);
+                    assert!(prev);
                 }
-                continue;
+                for r in op.input_reg_iter() {
+                    active.insert(r);
+                }
+                for r in op.inout_reg() {
+                    active.insert(r);
+                }
             }
             group.push(op);
         }
@@ -1065,28 +1065,31 @@ pub fn buildy<F: Family>(
     // few cleanup passes to remove dead Load and Store operations introduced by
     // that assumption.
 
-    for pass in [
-        eliminate_forward_loads,
-        eliminate_reverse_loads,
-        eliminate_reverse_stores,
-        eliminate_dead_loads,
-        lower_mem_to_reg,
+    let mut choice_remap = BTreeMap::new();
+    let passes: [&mut dyn FnMut(&[Vec<vm::Op>]) -> Vec<Vec<vm::Op>>; 11] = [
+        &mut eliminate_forward_loads,
+        &mut eliminate_reverse_loads,
+        &mut eliminate_reverse_stores,
+        &mut eliminate_dead_loads,
+        &mut |ops| lower_mem_to_reg(ops, F::REG_LIMIT),
         // I'm not sure why spurious Store operations are left in the tape at
         // this point, but we'll do one more pass to clean them out.
-        eliminate_reverse_stores,
+        &mut eliminate_reverse_stores,
         // Now that we've removed a bunch of Load / Store operations, there may
         // be gaps in the memory slot map; remove them for efficiency.
-        compact_memory_slots,
-        strip_copy_reg,
-    ] {
-        group_tapes = pass(&group_tapes, F::REG_LIMIT);
-    }
+        &mut |ops| compact_memory_slots(ops, F::REG_LIMIT),
+        &mut strip_copy_reg,
+        // Remap choices so that bit 0 always appears first, then convert the
+        // first choice operation on each index into an unconditional operation.
+        &mut |ops| renumber_choices(&ops, &mut choice_remap),
+        &mut simplify_first_choice,
+        // One more pass here (dunno)
+        &mut strip_copy_reg,
+    ];
 
-    // Remap choices so that bit 0 always appears first, then convert the first
-    // choice operation on each index into an unconditional operation.
-    let mut choice_remap = BTreeMap::new();
-    group_tapes = renumber_choices(&group_tapes, &mut choice_remap);
-    group_tapes = simplify_first_choice(&group_tapes);
+    for pass in passes.into_iter() {
+        group_tapes = pass(&group_tapes);
+    }
 
     // Convert into ChoiceTape data, which requires remapping choice keys from
     // nodes to choice indices.

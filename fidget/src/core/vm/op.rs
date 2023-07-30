@@ -207,6 +207,9 @@ impl Op {
     }
 
     /// Returns an iterator over input registers
+    ///
+    /// Note that `inout` registers (e.g. `reg` in `MinRegRegChoice`) do not
+    /// count as input registers for the purpose of this function!
     pub fn input_reg_iter(&self) -> impl Iterator<Item = u8> {
         match *self {
             Op::Input { .. }
@@ -216,7 +219,9 @@ impl Op {
             | Op::MinMemImmChoice { .. }
             | Op::MaxMemImmChoice { .. }
             | Op::CopyImmMemChoice { .. }
-            | Op::CopyImmRegChoice { .. } => [None, None],
+            | Op::CopyImmRegChoice { .. }
+            | Op::MinRegImmChoice { .. }
+            | Op::MaxRegImmChoice { .. } => [None, None],
             Op::NegReg { arg, .. }
             | Op::AbsReg { arg, .. }
             | Op::RecipReg { arg, .. }
@@ -234,7 +239,9 @@ impl Op {
             | Op::MaxMemRegChoice { arg, .. }
             | Op::CopyReg { arg, .. }
             | Op::CopyRegRegChoice { arg, .. }
-            | Op::CopyRegMemChoice { arg, .. } => [Some(arg), None],
+            | Op::CopyRegMemChoice { arg, .. }
+            | Op::MinRegRegChoice { arg, .. }
+            | Op::MaxRegRegChoice { arg, .. } => [Some(arg), None],
             Op::AddRegReg { lhs, rhs, .. }
             | Op::MulRegReg { lhs, rhs, .. }
             | Op::DivRegReg { lhs, rhs, .. }
@@ -242,10 +249,6 @@ impl Op {
             | Op::MinRegReg { lhs, rhs, .. }
             | Op::MaxRegReg { lhs, rhs, .. } => [Some(lhs), Some(rhs)],
             Op::Store { reg, .. } => [Some(reg), None],
-            Op::MinRegRegChoice { reg, arg, .. }
-            | Op::MaxRegRegChoice { reg, arg, .. } => [Some(reg), Some(arg)],
-            Op::MinRegImmChoice { reg, .. }
-            | Op::MaxRegImmChoice { reg, .. } => [Some(reg), None],
         }
         .into_iter()
         .flatten()
@@ -300,6 +303,50 @@ impl Op {
         }
         .into_iter()
         .flatten()
+    }
+
+    /// Returns a register used for an in-place instruction, or `None`
+    pub fn inout_reg(&self) -> Option<u8> {
+        match *self {
+            Op::Input { .. }
+            | Op::Var { .. }
+            | Op::CopyImm { .. }
+            | Op::Load { .. }
+            | Op::MinMemImmChoice { .. }
+            | Op::MaxMemImmChoice { .. }
+            | Op::CopyImmMemChoice { .. }
+            | Op::CopyImmRegChoice { .. }
+            | Op::NegReg { .. }
+            | Op::AbsReg { .. }
+            | Op::RecipReg { .. }
+            | Op::SqrtReg { .. }
+            | Op::SquareReg { .. }
+            | Op::AddRegImm { .. }
+            | Op::MulRegImm { .. }
+            | Op::DivRegImm { .. }
+            | Op::DivImmReg { .. }
+            | Op::SubImmReg { .. }
+            | Op::SubRegImm { .. }
+            | Op::MinRegImm { .. }
+            | Op::MaxRegImm { .. }
+            | Op::MinMemRegChoice { .. }
+            | Op::MaxMemRegChoice { .. }
+            | Op::CopyReg { .. }
+            | Op::CopyRegRegChoice { .. }
+            | Op::CopyRegMemChoice { .. }
+            | Op::AddRegReg { .. }
+            | Op::MulRegReg { .. }
+            | Op::DivRegReg { .. }
+            | Op::SubRegReg { .. }
+            | Op::MinRegReg { .. }
+            | Op::MaxRegReg { .. }
+            | Op::Store { .. } => None,
+
+            Op::MinRegImmChoice { reg, .. }
+            | Op::MaxRegImmChoice { reg, .. }
+            | Op::MinRegRegChoice { reg, .. }
+            | Op::MaxRegRegChoice { reg, .. } => Some(reg),
+        }
     }
 
     /// Returns an iterator over all slots
