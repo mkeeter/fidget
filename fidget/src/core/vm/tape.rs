@@ -32,8 +32,6 @@ pub struct TapeData<F: Family> {
     /// [`Context`](crate::context::Context)) to indexes in the variable array
     /// used during evaluation.
     vars: BTreeMap<String, u32>,
-
-    _p: std::marker::PhantomData<fn() -> F>,
 }
 
 impl<F: Family> TapeData<F> {
@@ -145,7 +143,6 @@ impl<F: Family> TapeData<F> {
             vars,
             choice_array_size,
             slot_count,
-            _p: std::marker::PhantomData,
         }
     }
 }
