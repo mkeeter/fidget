@@ -73,12 +73,13 @@ impl Choices {
 
     /// Checks whether the given choice has already received a value
     pub fn has_value(&self, c: ChoiceIndex) -> bool {
-        (c.start()..=c.end()).any(|i| self.0[i] != 0)
+        self.0[c.index as usize] & 1 != 0
     }
 
     /// Sets the given index
     pub fn set(&mut self, c: ChoiceIndex) {
         self.0[c.end()] |= 1 << (c.bit % 8);
+        self.0[c.start()] |= 1;
     }
 
     /// Clears all previous bits and sets the given index

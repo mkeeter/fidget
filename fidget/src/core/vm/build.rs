@@ -801,7 +801,8 @@ fn renumber_choices(
         for op in g.iter_mut().rev() {
             if let Some(c) = op.choice_mut() {
                 let prev = *c;
-                let i = next.entry(c.index).or_default();
+                // Bit 0 is reserved as an "any choice is set" marker
+                let i = next.entry(c.index).or_insert(1);
                 c.bit = *i;
                 remap.insert(prev, *c);
                 *i += 1;
@@ -826,7 +827,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
             // Invariant checking: the choice with bit 0 must appear first in
             // the tape when walking in evaluation order.
             if let Some(c) = op.choice() {
-                if c.bit == 0 {
+                if c.bit == 1 {
                     assert!(!seen.contains(&c.index));
                 }
                 seen.insert(c.index);
@@ -834,7 +835,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
             match *op {
                 vm::Op::MinRegRegChoice { reg, arg, choice }
                 | vm::Op::MaxRegRegChoice { reg, arg, choice }
-                    if choice.bit == 0 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyRegRegChoice {
                         out: reg,
@@ -844,7 +845,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinRegImmChoice { reg, imm, choice }
                 | vm::Op::MaxRegImmChoice { reg, imm, choice }
-                    if choice.bit == 0 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyImmRegChoice {
                         out: reg,
@@ -854,7 +855,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinMemRegChoice { mem, arg, choice }
                 | vm::Op::MaxMemRegChoice { mem, arg, choice }
-                    if choice.bit == 0 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyRegMemChoice {
                         out: mem,
@@ -864,7 +865,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinMemImmChoice { mem, imm, choice }
                 | vm::Op::MaxMemImmChoice { mem, imm, choice }
-                    if choice.bit == 0 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyImmMemChoice {
                         out: mem,
@@ -916,7 +917,9 @@ pub fn buildy<F: Family>(
     for g in &groups {
         for v in g.parents.iter() {
             let e = compressed_choices.entry(v.root).or_default();
-            let next = e.len();
+            // We reserve bit 0 as a marker for "any choice is set", so that we
+            // can do O(1) lookups.
+            let next = e.len() + 1;
             e.entry(v.choice).or_insert(next);
         }
     }
@@ -972,7 +975,7 @@ pub fn buildy<F: Family>(
     let mut offset = 0;
     for (&node, &choice_count) in &choices_per_node {
         node_to_choice_index.insert(node, offset);
-        offset += choice_count / 8 + 1;
+        offset += (choice_count + 7) / 8;
     }
 
     // Perform node ordering within each group
@@ -1079,7 +1082,7 @@ pub fn buildy<F: Family>(
         // be gaps in the memory slot map; remove them for efficiency.
         &mut |ops| compact_memory_slots(ops, F::REG_LIMIT),
         &mut strip_copy_reg,
-        // Remap choices so that bit 0 always appears first, then convert the
+        // Remap choices so that bit 1 always appears first, then convert the
         // first choice operation on each index into an unconditional operation.
         &mut |ops| renumber_choices(&ops, &mut choice_remap),
         &mut simplify_first_choice,
@@ -1124,7 +1127,6 @@ pub fn buildy<F: Family>(
                 })
                 .collect();
             clear.sort();
-            // TODO: collect contiguous clear ranges here
 
             tape::ChoiceTape {
                 tape: g,
