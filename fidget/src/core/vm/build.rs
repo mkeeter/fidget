@@ -975,7 +975,7 @@ pub fn buildy<F: Family>(
     let mut offset = 0;
     for (&node, &choice_count) in &choices_per_node {
         node_to_choice_index.insert(node, offset);
-        offset += (choice_count + 7) / 8;
+        offset += (choice_count + 7) / 8 + 1;
     }
 
     // Perform node ordering within each group
