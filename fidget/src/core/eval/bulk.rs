@@ -207,7 +207,7 @@ where
     fn prepare(&mut self, tape: &TapeData<F>, size: usize) {
         self.out.resize(size, std::f32::NAN.into());
         self.out.fill(std::f32::NAN.into());
-        self.choices.resize_and_fill(tape.choice_array_size(), 0);
+        self.choices.resize_and_zero(tape.choice_array_size());
         self.data.prepare(tape, size);
     }
 }

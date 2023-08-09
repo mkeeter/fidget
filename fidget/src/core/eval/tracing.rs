@@ -220,7 +220,7 @@ impl<D: Default, F> Default for TracingEvalData<D, F> {
 impl<D: TracingEvaluatorData<F>, F: Family> TracingEvalData<D, F> {
     /// Prepares for a tracing evaluation with the given tape size
     fn prepare(&mut self, tape: &Tape<F>) {
-        self.choices.resize_and_fill(tape.choice_array_size(), 0);
+        self.choices.resize_and_zero(tape.choice_array_size());
         self.data.prepare(tape.data());
     }
 }
@@ -239,16 +239,16 @@ pub struct TracingEvalResult<D, F: Family, B> {
 }
 
 /// Result of a tracing evaluation using owned data for the choice array
-pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<u8>>;
+pub type OwnedTracingEvalResult<T, F> = TracingEvalResult<T, F, Vec<u64>>;
 
 /// Result of a tracing evaluation using borrowed data for the choice array
 pub type BorrowedTracingEvalResult<'a, T, F> =
-    TracingEvalResult<T, F, &'a mut [u8]>;
+    TracingEvalResult<T, F, &'a mut [u64]>;
 
 impl<D, F, B> TracingEvalResult<D, F, B>
 where
     F: Family,
-    B: std::borrow::BorrowMut<[u8]>,
+    B: std::borrow::BorrowMut<[u64]>,
 {
     /// Simplifies the tape based on the most recent evaluation
     pub fn simplify(&mut self) -> Tape<F> {
@@ -266,7 +266,7 @@ where
     /// Returns a read-only view into the choice bitfield data.
     ///
     /// This is a convenience function for unit testing.
-    pub fn choices(&self) -> &[u8] {
+    pub fn choices(&self) -> &[u64] {
         self.choices.borrow()
     }
 }

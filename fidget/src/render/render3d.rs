@@ -170,10 +170,10 @@ impl<I: Family> Worker<'_, I> {
     fn render_tile_recurse(
         &mut self,
         eval: &mut Evaluators<I>,
-        sibling: Option<(Vec<u8>, Evaluators<I>)>,
+        sibling: Option<(Vec<u64>, Evaluators<I>)>,
         level: usize,
         tile: Tile<3>,
-    ) -> Option<(Vec<u8>, Evaluators<I>)> {
+    ) -> Option<(Vec<u64>, Evaluators<I>)> {
         // Early exit if every single pixel is filled
         let tile_size = self.config.tile_sizes[level];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();

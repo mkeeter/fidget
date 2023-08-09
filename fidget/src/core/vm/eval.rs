@@ -945,7 +945,7 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
                             v[reg][i] = v[arg][i];
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
             }
         }
@@ -1076,28 +1076,28 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                     for i in 0..size {
                         v[out][i] = imm.into();
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
 
                 Op::CopyImmMemChoice { out, imm, choice } => {
                     for i in 0..size {
                         v[out][i] = imm.into();
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
 
                 Op::CopyRegRegChoice { out, arg, choice } => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
 
                 Op::CopyRegMemChoice { out, arg, choice } => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
 
                 Op::MinMemImmChoice { mem, imm, choice } => {
@@ -1111,7 +1111,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[mem][i] = imm;
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MinRegImmChoice { reg, imm, choice } => {
                     let imm: Grad = imm.into();
@@ -1124,7 +1124,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[reg][i] = imm;
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MaxMemImmChoice { mem, imm, choice } => {
                     let imm: Grad = imm.into();
@@ -1137,7 +1137,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[mem][i] = imm;
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MaxRegImmChoice { reg, imm, choice } => {
                     let imm: Grad = imm.into();
@@ -1150,7 +1150,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[reg][i] = imm;
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MinMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
@@ -1162,7 +1162,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[mem][i] = v[arg][i];
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MinRegRegChoice { reg, arg, choice } => {
                     if choices.has_value(choice) {
@@ -1174,7 +1174,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[reg][i] = v[arg][i];
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MaxMemRegChoice { mem, arg, choice } => {
                     if choices.has_value(choice) {
@@ -1186,7 +1186,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[mem][i] = v[arg][i];
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::MaxRegRegChoice { reg, arg, choice } => {
                     if choices.has_value(choice) {
@@ -1198,7 +1198,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                             v[reg][i] = v[arg][i];
                         }
                     }
-                    choices.set(choice);
+                    choices.set_has_value(choice);
                 }
                 Op::AddRegReg { out, lhs, rhs } => {
                     for i in 0..size {

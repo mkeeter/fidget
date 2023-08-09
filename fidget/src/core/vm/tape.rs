@@ -247,7 +247,7 @@ impl<F: Family> Tape<F> {
     ///
     /// # Panics
     /// The input `choices` must match our internal choice array size
-    pub fn simplify(&self, choices: &mut [u8]) -> Self {
+    pub fn simplify(&self, choices: &mut [u64]) -> Self {
         self.simplify_with(choices, TapeSpecialization::default())
     }
 
@@ -264,7 +264,7 @@ impl<F: Family> Tape<F> {
     /// Simplifies a tape, reusing allocations from an [`TapeSpecialization`]
     pub fn simplify_with(
         &self,
-        choices: &mut [u8],
+        choices: &mut [u64],
         mut prev: TapeSpecialization,
     ) -> Self {
         prev.active_groups.clear();
@@ -280,7 +280,8 @@ impl<F: Family> Tape<F> {
                 prev.active_groups.push(g);
             } else {
                 for c in metadata.clear_range.iter() {
-                    choices[*c] = 0;
+                    let (_, b, _) = unsafe { choices.align_to_mut::<u8>() };
+                    b[*c] = 0;
                 }
             }
         }
