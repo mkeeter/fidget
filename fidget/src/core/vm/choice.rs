@@ -33,6 +33,9 @@ impl ChoiceIndex {
     pub fn end(&self) -> u16 {
         (self.index + self.bit / 8) as u16
     }
+    pub fn mask(&self) -> u8 {
+        1 << (self.bit % 8)
+    }
 }
 
 /// Stores a group of choice sets, using a `[u64]`-shaped type for storage
@@ -83,6 +86,10 @@ impl Choices {
         self[c.index] & 3 == 3
     }
 
+    pub fn is_set(&self, c: ChoiceIndex) -> bool {
+        (self[c.end()] & c.mask()) != 0
+    }
+
     pub fn set_has_value(&mut self, c: ChoiceIndex) {
         self[c.start()] = 3;
     }
@@ -90,7 +97,7 @@ impl Choices {
     /// Sets the given index
     pub fn set(&mut self, c: ChoiceIndex) {
         debug_assert_eq!(c.bit % 2, 0);
-        self[c.end()] |= 1 << (c.bit % 8);
+        self[c.end()] |= c.mask();
         self[c.start()] |= 3;
     }
 
@@ -103,55 +110,56 @@ impl Choices {
         if c.start() == c.end() {
             debug_assert!(c.bit < 8);
             // Clear all lower bits, then set the inclusive bit
-            self[c.end()] &= !((1 << c.bit) - 1);
-            self[c.end()] |= 1 << c.bit;
+            self[c.start()] = c.mask() | 3;
         } else {
-            // Otherwise, we'll add it to the finalize list
-            self[c.end()] |= 2 << (c.bit % 8);
+            // Clear all lower bits, then set the *exclusive* bit
+            // This signals that `finalize` must iterate backwards to the start
+            self[c.end()] = c.mask() << 1;
+            self[c.start()] |= 3;
         }
-        self[c.start()] |= 3;
     }
 
     fn finalize(&mut self) {
-        let mut i = (self.data.len() * 8).try_into().unwrap();
+        let mut i = self.data.len();
         while i > 0 {
             i -= 1;
-            let mut is_initial = self[i] & 3 == 3;
-            if is_initial {
-                continue;
-            }
-            // Check exclusive bitmask
-            let b = self[i] & 0b10101010;
-            let leading_zeros = b.leading_zeros();
-            assert_eq!(leading_zeros % 2, 0);
+            let d = self.data[i];
+            let has_initial = d & 0x3333_3333_3333_3333;
 
-            if (is_initial && leading_zeros != 8 - 2)
-                || (!is_initial && leading_zeros != 8)
-            {
-                // We have an exclusive bit!
-                let highest_exclusive_bit = 8 - 1 - leading_zeros;
+            // Each byte has its LSB set iff it's an initial byte
+            let initial = has_initial & has_initial >> 1;
 
-                // Clear the exclusive bit
-                self[i] &= !(1 << highest_exclusive_bit);
-                // Clear the lower bits as well
-                self[i] &= !((1 << highest_exclusive_bit) - 1);
+            // A byte contains an exclusive set if an odd bit is set in that
+            // byte, and that odd bit isn't part of an initial-byte marker
+            let has_exclusive = (d & 0xAAAA_AAAA_AAAA_AAAA) & !(initial << 1);
 
-                // Set the inclusive bit
-                self[i] |= 1 << (highest_exclusive_bit - 1);
+            if has_exclusive != 0 {
+                let leading_zeros = has_exclusive.leading_zeros();
+                let highest_exclusive_bit = 64 - 1 - leading_zeros;
 
-                // Restore the initial marker
-                if is_initial {
-                    self[i] |= 3;
-                }
+                // Shift to byte-wise iteration for simplicity here
+                let mut j = (i * 8 + highest_exclusive_bit as usize / 8)
+                    .try_into()
+                    .unwrap();
+                let highest_exclusive_bit = highest_exclusive_bit % 8;
 
-                while !is_initial {
-                    i -= 1;
-                    is_initial = self[i] & 3 == 3;
-                    self[i] = 0;
-                    if is_initial {
-                        self[i] |= 3;
+                // Move the exclusive bit to the inclusive position
+                self[j] &= !(1 << highest_exclusive_bit);
+                self[j] &= !((1 << highest_exclusive_bit) - 1);
+                self[j] |= 1 << (highest_exclusive_bit - 1);
+
+                while j > 0 {
+                    j -= 1;
+                    if self[j] & 3 == 3 {
+                        self[j] = 3;
+                        break;
+                    } else {
+                        self[j] = 0;
                     }
                 }
+                // There may be multiple exclusive bits in the same u64, so
+                // restore i to its previous value.
+                i += 1;
             }
         }
     }
@@ -161,22 +169,32 @@ impl std::ops::Index<u16> for Choices {
     type Output = u8;
     fn index(&self, i: u16) -> &u8 {
         // SAFETY:
-        // Casting a `[u64]` to a `[u8]` is always allowed
-        let (a, b, c) = unsafe { self.data.align_to::<u8>() };
-        debug_assert!(a.is_empty());
-        debug_assert!(c.is_empty());
-        &b[i as usize]
+        // Casting a `&[u64]` to a `&[u8]` is always allowed
+        //
+        // Note that this code could use `std::slice::align_as`, but in
+        // practice, that doesn't get inlined out and we see a large amount of
+        // `core::ptr::align_offset` in our trace.
+        let s = unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *mut u8,
+                self.data.len() * 8,
+            )
+        };
+        &s[i as usize]
     }
 }
 
 impl std::ops::IndexMut<u16> for Choices {
     fn index_mut(&mut self, i: u16) -> &mut u8 {
         // SAFETY:
-        // Casting a `[u64]` to a `[u8]` is always allowed
-        let (a, b, c) = unsafe { self.data.align_to_mut::<u8>() };
-        debug_assert!(a.is_empty());
-        debug_assert!(c.is_empty());
-        &mut b[i as usize]
+        // Casting a `&[u64]` to a `&[u8]` is always allowed
+        let s = unsafe {
+            std::slice::from_raw_parts_mut(
+                self.data.as_mut_ptr() as *mut u8,
+                self.data.len() * 8,
+            )
+        };
+        &mut s[i as usize]
     }
 }
 
@@ -188,13 +206,13 @@ mod test {
     fn test_choices() {
         let mut c = Choices::new();
         c.resize_and_zero(1);
-        c.set(ChoiceIndex { index: 0, bit: 2 });
+        c.set(ChoiceIndex::new(0, 2));
         assert_eq!(c.as_mut(), &mut [7]);
-        c.set(ChoiceIndex { index: 0, bit: 4 });
+        c.set(ChoiceIndex::new(0, 4));
         assert_eq!(c.as_mut(), &mut [7 | 0b010000]);
-        c.set(ChoiceIndex { index: 0, bit: 6 });
+        c.set(ChoiceIndex::new(0, 6));
         assert_eq!(c.as_mut(), &mut [7 | 0b01010000]);
-        c.set_exclusive(ChoiceIndex { index: 0, bit: 8 });
+        c.set_exclusive(ChoiceIndex::new(0, 8));
         assert_eq!(c.as_mut(), &mut [3 | 0b0100000000]);
     }
 }

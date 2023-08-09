@@ -1115,7 +1115,7 @@ pub fn buildy<F: Family>(
                 .map(|(index, mask)| ChoiceMask { index, mask })
                 .collect();
             choices.sort();
-            let mut clear: Vec<_> = k
+            let clear_bytes: Vec<_> = k
                 .virtual_nodes
                 .iter()
                 .flat_map(|n| {
@@ -1124,12 +1124,16 @@ pub fn buildy<F: Family>(
                     (start..(start + (count + 7) / 8)).into_iter()
                 })
                 .collect();
-            clear.sort();
+            let mut clear: BTreeMap<usize, u64> = BTreeMap::new();
+            for i in clear_bytes {
+                *clear.entry(i / 8).or_insert(u64::MAX) &=
+                    !(0xFF << (8 * (i % 8)));
+            }
 
             tape::ChoiceTape {
                 tape: g,
                 choices,
-                clear,
+                clear: clear.into_iter().collect(),
             }
         })
         .filter(|t| !t.tape.is_empty())

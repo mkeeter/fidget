@@ -84,8 +84,8 @@ pub struct ChoiceTape {
     /// an empty vector.
     pub choices: Vec<ChoiceMask>,
 
-    /// When this group is inactive, clear the given choice range(s)
-    pub clear: Vec<usize>,
+    /// When this group is inactive, `AND` the given choice indices with masks
+    pub clear: Vec<(usize, u64)>,
 }
 
 #[derive(Debug)]
@@ -102,8 +102,8 @@ pub struct GroupMetadata<F: Family> {
     /// Array of choice indices which are set when a group is active
     pub choice_mask_range: Vec<ChoiceMask>,
 
-    /// When a group is inactive, clear the associated choice ranges
-    pub clear_range: Vec<usize>,
+    /// When a group is inactive, apply the associated masks (with `AND`)
+    pub clear_range: Vec<(usize, u64)>,
 }
 
 impl<F: Family> TapeData<F> {
@@ -279,9 +279,8 @@ impl<F: Family> Tape<F> {
             if still_active {
                 prev.active_groups.push(g);
             } else {
-                for c in metadata.clear_range.iter() {
-                    let (_, b, _) = unsafe { choices.align_to_mut::<u8>() };
-                    b[*c] = 0;
+                for (i, mask) in metadata.clear_range.iter() {
+                    choices[*i] &= mask;
                 }
             }
         }
