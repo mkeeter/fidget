@@ -86,11 +86,11 @@ pub mod eval_tests {
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[3 | (1 << (1 * 2))]);
+        assert_eq!(data.unwrap().choices(), &[1 | (1 << 1)]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[3 | (1 << (2 * 2))]);
+        assert_eq!(data.unwrap().choices(), &[1 | (1 << 2)]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
@@ -118,11 +118,11 @@ pub mod eval_tests {
 
         let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.0);
-        assert_eq!(data.unwrap().choices(), &[3 | (1 << (2 * 2))]);
+        assert_eq!(data.unwrap().choices(), &[1 | (1 << 2)]);
 
         let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 2.0);
-        assert_eq!(data.unwrap().choices(), &[3 | (1 << (1 * 2))]);
+        assert_eq!(data.unwrap().choices(), &[1 | (1 << 1)]);
 
         let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
@@ -158,12 +158,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
-        let t = tape.simplify(&mut [1 << (1 * 2)]);
+        let t = tape.simplify(&mut [1 << 1]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&mut [1 << (2 * 2)]);
+        let t = tape.simplify(&mut [1 << 2]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
         assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -174,12 +174,12 @@ pub mod eval_tests {
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
-        let t = tape.simplify(&mut [1 << (1 * 2)]);
+        let t = tape.simplify(&mut [1 << 1]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&mut [1 << (2 * 2)]);
+        let t = tape.simplify(&mut [1 << 2]);
         let eval = t.new_point_evaluator();
         assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);

@@ -70,20 +70,17 @@ impl Choices {
 
     /// Returns an mutable view into the choice data array
     pub fn as_mut(&mut self) -> &mut [u64] {
-        self.finalize();
         self.data.as_mut()
     }
 
     /// Returns the inner data array
     pub fn take(mut self) -> Vec<u64> {
-        self.finalize();
         self.data
     }
 
     /// Checks whether the given choice has already received a value
     pub fn has_value(&self, c: ChoiceIndex) -> bool {
-        assert_eq!(c.bit % 2, 0);
-        self[c.index] & 3 == 3
+        self[c.index] & 1 == 1
     }
 
     pub fn is_set(&self, c: ChoiceIndex) -> bool {
@@ -91,76 +88,29 @@ impl Choices {
     }
 
     pub fn set_has_value(&mut self, c: ChoiceIndex) {
-        self[c.start()] = 3;
+        self[c.start()] = 1;
     }
 
     /// Sets the given index
     pub fn set(&mut self, c: ChoiceIndex) {
-        debug_assert_eq!(c.bit % 2, 0);
+        self[c.start()] |= 1;
         self[c.end()] |= c.mask();
-        self[c.start()] |= 3;
     }
 
     /// Clears all previous bits and sets the given index
     pub fn set_exclusive(&mut self, c: ChoiceIndex) {
-        debug_assert_eq!(c.bit % 2, 0);
-        self[c.start()] |= 3;
         // If this exclusivity is contained within a single byte, then we don't
         // need to post-process it later.
         if c.start() == c.end() {
             debug_assert!(c.bit < 8);
             // Clear all lower bits, then set the inclusive bit
-            self[c.start()] = c.mask() | 3;
+            self[c.start()] = c.mask() | 1;
         } else {
-            // Clear all lower bits, then set the *exclusive* bit
-            // This signals that `finalize` must iterate backwards to the start
-            self[c.end()] = c.mask() << 1;
-            self[c.start()] |= 3;
-        }
-    }
-
-    fn finalize(&mut self) {
-        let mut i = self.data.len();
-        while i > 0 {
-            i -= 1;
-            let d = self.data[i];
-            let has_initial = d & 0x3333_3333_3333_3333;
-
-            // Each byte has its LSB set iff it's an initial byte
-            let initial = has_initial & has_initial >> 1;
-
-            // A byte contains an exclusive set if an odd bit is set in that
-            // byte, and that odd bit isn't part of an initial-byte marker
-            let has_exclusive = (d & 0xAAAA_AAAA_AAAA_AAAA) & !(initial << 1);
-
-            if has_exclusive != 0 {
-                let leading_zeros = has_exclusive.leading_zeros();
-                let highest_exclusive_bit = 64 - 1 - leading_zeros;
-
-                // Shift to byte-wise iteration for simplicity here
-                let mut j = (i * 8 + highest_exclusive_bit as usize / 8)
-                    .try_into()
-                    .unwrap();
-                let highest_exclusive_bit = highest_exclusive_bit % 8;
-
-                // Move the exclusive bit to the inclusive position
-                self[j] &= !(1 << highest_exclusive_bit);
-                self[j] &= !((1 << highest_exclusive_bit) - 1);
-                self[j] |= 1 << (highest_exclusive_bit - 1);
-
-                while j > 0 {
-                    j -= 1;
-                    if self[j] & 3 == 3 {
-                        self[j] = 3;
-                        break;
-                    } else {
-                        self[j] = 0;
-                    }
-                }
-                // There may be multiple exclusive bits in the same u64, so
-                // restore i to its previous value.
-                i += 1;
+            self[c.start()] = 1;
+            for i in c.start() + 1..c.end() {
+                self[i] = 0;
             }
+            self[c.end()] = c.mask();
         }
     }
 }
@@ -207,12 +157,12 @@ mod test {
         let mut c = Choices::new();
         c.resize_and_zero(1);
         c.set(ChoiceIndex::new(0, 2));
-        assert_eq!(c.as_mut(), &mut [7]);
+        assert_eq!(c.as_mut(), &mut [5]);
         c.set(ChoiceIndex::new(0, 4));
-        assert_eq!(c.as_mut(), &mut [7 | 0b010000]);
+        assert_eq!(c.as_mut(), &mut [21]);
         c.set(ChoiceIndex::new(0, 6));
-        assert_eq!(c.as_mut(), &mut [7 | 0b01010000]);
+        assert_eq!(c.as_mut(), &mut [85]);
         c.set_exclusive(ChoiceIndex::new(0, 8));
-        assert_eq!(c.as_mut(), &mut [3 | 0b0100000000]);
+        assert_eq!(c.as_mut(), &mut [257]);
     }
 }

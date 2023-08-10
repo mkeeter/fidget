@@ -802,10 +802,10 @@ fn renumber_choices(
             if let Some(c) = op.choice_mut() {
                 let prev = *c;
                 // Bit 0 is reserved as an "any choice is set" marker
-                let i = next.entry(c.index).or_insert(2);
+                let i = next.entry(c.index).or_insert(1);
                 c.bit = *i;
                 remap.insert(prev, *c);
-                *i += 2;
+                *i += 1;
             }
         }
     }
@@ -827,7 +827,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
             // Invariant checking: the choice with bit 0 must appear first in
             // the tape when walking in evaluation order.
             if let Some(c) = op.choice() {
-                if c.bit == 2 {
+                if c.bit == 1 {
                     assert!(!seen.contains(&c.index));
                 }
                 seen.insert(c.index);
@@ -835,7 +835,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
             match *op {
                 vm::Op::MinRegRegChoice { reg, arg, choice }
                 | vm::Op::MaxRegRegChoice { reg, arg, choice }
-                    if choice.bit == 2 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyRegRegChoice {
                         out: reg,
@@ -845,7 +845,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinRegImmChoice { reg, imm, choice }
                 | vm::Op::MaxRegImmChoice { reg, imm, choice }
-                    if choice.bit == 2 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyImmRegChoice {
                         out: reg,
@@ -855,7 +855,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinMemRegChoice { mem, arg, choice }
                 | vm::Op::MaxMemRegChoice { mem, arg, choice }
-                    if choice.bit == 2 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyRegMemChoice {
                         out: mem,
@@ -865,7 +865,7 @@ fn simplify_first_choice(group_tapes: &[Vec<vm::Op>]) -> Vec<Vec<vm::Op>> {
                 }
                 vm::Op::MinMemImmChoice { mem, imm, choice }
                 | vm::Op::MaxMemImmChoice { mem, imm, choice }
-                    if choice.bit == 2 =>
+                    if choice.bit == 1 =>
                 {
                     *op = vm::Op::CopyImmMemChoice {
                         out: mem,
@@ -920,7 +920,7 @@ pub fn buildy<F: Family>(
             // We reserve bit 0 as a marker for "any choice is set", so that we
             // can do O(1) lookups.
             let next = e.len() + 1;
-            e.entry(v.choice).or_insert(next * 2);
+            e.entry(v.choice).or_insert(next);
         }
     }
     let compress = |k: ChoiceClause| {
@@ -964,18 +964,19 @@ pub fn buildy<F: Family>(
     // TODO: inlining here?
 
     // Build a mapping from choice nodes to indices in the choice data array
-    let mut max_choice_per_node: BTreeMap<Node, usize> = BTreeMap::new();
+    let mut max_bit_per_node: BTreeMap<Node, usize> = BTreeMap::new();
     for t in &groups {
         for k in &t.parents {
-            let c = max_choice_per_node.entry(k.root).or_default();
-            *c = (*c).max(k.choice + 1); // each choice is two bits
+            let c = max_bit_per_node.entry(k.root).or_default();
+            *c = (*c).max(k.choice); // each choice is two bits
         }
     }
     let mut node_to_choice_index: BTreeMap<Node, usize> = BTreeMap::new();
     let mut offset = 0;
-    for (&node, &choice_count) in &max_choice_per_node {
+    for (&node, &max_bit) in &max_bit_per_node {
+        assert!(max_bit > 0);
         node_to_choice_index.insert(node, offset);
-        offset += (choice_count + 7) / 8;
+        offset += max_bit / 8 + 1;
     }
 
     // Perform node ordering within each group
@@ -1120,8 +1121,8 @@ pub fn buildy<F: Family>(
                 .iter()
                 .flat_map(|n| {
                     let start = node_to_choice_index[n];
-                    let count = max_choice_per_node[n];
-                    (start..(start + (count + 7) / 8)).into_iter()
+                    let max_bit = max_bit_per_node[n];
+                    (start..(start + max_bit / 8 + 1)).into_iter()
                 })
                 .collect();
             let mut clear: BTreeMap<usize, u64> = BTreeMap::new();
