@@ -74,7 +74,7 @@ impl Choices {
     }
 
     /// Returns the inner data array
-    pub fn take(mut self) -> Vec<u64> {
+    pub fn take(self) -> Vec<u64> {
         self.data
     }
 
@@ -157,12 +157,12 @@ mod test {
         let mut c = Choices::new();
         c.resize_and_zero(1);
         c.set(ChoiceIndex::new(0, 2));
-        assert_eq!(c.as_mut(), &mut [5]);
+        assert_eq!(c.as_mut(), &mut [1 | 1 << 2]);
         c.set(ChoiceIndex::new(0, 4));
-        assert_eq!(c.as_mut(), &mut [21]);
+        assert_eq!(c.as_mut(), &mut [1 | 1 << 2 | 1 << 4]);
         c.set(ChoiceIndex::new(0, 6));
-        assert_eq!(c.as_mut(), &mut [85]);
+        assert_eq!(c.as_mut(), &mut [1 | 1 << 2 | 1 << 4 | 1 << 6]);
         c.set_exclusive(ChoiceIndex::new(0, 8));
-        assert_eq!(c.as_mut(), &mut [257]);
+        assert_eq!(c.as_mut(), &mut [1 | 1 << 8]);
     }
 }
