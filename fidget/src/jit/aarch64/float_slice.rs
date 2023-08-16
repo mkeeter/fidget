@@ -25,8 +25,6 @@ pub const SIMD_WIDTH: usize = 4;
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
-    type Data = f32;
-
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

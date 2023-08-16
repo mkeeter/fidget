@@ -27,8 +27,6 @@ pub const SIMD_WIDTH: usize = 8;
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
 impl AssemblerT for FloatSliceAssembler {
-    type Data = f32;
-
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

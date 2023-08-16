@@ -21,8 +21,6 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `out`      | `x1`     | `*mut u8` (array)     |
 /// | `count`    | `x2`     | `*mut u8` (single)    |
 impl AssemblerT for PointAssembler {
-    type Data = f32;
-
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

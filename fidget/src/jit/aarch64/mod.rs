@@ -22,7 +22,7 @@
 pub const REGISTER_LIMIT: u8 = 24;
 /// `v3` is used for immediates, because `v0-2` contain inputs
 pub const IMM_REG: u8 = 3;
-/// `v4-7` are used for as temporary variables:w
+/// `v4-7` are used for as temporary variables
 pub const OFFSET: u8 = 8;
 
 pub mod float_slice;

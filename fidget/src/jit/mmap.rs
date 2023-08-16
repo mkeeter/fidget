@@ -5,6 +5,7 @@ pub struct Mmap {
 
 // SAFETY: this is philosophically a `Vec<u8>`, so can be sent to other threads
 unsafe impl Send for Mmap {}
+unsafe impl Sync for Mmap {}
 
 impl Default for Mmap {
     fn default() -> Self {

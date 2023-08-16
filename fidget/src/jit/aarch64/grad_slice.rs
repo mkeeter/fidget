@@ -24,8 +24,6 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
 impl AssemblerT for GradSliceAssembler {
-    type Data = Grad;
-
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops

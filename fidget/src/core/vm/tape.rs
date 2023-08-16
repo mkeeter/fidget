@@ -69,10 +69,12 @@ impl<F: Family> TapeData<F> {
     }
 }
 
+// TODO: move this elsewhere, since it's only used during construction?
 /// A tape alongside the choices which lead it to being selected
 ///
-/// Specifically, the tape is active if _any of_ `self.choices` is true **and**
-/// `self.skip` is false (or not present)
+/// Specifically, the tape is active if _any of_ `self.choices` is true
+///
+/// If the tape is inactive, then we should clear choices given by `self.clear`
 #[derive(Debug)]
 pub struct ChoiceTape {
     /// List of instructions in reverse-evaluation order
@@ -126,8 +128,8 @@ impl<F: Family> TapeData<F> {
             .max()
             .unwrap_or(0) as usize;
 
+        let (tape_data, group_data) = F::build(slot_count, &data);
         let mut groups = vec![];
-        let (tape_data, group_data) = F::build(&data);
         for (c, g) in data.iter().zip(group_data) {
             groups.push(GroupMetadata {
                 choice_mask_range: c.choices.clone(),

@@ -1,13 +1,12 @@
 use crate::{
-    eval::types::Interval,
     jit::{
         interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
+        AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT,
     },
+    vm::ChoiceIndex,
     Error,
 };
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Implementation for the interval assembler on `aarch64`
 ///
@@ -15,20 +14,24 @@ use dynasmrt::{dynasm, DynasmApi};
 ///
 /// | Variable   | Register   | Type                    |
 /// |------------|------------|-------------------------|
+/// | code       | `x0`       | `*const c_void`         |
 /// | X          | `(s0, s1)` | `(f32, f32)`            |
 /// | Y          | `(s2, s3)` | `(f32, f32)`            |
 /// | Z          | `(s4, s5)` | `(f32, f32)`            |
-/// | `vars`     | `x0`       | `*const f32` (array)    |
-/// | `choices`  | `x1`       | `*const u8` (array)     |
-/// | `simplify` | `x2`       | `*const u8` (single)    |
+/// | `vars`     | `x1`       | `*const f32` (array)    |
+/// | `choices`  | `x2`       | `*const u8` (array)     |
+/// | `simplify` | `x3`       | `*const u8` (single)    |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
 impl AssemblerT for IntervalAssembler {
-    type Data = Interval;
+    fn init(mmap: Mmap) -> Self {
+        let mut out = AssemblerData::new(mmap);
+        Self(out)
+    }
 
-    fn init(mmap: Mmap, slot_count: usize) -> Self {
+    fn build_entry_point(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             // Preserve frame and link register
@@ -49,6 +52,28 @@ impl AssemblerT for IntervalAssembler {
             ; mov v2.s[1], v5.s[0]
         );
         out.prepare_stack(slot_count);
+        let out_reg = 0;
+        dynasm!(out.ops
+            // Jump into threaded code
+            // TODO: this means that threaded code can't use the link register;
+            // is that an issue?
+            ; blr x0
+            // Return from threaded code here
+
+            // Prepare our return value
+            ; mov  s0, V(reg(out_reg)).s[0]
+            ; mov  s1, V(reg(out_reg)).s[1]
+            // Restore stack space used for spills
+            ; add   sp, sp, #(out.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+        );
         Self(out)
     }
     /// Reads from `src_mem` to `dst_reg`
@@ -72,7 +97,7 @@ impl AssemblerT for IntervalAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr w15, [x0, #(src_arg * 4)]
+            ; ldr w15, [x1, #(src_arg * 4)]
             ; dup V(reg(out_reg)).s2, w15
         );
     }
@@ -96,13 +121,13 @@ impl AssemblerT for IntervalAssembler {
 
             // Check whether lhs.upper < 0
             ; tst x15, #0x1_0000_0000
-            ; b.ne #24 // -> upper_lz
+            ; b.ne >L // -> upper_lz
 
             // Check whether lhs.lower < 0
             ; tst x15, #0x1
 
             // otherwise, we're good; return the original
-            ; b.eq #20 // -> end
+            ; b.eq >E // -> end
 
             // if lhs.lower < 0, then the output is
             //  [0.0, max(abs(lower, upper))]
@@ -111,40 +136,42 @@ impl AssemblerT for IntervalAssembler {
             ; fmov D(reg(out_reg)), d4
             // Fall through to do the swap
 
-            // <- upper_lz
+            ; L: // <- upper_lz
             // if upper < 0
             //   return [-upper, -lower]
             ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
 
-            // <- end
-        )
+            ; E:// <- end
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
             ; fcmp S(reg(lhs_reg)), 0.0
-            ; b.gt #32 // -> okay
+            ; b.gt >O // -> okay
 
             // Check whether lhs.upper < 0.0
             ; mov s4, V(reg(lhs_reg)).s[1]
             ; fcmp s4, 0.0
-            ; b.mi #20 // -> okay
+            ; b.mi >O // -> okay
 
             // Bad case: the division spans 0, so return NaN
             ; movz w15, #(nan_u32 >> 16), lsl 16
             ; movk w15, #(nan_u32)
             ; dup V(reg(out_reg)).s2, w15
-            ; b #20 // -> end
+            ; b >E // -> end
 
-            // <- okay
+            ; O: // <- okay
             ; fmov s4, #1.0
             ; dup v4.s2, v4.s[0]
             ; fdiv V(reg(out_reg)).s2, v4.s2, V(reg(lhs_reg)).s2
             ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
 
-            // <- end
-        )
+            ; E: // <- end
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -155,29 +182,30 @@ impl AssemblerT for IntervalAssembler {
 
             // Check whether lhs.upper < 0
             ; tst x15, #0x1_0000_0000
-            ; b.ne #40 // -> upper_lz
+            ; b.ne >U // -> upper_lz
 
             ; tst x15, #0x1
-            ; b.ne #12 // -> lower_lz
+            ; b.ne >L // -> lower_lz
 
             // Happy path
             ; fsqrt V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
-            ; b #36 // -> end
+            ; b >E // -> end
 
-            // <- lower_lz
+            ; L: // <- lower_lz
             ; mov v4.s[0], V(reg(lhs_reg)).s[1]
             ; fsqrt s4, s4
             ; movi D(reg(out_reg)), #0
             ; mov V(reg(out_reg)).s[1], v4.s[0]
-            ; b #16
+            ; b >E
 
-            // <- upper_lz
+            ; U:
             ; movz w9, #(nan_u32 >> 16), lsl 16
             ; movk w9, #(nan_u32)
             ; dup V(reg(out_reg)).s2, w9
 
-            // <- end
-        )
+            ; E:
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -188,24 +216,25 @@ impl AssemblerT for IntervalAssembler {
 
             // Check whether lhs.upper <= 0.0
             ; tst x15, #0x1_0000_0000
-            ; b.ne #28 // -> swap
+            ; b.ne >S // -> swap
 
             // Test whether lhs.lower <= 0.0
             ; tst x15, #0x1
-            ; b.eq #24 // -> end
+            ; b.eq >E // -> end
 
             // If the input interval straddles 0, then the
             // output is [0, max(lower**2, upper**2)]
             ; fmaxnmv s4, V(reg(out_reg)).s4
             ; movi D(reg(out_reg)), #0
             ; mov V(reg(out_reg)).s[1], v4.s[0]
-            ; b #8 // -> end
+            ; b >E // -> end
 
-            // <- swap
+            ; S: // <- swap
             ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
 
-            // <- end
-        )
+            ; E: // <- end
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -261,20 +290,20 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             // Store rhs.lower > 0.0 in x15, then check rhs.lower > 0
             ; fcmp S(reg(rhs_reg)), #0.0
-            ; b.gt #32 // -> happy
+            ; b.gt >H // -> happy
 
             // Store rhs.upper < 0.0 in x15, then check rhs.upper < 0
             ; mov s4, V(reg(rhs_reg)).s[1]
             ; fcmp s4, #0.0
-            ; b.lt #20
+            ; b.lt >H
 
             // Sad path: rhs spans 0, so the output includes NaN
             ; movz w9, #(nan_u32 >> 16), lsl 16
             ; movk w9, #(nan_u32)
             ; dup V(reg(out_reg)).s2, w9
-            ; b #32 // -> end
+            ; b >E // -> end
 
-            // >happy:
+            ; H: // >happy:
             // Set up v4 to contain
             //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
             // and v5 to contain
@@ -292,8 +321,9 @@ impl AssemblerT for IntervalAssembler {
             ; fmaxnmv s5, v4.s4
             ; mov V(reg(out_reg)).s[1], v5.s[0]
 
-            // >end
-        )
+            ; E: // >end
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -302,44 +332,35 @@ impl AssemblerT for IntervalAssembler {
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
-            ; b.ne #28 // -> lhs
+            ; b.ne >L // -> lhs
 
             ; tst x15, #0x1
-            ; b.eq #36 // -> both
+            ; b.eq >B // -> both
 
-            // LHS < RHS
+            ; R: // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #28 // -> end
+            ; b >E // -> end
 
-            // <- lhs (when RHS < LHS)
+            ; L: // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #12 // -> end
+            ; b >E // -> end
 
-            // <- both
+            ; B: // <- both
             ; fmax V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w14, w14, #CHOICE_BOTH
 
-            // <- end
-            ; strb w14, [x1], #1 // post-increment
-        )
+            ; E: // <- end
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
-            //      *choices++ |= CHOICE_LEFT
             //      out = lhs
             //  elif rhs.upper < lhs.lower
-            //      *choices++ |= CHOICE_RIGHT
             //      out = rhs
             //  else
-            //      *choices++ |= CHOICE_BOTH
             //      out = fmin(lhs, rhs)
 
             // v4 = [lhs.upper, rhs.upper]
@@ -351,32 +372,26 @@ impl AssemblerT for IntervalAssembler {
             // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x1]
 
             ; tst x15, #0x1_0000_0000
-            ; b.ne #28 // -> rhs
+            ; b.ne >R // -> rhs
 
             ; tst x15, #0x1
-            ; b.eq #36 // -> both
+            ; b.eq >B // -> both
 
-            // Fallthrough: LHS < RHS
+            ; L: // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #28 // -> end
+            ; b >E // -> end
 
-            // <- rhs (for when RHS < LHS)
+            ; R: // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #12
+            ; b >E
 
-            // <- both
+            ; B: // <- both
             ; fmin V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
-            ; strb w14, [x1], #1 // post-increment
+            ; E:
         )
     }
 
@@ -392,23 +407,104 @@ impl AssemblerT for IntervalAssembler {
     }
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        assert!(self.0.mem_offset < 4096);
-        dynasm!(self.0.ops
-            // Prepare our return value
-            ; mov  s0, V(reg(out_reg)).s[0]
-            ; mov  s1, V(reg(out_reg)).s[1]
-            // Restore stack space used for spills
-            ; add   sp, sp, #(self.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
-            ; ret
-        );
-
         self.0.ops.finalize()
+    }
+
+    fn build_min_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_max_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_min_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_max_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_min_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_max_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_min_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_max_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_copy_imm_reg_choice(
+        &mut self,
+        out: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_copy_imm_mem_choice(
+        &mut self,
+        out: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_copy_reg_reg_choice(
+        &mut self,
+        out: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
+    }
+    fn build_copy_reg_mem_choice(
+        &mut self,
+        out: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        todo!()
     }
 }

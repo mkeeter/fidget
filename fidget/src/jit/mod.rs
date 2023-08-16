@@ -19,17 +19,20 @@
 
 use crate::{
     eval::{
-        bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
-        Choice, EvaluatorStorage, Family, Tape,
+        bulk::BulkEvaluator,
+        tracing::TracingEvaluator,
+        types::{Grad, Interval},
+        EvaluatorStorage, Family,
     },
     jit::mmap::Mmap,
-    vm::Op,
+    vm::{ChoiceIndex, ChoiceTape, Choices, Op, Tape, TapeData},
     Error,
 };
 use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
+use std::ffi::c_void;
 use std::sync::Arc;
 
 mod mmap;
@@ -91,26 +94,17 @@ fn reg(r: u8) -> RegIndex {
     out
 }
 
-const CHOICE_LEFT: u32 = Choice::Left as u32;
-const CHOICE_RIGHT: u32 = Choice::Right as u32;
-const CHOICE_BOTH: u32 = Choice::Both as u32;
-
 /// Trait for generating machine assembly
 ///
 /// This is public because it's used to parameterize various other types, but
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
 pub trait AssemblerT {
-    /// Data type used during evaluation.
+    /// Initialize the assembler for a threaded code fragment
     ///
-    /// This should be a `repr(C)` type, so it can be passed around directly.
-    type Data;
-
-    /// Initializes the assembler with the given slot count
-    ///
-    /// This will likely construct a function prelude and reserve space on the
-    /// stack for slot spills.
-    fn init(m: Mmap, slot_count: usize) -> Self;
+    /// (In practice, this means doing basically nothing, since there's no
+    /// function call prelude or anything in threaded code fragments)
+    fn init(m: Mmap) -> Self;
 
     /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
@@ -207,6 +201,85 @@ pub trait AssemblerT {
 
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
+
+    fn build_min_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_max_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_min_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_max_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_min_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+    fn build_max_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+    fn build_min_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+    fn build_max_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+    fn build_copy_imm_reg_choice(
+        &mut self,
+        out: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_copy_imm_mem_choice(
+        &mut self,
+        out: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    );
+    fn build_copy_reg_reg_choice(
+        &mut self,
+        out: u8,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+    fn build_copy_reg_mem_choice(
+        &mut self,
+        out: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    );
+
+    /// Builds an entry point for threaded code with the given slot count
+    ///
+    /// This will likely construct a function prelude, reserve space on the
+    /// stack for slot spills, and jump to the first piece of threaded code.
+    fn build_entry_point(m: Mmap, slot_count: usize) -> Self;
 
     /// Finalize the assembly code, returning a memory-mapped region
     fn finalize(self, out_reg: u8) -> Result<Mmap, Error>;
@@ -580,93 +653,133 @@ impl From<Mmap> for MmapAssembler {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
+/// Build an assembly snippet for the given function
+///
+/// `t` is expected to be in reverse-evaluation order
+fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
     // This guard may be a unit value on some systems
     #[allow(clippy::let_unit_value)]
     let _guard = Mmap::thread_mode_write();
 
+    let s = Mmap::new(0).unwrap();
     s.make_write();
-    let mut asm = A::init(s, t.slot_count());
+    let mut asm = A::init(s, slot_count);
 
-    for op in t.iter_asm() {
+    for &op in t.iter().rev() {
         match op {
-            Op::Load(reg, mem) => {
+            Op::Load { reg, mem } => {
                 asm.build_load(reg, mem);
             }
-            Op::Store(reg, mem) => {
+            Op::Store { reg, mem } => {
                 asm.build_store(mem, reg);
             }
-            Op::Input(out, i) => {
-                asm.build_input(out, i);
+            Op::Input { out, input } => {
+                asm.build_input(out, input);
             }
-            Op::Var(out, i) => {
-                asm.build_var(out, i);
+            Op::Var { out, var } => {
+                asm.build_var(out, var);
             }
-            Op::NegReg(out, arg) => {
+            Op::NegReg { out, arg } => {
                 asm.build_neg(out, arg);
             }
-            Op::AbsReg(out, arg) => {
+            Op::AbsReg { out, arg } => {
                 asm.build_abs(out, arg);
             }
-            Op::RecipReg(out, arg) => {
+            Op::RecipReg { out, arg } => {
                 asm.build_recip(out, arg);
             }
-            Op::SqrtReg(out, arg) => {
+            Op::SqrtReg { out, arg } => {
                 asm.build_sqrt(out, arg);
             }
-            Op::CopyReg(out, arg) => {
+            Op::CopyReg { out, arg } => {
                 asm.build_copy(out, arg);
             }
-            Op::SquareReg(out, arg) => {
+            Op::SquareReg { out, arg } => {
                 asm.build_square(out, arg);
             }
-            Op::AddRegReg(out, lhs, rhs) => {
+            Op::AddRegReg { out, lhs, rhs } => {
                 asm.build_add(out, lhs, rhs);
             }
-            Op::MulRegReg(out, lhs, rhs) => {
+            Op::MulRegReg { out, lhs, rhs } => {
                 asm.build_mul(out, lhs, rhs);
             }
-            Op::DivRegReg(out, lhs, rhs) => {
+            Op::DivRegReg { out, lhs, rhs } => {
                 asm.build_div(out, lhs, rhs);
             }
-            Op::SubRegReg(out, lhs, rhs) => {
+            Op::SubRegReg { out, lhs, rhs } => {
                 asm.build_sub(out, lhs, rhs);
             }
-            Op::MinRegReg(out, lhs, rhs) => {
+            Op::MinRegReg { out, lhs, rhs } => {
                 asm.build_min(out, lhs, rhs);
             }
-            Op::MaxRegReg(out, lhs, rhs) => {
+            Op::MaxRegReg { out, lhs, rhs } => {
                 asm.build_max(out, lhs, rhs);
             }
-            Op::AddRegImm(out, arg, imm) => {
+            Op::AddRegImm { out, arg, imm } => {
                 asm.build_add_imm(out, arg, imm);
             }
-            Op::MulRegImm(out, arg, imm) => {
+            Op::MulRegImm { out, arg, imm } => {
                 asm.build_mul_imm(out, arg, imm);
             }
-            Op::DivRegImm(out, arg, imm) => {
+            Op::DivRegImm { out, arg, imm } => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            Op::DivImmReg(out, arg, imm) => {
+            Op::DivImmReg { out, arg, imm } => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            Op::SubImmReg(out, arg, imm) => {
+            Op::SubImmReg { out, arg, imm } => {
                 asm.build_sub_imm_reg(out, arg, imm);
             }
-            Op::SubRegImm(out, arg, imm) => {
+            Op::SubRegImm { out, arg, imm } => {
                 asm.build_sub_reg_imm(out, arg, imm);
             }
-            Op::MinRegImm(out, arg, imm) => {
+            Op::MinRegImm { out, arg, imm } => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            Op::MaxRegImm(out, arg, imm) => {
+            Op::MaxRegImm { out, arg, imm } => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            Op::CopyImm(out, imm) => {
+            Op::MaxMemImmChoice { mem, imm, choice } => {
+                asm.build_max_mem_imm_choice(mem, imm, choice);
+            }
+            Op::MinMemImmChoice { mem, imm, choice } => {
+                asm.build_min_mem_imm_choice(mem, imm, choice);
+            }
+            Op::MaxMemRegChoice { mem, arg, choice } => {
+                asm.build_max_mem_reg_choice(mem, arg, choice);
+            }
+            Op::MinMemRegChoice { mem, arg, choice } => {
+                asm.build_min_mem_reg_choice(mem, arg, choice);
+            }
+            Op::MaxRegRegChoice { reg, arg, choice } => {
+                asm.build_max_reg_reg_choice(reg, arg, choice);
+            }
+            Op::MinRegRegChoice { reg, arg, choice } => {
+                asm.build_min_reg_reg_choice(reg, arg, choice);
+            }
+            Op::MaxRegImmChoice { reg, imm, choice } => {
+                asm.build_max_reg_imm_choice(reg, imm, choice);
+            }
+            Op::MinRegImmChoice { reg, imm, choice } => {
+                asm.build_min_reg_imm_choice(reg, imm, choice);
+            }
+            Op::CopyImmRegChoice { out, imm, choice } => {
+                asm.build_copy_imm_reg_choice(out, imm, choice);
+            }
+            Op::CopyImmMemChoice { out, imm, choice } => {
+                asm.build_copy_imm_mem_choice(out, imm, choice);
+            }
+            Op::CopyRegRegChoice { out, arg, choice } => {
+                asm.build_copy_reg_reg_choice(out, arg, choice);
+            }
+            Op::CopyRegMemChoice { out, arg, choice } => {
+                asm.build_copy_reg_mem_choice(out, arg, choice);
+            }
+            Op::CopyImm { out, imm } => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }
@@ -675,6 +788,42 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
 
     asm.finalize(0).expect("failed to build JIT function")
     // JIT execute mode is restored here when the _guard is dropped
+}
+
+/// Container for a bunch of JIT code
+struct MmapSet {
+    point: Mmap,
+    interval: Mmap,
+    float_slice: Mmap,
+    grad_slice: Mmap,
+}
+
+trait GetPointer<T> {
+    fn get_pointer(&self) -> *const c_void;
+}
+
+impl GetPointer<f32> for MmapSet {
+    fn get_pointer(&self) -> *const c_void {
+        self.point.as_slice().as_ptr() as *const c_void
+    }
+}
+
+impl GetPointer<Interval> for MmapSet {
+    fn get_pointer(&self) -> *const c_void {
+        self.interval.as_slice().as_ptr() as *const c_void
+    }
+}
+
+impl GetPointer<*const f32> for MmapSet {
+    fn get_pointer(&self) -> *const c_void {
+        self.float_slice.as_slice().as_ptr() as *const c_void
+    }
+}
+
+impl GetPointer<*const Grad> for MmapSet {
+    fn get_pointer(&self) -> *const c_void {
+        self.grad_slice.as_slice().as_ptr() as *const c_void
+    }
 }
 
 /// JIT evaluator family
@@ -688,6 +837,12 @@ impl Family for Eval {
     type FloatSliceEval = float_slice::JitFloatSliceEval;
     type GradSliceEval = grad_slice::JitGradSliceEval;
 
+    /// The root tape contains entry points for threaded code
+    type TapeData = MmapSet;
+
+    /// Each group contains a chunk of threaded code to do its evaluation
+    type GroupMetadata = MmapSet;
+
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
     }
@@ -699,6 +854,50 @@ impl Family for Eval {
     fn simplify_tree_during_meshing(d: usize) -> bool {
         // Unscientifically selected, but similar to tile_sizes_3d
         d % 8 == 4
+    }
+
+    fn build(
+        slot_count: usize,
+        tapes: &[ChoiceTape],
+    ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
+        let mut out = vec![];
+        for t in tapes {
+            let point = build_asm_fn::<point::PointAssembler>(
+                t.tape.as_slice(),
+                slot_count,
+            );
+            let interval = build_asm_fn::<interval::IntervalAssembler>(
+                t.tape.as_slice(),
+                slot_count,
+            );
+            let float_slice = build_asm_fn::<float_slice::FloatSliceAssembler>(
+                t.tape.as_slice(),
+                slot_count,
+            );
+            let grad_slice = build_asm_fn::<grad_slice::GradSliceAssembler>(
+                t.tape.as_slice(),
+                slot_count,
+            );
+            out.push(MmapSet {
+                point,
+                interval,
+                float_slice,
+                grad_slice,
+            })
+        }
+        let point = point::PointAssembler::build_entry_point();
+        let interval = interval::IntervalAssembler::build_entry_point();
+        let float_slice = float_slice::FloatSliceAssembler::build_entry_point();
+        let grad_slice = grad_slice::GradSliceAssembler::build_entry_point();
+        (
+            MmapSet {
+                point,
+                interval,
+                float_slice,
+                grad_slice,
+            },
+            out,
+        )
     }
 }
 
@@ -729,79 +928,122 @@ macro_rules! jit_fn {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle owning a JIT-compiled tracing function of some kind
+/// Handle owning a JIT-compiled function of some kind
 ///
 /// Users are unlikely to use this directly; consider using the
 /// [`jit::Eval`](Eval) evaluator family instead.
-pub struct JitTracingEval<I: AssemblerT> {
-    mmap: Arc<Mmap>,
+pub struct JitEval<T> {
+    code: ThreadedCode,
     var_count: usize,
-    fn_trace: jit_fn!(
-        unsafe fn(
-            I::Data,    // X
-            I::Data,    // Y
-            I::Data,    // Z
-            *const f32, // vars
-            *mut u8,    // choices
-            *mut u8,    // simplify (single boolean)
-        ) -> I::Data
-    ),
+    _p: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<I: AssemblerT> Clone for JitTracingEval<I> {
+impl<I: AssemblerT> Clone for JitEval<I> {
     fn clone(&self) -> Self {
         Self {
-            mmap: self.mmap.clone(),
+            code: self.code.clone(), // TODO: this is expensive
             var_count: self.var_count,
-            fn_trace: self.fn_trace,
+            _p: std::marker::PhantomData,
         }
     }
 }
 
-// SAFETY: there is no mutable state in a `JitTracingEval`, and the pointer
+// SAFETY: there is no mutable state in a `JitEval`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: AssemblerT> Send for JitTracingEval<I> {}
-unsafe impl<I: AssemblerT> Sync for JitTracingEval<I> {}
+unsafe impl<I: AssemblerT> Send for JitEval<I> {}
+unsafe impl<I: AssemblerT> Sync for JitEval<I> {}
 
-impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
-    type Storage = Mmap;
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<I>(t, prev);
-        let ptr = mmap.as_ptr();
+/// Threaded code, which is a set of pointers to JIT-compiled code
+///
+/// Each chunk of code must end with a jump to the next one
+#[derive(Clone, Default)]
+struct ThreadedCode {
+    entry_points: Arc<Vec<*const c_void>>,
+
+    /// Handle to the parent `TapeData`
+    ///
+    /// This ensures that [`entry_points`] remains valid for the lifetime of
+    /// a given `ThreadedCode` instance.
+    data: Option<Arc<TapeData<Eval>>>,
+}
+
+// SAFETY: there is no mutable state in a `ThreadedCode`, and it owns a strong
+// reference to the memory into which it contains pointers.
+unsafe impl Send for ThreadedCode {}
+unsafe impl Sync for ThreadedCode {}
+
+impl<T> EvaluatorStorage<Eval> for JitEval<T>
+where
+    MmapSet: GetPointer<T>,
+{
+    type Storage = ThreadedCode;
+    fn new_with_storage(t: &Tape<Eval>, mut prev: Self::Storage) -> Self {
+        prev.entry_points.clear();
+        prev.data = Some(t.data().clone());
+        for g in t.active_groups().iter().rev() {
+            prev.entry_points
+                .push(<MmapSet as GetPointer<T>>::get_pointer(&t.data().data));
+        }
+        // TODO: push finalize here
         Self {
-            mmap: Arc::new(mmap),
+            code: prev,
             var_count: t.var_count(),
-            fn_trace: unsafe { std::mem::transmute(ptr) },
+            _p: std::marker::PhantomData,
         }
     }
 
     fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
+        Arc::try_unwrap(self.code.entry_points)
+            .ok()
+            .map(|entry_points| ThreadedCode {
+                entry_points: Arc::new(entry_points), // TODO allocation :(
+                data: None,
+            })
     }
 }
 
-impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
+impl<T> TracingEvaluator<T, Eval> for JitEval<T>
+where
+    MmapSet: GetPointer<T>,
+{
     type Data = ();
 
     /// Evaluates a single point, capturing execution in `choices`
     fn eval_with(
         &self,
-        x: I::Data,
-        y: I::Data,
-        z: I::Data,
+        x: T,
+        y: T,
+        z: T,
         vars: &[f32],
-        choices: &mut [Choice],
+        choices: &mut Choices,
         _data: &mut (),
-    ) -> (I::Data, bool) {
+    ) -> (T, bool) {
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
+        let start = <MmapSet as GetPointer<T>>::get_pointer(
+            &self.code.data.unwrap().data,
+        );
+
+        // SAFETY: this is a pointer to a hand-written entry point in memory
+        // that's owned by self.code.data
+        let f: jit_fn!(
+            unsafe fn(
+                T,          // X
+                T,          // Y
+                T,          // Z
+                *const f32, // vars
+                *mut u64,   // choices
+                *mut u8,    // simplify (single boolean)
+            ) -> T
+        ) = unsafe { std::mem::transmute(start) };
+
         let out = unsafe {
-            (self.fn_trace)(
+            f(
                 x,
                 y,
                 z,
                 vars.as_ptr(),
-                choices.as_mut_ptr() as *mut u8,
+                choices.as_mut().as_mut_ptr(),
                 &mut simplify,
             )
         };
@@ -811,61 +1053,10 @@ impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle owning a JIT-compiled bulk function of some kind
-///
-/// Users are unlikely to use this directly; consider using the
-/// [`jit::Eval`](Eval) evaluator family instead.
-pub struct JitBulkEval<I: AssemblerT> {
-    mmap: Arc<Mmap>,
-    var_count: usize,
-    fn_bulk: jit_fn!(
-        unsafe fn(
-            *const f32,   // X
-            *const f32,   // Y
-            *const f32,   // Z
-            *const f32,   // vars
-            *mut I::Data, // out
-            u64,          // size
-        ) -> I::Data
-    ),
-}
-
-impl<I: AssemblerT> Clone for JitBulkEval<I> {
-    fn clone(&self) -> Self {
-        Self {
-            mmap: self.mmap.clone(),
-            var_count: self.var_count,
-            fn_bulk: self.fn_bulk,
-        }
-    }
-}
-
-// SAFETY: there is no mutable state in a `JitBulkEval`, and the pointer
-// inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: AssemblerT> Send for JitBulkEval<I> {}
-unsafe impl<I: AssemblerT> Sync for JitBulkEval<I> {}
-
-impl<I: AssemblerT> EvaluatorStorage<Eval> for JitBulkEval<I> {
-    type Storage = Mmap;
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<I>(t, prev);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_bulk: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-}
-
-impl<I: AssemblerT + SimdAssembler> BulkEvaluator<I::Data, Eval>
-    for JitBulkEval<I>
+impl<T, I: SimdAssembler> BulkEvaluator<T, Eval> for JitEval<I>
 where
-    I::Data: Copy + From<f32>,
+    T: Copy + From<f32>,
+    MmapSet: GetPointer<*const T>,
 {
     type Data = ();
 
@@ -876,7 +1067,8 @@ where
         ys: &[f32],
         zs: &[f32],
         vars: &[f32],
-        out: &mut [I::Data],
+        out: &mut [T],
+        choices: &mut Choices,
         _data: &mut (),
     ) {
         assert_eq!(xs.len(), ys.len());
@@ -885,6 +1077,22 @@ where
         assert_eq!(vars.len(), self.var_count);
 
         let n = xs.len();
+
+        let start = <MmapSet as GetPointer<*const T>>::get_pointer(
+            &self.code.data.unwrap().data,
+        );
+
+        let f: jit_fn!(
+            unsafe fn(
+                *const *const c_void,
+                *const f32, // X
+                *const f32, // Y
+                *const f32, // Z
+                *const f32, // vars
+                *mut T,     // out
+                u64,        // size
+            ) -> T
+        ) = unsafe { std::mem::transmute(start) };
 
         // Special case for when we have fewer items than the native SIMD size,
         // in which case the input slices can't be used as workspace (because
@@ -907,7 +1115,8 @@ where
             let mut tmp = [std::f32::NAN.into(); MAX_SIMD_WIDTH];
 
             unsafe {
-                (self.fn_bulk)(
+                f(
+                    self.code.entry_points.as_ptr(),
                     x.as_ptr(),
                     y.as_ptr(),
                     z.as_ptr(),
@@ -923,7 +1132,8 @@ where
             // process any remainders.
             let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
             unsafe {
-                (self.fn_bulk)(
+                f(
+                    self.code.entry_points.as_ptr(),
                     xs.as_ptr(),
                     ys.as_ptr(),
                     zs.as_ptr(),
@@ -937,7 +1147,8 @@ where
             // vector in the array again.
             if n != m {
                 unsafe {
-                    (self.fn_bulk)(
+                    f(
+                        self.code.entry_points.as_ptr(),
                         xs.as_ptr().add(n - I::SIMD_SIZE),
                         ys.as_ptr().add(n - I::SIMD_SIZE),
                         zs.as_ptr().add(n - I::SIMD_SIZE),

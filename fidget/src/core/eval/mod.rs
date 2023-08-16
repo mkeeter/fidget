@@ -74,22 +74,17 @@ pub trait Family: Clone {
         + Send
         + Sync;
 
-    /// Associated tape data
-    ///
-    /// For the VM evaluator, this is a `Vec<Op>`; for the JIT evaluator, this
-    /// is a raw block of memory filled with executable code.
+    /// Associated tape data, which varies depending on evaluator
     type TapeData: Send + Sync;
 
-    /// Associated type for group metadata
-    ///
-    /// For the VM evaluator, this is a slice range into the [`TapeData`] (which
-    /// is a `Vec<Op>`); for the JIT evaluator, it's a raw pointer.
+    /// Associated type for per-group metadata
     type GroupMetadata: Send + Sync;
 
     /// Builds family-specific data for the given groups
     ///
-    /// `tapes` must be in reverse-evaluation (root-to-leaf) order
+    /// `tapes` are provided in reverse-evaluation (root-to-leaf) order
     fn build(
+        slot_count: usize,
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>);
 
