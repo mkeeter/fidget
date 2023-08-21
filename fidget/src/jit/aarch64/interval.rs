@@ -392,7 +392,8 @@ impl AssemblerT for IntervalAssembler {
 
             // <- end
             ; E:
-        )
+        );
+        self.0.ops.commit_local().unwrap();
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
@@ -410,13 +411,207 @@ impl AssemblerT for IntervalAssembler {
         self.0.ops.finalize()
     }
 
+    /// Uses `v4`, `v5`, `x14`, `x15`
+    fn build_min_reg_reg_choice(
+        &mut self,
+        inout_reg: u8,
+        arg_reg: u8,
+        choice: ChoiceIndex,
+    ) {
+        let i = choice.index as u32;
+        let b = choice.bit as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x2, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >V
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, then branch to the end
+            ; fmov D(reg(inout_reg)), D(reg(arg_reg))
+            ; b >E
+
+            ; V: // There was a previous value, so we have to do the comparison
+            // v4 = [inout_reg.upper, arg_reg.upper]
+            // v5 = [arg_reg.lower, inout_reg.lower]
+            // This lets us do two comparisons simultaneously
+            ; zip2 v4.s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
+            ; zip1 v5.s2, V(reg(arg_reg)).s2, V(reg(inout_reg)).s2
+
+            // v5.0 = arg_reg.lower   > inout_reg.upper
+            // v5.1 = inout_reg.lower > arg_reg.upper
+            ; fcmgt v5.s2, v5.s2, v4.s2
+            ; fmov x15, d5
+
+            ; tst x15, #0x1_0000_0000
+            ; b.ne >A // -> arg_reg
+
+            ; tst x15, #0x1
+            ; b.eq >B // -> both
+
+            ; I: // Fallthrough: inout_reg < arg_reg
+            // Nothing to do here, the value is already in memory so we write
+            // the simplify bit then break to the exit
+            ; mov w15, #1
+            ; str b15, [x3]
+            ; b >E // -> end
+            //////////////////////////////////////////////////////////////////
+
+            // TODO could we reorder these to consolidate common code
+            // (everything except the fmov)?
+            ; A: // arg_reg < inout_reg
+            ; mov w15, #1 // write simplify bit
+            ; str b15, [x3]
+            ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
+        );
+        // Set the choice exclusively
+        self.set_choice_exclusive(choice);
+        dynasm!(self.0.ops
+            ; b >E // end of arg_reg < inout_reg
+            //////////////////////////////////////////////////////////////////
+
+            ; B: // ambiguous, so set choice non-exclusively
+            ; fmin V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
+        );
+        self.set_choice_bit(choice); // non-exclusive
+        dynasm!(self.0.ops
+            // end of ambiguous case (B label)
+            //////////////////////////////////////////////////////////////////
+
+            ; E: // end branch label
+            // Set choice bit 0 and write it back to memory
+            // TODO: this adds an extra load/store, but tracking it would be
+            // annoying.
+            ; ldr b15, [x2, #i]
+            ; orr w15, w15, #1
+            ; str b15, [x2, #i]
+        );
+        self.0.ops.commit_local().unwrap();
+    }
+
+    fn build_min_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_min_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
+    }
+
     fn build_min_mem_imm_choice(
         &mut self,
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_min_mem_reg_choice(mem, rhs, choice);
+    }
+
+    fn build_min_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_min_reg_reg_choice(reg, rhs, choice);
+    }
+
+    fn build_max_reg_reg_choice(
+        &mut self,
+        inout_reg: u8,
+        arg_reg: u8,
+        choice: ChoiceIndex,
+    ) {
+        // basically the same as min_reg_reg_choice
+        let i = choice.index as u32;
+        let b = choice.bit as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x2, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >V
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, then branch to the end
+            ; fmov D(reg(inout_reg)), D(reg(arg_reg))
+            ; b >E
+
+            ; V: // There was a previous value, so we have to do the comparison
+            // v4 = [reg.upper, arg.upper]
+            // v5 = [arg.lower, reg.lower]
+            // This lets us do two comparisons simultaneously
+            ; zip2 v4.s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
+            ; zip1 v5.s2, V(reg(arg_reg)).s2, V(reg(inout_reg)).s2
+
+            // v5.0 = arg_reg.lower > inout_reg.upper
+            // v5.1 = inout_reg.lower > arg_reg.upper
+            ; fcmgt v5.s2, v5.s2, v4.s2
+            ; fmov x15, d5
+
+            ; tst x15, #0x1_0000_0000
+            ; b.ne >I // -> inout_reg
+
+            ; tst x15, #0x1
+            ; b.eq >B // -> both
+
+            // Fallthrough: arg_reg > inout_reg
+            ; A: // arg_reg > inout_reg
+            ; mov w15, #1 // write simplify bit
+            ; str b15, [x3]
+            ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
+        );
+        // Set the choice exclusively
+        self.set_choice_exclusive(choice);
+        dynasm!(self.0.ops
+            ; b >E // end of arg_reg > inout_reg
+            //////////////////////////////////////////////////////////////////
+
+            ; I: // inout_reg > arg_reg
+            // Nothing to do here, the value is already in the register so we
+            // write the simplify bit then break to the exit
+            ; mov w15, #1
+            ; str b15, [x3]
+            ; b >E
+            //////////////////////////////////////////////////////////////////
+
+            ; B: // ambiguous, so set choice non-exclusively
+            ; fmax V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
+        );
+        self.set_choice_bit(choice); // non-exclusive
+        dynasm!(self.0.ops
+            // end of ambiguous case (B label)
+            //////////////////////////////////////////////////////////////////
+
+            ; E: // end branch label
+            // Set choice bit 0 and write it back to memory
+            // TODO: this adds an extra load/store, but tracking it would be
+            // annoying.
+            ; ldr b15, [x2, #i]
+            ; orr w15, w15, #1
+            ; str b15, [x2, #i]
+        );
+        self.0.ops.commit_local().unwrap();
+    }
+
+    fn build_max_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: ChoiceIndex,
+    ) {
+        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_max_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
     }
 
     fn build_max_mem_imm_choice(
@@ -425,56 +620,20 @@ impl AssemblerT for IntervalAssembler {
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_max_mem_reg_choice(mem, rhs, choice);
     }
-    fn build_min_reg_imm_choice(
-        &mut self,
-        reg: u8,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
+
     fn build_max_reg_imm_choice(
         &mut self,
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_max_reg_reg_choice(reg, rhs, choice);
     }
-    fn build_min_mem_reg_choice(
-        &mut self,
-        mem: u32,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
-    fn build_max_mem_reg_choice(
-        &mut self,
-        mem: u32,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
-    fn build_min_reg_reg_choice(
-        &mut self,
-        reg: u8,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
-    fn build_max_reg_reg_choice(
-        &mut self,
-        reg: u8,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
+
     fn build_copy_imm_reg_choice(
         &mut self,
         out: u8,
@@ -506,5 +665,49 @@ impl AssemblerT for IntervalAssembler {
         choice: ChoiceIndex,
     ) {
         todo!()
+    }
+}
+
+impl IntervalAssembler {
+    /// Sets the given choice bit, reading then writing it to memory
+    ///
+    /// This function does not set choice bit 0, which must be set elsewhere to
+    /// indicate that a choice is present at this index.
+    ///
+    /// Requires the beginning of the `choices` array to be in `x2`
+    ///
+    /// Leaves `x15` and `x14` dirty
+    fn set_choice_bit(&mut self, choice: ChoiceIndex) {
+        let i = choice.index as u32;
+        let b = choice.bit as u32;
+        dynasm!(self.0.ops
+            ; ldr b15, [x2, #(i + b / 8)]
+            ; mov x14, #1 << (b % 8)
+            ; orr x15, x15, x14
+            ; str b15, [x2, #(i + b / 8)]
+        );
+    }
+    /// Sets the given choice bit, clearing all bits below it
+    ///
+    /// This function does not set choice bit 0, which must be set elsewhere to
+    /// indicate that a choice is present at this index.
+    ///
+    /// Requires the beginning of the `choices` array to be in `x2`
+    ///
+    /// Leaves `x15` dirty
+    fn set_choice_exclusive(&mut self, choice: ChoiceIndex) {
+        let mut i = choice.index as u32;
+        let mut b = choice.bit as u32;
+        dynasm!(self.0.ops ; mov w15, #0);
+        while b >= 8 {
+            dynasm!(self.0.ops ; str b15, [x2, #i]);
+            b -= 8;
+            i += 1;
+        }
+        // Write the last byte
+        dynasm!(self.0.ops
+            ; mov w15, #1 << b
+            ; str w15, [x2, #i]
+        );
     }
 }
