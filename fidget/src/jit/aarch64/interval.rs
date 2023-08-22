@@ -1,3 +1,4 @@
+use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
     jit::{
         interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
@@ -26,14 +27,15 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
 impl AssemblerT for IntervalAssembler {
-    fn init(mmap: Mmap) -> Self {
-        let mut out = AssemblerData::new(mmap);
+    fn new() -> Self {
+        let mmap = Mmap::new(0).unwrap();
+        let out = AssemblerData::new(mmap);
         Self(out)
     }
 
-    fn build_entry_point(mmap: Mmap, slot_count: usize) -> Self {
-        let mut out = AssemblerData::new(mmap);
-        dynasm!(out.ops
+    fn build_entry_point(slot_count: usize) -> Mmap {
+        let mut out = Self::new();
+        dynasm!(out.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -51,9 +53,9 @@ impl AssemblerT for IntervalAssembler {
             ; mov v2.s[0], v4.s[0]
             ; mov v2.s[1], v5.s[0]
         );
-        out.prepare_stack(slot_count);
+        out.0.prepare_stack(slot_count);
         let out_reg = 0;
-        dynasm!(out.ops
+        dynasm!(out.0.ops
             // Jump into threaded code
             // TODO: this means that threaded code can't use the link register;
             // is that an issue?
@@ -64,7 +66,7 @@ impl AssemblerT for IntervalAssembler {
             ; mov  s0, V(reg(out_reg)).s[0]
             ; mov  s1, V(reg(out_reg)).s[1]
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.mem_offset as u32)
+            ; add   sp, sp, #(out.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -74,8 +76,9 @@ impl AssemblerT for IntervalAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
         );
-        Self(out)
+        out.finalize().unwrap()
     }
+
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
@@ -407,7 +410,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         self.0.ops.finalize()
     }
 
@@ -466,7 +469,7 @@ impl AssemblerT for IntervalAssembler {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        self.set_choice_exclusive(choice);
+        set_choice_exclusive(&mut self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // end of arg_reg < inout_reg
             //////////////////////////////////////////////////////////////////
@@ -474,9 +477,9 @@ impl AssemblerT for IntervalAssembler {
             ; B: // ambiguous, so set choice non-exclusively
             ; fmin V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        self.set_choice_bit(choice); // non-exclusive
+        set_choice_bit(&mut self.0.ops, choice); // non-exclusive
         dynasm!(self.0.ops
-            // end of ambiguous case (B label)
+            // end of ambiguous case (B label); fallthrough to end
             //////////////////////////////////////////////////////////////////
 
             ; E: // end branch label
@@ -569,7 +572,7 @@ impl AssemblerT for IntervalAssembler {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        self.set_choice_exclusive(choice);
+        set_choice_exclusive(&mut self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // end of arg_reg > inout_reg
             //////////////////////////////////////////////////////////////////
@@ -585,7 +588,7 @@ impl AssemblerT for IntervalAssembler {
             ; B: // ambiguous, so set choice non-exclusively
             ; fmax V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        self.set_choice_bit(choice); // non-exclusive
+        set_choice_bit(&mut self.0.ops, choice); // non-exclusive
         dynasm!(self.0.ops
             // end of ambiguous case (B label)
             //////////////////////////////////////////////////////////////////
@@ -634,80 +637,53 @@ impl AssemblerT for IntervalAssembler {
         self.build_max_reg_reg_choice(reg, rhs, choice);
     }
 
-    fn build_copy_imm_reg_choice(
-        &mut self,
-        out: u8,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
-    fn build_copy_imm_mem_choice(
-        &mut self,
-        out: u32,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        todo!()
-    }
     fn build_copy_reg_reg_choice(
         &mut self,
         out: u8,
         arg: u8,
         choice: ChoiceIndex,
     ) {
-        todo!()
+        let i = choice.index as u32;
+        assert_eq!(choice.bit, 1);
+        dynasm!(self.0.ops
+            ; fmov D(reg(out)), D(reg(arg))
+            ; mov w15, #3
+            ; str b15, [x2, #i]
+        );
     }
+
+    fn build_copy_imm_reg_choice(
+        &mut self,
+        out: u8,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_reg_choice(out, rhs, choice);
+    }
+
+    fn build_copy_imm_mem_choice(
+        &mut self,
+        out: u32,
+        imm: f32,
+        choice: ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_mem_choice(out, rhs, choice);
+    }
+
     fn build_copy_reg_mem_choice(
         &mut self,
         out: u32,
         arg: u8,
         choice: ChoiceIndex,
     ) {
-        todo!()
-    }
-}
-
-impl IntervalAssembler {
-    /// Sets the given choice bit, reading then writing it to memory
-    ///
-    /// This function does not set choice bit 0, which must be set elsewhere to
-    /// indicate that a choice is present at this index.
-    ///
-    /// Requires the beginning of the `choices` array to be in `x2`
-    ///
-    /// Leaves `x15` and `x14` dirty
-    fn set_choice_bit(&mut self, choice: ChoiceIndex) {
         let i = choice.index as u32;
-        let b = choice.bit as u32;
+        assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
-            ; ldr b15, [x2, #(i + b / 8)]
-            ; mov x14, #1 << (b % 8)
-            ; orr x15, x15, x14
-            ; str b15, [x2, #(i + b / 8)]
+            ; mov w15, #3
+            ; str b15, [x2, #i]
         );
-    }
-    /// Sets the given choice bit, clearing all bits below it
-    ///
-    /// This function does not set choice bit 0, which must be set elsewhere to
-    /// indicate that a choice is present at this index.
-    ///
-    /// Requires the beginning of the `choices` array to be in `x2`
-    ///
-    /// Leaves `x15` dirty
-    fn set_choice_exclusive(&mut self, choice: ChoiceIndex) {
-        let mut i = choice.index as u32;
-        let mut b = choice.bit as u32;
-        dynasm!(self.0.ops ; mov w15, #0);
-        while b >= 8 {
-            dynasm!(self.0.ops ; str b15, [x2, #i]);
-            b -= 8;
-            i += 1;
-        }
-        // Write the last byte
-        dynasm!(self.0.ops
-            ; mov w15, #1 << b
-            ; str w15, [x2, #i]
-        );
+        self.build_store(out, arg);
     }
 }

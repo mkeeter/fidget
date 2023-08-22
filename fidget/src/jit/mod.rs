@@ -100,11 +100,8 @@ fn reg(r: u8) -> RegIndex {
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
 pub trait AssemblerT {
-    /// Initialize the assembler for a threaded code fragment
-    ///
-    /// (In practice, this means doing basically nothing, since there's no
-    /// function call prelude or anything in threaded code fragments)
-    fn init(m: Mmap) -> Self;
+    /// Initializes the assembler for a threaded code fragment
+    fn new() -> Self;
 
     /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
@@ -279,10 +276,10 @@ pub trait AssemblerT {
     ///
     /// This will likely construct a function prelude, reserve space on the
     /// stack for slot spills, and jump to the first piece of threaded code.
-    fn build_entry_point(m: Mmap, slot_count: usize) -> Self;
+    fn build_entry_point(slot_count: usize) -> Mmap;
 
     /// Finalize the assembly code, returning a memory-mapped region
-    fn finalize(self, out_reg: u8) -> Result<Mmap, Error>;
+    fn finalize(self) -> Result<Mmap, Error>;
 }
 
 /// Trait defining SIMD width
@@ -663,7 +660,7 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
 
     let s = Mmap::new(0).unwrap();
     s.make_write();
-    let mut asm = A::init(s, slot_count);
+    let mut asm = A::new();
 
     for &op in t.iter().rev() {
         match op {
@@ -786,7 +783,7 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
         }
     }
 
-    asm.finalize(0).expect("failed to build JIT function")
+    asm.finalize().expect("failed to build JIT function")
     // JIT execute mode is restored here when the _guard is dropped
 }
 
@@ -885,10 +882,13 @@ impl Family for Eval {
                 grad_slice,
             })
         }
-        let point = point::PointAssembler::build_entry_point();
-        let interval = interval::IntervalAssembler::build_entry_point();
-        let float_slice = float_slice::FloatSliceAssembler::build_entry_point();
-        let grad_slice = grad_slice::GradSliceAssembler::build_entry_point();
+        let point = point::PointAssembler::build_entry_point(slot_count);
+        let interval =
+            interval::IntervalAssembler::build_entry_point(slot_count);
+        let float_slice =
+            float_slice::FloatSliceAssembler::build_entry_point(slot_count);
+        let grad_slice =
+            grad_slice::GradSliceAssembler::build_entry_point(slot_count);
         (
             MmapSet {
                 point,
@@ -950,8 +950,8 @@ impl<I: AssemblerT> Clone for JitEval<I> {
 
 // SAFETY: there is no mutable state in a `JitEval`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: AssemblerT> Send for JitEval<I> {}
-unsafe impl<I: AssemblerT> Sync for JitEval<I> {}
+unsafe impl<I: Family> Send for JitEval<I> {}
+unsafe impl<I: Family> Sync for JitEval<I> {}
 
 /// Threaded code, which is a set of pointers to JIT-compiled code
 ///
