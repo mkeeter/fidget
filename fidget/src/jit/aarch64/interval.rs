@@ -401,7 +401,7 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(self) -> Result<Mmap, Error> {
         self.0.ops.try_into()
     }
 

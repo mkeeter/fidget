@@ -146,7 +146,7 @@ impl AssemblerT for PointAssembler {
             // fall-through to end
 
             // <- end
-            ; strb w14, [x2], #1 // post-increment
+            ; E:
         );
     }
 
@@ -195,7 +195,6 @@ impl AssemblerT for PointAssembler {
         choice: ChoiceIndex,
     ) {
         let i = choice.index as u32;
-        let b = choice.bit as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldr b15, [x2, #i]
@@ -290,7 +289,6 @@ impl AssemblerT for PointAssembler {
     ) {
         // basically the same as min_reg_reg_choice
         let i = choice.index as u32;
-        let b = choice.bit as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldr b15, [x2, #i]

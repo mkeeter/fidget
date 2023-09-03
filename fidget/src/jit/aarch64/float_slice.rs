@@ -219,7 +219,7 @@ impl AssemblerT for FloatSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
+    fn finalize(self) -> Result<Mmap, Error> {
         self.0.ops.try_into()
     }
 
@@ -309,10 +309,12 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
             ; str b15, [x7]
-            ; b > E
+            ; b >E
 
             ; V:
             ; fmin V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
+
+            ; E:
         );
     }
 
@@ -336,10 +338,12 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
             ; str b15, [x7]
-            ; b > E
+            ; b >E
 
             ; V:
             ; fmax V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
+
+            ; E:
         );
     }
 
