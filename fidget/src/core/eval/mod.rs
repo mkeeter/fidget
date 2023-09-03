@@ -98,7 +98,7 @@ pub trait Family: Clone {
 /// `Storage`, which allows us to reuse pages.
 pub trait EvaluatorStorage<F> {
     /// Storage type associated with this evaluator
-    type Storage: Default + Send;
+    type Storage: Default;
 
     /// Constructs the evaluator, giving it a chance to reuse storage
     ///

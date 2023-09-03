@@ -137,9 +137,6 @@ pub struct OctreeWorker<I: Family> {
 
     /// Per-thread local data for evaluation, to avoid allocation churn
     data: EvalData<I>,
-
-    /// Per-thread local storage for evaluators, to avoid allocation churn
-    storage: EvalStorage<I>,
 }
 
 impl<I: Family> OctreeWorker<I> {
@@ -166,7 +163,6 @@ impl<I: Family> OctreeWorker<I> {
                 done,
                 friend_done: friend_done.clone(),
                 data: Default::default(),
-                storage: Default::default(),
             })
             .collect::<Vec<_>>();
 
@@ -205,7 +201,7 @@ impl<I: Family> OctreeWorker<I> {
     /// Runs a single worker to completion as part of a worker group
     pub fn run(mut self, threads: &ThreadPool, settings: Settings) -> Octree {
         let mut ctx = threads.start(self.thread_index);
-
+        let mut storage = Default::default();
         loop {
             // First, check to see if anyone has finished a task and sent us
             // back the result.  Otherwise, keep going.
@@ -242,7 +238,7 @@ impl<I: Family> OctreeWorker<I> {
                     match self.octree.eval_cell(
                         &task.eval,
                         &mut self.data,
-                        &mut self.storage,
+                        &mut storage,
                         sub_cell,
                         settings,
                     ) {
@@ -275,7 +271,7 @@ impl<I: Family> OctreeWorker<I> {
                     // We may or may not have unique ownership of the task; we
                     // didn't push anything to the queue, but may have cloned
                     // the task when sending a Done message back to the caller.
-                    task.release(&mut self.storage);
+                    task.release(&mut storage);
                 }
 
                 // We've successfully done some work, so start the loop again
