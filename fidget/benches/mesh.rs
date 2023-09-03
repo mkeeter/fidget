@@ -6,8 +6,9 @@ const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 
 pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
-    let tape_jit = &ctx.get_tape::<fidget::jit::Eval>(root).unwrap();
     let tape_vm = &ctx.get_tape::<fidget::vm::Eval>(root).unwrap();
+    #[cfg(feature = "jit")]
+    let tape_jit = &ctx.get_tape::<fidget::jit::Eval>(root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
@@ -17,6 +18,7 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
             max_depth: 6,
             threads,
         };
+        #[cfg(feature = "jit")]
         group.bench_function(BenchmarkId::new("jit", threads), move |b| {
             b.iter(|| {
                 let cfg = *cfg;
