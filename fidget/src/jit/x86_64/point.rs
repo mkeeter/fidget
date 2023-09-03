@@ -126,72 +126,70 @@ impl AssemblerT for PointAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; jp >N
-            ; ja >L
-            ; jb >R
+            ; jp >Nan
+            ; ja >Lhs
+            ; jb >Rhs
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >O
+            ; jmp >Out
 
             // Fallthrough for NaN, which are !=; do a float addition to
             // propagate it to the output register.
-            ; N:
+            ; Nan:
             ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
-            ; L:
+            ; Lhs:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
             ; jmp >O
 
-            ; R:
+            ; Rhs:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
 
-            ; O:
+            ; Out:
         );
-        self.0.ops.commit_local().unwrap()
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; jp >N
-            ; ja >R
-            ; jb >L
+            ; jp >Nan
+            ; ja >Rhs
+            ; jb >Lhs
 
             // Fallthrough for equal, so just copy to the output register
             ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; jmp >O
+            ; jmp >Out
 
-            ; N:
+            ; Nan:
             ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
-            ; jmp >O
+            ; jmp >Out
 
-            ; L:
+            ; Lhs:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
-            ; jmp >O
+            ; jmp >Out
 
-            ; R:
+            ; Rhs:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             // fallthrough to out
 
-            ; O:
+            ; Out:
         );
-        self.0.ops.commit_local().unwrap()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

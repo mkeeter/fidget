@@ -18,6 +18,8 @@ pub const IMM_REG: u8 = 0;
 /// `xmm1-3` are available for use as temporaries.
 pub const OFFSET: u8 = 4;
 
+pub use dynasmrt::x64::X64Relocation as Relocation;
+
 pub mod float_slice;
 pub mod grad_slice;
 pub mod interval;

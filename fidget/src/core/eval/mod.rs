@@ -85,6 +85,7 @@ pub trait Family: Clone {
     /// `tapes` are provided in reverse-evaluation (root-to-leaf) order
     fn build(
         slot_count: usize,
+        choice_array_size: usize,
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>);
 
@@ -111,7 +112,7 @@ pub trait Family: Clone {
 /// `Storage`, which allows us to reuse allocations.
 pub trait EvaluatorStorage<F: Family> {
     /// Storage type associated with this evaluator
-    type Storage: Default + Send;
+    type Storage: Default;
 
     /// Constructs the evaluator, giving it a chance to reuse storage
     fn new_with_storage(tape: &Tape<F>, storage: Self::Storage) -> Self;

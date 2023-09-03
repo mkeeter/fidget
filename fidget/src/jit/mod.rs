@@ -28,10 +28,7 @@ use crate::{
     vm::{ChoiceIndex, ChoiceTape, Choices, Op, Tape, TapeData},
     Error,
 };
-use dynasmrt::{
-    components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
-    DynasmError, DynasmLabelApi, TargetKind,
-};
+use dynasmrt::{dynasm, DynasmApi, VecAssembler};
 use std::ffi::c_void;
 use std::sync::Arc;
 
@@ -276,14 +273,16 @@ pub trait AssemblerT {
     ///
     /// This will likely construct a function prelude, reserve space on the
     /// stack for slot spills, and jump to the first piece of threaded code.
-    fn build_entry_point(slot_count: usize) -> Mmap;
+    ///
+    /// `choice_array_size` is the number of `u64` words in the choice array
+    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap;
 
     /// Finalize the assembly code, returning a memory-mapped region
     fn finalize(self) -> Result<Mmap, Error>;
 }
 
 /// Trait defining SIMD width
-pub trait SimdAssembler {
+pub trait SimdType {
     /// Number of elements processed in a single iteration
     ///
     /// This value is used when checking array sizes, as we want to be sure to
@@ -294,7 +293,7 @@ pub trait SimdAssembler {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct AssemblerData<T> {
-    ops: MmapAssembler,
+    ops: VecAssembler<arch::Relocation>,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -303,9 +302,9 @@ pub(crate) struct AssemblerData<T> {
 }
 
 impl<T> AssemblerData<T> {
-    fn new(mmap: Mmap) -> Self {
+    fn new() -> Self {
         Self {
-            ops: MmapAssembler::from(mmap),
+            ops: VecAssembler::new(0),
             mem_offset: 0,
             _p: std::marker::PhantomData,
         }
@@ -351,304 +350,6 @@ impl<T> AssemblerData<T> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[cfg(target_arch = "x86_64")]
-type Relocation = dynasmrt::x64::X64Relocation;
-
-#[cfg(target_arch = "aarch64")]
-type Relocation = dynasmrt::aarch64::Aarch64Relocation;
-
-struct MmapAssembler {
-    mmap: Mmap,
-    len: usize,
-
-    global_labels: [Option<AssemblyOffset>; 26],
-    local_labels: [Option<AssemblyOffset>; 26],
-
-    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 1>,
-    local_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 8>,
-}
-
-impl Extend<u8> for MmapAssembler {
-    fn extend<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = u8>,
-    {
-        for c in iter.into_iter() {
-            self.push(c);
-        }
-    }
-}
-
-impl<'a> Extend<&'a u8> for MmapAssembler {
-    fn extend<T>(&mut self, iter: T)
-    where
-        T: IntoIterator<Item = &'a u8>,
-    {
-        for c in iter.into_iter() {
-            self.push(*c);
-        }
-    }
-}
-
-impl DynasmApi for MmapAssembler {
-    #[inline(always)]
-    fn offset(&self) -> AssemblyOffset {
-        AssemblyOffset(self.len)
-    }
-
-    #[inline(always)]
-    fn push(&mut self, byte: u8) {
-        // Resize to fit the next byte, if needed
-        if self.len >= self.mmap.len() {
-            self.expand_mmap();
-        }
-        self.mmap.write(self.len, byte);
-        self.len += 1;
-    }
-
-    #[inline(always)]
-    fn align(&mut self, alignment: usize, with: u8) {
-        let offset = self.offset().0 % alignment;
-        if offset != 0 {
-            for _ in offset..alignment {
-                self.push(with);
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn push_u32(&mut self, value: u32) {
-        if self.len + 3 >= self.mmap.len() {
-            self.expand_mmap();
-        }
-        for (i, b) in value.to_le_bytes().iter().enumerate() {
-            self.mmap.write(self.len + i, *b);
-        }
-        self.len += 4;
-    }
-}
-
-/// This is a very limited implementation of the labels API.  Compared to the
-/// standard labels API, it has the following limitations:
-///
-/// - Labels must be a single character
-/// - Local labels must be committed before they're reused, using `commit_local`
-/// - Only 8 local jumps are available at any given time; this is reset when
-///   `commit_local` is called.  (if this becomes problematic, it can be
-///   increased by tweaking the size of `local_relocs: ArrayVec<..., 8>`.
-///
-/// In exchange for these limitations, it allocates no memory at runtime, and all
-/// label lookups are done in constant time.
-///
-/// However, it still has overhead compared to computing the jumps by hand;
-/// this overhead was roughly 5% in one unscientific test.
-impl DynasmLabelApi for MmapAssembler {
-    type Relocation = Relocation;
-
-    fn local_label(&mut self, name: &'static str) {
-        if name.len() != 1 {
-            panic!("local label must be a single character");
-        }
-        let c = name.as_bytes()[0].wrapping_sub(b'A');
-        if c >= 26 {
-            panic!("Invalid label {name}, must be A-Z");
-        }
-        if self.local_labels[c as usize].is_some() {
-            panic!("duplicate local label {name}");
-        }
-
-        self.local_labels[c as usize] = Some(self.offset());
-    }
-    fn global_label(&mut self, name: &'static str) {
-        if name.len() != 1 {
-            panic!("local label must be a single character");
-        }
-        let c = name.as_bytes()[0].wrapping_sub(b'A');
-        if c >= 26 {
-            panic!("Invalid label {name}, must be A-Z");
-        }
-        if self.global_labels[c as usize].is_some() {
-            panic!("duplicate global label {name}");
-        }
-
-        self.global_labels[c as usize] = Some(self.offset());
-    }
-    fn dynamic_label(&mut self, _id: DynamicLabel) {
-        panic!("dynamic labels are not supported");
-    }
-    fn global_relocation(
-        &mut self,
-        name: &'static str,
-        target_offset: isize,
-        field_offset: u8,
-        ref_offset: u8,
-        kind: Relocation,
-    ) {
-        let location = self.offset();
-        if name.len() != 1 {
-            panic!("local label must be a single character");
-        }
-        let c = name.as_bytes()[0].wrapping_sub(b'A');
-        if c >= 26 {
-            panic!("Invalid label {name}, must be A-Z");
-        }
-        self.global_relocs.push((
-            PatchLoc::new(
-                location,
-                target_offset,
-                field_offset,
-                ref_offset,
-                kind,
-            ),
-            c,
-        ));
-    }
-    fn dynamic_relocation(
-        &mut self,
-        _id: DynamicLabel,
-        _target_offset: isize,
-        _field_offset: u8,
-        _ref_offset: u8,
-        _kind: Relocation,
-    ) {
-        panic!("dynamic relocations are not supported");
-    }
-    fn forward_relocation(
-        &mut self,
-        name: &'static str,
-        target_offset: isize,
-        field_offset: u8,
-        ref_offset: u8,
-        kind: Relocation,
-    ) {
-        if name.len() != 1 {
-            panic!("local label must be a single character");
-        }
-        let c = name.as_bytes()[0].wrapping_sub(b'A');
-        if c >= 26 {
-            panic!("Invalid label {name}, must be A-Z");
-        }
-        if self.local_labels[c as usize].is_some() {
-            panic!("invalid forward relocation: {name} already exists!");
-        }
-        let location = self.offset();
-        self.local_relocs.push((
-            PatchLoc::new(
-                location,
-                target_offset,
-                field_offset,
-                ref_offset,
-                kind,
-            ),
-            c,
-        ));
-    }
-    fn backward_relocation(
-        &mut self,
-        name: &'static str,
-        target_offset: isize,
-        field_offset: u8,
-        ref_offset: u8,
-        kind: Relocation,
-    ) {
-        if name.len() != 1 {
-            panic!("local label must be a single character");
-        }
-        let c = name.as_bytes()[0].wrapping_sub(b'A');
-        if c >= 26 {
-            panic!("Invalid label {name}, must be A-Z");
-        }
-        if self.local_labels[c as usize].is_none() {
-            panic!("invalid backward relocation: {name} does not exist");
-        }
-        let location = self.offset();
-        self.local_relocs.push((
-            PatchLoc::new(
-                location,
-                target_offset,
-                field_offset,
-                ref_offset,
-                kind,
-            ),
-            c,
-        ));
-    }
-    fn bare_relocation(
-        &mut self,
-        _target: usize,
-        _field_offset: u8,
-        _ref_offset: u8,
-        _kind: Relocation,
-    ) {
-        panic!("bare relocations not implemented");
-    }
-}
-
-impl MmapAssembler {
-    /// Applies all local relocations, clearing the `local_relocs` array
-    ///
-    /// This should be called after any function which uses local labels.
-    fn commit_local(&mut self) -> Result<(), Error> {
-        let baseaddr = self.mmap.as_ptr() as usize;
-
-        for (loc, label) in self.local_relocs.take() {
-            let target =
-                self.local_labels.get(label as usize).unwrap().unwrap();
-            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
-            if loc.patch(buf, baseaddr, target.0).is_err() {
-                return Err(DynasmError::ImpossibleRelocation(
-                    TargetKind::Local("oh no"),
-                )
-                .into());
-            }
-        }
-        self.local_labels = [None; 26];
-        Ok(())
-    }
-
-    fn finalize(mut self) -> Result<Mmap, Error> {
-        self.commit_local()?;
-
-        let baseaddr = self.mmap.as_ptr() as usize;
-        for (loc, label) in self.global_relocs.take() {
-            let target =
-                self.global_labels.get(label as usize).unwrap().unwrap();
-            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
-            if loc.patch(buf, baseaddr, target.0).is_err() {
-                return Err(DynasmError::ImpossibleRelocation(
-                    TargetKind::Global("oh no"),
-                )
-                .into());
-            }
-        }
-
-        self.mmap.finalize(self.len);
-        Ok(self.mmap)
-    }
-
-    /// Doubles the size of the internal `Mmap` and copies over data
-    fn expand_mmap(&mut self) {
-        let mut next = Mmap::new(self.mmap.len() * 2).unwrap();
-        next.as_mut_slice()[0..self.len].copy_from_slice(self.mmap.as_slice());
-        std::mem::swap(&mut self.mmap, &mut next);
-    }
-}
-
-impl From<Mmap> for MmapAssembler {
-    fn from(mmap: Mmap) -> Self {
-        Self {
-            mmap,
-            len: 0,
-            global_labels: [None; 26],
-            local_labels: [None; 26],
-            global_relocs: Default::default(),
-            local_relocs: Default::default(),
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////
 
 /// Build an assembly snippet for the given function
 ///
@@ -788,7 +489,7 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
 }
 
 /// Container for a bunch of JIT code
-struct MmapSet {
+pub struct MmapSet {
     point: Mmap,
     interval: Mmap,
     float_slice: Mmap,
@@ -855,6 +556,7 @@ impl Family for Eval {
 
     fn build(
         slot_count: usize,
+        choice_array_size: usize,
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
         let mut out = vec![];
@@ -882,13 +584,22 @@ impl Family for Eval {
                 grad_slice,
             })
         }
-        let point = point::PointAssembler::build_entry_point(slot_count);
-        let interval =
-            interval::IntervalAssembler::build_entry_point(slot_count);
-        let float_slice =
-            float_slice::FloatSliceAssembler::build_entry_point(slot_count);
-        let grad_slice =
-            grad_slice::GradSliceAssembler::build_entry_point(slot_count);
+        let point = point::PointAssembler::build_entry_point(
+            slot_count,
+            choice_array_size,
+        );
+        let interval = interval::IntervalAssembler::build_entry_point(
+            slot_count,
+            choice_array_size,
+        );
+        let float_slice = float_slice::FloatSliceAssembler::build_entry_point(
+            slot_count,
+            choice_array_size,
+        );
+        let grad_slice = grad_slice::GradSliceAssembler::build_entry_point(
+            slot_count,
+            choice_array_size,
+        );
         (
             MmapSet {
                 point,
@@ -933,12 +644,12 @@ macro_rules! jit_fn {
 /// Users are unlikely to use this directly; consider using the
 /// [`jit::Eval`](Eval) evaluator family instead.
 pub struct JitEval<T> {
-    code: ThreadedCode,
+    code: Arc<ThreadedCode>,
     var_count: usize,
     _p: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<I: AssemblerT> Clone for JitEval<I> {
+impl<I> Clone for JitEval<I> {
     fn clone(&self) -> Self {
         Self {
             code: self.code.clone(), // TODO: this is expensive
@@ -950,55 +661,46 @@ impl<I: AssemblerT> Clone for JitEval<I> {
 
 // SAFETY: there is no mutable state in a `JitEval`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: Family> Send for JitEval<I> {}
-unsafe impl<I: Family> Sync for JitEval<I> {}
+unsafe impl<I> Send for JitEval<I> {}
+unsafe impl<I> Sync for JitEval<I> {}
 
 /// Threaded code, which is a set of pointers to JIT-compiled code
 ///
 /// Each chunk of code must end with a jump to the next one
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ThreadedCode {
-    entry_points: Arc<Vec<*const c_void>>,
+    entry_points: Vec<*const c_void>,
 
     /// Handle to the parent `TapeData`
     ///
     /// This ensures that [`entry_points`] remains valid for the lifetime of
     /// a given `ThreadedCode` instance.
-    data: Option<Arc<TapeData<Eval>>>,
+    data: Arc<TapeData<Eval>>,
 }
-
-// SAFETY: there is no mutable state in a `ThreadedCode`, and it owns a strong
-// reference to the memory into which it contains pointers.
-unsafe impl Send for ThreadedCode {}
-unsafe impl Sync for ThreadedCode {}
 
 impl<T> EvaluatorStorage<Eval> for JitEval<T>
 where
     MmapSet: GetPointer<T>,
 {
-    type Storage = ThreadedCode;
+    type Storage = Vec<*const c_void>;
     fn new_with_storage(t: &Tape<Eval>, mut prev: Self::Storage) -> Self {
-        prev.entry_points.clear();
-        prev.data = Some(t.data().clone());
         for g in t.active_groups().iter().rev() {
-            prev.entry_points
-                .push(<MmapSet as GetPointer<T>>::get_pointer(&t.data().data));
+            prev.push(<MmapSet as GetPointer<T>>::get_pointer(&t.data().data));
         }
+        let prev = ThreadedCode {
+            entry_points: prev,
+            data: t.data().clone(),
+        };
         // TODO: push finalize here
         Self {
-            code: prev,
+            code: Arc::new(prev),
             var_count: t.var_count(),
             _p: std::marker::PhantomData,
         }
     }
 
     fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.code.entry_points)
-            .ok()
-            .map(|entry_points| ThreadedCode {
-                entry_points: Arc::new(entry_points), // TODO allocation :(
-                data: None,
-            })
+        Arc::try_unwrap(self.code).ok().map(|v| v.entry_points)
     }
 }
 
@@ -1020,9 +722,8 @@ where
     ) -> (T, bool) {
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
-        let start = <MmapSet as GetPointer<T>>::get_pointer(
-            &self.code.data.unwrap().data,
-        );
+        let start =
+            <MmapSet as GetPointer<T>>::get_pointer(&self.code.data.data);
 
         // SAFETY: this is a pointer to a hand-written entry point in memory
         // that's owned by self.code.data
@@ -1053,7 +754,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////
 
-impl<T, I: SimdAssembler> BulkEvaluator<T, Eval> for JitEval<I>
+impl<T, I: SimdType> BulkEvaluator<T, Eval> for JitEval<I>
 where
     T: Copy + From<f32>,
     MmapSet: GetPointer<*const T>,
@@ -1079,7 +780,7 @@ where
         let n = xs.len();
 
         let start = <MmapSet as GetPointer<*const T>>::get_pointer(
-            &self.code.data.unwrap().data,
+            &self.code.data.data,
         );
 
         let f: jit_fn!(

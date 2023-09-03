@@ -8,14 +8,16 @@ pub const SIMD_WIDTH: usize = 4;
 
 /// Assembler for SIMD point-wise evaluation on `aarch64`
 ///
-/// | Argument | Register | Type                |
-/// | ---------|----------|---------------------|
-/// | X        | `x0`     | `*const [f32; 4]`   |
-/// | Y        | `x1`     | `*const [f32; 4]`   |
-/// | Z        | `x2`     | `*const [f32; 4]`   |
-/// | vars     | `x3`     | `*const f32`        |
-/// | out      | `x4`     | `*mut [f32; 4]`     |
-/// | size     | `x5`     | `u64`               |
+/// | Argument  | Register | Type                       |
+/// | ----------|----------|----------------------------|
+/// | code      | `x0`     | `*const void*`             |
+/// | X         | `x1`     | `*const [f32; 4]` (array)  |
+/// | Y         | `x2`     | `*const [f32; 4]` (array)  |
+/// | Z         | `x3`     | `*const [f32; 4]` (array)  |
+/// | vars      | `x4`     | `*const f32` (array)       |
+/// | out       | `x5`     | `*mut [f32; 4]` (array)    |
+/// | size      | `x6`     | `u64`                      |
+/// | `choices` | `x7`     | `*const u8` (array)        |
 ///
 /// The arrays (other than `vars`) must be an even multiple of 4 floats, since
 /// we're using NEON and 128-bit wide operations for everything.  The `vars`
@@ -25,9 +27,14 @@ pub const SIMD_WIDTH: usize = 4;
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
-    fn init(mmap: Mmap, slot_count: usize) -> Self {
-        let mut out = AssemblerData::new(mmap);
-        dynasm!(out.ops
+    fn new() -> Self {
+        Self(AssemblerData::new())
+    }
+
+    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap {
+        let mut out = Self::new();
+        let out_reg = 0;
+        dynasm!(out.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -37,33 +44,35 @@ impl AssemblerT for FloatSliceAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
+            ; mov x8, x0 // back up X0 in X8 (since we're not using XR)
 
         );
-        out.prepare_stack(slot_count);
+        out.0.prepare_stack(slot_count);
 
-        dynasm!(out.ops
+        dynasm!(out.0.ops
             // The loop returns here, and we check whether we need to loop
             ; ->L:
             // Remember, at this point we have
-            //  x0: x input array pointer
-            //  x1: y input array pointer
-            //  x2: z input array pointer
-            //  x3: vars input array pointer (non-advancing)
-            //  x4: output array pointer
-            //  x5: number of points to evaluate
+            //  x1: x input array pointer (advancing)
+            //  x2: y input array pointer (advancing)
+            //  x3: z input array pointer (advancing)
+            //  x4: vars input array pointer (non-advancing)
+            //  x5: output array pointer (advancing)
+            //  x6: number of points to evaluate
+            //  x7: array of choice data
+            //  x8: backup value for x0's starting point
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x5 by 4);
-            // x4 is advanced in finalize().
+            // We'll be advancing x1, x2, x3 here (and decrementing x6 by 4);
 
             ; cmp x5, #0
-            ; b.ne #32 // skip to loop body
+            ; b.ne >P // skip to loop body
 
             // fini:
             // This is our finalization code, which happens after all evaluation
             // is complete.
             //
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.mem_offset as u32)
+            ; add   sp, sp, #(out.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -73,6 +82,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
 
+            ; P:
             // Loop body:
             //
             // Load V0/1/2.S4 with X/Y/Z values, post-increment
@@ -83,10 +93,36 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldr q1, [x1], #16
             ; ldr q2, [x2], #16
             ; sub x5, x5, #4 // We handle 4 items at a time
-        );
 
-        Self(out)
+            // Clear out the choices array, operating on 64-bit chunks
+            // (since that's our guaranteed minimum alignment)
+            //
+            // TODO: this would be more efficient if we did one byte (or bit)
+            // per choice, instead of clearing the entire array, since we only
+            // need to track "is this choice active"
+            ; mov x9, #choice_array_size as u64
+            ; mov x10, #0
+            ; mov x11, x7
+            ; cmp x9, #0
+            ; Q:
+            ; b.eq >O
+            ; sub x9, x9, 1
+            ; str x10, [x11], #8
+            ; b ->Q
+
+            // Call into threaded code
+            ; O:
+            ; mov x0, x8
+            ; blr x0
+            // Return from threaded code
+
+            // Prepare our return value, writing to the pointer in x5
+            ; str Q(reg(out_reg)), [x5], #16
+            ; b ->L
+        );
+        out.finalize().unwrap()
     }
+
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
@@ -183,16 +219,177 @@ impl AssemblerT for FloatSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x4
-            // It's fine to overwrite X at this point in V0, since we're not
-            // using it anymore.
-            ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x4], #16
-            ; b ->L
-        );
+    fn finalize(mut self) -> Result<Mmap, Error> {
+        self.0.ops.try_into()
+    }
 
-        self.0.ops.finalize()
+    fn build_min_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_min_mem_reg_choice(mem, rhs, choice);
+    }
+
+    fn build_max_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_max_mem_reg_choice(mem, rhs, choice);
+    }
+
+    fn build_min_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_min_reg_reg_choice(reg, rhs, choice);
+    }
+
+    fn build_max_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_max_reg_reg_choice(reg, rhs, choice);
+    }
+
+    fn build_min_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_min_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
+    }
+
+    fn build_max_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_max_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
+    }
+
+    fn build_min_reg_reg_choice(
+        &mut self,
+        inout_reg: u8,
+        arg_reg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let i = choice.index as u32;
+        let b = choice.bit as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x7, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >V
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, write the choice bit, then jump to the end
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+            ; mov w15, #1
+            ; str b15, [x7]
+            ; b > E
+
+            ; V:
+            ; fmin V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
+        );
+    }
+
+    fn build_max_reg_reg_choice(
+        &mut self,
+        inout_reg: u8,
+        arg_reg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let i = choice.index as u32;
+        let b = choice.bit as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x7, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >V
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, write the choice bit, then jump to the end
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+            ; mov w15, #1
+            ; str b15, [x7]
+            ; b > E
+
+            ; V:
+            ; fmax V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
+        );
+    }
+
+    fn build_copy_imm_reg_choice(
+        &mut self,
+        out: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_reg_choice(out, rhs, choice);
+    }
+
+    fn build_copy_imm_mem_choice(
+        &mut self,
+        out: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_mem_choice(out, rhs, choice);
+    }
+
+    fn build_copy_reg_reg_choice(
+        &mut self,
+        out: u8,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let i = choice.index as u32;
+        assert_eq!(choice.bit, 1);
+        dynasm!(self.0.ops
+            ; mov V(reg(out)).b16, V(reg(arg)).b16
+            ; mov w15, #3
+            ; str b15, [x7, #i]
+        );
+    }
+
+    fn build_copy_reg_mem_choice(
+        &mut self,
+        out: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        let i = choice.index as u32;
+        assert_eq!(choice.bit, 1);
+        dynasm!(self.0.ops
+            ; mov w15, #3
+            ; str b15, [x7, #i]
+        );
+        self.build_store(out, arg);
     }
 }

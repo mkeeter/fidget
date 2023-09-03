@@ -1,5 +1,4 @@
 use crate::{
-    eval::types::Grad,
     jit::{
         grad_slice::GradSliceAssembler, mmap::Mmap, reg, AssemblerData,
         AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT,
@@ -14,19 +13,26 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// | Variable   | Register | Type               |
 /// |------------|----------|--------------------|
-/// | X          | `x0`     | `*const f32`       |
-/// | Y          | `x1`     | `*const f32`       |
-/// | Z          | `x2`     | `*const f32`       |
-/// | `vars`     | `x3`     | `*const f32`       |
-/// | `out`      | `x4`     | `*const [f32; 4]`  |
-/// | `count`    | `x5`     | `u64`              |
+/// | code       | `x0`     | `*const void*`     |
+/// | X          | `x1`     | `*const f32`       |
+/// | Y          | `x2`     | `*const f32`       |
+/// | Z          | `x3`     | `*const f32`       |
+/// | `vars`     | `x4`     | `*const f32`       |
+/// | `out`      | `x5`     | `*const [f32; 4]`  |
+/// | `count`    | `x6`     | `u64`              |
+/// | `choices` | `x7`     | `*const u8` (array)        |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
 impl AssemblerT for GradSliceAssembler {
-    fn init(mmap: Mmap, slot_count: usize) -> Self {
-        let mut out = AssemblerData::new(mmap);
-        dynasm!(out.ops
+    fn new() -> Self {
+        Self(AssemblerData::new())
+    }
+
+    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap {
+        let mut out = Self::new();
+        let out_reg = 0;
+        dynasm!(out.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -37,31 +43,31 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
         );
-        out.prepare_stack(slot_count);
+        out.0.prepare_stack(slot_count);
 
-        dynasm!(out.ops
+        dynasm!(out.0.ops
             // The loop returns here, and we check whether we need to loop
             ; ->L:
             // Remember, at this point we have
-            //  x0: x input array pointer
-            //  x1: y input array pointer
-            //  x2: z input array pointer
-            //  x3: vars input array pointer (non-advancing)
-            //  x4: output array pointer
-            //  x5: number of points to evaluate
+            //  x1: x input array pointer
+            //  x2: y input array pointer
+            //  x3: z input array pointer
+            //  x4: vars input array pointer (non-advancing)
+            //  x5: output array pointer
+            //  x6: number of points to evaluate
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x5 by 1);
-            // x3 is advanced in finalize().
+            // We'll be advancing x0, x1, x2 here (and decrementing x6 by 1);
+            // x5 is advanced in finalize().
 
             ; cmp x5, #0
-            ; b.ne #32 // -> jump to loop body
+            ; b.ne >P // -> jump to loop body
 
             // fini:
             // This is our finalization code, which happens after all evaluation
             // is complete.
             //
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.mem_offset as u32)
+            ; add   sp, sp, #(out.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -71,24 +77,49 @@ impl AssemblerT for GradSliceAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
 
+            ; P:
             // Load V0/1/2.S4 with X/Y/Z values, post-increment
             //
             // We're actually loading two f32s, but we can pretend they're
             // doubles in order to move 64 bits at a time
             ; fmov s6, #1.0
-            ; ldr s0, [x0], #4
+            ; ldr s0, [x1], #4
             ; mov v0.S[1], v6.S[0]
-            ; ldr s1, [x1], #4
+            ; ldr s1, [x2], #4
             ; mov v1.S[2], v6.S[0]
-            ; ldr s2, [x2], #4
+            ; ldr s2, [x3], #4
             ; mov v2.S[3], v6.S[0]
             ; sub x5, x5, #1 // We handle 1 item at a time
 
-            // Math begins below!
-        );
+            // Clear out the choices array, operating on 64-bit chunks
+            // (since that's our guaranteed minimum alignment)
+            //
+            // TODO: this would be more efficient if we did one byte (or bit)
+            // per choice, instead of clearing the entire array, since we only
+            // need to track "is this choice active"
+            ; mov x9, #choice_array_size as u64
+            ; mov x10, #0
+            ; mov x11, x7
+            ; cmp x9, #0
+            ; Q:
+            ; b.eq >O
+            ; sub x9, x9, 1
+            ; str x10, [x11], #8
+            ; b ->Q
 
-        Self(out)
+            // Call into threaded code
+            ; O:
+            ; mov x0, x8
+            ; blr x0
+            // Return from threaded code
+
+            // Prepare our return value, writing to the pointer in x5
+            ; str Q(reg(out_reg)), [x5], #16 // post-increment
+            ; b ->L // Jump back to the loop start
+        );
+        out.finalize().unwrap()
     }
+
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
@@ -114,7 +145,7 @@ impl AssemblerT for GradSliceAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr S(reg(out_reg)), [x3, #(src_arg * 4)]
+            ; ldr S(reg(out_reg)), [x4, #(src_arg * 4)]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -273,13 +304,115 @@ impl AssemblerT for GradSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
-        dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x4
-            ; str Q(reg(out_reg)), [x4], #16
-            ; b ->L // Jump back to the loop start
-        );
+    fn finalize(self) -> Result<Mmap, Error> {
+        self.0.ops.try_into()
+    }
 
-        self.0.ops.finalize()
+    fn build_min_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_max_mem_imm_choice(
+        &mut self,
+        mem: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_min_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_max_reg_imm_choice(
+        &mut self,
+        reg: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_min_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_max_mem_reg_choice(
+        &mut self,
+        mem: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_min_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_max_reg_reg_choice(
+        &mut self,
+        reg: u8,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_copy_imm_reg_choice(
+        &mut self,
+        out: u8,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_copy_imm_mem_choice(
+        &mut self,
+        out: u32,
+        imm: f32,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_copy_reg_reg_choice(
+        &mut self,
+        out: u8,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
+    }
+
+    fn build_copy_reg_mem_choice(
+        &mut self,
+        out: u32,
+        arg: u8,
+        choice: crate::vm::ChoiceIndex,
+    ) {
+        todo!()
     }
 }

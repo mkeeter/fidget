@@ -28,12 +28,10 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
 impl AssemblerT for IntervalAssembler {
     fn new() -> Self {
-        let mmap = Mmap::new(0).unwrap();
-        let out = AssemblerData::new(mmap);
-        Self(out)
+        Self(AssemblerData::new())
     }
 
-    fn build_entry_point(slot_count: usize) -> Mmap {
+    fn build_entry_point(slot_count: usize, _choice_array_size: usize) -> Mmap {
         let mut out = Self::new();
         dynasm!(out.0.ops
             // Preserve frame and link register
@@ -146,7 +144,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E:// <- end
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -174,7 +171,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E: // <- end
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
@@ -208,7 +204,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E:
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -237,7 +232,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E: // <- end
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -326,7 +320,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E: // >end
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -355,7 +348,6 @@ impl AssemblerT for IntervalAssembler {
 
             ; E: // <- end
         );
-        self.0.ops.commit_local().unwrap();
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -396,7 +388,6 @@ impl AssemblerT for IntervalAssembler {
             // <- end
             ; E:
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
@@ -411,7 +402,7 @@ impl AssemblerT for IntervalAssembler {
     }
 
     fn finalize(mut self) -> Result<Mmap, Error> {
-        self.0.ops.finalize()
+        self.0.ops.try_into()
     }
 
     /// Uses `v4`, `v5`, `x14`, `x15`
@@ -490,7 +481,6 @@ impl AssemblerT for IntervalAssembler {
             ; orr w15, w15, #1
             ; str b15, [x2, #i]
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     fn build_min_mem_reg_choice(
@@ -601,7 +591,6 @@ impl AssemblerT for IntervalAssembler {
             ; orr w15, w15, #1
             ; str b15, [x2, #i]
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     fn build_max_mem_reg_choice(

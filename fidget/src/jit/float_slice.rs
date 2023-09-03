@@ -1,10 +1,10 @@
 use crate::jit::{
-    arch::float_slice::SIMD_WIDTH, AssemblerData, JitEval, SimdAssembler,
+    arch::float_slice::SIMD_WIDTH, AssemblerData, JitEval, SimdType,
 };
 
 pub struct FloatSliceAssembler(pub(crate) AssemblerData<[f32; SIMD_WIDTH]>);
 
-impl SimdAssembler for FloatSliceAssembler {
+impl SimdType for *const f32 {
     const SIMD_SIZE: usize = SIMD_WIDTH;
 }
 

@@ -21,6 +21,8 @@
 use crate::vm::ChoiceIndex;
 use dynasmrt::{dynasm, DynasmApi};
 
+pub use dynasmrt::aarch64::Aarch64Relocation as Relocation;
+
 /// We can use registers `v8-15` (callee saved) and `v16-31` (caller saved)
 pub const REGISTER_LIMIT: u8 = 24;
 /// `v3` is used for immediates, because `v0-2` contain inputs

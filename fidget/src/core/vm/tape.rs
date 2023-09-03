@@ -47,7 +47,7 @@ impl<F: Family> TapeData<F> {
     pub fn vars(&self) -> &BTreeMap<String, u32> {
         &self.vars
     }
-    /// Returns the number of choices written by this tape
+    /// Returns the size of the choice array (as a number of `u64` words)
     pub fn choice_array_size(&self) -> usize {
         self.choice_array_size
     }
@@ -128,7 +128,8 @@ impl<F: Family> TapeData<F> {
             .max()
             .unwrap_or(0) as usize;
 
-        let (tape_data, group_data) = F::build(slot_count, &data);
+        let (tape_data, group_data) =
+            F::build(slot_count, choice_array_size, &data);
         let mut groups = vec![];
         for (c, g) in data.iter().zip(group_data) {
             groups.push(GroupMetadata {

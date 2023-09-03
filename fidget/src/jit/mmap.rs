@@ -1,3 +1,6 @@
+use crate::Error;
+use dynasmrt::{relocations::Relocation, VecAssembler};
+
 pub struct Mmap {
     ptr: *mut libc::c_void,
     len: usize,
@@ -10,6 +13,20 @@ unsafe impl Sync for Mmap {}
 impl Default for Mmap {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl<O: Relocation> TryFrom<VecAssembler<O>> for Mmap {
+    type Error = Error;
+    fn try_from(value: VecAssembler<O>) -> Result<Self, Self::Error> {
+        let vec = value.finalize()?;
+        let n = vec.len();
+        let mut out = Mmap::new(n)?;
+        {
+            let _guard = Mmap::thread_mode_write();
+            out.as_mut_slice()[..n].copy_from_slice(&vec);
+        }
+        Ok(out)
     }
 }
 

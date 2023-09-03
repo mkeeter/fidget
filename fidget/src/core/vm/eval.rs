@@ -40,6 +40,7 @@ impl Family for Eval {
 
     fn build(
         _slot_count: usize,
+        _choice_array_size: usize,
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
         let mut out = vec![];

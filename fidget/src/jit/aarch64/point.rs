@@ -23,12 +23,10 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `count`    | `x3`     | `*mut u8` (single)    |
 impl AssemblerT for PointAssembler {
     fn new() -> Self {
-        let mmap = Mmap::new(0).unwrap();
-        let out = AssemblerData::new(mmap);
-        Self(out)
+        Self(AssemblerData::new())
     }
 
-    fn build_entry_point(slot_count: usize) -> Mmap {
+    fn build_entry_point(slot_count: usize, _choice_array_size: usize) -> Mmap {
         let mut out = Self::new();
         dynasm!(out.0.ops
             // Preserve frame and link register
@@ -150,7 +148,6 @@ impl AssemblerT for PointAssembler {
             // <- end
             ; strb w14, [x2], #1 // post-increment
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -173,7 +170,6 @@ impl AssemblerT for PointAssembler {
 
             ; E:
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
@@ -187,8 +183,8 @@ impl AssemblerT for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self) -> Result<Mmap, Error> {
-        self.0.ops.finalize()
+    fn finalize(self) -> Result<Mmap, Error> {
+        self.0.ops.try_into()
     }
 
     /// Uses `v4`, `v5`, `x14`, `x15`
@@ -251,7 +247,6 @@ impl AssemblerT for PointAssembler {
             ; orr w15, w15, #1
             ; str b15, [x2, #i]
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     fn build_min_mem_reg_choice(
@@ -347,7 +342,6 @@ impl AssemblerT for PointAssembler {
             ; orr w15, w15, #1
             ; str b15, [x2, #i]
         );
-        self.0.ops.commit_local().unwrap();
     }
 
     fn build_max_mem_reg_choice(
