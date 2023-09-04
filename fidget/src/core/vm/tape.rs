@@ -277,7 +277,7 @@ impl<F: Family> Tape<F> {
             let choice_sel = &metadata.choice_mask_range;
             let still_active = choice_sel.is_empty()
                 || choice_sel
-                    .into_iter()
+                    .iter()
                     .any(|c| choices[c.index as usize] & c.mask != 0);
             if still_active {
                 prev.active_groups.push(g);

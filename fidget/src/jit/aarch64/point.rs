@@ -199,10 +199,10 @@ impl AssemblerT for PointAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
-            ; ands w15, w15, #1
-            ; b.eq >V
+            ; tst w15, #1
+            ; b.ne >V
 
             // Fallthrough: there was no value, so we set it here
             // Copy the value, then branch to the end
@@ -296,8 +296,8 @@ impl AssemblerT for PointAssembler {
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
-            ; ands w15, w15, #1
-            ; b.eq >V
+            ; tst w15, #1 // Sets the Z(ero) flag if the bit is not set
+            ; b.ne >V     // `ne` is true when the Z flag is not set
 
             // Fallthrough: there was no value, so we set it here
             // Copy the value, then branch to the end

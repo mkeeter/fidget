@@ -101,14 +101,13 @@ impl AssemblerT for FloatSliceAssembler {
             // per choice, instead of clearing the entire array, since we only
             // need to track "is this choice active"
             ; mov x9, #choice_array_size as u64
-            ; mov x10, #0
-            ; mov x11, x7
+            ; mov x10, x7
 
             ; ->memclr:
             ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
-            ; str x10, [x11], #8
+            ; str xzr, [x10], #8 // post-increment
             ; b ->memclr
 
             // Call into threaded code
@@ -303,8 +302,8 @@ impl AssemblerT for FloatSliceAssembler {
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
-            ; ands w15, w15, #1
-            ; b.eq >V
+            ; tst w15, #1
+            ; b.ne >V
 
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end
@@ -331,8 +330,8 @@ impl AssemblerT for FloatSliceAssembler {
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
-            ; ands w15, w15, #1
-            ; b.eq >V
+            ; tst w15, #1
+            ; b.ne >V
 
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end

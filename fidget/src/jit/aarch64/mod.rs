@@ -69,10 +69,9 @@ pub(self) fn set_choice_exclusive<D: DynasmApi>(
 ) {
     let mut i = choice.index as u32;
     let mut b = choice.bit as u32;
-    dynasm!(d ; mov w15, #0);
     while b >= 8 {
         assert!(i < 4096);
-        dynasm!(d ; strb w15, [x2, #i]);
+        dynasm!(d ; strb wzr, [x2, #i]);
         b -= 8;
         i += 1;
     }
