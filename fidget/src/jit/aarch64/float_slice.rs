@@ -103,8 +103,9 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov x9, #choice_array_size as u64
             ; mov x10, #0
             ; mov x11, x7
-            ; cmp x9, #0
+
             ; ->memclr:
+            ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
             ; str x10, [x11], #8
@@ -112,9 +113,10 @@ impl AssemblerT for FloatSliceAssembler {
 
             // Call into threaded code
             ; O:
-            ; mov x0, x8
+            ; mov x8, x0
             ; ldr x15, [x0, #0]
             ; blr x15
+            ; mov x0, x8
             // Return from threaded code
 
             // Prepare our return value, writing to the pointer in x5

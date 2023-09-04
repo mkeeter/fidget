@@ -56,7 +56,7 @@ impl AssemblerT for GradSliceAssembler {
             //  x5: output array pointer
             //  x6: number of points to evaluate
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x6 by 1);
+            // We'll be advancing x1, x2, x3 here (and decrementing x6 by 1);
             // x6 is advanced in finalize().
 
             ; cmp x6, #0
@@ -100,8 +100,9 @@ impl AssemblerT for GradSliceAssembler {
             ; mov x9, #choice_array_size as u64
             ; mov x10, #0
             ; mov x11, x7
-            ; cmp x9, #0
+
             ; ->memclr:
+            ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
             ; str x10, [x11], #8
@@ -109,9 +110,10 @@ impl AssemblerT for GradSliceAssembler {
 
             // Call into threaded code
             ; O:
-            ; mov x0, x8
+            ; mov x8, x0 // save x0
             ; ldr x15, [x0, #0]
             ; blr x15
+            ; mov x0, x8 // restore x0
             // Return from threaded code
 
             // Prepare our return value, writing to the pointer in x5
