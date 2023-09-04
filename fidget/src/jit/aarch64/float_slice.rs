@@ -150,7 +150,7 @@ impl AssemblerT for FloatSliceAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr w15, [x3, #(src_arg * 4)]
+            ; ldr w15, [x4, #(src_arg * 4)]
             ; dup V(reg(out_reg)).s4, w15
         );
     }
