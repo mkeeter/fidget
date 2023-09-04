@@ -104,11 +104,11 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov x10, #0
             ; mov x11, x7
             ; cmp x9, #0
-            ; Q:
+            ; ->memclr:
             ; b.eq >O
             ; sub x9, x9, 1
             ; str x10, [x11], #8
-            ; b ->Q
+            ; b ->memclr
 
             // Call into threaded code
             ; O:
@@ -296,7 +296,6 @@ impl AssemblerT for FloatSliceAssembler {
         choice: crate::vm::ChoiceIndex,
     ) {
         let i = choice.index as u32;
-        let b = choice.bit as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldr b15, [x7, #i]
@@ -325,7 +324,6 @@ impl AssemblerT for FloatSliceAssembler {
         choice: crate::vm::ChoiceIndex,
     ) {
         let i = choice.index as u32;
-        let b = choice.bit as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldr b15, [x7, #i]

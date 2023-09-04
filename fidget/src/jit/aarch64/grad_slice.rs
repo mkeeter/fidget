@@ -101,11 +101,11 @@ impl AssemblerT for GradSliceAssembler {
             ; mov x10, #0
             ; mov x11, x7
             ; cmp x9, #0
-            ; Q:
+            ; ->memclr:
             ; b.eq >O
             ; sub x9, x9, 1
             ; str x10, [x11], #8
-            ; b ->Q
+            ; b ->memclr
 
             // Call into threaded code
             ; O:
@@ -271,25 +271,25 @@ impl AssemblerT for GradSliceAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.gt #12 // -> lhs
+            ; b.gt >Lhs
             // Happy path: v >= 0, so we just copy the register
             ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
-            ; b #8 // -> end
-            // lhs:
+            ; b >End // -> end
+            ; Lhs:
             ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
-            // end:
+            ; End:
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.lt #12 // -> lhs
+            ; b.lt >Lhs // -> lhs
             // Happy path: v >= 0, so we just copy the register
             ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
-            ; b #8 // -> end
-            // lhs:
+            ; b >End // -> end
+            ; Lhs:
             ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
-            // end:
+            ; End:
         )
     }
 
@@ -314,7 +314,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_min_mem_reg_choice(mem, rhs, choice);
     }
 
     fn build_max_mem_imm_choice(
@@ -323,7 +324,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_max_mem_reg_choice(mem, rhs, choice);
     }
 
     fn build_min_reg_imm_choice(
@@ -332,7 +334,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_min_reg_reg_choice(reg, rhs, choice);
     }
 
     fn build_max_reg_imm_choice(
@@ -341,7 +344,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_max_reg_reg_choice(reg, rhs, choice);
     }
 
     fn build_min_mem_reg_choice(
@@ -350,7 +354,11 @@ impl AssemblerT for GradSliceAssembler {
         arg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_min_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
     }
 
     fn build_max_mem_reg_choice(
@@ -359,25 +367,71 @@ impl AssemblerT for GradSliceAssembler {
         arg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
+        let lhs = 6u8.wrapping_sub(OFFSET);
+        self.build_load(lhs, mem);
+        self.build_max_reg_reg_choice(lhs, arg, choice);
+        self.build_store(mem, lhs);
     }
 
     fn build_min_reg_reg_choice(
         &mut self,
-        reg: u8,
-        arg: u8,
+        inout_reg: u8,
+        arg_reg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let i = choice.index as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x7, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >Compare
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, write the choice bit, then jump to the end
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+            ; mov w15, #1
+            ; str b15, [x7]
+            ; b >End
+
+            ; Compare:
+            ; fcmp S(reg(inout_reg)), S(reg(arg_reg))
+            ; b.lt >End
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+
+            ; End:
+        );
     }
 
     fn build_max_reg_reg_choice(
         &mut self,
-        reg: u8,
-        arg: u8,
+        inout_reg: u8,
+        arg_reg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let i = choice.index as u32;
+        dynasm!(self.0.ops
+            //  Bit 0 of the choice indicates whether it has a value
+            ; ldr b15, [x7, #i]
+            // Jump to V if the choice bit was previously set
+            ; ands w15, w15, #1
+            ; b.eq >Compare
+
+            // Fallthrough: there was no value, so we set it here
+            // Copy the value, write the choice bit, then jump to the end
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+            ; mov w15, #1
+            ; str b15, [x7]
+            ; b >End
+
+            ; Compare:
+            ; fcmp S(reg(inout_reg)), S(reg(arg_reg))
+            ; b.gt >End
+            ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
+
+            ; End:
+        );
     }
 
     fn build_copy_imm_reg_choice(
@@ -386,7 +440,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_reg_choice(out, rhs, choice);
     }
 
     fn build_copy_imm_mem_choice(
@@ -395,7 +450,8 @@ impl AssemblerT for GradSliceAssembler {
         imm: f32,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let rhs = self.load_imm(imm);
+        self.build_copy_reg_mem_choice(out, rhs, choice);
     }
 
     fn build_copy_reg_reg_choice(
@@ -404,7 +460,13 @@ impl AssemblerT for GradSliceAssembler {
         arg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let i = choice.index as u32;
+        assert_eq!(choice.bit, 1);
+        dynasm!(self.0.ops
+            ; mov V(reg(out)).b16, V(reg(arg)).b16
+            ; mov w15, #3
+            ; str b15, [x7, #i]
+        );
     }
 
     fn build_copy_reg_mem_choice(
@@ -413,6 +475,12 @@ impl AssemblerT for GradSliceAssembler {
         arg: u8,
         choice: crate::vm::ChoiceIndex,
     ) {
-        todo!()
+        let i = choice.index as u32;
+        assert_eq!(choice.bit, 1);
+        dynasm!(self.0.ops
+            ; mov w15, #3
+            ; str b15, [x7, #i]
+        );
+        self.build_store(out, arg);
     }
 }

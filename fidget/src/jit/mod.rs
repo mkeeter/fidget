@@ -196,72 +196,95 @@ pub trait AssemblerT {
     /// Loads an immediate into a register, returning that register
     fn load_imm(&mut self, imm: f32) -> u8;
 
+    /// `min` operation with an `inout` memory address, immediate, and choice
     fn build_min_mem_imm_choice(
         &mut self,
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// `max` operation with an `inout` memory address, immediate, and choice
     fn build_max_mem_imm_choice(
         &mut self,
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// `min` operation with an `inout` register, immediate, and choice
     fn build_min_reg_imm_choice(
         &mut self,
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// `max` operation with an `inout` register, immediate, and choice
     fn build_max_reg_imm_choice(
         &mut self,
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// `min` operation with an `inout` memory address, register, and choice
     fn build_min_mem_reg_choice(
         &mut self,
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// `max` operation with an `inout` memory address, register, and choice
     fn build_max_mem_reg_choice(
         &mut self,
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// `min` operation with an `inout` and argument register, and choice
     fn build_min_reg_reg_choice(
         &mut self,
         reg: u8,
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// `max` operation with an `inout` and argument register, and choice
     fn build_max_reg_reg_choice(
         &mut self,
         reg: u8,
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// Copy an immediate to a register and set the given choice bit
     fn build_copy_imm_reg_choice(
         &mut self,
         out: u8,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// Copy an immediate to a memory address and set the given choice bit
     fn build_copy_imm_mem_choice(
         &mut self,
         out: u32,
         imm: f32,
         choice: ChoiceIndex,
     );
+
+    /// Copy a register to a register and set the given choice bit
     fn build_copy_reg_reg_choice(
         &mut self,
         out: u8,
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// Copy a register to a memory address and set the given choice bit
     fn build_copy_reg_mem_choice(
         &mut self,
         out: u32,
@@ -354,13 +377,7 @@ impl<T> AssemblerData<T> {
 /// Build an assembly snippet for the given function
 ///
 /// `t` is expected to be in reverse-evaluation order
-fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
-    // This guard may be a unit value on some systems
-    #[allow(clippy::let_unit_value)]
-    let _guard = Mmap::thread_mode_write();
-
-    let s = Mmap::new(0).unwrap();
-    s.make_write();
+fn build_asm_fn<A: AssemblerT>(t: &[Op]) -> Mmap {
     let mut asm = A::new();
 
     for &op in t.iter().rev() {
@@ -485,7 +502,6 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op], slot_count: usize) -> Mmap {
     }
 
     asm.finalize().expect("failed to build JIT function")
-    // JIT execute mode is restored here when the _guard is dropped
 }
 
 /// Container for a bunch of JIT code
@@ -561,21 +577,15 @@ impl Family for Eval {
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
         let mut out = vec![];
         for t in tapes {
-            let point = build_asm_fn::<point::PointAssembler>(
-                t.tape.as_slice(),
-                slot_count,
-            );
-            let interval = build_asm_fn::<interval::IntervalAssembler>(
-                t.tape.as_slice(),
-                slot_count,
-            );
+            let point =
+                build_asm_fn::<point::PointAssembler>(t.tape.as_slice());
+            let interval =
+                build_asm_fn::<interval::IntervalAssembler>(t.tape.as_slice());
             let float_slice = build_asm_fn::<float_slice::FloatSliceAssembler>(
                 t.tape.as_slice(),
-                slot_count,
             );
             let grad_slice = build_asm_fn::<grad_slice::GradSliceAssembler>(
                 t.tape.as_slice(),
-                slot_count,
             );
             out.push(MmapSet {
                 point,
@@ -685,7 +695,9 @@ where
     type Storage = Vec<*const c_void>;
     fn new_with_storage(t: &Tape<Eval>, mut prev: Self::Storage) -> Self {
         for g in t.active_groups().iter().rev() {
-            prev.push(<MmapSet as GetPointer<T>>::get_pointer(&t.data().data));
+            prev.push(<MmapSet as GetPointer<T>>::get_pointer(
+                &t.data().groups[*g].data,
+            ));
         }
         let prev = ThreadedCode {
             entry_points: prev,
