@@ -110,7 +110,8 @@ impl AssemblerT for GradSliceAssembler {
             // Call into threaded code
             ; O:
             ; mov x0, x8
-            ; blr x0
+            ; ldr x15, [x0, #0]
+            ; blr x15
             // Return from threaded code
 
             // Prepare our return value, writing to the pointer in x5
@@ -482,5 +483,9 @@ impl AssemblerT for GradSliceAssembler {
             ; str b15, [x7, #i]
         );
         self.build_store(out, arg);
+    }
+
+    fn build_jump(&mut self) {
+        crate::jit::arch::build_jump(&mut self.0.ops)
     }
 }

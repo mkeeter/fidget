@@ -15,6 +15,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// | Variable   | Register | Type                  |
 /// |------------|----------|-----------------------|
+/// | code       | `x0`     | `*const c_void`       |
 /// | X          | `s0`     | `f32`                 |
 /// | Y          | `s1`     | `f32`                 |
 /// | Z          | `s2`     | `f32`                 |
@@ -43,7 +44,8 @@ impl AssemblerT for PointAssembler {
         let out_reg = 0;
         dynasm!(out.0.ops
             // Jump into threaded code
-            ; blr x0
+            ; ldr x15, [x0, #0]
+            ; blr x15
             // Return from threaded code here
 
             // Prepare our return value
@@ -423,5 +425,9 @@ impl AssemblerT for PointAssembler {
             ; str b15, [x2, #i]
         );
         self.build_store(out, arg);
+    }
+
+    fn build_jump(&mut self) {
+        crate::jit::arch::build_jump(&mut self.0.ops)
     }
 }

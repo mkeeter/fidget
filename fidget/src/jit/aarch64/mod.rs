@@ -80,3 +80,10 @@ pub(self) fn set_choice_exclusive<D: DynasmApi>(
         ; str w15, [x2, #i]
     );
 }
+
+pub(self) fn build_jump<D: DynasmApi>(d: &mut D) {
+    dynasm!(d
+        ; ldr x15, [x0, #8]!
+        ; br x15
+    );
+}

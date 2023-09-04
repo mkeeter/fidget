@@ -302,6 +302,9 @@ pub trait AssemblerT {
 
     /// Finalize the assembly code, returning a memory-mapped region
     fn finalize(self) -> Result<Mmap, Error>;
+
+    /// Jump to the next code block
+    fn build_jump(&mut self);
 }
 
 /// Trait defining SIMD width
@@ -316,7 +319,7 @@ pub trait SimdType {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 pub(crate) struct AssemblerData<T> {
-    ops: VecAssembler<arch::Relocation>,
+    pub ops: VecAssembler<arch::Relocation>,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -500,6 +503,7 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op]) -> Mmap {
             }
         }
     }
+    asm.build_jump();
 
     asm.finalize().expect("failed to build JIT function")
 }
@@ -540,6 +544,14 @@ impl GetPointer<*const Grad> for MmapSet {
     }
 }
 
+pub struct JitData {
+    /// Function which jumps into the threaded code
+    trampolines: MmapSet,
+
+    /// A return statement which can be jumped into
+    ret: Mmap,
+}
+
 /// JIT evaluator family
 #[derive(Clone)]
 pub enum Eval {}
@@ -551,8 +563,8 @@ impl Family for Eval {
     type FloatSliceEval = float_slice::JitFloatSliceEval;
     type GradSliceEval = grad_slice::JitGradSliceEval;
 
-    /// The root tape contains entry points for threaded code
-    type TapeData = MmapSet;
+    /// The root tape contains entry and exit points for threaded code
+    type TapeData = JitData;
 
     /// Each group contains a chunk of threaded code to do its evaluation
     type GroupMetadata = MmapSet;
@@ -610,12 +622,20 @@ impl Family for Eval {
             slot_count,
             choice_array_size,
         );
+
+        // Build a tiny assembler with a return statement
+        let mut a = AssemblerData::<f32>::new();
+        dynasm!(a.ops ; ret );
+
         (
-            MmapSet {
-                point,
-                interval,
-                float_slice,
-                grad_slice,
+            JitData {
+                trampolines: MmapSet {
+                    point,
+                    interval,
+                    float_slice,
+                    grad_slice,
+                },
+                ret: a.ops.try_into().unwrap(),
             },
             out,
         )
@@ -699,6 +719,7 @@ where
                 &t.data().groups[*g].data,
             ));
         }
+        prev.push(t.data().data.ret.as_slice().as_ptr() as *const _);
         let prev = ThreadedCode {
             entry_points: prev,
             data: t.data().clone(),
@@ -734,13 +755,15 @@ where
     ) -> (T, bool) {
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
-        let start =
-            <MmapSet as GetPointer<T>>::get_pointer(&self.code.data.data);
+        let trampoline = <MmapSet as GetPointer<T>>::get_pointer(
+            &self.code.data.data.trampolines,
+        );
 
         // SAFETY: this is a pointer to a hand-written entry point in memory
         // that's owned by self.code.data
         let f: jit_fn!(
             unsafe fn(
+                *const *const c_void,
                 T,          // X
                 T,          // Y
                 T,          // Z
@@ -748,10 +771,13 @@ where
                 *mut u64,   // choices
                 *mut u8,    // simplify (single boolean)
             ) -> T
-        ) = unsafe { std::mem::transmute(start) };
+        ) = unsafe { std::mem::transmute(trampoline) };
+
+        let initial_entry_point = self.code.entry_points.as_ptr();
 
         let out = unsafe {
             f(
+                initial_entry_point,
                 x,
                 y,
                 z,
@@ -792,7 +818,7 @@ where
         let n = xs.len();
 
         let start = <MmapSet as GetPointer<*const T>>::get_pointer(
-            &self.code.data.data,
+            &self.code.data.data.trampolines,
         );
 
         let f: jit_fn!(

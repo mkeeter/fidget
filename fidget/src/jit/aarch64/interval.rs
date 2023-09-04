@@ -57,7 +57,8 @@ impl AssemblerT for IntervalAssembler {
             // Jump into threaded code
             // TODO: this means that threaded code can't use the link register;
             // is that an issue?
-            ; blr x0
+            ; ldr x15, [x0, #0]
+            ; blr x15
             // Return from threaded code here
 
             // Prepare our return value
@@ -672,5 +673,9 @@ impl AssemblerT for IntervalAssembler {
             ; str b15, [x2, #i]
         );
         self.build_store(out, arg);
+    }
+
+    fn build_jump(&mut self) {
+        crate::jit::arch::build_jump(&mut self.0.ops)
     }
 }
