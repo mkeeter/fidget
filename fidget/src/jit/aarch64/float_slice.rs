@@ -89,9 +89,9 @@ impl AssemblerT for FloatSliceAssembler {
             //
             // We're actually loading two f32s, but we can pretend they're
             // doubles in order to move 64 bits at a time
-            ; ldr q0, [x0], #16
-            ; ldr q1, [x1], #16
-            ; ldr q2, [x2], #16
+            ; ldr q0, [x1], #16
+            ; ldr q1, [x2], #16
+            ; ldr q2, [x3], #16
             ; sub x6, x6, #4 // We handle 4 items at a time
 
             // Clear out the choices array, operating on 64-bit chunks
