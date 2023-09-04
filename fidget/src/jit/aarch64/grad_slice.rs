@@ -57,9 +57,9 @@ impl AssemblerT for GradSliceAssembler {
             //  x6: number of points to evaluate
             //
             // We'll be advancing x0, x1, x2 here (and decrementing x6 by 1);
-            // x5 is advanced in finalize().
+            // x6 is advanced in finalize().
 
-            ; cmp x5, #0
+            ; cmp x6, #0
             ; b.ne >P // -> jump to loop body
 
             // fini:
@@ -89,7 +89,7 @@ impl AssemblerT for GradSliceAssembler {
             ; mov v1.S[2], v6.S[0]
             ; ldr s2, [x3], #4
             ; mov v2.S[3], v6.S[0]
-            ; sub x5, x5, #1 // We handle 1 item at a time
+            ; sub x6, x6, #1 // We handle 1 item at a time
 
             // Clear out the choices array, operating on 64-bit chunks
             // (since that's our guaranteed minimum alignment)

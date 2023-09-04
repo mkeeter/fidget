@@ -64,7 +64,7 @@ impl AssemblerT for FloatSliceAssembler {
             //
             // We'll be advancing x1, x2, x3 here (and decrementing x6 by 4);
 
-            ; cmp x5, #0
+            ; cmp x6, #0
             ; b.ne >P // skip to loop body
 
             // fini:
@@ -92,7 +92,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldr q0, [x0], #16
             ; ldr q1, [x1], #16
             ; ldr q2, [x2], #16
-            ; sub x5, x5, #4 // We handle 4 items at a time
+            ; sub x6, x6, #4 // We handle 4 items at a time
 
             // Clear out the choices array, operating on 64-bit chunks
             // (since that's our guaranteed minimum alignment)

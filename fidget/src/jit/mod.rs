@@ -817,21 +817,24 @@ where
 
         let n = xs.len();
 
-        let start = <MmapSet as GetPointer<*const T>>::get_pointer(
+        let trampoline = <MmapSet as GetPointer<*const T>>::get_pointer(
             &self.code.data.data.trampolines,
         );
 
         let f: jit_fn!(
             unsafe fn(
-                *const *const c_void,
-                *const f32, // X
-                *const f32, // Y
-                *const f32, // Z
-                *const f32, // vars
-                *mut T,     // out
-                u64,        // size
+                *const *const c_void, // data
+                *const f32,           // X
+                *const f32,           // Y
+                *const f32,           // Z
+                *const f32,           // vars
+                *mut T,               // out
+                u64,                  // size
+                *mut u64,             // choices
             ) -> T
-        ) = unsafe { std::mem::transmute(start) };
+        ) = unsafe { std::mem::transmute(trampoline) };
+
+        let initial_entry_point = self.code.entry_points.as_ptr();
 
         // Special case for when we have fewer items than the native SIMD size,
         // in which case the input slices can't be used as workspace (because
@@ -855,13 +858,14 @@ where
 
             unsafe {
                 f(
-                    self.code.entry_points.as_ptr(),
+                    initial_entry_point,
                     x.as_ptr(),
                     y.as_ptr(),
                     z.as_ptr(),
                     vars.as_ptr(),
                     tmp.as_mut_ptr(),
                     I::SIMD_SIZE as u64,
+                    choices.as_mut().as_mut_ptr(),
                 );
             }
             out[0..n].copy_from_slice(&tmp[0..n]);
@@ -872,13 +876,14 @@ where
             let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
             unsafe {
                 f(
-                    self.code.entry_points.as_ptr(),
+                    initial_entry_point,
                     xs.as_ptr(),
                     ys.as_ptr(),
                     zs.as_ptr(),
                     vars.as_ptr(),
                     out.as_mut_ptr(),
                     m as u64,
+                    choices.as_mut().as_mut_ptr(),
                 );
             }
             // If we weren't given an even multiple of vector width, then we'll
@@ -887,13 +892,14 @@ where
             if n != m {
                 unsafe {
                     f(
-                        self.code.entry_points.as_ptr(),
+                        initial_entry_point,
                         xs.as_ptr().add(n - I::SIMD_SIZE),
                         ys.as_ptr().add(n - I::SIMD_SIZE),
                         zs.as_ptr().add(n - I::SIMD_SIZE),
                         vars.as_ptr(),
                         out.as_mut_ptr().add(n - I::SIMD_SIZE),
                         I::SIMD_SIZE as u64,
+                        choices.as_mut().as_mut_ptr(),
                     );
                 }
             }
