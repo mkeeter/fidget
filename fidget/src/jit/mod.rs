@@ -714,6 +714,7 @@ where
 {
     type Storage = Vec<*const c_void>;
     fn new_with_storage(t: &Tape<Eval>, mut prev: Self::Storage) -> Self {
+        prev.clear();
         for g in t.active_groups().iter().rev() {
             prev.push(<MmapSet as GetPointer<T>>::get_pointer(
                 &t.data().groups[*g].data,

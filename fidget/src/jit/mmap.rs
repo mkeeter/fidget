@@ -26,6 +26,7 @@ impl<O: Relocation> TryFrom<VecAssembler<O>> for Mmap {
             let _guard = Mmap::thread_mode_write();
             out.as_mut_slice()[..n].copy_from_slice(&vec);
         }
+        out.finalize(n); // invalidate the icache
         Ok(out)
     }
 }
