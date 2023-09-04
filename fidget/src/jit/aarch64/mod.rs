@@ -46,11 +46,12 @@ pub mod point;
 pub(self) fn set_choice_bit<D: DynasmApi>(d: &mut D, choice: ChoiceIndex) {
     let i = choice.index as u32;
     let b = choice.bit as u32;
+    assert!(i + b / 8 < 4096);
     dynasm!(d
         ; ldr b15, [x2, #(i + b / 8)]
         ; mov x14, #1 << (b % 8)
         ; orr x15, x15, x14
-        ; str b15, [x2, #(i + b / 8)]
+        ; strb w15, [x2, #(i + b / 8)]
     );
 }
 
@@ -70,14 +71,16 @@ pub(self) fn set_choice_exclusive<D: DynasmApi>(
     let mut b = choice.bit as u32;
     dynasm!(d ; mov w15, #0);
     while b >= 8 {
-        dynasm!(d ; str b15, [x2, #i]);
+        assert!(i < 4096);
+        dynasm!(d ; strb w15, [x2, #i]);
         b -= 8;
         i += 1;
     }
     // Write the last byte
+    assert!(i < 4096);
     dynasm!(d
         ; mov w15, #1 << b
-        ; str w15, [x2, #i]
+        ; strb w15, [x2, #i]
     );
 }
 

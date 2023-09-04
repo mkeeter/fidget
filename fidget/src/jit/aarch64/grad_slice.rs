@@ -11,16 +11,16 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// Registers as pased in as follows:
 ///
-/// | Variable   | Register | Type               |
-/// |------------|----------|--------------------|
-/// | code       | `x0`     | `*const void*`     |
-/// | X          | `x1`     | `*const f32`       |
-/// | Y          | `x2`     | `*const f32`       |
-/// | Z          | `x3`     | `*const f32`       |
-/// | `vars`     | `x4`     | `*const f32`       |
-/// | `out`      | `x5`     | `*const [f32; 4]`  |
-/// | `count`    | `x6`     | `u64`              |
-/// | `choices` | `x7`     | `*const u8` (array)        |
+/// | Variable   | Register | Type                |
+/// |------------|----------|---------------------|
+/// | code       | `x0`     | `*const void*`      |
+/// | X          | `x1`     | `*const f32`        |
+/// | Y          | `x2`     | `*const f32`        |
+/// | Z          | `x3`     | `*const f32`        |
+/// | `vars`     | `x4`     | `*const f32`        |
+/// | `out`      | `x5`     | `*const [f32; 4]`   |
+/// | `count`    | `x6`     | `u64`               |
+/// | `choices`  | `x7`     | `*const u8` (array) |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
@@ -386,7 +386,7 @@ impl AssemblerT for GradSliceAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x7, #i]
+            ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >Compare
@@ -395,7 +395,7 @@ impl AssemblerT for GradSliceAssembler {
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
-            ; str b15, [x7]
+            ; strb w15, [x7]
             ; b >End
 
             ; Compare:
@@ -416,7 +416,7 @@ impl AssemblerT for GradSliceAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x7, #i]
+            ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >Compare
@@ -425,7 +425,7 @@ impl AssemblerT for GradSliceAssembler {
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
-            ; str b15, [x7]
+            ; strb w15, [x7]
             ; b >End
 
             ; Compare:
@@ -468,7 +468,7 @@ impl AssemblerT for GradSliceAssembler {
         dynasm!(self.0.ops
             ; mov V(reg(out)).b16, V(reg(arg)).b16
             ; mov w15, #3
-            ; str b15, [x7, #i]
+            ; strb w15, [x7, #i]
         );
     }
 
@@ -482,7 +482,7 @@ impl AssemblerT for GradSliceAssembler {
         assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
             ; mov w15, #3
-            ; str b15, [x7, #i]
+            ; strb w15, [x7, #i]
         );
         self.build_store(out, arg);
     }

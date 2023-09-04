@@ -301,7 +301,7 @@ impl AssemblerT for FloatSliceAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x7, #i]
+            ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >V
@@ -310,7 +310,7 @@ impl AssemblerT for FloatSliceAssembler {
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
-            ; str b15, [x7]
+            ; strb w15, [x7]
             ; b >E
 
             ; V:
@@ -329,7 +329,7 @@ impl AssemblerT for FloatSliceAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x7, #i]
+            ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >V
@@ -338,7 +338,7 @@ impl AssemblerT for FloatSliceAssembler {
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
             ; mov w15, #1
-            ; str b15, [x7]
+            ; strb w15, [x7]
             ; b >E
 
             ; V:
@@ -379,7 +379,7 @@ impl AssemblerT for FloatSliceAssembler {
         dynasm!(self.0.ops
             ; mov V(reg(out)).b16, V(reg(arg)).b16
             ; mov w15, #3
-            ; str b15, [x7, #i]
+            ; strb w15, [x7, #i]
         );
     }
 
@@ -393,7 +393,7 @@ impl AssemblerT for FloatSliceAssembler {
         assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
             ; mov w15, #3
-            ; str b15, [x7, #i]
+            ; strb w5, [x7, #i]
         );
         self.build_store(out, arg);
     }

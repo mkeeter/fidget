@@ -20,8 +20,8 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | Y          | `s1`     | `f32`                 |
 /// | Z          | `s2`     | `f32`                 |
 /// | `vars`     | `x1`     | `*const f32` (array)  |
-/// | `out`      | `x2`     | `*mut u8` (array)     |
-/// | `count`    | `x3`     | `*mut u8` (single)    |
+/// | `choices`  | `x2`     | `*const u8` (array)   |
+/// | `simplify` | `x3`     | `*const u32` (single) |
 impl AssemblerT for PointAssembler {
     fn new() -> Self {
         Self(AssemblerData::new())
@@ -226,13 +226,13 @@ impl AssemblerT for PointAssembler {
             //////////////////////////////////////////////////////////////////
 
             ; L: // inout is smaller, so write the simplify bit
-            ; mov w15, #1
-            ; str b15, [x3]
+            ; mov w15, 0x1
+            ; str w15, [x3]
             ; b >E
 
             ; R: // arg is smaller, so write simplify + choice bit
-            ; mov w15, #1
-            ; str b15, [x3]
+            ; mov w15, 0x1
+            ; str w15, [x3]
             ; fmov S(reg(inout_reg)), S(reg(arg_reg)) // copy the reg
         );
         set_choice_exclusive(&mut self.0.ops, choice);
@@ -242,11 +242,12 @@ impl AssemblerT for PointAssembler {
 
             ; E: // end branch label
             // Set choice bit 0 and write it back to memory
+
             // TODO: this adds an extra load/store, but tracking it would be
             // annoying.
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             ; orr w15, w15, #1
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -293,7 +294,7 @@ impl AssemblerT for PointAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >V
@@ -321,12 +322,12 @@ impl AssemblerT for PointAssembler {
 
             ; L: // inout is larger, so write the simplify bit
             ; mov w15, #1
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; b >E
 
             ; R: // arg is larger, so write simplify + choice bit
             ; mov w15, #1
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; fmov S(reg(inout_reg)), S(reg(arg_reg)) // copy the reg
         );
         set_choice_exclusive(&mut self.0.ops, choice);
@@ -338,9 +339,9 @@ impl AssemblerT for PointAssembler {
             // Set choice bit 0 and write it back to memory
             // TODO: this adds an extra load/store, but tracking it would be
             // annoying.
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             ; orr w15, w15, #1
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -388,7 +389,7 @@ impl AssemblerT for PointAssembler {
         dynasm!(self.0.ops
             ; fmov S(reg(out)), S(reg(arg))
             ; mov w15, #3
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -421,8 +422,8 @@ impl AssemblerT for PointAssembler {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
-            ; mov w15, #3
-            ; str b15, [x2, #i]
+            ; mov w15, #3 // bit 1 and bit 0, to mark the choice as present
+            ; strb w15, [x2, #i]
         );
         self.build_store(out, arg);
     }

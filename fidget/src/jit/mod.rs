@@ -769,7 +769,7 @@ where
                 T,          // Z
                 *const f32, // vars
                 *mut u64,   // choices
-                *mut u8,    // simplify (single boolean)
+                *mut u32,   // simplify (single word)
             ) -> T
         ) = unsafe { std::mem::transmute(trampoline) };
 

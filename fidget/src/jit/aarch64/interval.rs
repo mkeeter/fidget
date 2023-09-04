@@ -416,7 +416,7 @@ impl AssemblerT for IntervalAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >V
@@ -448,7 +448,7 @@ impl AssemblerT for IntervalAssembler {
             // Nothing to do here, the value is already in memory so we write
             // the simplify bit then break to the exit
             ; mov w15, #1
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; b >E // -> end
             //////////////////////////////////////////////////////////////////
 
@@ -456,7 +456,7 @@ impl AssemblerT for IntervalAssembler {
             // (everything except the fmov)?
             ; A: // arg_reg < inout_reg
             ; mov w15, #1 // write simplify bit
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
@@ -477,9 +477,9 @@ impl AssemblerT for IntervalAssembler {
             // Set choice bit 0 and write it back to memory
             // TODO: this adds an extra load/store, but tracking it would be
             // annoying.
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             ; orr w15, w15, #1
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -526,7 +526,7 @@ impl AssemblerT for IntervalAssembler {
         let i = choice.index as u32;
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
             ; ands w15, w15, #1
             ; b.eq >V
@@ -557,7 +557,7 @@ impl AssemblerT for IntervalAssembler {
             // Fallthrough: arg_reg > inout_reg
             ; A: // arg_reg > inout_reg
             ; mov w15, #1 // write simplify bit
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
@@ -570,7 +570,7 @@ impl AssemblerT for IntervalAssembler {
             // Nothing to do here, the value is already in the register so we
             // write the simplify bit then break to the exit
             ; mov w15, #1
-            ; str b15, [x3]
+            ; str w15, [x3]
             ; b >E
             //////////////////////////////////////////////////////////////////
 
@@ -586,9 +586,9 @@ impl AssemblerT for IntervalAssembler {
             // Set choice bit 0 and write it back to memory
             // TODO: this adds an extra load/store, but tracking it would be
             // annoying.
-            ; ldr b15, [x2, #i]
+            ; ldrb w15, [x2, #i]
             ; orr w15, w15, #1
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -636,7 +636,7 @@ impl AssemblerT for IntervalAssembler {
         dynasm!(self.0.ops
             ; fmov D(reg(out)), D(reg(arg))
             ; mov w15, #3
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
     }
 
@@ -670,7 +670,7 @@ impl AssemblerT for IntervalAssembler {
         assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
             ; mov w15, #3
-            ; str b15, [x2, #i]
+            ; strb w15, [x2, #i]
         );
         self.build_store(out, arg);
     }
