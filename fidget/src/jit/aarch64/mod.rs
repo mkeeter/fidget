@@ -42,15 +42,14 @@ pub mod point;
 ///
 /// Requires the beginning of the `choices` array to be in `x2`
 ///
-/// Leaves `x15` and `x14` dirty
+/// Leaves `x15` dirty
 pub(self) fn set_choice_bit<D: DynasmApi>(d: &mut D, choice: ChoiceIndex) {
     let i = choice.index as u32;
     let b = choice.bit as u32;
     assert!(i + b / 8 < 4096);
     dynasm!(d
-        ; ldr b15, [x2, #(i + b / 8)]
-        ; mov x14, #1 << (b % 8)
-        ; orr x15, x15, x14
+        ; ldrb w15, [x2, #(i + b / 8)]
+        ; orr x15, x15, #1 << (b % 8)
         ; strb w15, [x2, #(i + b / 8)]
     );
 }
