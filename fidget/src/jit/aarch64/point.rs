@@ -217,7 +217,7 @@ impl AssemblerT for PointAssembler {
             //////////////////////////////////////////////////////////////////
             // Fallthrough: ambiguous case
             // Equal or NaN; do the comparison to collapse NaNs
-            ; fmin S(reg(inout_reg)), S(reg(inout_reg)), S(reg(inout_reg))
+            ; fmin S(reg(inout_reg)), S(reg(inout_reg)), S(reg(arg_reg))
         );
         set_choice_bit(&mut self.0.ops, choice);
         dynasm!(self.0.ops
@@ -312,7 +312,7 @@ impl AssemblerT for PointAssembler {
             //////////////////////////////////////////////////////////////////
             // Fallthrough: ambiguous case
             // Equal or NaN; do the comparison to collapse NaNs
-            ; fmax S(reg(inout_reg)), S(reg(inout_reg)), S(reg(inout_reg))
+            ; fmax S(reg(inout_reg)), S(reg(inout_reg)), S(reg(arg_reg))
         );
         set_choice_bit(&mut self.0.ops, choice);
         dynasm!(self.0.ops
