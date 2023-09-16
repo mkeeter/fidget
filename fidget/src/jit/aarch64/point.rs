@@ -2,7 +2,7 @@ use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
     jit::{
         mmap::Mmap, point::PointAssembler, reg, AssemblerData, AssemblerT,
-        IMM_REG, OFFSET, REGISTER_LIMIT,
+        IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
     },
     vm::ChoiceIndex,
     Error,
@@ -66,14 +66,14 @@ impl AssemblerT for PointAssembler {
 
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        assert!(dst_reg < REGISTER_LIMIT);
+        assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
         let sp_offset = self.0.stack_pos(src_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        assert!(src_reg < REGISTER_LIMIT);
+        assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
         let sp_offset = self.0.stack_pos(dst_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
@@ -258,7 +258,7 @@ impl AssemblerT for PointAssembler {
         choice: ChoiceIndex,
     ) {
         // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
-        let lhs = 6u8.wrapping_sub(OFFSET);
+        let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
         self.build_load(lhs, mem);
         self.build_min_reg_reg_choice(lhs, arg, choice);
         self.build_store(mem, lhs);

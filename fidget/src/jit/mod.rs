@@ -69,6 +69,9 @@ const OFFSET: u8 = arch::OFFSET;
 /// arguments).
 const IMM_REG: u8 = arch::IMM_REG;
 
+/// Scratch register used in operations that use memory directly
+const SCRATCH_REG: u8 = arch::SCRATCH_REG;
+
 /// Type for a register index in `dynasm` code
 #[cfg(target_arch = "aarch64")]
 type RegIndex = u32;

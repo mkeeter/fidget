@@ -27,6 +27,8 @@ pub use dynasmrt::aarch64::Aarch64Relocation as Relocation;
 pub const REGISTER_LIMIT: u8 = 24;
 /// `v3` is used for immediates, because `v0-2` contain inputs
 pub const IMM_REG: u8 = 3;
+/// `v6` is used for as a blessed scratch register for memory operations
+pub const SCRATCH_REG: u8 = 6;
 /// `v4-7` are used for as temporary variables
 pub const OFFSET: u8 = 8;
 
