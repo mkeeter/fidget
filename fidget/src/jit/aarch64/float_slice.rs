@@ -8,23 +8,23 @@ pub const SIMD_WIDTH: usize = 4;
 
 /// Assembler for SIMD point-wise evaluation on `aarch64`
 ///
-/// | Argument  | Register | Type                       |
-/// | ----------|----------|----------------------------|
-/// | code      | `x0`     | `*const void*`             |
-/// | X         | `x1`     | `*const [f32; 4]` (array)  |
-/// | Y         | `x2`     | `*const [f32; 4]` (array)  |
-/// | Z         | `x3`     | `*const [f32; 4]` (array)  |
-/// | vars      | `x4`     | `*const f32` (array)       |
-/// | out       | `x5`     | `*mut [f32; 4]` (array)    |
-/// | size      | `x6`     | `u64`                      |
-/// | `choices` | `x7`     | `*const u8` (array)        |
+/// | Argument | Register | Type                       |
+/// | ---------|----------|----------------------------|
+/// | code     | `x0`     | `*const void*`             |
+/// | X        | `x1`     | `*const [f32; 4]` (array)  |
+/// | Y        | `x2`     | `*const [f32; 4]` (array)  |
+/// | Z        | `x3`     | `*const [f32; 4]` (array)  |
+/// | vars     | `x4`     | `*const f32` (array)       |
+/// | out      | `x5`     | `*mut [f32; 4]` (array)    |
+/// | size     | `x6`     | `u64`                      |
+/// | choices  | `x7`     | `*mut u8` (array)          |
 ///
-/// The arrays (other than `vars`) must be an even multiple of 4 floats, since
-/// we're using NEON and 128-bit wide operations for everything.  The `vars`
-/// array contains single `f32` values, which are broadcast into SIMD registers
-/// when they are used.
+/// The X/Y/Z arrays must be an even multiple of 4 floats, since we're using
+/// NEON and 128-bit wide operations for everything.  The `vars` array contains
+/// single `f32` values, which are broadcast into SIMD registers when they are
+/// used.
 ///
-/// During evaluation, X, Y, and Z are stored in `V0-3.S4`
+/// During evaluation, X, Y, and Z are stored in `V{0,1,2}.S4`
 #[cfg(target_arch = "aarch64")]
 impl AssemblerT for FloatSliceAssembler {
     fn new() -> Self {
@@ -44,7 +44,6 @@ impl AssemblerT for FloatSliceAssembler {
             ; stp   d10, d11, [sp, #-16]!
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
-            ; mov x8, x0 // back up X0 in X8 (since we're not using XR)
 
         );
         out.0.prepare_stack(slot_count);
@@ -58,37 +57,17 @@ impl AssemblerT for FloatSliceAssembler {
             //  x3: z input array pointer (advancing)
             //  x4: vars input array pointer (non-advancing)
             //  x5: output array pointer (advancing)
-            //  x6: number of points to evaluate
-            //  x7: array of choice data
-            //  x8: backup value for x0's starting point
+            //  x6: number of points to evaluate (decreasing)
+            //  x7: array of choice data (non-advancing, memclr'd)
             //
             // We'll be advancing x1, x2, x3 here (and decrementing x6 by 4);
 
             ; cmp x6, #0
-            ; b.ne >P // skip to loop body
+            ; b.eq >Exit // we're done!
 
-            // fini:
-            // This is our finalization code, which happens after all evaluation
-            // is complete.
-            //
-            // Restore stack space used for spills
-            ; add   sp, sp, #(out.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
-            ; ret
-
-            ; P:
-            // Loop body:
+            // Fallthrough into loop body:
             //
             // Load V0/1/2.S4 with X/Y/Z values, post-increment
-            //
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
             ; ldr q0, [x1], #16
             ; ldr q1, [x2], #16
             ; ldr q2, [x3], #16
@@ -107,20 +86,36 @@ impl AssemblerT for FloatSliceAssembler {
             ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
-            ; str xzr, [x10], #8 // post-increment
+            ; str xzr, [x10], 8 // post-increment
             ; b ->memclr
 
             // Call into threaded code
             ; O:
-            ; mov x8, x0
+            ; mov x8, x0 // store x0 (start of threaded code)
             ; ldr x15, [x0, #0]
             ; blr x15
-            ; mov x0, x8
             // Return from threaded code
+            ; mov x0, x8 // restore x0
 
             // Prepare our return value, writing to the pointer in x5
             ; str Q(reg(out_reg)), [x5], #16
             ; b ->L
+
+
+            ; Exit:
+            // This is our finalization code, which happens after all evaluation
+            // is complete.
+            //
+            // Restore stack space used for spills
+            ; add   sp, sp, #(out.0.mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
         );
         out.finalize().unwrap()
     }
@@ -298,6 +293,7 @@ impl AssemblerT for FloatSliceAssembler {
         choice: crate::vm::ChoiceIndex,
     ) {
         let i = choice.index as u32;
+        assert!(i < 4096);
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
@@ -326,6 +322,7 @@ impl AssemblerT for FloatSliceAssembler {
         choice: crate::vm::ChoiceIndex,
     ) {
         let i = choice.index as u32;
+        assert!(i < 4096);
         dynasm!(self.0.ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
@@ -392,7 +389,7 @@ impl AssemblerT for FloatSliceAssembler {
         assert_eq!(choice.bit, 1);
         dynasm!(self.0.ops
             ; mov w15, #3
-            ; strb w5, [x7, #i]
+            ; strb w15, [x7, #i]
         );
         self.build_store(out, arg);
     }
