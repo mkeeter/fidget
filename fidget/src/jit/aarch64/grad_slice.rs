@@ -393,8 +393,6 @@ impl AssemblerT for GradSliceAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
-            ; mov w15, #1
-            ; strb w15, [x7]
             ; b >End
 
             ; Compare:
@@ -403,6 +401,8 @@ impl AssemblerT for GradSliceAssembler {
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
 
             ; End:
+            ; mov w15, #1
+            ; strb w15, [x7, #i]
         );
     }
 
@@ -423,8 +423,6 @@ impl AssemblerT for GradSliceAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
-            ; mov w15, #1
-            ; strb w15, [x7]
             ; b >End
 
             ; Compare:
@@ -433,6 +431,8 @@ impl AssemblerT for GradSliceAssembler {
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
 
             ; End:
+            ; mov w15, #1
+            ; strb w15, [x7, #i]
         );
     }
 

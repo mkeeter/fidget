@@ -249,14 +249,13 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 i_handle.tape()
             };
             let storage = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit =
-                sub_tape.new_interval_evaluator_with_storage(storage);
+            let sub_jit = sub_tape.new_interval_evaluator_with_storage(storage);
             let n = tile_size / next_tile_size;
             let mut float_handle = None;
             for j in 0..n {
                 for i in 0..n {
                     self.render_tile_recurse(
-                        &mut sub_jit,
+                        &sub_jit,
                         depth + 1,
                         self.config.new_tile([
                             tile.corner[0] + i * next_tile_size,
@@ -278,7 +277,7 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             // TODO this is not a place of honor
             let sub_tape = if let Some(simplify) = simplify.as_mut() {
                 simplify.simplify_with(std::mem::take(
-                    &mut self.spare_tapes.last_mut().unwrap(),
+                    self.spare_tapes.last_mut().unwrap(),
                 ))
             } else {
                 i_handle.tape()

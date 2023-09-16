@@ -1070,7 +1070,9 @@ pub fn buildy<F: Family>(
     // that assumption.
 
     let mut choice_remap = BTreeMap::new();
-    let passes: [&mut dyn FnMut(&[Vec<vm::Op>]) -> Vec<Vec<vm::Op>>; 11] = [
+    type Optimization<'a> =
+        &'a mut dyn FnMut(&[Vec<vm::Op>]) -> Vec<Vec<vm::Op>>;
+    let passes: [Optimization; 11] = [
         &mut eliminate_forward_loads,
         &mut eliminate_reverse_loads,
         &mut eliminate_reverse_stores,
@@ -1085,7 +1087,7 @@ pub fn buildy<F: Family>(
         &mut strip_copy_reg,
         // Remap choices so that bit 1 always appears first, then convert the
         // first choice operation on each index into an unconditional operation.
-        &mut |ops| renumber_choices(&ops, &mut choice_remap),
+        &mut |ops| renumber_choices(ops, &mut choice_remap),
         &mut simplify_first_choice,
         // One more pass here (dunno)
         &mut strip_copy_reg,
@@ -1122,7 +1124,7 @@ pub fn buildy<F: Family>(
                 .flat_map(|n| {
                     let start = node_to_choice_index[n];
                     let max_bit = max_bit_per_node[n];
-                    (start..(start + max_bit / 8 + 1)).into_iter()
+                    start..(start + max_bit / 8 + 1)
                 })
                 .collect();
             let mut clear: BTreeMap<usize, u64> = BTreeMap::new();

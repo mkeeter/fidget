@@ -308,14 +308,14 @@ impl AssemblerT for FloatSliceAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
-            ; mov w15, #1
-            ; strb w15, [x7]
             ; b >E
 
             ; V:
             ; fmin V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
 
             ; E:
+            ; mov w15, #1
+            ; strb w15, [x7, #i]
         );
     }
 
@@ -336,14 +336,14 @@ impl AssemblerT for FloatSliceAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, write the choice bit, then jump to the end
             ; mov V(reg(inout_reg)).b16, V(reg(arg_reg)).b16
-            ; mov w15, #1
-            ; strb w15, [x7]
             ; b >E
 
             ; V:
             ; fmax V(reg(inout_reg)).s4, V(reg(inout_reg)).s4, V(reg(arg_reg)).s4
 
             ; E:
+            ; mov w15, #1
+            ; strb w15, [x7, #i]
         );
     }
 

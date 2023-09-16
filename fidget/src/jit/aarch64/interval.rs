@@ -21,7 +21,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | Z          | `(s4, s5)` | `(f32, f32)`            |
 /// | `vars`     | `x1`       | `*const f32` (array)    |
 /// | `choices`  | `x2`       | `*const u8` (array)     |
-/// | `simplify` | `x3`       | `*const u8` (single)    |
+/// | `simplify` | `x3`       | `*const u32` (single)   |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
@@ -424,6 +424,9 @@ impl AssemblerT for IntervalAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
+        );
+        set_choice_exclusive(&mut self.0.ops, choice);
+        dynasm!(self.0.ops
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
@@ -534,11 +537,14 @@ impl AssemblerT for IntervalAssembler {
             // Fallthrough: there was no value, so we set it here
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
+        );
+        set_choice_exclusive(&mut self.0.ops, choice);
+        dynasm!(self.0.ops
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
-            // v4 = [reg.upper, arg.upper]
-            // v5 = [arg.lower, reg.lower]
+            // v4 = [inout_reg.upper, arg_reg.upper]
+            // v5 = [arg_reg.lower,   inout_reg.lower]
             // This lets us do two comparisons simultaneously
             ; zip2 v4.s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
             ; zip1 v5.s2, V(reg(arg_reg)).s2, V(reg(inout_reg)).s2
