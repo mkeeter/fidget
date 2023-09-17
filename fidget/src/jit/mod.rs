@@ -340,16 +340,12 @@ pub trait SimdType {
 /// `t` is expected to be in reverse-evaluation order
 fn build_asm_fn<
     'a,
-    'b,
     A: AssemblerT<'a, D>,
     D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>,
 >(
-    ops: &'b mut D,
+    ops: &'a mut D,
     t: &[Op],
-) -> usize
-where
-    'b: 'a,
-{
+) -> usize {
     let out = ops.offset().0;
     let mut asm = A::new(ops);
     for &op in t.iter().rev() {
