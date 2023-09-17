@@ -1,4 +1,4 @@
 use crate::jit::JitEval;
 
-pub struct PointAssembler<'a, D>(pub(crate) &'a mut D);
+pub struct PointAssembler;
 pub type JitPointEval = JitEval<f32>;

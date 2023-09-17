@@ -26,17 +26,13 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
-impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
-    AssemblerT<'a, D> for IntervalAssembler<'a, D>
+impl<D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>> AssemblerT<D>
+    for IntervalAssembler
 {
     type T = Interval;
 
-    fn new(ops: &'a mut D) -> Self {
-        Self(ops)
-    }
-
     fn build_entry_point(
-        ops: &'a mut D,
+        ops: &mut D,
         slot_count: usize,
         _choice_array_size: usize,
     ) -> usize {
@@ -67,41 +63,41 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
     }
 
     /// Reads from `src_mem` to `dst_reg`
-    fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
+    fn build_load(ops: &mut D, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = Self::stack_pos(src_mem);
+        let sp_offset = <Self as AssemblerT<D>>::stack_pos(src_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0 ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
+        dynasm!(ops ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
-    fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
+    fn build_store(ops: &mut D, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = Self::stack_pos(dst_mem);
+        let sp_offset = <Self as AssemblerT<D>>::stack_pos(dst_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0 ; str D(reg(src_reg)), [sp, #(sp_offset)])
+        dynasm!(ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0 ; fmov D(reg(out_reg)), D(src_arg as u32));
+    fn build_input(ops: &mut D, out_reg: u8, src_arg: u8) {
+        dynasm!(ops ; fmov D(reg(out_reg)), D(src_arg as u32));
     }
-    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
+    fn build_var(ops: &mut D, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
-        dynasm!(self.0
+        dynasm!(ops
             ; ldr w15, [x1, #(src_arg * 4)]
             ; dup V(reg(out_reg)).s2, w15
         );
     }
-    fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0 ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
+    fn build_copy(ops: &mut D, out_reg: u8, lhs_reg: u8) {
+        dynasm!(ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
     }
-    fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0
+    fn build_neg(ops: &mut D, out_reg: u8, lhs_reg: u8) {
+        dynasm!(ops
             ; fneg V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
             ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
         )
     }
-    fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0
+    fn build_abs(ops: &mut D, out_reg: u8, lhs_reg: u8) {
+        dynasm!(ops
             // Store lhs < 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -134,9 +130,9 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E:// <- end
         );
     }
-    fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
+    fn build_recip(ops: &mut D, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0
+        dynasm!(ops
             // Check whether lhs.lower > 0.0
             ; fcmp S(reg(lhs_reg)), 0.0
             ; b.gt >O // -> okay
@@ -161,9 +157,9 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E: // <- end
         );
     }
-    fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
+    fn build_sqrt(ops: &mut D, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0
+        dynasm!(ops
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -194,8 +190,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E:
         );
     }
-    fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0
+    fn build_square(ops: &mut D, out_reg: u8, lhs_reg: u8) {
+        dynasm!(ops
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -222,25 +218,25 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E: // <- end
         );
     }
-    fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0
+    fn build_add(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(ops
             ; fadd V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
         )
     }
-    fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0
+    fn build_sub(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(ops
             ; rev64 v4.s2, V(reg(rhs_reg)).s2
             ; fsub V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, v4.s2
         )
     }
-    fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
-        let imm = self.load_imm(imm);
-        dynasm!(self.0
+    fn build_sub_reg_imm(ops: &mut D, out_reg: u8, arg: u8, imm: f32) {
+        let imm = Self::load_imm(ops, imm);
+        dynasm!(ops
             ; fsub V(reg(out_reg)).s2, V(reg(arg)).s2, V(reg(imm)).s2
         )
     }
-    fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0
+    fn build_mul(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(ops
             // Set up v4 to contain
             //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
             // and v5 to contain
@@ -260,20 +256,20 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
         )
     }
 
-    fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
-        let rhs_reg = self.load_imm(imm);
-        dynasm!(self.0
+    fn build_mul_imm(ops: &mut D, out_reg: u8, lhs_reg: u8, imm: f32) {
+        let rhs_reg = Self::load_imm(ops, imm);
+        dynasm!(ops
             ; fmul V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
         );
         if imm < 0.0 {
-            dynasm!(self.0
+            dynasm!(ops
                 ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
             );
         }
     }
-    fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+    fn build_div(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0
+        dynasm!(ops
             // Store rhs.lower > 0.0 in x15, then check rhs.lower > 0
             ; fcmp S(reg(rhs_reg)), #0.0
             ; b.gt >H // -> happy
@@ -310,8 +306,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E: // >end
         );
     }
-    fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0
+    fn build_max(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(ops
             // Basically the same as MinRegReg
             ; zip2 v4.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
@@ -338,8 +334,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; E: // <- end
         );
     }
-    fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0
+    fn build_min(ops: &mut D, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(ops
             //  if lhs.upper < rhs.lower
             //      out = lhs
             //  elif rhs.upper < lhs.lower
@@ -380,9 +376,9 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
-    fn load_imm(&mut self, imm: f32) -> u8 {
+    fn load_imm(ops: &mut D, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
-        dynasm!(self.0
+        dynasm!(ops
             ; movz w15, #(imm_u32 >> 16), lsl 16
             ; movk w15, #(imm_u32)
             ; dup V(IMM_REG as u32).s2, w15
@@ -392,13 +388,13 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
 
     /// Uses `v4`, `v5`, `x14`, `x15`
     fn build_min_reg_reg_choice(
-        &mut self,
+        ops: &mut D,
         inout_reg: u8,
         arg_reg: u8,
         choice: ChoiceIndex,
     ) {
         let i = choice.index as u32;
-        dynasm!(self.0
+        dynasm!(ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
@@ -409,8 +405,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(self.0, choice);
-        dynasm!(self.0
+        set_choice_exclusive(ops, choice);
+        dynasm!(ops
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
@@ -447,16 +443,16 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(self.0, choice);
-        dynasm!(self.0
+        set_choice_exclusive(ops, choice);
+        dynasm!(ops
             ; b >E // end of arg_reg < inout_reg
             //////////////////////////////////////////////////////////////////
 
             ; B: // ambiguous, so set choice non-exclusively
             ; fmin V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(self.0, choice); // non-exclusive
-        dynasm!(self.0
+        set_choice_bit(ops, choice); // non-exclusive
+        dynasm!(ops
             // end of ambiguous case (B label); fallthrough to end
             //////////////////////////////////////////////////////////////////
 
@@ -471,47 +467,47 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
     }
 
     fn build_min_mem_reg_choice(
-        &mut self,
+        ops: &mut D,
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
     ) {
         // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
         let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
-        self.build_load(lhs, mem);
-        self.build_min_reg_reg_choice(lhs, arg, choice);
-        self.build_store(mem, lhs);
+        Self::build_load(ops, lhs, mem);
+        Self::build_min_reg_reg_choice(ops, lhs, arg, choice);
+        Self::build_store(ops, mem, lhs);
     }
 
     fn build_min_mem_imm_choice(
-        &mut self,
+        ops: &mut D,
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_min_mem_reg_choice(mem, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_min_mem_reg_choice(ops, mem, rhs, choice);
     }
 
     fn build_min_reg_imm_choice(
-        &mut self,
+        ops: &mut D,
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_min_reg_reg_choice(reg, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_min_reg_reg_choice(ops, reg, rhs, choice);
     }
 
     fn build_max_reg_reg_choice(
-        &mut self,
+        ops: &mut D,
         inout_reg: u8,
         arg_reg: u8,
         choice: ChoiceIndex,
     ) {
         // basically the same as min_reg_reg_choice
         let i = choice.index as u32;
-        dynasm!(self.0
+        dynasm!(ops
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
@@ -522,8 +518,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(self.0, choice);
-        dynasm!(self.0
+        set_choice_exclusive(ops, choice);
+        dynasm!(ops
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
@@ -551,8 +547,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(self.0, choice);
-        dynasm!(self.0
+        set_choice_exclusive(ops, choice);
+        dynasm!(ops
             ; b >E // end of arg_reg > inout_reg
             //////////////////////////////////////////////////////////////////
 
@@ -567,8 +563,8 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
             ; B: // ambiguous, so set choice non-exclusively
             ; fmax V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(self.0, choice); // non-exclusive
-        dynasm!(self.0
+        set_choice_bit(ops, choice); // non-exclusive
+        dynasm!(ops
             // end of ambiguous case (B label)
             //////////////////////////////////////////////////////////////////
 
@@ -583,47 +579,47 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
     }
 
     fn build_max_mem_reg_choice(
-        &mut self,
+        ops: &mut D,
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
     ) {
         // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
         let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
-        self.build_load(lhs, mem);
-        self.build_max_reg_reg_choice(lhs, arg, choice);
-        self.build_store(mem, lhs);
+        Self::build_load(ops, lhs, mem);
+        Self::build_max_reg_reg_choice(ops, lhs, arg, choice);
+        Self::build_store(ops, mem, lhs);
     }
 
     fn build_max_mem_imm_choice(
-        &mut self,
+        ops: &mut D,
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_max_mem_reg_choice(mem, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_max_mem_reg_choice(ops, mem, rhs, choice);
     }
 
     fn build_max_reg_imm_choice(
-        &mut self,
+        ops: &mut D,
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_max_reg_reg_choice(reg, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_max_reg_reg_choice(ops, reg, rhs, choice);
     }
 
     fn build_copy_reg_reg_choice(
-        &mut self,
+        ops: &mut D,
         out: u8,
         arg: u8,
         choice: ChoiceIndex,
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0
+        dynasm!(ops
             ; fmov D(reg(out)), D(reg(arg))
             ; mov w15, #3
             ; strb w15, [x2, #i]
@@ -631,37 +627,37 @@ impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
     }
 
     fn build_copy_imm_reg_choice(
-        &mut self,
+        ops: &mut D,
         out: u8,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_copy_reg_reg_choice(out, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_copy_reg_reg_choice(ops, out, rhs, choice);
     }
 
     fn build_copy_imm_mem_choice(
-        &mut self,
+        ops: &mut D,
         out: u32,
         imm: f32,
         choice: ChoiceIndex,
     ) {
-        let rhs = self.load_imm(imm);
-        self.build_copy_reg_mem_choice(out, rhs, choice);
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_copy_reg_mem_choice(ops, out, rhs, choice);
     }
 
     fn build_copy_reg_mem_choice(
-        &mut self,
+        ops: &mut D,
         out: u32,
         arg: u8,
         choice: ChoiceIndex,
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0
+        dynasm!(ops
             ; mov w15, #3
             ; strb w15, [x2, #i]
         );
-        self.build_store(out, arg);
+        Self::build_store(ops, out, arg);
     }
 }

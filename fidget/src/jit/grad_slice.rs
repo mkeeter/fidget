@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// Assembler for automatic differentiation / gradient evaluation
-pub struct GradSliceAssembler<'a, D>(pub(crate) &'a mut D);
+pub struct GradSliceAssembler;
 pub type JitGradSliceEval = JitEval<*const Grad>;
 
 // Both x86_64 and AArch64 process 1 gradient per register
