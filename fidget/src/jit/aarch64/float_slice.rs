@@ -31,17 +31,13 @@ impl<'a> AssemblerT<'a> for FloatSliceAssembler<'a> {
         Self(AssemblerData::new(ops))
     }
 
-    fn offset(&self) -> usize {
-        self.0.ops.offset().0
-    }
-
     fn build_entry_point(
         ops: &'a mut VecAssembler<arch::Relocation>,
         slot_count: usize,
         choice_array_size: usize,
     ) -> usize {
+        let offset = ops.offset().0;
         let mut asm = Self::new(ops);
-        let offset = asm.offset();
         let out_reg = 0;
         dynasm!(asm.0.ops
             // Preserve frame and link register

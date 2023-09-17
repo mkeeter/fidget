@@ -307,8 +307,6 @@ pub trait AssemblerT<'a> {
     ) -> usize;
 
     // TODO: make offset and build_jump shared somehow?
-    /// Returns the memory offset of subsequent code
-    fn offset(&self) -> usize;
 
     /// Jump to the next code block
     fn build_jump(&mut self);
@@ -391,8 +389,8 @@ fn build_asm_fn<'a, A: AssemblerT<'a>>(
     ops: &'a mut VecAssembler<arch::Relocation>,
     t: &[Op],
 ) -> usize {
+    let out = ops.offset().0;
     let mut asm = A::new(ops);
-    let out = asm.offset();
     for &op in t.iter().rev() {
         match op {
             Op::Load { reg, mem } => {
