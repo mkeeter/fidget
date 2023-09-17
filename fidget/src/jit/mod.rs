@@ -513,13 +513,21 @@ impl GetPointer<*const Grad> for MmapOffsets {
     }
 }
 
+/// Associated data for a tape being evaluated by a JIT evaluator
+///
+/// This is a heavy-weight structure that is kept in one place.
 pub struct JitData {
+    /// Raw assembled code
     mmap: Mmap,
 
     /// Offset of a return statement that can be jumped into
+    ///
+    /// This is an offset into [`self.mmap`]
     ret_offset: usize,
 
     /// Function which jumps into the threaded code
+    ///
+    /// These are specified as offsets into [`self.mmap`]
     trampolines: MmapOffsets,
 }
 
