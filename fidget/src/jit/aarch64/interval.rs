@@ -37,27 +37,16 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     ) -> usize {
         let offset = ops.offset().0;
         let mut asm = Self::new(ops);
+        let mem_offset = asm.0.function_entry(slot_count);
         let out_reg = 0;
         dynasm!(asm.0.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
-            ; mov   x29, sp
-            // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
-
             // Arguments are passed in S0-5; collect them into V0-1
             ; mov v0.s[1], v1.s[0]
             ; mov v1.s[0], v2.s[0]
             ; mov v1.s[1], v3.s[0]
             ; mov v2.s[0], v4.s[0]
             ; mov v2.s[1], v5.s[0]
-        );
-        asm.0.prepare_stack(slot_count);
-        dynasm!(asm.0.ops
+
             // Jump into threaded code
             // TODO: this means that threaded code can't use the link register;
             // is that an issue?
@@ -69,7 +58,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             ; mov  s0, V(reg(out_reg)).s[0]
             ; mov  s1, V(reg(out_reg)).s[1]
             // Restore stack space used for spills
-            ; add   sp, sp, #(asm.0.mem_offset as u32)
+            ; add   sp, sp, #(mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16

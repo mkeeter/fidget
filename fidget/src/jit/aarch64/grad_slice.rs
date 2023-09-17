@@ -34,18 +34,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         let offset = ops.offset().0;
         let mut asm = Self::new(ops);
         let out_reg = 0;
-        dynasm!(asm.0.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
-            ; mov   x29, sp
-            // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
-        );
-        asm.0.prepare_stack(slot_count);
+        let mem_offset = asm.0.function_entry(slot_count);
 
         dynasm!(asm.0.ops
             // The loop returns here, and we check whether we need to loop
@@ -62,24 +51,8 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
             // x6 is advanced in finalize().
 
             ; cmp x6, #0
-            ; b.ne >P // -> jump to loop body
+            ; b.eq >Exit // -> jump to loop body
 
-            // fini:
-            // This is our finalization code, which happens after all evaluation
-            // is complete.
-            //
-            // Restore stack space used for spills
-            ; add   sp, sp, #(asm.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
-            ; ret
-
-            ; P:
             // Load V0/1/2.S4 with X/Y/Z values, post-increment
             //
             // We're actually loading two f32s, but we can pretend they're
@@ -120,6 +93,22 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
             // Prepare our return value, writing to the pointer in x5
             ; str Q(reg(out_reg)), [x5], #16 // post-increment
             ; b ->grad_loop // Jump back to the loop start
+
+            // This is our finalization code, which happens after all evaluation
+            // is complete.
+            //
+            // Restore stack space used for spills
+            ; Exit:
+            ; add   sp, sp, #(mem_offset as u32)
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+
         );
         offset
     }

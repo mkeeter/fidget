@@ -320,10 +320,6 @@ pub trait SimdType {
 
 pub(crate) struct AssemblerData<'a, T> {
     pub ops: &'a mut VecAssembler<arch::Relocation>,
-
-    /// Current offset of the stack pointer, in bytes
-    mem_offset: usize,
-
     _p: std::marker::PhantomData<*const T>,
 }
 
@@ -331,25 +327,39 @@ impl<'a, T> AssemblerData<'a, T> {
     fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
         Self {
             ops,
-            mem_offset: 0,
             _p: std::marker::PhantomData,
         }
     }
 
+    /// Prepares the stack pointer
+    ///
+    /// Returns a memory offset to be used when restoring the stack pointer
     #[cfg(target_arch = "aarch64")]
-    fn prepare_stack(&mut self, slot_count: usize) {
+    fn function_entry(&mut self, slot_count: usize) -> usize {
+        dynasm!(self.ops
+            // Preserve frame and link register
+            ; stp   x29, x30, [sp, #-16]!
+            // Preserve sp
+            ; mov   x29, sp
+            // Preserve callee-saved floating-point registers
+            ; stp   d8, d9, [sp, #-16]!
+            ; stp   d10, d11, [sp, #-16]!
+            ; stp   d12, d13, [sp, #-16]!
+            ; stp   d14, d15, [sp, #-16]!
+        );
         if slot_count < REGISTER_LIMIT as usize {
-            return;
+            return 0;
         }
         let stack_slots = slot_count - REGISTER_LIMIT as usize;
         let mem = (stack_slots + 1) * std::mem::size_of::<T>();
 
         // Round up to the nearest multiple of 16 bytes, for alignment
-        self.mem_offset = ((mem + 15) / 16) * 16;
-        assert!(self.mem_offset < 4096);
+        let mem_offset = ((mem + 15) / 16) * 16;
+        assert!(mem_offset < 4096);
         dynasm!(self.ops
-            ; sub sp, sp, #(self.mem_offset as u32)
+            ; sub sp, sp, #(mem_offset as u32)
         );
+        mem_offset
     }
 
     #[cfg(target_arch = "x86_64")]

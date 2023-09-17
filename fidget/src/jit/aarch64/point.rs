@@ -33,19 +33,8 @@ impl<'a> AssemblerT<'a> for PointAssembler<'a> {
     ) -> usize {
         let offset = ops.offset().0;
         let mut asm = Self::new(ops);
+        let mem_offset = asm.0.function_entry(slot_count);
         let out_reg = 0;
-        dynasm!(asm.0.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
-            ; mov   x29, sp
-            // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
-        );
-        asm.0.prepare_stack(slot_count);
         dynasm!(asm.0.ops
             // Jump into threaded code
             ; ldr x15, [x0, #0]
@@ -55,7 +44,7 @@ impl<'a> AssemblerT<'a> for PointAssembler<'a> {
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
             // Restore stack space used for spills
-            ; add   sp, sp, #(asm.0.mem_offset as u32)
+            ; add   sp, sp, #(mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
