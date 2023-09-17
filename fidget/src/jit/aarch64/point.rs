@@ -43,17 +43,8 @@ impl<'a> AssemblerT<'a> for PointAssembler<'a> {
 
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
-            // Restore stack space used for spills
-            ; add   sp, sp, #(mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
-            ; ret
         );
+        asm.0.function_exit(mem_offset);
         offset
     }
 

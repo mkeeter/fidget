@@ -323,6 +323,7 @@ pub(crate) struct AssemblerData<'a, T> {
     _p: std::marker::PhantomData<*const T>,
 }
 
+// TODO remove this entirely in favor of free functions in `arch`
 impl<'a, T> AssemblerData<'a, T> {
     fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
         Self {
@@ -333,9 +334,10 @@ impl<'a, T> AssemblerData<'a, T> {
 
     /// Prepares the stack pointer
     ///
-    /// Returns a memory offset to be used when restoring the stack pointer
+    /// Returns a memory offset to be used when restoring the stack pointer in
+    /// `function_exit`.
     #[cfg(target_arch = "aarch64")]
-    fn function_entry(&mut self, slot_count: usize) -> usize {
+    fn function_entry(&mut self, slot_count: usize) -> u32 {
         dynasm!(self.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
@@ -359,7 +361,25 @@ impl<'a, T> AssemblerData<'a, T> {
         dynasm!(self.ops
             ; sub sp, sp, #(mem_offset as u32)
         );
-        mem_offset
+        mem_offset.try_into().unwrap()
+    }
+
+    fn function_exit(&mut self, mem_offset: u32) {
+        dynasm!(self.ops
+            // This is our finalization code, which happens after all evaluation
+            // is complete.
+            //
+            // Restore stack space used for spills
+            ; add   sp, sp, #mem_offset
+            // Restore callee-saved floating-point registers
+            ; ldp   d14, d15, [sp], #16
+            ; ldp   d12, d13, [sp], #16
+            ; ldp   d10, d11, [sp], #16
+            ; ldp   d8, d9, [sp], #16
+            // Restore frame and link register
+            ; ldp   x29, x30, [sp], #16
+            ; ret
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
