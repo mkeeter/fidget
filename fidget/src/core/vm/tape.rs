@@ -230,8 +230,8 @@ impl<F: Family> Tape<F> {
 
     /// Returns the number of slots associated with the root tape
     ///
-    /// Note that not all slot may be active (depending on tape specialization),
-    /// but the caller should operate using the full count.
+    /// Note that not all slots may be active (depending on tape
+    /// specialization), but the caller should operate using the full count.
     pub fn slot_count(&self) -> usize {
         // TODO: move this to the family-specific code?
         self.data().slot_count()
