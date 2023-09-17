@@ -483,8 +483,4 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         );
         self.build_store(out, arg);
     }
-
-    fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(self.0.ops)
-    }
 }

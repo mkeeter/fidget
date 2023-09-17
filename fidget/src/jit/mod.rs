@@ -305,11 +305,6 @@ pub trait AssemblerT<'a> {
         slot_count: usize,
         choice_array_size: usize,
     ) -> usize;
-
-    // TODO: make offset and build_jump shared somehow?
-
-    /// Jump to the next code block
-    fn build_jump(&mut self);
 }
 
 /// Trait defining SIMD width
@@ -511,7 +506,7 @@ fn build_asm_fn<'a, A: AssemblerT<'a>>(
             }
         }
     }
-    asm.build_jump();
+    // TODO: fight lifetimes to put build_jump here
     out
 }
 
@@ -608,6 +603,7 @@ impl Family for Eval {
                 &mut data,
                 t.tape.as_slice(),
             ));
+            arch::build_jump(&mut data);
         }
 
         let interval = interval::IntervalAssembler::build_entry_point(
@@ -621,6 +617,7 @@ impl Family for Eval {
                 &mut data,
                 t.tape.as_slice(),
             ));
+            arch::build_jump(&mut data);
         }
 
         let float_slice = float_slice::FloatSliceAssembler::build_entry_point(
@@ -636,6 +633,7 @@ impl Family for Eval {
                     t.tape.as_slice(),
                 ),
             );
+            arch::build_jump(&mut data);
         }
 
         let grad_slice = grad_slice::GradSliceAssembler::build_entry_point(
@@ -649,6 +647,7 @@ impl Family for Eval {
                 &mut data,
                 t.tape.as_slice(),
             ));
+            arch::build_jump(&mut data);
         }
 
         let mut out = vec![];

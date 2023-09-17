@@ -395,8 +395,4 @@ impl<'a> AssemblerT<'a> for FloatSliceAssembler<'a> {
         );
         self.build_store(out, arg);
     }
-
-    fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(self.0.ops)
-    }
 }
