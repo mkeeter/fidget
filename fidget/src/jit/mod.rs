@@ -26,7 +26,6 @@ use crate::{
     },
     jit::mmap::Mmap,
     vm::{ChoiceIndex, ChoiceTape, Choices, Op, Tape, TapeData},
-    Error,
 };
 use dynasmrt::{dynasm, DynasmApi, VecAssembler};
 use std::ffi::c_void;
@@ -99,9 +98,9 @@ fn reg(r: u8) -> RegIndex {
 /// This is public because it's used to parameterize various other types, but
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
-pub trait AssemblerT {
+pub trait AssemblerT<'a> {
     /// Initializes the assembler for a threaded code fragment
-    fn new() -> Self;
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self;
 
     /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
@@ -301,10 +300,15 @@ pub trait AssemblerT {
     /// stack for slot spills, and jump to the first piece of threaded code.
     ///
     /// `choice_array_size` is the number of `u64` words in the choice array
-    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap;
+    fn build_entry_point(
+        ops: &'a mut VecAssembler<arch::Relocation>,
+        slot_count: usize,
+        choice_array_size: usize,
+    ) -> usize;
 
-    /// Finalize the assembly code, returning a memory-mapped region
-    fn finalize(self) -> Result<Mmap, Error>;
+    // TODO: make offset and build_jump shared somehow?
+    /// Returns the memory offset of subsequent code
+    fn offset(&self) -> usize;
 
     /// Jump to the next code block
     fn build_jump(&mut self);
@@ -321,8 +325,8 @@ pub trait SimdType {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-pub(crate) struct AssemblerData<T> {
-    pub ops: VecAssembler<arch::Relocation>,
+pub(crate) struct AssemblerData<'a, T> {
+    pub ops: &'a mut VecAssembler<arch::Relocation>,
 
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
@@ -330,10 +334,10 @@ pub(crate) struct AssemblerData<T> {
     _p: std::marker::PhantomData<*const T>,
 }
 
-impl<T> AssemblerData<T> {
-    fn new() -> Self {
+impl<'a, T> AssemblerData<'a, T> {
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
         Self {
-            ops: VecAssembler::new(0),
+            ops,
             mem_offset: 0,
             _p: std::marker::PhantomData,
         }
@@ -383,9 +387,12 @@ impl<T> AssemblerData<T> {
 /// Build an assembly snippet for the given function
 ///
 /// `t` is expected to be in reverse-evaluation order
-fn build_asm_fn<A: AssemblerT>(t: &[Op]) -> Mmap {
-    let mut asm = A::new();
-
+fn build_asm_fn<'a, A: AssemblerT<'a>>(
+    ops: &'a mut VecAssembler<arch::Relocation>,
+    t: &[Op],
+) -> usize {
+    let mut asm = A::new(ops);
+    let out = asm.offset();
     for &op in t.iter().rev() {
         match op {
             Op::Load { reg, mem } => {
@@ -507,52 +514,53 @@ fn build_asm_fn<A: AssemblerT>(t: &[Op]) -> Mmap {
         }
     }
     asm.build_jump();
-
-    asm.finalize().expect("failed to build JIT function")
+    out
 }
 
 /// Container for a bunch of JIT code
-pub struct MmapSet {
-    point: Mmap,
-    interval: Mmap,
-    float_slice: Mmap,
-    grad_slice: Mmap,
+pub struct MmapOffsets {
+    point: usize,
+    interval: usize,
+    float_slice: usize,
+    grad_slice: usize,
 }
 
 trait GetPointer<T> {
-    fn get_pointer(&self) -> *const c_void;
+    fn get_pointer(&self, mmap: &Mmap) -> *const c_void;
 }
 
-impl GetPointer<f32> for MmapSet {
-    fn get_pointer(&self) -> *const c_void {
-        self.point.as_slice().as_ptr() as *const c_void
+impl GetPointer<f32> for MmapOffsets {
+    fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
+        mmap.as_slice().as_ptr().wrapping_add(self.point) as *const c_void
     }
 }
 
-impl GetPointer<Interval> for MmapSet {
-    fn get_pointer(&self) -> *const c_void {
-        self.interval.as_slice().as_ptr() as *const c_void
+impl GetPointer<Interval> for MmapOffsets {
+    fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
+        mmap.as_slice().as_ptr().wrapping_add(self.interval) as *const c_void
     }
 }
 
-impl GetPointer<*const f32> for MmapSet {
-    fn get_pointer(&self) -> *const c_void {
-        self.float_slice.as_slice().as_ptr() as *const c_void
+impl GetPointer<*const f32> for MmapOffsets {
+    fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
+        mmap.as_slice().as_ptr().wrapping_add(self.float_slice) as *const c_void
     }
 }
 
-impl GetPointer<*const Grad> for MmapSet {
-    fn get_pointer(&self) -> *const c_void {
-        self.grad_slice.as_slice().as_ptr() as *const c_void
+impl GetPointer<*const Grad> for MmapOffsets {
+    fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
+        mmap.as_slice().as_ptr().wrapping_add(self.grad_slice) as *const c_void
     }
 }
 
 pub struct JitData {
-    /// Function which jumps into the threaded code
-    trampolines: MmapSet,
+    mmap: Mmap,
 
-    /// A return statement which can be jumped into
-    ret: Mmap,
+    /// Offset of a return statement that can be jumped into
+    ret_offset: usize,
+
+    /// Function which jumps into the threaded code
+    trampolines: MmapOffsets,
 }
 
 /// JIT evaluator family
@@ -570,7 +578,7 @@ impl Family for Eval {
     type TapeData = JitData;
 
     /// Each group contains a chunk of threaded code to do its evaluation
-    type GroupMetadata = MmapSet;
+    type GroupMetadata = MmapOffsets;
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
@@ -590,55 +598,86 @@ impl Family for Eval {
         choice_array_size: usize,
         tapes: &[ChoiceTape],
     ) -> (Self::TapeData, Vec<Self::GroupMetadata>) {
-        let mut out = vec![];
+        let mut data = VecAssembler::new(0);
+        let point = point::PointAssembler::build_entry_point(
+            &mut data,
+            slot_count,
+            choice_array_size,
+        );
+        let mut points = vec![];
         for t in tapes {
-            let point =
-                build_asm_fn::<point::PointAssembler>(t.tape.as_slice());
-            let interval =
-                build_asm_fn::<interval::IntervalAssembler>(t.tape.as_slice());
-            let float_slice = build_asm_fn::<float_slice::FloatSliceAssembler>(
+            points.push(build_asm_fn::<point::PointAssembler>(
+                &mut data,
                 t.tape.as_slice(),
-            );
-            let grad_slice = build_asm_fn::<grad_slice::GradSliceAssembler>(
+            ));
+        }
+
+        let interval = interval::IntervalAssembler::build_entry_point(
+            &mut data,
+            slot_count,
+            choice_array_size,
+        );
+        let mut intervals = vec![];
+        for t in tapes {
+            intervals.push(build_asm_fn::<interval::IntervalAssembler>(
+                &mut data,
                 t.tape.as_slice(),
+            ));
+        }
+
+        let float_slice = float_slice::FloatSliceAssembler::build_entry_point(
+            &mut data,
+            slot_count,
+            choice_array_size,
+        );
+        let mut float_slices = vec![];
+        for t in tapes {
+            float_slices.push(
+                build_asm_fn::<float_slice::FloatSliceAssembler>(
+                    &mut data,
+                    t.tape.as_slice(),
+                ),
             );
-            out.push(MmapSet {
-                point,
-                interval,
-                float_slice,
-                grad_slice,
+        }
+
+        let grad_slice = grad_slice::GradSliceAssembler::build_entry_point(
+            &mut data,
+            slot_count,
+            choice_array_size,
+        );
+        let mut grad_slices = vec![];
+        for t in tapes {
+            grad_slices.push(build_asm_fn::<grad_slice::GradSliceAssembler>(
+                &mut data,
+                t.tape.as_slice(),
+            ));
+        }
+
+        let mut out = vec![];
+        for i in 0..points.len() {
+            out.push(MmapOffsets {
+                point: points[i],
+                interval: intervals[i],
+                float_slice: float_slices[i],
+                grad_slice: grad_slices[i],
             })
         }
-        let point = point::PointAssembler::build_entry_point(
-            slot_count,
-            choice_array_size,
-        );
-        let interval = interval::IntervalAssembler::build_entry_point(
-            slot_count,
-            choice_array_size,
-        );
-        let float_slice = float_slice::FloatSliceAssembler::build_entry_point(
-            slot_count,
-            choice_array_size,
-        );
-        let grad_slice = grad_slice::GradSliceAssembler::build_entry_point(
-            slot_count,
-            choice_array_size,
-        );
 
         // Build a tiny assembler with a return statement
-        let mut a = AssemblerData::<f32>::new();
+        let a = AssemblerData::<f32>::new(&mut data);
+        let ret_offset = a.ops.offset().0;
         dynasm!(a.ops ; ret );
 
         (
             JitData {
-                trampolines: MmapSet {
+                trampolines: MmapOffsets {
                     point,
                     interval,
                     float_slice,
                     grad_slice,
                 },
-                ret: a.ops.try_into().unwrap(),
+                ret_offset,
+                mmap: data.try_into().unwrap(),
             },
             out,
         )
@@ -708,25 +747,33 @@ struct ThreadedCode {
     ///
     /// This ensures that [`entry_points`] remains valid for the lifetime of
     /// a given `ThreadedCode` instance.
-    data: Arc<TapeData<Eval>>,
+    tape_data: Arc<TapeData<Eval>>,
 }
 
 impl<T> EvaluatorStorage<Eval> for JitEval<T>
 where
-    MmapSet: GetPointer<T>,
+    MmapOffsets: GetPointer<T>,
 {
     type Storage = Vec<*const c_void>;
     fn new_with_storage(t: &Tape<Eval>, mut prev: Self::Storage) -> Self {
         prev.clear();
         for g in t.active_groups().iter().rev() {
-            prev.push(<MmapSet as GetPointer<T>>::get_pointer(
+            prev.push(<MmapOffsets as GetPointer<T>>::get_pointer(
                 &t.data().groups[*g].data,
+                &t.data().data.mmap,
             ));
         }
-        prev.push(t.data().data.ret.as_slice().as_ptr() as *const _);
+        prev.push(
+            t.data()
+                .data
+                .mmap
+                .as_slice()
+                .as_ptr()
+                .wrapping_add(t.data().data.ret_offset) as *const _,
+        );
         let prev = ThreadedCode {
             entry_points: prev,
-            data: t.data().clone(),
+            tape_data: t.data().clone(),
         };
         // TODO: push finalize here
         Self {
@@ -743,7 +790,7 @@ where
 
 impl<T> TracingEvaluator<T, Eval> for JitEval<T>
 where
-    MmapSet: GetPointer<T>,
+    MmapOffsets: GetPointer<T>,
 {
     type Data = ();
 
@@ -759,8 +806,9 @@ where
     ) -> (T, bool) {
         let mut simplify = 0;
         assert_eq!(vars.len(), self.var_count);
-        let trampoline = <MmapSet as GetPointer<T>>::get_pointer(
-            &self.code.data.data.trampolines,
+        let trampoline = <MmapOffsets as GetPointer<T>>::get_pointer(
+            &self.code.tape_data.data.trampolines,
+            &self.code.tape_data.data.mmap,
         );
 
         // SAFETY: this is a pointer to a hand-written entry point in memory
@@ -799,7 +847,7 @@ where
 impl<T, I: SimdType> BulkEvaluator<T, Eval> for JitEval<I>
 where
     T: Copy + From<f32>,
-    MmapSet: GetPointer<*const T>,
+    MmapOffsets: GetPointer<*const T>,
 {
     type Data = ();
 
@@ -821,8 +869,9 @@ where
 
         let n = xs.len();
 
-        let trampoline = <MmapSet as GetPointer<*const T>>::get_pointer(
-            &self.code.data.data.trampolines,
+        let trampoline = <MmapOffsets as GetPointer<*const T>>::get_pointer(
+            &self.code.tape_data.data.trampolines,
+            &self.code.tape_data.data.mmap,
         );
 
         let f: jit_fn!(

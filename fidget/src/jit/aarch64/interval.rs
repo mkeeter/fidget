@@ -1,13 +1,12 @@
 use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
     jit::{
-        interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
+        arch, interval::IntervalAssembler, reg, AssemblerData, AssemblerT,
+        IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
     },
     vm::ChoiceIndex,
-    Error,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 
 /// Implementation for the interval assembler on `aarch64`
 ///
@@ -26,14 +25,24 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
-impl AssemblerT for IntervalAssembler {
-    fn new() -> Self {
-        Self(AssemblerData::new())
+impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+        Self(AssemblerData::new(ops))
     }
 
-    fn build_entry_point(slot_count: usize, _choice_array_size: usize) -> Mmap {
-        let mut out = Self::new();
-        dynasm!(out.0.ops
+    fn offset(&self) -> usize {
+        self.0.ops.offset().0
+    }
+
+    fn build_entry_point(
+        ops: &'a mut VecAssembler<arch::Relocation>,
+        slot_count: usize,
+        _choice_array_size: usize,
+    ) -> usize {
+        let mut asm = Self::new(ops);
+        let offset = asm.offset();
+        let out_reg = 0;
+        dynasm!(asm.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -51,9 +60,8 @@ impl AssemblerT for IntervalAssembler {
             ; mov v2.s[0], v4.s[0]
             ; mov v2.s[1], v5.s[0]
         );
-        out.0.prepare_stack(slot_count);
-        let out_reg = 0;
-        dynasm!(out.0.ops
+        asm.0.prepare_stack(slot_count);
+        dynasm!(asm.0.ops
             // Jump into threaded code
             // TODO: this means that threaded code can't use the link register;
             // is that an issue?
@@ -65,7 +73,7 @@ impl AssemblerT for IntervalAssembler {
             ; mov  s0, V(reg(out_reg)).s[0]
             ; mov  s1, V(reg(out_reg)).s[1]
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.0.mem_offset as u32)
+            ; add   sp, sp, #(asm.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -75,7 +83,7 @@ impl AssemblerT for IntervalAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
         );
-        out.finalize().unwrap()
+        offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
@@ -402,10 +410,6 @@ impl AssemblerT for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(self) -> Result<Mmap, Error> {
-        self.0.ops.try_into()
-    }
-
     /// Uses `v4`, `v5`, `x14`, `x15`
     fn build_min_reg_reg_choice(
         &mut self,
@@ -425,7 +429,7 @@ impl AssemblerT for IntervalAssembler {
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E
 
@@ -463,7 +467,7 @@ impl AssemblerT for IntervalAssembler {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // end of arg_reg < inout_reg
             //////////////////////////////////////////////////////////////////
@@ -471,7 +475,7 @@ impl AssemblerT for IntervalAssembler {
             ; B: // ambiguous, so set choice non-exclusively
             ; fmin V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(&mut self.0.ops, choice); // non-exclusive
+        set_choice_bit(self.0.ops, choice); // non-exclusive
         dynasm!(self.0.ops
             // end of ambiguous case (B label); fallthrough to end
             //////////////////////////////////////////////////////////////////
@@ -538,7 +542,7 @@ impl AssemblerT for IntervalAssembler {
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E
 
@@ -567,7 +571,7 @@ impl AssemblerT for IntervalAssembler {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // end of arg_reg > inout_reg
             //////////////////////////////////////////////////////////////////
@@ -583,7 +587,7 @@ impl AssemblerT for IntervalAssembler {
             ; B: // ambiguous, so set choice non-exclusively
             ; fmax V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(&mut self.0.ops, choice); // non-exclusive
+        set_choice_bit(self.0.ops, choice); // non-exclusive
         dynasm!(self.0.ops
             // end of ambiguous case (B label)
             //////////////////////////////////////////////////////////////////
@@ -682,6 +686,6 @@ impl AssemblerT for IntervalAssembler {
     }
 
     fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(&mut self.0.ops)
+        crate::jit::arch::build_jump(self.0.ops)
     }
 }

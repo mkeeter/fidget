@@ -4,5 +4,5 @@ use crate::{
 };
 
 // TODO: could we use an `Interval` here as well?
-pub struct IntervalAssembler(pub(crate) AssemblerData<[f32; 2]>);
+pub struct IntervalAssembler<'a>(pub(crate) AssemblerData<'a, [f32; 2]>);
 pub type JitIntervalEval = JitEval<Interval>;

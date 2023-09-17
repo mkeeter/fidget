@@ -1,8 +1,8 @@
 use crate::jit::{
-    float_slice::FloatSliceAssembler, mmap::Mmap, reg, AssemblerData,
-    AssemblerT, Error, IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
+    arch, float_slice::FloatSliceAssembler, reg, AssemblerData, AssemblerT,
+    IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 
 pub const SIMD_WIDTH: usize = 4;
 
@@ -26,15 +26,24 @@ pub const SIMD_WIDTH: usize = 4;
 ///
 /// During evaluation, X, Y, and Z are stored in `V{0,1,2}.S4`
 #[cfg(target_arch = "aarch64")]
-impl AssemblerT for FloatSliceAssembler {
-    fn new() -> Self {
-        Self(AssemblerData::new())
+impl<'a> AssemblerT<'a> for FloatSliceAssembler<'a> {
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+        Self(AssemblerData::new(ops))
     }
 
-    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap {
-        let mut out = Self::new();
+    fn offset(&self) -> usize {
+        self.0.ops.offset().0
+    }
+
+    fn build_entry_point(
+        ops: &'a mut VecAssembler<arch::Relocation>,
+        slot_count: usize,
+        choice_array_size: usize,
+    ) -> usize {
+        let mut asm = Self::new(ops);
+        let offset = asm.offset();
         let out_reg = 0;
-        dynasm!(out.0.ops
+        dynasm!(asm.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -46,11 +55,11 @@ impl AssemblerT for FloatSliceAssembler {
             ; stp   d14, d15, [sp, #-16]!
 
         );
-        out.0.prepare_stack(slot_count);
+        asm.0.prepare_stack(slot_count);
 
-        dynasm!(out.0.ops
+        dynasm!(asm.0.ops
             // The loop returns here, and we check whether we need to loop
-            ; ->L:
+            ; ->float_loop:
             // Remember, at this point we have
             //  x1: x input array pointer (advancing)
             //  x2: y input array pointer (advancing)
@@ -82,12 +91,12 @@ impl AssemblerT for FloatSliceAssembler {
             ; mov x9, #choice_array_size as u64
             ; mov x10, x7
 
-            ; ->memclr:
+            ; ->float_memclr:
             ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
             ; str xzr, [x10], 8 // post-increment
-            ; b ->memclr
+            ; b ->float_memclr
 
             // Call into threaded code
             ; O:
@@ -99,7 +108,7 @@ impl AssemblerT for FloatSliceAssembler {
 
             // Prepare our return value, writing to the pointer in x5
             ; str Q(reg(out_reg)), [x5], #16
-            ; b ->L
+            ; b ->float_loop
 
 
             ; Exit:
@@ -107,7 +116,7 @@ impl AssemblerT for FloatSliceAssembler {
             // is complete.
             //
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.0.mem_offset as u32)
+            ; add   sp, sp, #(asm.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -117,7 +126,7 @@ impl AssemblerT for FloatSliceAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
         );
-        out.finalize().unwrap()
+        offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
@@ -214,10 +223,6 @@ impl AssemblerT for FloatSliceAssembler {
             ; dup V(IMM_REG as u32).s4, w9
         );
         IMM_REG.wrapping_sub(OFFSET)
-    }
-
-    fn finalize(self) -> Result<Mmap, Error> {
-        self.0.ops.try_into()
     }
 
     fn build_min_mem_imm_choice(
@@ -396,6 +401,6 @@ impl AssemblerT for FloatSliceAssembler {
     }
 
     fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(&mut self.0.ops)
+        crate::jit::arch::build_jump(self.0.ops)
     }
 }

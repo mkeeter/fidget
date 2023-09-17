@@ -1,11 +1,8 @@
-use crate::{
-    jit::{
-        grad_slice::GradSliceAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
-    },
-    Error,
+use crate::jit::{
+    arch, grad_slice::GradSliceAssembler, reg, AssemblerData, AssemblerT,
+    IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 
 /// Implementation for the gradient slice assembler on `aarch64`
 ///
@@ -24,15 +21,24 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
-impl AssemblerT for GradSliceAssembler {
-    fn new() -> Self {
-        Self(AssemblerData::new())
+impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+        Self(AssemblerData::new(ops))
     }
 
-    fn build_entry_point(slot_count: usize, choice_array_size: usize) -> Mmap {
-        let mut out = Self::new();
+    fn offset(&self) -> usize {
+        self.0.ops.offset().0
+    }
+
+    fn build_entry_point(
+        ops: &'a mut VecAssembler<arch::Relocation>,
+        slot_count: usize,
+        choice_array_size: usize,
+    ) -> usize {
+        let mut asm = Self::new(ops);
+        let offset = asm.offset();
         let out_reg = 0;
-        dynasm!(out.0.ops
+        dynasm!(asm.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -43,11 +49,11 @@ impl AssemblerT for GradSliceAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
         );
-        out.0.prepare_stack(slot_count);
+        asm.0.prepare_stack(slot_count);
 
-        dynasm!(out.0.ops
+        dynasm!(asm.0.ops
             // The loop returns here, and we check whether we need to loop
-            ; ->L:
+            ; ->grad_loop:
             // Remember, at this point we have
             //  x1: x input array pointer
             //  x2: y input array pointer
@@ -67,7 +73,7 @@ impl AssemblerT for GradSliceAssembler {
             // is complete.
             //
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.0.mem_offset as u32)
+            ; add   sp, sp, #(asm.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -100,12 +106,12 @@ impl AssemblerT for GradSliceAssembler {
             ; mov x9, #choice_array_size as u64
             ; mov x10, x7
 
-            ; ->memclr:
+            ; ->grad_memclr:
             ; cmp x9, #0
             ; b.eq >O
             ; sub x9, x9, 1
             ; str xzr, [x10], #8 // post-increment
-            ; b ->memclr
+            ; b ->grad_memclr
 
             // Call into threaded code
             ; O:
@@ -117,9 +123,9 @@ impl AssemblerT for GradSliceAssembler {
 
             // Prepare our return value, writing to the pointer in x5
             ; str Q(reg(out_reg)), [x5], #16 // post-increment
-            ; b ->L // Jump back to the loop start
+            ; b ->grad_loop // Jump back to the loop start
         );
-        out.finalize().unwrap()
+        offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
@@ -306,10 +312,6 @@ impl AssemblerT for GradSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(self) -> Result<Mmap, Error> {
-        self.0.ops.try_into()
-    }
-
     fn build_min_mem_imm_choice(
         &mut self,
         mem: u32,
@@ -487,6 +489,6 @@ impl AssemblerT for GradSliceAssembler {
     }
 
     fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(&mut self.0.ops)
+        crate::jit::arch::build_jump(self.0.ops)
     }
 }

@@ -1,13 +1,12 @@
 use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
     jit::{
-        mmap::Mmap, point::PointAssembler, reg, AssemblerData, AssemblerT,
-        IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
+        arch, point::PointAssembler, reg, AssemblerData, AssemblerT, IMM_REG,
+        OFFSET, REGISTER_LIMIT, SCRATCH_REG,
     },
     vm::ChoiceIndex,
-    Error,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 
 /// Implementation for the single-point assembler on `aarch64`
 ///
@@ -22,14 +21,24 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `x1`     | `*const f32` (array)  |
 /// | `choices`  | `x2`     | `*const u8` (array)   |
 /// | `simplify` | `x3`     | `*const u32` (single) |
-impl AssemblerT for PointAssembler {
-    fn new() -> Self {
-        Self(AssemblerData::new())
+impl<'a> AssemblerT<'a> for PointAssembler<'a> {
+    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+        Self(AssemblerData::new(ops))
     }
 
-    fn build_entry_point(slot_count: usize, _choice_array_size: usize) -> Mmap {
-        let mut out = Self::new();
-        dynasm!(out.0.ops
+    fn offset(&self) -> usize {
+        self.0.ops.offset().0
+    }
+
+    fn build_entry_point(
+        ops: &'a mut VecAssembler<arch::Relocation>,
+        slot_count: usize,
+        _choice_array_size: usize,
+    ) -> usize {
+        let mut asm = Self::new(ops);
+        let offset = asm.offset();
+        let out_reg = 0;
+        dynasm!(asm.0.ops
             // Preserve frame and link register
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
@@ -40,9 +49,8 @@ impl AssemblerT for PointAssembler {
             ; stp   d12, d13, [sp, #-16]!
             ; stp   d14, d15, [sp, #-16]!
         );
-        out.0.prepare_stack(slot_count);
-        let out_reg = 0;
-        dynasm!(out.0.ops
+        asm.0.prepare_stack(slot_count);
+        dynasm!(asm.0.ops
             // Jump into threaded code
             ; ldr x15, [x0, #0]
             ; blr x15
@@ -51,7 +59,7 @@ impl AssemblerT for PointAssembler {
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
             // Restore stack space used for spills
-            ; add   sp, sp, #(out.0.mem_offset as u32)
+            ; add   sp, sp, #(asm.0.mem_offset as u32)
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
@@ -61,7 +69,7 @@ impl AssemblerT for PointAssembler {
             ; ldp   x29, x30, [sp], #16
             ; ret
         );
-        out.finalize().unwrap()
+        offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
@@ -185,10 +193,6 @@ impl AssemblerT for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(self) -> Result<Mmap, Error> {
-        self.0.ops.try_into()
-    }
-
     /// Uses `v4`, `v5`, `x14`, `x15`
     fn build_min_reg_reg_choice(
         &mut self,
@@ -219,7 +223,7 @@ impl AssemblerT for PointAssembler {
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(inout_reg)), S(reg(inout_reg)), S(reg(arg_reg))
         );
-        set_choice_bit(&mut self.0.ops, choice);
+        set_choice_bit(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // -> end
             // end of ambiguous case
@@ -235,7 +239,7 @@ impl AssemblerT for PointAssembler {
             ; str w15, [x3]
             ; fmov S(reg(inout_reg)), S(reg(arg_reg)) // copy the reg
         );
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             // end of arg-smaller case (R label); fallthrough to end
             //////////////////////////////////////////////////////////////////
@@ -314,7 +318,7 @@ impl AssemblerT for PointAssembler {
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(inout_reg)), S(reg(inout_reg)), S(reg(arg_reg))
         );
-        set_choice_bit(&mut self.0.ops, choice);
+        set_choice_bit(self.0.ops, choice);
         dynasm!(self.0.ops
             ; b >E // -> end
             // end of ambiguous case
@@ -330,7 +334,7 @@ impl AssemblerT for PointAssembler {
             ; str w15, [x3]
             ; fmov S(reg(inout_reg)), S(reg(arg_reg)) // copy the reg
         );
-        set_choice_exclusive(&mut self.0.ops, choice);
+        set_choice_exclusive(self.0.ops, choice);
         dynasm!(self.0.ops
             // end of arg-larger case (R label); fallthrough to end
             //////////////////////////////////////////////////////////////////
@@ -429,6 +433,6 @@ impl AssemblerT for PointAssembler {
     }
 
     fn build_jump(&mut self) {
-        crate::jit::arch::build_jump(&mut self.0.ops)
+        crate::jit::arch::build_jump(self.0.ops)
     }
 }

@@ -51,15 +51,6 @@ impl<F: Family> TapeData<F> {
     pub fn choice_array_size(&self) -> usize {
         self.choice_array_size
     }
-
-    /// Returns the total number of operations in the tape
-    ///
-    /// This is the sum of all operations in the node groups.  Due to inlining
-    /// and the insertion of `Load` and `Store` operations, it may be larger
-    /// than the raw number of arithmetic operations in the expression!
-    pub fn len(&self) -> usize {
-        self.groups.iter().map(|c| c.len).sum()
-    }
 }
 
 impl<F: Family> TapeData<F> {
@@ -295,15 +286,12 @@ impl<F: Family> Tape<F> {
         Arc::try_unwrap(self.0).ok().map(|t| t.1)
     }
 
-    /// Returns the number of active operations in this tape
+    /// Returns the number of active groups in this tape
     ///
-    /// Due to inlining and `Load` / `Store` operations, this may be larger than
-    /// the expected number of raw arithmetic operations.
+    /// Note that this does not count individual operations; it's mostly useful
+    /// for checking to see whether a tape has been shortened.
     pub fn len(&self) -> usize {
-        self.active_groups()
-            .iter()
-            .map(|i| self.data().groups[*i].len)
-            .sum()
+        self.active_groups().len()
     }
 }
 
