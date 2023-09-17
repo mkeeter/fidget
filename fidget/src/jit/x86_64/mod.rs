@@ -24,3 +24,19 @@ pub mod float_slice;
 pub mod grad_slice;
 pub mod interval;
 pub mod point;
+
+fn prepare_stack(&mut self, slot_count: usize) {
+    // We always use the stack on x86_64, if only to store X/Y/Z
+    let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT as usize);
+
+    // We put X/Y/Z values at the top of the stack, where they can be
+    // accessed with `movss [rbp - i*size_of(T)] xmm`.  This frees up the
+    // incoming registers (xmm0-2) in the point evaluator.
+    let mem = (stack_slots + 4) * std::mem::size_of::<T>();
+
+    // Round up to the nearest multiple of 16 bytes, for alignment
+    self.mem_offset = ((mem + 15) / 16) * 16;
+    dynasm!(self.ops
+        ; sub rsp, self.mem_offset as i32
+    );
+}

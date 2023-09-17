@@ -316,95 +316,6 @@ pub trait SimdType {
     const SIMD_SIZE: usize;
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////
-
-pub(crate) struct AssemblerData<'a, T> {
-    pub ops: &'a mut VecAssembler<arch::Relocation>,
-    _p: std::marker::PhantomData<*const T>,
-}
-
-// TODO remove this entirely in favor of free functions in `arch`
-impl<'a, T> AssemblerData<'a, T> {
-    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
-        Self {
-            ops,
-            _p: std::marker::PhantomData,
-        }
-    }
-
-    /// Prepares the stack pointer
-    ///
-    /// Returns a memory offset to be used when restoring the stack pointer in
-    /// `function_exit`.
-    #[cfg(target_arch = "aarch64")]
-    fn function_entry(&mut self, slot_count: usize) -> u32 {
-        dynasm!(self.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
-            ; mov   x29, sp
-            // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
-        );
-        if slot_count < REGISTER_LIMIT as usize {
-            return 0;
-        }
-        let stack_slots = slot_count - REGISTER_LIMIT as usize;
-        let mem = (stack_slots + 1) * std::mem::size_of::<T>();
-
-        // Round up to the nearest multiple of 16 bytes, for alignment
-        let mem_offset = ((mem + 15) / 16) * 16;
-        assert!(mem_offset < 4096);
-        dynasm!(self.ops
-            ; sub sp, sp, #(mem_offset as u32)
-        );
-        mem_offset.try_into().unwrap()
-    }
-
-    fn function_exit(&mut self, mem_offset: u32) {
-        dynasm!(self.ops
-            // This is our finalization code, which happens after all evaluation
-            // is complete.
-            //
-            // Restore stack space used for spills
-            ; add   sp, sp, #mem_offset
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
-            // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
-            ; ret
-        );
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn prepare_stack(&mut self, slot_count: usize) {
-        // We always use the stack on x86_64, if only to store X/Y/Z
-        let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT as usize);
-
-        // We put X/Y/Z values at the top of the stack, where they can be
-        // accessed with `movss [rbp - i*size_of(T)] xmm`.  This frees up the
-        // incoming registers (xmm0-2) in the point evaluator.
-        let mem = (stack_slots + 4) * std::mem::size_of::<T>();
-
-        // Round up to the nearest multiple of 16 bytes, for alignment
-        self.mem_offset = ((mem + 15) / 16) * 16;
-        dynasm!(self.ops
-            ; sub rsp, self.mem_offset as i32
-        );
-    }
-
-    fn stack_pos(&self, slot: u32) -> u32 {
-        assert!(slot >= REGISTER_LIMIT as u32);
-        (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Build an assembly snippet for the given function
@@ -691,9 +602,8 @@ impl Family for Eval {
         }
 
         // Build a tiny assembler with a return statement
-        let a = AssemblerData::<f32>::new(&mut data);
-        let ret_offset = a.ops.offset().0;
-        dynasm!(a.ops ; ret );
+        let ret_offset = data.offset().0;
+        dynasm!(data ; ret );
 
         (
             JitData {

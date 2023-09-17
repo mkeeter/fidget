@@ -1,12 +1,16 @@
 use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
     jit::{
-        arch, interval::IntervalAssembler, reg, AssemblerData, AssemblerT,
-        IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
+        arch, interval::IntervalAssembler, reg, AssemblerT, IMM_REG, OFFSET,
+        REGISTER_LIMIT, SCRATCH_REG,
     },
     vm::ChoiceIndex,
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
+
+fn stack_pos(slot: u32) -> u32 {
+    arch::stack_pos::<[f32; 2]>(slot)
+}
 
 /// Implementation for the interval assembler on `aarch64`
 ///
@@ -27,7 +31,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
 impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
-        Self(AssemblerData::new(ops))
+        Self(ops)
     }
 
     fn build_entry_point(
@@ -36,10 +40,9 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         _choice_array_size: usize,
     ) -> usize {
         let offset = ops.offset().0;
-        let mut asm = Self::new(ops);
-        let mem_offset = asm.0.function_entry(slot_count);
+        let mem_offset = arch::function_entry::<[f32; 2], _>(ops, slot_count);
         let out_reg = 0;
-        dynasm!(asm.0.ops
+        dynasm!(ops
             // Arguments are passed in S0-5; collect them into V0-1
             ; mov v0.s[1], v1.s[0]
             ; mov v1.s[0], v2.s[0]
@@ -55,49 +58,49 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             // Return from threaded code here
 
             // Prepare our return value
-            ; mov  s0, V(reg(out_reg)).s[0]
-            ; mov  s1, V(reg(out_reg)).s[1]
+            ; mov s0, V(reg(out_reg)).s[0]
+            ; mov s1, V(reg(out_reg)).s[1]
         );
-        asm.0.function_exit(mem_offset);
+        arch::function_exit(ops, mem_offset);
         offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = self.0.stack_pos(src_mem);
+        let sp_offset = stack_pos(src_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
+        dynasm!(self.0 ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = self.0.stack_pos(dst_mem);
+        let sp_offset = stack_pos(dst_mem);
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
+        dynasm!(self.0 ; str D(reg(src_reg)), [sp, #(sp_offset)])
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(src_arg as u32));
+        dynasm!(self.0 ; fmov D(reg(out_reg)), D(src_arg as u32));
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; ldr w15, [x1, #(src_arg * 4)]
             ; dup V(reg(out_reg)).s2, w15
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
+        dynasm!(self.0 ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fneg V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
             ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
         )
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Store lhs < 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -132,7 +135,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Check whether lhs.lower > 0.0
             ; fcmp S(reg(lhs_reg)), 0.0
             ; b.gt >O // -> okay
@@ -159,7 +162,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -191,7 +194,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         );
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, #0.0
             ; fmov x15, d4
@@ -219,24 +222,24 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         );
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fadd V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
         )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; rev64 v4.s2, V(reg(rhs_reg)).s2
             ; fsub V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, v4.s2
         )
     }
     fn build_sub_reg_imm(&mut self, out_reg: u8, arg: u8, imm: f32) {
         let imm = self.load_imm(imm);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fsub V(reg(out_reg)).s2, V(reg(arg)).s2, V(reg(imm)).s2
         )
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Set up v4 to contain
             //  [lhs.upper, lhs.lower, lhs.lower, lhs.upper]
             // and v5 to contain
@@ -258,18 +261,18 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
 
     fn build_mul_imm(&mut self, out_reg: u8, lhs_reg: u8, imm: f32) {
         let rhs_reg = self.load_imm(imm);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fmul V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
         );
         if imm < 0.0 {
-            dynasm!(self.0.ops
+            dynasm!(self.0
                 ; rev64 V(reg(out_reg)).s2, V(reg(out_reg)).s2
             );
         }
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         let nan_u32 = f32::NAN.to_bits();
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Store rhs.lower > 0.0 in x15, then check rhs.lower > 0
             ; fcmp S(reg(rhs_reg)), #0.0
             ; b.gt >H // -> happy
@@ -307,7 +310,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // Basically the same as MinRegReg
             ; zip2 v4.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
@@ -335,7 +338,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         );
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             //  if lhs.upper < rhs.lower
             //      out = lhs
             //  elif rhs.upper < lhs.lower
@@ -378,7 +381,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; movz w15, #(imm_u32 >> 16), lsl 16
             ; movk w15, #(imm_u32)
             ; dup V(IMM_REG as u32).s2, w15
@@ -394,7 +397,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
         choice: ChoiceIndex,
     ) {
         let i = choice.index as u32;
-        dynasm!(self.0.ops
+        dynasm!(self.0
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
@@ -405,8 +408,8 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(self.0.ops, choice);
-        dynasm!(self.0.ops
+        set_choice_exclusive(self.0, choice);
+        dynasm!(self.0
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
@@ -443,16 +446,16 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(self.0.ops, choice);
-        dynasm!(self.0.ops
+        set_choice_exclusive(self.0, choice);
+        dynasm!(self.0
             ; b >E // end of arg_reg < inout_reg
             //////////////////////////////////////////////////////////////////
 
             ; B: // ambiguous, so set choice non-exclusively
             ; fmin V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(self.0.ops, choice); // non-exclusive
-        dynasm!(self.0.ops
+        set_choice_bit(self.0, choice); // non-exclusive
+        dynasm!(self.0
             // end of ambiguous case (B label); fallthrough to end
             //////////////////////////////////////////////////////////////////
 
@@ -507,7 +510,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     ) {
         // basically the same as min_reg_reg_choice
         let i = choice.index as u32;
-        dynasm!(self.0.ops
+        dynasm!(self.0
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x2, #i]
             // Jump to V if the choice bit was previously set
@@ -518,8 +521,8 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             // Copy the value, then branch to the end
             ; fmov D(reg(inout_reg)), D(reg(arg_reg))
         );
-        set_choice_exclusive(self.0.ops, choice);
-        dynasm!(self.0.ops
+        set_choice_exclusive(self.0, choice);
+        dynasm!(self.0
             ; b >E
 
             ; V: // There was a previous value, so we have to do the comparison
@@ -547,8 +550,8 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             ; fmov D(reg(inout_reg)), D(reg(arg_reg)) // copy the reg
         );
         // Set the choice exclusively
-        set_choice_exclusive(self.0.ops, choice);
-        dynasm!(self.0.ops
+        set_choice_exclusive(self.0, choice);
+        dynasm!(self.0
             ; b >E // end of arg_reg > inout_reg
             //////////////////////////////////////////////////////////////////
 
@@ -563,8 +566,8 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
             ; B: // ambiguous, so set choice non-exclusively
             ; fmax V(reg(inout_reg)).s2, V(reg(inout_reg)).s2, V(reg(arg_reg)).s2
         );
-        set_choice_bit(self.0.ops, choice); // non-exclusive
-        dynasm!(self.0.ops
+        set_choice_bit(self.0, choice); // non-exclusive
+        dynasm!(self.0
             // end of ambiguous case (B label)
             //////////////////////////////////////////////////////////////////
 
@@ -619,7 +622,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fmov D(reg(out)), D(reg(arg))
             ; mov w15, #3
             ; strb w15, [x2, #i]
@@ -654,7 +657,7 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; mov w15, #3
             ; strb w15, [x2, #i]
         );

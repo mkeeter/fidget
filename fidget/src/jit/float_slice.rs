@@ -1,9 +1,8 @@
-use crate::jit::{
-    arch::float_slice::SIMD_WIDTH, AssemblerData, JitEval, SimdType,
-};
+use crate::jit::{arch, arch::float_slice::SIMD_WIDTH, JitEval, SimdType};
+use dynasmrt::VecAssembler;
 
 pub struct FloatSliceAssembler<'a>(
-    pub(crate) AssemblerData<'a, [f32; SIMD_WIDTH]>,
+    pub(crate) &'a mut VecAssembler<arch::Relocation>,
 );
 
 impl SimdType for *const f32 {

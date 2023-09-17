@@ -90,3 +90,60 @@ pub(crate) fn build_jump<D: DynasmApi>(d: &mut D) {
         ; br x15
     );
 }
+
+/// Prepares the stack pointer
+///
+/// Returns a memory offset to be used when restoring the stack pointer in
+/// `function_exit`.
+pub(crate) fn function_entry<T, D: DynasmApi>(
+    d: &mut D,
+    slot_count: usize,
+) -> u32 {
+    dynasm!(d
+        // Preserve frame and link register
+        ; stp   x29, x30, [sp, #-16]!
+        // Preserve sp
+        ; mov   x29, sp
+        // Preserve callee-saved floating-point registers
+        ; stp   d8, d9, [sp, #-16]!
+        ; stp   d10, d11, [sp, #-16]!
+        ; stp   d12, d13, [sp, #-16]!
+        ; stp   d14, d15, [sp, #-16]!
+    );
+    if slot_count < REGISTER_LIMIT as usize {
+        return 0;
+    }
+    let stack_slots = slot_count - REGISTER_LIMIT as usize;
+    let mem = (stack_slots + 1) * std::mem::size_of::<T>();
+
+    // Round up to the nearest multiple of 16 bytes, for alignment
+    let mem_offset = ((mem + 15) / 16) * 16;
+    assert!(mem_offset < 4096);
+    dynasm!(d
+        ; sub sp, sp, #(mem_offset as u32)
+    );
+    mem_offset.try_into().unwrap()
+}
+
+pub(crate) fn function_exit<D: DynasmApi>(d: &mut D, mem_offset: u32) {
+    dynasm!(d
+        // This is our finalization code, which happens after all evaluation
+        // is complete.
+        //
+        // Restore stack space used for spills
+        ; add   sp, sp, #mem_offset
+        // Restore callee-saved floating-point registers
+        ; ldp   d14, d15, [sp], #16
+        ; ldp   d12, d13, [sp], #16
+        ; ldp   d10, d11, [sp], #16
+        ; ldp   d8, d9, [sp], #16
+        // Restore frame and link register
+        ; ldp   x29, x30, [sp], #16
+        ; ret
+    );
+}
+
+pub(crate) fn stack_pos<T>(slot: u32) -> u32 {
+    assert!(slot >= REGISTER_LIMIT as u32);
+    (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
+}

@@ -1,8 +1,12 @@
 use crate::jit::{
-    arch, grad_slice::GradSliceAssembler, reg, AssemblerData, AssemblerT,
-    IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
+    arch, grad_slice::GradSliceAssembler, reg, AssemblerT, IMM_REG, OFFSET,
+    REGISTER_LIMIT, SCRATCH_REG,
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
+
+fn stack_pos(slot: u32) -> u32 {
+    arch::stack_pos::<[f32; 4]>(slot)
+}
 
 /// Implementation for the gradient slice assembler on `aarch64`
 ///
@@ -23,7 +27,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
 impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
-        Self(AssemblerData::new(ops))
+        Self(ops)
     }
 
     fn build_entry_point(
@@ -32,11 +36,10 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         choice_array_size: usize,
     ) -> usize {
         let offset = ops.offset().0;
-        let mut asm = Self::new(ops);
         let out_reg = 0;
-        let mem_offset = asm.0.function_entry(slot_count);
+        let mem_offset = arch::function_entry::<[f32; 4], _>(ops, slot_count);
 
-        dynasm!(asm.0.ops
+        dynasm!(ops
             // The loop returns here, and we check whether we need to loop
             ; ->grad_loop:
             // Remember, at this point we have
@@ -100,47 +103,47 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
             // Restore stack space used for spills
             ; Exit:
         );
-        asm.0.function_exit(mem_offset);
+        arch::function_exit(ops, mem_offset);
         offset
     }
 
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = self.0.stack_pos(src_mem);
+        let sp_offset = stack_pos(src_mem);
         assert!(sp_offset < 65536);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
         )
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = self.0.stack_pos(dst_mem);
+        let sp_offset = stack_pos(dst_mem);
         assert!(sp_offset < 65536);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; str Q(reg(src_reg)), [sp, #(sp_offset)]
         )
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
+        dynasm!(self.0 ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; ldr S(reg(out_reg)), [x4, #(src_arg * 4)]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
+        dynasm!(self.0 ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops ; fneg V(reg(out_reg)).s4, V(reg(lhs_reg)).s4)
+        dynasm!(self.0 ; fneg V(reg(out_reg)).s4, V(reg(lhs_reg)).s4)
     }
     fn build_abs(&mut self, out_reg: u8, lhs_reg: u8) {
         // TODO: use two fcsel instead?
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fcmp S(reg(lhs_reg)), 0.0
             ; b.lt #12 // -> neg
             // Happy path: v >= 0, so we just copy the register
@@ -152,7 +155,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fmul s6, S(reg(lhs_reg)), S(reg(lhs_reg))
             ; fneg s6, s6
             ; dup v6.s4, v6.s[0]
@@ -164,7 +167,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fsqrt s6, S(reg(lhs_reg))
             ; fmov s7, #2.0
             ; fmul s7, s6, s7
@@ -174,7 +177,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_square(&mut self, out_reg: u8, lhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fmov s7, #2.0
             ; dup v7.s4, v7.s[0]
             ; fmov s6, #1.0
@@ -190,17 +193,17 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
     fn build_sub(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
     fn build_mul(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             // v6.s4 = [lhs.v, lhs.v, lhs.v, lhs.v]
             ; dup v6.s4, V(reg(lhs_reg)).s[0]
 
@@ -227,7 +230,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     }
 
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fmov w9, S(reg(rhs_reg))
             ; dup v6.s4, w9
             ; fmul v5.s4, v6.s4, V(reg(lhs_reg)).s4
@@ -253,7 +256,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.gt >Lhs
             // Happy path: v >= 0, so we just copy the register
@@ -265,7 +268,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.lt >Lhs // -> lhs
             // Happy path: v >= 0, so we just copy the register
@@ -280,7 +283,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; movz w9, #(imm_u32 >> 16), lsl 16
             ; movk w9, #(imm_u32)
             ; fmov S(IMM_REG as u32), w9
@@ -360,7 +363,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     ) {
         // Note: we can't use SCRATCH_REG (v6) here, because it may be our inout
         let i = choice.index as u32;
-        dynasm!(self.0.ops
+        dynasm!(self.0
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
             // Jump to V if the choice bit was previously set
@@ -391,7 +394,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     ) {
         // Note: we can't use SCRATCH_REG (v6) here, because it may be our inout
         let i = choice.index as u32;
-        dynasm!(self.0.ops
+        dynasm!(self.0
             //  Bit 0 of the choice indicates whether it has a value
             ; ldrb w15, [x7, #i]
             // Jump to Compare if the choice bit was previously set
@@ -442,7 +445,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; mov V(reg(out)).b16, V(reg(arg)).b16
             ; mov w15, #3
             ; strb w15, [x7, #i]
@@ -457,7 +460,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     ) {
         let i = choice.index as u32;
         assert_eq!(choice.bit, 1);
-        dynasm!(self.0.ops
+        dynasm!(self.0
             ; mov w15, #3
             ; strb w15, [x7, #i]
         );
