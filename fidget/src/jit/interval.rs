@@ -1,11 +1,5 @@
-use crate::{
-    eval::types::Interval,
-    jit::{arch, JitEval},
-};
-use dynasmrt::VecAssembler;
+use crate::{eval::types::Interval, jit::JitEval};
 
 // TODO: could we use an `Interval` here as well?
-pub struct IntervalAssembler<'a>(
-    pub(crate) &'a mut VecAssembler<arch::Relocation>,
-);
+pub struct IntervalAssembler<'a, D>(pub(crate) &'a mut D);
 pub type JitIntervalEval = JitEval<Interval>;

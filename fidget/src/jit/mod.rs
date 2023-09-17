@@ -27,7 +27,7 @@ use crate::{
     jit::mmap::Mmap,
     vm::{ChoiceIndex, ChoiceTape, Choices, Op, Tape, TapeData},
 };
-use dynasmrt::{dynasm, DynasmApi, VecAssembler};
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
 use std::ffi::c_void;
 use std::sync::Arc;
 
@@ -98,9 +98,38 @@ fn reg(r: u8) -> RegIndex {
 /// This is public because it's used to parameterize various other types, but
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
-pub trait AssemblerT<'a> {
+pub trait AssemblerT<
+    'a,
+    D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>,
+>
+{
+    /// Data type that is operated on (used for computing stack offsets)
+    type T;
+
+    /// Returns the offset of the given stack location
+    fn stack_pos(slot: u32) -> u32 {
+        arch::stack_pos::<Self::T>(slot)
+    }
+
+    /// Assembles a function prelude into the given buffer
+    fn function_entry(ops: &mut D, slot_count: usize) -> u32 {
+        arch::function_entry::<Self::T, _>(ops, slot_count)
+    }
+
     /// Initializes the assembler for a threaded code fragment
-    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self;
+    fn new(ops: &'a mut D) -> Self;
+
+    /// Builds an entry point for threaded code with the given slot count
+    ///
+    /// This will likely construct a function prelude, reserve space on the
+    /// stack for slot spills, and jump to the first piece of threaded code.
+    ///
+    /// `choice_array_size` is the number of `u64` words in the choice array
+    fn build_entry_point(
+        ops: &'a mut D,
+        slot_count: usize,
+        choice_array_size: usize,
+    ) -> usize;
 
     /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
@@ -293,18 +322,6 @@ pub trait AssemblerT<'a> {
         arg: u8,
         choice: ChoiceIndex,
     );
-
-    /// Builds an entry point for threaded code with the given slot count
-    ///
-    /// This will likely construct a function prelude, reserve space on the
-    /// stack for slot spills, and jump to the first piece of threaded code.
-    ///
-    /// `choice_array_size` is the number of `u64` words in the choice array
-    fn build_entry_point(
-        ops: &'a mut VecAssembler<arch::Relocation>,
-        slot_count: usize,
-        choice_array_size: usize,
-    ) -> usize;
 }
 
 /// Trait defining SIMD width
@@ -321,10 +338,18 @@ pub trait SimdType {
 /// Build an assembly snippet for the given function
 ///
 /// `t` is expected to be in reverse-evaluation order
-fn build_asm_fn<'a, A: AssemblerT<'a>>(
-    ops: &'a mut VecAssembler<arch::Relocation>,
+fn build_asm_fn<
+    'a,
+    'b,
+    A: AssemblerT<'a, D>,
+    D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>,
+>(
+    ops: &'b mut D,
     t: &[Op],
-) -> usize {
+) -> usize
+where
+    'b: 'a,
+{
     let out = ops.offset().0;
     let mut asm = A::new(ops);
     for &op in t.iter().rev() {
@@ -447,6 +472,7 @@ fn build_asm_fn<'a, A: AssemblerT<'a>>(
             }
         }
     }
+
     // TODO: fight lifetimes to put build_jump here
     out
 }
@@ -540,7 +566,7 @@ impl Family for Eval {
         );
         let mut points = vec![];
         for t in tapes {
-            points.push(build_asm_fn::<point::PointAssembler>(
+            points.push(build_asm_fn::<point::PointAssembler<_>, _>(
                 &mut data,
                 t.tape.as_slice(),
             ));
@@ -554,7 +580,7 @@ impl Family for Eval {
         );
         let mut intervals = vec![];
         for t in tapes {
-            intervals.push(build_asm_fn::<interval::IntervalAssembler>(
+            intervals.push(build_asm_fn::<interval::IntervalAssembler<_>, _>(
                 &mut data,
                 t.tape.as_slice(),
             ));
@@ -568,12 +594,10 @@ impl Family for Eval {
         );
         let mut float_slices = vec![];
         for t in tapes {
-            float_slices.push(
-                build_asm_fn::<float_slice::FloatSliceAssembler>(
-                    &mut data,
-                    t.tape.as_slice(),
-                ),
-            );
+            float_slices.push(build_asm_fn::<
+                float_slice::FloatSliceAssembler<_>,
+                _,
+            >(&mut data, t.tape.as_slice()));
             arch::build_jump(&mut data);
         }
 
@@ -584,10 +608,10 @@ impl Family for Eval {
         );
         let mut grad_slices = vec![];
         for t in tapes {
-            grad_slices.push(build_asm_fn::<grad_slice::GradSliceAssembler>(
-                &mut data,
-                t.tape.as_slice(),
-            ));
+            grad_slices.push(build_asm_fn::<
+                grad_slice::GradSliceAssembler<_>,
+                _,
+            >(&mut data, t.tape.as_slice()));
             arch::build_jump(&mut data);
         }
 

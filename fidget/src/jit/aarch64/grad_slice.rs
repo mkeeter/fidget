@@ -1,12 +1,11 @@
-use crate::jit::{
-    arch, grad_slice::GradSliceAssembler, reg, AssemblerT, IMM_REG, OFFSET,
-    REGISTER_LIMIT, SCRATCH_REG,
+use crate::{
+    eval::types::Grad,
+    jit::{
+        arch, grad_slice::GradSliceAssembler, reg, AssemblerT, IMM_REG, OFFSET,
+        REGISTER_LIMIT, SCRATCH_REG,
+    },
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
-
-fn stack_pos(slot: u32) -> u32 {
-    arch::stack_pos::<[f32; 4]>(slot)
-}
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Implementation for the gradient slice assembler on `aarch64`
 ///
@@ -25,19 +24,23 @@ fn stack_pos(slot: u32) -> u32 {
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
-impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
-    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
+    AssemblerT<'a, D> for GradSliceAssembler<'a, D>
+{
+    type T = Grad;
+
+    fn new(ops: &'a mut D) -> Self {
         Self(ops)
     }
 
     fn build_entry_point(
-        ops: &'a mut VecAssembler<arch::Relocation>,
+        ops: &'a mut D,
         slot_count: usize,
         choice_array_size: usize,
     ) -> usize {
         let offset = ops.offset().0;
         let out_reg = 0;
-        let mem_offset = arch::function_entry::<[f32; 4], _>(ops, slot_count);
+        let mem_offset = Self::function_entry(ops, slot_count);
 
         dynasm!(ops
             // The loop returns here, and we check whether we need to loop
@@ -110,7 +113,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(src_mem);
+        let sp_offset = Self::stack_pos(src_mem);
         assert!(sp_offset < 65536);
         dynasm!(self.0
             ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
@@ -119,7 +122,7 @@ impl<'a> AssemblerT<'a> for GradSliceAssembler<'a> {
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(dst_mem);
+        let sp_offset = Self::stack_pos(dst_mem);
         assert!(sp_offset < 65536);
         dynasm!(self.0
             ; str Q(reg(src_reg)), [sp, #(sp_offset)]

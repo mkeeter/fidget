@@ -1,16 +1,13 @@
-use super::{set_choice_bit, set_choice_exclusive};
 use crate::{
+    eval::types::Interval,
     jit::{
-        arch, interval::IntervalAssembler, reg, AssemblerT, IMM_REG, OFFSET,
-        REGISTER_LIMIT, SCRATCH_REG,
+        arch::{self, set_choice_bit, set_choice_exclusive},
+        interval::IntervalAssembler,
+        reg, AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT, SCRATCH_REG,
     },
     vm::ChoiceIndex,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
-
-fn stack_pos(slot: u32) -> u32 {
-    arch::stack_pos::<[f32; 2]>(slot)
-}
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Implementation for the interval assembler on `aarch64`
 ///
@@ -29,18 +26,22 @@ fn stack_pos(slot: u32) -> u32 {
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
-impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
-    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
+    AssemblerT<'a, D> for IntervalAssembler<'a, D>
+{
+    type T = Interval;
+
+    fn new(ops: &'a mut D) -> Self {
         Self(ops)
     }
 
     fn build_entry_point(
-        ops: &'a mut VecAssembler<arch::Relocation>,
+        ops: &'a mut D,
         slot_count: usize,
         _choice_array_size: usize,
     ) -> usize {
         let offset = ops.offset().0;
-        let mem_offset = arch::function_entry::<[f32; 2], _>(ops, slot_count);
+        let mem_offset = Self::function_entry(ops, slot_count);
         let out_reg = 0;
         dynasm!(ops
             // Arguments are passed in S0-5; collect them into V0-1
@@ -68,14 +69,14 @@ impl<'a> AssemblerT<'a> for IntervalAssembler<'a> {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(src_mem);
+        let sp_offset = Self::stack_pos(src_mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0 ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(dst_mem);
+        let sp_offset = Self::stack_pos(dst_mem);
         assert!(sp_offset <= 32768);
         dynasm!(self.0 ; str D(reg(src_reg)), [sp, #(sp_offset)])
     }

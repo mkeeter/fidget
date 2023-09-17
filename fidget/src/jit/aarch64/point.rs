@@ -6,11 +6,7 @@ use crate::{
     },
     vm::ChoiceIndex,
 };
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, VecAssembler};
-
-fn stack_pos(slot: u32) -> u32 {
-    arch::stack_pos::<f32>(slot)
-}
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Implementation for the single-point assembler on `aarch64`
 ///
@@ -25,18 +21,22 @@ fn stack_pos(slot: u32) -> u32 {
 /// | `vars`     | `x1`     | `*const f32` (array)  |
 /// | `choices`  | `x2`     | `*const u8` (array)   |
 /// | `simplify` | `x3`     | `*const u32` (single) |
-impl<'a> AssemblerT<'a> for PointAssembler<'a> {
-    fn new(ops: &'a mut VecAssembler<arch::Relocation>) -> Self {
+impl<'a, D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>>
+    AssemblerT<'a, D> for PointAssembler<'a, D>
+{
+    type T = f32;
+
+    fn new(ops: &'a mut D) -> Self {
         Self(ops)
     }
 
     fn build_entry_point(
-        ops: &'a mut VecAssembler<arch::Relocation>,
+        ops: &'a mut D,
         slot_count: usize,
         _choice_array_size: usize,
     ) -> usize {
         let offset = ops.offset().0;
-        let mem_offset = arch::function_entry::<f32, _>(ops, slot_count);
+        let mem_offset = Self::function_entry(ops, slot_count);
         let out_reg = 0;
         dynasm!(ops
             // Jump into threaded code
@@ -54,7 +54,7 @@ impl<'a> AssemblerT<'a> for PointAssembler<'a> {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT || reg(dst_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(src_mem);
+        let sp_offset = Self::stack_pos(src_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0 ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
     }
@@ -62,7 +62,7 @@ impl<'a> AssemblerT<'a> for PointAssembler<'a> {
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!(src_reg < REGISTER_LIMIT || reg(src_reg) == SCRATCH_REG as u32);
-        let sp_offset = stack_pos(dst_mem);
+        let sp_offset = Self::stack_pos(dst_mem);
         assert!(sp_offset <= 16384);
         dynasm!(self.0 ; str S(reg(src_reg)), [sp, #(sp_offset)])
     }

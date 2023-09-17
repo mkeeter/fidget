@@ -1,9 +1,6 @@
-use crate::jit::{arch, arch::float_slice::SIMD_WIDTH, JitEval, SimdType};
-use dynasmrt::VecAssembler;
+use crate::jit::{arch::float_slice::SIMD_WIDTH, JitEval, SimdType};
 
-pub struct FloatSliceAssembler<'a>(
-    pub(crate) &'a mut VecAssembler<arch::Relocation>,
-);
+pub struct FloatSliceAssembler<'a, D>(pub(crate) &'a mut D);
 
 impl SimdType for *const f32 {
     const SIMD_SIZE: usize = SIMD_WIDTH;
