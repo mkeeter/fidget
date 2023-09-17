@@ -531,25 +531,25 @@ trait GetPointer<T> {
 
 impl GetPointer<f32> for MmapOffsets {
     fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
-        mmap.as_slice().as_ptr().wrapping_add(self.point) as *const c_void
+        mmap.as_ptr().wrapping_add(self.point) as *const c_void
     }
 }
 
 impl GetPointer<Interval> for MmapOffsets {
     fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
-        mmap.as_slice().as_ptr().wrapping_add(self.interval) as *const c_void
+        mmap.as_ptr().wrapping_add(self.interval) as *const c_void
     }
 }
 
 impl GetPointer<*const f32> for MmapOffsets {
     fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
-        mmap.as_slice().as_ptr().wrapping_add(self.float_slice) as *const c_void
+        mmap.as_ptr().wrapping_add(self.float_slice) as *const c_void
     }
 }
 
 impl GetPointer<*const Grad> for MmapOffsets {
     fn get_pointer(&self, mmap: &Mmap) -> *const c_void {
-        mmap.as_slice().as_ptr().wrapping_add(self.grad_slice) as *const c_void
+        mmap.as_ptr().wrapping_add(self.grad_slice) as *const c_void
     }
 }
 
@@ -767,7 +767,6 @@ where
             t.data()
                 .data
                 .mmap
-                .as_slice()
                 .as_ptr()
                 .wrapping_add(t.data().data.ret_offset) as *const _,
         );

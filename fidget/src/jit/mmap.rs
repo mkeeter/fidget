@@ -66,31 +66,8 @@ impl Mmap {
     }
 
     #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    #[inline(always)]
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.len) }
-    }
-
-    /// Writes to the given offset in the memory map
-    ///
-    /// # Panics
-    /// If `index >= self.len`
-    #[inline(always)]
-    pub fn write(&mut self, index: usize, byte: u8) {
-        assert!(index < self.len);
-        unsafe {
-            *(self.ptr as *mut u8).add(index) = byte;
-        }
-    }
-
-    /// Treats the memory-mapped data as a slice
-    #[inline(always)]
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
     }
 
     /// Returns the inner pointer
@@ -130,44 +107,23 @@ impl Mmap {
         }
         macos::ThreadWriteGuard
     }
-
-    /// Modifies the region's W^X state to allow writing
-    ///
-    /// This is only relevant on Linux and is a no-op on MacOS
-    pub fn make_write(&self) {
-        // Nothing to do here
-    }
 }
 
 #[cfg(target_os = "linux")]
 impl Mmap {
-    #[cfg(feature = "write-xor-execute")]
     pub const MMAP_PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
-
-    #[cfg(not(feature = "write-xor-execute"))]
-    pub const MMAP_PROT: i32 =
-        libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC;
 
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
 
     /// Flushes caches and remaps to an executable binding
     ///
-    /// The former is a no-op on systems with coherent D/I-caches (i.e. x86);
-    /// the latter is a no-op if the `write-xor-execute` feature is not enabled.
+    /// The former is a no-op on systems with coherent D/I-caches (i.e. x86).
     pub fn finalize(&self, size: usize) {
         self.flush_cache(size);
 
-        // This is deliberately done as a cfg! conditional (instead of #[cfg]),
-        // so that the code is type-checked even if the feature is disabled.
-        if cfg!(feature = "write-xor-execute") {
-            unsafe {
-                libc::mprotect(
-                    self.ptr,
-                    size,
-                    libc::PROT_READ | libc::PROT_EXEC,
-                );
-            }
+        unsafe {
+            libc::mprotect(self.ptr, size, libc::PROT_READ | libc::PROT_EXEC);
         }
     }
 
@@ -227,21 +183,6 @@ impl Mmap {
     /// This is only relevant on macOS and is a no-op on Linux.
     pub fn thread_mode_write() {
         // Nothing to do here
-    }
-
-    /// Modifies the region's W^X state to allow writing
-    ///
-    /// This is a no-op if the `write-xor-execute` feature is not enabled.
-    pub fn make_write(&self) {
-        if cfg!(feature = "write-xor-execute") {
-            unsafe {
-                libc::mprotect(
-                    self.ptr,
-                    self.len,
-                    libc::PROT_READ | libc::PROT_WRITE,
-                );
-            }
-        }
     }
 }
 
