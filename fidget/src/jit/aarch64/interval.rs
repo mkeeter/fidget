@@ -545,19 +545,6 @@ impl<D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>> AssemblerT<D>
         );
     }
 
-    fn build_max_mem_reg_choice(
-        ops: &mut D,
-        mem: u32,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
-        let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
-        Self::build_load(ops, lhs, mem);
-        Self::build_max_reg_reg_choice(ops, lhs, arg, choice);
-        Self::build_store(ops, mem, lhs);
-    }
-
     fn build_copy_reg_reg_choice(
         ops: &mut D,
         out: u8,
