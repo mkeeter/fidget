@@ -231,39 +231,6 @@ impl<D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>> AssemblerT<D>
         );
     }
 
-    fn build_min_mem_reg_choice(
-        ops: &mut D,
-        mem: u32,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
-        let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
-        Self::build_load(ops, lhs, mem);
-        Self::build_min_reg_reg_choice(ops, lhs, arg, choice);
-        Self::build_store(ops, mem, lhs);
-    }
-
-    fn build_min_mem_imm_choice(
-        ops: &mut D,
-        mem: u32,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_min_mem_reg_choice(ops, mem, rhs, choice);
-    }
-
-    fn build_min_reg_imm_choice(
-        ops: &mut D,
-        reg: u8,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_min_reg_reg_choice(ops, reg, rhs, choice);
-    }
-
     fn build_max_reg_reg_choice(
         ops: &mut D,
         inout_reg: u8,
@@ -325,39 +292,6 @@ impl<D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>> AssemblerT<D>
         );
     }
 
-    fn build_max_mem_reg_choice(
-        ops: &mut D,
-        mem: u32,
-        arg: u8,
-        choice: ChoiceIndex,
-    ) {
-        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
-        let lhs = 6u8.wrapping_sub(OFFSET);
-        Self::build_load(ops, lhs, mem);
-        Self::build_max_reg_reg_choice(ops, lhs, arg, choice);
-        Self::build_store(ops, mem, lhs);
-    }
-
-    fn build_max_mem_imm_choice(
-        ops: &mut D,
-        mem: u32,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_max_mem_reg_choice(ops, mem, rhs, choice);
-    }
-
-    fn build_max_reg_imm_choice(
-        ops: &mut D,
-        reg: u8,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_max_reg_reg_choice(ops, reg, rhs, choice);
-    }
-
     fn build_copy_reg_reg_choice(
         ops: &mut D,
         out: u8,
@@ -371,26 +305,6 @@ impl<D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>> AssemblerT<D>
             ; mov w15, #3
             ; strb w15, [x2, #i]
         );
-    }
-
-    fn build_copy_imm_reg_choice(
-        ops: &mut D,
-        out: u8,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_copy_reg_reg_choice(ops, out, rhs, choice);
-    }
-
-    fn build_copy_imm_mem_choice(
-        ops: &mut D,
-        out: u32,
-        imm: f32,
-        choice: ChoiceIndex,
-    ) {
-        let rhs = Self::load_imm(ops, imm);
-        Self::build_copy_reg_mem_choice(ops, out, rhs, choice);
     }
 
     fn build_copy_reg_mem_choice(

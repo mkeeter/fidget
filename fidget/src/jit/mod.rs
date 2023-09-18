@@ -198,6 +198,7 @@ pub trait AssemblerT<
         let imm = Self::load_imm(ops, imm);
         Self::build_add(ops, out_reg, lhs_reg, imm);
     }
+
     /// Builds a subtraction (immediate − register)
     ///
     /// This has a default implementation, but can be overloaded for efficiency
@@ -205,6 +206,7 @@ pub trait AssemblerT<
         let imm = Self::load_imm(ops, imm);
         Self::build_sub(ops, out_reg, imm, arg);
     }
+
     /// Builds a subtraction (register − immediate)
     ///
     /// This has a default implementation, but can be overloaded for efficiency
@@ -212,6 +214,7 @@ pub trait AssemblerT<
         let imm = Self::load_imm(ops, imm);
         Self::build_sub(ops, out_reg, arg, imm);
     }
+
     /// Builds a multiplication (register × immediate)
     ///
     /// This has a default implementation, but can be overloaded for efficiency
@@ -229,7 +232,10 @@ pub trait AssemblerT<
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_min_mem_reg_choice(ops, mem, rhs, choice);
+    }
 
     /// `max` operation with an `inout` memory address, immediate, and choice
     fn build_max_mem_imm_choice(
@@ -237,7 +243,10 @@ pub trait AssemblerT<
         mem: u32,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_max_mem_reg_choice(ops, mem, rhs, choice);
+    }
 
     /// `min` operation with an `inout` register, immediate, and choice
     fn build_min_reg_imm_choice(
@@ -245,7 +254,10 @@ pub trait AssemblerT<
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_min_reg_reg_choice(ops, reg, rhs, choice);
+    }
 
     /// `max` operation with an `inout` register, immediate, and choice
     fn build_max_reg_imm_choice(
@@ -253,7 +265,10 @@ pub trait AssemblerT<
         reg: u8,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_max_reg_reg_choice(ops, reg, rhs, choice);
+    }
 
     /// `min` operation with an `inout` memory address, register, and choice
     fn build_min_mem_reg_choice(
@@ -261,7 +276,13 @@ pub trait AssemblerT<
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
-    );
+    ) {
+        // V6 doesn't conflict with registers used in `build_min_reg_reg_choice`
+        let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
+        Self::build_load(ops, lhs, mem);
+        Self::build_min_reg_reg_choice(ops, lhs, arg, choice);
+        Self::build_store(ops, mem, lhs);
+    }
 
     /// `max` operation with an `inout` memory address, register, and choice
     fn build_max_mem_reg_choice(
@@ -269,9 +290,18 @@ pub trait AssemblerT<
         mem: u32,
         arg: u8,
         choice: ChoiceIndex,
-    );
+    ) {
+        // V6 doesn't conflict with registers used in `build_max_reg_reg_choice`
+        let lhs = SCRATCH_REG.wrapping_sub(OFFSET);
+        Self::build_load(ops, lhs, mem);
+        Self::build_max_reg_reg_choice(ops, lhs, arg, choice);
+        Self::build_store(ops, mem, lhs);
+    }
 
     /// `min` operation with an `inout` and argument register, and choice
+    ///
+    /// Note that this cannot use [`SCRATCH_REG`], which may be the `reg`
+    /// argument (if this operation is being called by a `mem` function)
     fn build_min_reg_reg_choice(
         ops: &mut D,
         reg: u8,
@@ -280,6 +310,9 @@ pub trait AssemblerT<
     );
 
     /// `max` operation with an `inout` and argument register, and choice
+    ///
+    /// Note that this cannot use [`SCRATCH_REG`], which may be the `reg`
+    /// argument (if this operation is being called by a `mem` function)
     fn build_max_reg_reg_choice(
         ops: &mut D,
         reg: u8,
@@ -293,7 +326,10 @@ pub trait AssemblerT<
         out: u8,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_copy_reg_reg_choice(ops, out, rhs, choice);
+    }
 
     /// Copy an immediate to a memory address and set the given choice bit
     fn build_copy_imm_mem_choice(
@@ -301,7 +337,10 @@ pub trait AssemblerT<
         out: u32,
         imm: f32,
         choice: ChoiceIndex,
-    );
+    ) {
+        let rhs = Self::load_imm(ops, imm);
+        Self::build_copy_reg_mem_choice(ops, out, rhs, choice);
+    }
 
     /// Copy a register to a register and set the given choice bit
     fn build_copy_reg_reg_choice(
@@ -318,6 +357,135 @@ pub trait AssemblerT<
         arg: u8,
         choice: ChoiceIndex,
     );
+
+    /// Build an assembly snippet for the given function
+    ///
+    /// `t` is expected to be in reverse-evaluation order
+    fn assemble(ops: &mut D, t: &[Op]) -> usize {
+        let out = ops.offset().0;
+        for &op in t.iter().rev() {
+            match op {
+                Op::Load { reg, mem } => {
+                    Self::build_load(ops, reg, mem);
+                }
+                Op::Store { reg, mem } => {
+                    Self::build_store(ops, mem, reg);
+                }
+                Op::Input { out, input } => {
+                    Self::build_input(ops, out, input);
+                }
+                Op::Var { out, var } => {
+                    Self::build_var(ops, out, var);
+                }
+                Op::NegReg { out, arg } => {
+                    Self::build_neg(ops, out, arg);
+                }
+                Op::AbsReg { out, arg } => {
+                    Self::build_abs(ops, out, arg);
+                }
+                Op::RecipReg { out, arg } => {
+                    Self::build_recip(ops, out, arg);
+                }
+                Op::SqrtReg { out, arg } => {
+                    Self::build_sqrt(ops, out, arg);
+                }
+                Op::CopyReg { out, arg } => {
+                    Self::build_copy(ops, out, arg);
+                }
+                Op::SquareReg { out, arg } => {
+                    Self::build_square(ops, out, arg);
+                }
+                Op::AddRegReg { out, lhs, rhs } => {
+                    Self::build_add(ops, out, lhs, rhs);
+                }
+                Op::MulRegReg { out, lhs, rhs } => {
+                    Self::build_mul(ops, out, lhs, rhs);
+                }
+                Op::DivRegReg { out, lhs, rhs } => {
+                    Self::build_div(ops, out, lhs, rhs);
+                }
+                Op::SubRegReg { out, lhs, rhs } => {
+                    Self::build_sub(ops, out, lhs, rhs);
+                }
+                Op::MinRegReg { out, lhs, rhs } => {
+                    Self::build_min(ops, out, lhs, rhs);
+                }
+                Op::MaxRegReg { out, lhs, rhs } => {
+                    Self::build_max(ops, out, lhs, rhs);
+                }
+                Op::AddRegImm { out, arg, imm } => {
+                    Self::build_add_imm(ops, out, arg, imm);
+                }
+                Op::MulRegImm { out, arg, imm } => {
+                    Self::build_mul_imm(ops, out, arg, imm);
+                }
+                Op::DivRegImm { out, arg, imm } => {
+                    let reg = Self::load_imm(ops, imm);
+                    Self::build_div(ops, out, arg, reg);
+                }
+                Op::DivImmReg { out, arg, imm } => {
+                    let reg = Self::load_imm(ops, imm);
+                    Self::build_div(ops, out, reg, arg);
+                }
+                Op::SubImmReg { out, arg, imm } => {
+                    Self::build_sub_imm_reg(ops, out, arg, imm);
+                }
+                Op::SubRegImm { out, arg, imm } => {
+                    Self::build_sub_reg_imm(ops, out, arg, imm);
+                }
+                Op::MinRegImm { out, arg, imm } => {
+                    let reg = Self::load_imm(ops, imm);
+                    Self::build_min(ops, out, arg, reg);
+                }
+                Op::MaxRegImm { out, arg, imm } => {
+                    let reg = Self::load_imm(ops, imm);
+                    Self::build_max(ops, out, arg, reg);
+                }
+                Op::MaxMemImmChoice { mem, imm, choice } => {
+                    Self::build_max_mem_imm_choice(ops, mem, imm, choice);
+                }
+                Op::MinMemImmChoice { mem, imm, choice } => {
+                    Self::build_min_mem_imm_choice(ops, mem, imm, choice);
+                }
+                Op::MaxMemRegChoice { mem, arg, choice } => {
+                    Self::build_max_mem_reg_choice(ops, mem, arg, choice);
+                }
+                Op::MinMemRegChoice { mem, arg, choice } => {
+                    Self::build_min_mem_reg_choice(ops, mem, arg, choice);
+                }
+                Op::MaxRegRegChoice { reg, arg, choice } => {
+                    Self::build_max_reg_reg_choice(ops, reg, arg, choice);
+                }
+                Op::MinRegRegChoice { reg, arg, choice } => {
+                    Self::build_min_reg_reg_choice(ops, reg, arg, choice);
+                }
+                Op::MaxRegImmChoice { reg, imm, choice } => {
+                    Self::build_max_reg_imm_choice(ops, reg, imm, choice);
+                }
+                Op::MinRegImmChoice { reg, imm, choice } => {
+                    Self::build_min_reg_imm_choice(ops, reg, imm, choice);
+                }
+                Op::CopyImmRegChoice { out, imm, choice } => {
+                    Self::build_copy_imm_reg_choice(ops, out, imm, choice);
+                }
+                Op::CopyImmMemChoice { out, imm, choice } => {
+                    Self::build_copy_imm_mem_choice(ops, out, imm, choice);
+                }
+                Op::CopyRegRegChoice { out, arg, choice } => {
+                    Self::build_copy_reg_reg_choice(ops, out, arg, choice);
+                }
+                Op::CopyRegMemChoice { out, arg, choice } => {
+                    Self::build_copy_reg_mem_choice(ops, out, arg, choice);
+                }
+                Op::CopyImm { out, imm } => {
+                    let reg = Self::load_imm(ops, imm);
+                    Self::build_copy(ops, out, reg);
+                }
+            }
+        }
+        arch::build_jump(ops);
+        out
+    }
 }
 
 /// Trait defining SIMD width
@@ -330,141 +498,6 @@ pub trait SimdType {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/// Build an assembly snippet for the given function
-///
-/// `t` is expected to be in reverse-evaluation order
-fn build_asm_fn<
-    A: AssemblerT<D>,
-    D: DynasmApi + DynasmLabelApi<Relocation = arch::Relocation>,
->(
-    ops: &mut D,
-    t: &[Op],
-) -> usize {
-    let out = ops.offset().0;
-    for &op in t.iter().rev() {
-        match op {
-            Op::Load { reg, mem } => {
-                A::build_load(ops, reg, mem);
-            }
-            Op::Store { reg, mem } => {
-                A::build_store(ops, mem, reg);
-            }
-            Op::Input { out, input } => {
-                A::build_input(ops, out, input);
-            }
-            Op::Var { out, var } => {
-                A::build_var(ops, out, var);
-            }
-            Op::NegReg { out, arg } => {
-                A::build_neg(ops, out, arg);
-            }
-            Op::AbsReg { out, arg } => {
-                A::build_abs(ops, out, arg);
-            }
-            Op::RecipReg { out, arg } => {
-                A::build_recip(ops, out, arg);
-            }
-            Op::SqrtReg { out, arg } => {
-                A::build_sqrt(ops, out, arg);
-            }
-            Op::CopyReg { out, arg } => {
-                A::build_copy(ops, out, arg);
-            }
-            Op::SquareReg { out, arg } => {
-                A::build_square(ops, out, arg);
-            }
-            Op::AddRegReg { out, lhs, rhs } => {
-                A::build_add(ops, out, lhs, rhs);
-            }
-            Op::MulRegReg { out, lhs, rhs } => {
-                A::build_mul(ops, out, lhs, rhs);
-            }
-            Op::DivRegReg { out, lhs, rhs } => {
-                A::build_div(ops, out, lhs, rhs);
-            }
-            Op::SubRegReg { out, lhs, rhs } => {
-                A::build_sub(ops, out, lhs, rhs);
-            }
-            Op::MinRegReg { out, lhs, rhs } => {
-                A::build_min(ops, out, lhs, rhs);
-            }
-            Op::MaxRegReg { out, lhs, rhs } => {
-                A::build_max(ops, out, lhs, rhs);
-            }
-            Op::AddRegImm { out, arg, imm } => {
-                A::build_add_imm(ops, out, arg, imm);
-            }
-            Op::MulRegImm { out, arg, imm } => {
-                A::build_mul_imm(ops, out, arg, imm);
-            }
-            Op::DivRegImm { out, arg, imm } => {
-                let reg = A::load_imm(ops, imm);
-                A::build_div(ops, out, arg, reg);
-            }
-            Op::DivImmReg { out, arg, imm } => {
-                let reg = A::load_imm(ops, imm);
-                A::build_div(ops, out, reg, arg);
-            }
-            Op::SubImmReg { out, arg, imm } => {
-                A::build_sub_imm_reg(ops, out, arg, imm);
-            }
-            Op::SubRegImm { out, arg, imm } => {
-                A::build_sub_reg_imm(ops, out, arg, imm);
-            }
-            Op::MinRegImm { out, arg, imm } => {
-                let reg = A::load_imm(ops, imm);
-                A::build_min(ops, out, arg, reg);
-            }
-            Op::MaxRegImm { out, arg, imm } => {
-                let reg = A::load_imm(ops, imm);
-                A::build_max(ops, out, arg, reg);
-            }
-            Op::MaxMemImmChoice { mem, imm, choice } => {
-                A::build_max_mem_imm_choice(ops, mem, imm, choice);
-            }
-            Op::MinMemImmChoice { mem, imm, choice } => {
-                A::build_min_mem_imm_choice(ops, mem, imm, choice);
-            }
-            Op::MaxMemRegChoice { mem, arg, choice } => {
-                A::build_max_mem_reg_choice(ops, mem, arg, choice);
-            }
-            Op::MinMemRegChoice { mem, arg, choice } => {
-                A::build_min_mem_reg_choice(ops, mem, arg, choice);
-            }
-            Op::MaxRegRegChoice { reg, arg, choice } => {
-                A::build_max_reg_reg_choice(ops, reg, arg, choice);
-            }
-            Op::MinRegRegChoice { reg, arg, choice } => {
-                A::build_min_reg_reg_choice(ops, reg, arg, choice);
-            }
-            Op::MaxRegImmChoice { reg, imm, choice } => {
-                A::build_max_reg_imm_choice(ops, reg, imm, choice);
-            }
-            Op::MinRegImmChoice { reg, imm, choice } => {
-                A::build_min_reg_imm_choice(ops, reg, imm, choice);
-            }
-            Op::CopyImmRegChoice { out, imm, choice } => {
-                A::build_copy_imm_reg_choice(ops, out, imm, choice);
-            }
-            Op::CopyImmMemChoice { out, imm, choice } => {
-                A::build_copy_imm_mem_choice(ops, out, imm, choice);
-            }
-            Op::CopyRegRegChoice { out, arg, choice } => {
-                A::build_copy_reg_reg_choice(ops, out, arg, choice);
-            }
-            Op::CopyRegMemChoice { out, arg, choice } => {
-                A::build_copy_reg_mem_choice(ops, out, arg, choice);
-            }
-            Op::CopyImm { out, imm } => {
-                let reg = A::load_imm(ops, imm);
-                A::build_copy(ops, out, reg);
-            }
-        }
-    }
-    arch::build_jump(ops);
-    out
-}
 
 /// Container for a bunch of JIT code
 pub struct MmapOffsets {
@@ -563,7 +596,7 @@ impl Family for Eval {
         );
         let mut points = vec![];
         for t in tapes {
-            points.push(build_asm_fn::<point::PointAssembler, _>(
+            points.push(point::PointAssembler::assemble(
                 &mut data,
                 t.tape.as_slice(),
             ));
@@ -576,7 +609,7 @@ impl Family for Eval {
         );
         let mut intervals = vec![];
         for t in tapes {
-            intervals.push(build_asm_fn::<interval::IntervalAssembler, _>(
+            intervals.push(interval::IntervalAssembler::assemble(
                 &mut data,
                 t.tape.as_slice(),
             ));
@@ -589,10 +622,10 @@ impl Family for Eval {
         );
         let mut float_slices = vec![];
         for t in tapes {
-            float_slices.push(build_asm_fn::<
-                float_slice::FloatSliceAssembler,
-                _,
-            >(&mut data, t.tape.as_slice()));
+            float_slices.push(float_slice::FloatSliceAssembler::assemble(
+                &mut data,
+                t.tape.as_slice(),
+            ));
         }
 
         let grad_slice = grad_slice::GradSliceAssembler::build_entry_point(
@@ -602,12 +635,10 @@ impl Family for Eval {
         );
         let mut grad_slices = vec![];
         for t in tapes {
-            grad_slices.push(
-                build_asm_fn::<grad_slice::GradSliceAssembler, _>(
-                    &mut data,
-                    t.tape.as_slice(),
-                ),
-            );
+            grad_slices.push(grad_slice::GradSliceAssembler::assemble(
+                &mut data,
+                t.tape.as_slice(),
+            ));
         }
 
         let mut out = vec![];
