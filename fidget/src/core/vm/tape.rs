@@ -110,7 +110,7 @@ impl<F: Family> TapeData<F> {
             .map(|c| c.index)
             .max()
             .map(|i| i + 1)
-            .unwrap_or(0) as usize;
+            .unwrap_or(0);
         let slot_count = data
             .iter()
             .flat_map(|t| t.tape.iter())
@@ -267,9 +267,7 @@ impl<F: Family> Tape<F> {
             let metadata = &data.groups[g];
             let choice_sel = &metadata.choice_mask_range;
             let still_active = choice_sel.is_empty()
-                || choice_sel
-                    .iter()
-                    .any(|c| choices[c.index as usize] & c.mask != 0);
+                || choice_sel.iter().any(|c| choices[c.index] & c.mask != 0);
             if still_active {
                 prev.active_groups.push(g);
             } else {
@@ -298,8 +296,7 @@ impl<F: Family> Tape<F> {
 impl<F: Family> From<TapeData<F>> for Tape<F> {
     fn from(tape: TapeData<F>) -> Self {
         // Initially, all groups are active!
-        let active_groups: Vec<usize> =
-            (0..tape.groups.len()).into_iter().collect();
+        let active_groups: Vec<usize> = (0..tape.groups.len()).collect();
         Self(Arc::new((
             Arc::new(tape),
             TapeSpecialization { active_groups },
