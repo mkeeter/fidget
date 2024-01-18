@@ -203,7 +203,7 @@ impl RenderConfig<2> {
     /// High-level API for rendering shapes in 2D
     ///
     /// Under the hood, this delegates to
-    /// [`fidget::render::render2d`](crate::render::render2d)
+    /// [`fidget::render::render2d`](crate::render::render2d())
     pub fn run<I: Family, M: RenderMode + Sync>(
         &self,
         root: Node,
@@ -219,7 +219,7 @@ impl RenderConfig<3> {
     /// High-level API for rendering shapes in 2D
     ///
     /// Under the hood, this delegates to
-    /// [`fidget::render::render3d`](crate::render::render3d)
+    /// [`fidget::render::render3d`](crate::render::render3d())
     ///
     /// Returns a tuple of heightmap, RGB image.
     pub fn run<I: Family>(

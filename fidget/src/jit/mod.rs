@@ -1,7 +1,7 @@
 //! Compilation down to native machine code
 //!
-//! Users are unlikely to use anything in this module other than [`Eval`](Eval),
-//! which is a [`Family`](Family) of JIT evaluators.
+//! Users are unlikely to use anything in this module other than [`Eval`], which
+//! is a [`Family`] of JIT evaluators.
 //!
 //! ```
 //! use fidget::{rhai::eval, jit};

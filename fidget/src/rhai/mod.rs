@@ -2,8 +2,8 @@
 //!
 //! There are two main ways to use these bindings.
 //!
-//! The simplest option is to call [`eval`](eval), which evaluates a single
-//! expression with pre-defined variables `x`, `y`, `z`.
+//! The simplest option is to call [`eval`], which evaluates a single expression
+//! with pre-defined variables `x`, `y`, `z`.
 //!
 //! ```
 //! use fidget::{vm, rhai::eval};
