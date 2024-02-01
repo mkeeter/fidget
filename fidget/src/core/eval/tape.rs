@@ -9,7 +9,7 @@ use crate::{
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Light-weight handle for tape data, which deferences to
-/// [`Data`](Data).
+/// [`Data`].
 ///
 /// This can be passed by value and cloned.
 ///
