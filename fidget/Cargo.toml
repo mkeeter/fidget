@@ -27,7 +27,7 @@ libc = { version = "0.2", optional = true }
 rhai = { version = "1.10", optional = true, features = ["sync"] }
 
 # Render
-nalgebra = { version = "0.31", optional = true }
+nalgebra = { version = "0.31" }
 
 # Meshing
 crossbeam-deque = { version = "0.8", optional = true }
@@ -48,10 +48,10 @@ jit = ["dep:dynasmrt", "dep:libc"]
 rhai = ["dep:rhai"]
 
 ## Enable 2D and 3D rendering, in the [`fidget::render`](crate::render) module
-render = ["dep:nalgebra"]
+render = []
 
 ## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
-mesh = ["dep:nalgebra", "dep:crossbeam-deque"]
+mesh = ["dep:crossbeam-deque"]
 
 ## Enable `eval-tests` if you're writing your own evaluator family and want to
 ## unit-test it.  When enabled, the crate exports a set of macros to test each
