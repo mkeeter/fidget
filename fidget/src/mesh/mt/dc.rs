@@ -1,7 +1,7 @@
 //! Multithreaded dual contouring
 use super::pool::{QueuePool, ThreadPool};
 use crate::mesh::{
-    cell::{CellIndex, CellVertex},
+    cell::{CellBounds, CellIndex, CellVertex},
     dc::{dc_cell, dc_edge, dc_face, DcBuilder},
     frame::{Frame, XYZ, YZX, ZXY},
     types::{X, Y, Z},
@@ -52,7 +52,7 @@ pub struct DcWorker<'a> {
 }
 
 impl<'a> DcWorker<'a> {
-    pub fn scheduler(octree: &Octree, threads: u8) -> Mesh {
+    pub fn scheduler(octree: &Octree, threads: u8, bounds: CellBounds) -> Mesh {
         let queues = QueuePool::new(threads as usize);
 
         let map = octree
@@ -73,7 +73,7 @@ impl<'a> DcWorker<'a> {
                 verts: vec![],
             })
             .collect::<Vec<_>>();
-        workers[0].queue.push(Task::Cell(CellIndex::default()));
+        workers[0].queue.push(Task::Cell(CellIndex::new(bounds)));
 
         let pool = &ThreadPool::new(threads as usize);
         let out: Vec<_> = std::thread::scope(|s| {

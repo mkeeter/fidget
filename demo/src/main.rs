@@ -250,6 +250,7 @@ fn run_mesh<S: fidget::eval::Shape>(
             threads: settings.threads,
             min_depth: settings.depth,
             max_depth: settings.max_depth.unwrap_or(settings.depth),
+            bounds: fidget::mesh::CellBounds::default(),
         };
         let octree = fidget::mesh::Octree::build(&shape, settings);
         mesh = octree.walk_dual(settings);

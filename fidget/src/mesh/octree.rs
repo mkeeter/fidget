@@ -124,15 +124,13 @@ impl Octree {
         out
     }
 
-    /// Builds an octree to the given depth
-    ///
-    /// The shape is evaluated on the region `[-1, 1]` on all axes
+    /// Builds an octree to the given depth and bounds
     pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
         let mut octree = if settings.threads == 0 {
             let mut out = OctreeBuilder::new();
-            out.recurse(&eval, CellIndex::default(), settings);
+            out.recurse(&eval, CellIndex::new(settings.bounds), settings);
             out.into()
         } else {
             OctreeWorker::scheduler(eval.clone(), settings)
@@ -145,7 +143,7 @@ impl Octree {
 
         loop {
             let mut fixup = DcFixup::new(octree.cells.len(), &settings);
-            fixup.cell(&octree, CellIndex::default());
+            fixup.cell(&octree, CellIndex::new(settings.bounds));
             let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
             if num_fix == 0 {
                 break;
@@ -186,7 +184,11 @@ impl Octree {
                 shape_storage: vec![],
                 workspace: Default::default(),
             };
-            b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
+            b.refine(
+                &eval,
+                CellIndex::new(settings.bounds),
+                &fixup.needs_fixing,
+            );
             octree = b.into();
         }
         octree
@@ -197,10 +199,10 @@ impl Octree {
         let mut mesh = MeshBuilder::default();
 
         if settings.threads == 0 {
-            mesh.cell(self, CellIndex::default());
+            mesh.cell(self, CellIndex::new(settings.bounds));
             mesh.take()
         } else {
-            DcWorker::scheduler(self, settings.threads)
+            DcWorker::scheduler(self, settings.threads, settings.bounds)
         }
     }
 
@@ -1346,21 +1348,30 @@ mod test {
     use crate::{
         context::bound::{self, BoundContext, BoundNode},
         eval::{EzShape, MathShape},
-        mesh::types::{Edge, X, Y, Z},
+        mesh::{
+            types::{Edge, X, Y, Z},
+            CellBounds,
+        },
         vm::VmShape,
     };
     use std::collections::BTreeMap;
 
-    const DEPTH0_SINGLE_THREAD: Settings = Settings {
-        min_depth: 0,
-        max_depth: 0,
-        threads: 0,
-    };
-    const DEPTH1_SINGLE_THREAD: Settings = Settings {
-        min_depth: 1,
-        max_depth: 1,
-        threads: 0,
-    };
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref DEPTH0_SINGLE_THREAD: Settings = Settings {
+            min_depth: 0,
+            max_depth: 0,
+            threads: 0,
+            bounds: CellBounds::default(),
+        };
+        static ref DEPTH1_SINGLE_THREAD: Settings = Settings {
+            min_depth: 1,
+            max_depth: 1,
+            threads: 0,
+            bounds: CellBounds::default(),
+        };
+    }
 
     fn sphere(
         ctx: &BoundContext,
@@ -1397,7 +1408,7 @@ mod test {
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
         let shape: VmShape = cube.convert();
-        let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
+        let octree = Octree::build(&shape, *DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
         let v = octree.verts[0].pos;
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
@@ -1450,17 +1461,17 @@ mod test {
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
-        let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
+        let octree = Octree::build(&shape, *DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(Cell::Empty, octree.cells[0].into(),);
         assert_eq!(octree.verts.len(), 0);
 
-        let empty_mesh = octree.walk_dual(DEPTH0_SINGLE_THREAD);
+        let empty_mesh = octree.walk_dual(*DEPTH0_SINGLE_THREAD);
         assert!(empty_mesh.vertices.is_empty());
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
-        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
+        let octree = Octree::build(&shape, *DEPTH1_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
         assert_eq!(
             Cell::Branch {
@@ -1482,7 +1493,7 @@ mod test {
             assert_eq!(index % 4, 0);
         }
 
-        let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
+        let sphere_mesh = octree.walk_dual(*DEPTH1_SINGLE_THREAD);
         assert!(sphere_mesh.vertices.len() > 1);
         assert!(!sphere_mesh.triangles.is_empty());
     }
@@ -1493,8 +1504,8 @@ mod test {
         let shape = sphere(&ctx, [0.0; 3], 0.2);
 
         let shape: VmShape = shape.convert();
-        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
-        let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
+        let octree = Octree::build(&shape, *DEPTH1_SINGLE_THREAD);
+        let sphere_mesh = octree.walk_dual(*DEPTH1_SINGLE_THREAD);
 
         let mut edge_count = 0;
         for v in &sphere_mesh.vertices {
@@ -1536,6 +1547,7 @@ mod test {
                 min_depth: 5,
                 max_depth: 5,
                 threads,
+                bounds: CellBounds::default(),
             };
             let octree = Octree::build(&shape, settings);
             let sphere_mesh = octree.walk_dual(settings);
@@ -1561,8 +1573,8 @@ mod test {
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
         let shape: VmShape = shape.convert();
-        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
-        let mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
+        let octree = Octree::build(&shape, *DEPTH1_SINGLE_THREAD);
+        let mesh = octree.walk_dual(*DEPTH1_SINGLE_THREAD);
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
         for v in &mesh.vertices {
@@ -1611,7 +1623,7 @@ mod test {
                     let (x, y, z) = ctx.axes();
                     let f = x * dx + y * dy + z + offset;
                     let shape: VmShape = f.convert();
-                    let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
+                    let octree = Octree::build(&shape, *DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
                     let pos = octree.verts[0].pos;
@@ -1658,7 +1670,7 @@ mod test {
                 eval.eval(&tape, corner.x, corner.y, corner.z, &[]).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
-            let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
+            let octree = Octree::build(&shape, *DEPTH0_SINGLE_THREAD);
             assert_eq!(octree.cells.len(), 8);
             assert_eq!(octree.verts.len(), 4);
 
@@ -1699,6 +1711,7 @@ mod test {
                     min_depth: 2,
                     max_depth: 2,
                     threads,
+                    bounds: CellBounds::default(),
                 };
                 let octree = Octree::build(&shape, settings);
 
@@ -1729,26 +1742,26 @@ mod test {
             let shape: VmShape = shape.convert();
             let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
-            out.recurse(&eval, CellIndex::default(), settings);
+            out.recurse(&eval, CellIndex::new(settings.bounds), settings);
             out
         }
 
         let shape = sphere(&ctx, [0.0; 3], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, *DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
         let shape = sphere(&ctx, [-1.0; 3], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, *DEPTH1_SINGLE_THREAD);
         assert!(octree.collapsible(8));
 
         let shape = sphere(&ctx, [-1.0, 0.0, 1.0], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, *DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
         let a = sphere(&ctx, [-1.0; 3], 0.1);
         let b = sphere(&ctx, [1.0; 3], 0.1);
         let shape = a.min(b);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(shape, *DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
     }
 
@@ -1763,6 +1776,7 @@ mod test {
                 min_depth: 1,
                 max_depth: 1,
                 threads,
+                bounds: CellBounds::default(),
             };
             let octree = Octree::build(&tape, settings);
             assert_eq!(
@@ -1784,6 +1798,7 @@ mod test {
                 min_depth: 5,
                 max_depth: 5,
                 threads,
+                bounds: CellBounds::default(),
             };
             let octree = Octree::build(&tape, settings);
             let mesh = octree.walk_dual(settings);

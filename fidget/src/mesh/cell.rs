@@ -152,17 +152,11 @@ pub struct CellIndex {
     pub bounds: CellBounds,
 }
 
-impl Default for CellIndex {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CellIndex {
-    pub fn new() -> Self {
+    pub fn new(bounds: CellBounds) -> Self {
         CellIndex {
             index: 0,
-            bounds: CellBounds::default(),
+            bounds,
             depth: 0,
         }
     }
@@ -227,15 +221,15 @@ impl std::ops::Index<Axis> for CellBounds {
 
 impl Default for CellBounds {
     fn default() -> Self {
-        Self::new()
+        let x = Interval::new(-1.0, 1.0);
+        let y = Interval::new(-1.0, 1.0);
+        let z = Interval::new(-1.0, 1.0);
+        Self::new(x, y, z)
     }
 }
 
 impl CellBounds {
-    pub fn new() -> Self {
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
+    pub fn new(x: Interval, y: Interval, z: Interval) -> Self {
         Self { x, y, z }
     }
 

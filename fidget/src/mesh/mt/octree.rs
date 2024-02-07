@@ -6,7 +6,7 @@ use crate::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
         types::Corner,
-        Octree, Settings,
+        CellBounds, Octree, Settings,
     },
 };
 use std::sync::{mpsc::TryRecvError, Arc};
@@ -32,11 +32,11 @@ impl<S: Shape> Task<S> {
     /// Builds a new root task
     ///
     /// The root task is from worker 0 with the default cell index
-    fn new(eval: Arc<EvalGroup<S>>) -> Self {
+    fn new(eval: Arc<EvalGroup<S>>, bounds: CellBounds) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
-                target_cell: CellIndex::default(),
+                target_cell: CellIndex::new(bounds),
                 assigned_by: 0,
                 parent: None,
             }),
@@ -142,13 +142,13 @@ impl<S: Shape> OctreeWorker<S> {
             })
             .collect::<Vec<_>>();
 
-        let root = CellIndex::default();
+        let root = CellIndex::new(settings.bounds);
         let r = workers[0].octree.eval_cell(&eval, root, settings);
         let c = match r {
             CellResult::Done(cell) => Some(cell),
             CellResult::Recurse(eval) => {
                 // Inject the recursive task into worker[0]'s queue
-                workers[0].queue.push(Task::new(eval));
+                workers[0].queue.push(Task::new(eval, settings.bounds));
                 None
             }
         };

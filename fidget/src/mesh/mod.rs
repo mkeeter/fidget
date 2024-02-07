@@ -26,7 +26,12 @@
 //!
 //! let (node, ctx) = fidget::rhai::eval("sphere(0, 0, 0, 0.6).call(x, y, z)")?;
 //! let shape = VmShape::new(&ctx, node)?;
-//! let settings = Settings { threads: 8, min_depth: 4, max_depth: 4 };
+//! let settings = Settings {
+//!     threads: 8,
+//!     min_depth: 4,
+//!     max_depth: 4,
+//!     bounds: Default::default(),
+//! };
 //! let o = Octree::build(&shape, settings);
 //! let mesh = o.walk_dual(settings);
 //!
@@ -51,7 +56,8 @@ mod qef;
 #[doc(hidden)]
 pub mod types;
 
-// Re-export the main Octree type as public
+// Re-export CellBounds and the main Octree type as public
+pub use cell::CellBounds;
 pub use octree::Octree;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -92,4 +98,7 @@ pub struct Settings {
     ///
     /// This is **much slower**.
     pub max_depth: u8,
+
+    /// Bounds to evaluate the octree in
+    pub bounds: CellBounds,
 }

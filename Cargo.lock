@@ -818,6 +818,7 @@ dependencies = [
  "dynasmrt",
  "getrandom",
  "ieee754",
+ "lazy_static",
  "libc",
  "nalgebra",
  "num-derive",
