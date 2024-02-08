@@ -59,7 +59,9 @@ impl DcBuilder for DcFixup {
                     common = Some((axis, 0))
                 }
             }
-            let Some((axis, v)) = common else { panic!("faces do not touch") };
+            let Some((axis, v)) = common else {
+                panic!("faces do not touch")
+            };
             let fa = Face::new((axis.index() * 2 + v).try_into().unwrap());
             let fb = Face::new((axis.index() * 2 + 1 - v).try_into().unwrap());
 
@@ -133,7 +135,9 @@ impl DcBuilder for DcFixup {
                 common = Some((axis, ca.bounds[axis].lower()))
             }
         }
-        let Some((axis, v)) = common else { panic!("faces do not touch") };
+        let Some((axis, v)) = common else {
+            panic!("faces do not touch")
+        };
 
         let dist = (v - va[axis.index()]) / (vb - va).normalize()[axis.index()];
         let hit = va + dist * (vb - va).normalize();

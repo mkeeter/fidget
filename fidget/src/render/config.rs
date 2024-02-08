@@ -1,6 +1,6 @@
 use crate::{
     context::{Context, Node},
-    eval::Family,
+    eval::{Family, Tape},
     render::RenderMode,
     Error,
 };
@@ -210,7 +210,7 @@ impl RenderConfig<2> {
         context: Context,
         mode: &M,
     ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        let tape = context.get_tape(root)?;
+        let tape = Tape::new(&context, root)?;
         Ok(crate::render::render2d::<I, M>(tape, self, mode))
     }
 }
@@ -227,7 +227,7 @@ impl RenderConfig<3> {
         root: Node,
         context: Context,
     ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        let tape = context.get_tape(root)?;
+        let tape = Tape::new(&context, root)?;
         Ok(crate::render::render3d::<I>(tape, self))
     }
 }

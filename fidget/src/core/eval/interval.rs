@@ -45,7 +45,7 @@ pub mod eval_tests {
     use super::*;
     use crate::{
         context::Context,
-        eval::{Choice, Vars},
+        eval::{Choice, Tape, Vars},
     };
 
     pub fn test_interval<I: Family>() {
@@ -53,12 +53,12 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape = ctx.get_tape::<I>(x).unwrap();
+        let tape = Tape::<I>::new(&ctx, x).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_xy([0.0, 1.0], [2.0, 3.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_xy([1.0, 5.0], [2.0, 3.0]), [1.0, 5.0].into());
 
-        let tape = ctx.get_tape::<I>(y).unwrap();
+        let tape = Tape::<I>::new(&ctx, y).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_xy([0.0, 1.0], [2.0, 3.0]), [2.0, 3.0].into());
         assert_eq!(eval.eval_xy([1.0, 5.0], [4.0, 5.0]), [4.0, 5.0].into());
@@ -69,7 +69,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let abs_x = ctx.abs(x).unwrap();
 
-        let tape = ctx.get_tape::<I>(abs_x).unwrap();
+        let tape = Tape::<I>::new(&ctx, abs_x).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x([1.0, 5.0]), [1.0, 5.0].into());
@@ -80,7 +80,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
-        let tape = ctx.get_tape::<I>(sum).unwrap();
+        let tape = Tape::<I>::new(&ctx, sum).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_xy([1.0, 5.0], [-2.0, 3.0]), [1.0, 8.0].into());
@@ -92,7 +92,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let sqrt_x = ctx.sqrt(x).unwrap();
 
-        let tape = ctx.get_tape::<I>(sqrt_x).unwrap();
+        let tape = Tape::<I>::new(&ctx, sqrt_x).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x([0.0, 4.0]), [0.0, 2.0].into());
@@ -113,7 +113,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let sqrt_x = ctx.square(x).unwrap();
 
-        let tape = ctx.get_tape::<I>(sqrt_x).unwrap();
+        let tape = Tape::<I>::new(&ctx, sqrt_x).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x([0.0, 4.0]), [0.0, 16.0].into());
@@ -134,7 +134,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let neg_x = ctx.neg(x).unwrap();
 
-        let tape = ctx.get_tape::<I>(neg_x).unwrap();
+        let tape = Tape::<I>::new(&ctx, neg_x).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [-1.0, 0.0].into());
         assert_eq!(eval.eval_x([0.0, 4.0]), [-4.0, 0.0].into());
@@ -156,7 +156,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let mul = ctx.mul(x, y).unwrap();
 
-        let tape = ctx.get_tape::<I>(mul).unwrap();
+        let tape = Tape::<I>::new(&ctx, mul).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_xy([0.0, 1.0], [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_xy([0.0, 1.0], [0.0, 2.0]), [0.0, 2.0].into());
@@ -187,13 +187,13 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let mul = ctx.mul(x, 2.0).unwrap();
-        let tape = ctx.get_tape::<I>(mul).unwrap();
+        let tape = Tape::<I>::new(&ctx, mul).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_x([1.0, 2.0]), [2.0, 4.0].into());
 
         let mul = ctx.mul(x, -3.0).unwrap();
-        let tape = ctx.get_tape::<I>(mul).unwrap();
+        let tape = Tape::<I>::new(&ctx, mul).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [-3.0, 0.0].into());
         assert_eq!(eval.eval_x([1.0, 2.0]), [-6.0, -3.0].into());
@@ -205,7 +205,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let sub = ctx.sub(x, y).unwrap();
 
-        let tape = ctx.get_tape::<I>(sub).unwrap();
+        let tape = Tape::<I>::new(&ctx, sub).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_xy([0.0, 1.0], [0.0, 1.0]), [-1.0, 1.0].into());
         assert_eq!(eval.eval_xy([0.0, 1.0], [0.0, 2.0]), [-2.0, 1.0].into());
@@ -218,13 +218,13 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let sub = ctx.sub(x, 2.0).unwrap();
-        let tape = ctx.get_tape::<I>(sub).unwrap();
+        let tape = Tape::<I>::new(&ctx, sub).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [-2.0, -1.0].into());
         assert_eq!(eval.eval_x([1.0, 2.0]), [-1.0, 0.0].into());
 
         let sub = ctx.sub(-3.0, x).unwrap();
-        let tape = ctx.get_tape::<I>(sub).unwrap();
+        let tape = Tape::<I>::new(&ctx, sub).unwrap();
         let eval = tape.new_interval_evaluator();
         assert_eq!(eval.eval_x([0.0, 1.0]), [-4.0, -3.0].into());
         assert_eq!(eval.eval_x([1.0, 2.0]), [-5.0, -4.0].into());
@@ -234,7 +234,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
-        let tape = ctx.get_tape::<I>(recip).unwrap();
+        let tape = Tape::<I>::new(&ctx, recip).unwrap();
         let eval = tape.new_interval_evaluator();
 
         let nanan = eval.eval_x([0.0, 1.0]);
@@ -258,7 +258,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
         let div = ctx.div(x, y).unwrap();
-        let tape = ctx.get_tape::<I>(div).unwrap();
+        let tape = Tape::<I>::new(&ctx, div).unwrap();
         let eval = tape.new_interval_evaluator();
 
         let nanan = eval.eval_xy([0.0, 1.0], [-1.0, 1.0]);
@@ -304,7 +304,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let eval = tape.new_interval_evaluator();
         let (r, data) =
             eval.eval([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap();
@@ -341,7 +341,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let eval = tape.new_interval_evaluator();
         let (r, data) = eval.eval([0.0, 1.0], [0.0; 2], [0.0; 2], &[]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
@@ -363,7 +363,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let tape = ctx.get_tape::<I>(max).unwrap();
+        let tape = Tape::<I>::new(&ctx, max).unwrap();
         let eval = tape.new_interval_evaluator();
         let (r, data) =
             eval.eval([0.0, 1.0], [0.5, 1.5], [0.0; 2], &[]).unwrap();
@@ -396,7 +396,7 @@ pub mod eval_tests {
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
-        let tape = ctx.get_tape::<I>(max_xy_z).unwrap();
+        let tape = Tape::<I>::new(&ctx, max_xy_z).unwrap();
         let eval = tape.new_interval_evaluator();
         let (r, data) =
             eval.eval([2.0, 3.0], [0.0, 1.0], [4.0, 5.0], &[]).unwrap();
@@ -419,7 +419,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let eval = tape.new_interval_evaluator();
         let (out, data) =
             eval.eval([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
@@ -437,7 +437,7 @@ pub mod eval_tests {
         assert_eq!(data.unwrap().choices(), &[Choice::Right]);
 
         let max = ctx.max(x, 1.0).unwrap();
-        let tape = ctx.get_tape::<I>(max).unwrap();
+        let tape = Tape::<I>::new(&ctx, max).unwrap();
         let eval = tape.new_interval_evaluator();
         let (out, data) =
             eval.eval([0.0, 2.0], [0.0; 2], [0.0; 2], &[]).unwrap();
@@ -460,7 +460,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let max = ctx.max(x, 1.0).unwrap();
 
-        let tape = ctx.get_tape::<I>(max).unwrap();
+        let tape = Tape::<I>::new(&ctx, max).unwrap();
         let eval = tape.new_interval_evaluator();
         let (r, data) =
             eval.eval([0.0, 2.0], [0.0, 0.0], [0.0, 0.0], &[]).unwrap();
@@ -484,7 +484,7 @@ pub mod eval_tests {
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let mut vars = Vars::new(&tape);
         let eval = tape.new_interval_evaluator();
 

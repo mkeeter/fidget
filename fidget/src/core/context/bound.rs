@@ -143,7 +143,14 @@ impl BoundNode {
 
     /// Converts this node into a tape, using its internal context
     pub fn get_tape<E: Family>(&self) -> Result<Tape<E>, Error> {
-        self.ctx.borrow().get_tape::<E>(self.node)
+        Tape::new(&self.ctx.0.borrow(), self.node)
+    }
+
+    /// Evaluates the node at a particular point
+    ///
+    /// This is very inefficient compared to constructing a proper evaluator!
+    pub fn eval(&self, x: f64, y: f64, z: f64) -> f64 {
+        self.ctx.0.borrow().eval_xyz(self.node, x, y, z).unwrap()
     }
 }
 

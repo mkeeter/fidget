@@ -3,13 +3,15 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::{eval::Family, render::RenderConfig};
+use fidget::{
+    eval::{Family, Tape},
+    render::RenderConfig,
+};
 use log::{debug, error, info};
 use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
 
-use std::{path::Path, error::Error};
-
+use std::{error::Error, path::Path};
 
 #[cfg(feature = "jit")]
 type Eval = fidget::jit::Eval;
@@ -123,8 +125,7 @@ fn render_thread(
             };
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape: fidget::eval::Tape<Eval> =
-                    out.context.get_tape(s.shape).unwrap();
+                let tape = Tape::<Eval>::new(&out.context, s.shape).unwrap();
                 render(
                     &render_config.mode,
                     tape,

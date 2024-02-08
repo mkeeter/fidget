@@ -47,8 +47,8 @@
 pub mod context;
 pub use context::Context;
 
+pub mod compiler;
 pub mod eval;
-pub mod ssa;
 pub mod vm;
 
 #[cfg(test)]
