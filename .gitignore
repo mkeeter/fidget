@@ -1,4 +1,5 @@
 /target
+/local
 Cargo.lock
 *.dot
 *.pdf
