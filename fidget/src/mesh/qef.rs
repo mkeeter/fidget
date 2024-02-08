@@ -68,7 +68,7 @@ impl QuadraticErrorSolver {
         // This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.
-        let center = nalgebra::Vector3::zeros(); //self.mass_point.xyz() / self.mass_point.w as f32;
+        let center = self.mass_point.xyz() / self.mass_point.w;
         let atb = self.atb - self.ata * center;
 
         let svd = nalgebra::linalg::SVD::new(self.ata, true, true);
