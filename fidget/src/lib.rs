@@ -57,10 +57,10 @@
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Context::get_tape`](crate::Context::get_tape):
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{eval::Tape, rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
 //! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -74,8 +74,8 @@
 //! ```
 //!
 //! The `Tape` is parameterized by a particular
-//! [evaluator family](crate::eval::Family); in `ctx.get_tape::<vm::Eval>(...)`,
-//! the associated family is `vm::Eval`.
+//! [evaluator family](crate::eval::Family);
+//! in `Tape::<vm::Eval>::new(&ctx, ...)`, the associated family is `vm::Eval`.
 //!
 //! (Parameterizing the tape is required because different evaluator families
 //! have different numbers of [available
@@ -110,10 +110,10 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{eval::Tape, rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, _) = interval_eval.eval(
 //!         [0.0, 1.0], // X
@@ -134,10 +134,10 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{rhai::eval, vm};
+//! use fidget::{eval::Tape, rhai::eval, vm};
 //!
 //! let (sum, ctx) = eval("min(x, y)")?;
-//! let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
 //! let mut interval_eval = tape.new_interval_evaluator();
 //! let (out, simplify) = interval_eval.eval(
 //!         [0.0, 1.0], // X
@@ -159,9 +159,9 @@
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
-//! # use fidget::{rhai::eval, vm};
+//! # use fidget::{eval::Tape, rhai::eval, vm};
 //! # let (sum, ctx) = eval("min(x, y)")?;
-//! # let tape = ctx.get_tape::<vm::Eval>(sum)?;
+//! # let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
 //! # let mut interval_eval = tape.new_interval_evaluator();
 //! # let (out, simplify) = interval_eval.eval(
 //! #         [0.0, 1.0], // X

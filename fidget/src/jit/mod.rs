@@ -4,10 +4,10 @@
 //! is a [`Family`] of JIT evaluators.
 //!
 //! ```
-//! use fidget::{rhai::eval, jit};
+//! use fidget::{rhai::eval, jit, eval::Tape};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<jit::Eval>(sum)?;
+//! let tape = Tape::<jit::Eval>::new(&ctx, sum)?;
 //!
 //! // Generate machine code to execute the tape
 //! let mut eval = tape.new_point_evaluator();
