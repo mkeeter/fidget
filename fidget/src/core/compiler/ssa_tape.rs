@@ -311,9 +311,6 @@ impl SsaTape {
                 SsaOp::CopyImm(out, imm) => {
                     println!("${out} = COPY {imm}");
                 }
-                SsaOp::Load(..) | SsaOp::Store(..) => {
-                    panic!("invalid op for SSA tape: {op:?}")
-                }
             }
         }
     }

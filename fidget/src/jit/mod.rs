@@ -18,7 +18,7 @@
 //! ```
 
 use crate::{
-    compiler::RegOp,
+    compiler::{RegOp, TapeOp},
     eval::{
         bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
         Choice, EvaluatorStorage, Family, Tape,
@@ -596,77 +596,77 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
             RegOp::Store(reg, mem) => {
                 asm.build_store(mem, reg);
             }
-            RegOp::Input(out, i) => {
+            RegOp::Reg(TapeOp::Input(out, i)) => {
                 asm.build_input(out, i);
             }
-            RegOp::Var(out, i) => {
+            RegOp::Reg(TapeOp::Var(out, i)) => {
                 asm.build_var(out, i);
             }
-            RegOp::NegReg(out, arg) => {
+            RegOp::Reg(TapeOp::NegReg(out, arg)) => {
                 asm.build_neg(out, arg);
             }
-            RegOp::AbsReg(out, arg) => {
+            RegOp::Reg(TapeOp::AbsReg(out, arg)) => {
                 asm.build_abs(out, arg);
             }
-            RegOp::RecipReg(out, arg) => {
+            RegOp::Reg(TapeOp::RecipReg(out, arg)) => {
                 asm.build_recip(out, arg);
             }
-            RegOp::SqrtReg(out, arg) => {
+            RegOp::Reg(TapeOp::SqrtReg(out, arg)) => {
                 asm.build_sqrt(out, arg);
             }
-            RegOp::CopyReg(out, arg) => {
+            RegOp::Reg(TapeOp::CopyReg(out, arg)) => {
                 asm.build_copy(out, arg);
             }
-            RegOp::SquareReg(out, arg) => {
+            RegOp::Reg(TapeOp::SquareReg(out, arg)) => {
                 asm.build_square(out, arg);
             }
-            RegOp::AddRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::AddRegReg(out, lhs, rhs)) => {
                 asm.build_add(out, lhs, rhs);
             }
-            RegOp::MulRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::MulRegReg(out, lhs, rhs)) => {
                 asm.build_mul(out, lhs, rhs);
             }
-            RegOp::DivRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::DivRegReg(out, lhs, rhs)) => {
                 asm.build_div(out, lhs, rhs);
             }
-            RegOp::SubRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::SubRegReg(out, lhs, rhs)) => {
                 asm.build_sub(out, lhs, rhs);
             }
-            RegOp::MinRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::MinRegReg(out, lhs, rhs)) => {
                 asm.build_min(out, lhs, rhs);
             }
-            RegOp::MaxRegReg(out, lhs, rhs) => {
+            RegOp::Reg(TapeOp::MaxRegReg(out, lhs, rhs)) => {
                 asm.build_max(out, lhs, rhs);
             }
-            RegOp::AddRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::AddRegImm(out, arg, imm)) => {
                 asm.build_add_imm(out, arg, imm);
             }
-            RegOp::MulRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::MulRegImm(out, arg, imm)) => {
                 asm.build_mul_imm(out, arg, imm);
             }
-            RegOp::DivRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::DivRegImm(out, arg, imm)) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            RegOp::DivImmReg(out, arg, imm) => {
+            RegOp::Reg(TapeOp::DivImmReg(out, arg, imm)) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            RegOp::SubImmReg(out, arg, imm) => {
+            RegOp::Reg(TapeOp::SubImmReg(out, arg, imm)) => {
                 asm.build_sub_imm_reg(out, arg, imm);
             }
-            RegOp::SubRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::SubRegImm(out, arg, imm)) => {
                 asm.build_sub_reg_imm(out, arg, imm);
             }
-            RegOp::MinRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::MinRegImm(out, arg, imm)) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            RegOp::MaxRegImm(out, arg, imm) => {
+            RegOp::Reg(TapeOp::MaxRegImm(out, arg, imm)) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            RegOp::CopyImm(out, imm) => {
+            RegOp::Reg(TapeOp::CopyImm(out, imm)) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }

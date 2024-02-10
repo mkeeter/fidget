@@ -20,7 +20,17 @@ pub(crate) use lru::Lru;
 ///
 /// We have a maximum of 256 registers, though some tapes (e.g. ones targeting
 /// physical hardware) may choose to use fewer.
-pub type RegOp = TapeOp<u8>;
+#[derive(Copy, Clone, Debug)]
+pub enum RegOp {
+    /// Operations which only touch (pseudo) registers
+    Reg(TapeOp<u8>),
+
+    /// Read from a memory slot to a register
+    Load(u8, u32),
+
+    /// Write from a register to a memory slot
+    Store(u8, u32),
+}
 
 /// Operation used in single-static-assignment (SSA) tapes
 ///

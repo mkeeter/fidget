@@ -1,5 +1,5 @@
 use crate::{
-    compiler::RegOp,
+    compiler::{RegOp, TapeOp},
     eval::{
         bulk::{BulkEvaluator, BulkEvaluatorData},
         tracing::{TracingEvaluator, TracingEvaluatorData},
@@ -123,7 +123,7 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
         let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
-                RegOp::Input(out, i) => {
+                RegOp::Reg(TapeOp::Input(out, i)) => {
                     v[out] = match i {
                         0 => x,
                         1 => y,
@@ -131,77 +131,85 @@ impl TracingEvaluator<Interval, Eval> for AsmEval {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
-                RegOp::Var(out, i) => {
+                RegOp::Reg(TapeOp::Var(out, i)) => {
                     v[out] = vars[i as usize].into();
                 }
-                RegOp::NegReg(out, arg) => {
+                RegOp::Reg(TapeOp::NegReg(out, arg)) => {
                     v[out] = -v[arg];
                 }
-                RegOp::AbsReg(out, arg) => {
+                RegOp::Reg(TapeOp::AbsReg(out, arg)) => {
                     v[out] = v[arg].abs();
                 }
-                RegOp::RecipReg(out, arg) => {
+                RegOp::Reg(TapeOp::RecipReg(out, arg)) => {
                     v[out] = v[arg].recip();
                 }
-                RegOp::SqrtReg(out, arg) => {
+                RegOp::Reg(TapeOp::SqrtReg(out, arg)) => {
                     v[out] = v[arg].sqrt();
                 }
-                RegOp::SquareReg(out, arg) => {
+                RegOp::Reg(TapeOp::SquareReg(out, arg)) => {
                     v[out] = v[arg].square();
                 }
-                RegOp::CopyReg(out, arg) => v[out] = v[arg],
-                RegOp::AddRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::CopyReg(out, arg)) => v[out] = v[arg],
+                RegOp::Reg(TapeOp::AddRegImm(out, arg, imm)) => {
                     v[out] = v[arg] + imm.into();
                 }
-                RegOp::MulRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MulRegImm(out, arg, imm)) => {
                     v[out] = v[arg] * imm.into();
                 }
-                RegOp::DivRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivRegImm(out, arg, imm)) => {
                     v[out] = v[arg] / imm.into();
                 }
-                RegOp::DivImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivImmReg(out, arg, imm)) => {
                     let imm: Interval = imm.into();
                     v[out] = imm / v[arg];
                 }
-                RegOp::SubImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubImmReg(out, arg, imm)) => {
                     v[out] = Interval::from(imm) - v[arg];
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubRegImm(out, arg, imm)) => {
                     v[out] = v[arg] - imm.into();
                 }
-                RegOp::MinRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MinRegImm(out, arg, imm)) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
-                RegOp::MaxRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MaxRegImm(out, arg, imm)) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
                     choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
-                RegOp::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
-                RegOp::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
-                RegOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
-                RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
-                RegOp::MinRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::AddRegReg(out, lhs, rhs)) => {
+                    v[out] = v[lhs] + v[rhs]
+                }
+                RegOp::Reg(TapeOp::MulRegReg(out, lhs, rhs)) => {
+                    v[out] = v[lhs] * v[rhs]
+                }
+                RegOp::Reg(TapeOp::DivRegReg(out, lhs, rhs)) => {
+                    v[out] = v[lhs] / v[rhs]
+                }
+                RegOp::Reg(TapeOp::SubRegReg(out, lhs, rhs)) => {
+                    v[out] = v[lhs] - v[rhs]
+                }
+                RegOp::Reg(TapeOp::MinRegReg(out, lhs, rhs)) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::MaxRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MaxRegReg(out, lhs, rhs)) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::CopyImm(out, imm) => {
+                RegOp::Reg(TapeOp::CopyImm(out, imm)) => {
                     v[out] = imm.into();
                 }
                 RegOp::Load(out, mem) => {
@@ -234,7 +242,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
         let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
-                RegOp::Input(out, i) => {
+                RegOp::Reg(TapeOp::Input(out, i)) => {
                     v[out] = match i {
                         0 => x,
                         1 => y,
@@ -242,45 +250,45 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
-                RegOp::Var(out, i) => v[out] = vars[i as usize],
-                RegOp::NegReg(out, arg) => {
+                RegOp::Reg(TapeOp::Var(out, i)) => v[out] = vars[i as usize],
+                RegOp::Reg(TapeOp::NegReg(out, arg)) => {
                     v[out] = -v[arg];
                 }
-                RegOp::AbsReg(out, arg) => {
+                RegOp::Reg(TapeOp::AbsReg(out, arg)) => {
                     v[out] = v[arg].abs();
                 }
-                RegOp::RecipReg(out, arg) => {
+                RegOp::Reg(TapeOp::RecipReg(out, arg)) => {
                     v[out] = 1.0 / v[arg];
                 }
-                RegOp::SqrtReg(out, arg) => {
+                RegOp::Reg(TapeOp::SqrtReg(out, arg)) => {
                     v[out] = v[arg].sqrt();
                 }
-                RegOp::SquareReg(out, arg) => {
+                RegOp::Reg(TapeOp::SquareReg(out, arg)) => {
                     let s = v[arg];
                     v[out] = s * s;
                 }
-                RegOp::CopyReg(out, arg) => {
+                RegOp::Reg(TapeOp::CopyReg(out, arg)) => {
                     v[out] = v[arg];
                 }
-                RegOp::AddRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::AddRegImm(out, arg, imm)) => {
                     v[out] = v[arg] + imm;
                 }
-                RegOp::MulRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MulRegImm(out, arg, imm)) => {
                     v[out] = v[arg] * imm;
                 }
-                RegOp::DivRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivRegImm(out, arg, imm)) => {
                     v[out] = v[arg] / imm;
                 }
-                RegOp::DivImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivImmReg(out, arg, imm)) => {
                     v[out] = imm / v[arg];
                 }
-                RegOp::SubImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubImmReg(out, arg, imm)) => {
                     v[out] = imm - v[arg];
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubRegImm(out, arg, imm)) => {
                     v[out] = v[arg] - imm;
                 }
-                RegOp::MinRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MinRegImm(out, arg, imm)) => {
                     let a = v[arg];
                     v[out] = if a < imm {
                         choices[choice_index] |= Choice::Left;
@@ -299,7 +307,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::MaxRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MaxRegImm(out, arg, imm)) => {
                     let a = v[arg];
                     v[out] = if a > imm {
                         choices[choice_index] |= Choice::Left;
@@ -318,19 +326,19 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::AddRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::AddRegReg(out, lhs, rhs)) => {
                     v[out] = v[lhs] + v[rhs];
                 }
-                RegOp::MulRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MulRegReg(out, lhs, rhs)) => {
                     v[out] = v[lhs] * v[rhs];
                 }
-                RegOp::DivRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::DivRegReg(out, lhs, rhs)) => {
                     v[out] = v[lhs] / v[rhs];
                 }
-                RegOp::SubRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::SubRegReg(out, lhs, rhs)) => {
                     v[out] = v[lhs] - v[rhs];
                 }
-                RegOp::MinRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MinRegReg(out, lhs, rhs)) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a < b {
@@ -350,7 +358,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::MaxRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MaxRegReg(out, lhs, rhs)) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a > b {
@@ -370,7 +378,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
                     simplify |= choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
-                RegOp::CopyImm(out, imm) => {
+                RegOp::Reg(TapeOp::CopyImm(out, imm)) => {
                     v[out] = imm;
                 }
                 RegOp::Load(out, mem) => {
@@ -446,117 +454,118 @@ impl BulkEvaluator<f32, Eval> for AsmEval {
         let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
-                RegOp::Input(out, i) => {
-                    v[out][0..size].copy_from_slice(match i {
+                RegOp::Reg(TapeOp::Input(out, i)) => v[out][0..size]
+                    .copy_from_slice(match i {
                         0 => xs,
                         1 => ys,
                         2 => zs,
                         _ => panic!("Invalid input: {}", i),
-                    })
+                    }),
+                RegOp::Reg(TapeOp::Var(out, i)) => {
+                    v[out][0..size].fill(vars[i as usize])
                 }
-                RegOp::Var(out, i) => v[out][0..size].fill(vars[i as usize]),
-                RegOp::NegReg(out, arg) => {
+                RegOp::Reg(TapeOp::NegReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                RegOp::AbsReg(out, arg) => {
+                RegOp::Reg(TapeOp::AbsReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                RegOp::RecipReg(out, arg) => {
+                RegOp::Reg(TapeOp::RecipReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = 1.0 / v[arg][i];
                     }
                 }
-                RegOp::SqrtReg(out, arg) => {
+                RegOp::Reg(TapeOp::SqrtReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                RegOp::SquareReg(out, arg) => {
+                RegOp::Reg(TapeOp::SquareReg(out, arg)) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                RegOp::CopyReg(out, arg) => {
+                RegOp::Reg(TapeOp::CopyReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                RegOp::AddRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::AddRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm;
                     }
                 }
-                RegOp::MulRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MulRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm;
                     }
                 }
-                RegOp::DivRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm;
                     }
                 }
-                RegOp::DivImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivImmReg(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                RegOp::SubImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubImmReg(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                RegOp::MinRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MinRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                RegOp::MaxRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MaxRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                RegOp::AddRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::AddRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                RegOp::MulRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MulRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                RegOp::DivRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::DivRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                RegOp::SubRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::SubRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                RegOp::MinRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MinRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                RegOp::MaxRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MaxRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
-                RegOp::CopyImm(out, imm) => {
+                RegOp::Reg(TapeOp::CopyImm(out, imm)) => {
                     for i in 0..size {
                         v[out][i] = imm;
                     }
@@ -603,7 +612,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
         let mut v = SlotArray(&mut data.slots);
         for op in self.tape.iter_asm() {
             match op {
-                RegOp::Input(out, j) => {
+                RegOp::Reg(TapeOp::Input(out, j)) => {
                     for i in 0..size {
                         v[out][i] = match j {
                             0 => Grad::new(xs[i], 1.0, 0.0, 0.0),
@@ -613,7 +622,7 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         }
                     }
                 }
-                RegOp::Var(out, j) => {
+                RegOp::Reg(TapeOp::Var(out, j)) => {
                     // TODO: error handling?
                     v[out][0..size].fill(Grad::new(
                         vars[j as usize],
@@ -622,114 +631,114 @@ impl BulkEvaluator<Grad, Eval> for AsmEval {
                         0.0,
                     ));
                 }
-                RegOp::NegReg(out, arg) => {
+                RegOp::Reg(TapeOp::NegReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
                     }
                 }
-                RegOp::AbsReg(out, arg) => {
+                RegOp::Reg(TapeOp::AbsReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].abs();
                     }
                 }
-                RegOp::RecipReg(out, arg) => {
+                RegOp::Reg(TapeOp::RecipReg(out, arg)) => {
                     let one: Grad = 1.0.into();
                     for i in 0..size {
                         v[out][i] = one / v[arg][i];
                     }
                 }
-                RegOp::SqrtReg(out, arg) => {
+                RegOp::Reg(TapeOp::SqrtReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sqrt();
                     }
                 }
-                RegOp::SquareReg(out, arg) => {
+                RegOp::Reg(TapeOp::SquareReg(out, arg)) => {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
                     }
                 }
-                RegOp::CopyReg(out, arg) => {
+                RegOp::Reg(TapeOp::CopyReg(out, arg)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
                     }
                 }
-                RegOp::AddRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::AddRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] + imm.into();
                     }
                 }
-                RegOp::MulRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MulRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] * imm.into();
                     }
                 }
-                RegOp::DivRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivRegImm(out, arg, imm)) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i] / imm.into();
                     }
                 }
-                RegOp::DivImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::DivImmReg(out, arg, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
-                RegOp::SubImmReg(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubImmReg(out, arg, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
                     }
                 }
-                RegOp::SubRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::SubRegImm(out, arg, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                RegOp::MinRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MinRegImm(out, arg, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].min(imm);
                     }
                 }
-                RegOp::MaxRegImm(out, arg, imm) => {
+                RegOp::Reg(TapeOp::MaxRegImm(out, arg, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = v[arg][i].max(imm);
                     }
                 }
-                RegOp::AddRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::AddRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
-                RegOp::MulRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MulRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
                     }
                 }
-                RegOp::DivRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::DivRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] / v[rhs][i];
                     }
                 }
-                RegOp::SubRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::SubRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                RegOp::MinRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MinRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].min(v[rhs][i]);
                     }
                 }
-                RegOp::MaxRegReg(out, lhs, rhs) => {
+                RegOp::Reg(TapeOp::MaxRegReg(out, lhs, rhs)) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].max(v[rhs][i]);
                     }
                 }
-                RegOp::CopyImm(out, imm) => {
+                RegOp::Reg(TapeOp::CopyImm(out, imm)) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
                         v[out][i] = imm;

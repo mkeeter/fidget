@@ -37,7 +37,6 @@ impl<E: Family> Tape<E> {
 
     /// Converts an SSA tape into a tape useable in evaluation
     pub fn from_ssa(ssa: SsaTape) -> Self {
-        println!("processing {ssa:?}");
         let t = Data::from_ssa(ssa, E::REG_LIMIT);
         Self(Arc::new(t), std::marker::PhantomData)
     }
@@ -216,8 +215,8 @@ impl Data {
         let mut choice_count = 0;
 
         // The tape is constructed so that the output slot is first
-        assert_eq!(self.ssa.tape[0].output(), Some(0));
-        workspace.set_active(self.ssa.tape[0].output().unwrap(), 0);
+        assert_eq!(self.ssa.tape[0].output(), 0);
+        workspace.set_active(self.ssa.tape[0].output(), 0);
         workspace.count += 1;
 
         // Other iterators to consume various arrays in order
@@ -226,7 +225,7 @@ impl Data {
         let mut ops_out = tape.ssa.tape;
 
         for mut op in self.ssa.tape.iter().cloned() {
-            let index = op.output().unwrap(); // SSA ops always have outputs
+            let index = op.output();
 
             if workspace.active(index).is_none() {
                 for _ in 0..op.choice_count() {
@@ -340,9 +339,6 @@ impl Data {
                 | SsaOp::DivImmReg(index, arg, _imm) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
-                }
-                SsaOp::Load(..) | SsaOp::Store(..) => {
-                    panic!("cannot have load or store ops in SSA tape");
                 }
             }
             workspace.alloc.op(op);

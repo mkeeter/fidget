@@ -9,6 +9,7 @@
 /// reused), a VM register (represented as a `u8` and reused during evaluation),
 /// or physical (e.g. 0-23 for AArch64).
 #[derive(Copy, Clone, Debug)]
+#[repr(u8)]
 pub enum TapeOp<T> {
     /// Read one of the inputs (X, Y, Z)
     Input(T, T),
@@ -66,21 +67,11 @@ pub enum TapeOp<T> {
 
     /// Copy an immediate to a register
     CopyImm(T, f32),
-
-    /// Read from a memory slot to a register
-    ///
-    /// This is never used in SSA tapes, which has infinite registers
-    Load(T, u32),
-
-    /// Write from a register to a memory slot
-    ///
-    /// This is never used in SSA tapes, which has infinite registers
-    Store(T, u32),
 }
 
 impl<T: Copy> TapeOp<T> {
-    /// Returns the output pseudo-register, or `None` for `Store` instructions
-    pub fn output(&self) -> Option<T> {
+    /// Returns the output pseudo-register
+    pub fn output(&self) -> T {
         match self {
             TapeOp::Input(out, ..)
             | TapeOp::Var(out, ..)
@@ -104,9 +95,7 @@ impl<T: Copy> TapeOp<T> {
             | TapeOp::MinRegImm(out, ..)
             | TapeOp::MaxRegImm(out, ..)
             | TapeOp::MinRegReg(out, ..)
-            | TapeOp::MaxRegReg(out, ..)
-            | TapeOp::Load(out, ..) => Some(*out),
-            TapeOp::Store(..) => None,
+            | TapeOp::MaxRegReg(out, ..) => *out,
         }
     }
     /// Returns the number of choices made by the given opcode
@@ -132,9 +121,7 @@ impl<T: Copy> TapeOp<T> {
             | TapeOp::SubRegReg(..)
             | TapeOp::DivRegReg(..)
             | TapeOp::DivRegImm(..)
-            | TapeOp::DivImmReg(..)
-            | TapeOp::Load(..)
-            | TapeOp::Store(..) => 0,
+            | TapeOp::DivImmReg(..) => 0,
             TapeOp::MinRegImm(..)
             | TapeOp::MaxRegImm(..)
             | TapeOp::MinRegReg(..)
