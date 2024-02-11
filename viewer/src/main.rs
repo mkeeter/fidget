@@ -384,10 +384,12 @@ struct ThreeDCamera {
     // 2D camera parameters
     scale: f32,
     offset: nalgebra::Vector3<f32>,
+    #[allow(unused)]
     drag_start: Option<egui::Vec2>,
 }
 
 impl ThreeDCamera {
+    #[allow(unused)]
     fn mouse_to_uv(
         &self,
         rect: egui::Rect,
@@ -718,7 +720,7 @@ impl eframe::App for ViewerApp {
                     }
                 }
             }
-            RenderMode::ThreeD(camera, ..) => {
+            RenderMode::ThreeD(..) => {
                 unimplemented!()
             }
         }
