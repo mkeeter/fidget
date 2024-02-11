@@ -49,13 +49,6 @@ impl BoundContext {
         };
         (x, y, z)
     }
-    pub fn constant(&self, f: f64) -> BoundNode {
-        let node = self.borrow_mut().constant(f);
-        BoundNode {
-            node,
-            ctx: self.clone(),
-        }
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

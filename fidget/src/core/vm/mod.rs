@@ -143,6 +143,7 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     fn resize_slots(&mut self, tape: &TapeData) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
         self.choices.resize(tape.choice_count(), Choice::Unknown);
+        self.choices.fill(Choice::Unknown);
     }
 
     fn check_arguments(
@@ -249,6 +250,7 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
                 RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
+                    println!("{value} {choice:?}");
                     v[out] = value;
                     self.choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
@@ -465,21 +467,18 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
 pub struct BulkVmEval<T> {
     /// Workspace for data
     slots: Vec<Vec<T>>,
-    out: Vec<T>,
 }
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
     fn resize_slots(&mut self, tape: &TapeData, size: usize) {
+        println!("resizing to {size}");
         assert!(tape.reg_limit() == u8::MAX);
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);
-        if size > self.slots.get(0).map(|v| v.len()).unwrap_or(0) {
-            for s in self.slots.iter_mut() {
-                s.resize(size, f32::NAN.into());
-            }
+        for s in self.slots.iter_mut() {
+            s.resize(size, f32::NAN.into());
         }
-        self.out.resize(size, f32::NAN.into())
     }
 
     fn check_arguments(
