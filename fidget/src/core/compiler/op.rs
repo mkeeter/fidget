@@ -1,7 +1,7 @@
 /// Macro to generate a set of opcodes, using the given type for registers
 macro_rules! opcodes {
     (
-        $(#[$($attrss:tt)*])*
+        $(#[$($attrss:meta)*])*
         pub enum $name:ident<$t:ty> {}
     ) => {
         opcodes!(
@@ -10,10 +10,10 @@ macro_rules! opcodes {
         );
     };
     (
-        $(#[$($attrss:tt)*])*
+        $(#[$($attrss:meta)*])*
         pub enum $name:ident<$t:ty> {
             $(
-                $(#[$($a:tt)*])*
+                $(#[$($a:meta)*])*
                 $foo:ident($($i:ty),*)
              ),*
             ,
