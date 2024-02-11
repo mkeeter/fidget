@@ -60,8 +60,8 @@ impl std::ops::BitOrAssign<Choice> for Choice {
 /// A tracing evaluator performs evaluation of a single `T`, capturing a trace
 /// of execution for further simplification.
 ///
-/// This trait is unlikely to be used directly; instead, use a
-/// [`TracingEval`](TracingEval), which offers a user-friendly API.
+/// This trait is unlikely to be used directly; instead, use a [`TracingEval`],
+/// which offers a user-friendly API.
 pub trait TracingEvaluator<T, F> {
     /// Scratch (mutable) data used during evaluation
     type Data: TracingEvaluatorData<F> + Default + Send;
@@ -100,8 +100,8 @@ impl<F> TracingEvaluatorData<F> for () {
 
 /// Generic tracing evaluator `struct`
 ///
-/// This includes an inner type implementing
-/// [`TracingEvaluator`](TracingEvaluator) and a stored [`Tape`](Tape).
+/// This includes an inner type implementing [`TracingEvaluator`] and a stored
+/// [`Tape`].
 ///
 /// The internal `tape` is planned with
 /// [`E::REG_LIMIT`](crate::eval::Family::REG_LIMIT) registers.
@@ -300,9 +300,7 @@ where
         self.simplify_with(&mut Default::default(), Default::default())
     }
 
-    /// Returns a read-only view into the [`Choice`](Choice) slice.
-    ///
-    /// This is a convenience function for unit testing.
+    /// Returns a read-only view into the [`Choice`] slice.
     pub fn choices(&self) -> &[Choice] {
         self.choices.borrow()
     }

@@ -1,7 +1,7 @@
 //! Traits and data structures for evaluation
 //!
 //! The easiest way to build an evaluator of a particular kind is by calling
-//! `new_X_evaluator` on [`Tape`](Tape).
+//! `new_X_evaluator` on [`Tape`].
 //!
 //! ```rust
 //! use fidget::vm;

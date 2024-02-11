@@ -387,7 +387,7 @@ impl TracingEvaluator<f32, Eval> for AsmEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`Op`]
+/// Float-point interpreter-style evaluator for a tape of [`RegOp`]
 pub struct AsmBulkEvalData<T> {
     /// Workspace for data
     slots: Vec<Vec<T>>,

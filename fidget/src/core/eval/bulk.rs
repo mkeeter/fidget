@@ -71,8 +71,8 @@ impl<F> BulkEvaluatorData<F> for () {
 
 /// Generic bulk evaluator container `struct`
 ///
-/// This includes an inner type implementing
-/// [`BulkEvaluator`](BulkEvaluator) and a stored [`Tape`](Tape).
+/// This includes an inner type implementing [`BulkEvaluator`] and a stored
+/// [`Tape`].
 ///
 /// This type is parameterized with three types:
 /// - `T` is the output type returned by bulk evaluation

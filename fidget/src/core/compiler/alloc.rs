@@ -399,7 +399,8 @@ impl RegisterAllocator {
     /// Lowers a two-register operation into an [`RegOp`], pushing it to the
     /// internal tape.
     ///
-    /// Inputs are SSA registers from a [`SsaTape`], i.e. globally addressed.
+    /// Inputs are SSA registers from a [`SsaTape`](crate::compiler::SsaTape),
+    /// i.e. globally addressed.
     ///
     /// If there aren't enough spare registers, this may also push `Load` or
     /// `Store` instructions to the internal tape.  It's trickier than it
@@ -655,19 +656,20 @@ impl RegisterAllocator {
         self.release_reg(r_x);
     }
 
-    /// Pushes a [`CopyImm`](crate::vm::RegOp::CopyImm) operation to the tape
+    /// Pushes a [`CopyImm`](crate::compiler::RegOp::CopyImm) operation to the
+    /// tape
     #[inline(always)]
     fn op_copy_imm(&mut self, out: u32, imm: f32) {
         self.op_out_only(out, |out| RegOp::CopyImm(out, imm));
     }
 
-    /// Pushes an [`Input`](crate::vm::RegOp::Input) operation to the tape
+    /// Pushes an [`Input`](crate::compiler::RegOp::Input) operation to the tape
     #[inline(always)]
     fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| RegOp::Input(out, i));
     }
 
-    /// Pushes an [`Var`](crate::vm::RegOp::Var) operation to the tape
+    /// Pushes an [`Var`](crate::compiler::RegOp::Var) operation to the tape
     #[inline(always)]
     fn op_var(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| RegOp::Var(out, i));

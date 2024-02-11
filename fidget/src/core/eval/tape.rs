@@ -12,8 +12,8 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// This can be passed by value and cloned.
 ///
-/// It is parameterized by an [`Family`](Family) type, which sets the register
-/// count of the inner VM tape.
+/// It is parameterized by an [`Family`] type, which sets the register count of
+/// the inner VM tape.
 pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
 
 impl<R> Clone for Tape<R> {
@@ -180,8 +180,8 @@ impl Data {
 
     /// Simplifies both inner tapes, using the provided choice array
     ///
-    /// To minimize allocations, this function takes a [`Workspace`](Workspace)
-    /// _and_ spare [`Data`](Data); it will reuse those allocations.
+    /// To minimize allocations, this function takes a [`Workspace`] _and_ spare
+    /// [`Data`]; it will reuse those allocations.
     pub fn simplify_with(
         &self,
         choices: &[Choice],
@@ -346,8 +346,7 @@ impl Data {
         })
     }
 
-    /// Produces an iterator that visits [`RegOp`](crate::compiler::RegOp)
-    /// values in evaluation order.
+    /// Produces an iterator that visits [`RegOp`] values in evaluation order
     pub fn iter_asm(&self) -> impl Iterator<Item = RegOp> + '_ {
         self.asm.iter().cloned().rev()
     }

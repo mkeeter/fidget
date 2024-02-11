@@ -28,9 +28,8 @@ pub struct SsaTape {
     /// Number of choice operations in the tape
     pub choice_count: usize,
 
-    /// Mapping from variable names (in the original
-    /// [`Context`](crate::context::Context)) to indexes in the variable array
-    /// used during evaluation.
+    /// Mapping from variable names (in the original [`Context`]) to indexes in
+    /// the variable array used during evaluation.
     ///
     /// This is an `Arc` so it can be trivially shared by all of the tape's
     /// descendents, since the variable array order does not change.

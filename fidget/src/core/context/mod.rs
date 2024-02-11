@@ -38,8 +38,7 @@ impl Context {
 
     /// Clears the context
     ///
-    /// All [`Node`](Node) and [`VarNode`](VarNode) handles from this context
-    /// are invalidated.
+    /// All [`Node`] and [`VarNode`] handles from this context are invalidated.
     ///
     /// ```
     /// # use fidget::context::Context;
@@ -74,7 +73,7 @@ impl Context {
         self.ops.is_empty()
     }
 
-    /// Checks whether the given [`Node`](Node) is valid in this context
+    /// Checks whether the given [`Node`] is valid in this context
     fn check_node(&self, node: Node) -> Result<(), Error> {
         self.get_op(node).ok_or(Error::BadNode).map(|_| ())
     }
@@ -733,8 +732,8 @@ impl Context {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Helper trait for things that can be converted into a
-/// [`Node`](Node) given a [`Context`](Context).
+/// Helper trait for things that can be converted into a [`Node`] given a
+/// [`Context`].
 ///
 /// This trait allows you to write
 /// ```
