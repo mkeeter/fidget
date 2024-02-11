@@ -2,6 +2,8 @@
 - Improve meshing quality (better vertex placement, etc)
 - Add parallelism to meshing implementation, configured by the new
   `fidget::mesh::Settings`.
+- Reorganization of compiler modules (now under `fidget::compiler` instead of
+  split between `fidget::ssa` and `fidget::vm`).
 
 # 0.1.4
 - Added support for `aarch64-unknown-linux-*` to the JIT compiler; previously,
