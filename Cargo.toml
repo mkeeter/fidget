@@ -2,8 +2,8 @@
 resolver = "2"
 members = [
     "fidget",
-    "demo",
-    "viewer",
+    #"demo",
+    #"viewer",
 ]
 
 [profile.release]

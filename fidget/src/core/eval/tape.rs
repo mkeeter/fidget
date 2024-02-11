@@ -15,7 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 /// - A tape in register-allocated form ([`vm::Tape`](RegTape)), which can be
 ///   efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
-pub struct TapeData<const N: u8> {
+pub struct TapeData<const N: u8 = { u8::MAX }> {
     ssa: SsaTape,
     asm: RegTape,
 }

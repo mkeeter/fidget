@@ -1,6 +1,6 @@
 use crate::{
     context::{Context, IntoNode, Node},
-    eval::{Family, Tape},
+    eval::MathShape,
     Error,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -142,8 +142,8 @@ impl BoundNode {
     }
 
     /// Converts this node into a tape, using its internal context
-    pub fn get_tape<E: Family>(&self) -> Result<Tape<E>, Error> {
-        Tape::new(&self.ctx.0.borrow(), self.node)
+    pub fn get_shape<S: MathShape>(&self) -> Result<S, Error> {
+        S::new(&self.ctx.0.borrow(), self.node)
     }
 
     /// Evaluates the node at a particular point

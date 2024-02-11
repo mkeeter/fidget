@@ -5,18 +5,32 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, ShapeFloatSliceEval, ShapeGradSliceEval, ShapeIntervalEval,
-        ShapePointEval, ShapeRenderHints, TapeData,
+        Choice, MathShape, ShapeFloatSliceEval, ShapeGradSliceEval,
+        ShapeIntervalEval, ShapePointEval, ShapeRenderHints, ShapeVars,
+        TapeData,
     },
     Error,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Shape that use a VM backend for evaluation
 #[derive(Clone)]
-pub struct VmShape(Arc<TapeData<255>>);
+pub struct VmShape(Arc<TapeData>);
+
+impl VmShape {
+    /// Generates a simplified shape based on a captured trace
+    ///
+    /// # Panics
+    /// This function may panic if the trace is incompatible with this shape
+    fn simplify(&self, trace: &[Choice]) -> Result<Self, Error> {
+        let mut workspace = crate::eval::tape::Workspace::default();
+        let next = TapeData::default();
+        let d = self.0.simplify_with(trace, &mut workspace, next)?;
+        Ok(Self(Arc::new(d)))
+    }
+}
 
 impl ShapeRenderHints for VmShape {
     fn tile_sizes_3d() -> &'static [usize] {
@@ -47,12 +61,37 @@ impl ShapePointEval for VmShape {
     fn tape(&self) -> Self {
         self.clone()
     }
+    fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
+        self.simplify(trace.as_slice())
+    }
 }
 
 impl ShapeIntervalEval for VmShape {
     type Eval = TracingVmEval<Interval>;
     fn tape(&self) -> Self {
         self.clone()
+    }
+    fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
+        self.simplify(trace.as_slice())
+    }
+}
+
+impl MathShape for VmShape {
+    fn new(
+        ctx: &crate::Context,
+        node: crate::context::Node,
+    ) -> Result<Self, Error> {
+        let d = TapeData::new(ctx, node)?;
+        Ok(Self(Arc::new(d)))
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl ShapeVars for VmShape {
+    fn vars(&self) -> Arc<HashMap<String, u32>> {
+        self.0.vars()
     }
 }
 
@@ -101,14 +140,14 @@ impl<T> Default for TracingVmEval<T> {
 }
 
 impl<T: From<f32> + Clone> TracingVmEval<T> {
-    fn resize_slots(&mut self, tape: &TapeData<255>) {
+    fn resize_slots(&mut self, tape: &TapeData) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
         self.choices.resize(tape.choice_count(), Choice::Unknown);
     }
 
     fn check_arguments(
         &self,
-        tape: &TapeData<255>,
+        tape: &TapeData,
         vars: &[f32],
     ) -> Result<(), Error> {
         if vars.len() != tape.var_count() {
@@ -123,14 +162,17 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
     type Tape = VmShape;
     type Trace = Vec<Choice>;
 
-    fn eval(
+    fn eval<F: Into<Interval>>(
         &mut self,
         tape: &Self::Tape,
-        x: Interval,
-        y: Interval,
-        z: Interval,
+        x: F,
+        y: F,
+        z: F,
         vars: &[f32],
     ) -> Result<(Interval, Option<&Self::Trace>), Error> {
+        let x = x.into();
+        let y = y.into();
+        let z = z.into();
         let tape = tape.0.as_ref();
         self.check_arguments(tape, vars)?;
         self.resize_slots(tape);
@@ -241,14 +283,17 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
     type Tape = VmShape;
     type Trace = Vec<Choice>;
 
-    fn eval(
+    fn eval<F: Into<f32>>(
         &mut self,
         tape: &Self::Tape,
-        x: f32,
-        y: f32,
-        z: f32,
+        x: F,
+        y: F,
+        z: F,
         vars: &[f32],
     ) -> Result<(f32, Option<&Self::Trace>), Error> {
+        let x = x.into();
+        let y = y.into();
+        let z = z.into();
         let tape = tape.0.as_ref();
         self.check_arguments(tape, vars)?;
         self.resize_slots(tape);
@@ -425,7 +470,7 @@ pub struct BulkVmEval<T> {
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
-    fn resize_slots(&mut self, tape: &TapeData<255>, size: usize) {
+    fn resize_slots(&mut self, tape: &TapeData, size: usize) {
         assert!(tape.reg_limit() == u8::MAX);
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);
@@ -439,7 +484,7 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
 
     fn check_arguments(
         &self,
-        tape: &TapeData<255>,
+        tape: &TapeData,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],

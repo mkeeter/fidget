@@ -6,15 +6,19 @@
 pub mod eval_tests {
     use crate::{
         context::Context,
-        eval::{Choice, MathShape, ShapePointEval, TracingEvaluator, Vars},
+        eval::{
+            Choice, MathShape, ShapePointEval, ShapeVars, TracingEvaluator,
+            Vars,
+        },
     };
 
     pub fn test_constant<S: ShapePointEval + MathShape>() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
         let tape = S::new(&ctx, p).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(0.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 0.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
     }
 
     pub fn test_constant_push<S: ShapePointEval + MathShape>() {
@@ -23,16 +27,17 @@ pub mod eval_tests {
         let x = ctx.x();
         let min = ctx.min(a, x).unwrap();
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
-        let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        let (r, data) = eval.eval(&t, 2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.5);
 
-        let next = data.unwrap().simplify().unwrap();
+        let next = tape.simplify(data.unwrap()).unwrap();
         assert_eq!(next.len(), 1);
 
-        let eval = next.new_point_evaluator();
-        assert_eq!(eval.eval(2.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
-        assert_eq!(eval.eval(1.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
+        let t = next.tape();
+        assert_eq!(eval.eval(&t, 2.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&t, 1.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
     }
 
     pub fn test_circle<S: ShapePointEval + MathShape>() {
@@ -45,66 +50,77 @@ pub mod eval_tests {
         let circle = ctx.sub(radius, 1.0).unwrap();
 
         let tape = S::new(&ctx, circle).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
-        assert_eq!(eval.eval(1.0, 0.0, 0.0, &[]).unwrap().0, 0.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
+        assert_eq!(eval.eval(&t, 1.0, 0.0, 0.0, &[]).unwrap().0, 0.0);
     }
 
-    pub fn test_p_min<S: ShapePointEval + MathShape>() {
+    pub fn test_p_min<S: ShapePointEval + MathShape>()
+    where
+        <<S as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace:
+            AsRef<[Choice]>,
+    {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
-        let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        let (r, data) = eval.eval(&t, 0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
         assert!(data.is_none());
 
-        let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(data.is_none());
 
-        let (r, data) = eval.eval(0.0, std::f32::NAN, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(data.is_none());
     }
 
-    pub fn test_p_max<S: ShapePointEval + MathShape>() {
+    pub fn test_p_max<S: ShapePointEval + MathShape>()
+    where
+        <<S as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace:
+            AsRef<[Choice]>,
+    {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
         let tape = S::new(&ctx, max).unwrap();
-        let eval = S::Eval::new();
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
 
-        let (r, data) = eval.eval(0.0, 0.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 0.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 0.0);
         assert!(data.is_none());
 
-        let (r, data) = eval.eval(0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 0.0, 1.0, 0.0, &[]).unwrap();
         assert_eq!(r, 1.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Right]);
+        assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, data) = eval.eval(2.0, 0.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 2.0, 0.0, 0.0, &[]).unwrap();
         assert_eq!(r, 2.0);
-        assert_eq!(data.unwrap().choices(), &[Choice::Left]);
+        assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, data) = eval.eval(std::f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, std::f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(data.is_none());
 
-        let (r, data) = eval.eval(0.0, std::f32::NAN, 0.0, &[]).unwrap();
+        let (r, data) = eval.eval(&t, 0.0, std::f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(data.is_none());
     }
@@ -116,48 +132,55 @@ pub mod eval_tests {
         let sum = ctx.add(x, 1.0).unwrap();
         let min = ctx.min(sum, y).unwrap();
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(1.0, 3.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(3.0, 3.5, 0.0, &[]).unwrap().0, 3.5);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&t, 1.0, 3.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&t, 3.0, 3.5, 0.0, &[]).unwrap().0, 3.5);
     }
 
-    pub fn test_push<S: ShapePointEval + MathShape>() {
+    pub fn test_push<S: ShapePointEval + MathShape>()
+    where
+        <<S as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace:
+            From<Vec<Choice>>,
+    {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&t, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
-        let t = tape.simplify(&[Choice::Left]).unwrap();
-        let eval = t.new_point_evaluator();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
+        let next = tape.simplify(&vec![Choice::Left].into()).unwrap();
+        let t = next.tape();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&t, 3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]).unwrap();
-        let eval = t.new_point_evaluator();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        let next = tape.simplify(&vec![Choice::Right].into()).unwrap();
+        let t = next.tape();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&t, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
         let min = ctx.min(x, 1.0).unwrap();
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&t, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
-        let t = tape.simplify(&[Choice::Left]).unwrap();
-        let eval = t.new_point_evaluator();
-        assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
+        let next = tape.simplify(&vec![Choice::Left].into()).unwrap();
+        let t = next.tape();
+        assert_eq!(eval.eval(&t, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&t, 3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let t = tape.simplify(&[Choice::Right]).unwrap();
-        let eval = t.new_point_evaluator();
-        assert_eq!(eval.eval(0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
+        let next = tape.simplify(&vec![Choice::Right].into()).unwrap();
+        let t = next.tape();
+        assert_eq!(eval.eval(&t, 0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&t, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
     }
 
     pub fn test_basic<S: ShapePointEval + MathShape>() {
@@ -166,37 +189,41 @@ pub mod eval_tests {
         let y = ctx.y();
 
         let tape = S::new(&ctx, x).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&t, 3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
 
         let tape = S::new(&ctx, y).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(3.0, 4.0, 0.0, &[]).unwrap().0, 4.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&t, 3.0, 4.0, 0.0, &[]).unwrap().0, 4.0);
 
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
         let tape = S::new(&ctx, sum).unwrap();
-        let eval = S::Eval::new();
-        assert_eq!(eval.eval(1.0, 2.0, 0.0, &[]).unwrap().0, 6.0);
+        let t = tape.tape();
+        let mut eval = S::Eval::new();
+        assert_eq!(eval.eval(&t, 1.0, 2.0, 0.0, &[]).unwrap().0, 6.0);
     }
 
-    pub fn test_var<S: ShapePointEval + MathShape>() {
+    pub fn test_var<S: ShapePointEval + MathShape + ShapeVars>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let tape = S::new(&ctx, a).unwrap();
-        let mut vars = Vars::new(&tape);
-        let eval = S::Eval::new();
+        let t = tape.tape();
+        let mut vars = Vars::new(tape.vars());
+        let mut eval = S::Eval::new();
         assert_eq!(
-            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 5.0)].into_iter()))
+            eval.eval(&t, 0.0, 0.0, 0.0, vars.bind([("a", 5.0)].into_iter()))
                 .unwrap()
                 .0,
             5.0
         );
         assert_eq!(
-            eval.eval(0.0, 0.0, 0.0, vars.bind([("a", 1.0)].into_iter()))
+            eval.eval(&t, 0.0, 0.0, 0.0, vars.bind([("a", 1.0)].into_iter()))
                 .unwrap()
                 .0,
             1.0
@@ -206,11 +233,13 @@ pub mod eval_tests {
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
         let tape = S::new(&ctx, min).unwrap();
-        let mut vars = Vars::new(&tape);
-        let eval = S::Eval::new();
+        let t = tape.tape();
+        let mut vars = Vars::new(tape.vars());
+        let mut eval = S::Eval::new();
 
         assert_eq!(
             eval.eval(
+                &t,
                 0.0,
                 0.0,
                 0.0,
@@ -222,6 +251,7 @@ pub mod eval_tests {
         );
         assert_eq!(
             eval.eval(
+                &t,
                 0.0,
                 0.0,
                 0.0,
@@ -233,6 +263,7 @@ pub mod eval_tests {
         );
         assert_eq!(
             eval.eval(
+                &t,
                 0.0,
                 0.0,
                 0.0,

@@ -7,7 +7,8 @@ pub mod eval_tests {
     use crate::{
         context::Context,
         eval::{
-            types::Grad, BulkEvaluator, MathShape, ShapeGradSliceEval, Vars,
+            types::Grad, BulkEvaluator, MathShape, ShapeGradSliceEval,
+            ShapeVars, Vars,
         },
     };
 
@@ -16,7 +17,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let tape = S::new(&ctx, x).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
@@ -29,7 +30,7 @@ pub mod eval_tests {
         let y = ctx.y();
         let tape = S::new(&ctx, y).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
@@ -42,7 +43,7 @@ pub mod eval_tests {
         let z = ctx.z();
         let tape = S::new(&ctx, z).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
@@ -56,7 +57,7 @@ pub mod eval_tests {
         let s = ctx.square(x).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -82,7 +83,7 @@ pub mod eval_tests {
         let s = ctx.abs(x).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -100,7 +101,7 @@ pub mod eval_tests {
         let s = ctx.sqrt(x).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -119,7 +120,7 @@ pub mod eval_tests {
         let s = ctx.mul(x, y).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -145,7 +146,7 @@ pub mod eval_tests {
         let s = ctx.div(x, 2.0).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -159,7 +160,7 @@ pub mod eval_tests {
         let s = ctx.recip(x).unwrap();
         let tape = S::new(&ctx, s).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -178,7 +179,7 @@ pub mod eval_tests {
         let m = ctx.min(x, y).unwrap();
         let tape = S::new(&ctx, m).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
@@ -199,7 +200,7 @@ pub mod eval_tests {
         let max = ctx.max(min, z).unwrap();
         let tape = S::new(&ctx, max).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
@@ -222,7 +223,7 @@ pub mod eval_tests {
         let m = ctx.max(x, y).unwrap();
         let tape = S::new(&ctx, m).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
@@ -246,7 +247,7 @@ pub mod eval_tests {
         let sub = ctx.sub(sqrt, 0.5).unwrap();
         let tape = S::new(&ctx, sub).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
@@ -266,11 +267,11 @@ pub mod eval_tests {
         );
     }
 
-    pub fn test_g_var<S: ShapeGradSliceEval + MathShape>() {
+    pub fn test_g_var<S: ShapeGradSliceEval + MathShape + ShapeVars>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let tape = S::new(&ctx, a).unwrap();
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
@@ -287,7 +288,7 @@ pub mod eval_tests {
         let div = ctx.div(sum, 2.0).unwrap();
         let tape = S::new(&ctx, div).unwrap();
 
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
         assert_eq!(
             eval.eval(&t, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
@@ -304,8 +305,8 @@ pub mod eval_tests {
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
         let tape = S::new(&ctx, min).unwrap();
-        let mut vars = Vars::new(&tape);
-        let eval = S::Eval::new();
+        let mut vars = Vars::new(tape.vars());
+        let mut eval = S::Eval::new();
         let t = tape.tape();
 
         assert_eq!(

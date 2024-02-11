@@ -59,7 +59,7 @@ impl std::ops::BitOrAssign<Choice> for Choice {
 ///
 /// This trait is unlikely to be used directly; instead, use a [`TracingEval`],
 /// which offers a user-friendly API.
-pub trait TracingEvaluator<T>: Default {
+pub trait TracingEvaluator<T: From<f32>>: Default {
     /// Instruction tape used during evaluation
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
@@ -70,12 +70,30 @@ pub trait TracingEvaluator<T>: Default {
     type Trace;
 
     /// Evaluates the given value, using `choices` and `data` as scratch memory.
-    fn eval(
+    fn eval<F: Into<T>>(
         &mut self,
         tape: &Self::Tape,
-        x: T,
-        y: T,
-        z: T,
+        x: F,
+        y: F,
+        z: F,
         vars: &[f32],
     ) -> Result<(T, Option<&Self::Trace>), Error>;
+
+    /// Build a new empty evaluator
+    fn new() -> Self {
+        Self::default()
+    }
+
+    #[cfg(test)]
+    fn eval_x<J: Into<T>>(&mut self, tape: &Self::Tape, x: J) -> T {
+        self.eval(tape, x.into(), T::from(0.0), T::from(0.0), &[])
+            .unwrap()
+            .0
+    }
+    #[cfg(test)]
+    fn eval_xy<J: Into<T>>(&mut self, tape: &Self::Tape, x: J, y: J) -> T {
+        self.eval(tape, x.into(), y.into(), T::from(0.0), &[])
+            .unwrap()
+            .0
+    }
 }

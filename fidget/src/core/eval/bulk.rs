@@ -45,4 +45,9 @@ pub trait BulkEvaluator<T>: Default {
         z: &[f32],
         vars: &[f32],
     ) -> Result<&[T], Error>;
+
+    /// Build a new empty evaluator
+    fn new() -> Self {
+        Self::default()
+    }
 }

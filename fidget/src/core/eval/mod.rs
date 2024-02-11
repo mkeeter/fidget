@@ -17,6 +17,8 @@
 //! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[])?.0, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
+use crate::Error;
+use std::{collections::HashMap, sync::Arc};
 
 // Evaluators
 pub mod float_slice;
@@ -69,6 +71,14 @@ pub trait ShapeIntervalEval {
 
     /// Returns a tape for use in a single interval tracing evaluator
     fn tape(&self) -> <Self::Eval as TracingEvaluator<Interval>>::Tape;
+
+    /// Generates a simplified shape based on a captured trace
+    fn simplify(
+        &self,
+        trace: &<Self::Eval as TracingEvaluator<Interval>>::Trace,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
 }
 
 /// A shape can produce a point evaluator
@@ -78,18 +88,14 @@ pub trait ShapePointEval {
 
     /// Returns a tape for use in a single interval tracing evaluator
     fn tape(&self) -> <Self::Eval as TracingEvaluator<f32>>::Tape;
-}
-
-/// A shape can be simplified
-pub trait ShapeSimplify {
-    /// Associated types for traces captured during evaluation
-    type Trace;
 
     /// Generates a simplified shape based on a captured trace
-    ///
-    /// # Panics
-    /// This function may panic if the trace is incompatible with this shape
-    fn simplify(&self, trace: &Self::Trace) -> Self;
+    fn simplify(
+        &self,
+        trace: &<Self::Eval as TracingEvaluator<f32>>::Trace,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
 }
 
 /// A shape represents an implicit surface
@@ -105,16 +111,11 @@ pub trait Shape:
     + ShapeGradSliceEval
     + ShapePointEval
     + ShapeIntervalEval
-    + ShapeSimplify
     + ShapeRenderHints
 where
     (
         <<Self as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace,
-        Self::Trace,
-    ): TyEq,
-    (
         <<Self as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Trace,
-        Self::Trace,
     ): TyEq,
 {
     // Nothing to add here
@@ -140,7 +141,22 @@ pub trait ShapeRenderHints {
 }
 
 /// A [`Shape`] which is generated from a math tree
+#[allow(clippy::len_without_is_empty)]
 pub trait MathShape {
     /// Build a new shape from the given math tree
-    fn new(ctx: &crate::context::Context, node: crate::context::Node) -> Self;
+    fn new(
+        ctx: &crate::context::Context,
+        node: crate::context::Node,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Returns the length of the inner tape
+    fn len(&self) -> usize;
+}
+
+/// A [`Shape`] which contains named variables
+pub trait ShapeVars {
+    /// Returns the variable map for ease of binding
+    fn vars(&self) -> Arc<HashMap<String, u32>>;
 }

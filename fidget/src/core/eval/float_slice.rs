@@ -7,7 +7,9 @@
 pub mod eval_tests {
     use crate::{
         context::Context,
-        eval::{BulkEvaluator, MathShape, ShapeFloatSliceEval, Vars},
+        eval::{
+            BulkEvaluator, MathShape, ShapeFloatSliceEval, ShapeVars, Vars,
+        },
     };
 
     pub fn test_give_take<S: ShapeFloatSliceEval + MathShape>() {
@@ -32,7 +34,8 @@ pub mod eval_tests {
                 )
                 .unwrap();
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
-            t = eval.take().unwrap();
+
+            // TODO: reuse tape data here
 
             let t = tape_y.tape();
             let out = eval
@@ -45,7 +48,6 @@ pub mod eval_tests {
                 )
                 .unwrap();
             assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
-            t = eval.take().unwrap();
         }
     }
 
@@ -127,7 +129,7 @@ pub mod eval_tests {
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
 
-    pub fn test_f_var<S: ShapeFloatSliceEval + MathShape>() {
+    pub fn test_f_var<S: ShapeFloatSliceEval + MathShape + ShapeVars>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
         let b = ctx.var("b").unwrap();
@@ -135,9 +137,9 @@ pub mod eval_tests {
         let min = ctx.div(sum, b).unwrap();
 
         let tape = S::new(&ctx, min).unwrap();
-        let eval = S::Eval::new();
+        let mut eval = S::Eval::new();
         let t = tape.tape();
-        let mut vars = Vars::new(&tape);
+        let mut vars = Vars::new(tape.vars());
 
         assert_eq!(
             eval.eval(
