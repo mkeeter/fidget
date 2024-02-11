@@ -1,10 +1,10 @@
 use crate::eval::tape::Data;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
 /// which is suitably sized for use in evaluation.
 pub struct Vars {
-    names: Arc<BTreeMap<String, u32>>,
+    names: Arc<HashMap<String, u32>>,
     values: Vec<f32>,
 }
 

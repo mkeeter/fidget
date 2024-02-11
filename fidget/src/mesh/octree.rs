@@ -308,10 +308,12 @@ impl Octree {
                 Some(EdgeMask::new(lo as u8 + ((hi as u8) << 1)))
             }
             Cell::Branch { index, .. } => {
-                let Some(lo) = self.edge_mask(cell.child(index, a), edge) else {
+                let Some(lo) = self.edge_mask(cell.child(index, a), edge)
+                else {
                     return None;
                 };
-                let Some(hi) = self.edge_mask(cell.child(index, b), edge) else {
+                let Some(hi) = self.edge_mask(cell.child(index, b), edge)
+                else {
                     return None;
                 };
                 let center = lo.0 & (0b10) != 0;
@@ -863,7 +865,7 @@ impl OctreeBuilder {
                 qef.add_intersection(pos, grad);
 
                 // Record this intersection in the Hermite data for the leaf
-                let edge_index = e.to_undirected().index() as usize;
+                let edge_index = e.to_undirected().index();
                 hermite_cell.intersections[edge_index] = LeafIntersection {
                     pos: nalgebra::Vector4::new(pos.x, pos.y, pos.z, 1.0),
                     grad,
@@ -882,7 +884,7 @@ impl OctreeBuilder {
 
         // TODO: use self.record_leaf here?
         let vert_index = self.o.verts.len();
-        self.o.verts.extend(verts.into_iter());
+        self.o.verts.extend(verts);
         self.o.verts.extend(
             intersections
                 .into_iter()
@@ -1498,8 +1500,9 @@ mod test {
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
         for o in &octree.cells[8..] {
-            let Cell::Leaf ( Leaf { index, mask}) = (*o).into()
-                else { panic!() };
+            let Cell::Leaf(Leaf { index, mask }) = (*o).into() else {
+                panic!()
+            };
             assert_eq!(mask.count_ones(), 1);
             assert_eq!(index % 4, 0);
         }
@@ -1799,7 +1802,7 @@ mod test {
         const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
         let (ctx, root) =
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
-        let tape = ctx.get_tape::<crate::vm::Eval>(root).unwrap();
+        let tape = Tape::<crate::vm::Eval>::new(&ctx, root).unwrap();
         for threads in [0, 8] {
             let settings = Settings {
                 min_depth: 5,

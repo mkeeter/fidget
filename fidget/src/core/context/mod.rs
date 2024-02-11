@@ -8,11 +8,7 @@ pub(crate) mod bound;
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 
-use crate::{
-    eval::{Family, Tape},
-    ssa::Builder,
-    Error,
-};
+use crate::Error;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -461,59 +457,6 @@ impl Context {
         }
     }
 
-    /// Flattens a subtree of the graph into straight-line code.
-    ///
-    /// The resulting tape uses `E::REG_LIMIT` registers; if more memory is
-    /// required, it includes
-    /// [`vm::Op::Load` / `vm::Op::Store`](crate::vm::Op) operations.
-    ///
-    /// This should always succeed unless the `root` is from a different
-    /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn get_tape<E: Family>(&self, root: Node) -> Result<Tape<E>, Error> {
-        let mut parent_count: BTreeMap<Node, usize> = BTreeMap::new();
-        let mut seen = BTreeSet::new();
-        let mut todo = vec![root];
-        let mut builder = Builder::new();
-
-        // Accumulate parent counts and declare all the nodes into the builder
-        while let Some(node) = todo.pop() {
-            if !seen.insert(node) {
-                continue;
-            }
-            let op = self.get_op(node).ok_or(Error::BadNode)?;
-            builder.declare_node(node, *op);
-            for child in op.iter_children() {
-                *parent_count.entry(child).or_default() += 1;
-                todo.push(child);
-            }
-        }
-
-        // Now that we've populated our parents, flatten the graph
-        let mut todo = vec![root];
-        let mut seen = BTreeSet::new();
-        while let Some(node) = todo.pop() {
-            if *parent_count.get(&node).unwrap_or(&0) > 0 || !seen.insert(node)
-            {
-                continue;
-            }
-            let op = self.get_op(node).unwrap();
-            for child in op.iter_children() {
-                todo.push(child);
-                *parent_count.get_mut(&child).unwrap() -= 1;
-            }
-            builder.step(node, *op, self);
-        }
-        let mut ssa_tape = builder.finish();
-
-        // Special case if the Node is a single constant, which isn't usually
-        // recorded in the tape
-        if ssa_tape.tape.is_empty() {
-            let c = self.const_value(root).unwrap().unwrap() as f32;
-            ssa_tape.tape.push(crate::ssa::Op::CopyImm(0, c));
-        }
-        Ok(Tape::from_ssa(ssa_tape))
-    }
-
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values
@@ -577,7 +520,7 @@ impl Context {
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
     /// This is extremely inefficient; consider calling
-    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
+    /// [`Tape::new`](crate::eval::Tape::new) and building an evaluator instead.
     ///
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -606,7 +549,7 @@ impl Context {
     /// Evaluates the given node with a generic set of variables
     ///
     /// This is extremely inefficient; consider calling
-    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
+    /// [`Tape::new`](crate::eval::Tape::new) and building an evaluator instead.
     pub fn eval(
         &self,
         root: Node,
@@ -784,7 +727,7 @@ impl Context {
     }
 
     /// Looks up an operation by `Node` handle
-    fn get_op(&self, node: Node) -> Option<&Op> {
+    pub fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
     }
 }
@@ -835,6 +778,7 @@ impl IntoNode for f64 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::eval::Tape;
 
     // This can't be in a doctest, because it uses a private function
     #[test]
@@ -859,7 +803,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = ctx.get_tape::<crate::vm::Eval>(c9).unwrap();
+        let tape = Tape::<crate::vm::Eval>::new(&ctx, c9).unwrap();
         assert_eq!(tape.len(), 8);
     }
 
@@ -869,7 +813,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = ctx.get_tape::<crate::vm::Eval>(x_squared).unwrap();
+        let tape = Tape::<crate::vm::Eval>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
     }
 

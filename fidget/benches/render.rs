@@ -4,14 +4,14 @@ use criterion::{
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
-use fidget::eval::Family;
+use fidget::eval::{Family, Tape};
 
 pub fn prospero_size_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let tape_vm = &ctx.get_tape::<fidget::vm::Eval>(root).unwrap();
+    let tape_vm = &Tape::<fidget::vm::Eval>::new(&ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let tape_jit = &ctx.get_tape::<fidget::jit::Eval>(root).unwrap();
+    let tape_jit = &Tape::<fidget::jit::Eval>::new(&ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
@@ -57,10 +57,10 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 
 pub fn prospero_thread_sweep(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let tape_vm = &ctx.get_tape::<fidget::vm::Eval>(root).unwrap();
+    let tape_vm = &Tape::<fidget::vm::Eval>::new(&ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let tape_jit = &ctx.get_tape::<fidget::jit::Eval>(root).unwrap();
+    let tape_jit = &Tape::<fidget::jit::Eval>::new(&ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");

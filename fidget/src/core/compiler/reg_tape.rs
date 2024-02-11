@@ -1,11 +1,11 @@
 //! Tape used for evaluation
-use crate::vm::Op;
+use crate::compiler::{RegOp, RegisterAllocator, SsaTape};
 
 /// Low-level tape for use with the Fidget virtual machine (or to be lowered
 /// further into machine instructions).
 #[derive(Clone, Default)]
-pub struct Tape {
-    tape: Vec<Op>,
+pub struct RegTape {
+    tape: Vec<RegOp>,
 
     /// Total allocated slots
     pub(super) slot_count: u32,
@@ -14,15 +14,29 @@ pub struct Tape {
     reg_limit: u8,
 }
 
-impl Tape {
-    /// Constructs a new tape with the given register limit
-    pub fn new(reg_limit: u8) -> Self {
+impl RegTape {
+    /// Lowers the tape to assembly with a particular register limit
+    ///
+    /// Note that if you _also_ want to simplify the tape, it's more efficient
+    /// to use [`simplify`](crate::eval::Tape::simplify), which simultaneously
+    /// simplifies **and** performs register allocation in a single pass.
+    pub fn new(ssa: &SsaTape, reg_limit: u8) -> Self {
+        let mut alloc = RegisterAllocator::new(reg_limit, ssa.len());
+        for &op in ssa.iter() {
+            alloc.op(op)
+        }
+        alloc.finalize()
+    }
+
+    /// Builds a new empty tape, with one allocated slot
+    pub(crate) fn empty(reg_limit: u8) -> Self {
         Self {
             tape: vec![],
             slot_count: 1,
             reg_limit,
         }
     }
+
     /// Resets this tape, retaining its allocations
     pub fn reset(&mut self, reg_limit: u8) {
         self.tape.clear();
@@ -54,18 +68,18 @@ impl Tape {
     /// This is the opposite of evaluation order; it will visit the root of the
     /// tree first, and end at the leaves.
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<'_, Op> {
+    pub fn iter(&self) -> std::slice::Iter<'_, RegOp> {
         self.into_iter()
     }
     #[inline]
-    pub(crate) fn push(&mut self, op: Op) {
+    pub(crate) fn push(&mut self, op: RegOp) {
         self.tape.push(op)
     }
 }
 
-impl<'a> IntoIterator for &'a Tape {
-    type Item = &'a Op;
-    type IntoIter = std::slice::Iter<'a, Op>;
+impl<'a> IntoIterator for &'a RegTape {
+    type Item = &'a RegOp;
+    type IntoIter = std::slice::Iter<'a, RegOp>;
     fn into_iter(self) -> Self::IntoIter {
         self.tape.iter()
     }

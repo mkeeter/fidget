@@ -1,12 +1,11 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
+    compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
     eval::{self, Choice, Family},
-    ssa::{Op as SsaOp, Tape as SsaTape},
-    vm::{Op as VmOp, RegisterAllocator, Tape as VmTape},
     Error,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 /// Light-weight handle for tape data, which deferences to
 /// [`Data`].
@@ -30,6 +29,12 @@ unsafe impl<R> Send for Tape<R> {}
 unsafe impl<R> Sync for Tape<R> {}
 
 impl<E: Family> Tape<E> {
+    /// Build a new tape for the given node
+    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
+        let ssa = SsaTape::new(context, node)?;
+        Ok(Self::from_ssa(ssa))
+    }
+
     /// Converts an SSA tape into a tape useable in evaluation
     pub fn from_ssa(ssa: SsaTape) -> Self {
         let t = Data::from_ssa(ssa, E::REG_LIMIT);
@@ -121,13 +126,6 @@ impl<E> std::ops::Deref for Tape<E> {
     }
 }
 
-impl<E: crate::eval::Family> TryFrom<(Node, Context)> for Tape<E> {
-    type Error = Error;
-    fn try_from((node, context): (Node, Context)) -> Result<Self, Self::Error> {
-        context.get_tape(node)
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 /// A flattened math expression, ready for evaluation or further compilation.
@@ -135,17 +133,17 @@ impl<E: crate::eval::Family> TryFrom<(Node, Context)> for Tape<E> {
 /// Under the hood, [`Data`](Self) stores two different representations:
 /// - A tape in single static assignment form ([`ssa::Tape`](SsaTape)), which is
 ///   suitable for use during tape simplification
-/// - A tape in register-allocated form ([`vm::Tape`](VmTape)), which can be
+/// - A tape in register-allocated form ([`vm::Tape`](RegTape)), which can be
 ///   efficiently evaluated or lowered into machine assembly
 #[derive(Default)]
 pub struct Data {
     ssa: SsaTape,
-    asm: VmTape,
+    asm: RegTape,
 }
 
 impl Data {
     /// Returns this tape's mapping of variable names to indexes
-    pub fn vars(&self) -> Arc<BTreeMap<String, u32>> {
+    pub fn vars(&self) -> Arc<HashMap<String, u32>> {
         self.ssa.vars.clone()
     }
 
@@ -170,7 +168,7 @@ impl Data {
     /// Performs register allocation on a [`ssa::Tape`](SsaTape), building a
     /// complete [`Data`](Self).
     pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
-        let asm = ssa.get_asm(reg_limit);
+        let asm = RegTape::new(&ssa, reg_limit);
         Self { ssa, asm }
     }
 
@@ -360,15 +358,18 @@ impl Data {
         })
     }
 
-    /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
-    /// evaluation order.
-    pub fn iter_asm(&self) -> impl Iterator<Item = VmOp> + '_ {
+    /// Produces an iterator that visits [`RegOp`](crate::compiler::RegOp)
+    /// values in evaluation order.
+    pub fn iter_asm(&self) -> impl Iterator<Item = RegOp> + '_ {
         self.asm.iter().cloned().rev()
     }
 
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
-        self.ssa.pretty_print()
+        self.ssa.pretty_print();
+        for a in self.iter_asm() {
+            println!("{a:?}");
+        }
     }
 }
 
@@ -431,12 +432,12 @@ impl Workspace {
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
-    /// [`vm::Tape`](crate::vm::Tape).
+    /// [`RegTape`].
     pub fn reset_with_storage(
         &mut self,
         num_registers: u8,
         tape_len: usize,
-        tape: VmTape,
+        tape: RegTape,
     ) {
         self.alloc.reset_with_storage(num_registers, tape_len, tape);
         self.bind.fill(u32::MAX);

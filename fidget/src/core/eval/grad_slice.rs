@@ -25,12 +25,15 @@ pub type GradSliceEvalStorage<F> =
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Tape, Vars},
+    };
 
     pub fn test_g_x<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let tape = ctx.get_tape::<I>(x).unwrap();
+        let tape = Tape::<I>::new(&ctx, x).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -42,7 +45,7 @@ pub mod eval_tests {
     pub fn test_g_y<I: Family>() {
         let mut ctx = Context::new();
         let y = ctx.y();
-        let tape = ctx.get_tape::<I>(y).unwrap();
+        let tape = Tape::<I>::new(&ctx, y).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -54,7 +57,7 @@ pub mod eval_tests {
     pub fn test_g_z<I: Family>() {
         let mut ctx = Context::new();
         let z = ctx.z();
-        let tape = ctx.get_tape::<I>(z).unwrap();
+        let tape = Tape::<I>::new(&ctx, z).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -67,7 +70,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -92,7 +95,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.abs(x).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -109,7 +112,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -127,7 +130,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -152,7 +155,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -165,7 +168,7 @@ pub mod eval_tests {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let tape = ctx.get_tape::<I>(s).unwrap();
+        let tape = Tape::<I>::new(&ctx, s).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -183,7 +186,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.min(x, y).unwrap();
-        let tape = ctx.get_tape::<I>(m).unwrap();
+        let tape = Tape::<I>::new(&ctx, m).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -203,7 +206,7 @@ pub mod eval_tests {
         let z = ctx.z();
         let min = ctx.min(x, y).unwrap();
         let max = ctx.max(min, z).unwrap();
-        let tape = ctx.get_tape::<I>(max).unwrap();
+        let tape = Tape::<I>::new(&ctx, max).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -225,7 +228,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.max(x, y).unwrap();
-        let tape = ctx.get_tape::<I>(m).unwrap();
+        let tape = Tape::<I>::new(&ctx, m).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -248,7 +251,7 @@ pub mod eval_tests {
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
         let sub = ctx.sub(sqrt, 0.5).unwrap();
-        let tape = ctx.get_tape::<I>(sub).unwrap();
+        let tape = Tape::<I>::new(&ctx, sub).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -272,7 +275,7 @@ pub mod eval_tests {
     pub fn test_g_var<I: Family>() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
-        let tape = ctx.get_tape::<I>(a).unwrap();
+        let tape = Tape::<I>::new(&ctx, a).unwrap();
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
             eval.eval(&[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
@@ -287,7 +290,7 @@ pub mod eval_tests {
         let a = ctx.var("a").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let div = ctx.div(sum, 2.0).unwrap();
-        let tape = ctx.get_tape::<I>(div).unwrap();
+        let tape = Tape::<I>::new(&ctx, div).unwrap();
 
         let eval = tape.new_grad_slice_evaluator();
         assert_eq!(
@@ -304,7 +307,7 @@ pub mod eval_tests {
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let mut vars = Vars::new(&tape);
         let eval = tape.new_grad_slice_evaluator();
 

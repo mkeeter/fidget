@@ -6,7 +6,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::context::{Context, Node};
+use fidget::{
+    context::{Context, Node},
+    eval::Tape,
+};
 
 /// Simple test program
 #[derive(Parser)]
@@ -120,7 +123,7 @@ fn run3d<I: fidget::eval::Family>(
     mode_color: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape(node).unwrap();
+    let tape = Tape::new(ctx, node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     let mut mat = nalgebra::Transform3::identity();
@@ -145,7 +148,7 @@ fn run3d<I: fidget::eval::Family>(
     let out = if mode_color {
         depth
             .into_iter()
-            .zip(color.into_iter())
+            .zip(color)
             .flat_map(|(d, p)| {
                 if d > 0 {
                     [p[0], p[1], p[2], 255]
@@ -182,7 +185,7 @@ fn run2d<I: fidget::eval::Family>(
     sdf: bool,
 ) -> (Vec<u8>, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape::<I>(node).unwrap();
+    let tape = Tape::<I>::new(ctx, node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     if brute {
@@ -260,7 +263,7 @@ fn run_mesh<I: fidget::eval::Family>(
     settings: &MeshSettings,
 ) -> (fidget::mesh::Mesh, std::time::Instant) {
     let start = Instant::now();
-    let tape = ctx.get_tape::<I>(node).unwrap();
+    let tape = Tape::<I>::new(ctx, node).unwrap();
     info!("Built tape in {:?}", start.elapsed());
 
     let start = Instant::now();
@@ -315,8 +318,8 @@ fn main() -> Result<()> {
                 image::save_buffer(
                     out,
                     &buffer,
-                    settings.size as u32,
-                    settings.size as u32,
+                    settings.size,
+                    settings.size,
                     image::ColorType::Rgba8,
                 )?;
             }
@@ -348,8 +351,8 @@ fn main() -> Result<()> {
                 image::save_buffer(
                     out,
                     &buffer,
-                    settings.size as u32,
-                    settings.size as u32,
+                    settings.size,
+                    settings.size,
                     image::ColorType::Rgba8,
                 )?;
             }

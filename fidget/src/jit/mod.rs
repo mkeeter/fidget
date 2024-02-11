@@ -4,10 +4,10 @@
 //! is a [`Family`] of JIT evaluators.
 //!
 //! ```
-//! use fidget::{rhai::eval, jit};
+//! use fidget::{rhai::eval, jit, eval::Tape};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = ctx.get_tape::<jit::Eval>(sum)?;
+//! let tape = Tape::<jit::Eval>::new(&ctx, sum)?;
 //!
 //! // Generate machine code to execute the tape
 //! let mut eval = tape.new_point_evaluator();
@@ -18,12 +18,12 @@
 //! ```
 
 use crate::{
+    compiler::RegOp,
     eval::{
         bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
         Choice, EvaluatorStorage, Family, Tape,
     },
     jit::mmap::Mmap,
-    vm::Op,
     Error,
 };
 use dynasmrt::{
@@ -590,83 +590,83 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
 
     for op in t.iter_asm() {
         match op {
-            Op::Load(reg, mem) => {
+            RegOp::Load(reg, mem) => {
                 asm.build_load(reg, mem);
             }
-            Op::Store(reg, mem) => {
+            RegOp::Store(reg, mem) => {
                 asm.build_store(mem, reg);
             }
-            Op::Input(out, i) => {
+            RegOp::Input(out, i) => {
                 asm.build_input(out, i);
             }
-            Op::Var(out, i) => {
+            RegOp::Var(out, i) => {
                 asm.build_var(out, i);
             }
-            Op::NegReg(out, arg) => {
+            RegOp::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
             }
-            Op::AbsReg(out, arg) => {
+            RegOp::AbsReg(out, arg) => {
                 asm.build_abs(out, arg);
             }
-            Op::RecipReg(out, arg) => {
+            RegOp::RecipReg(out, arg) => {
                 asm.build_recip(out, arg);
             }
-            Op::SqrtReg(out, arg) => {
+            RegOp::SqrtReg(out, arg) => {
                 asm.build_sqrt(out, arg);
             }
-            Op::CopyReg(out, arg) => {
+            RegOp::CopyReg(out, arg) => {
                 asm.build_copy(out, arg);
             }
-            Op::SquareReg(out, arg) => {
+            RegOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
             }
-            Op::AddRegReg(out, lhs, rhs) => {
+            RegOp::AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
-            Op::MulRegReg(out, lhs, rhs) => {
+            RegOp::MulRegReg(out, lhs, rhs) => {
                 asm.build_mul(out, lhs, rhs);
             }
-            Op::DivRegReg(out, lhs, rhs) => {
+            RegOp::DivRegReg(out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
             }
-            Op::SubRegReg(out, lhs, rhs) => {
+            RegOp::SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
-            Op::MinRegReg(out, lhs, rhs) => {
+            RegOp::MinRegReg(out, lhs, rhs) => {
                 asm.build_min(out, lhs, rhs);
             }
-            Op::MaxRegReg(out, lhs, rhs) => {
+            RegOp::MaxRegReg(out, lhs, rhs) => {
                 asm.build_max(out, lhs, rhs);
             }
-            Op::AddRegImm(out, arg, imm) => {
+            RegOp::AddRegImm(out, arg, imm) => {
                 asm.build_add_imm(out, arg, imm);
             }
-            Op::MulRegImm(out, arg, imm) => {
+            RegOp::MulRegImm(out, arg, imm) => {
                 asm.build_mul_imm(out, arg, imm);
             }
-            Op::DivRegImm(out, arg, imm) => {
+            RegOp::DivRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, arg, reg);
             }
-            Op::DivImmReg(out, arg, imm) => {
+            RegOp::DivImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
             }
-            Op::SubImmReg(out, arg, imm) => {
+            RegOp::SubImmReg(out, arg, imm) => {
                 asm.build_sub_imm_reg(out, arg, imm);
             }
-            Op::SubRegImm(out, arg, imm) => {
+            RegOp::SubRegImm(out, arg, imm) => {
                 asm.build_sub_reg_imm(out, arg, imm);
             }
-            Op::MinRegImm(out, arg, imm) => {
+            RegOp::MinRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_min(out, arg, reg);
             }
-            Op::MaxRegImm(out, arg, imm) => {
+            RegOp::MaxRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
             }
-            Op::CopyImm(out, imm) => {
+            RegOp::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }

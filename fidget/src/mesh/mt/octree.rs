@@ -335,8 +335,9 @@ impl<I: Family> OctreeWorker<I> {
 
         // Check to see whether this is the last cell in the cluster of 8
         let target_cell = parent_task.target_cell;
-        let Some(r) = self.octree.check_done(target_cell, index & !7)
-            else { return };
+        let Some(r) = self.octree.check_done(target_cell, index & !7) else {
+            return;
+        };
 
         // It's safe to unwrap `task` here because the only task lacking a
         // parent is at the root of the tree, which is never a set of 8

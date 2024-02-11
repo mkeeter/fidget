@@ -25,15 +25,18 @@ pub type FloatSliceEvalStorage<F> =
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
     use super::*;
-    use crate::{context::Context, eval::Vars};
+    use crate::{
+        context::Context,
+        eval::{Tape, Vars},
+    };
 
     pub fn test_give_take<I: Family>() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape_x = ctx.get_tape(x).unwrap();
-        let tape_y = ctx.get_tape(y).unwrap();
+        let tape_x = Tape::new(&ctx, x).unwrap();
+        let tape_y = Tape::new(&ctx, y).unwrap();
 
         let eval = FloatSliceEval::<I>::new(&tape_y);
         let mut t = eval.take().unwrap();
@@ -71,7 +74,7 @@ pub mod eval_tests {
         let x = ctx.x();
         let y = ctx.y();
 
-        let tape = ctx.get_tape(x).unwrap();
+        let tape = Tape::new(&ctx, x).unwrap();
         let eval = FloatSliceEval::<I>::new(&tape);
         let out = eval
             .eval(
@@ -104,7 +107,7 @@ pub mod eval_tests {
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let tape = ctx.get_tape(mul).unwrap();
+        let tape = Tape::new(&ctx, mul).unwrap();
         let eval = FloatSliceEval::<I>::new(&tape);
         let out = eval
             .eval(
@@ -138,7 +141,7 @@ pub mod eval_tests {
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let tape = ctx.get_tape::<I>(min).unwrap();
+        let tape = Tape::<I>::new(&ctx, min).unwrap();
         let mut vars = Vars::new(&tape);
         let eval = tape.new_float_slice_evaluator();
 
