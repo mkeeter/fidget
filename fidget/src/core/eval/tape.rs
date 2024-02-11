@@ -32,13 +32,8 @@ impl<E: Family> Tape<E> {
     /// Build a new tape for the given node
     pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
         let ssa = SsaTape::new(context, node)?;
-        Ok(Self::from_ssa(ssa))
-    }
-
-    /// Converts an SSA tape into a tape useable in evaluation
-    pub fn from_ssa(ssa: SsaTape) -> Self {
-        let t = Data::from_ssa(ssa, E::REG_LIMIT);
-        Self(Arc::new(t), std::marker::PhantomData)
+        let asm = RegTape::new(&ssa, E::REG_LIMIT);
+        Ok(Self(Arc::new(Data { ssa, asm }), std::marker::PhantomData))
     }
 
     /// Simplifies a tape based on the array of choices
@@ -163,13 +158,6 @@ impl Data {
     /// choice array.
     pub fn choice_count(&self) -> usize {
         self.ssa.choice_count
-    }
-
-    /// Performs register allocation on a [`ssa::Tape`](SsaTape), building a
-    /// complete [`Data`](Self).
-    pub fn from_ssa(ssa: SsaTape, reg_limit: u8) -> Self {
-        let asm = RegTape::new(&ssa, reg_limit);
-        Self { ssa, asm }
     }
 
     /// Returns the number of slots used by the inner VM tape
