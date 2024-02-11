@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-/// Instruction tape, storing [`Op`](crate::ssa::Op) in SSA form
+/// Instruction tape, storing [opcodes in SSA form](crate::compiler::SsaOp)
 ///
 /// Each operation has the following parameters
 /// - 4-byte opcode (required)

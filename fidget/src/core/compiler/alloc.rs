@@ -255,7 +255,7 @@ impl RegisterAllocator {
     }
 
     /// Lowers an operation that uses a single register into an
-    /// [`Op`](crate::vm::Op), pushing it to the internal tape.
+    /// [`RegOp`], pushing it to the internal tape.
     ///
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
@@ -396,10 +396,10 @@ impl RegisterAllocator {
         }
     }
 
-    /// Lowers a two-register operation into an [`Op`](crate::vm::Op),
-    /// pushing it to the internal tape.
+    /// Lowers a two-register operation into an [`RegOp`], pushing it to the
+    /// internal tape.
     ///
-    /// Inputs are SSA registers from a [`Tape`], i.e. globally addressed.
+    /// Inputs are SSA registers from a [`SsaTape`], i.e. globally addressed.
     ///
     /// If there aren't enough spare registers, this may also push `Load` or
     /// `Store` instructions to the internal tape.  It's trickier than it
@@ -614,7 +614,7 @@ impl RegisterAllocator {
     }
 
     /// Lowers a function taking one register and one immediate into an
-    /// [`Op`](crate::vm::Op), pushing it to the internal tape.
+    /// [`RegOp`], pushing it to the internal tape.
     #[inline(always)]
     fn op_reg_imm(&mut self, op: SsaOp) {
         let (out, arg, imm, op): (_, _, _, fn(u8, u8, f32) -> RegOp) = match op

@@ -55,7 +55,7 @@
 //! be done _a lot_, so it has to be fast.
 //!
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
-//! This is performed by [`Context::get_tape`](crate::Context::get_tape):
+//! This is performed by [`Tape::new`](crate::eval::Tape::new):
 //! ```
 //! use fidget::{eval::Tape, rhai::eval, vm};
 //!

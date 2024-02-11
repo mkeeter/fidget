@@ -520,7 +520,7 @@ impl Context {
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
     /// This is extremely inefficient; consider calling
-    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
+    /// [`Tape::new`](crate::eval::Tape::new) and building an evaluator instead.
     ///
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -549,7 +549,7 @@ impl Context {
     /// Evaluates the given node with a generic set of variables
     ///
     /// This is extremely inefficient; consider calling
-    /// [`get_tape`](Self::get_tape) and building an evaluator instead.
+    /// [`Tape::new`](crate::eval::Tape::new) and building an evaluator instead.
     pub fn eval(
         &self,
         root: Node,

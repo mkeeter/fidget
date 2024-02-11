@@ -358,8 +358,8 @@ impl Data {
         })
     }
 
-    /// Produces an iterator that visits [`vm::Op`](crate::vm::Op) values in
-    /// evaluation order.
+    /// Produces an iterator that visits [`RegOp`](crate::compiler::RegOp)
+    /// values in evaluation order.
     pub fn iter_asm(&self) -> impl Iterator<Item = RegOp> + '_ {
         self.asm.iter().cloned().rev()
     }
@@ -432,7 +432,7 @@ impl Workspace {
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
-    /// [`vm::Tape`](crate::vm::Tape).
+    /// [`RegTape`].
     pub fn reset_with_storage(
         &mut self,
         num_registers: u8,
