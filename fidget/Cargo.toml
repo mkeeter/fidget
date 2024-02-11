@@ -25,7 +25,7 @@ dynasmrt = { version = "2.0", optional = true }
 libc = { version = "0.2", optional = true }
 
 # Rhai
-rhai = { version = "1.10", optional = true, features = ["sync"] }
+rhai = { version = "1.17", optional = true, features = ["sync"] }
 
 # Render
 nalgebra = { version = "0.31" }

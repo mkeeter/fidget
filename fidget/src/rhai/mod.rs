@@ -107,6 +107,7 @@ impl Engine {
 
         let context = Arc::new(Mutex::new(ScriptContext::new()));
         engine.set_default_tag(rhai::Dynamic::from(context.clone()));
+        engine.set_max_expr_depths(64, 32);
 
         let ast = engine.compile(include_str!("core.rhai")).unwrap();
         let module =
