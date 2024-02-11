@@ -18,11 +18,9 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 
-// Bulk evaluators
+// Evaluators
 pub mod float_slice;
 pub mod grad_slice;
-
-// Tracing evaluators
 pub mod interval;
 pub mod point;
 
@@ -34,48 +32,96 @@ pub mod types;
 mod vars;
 
 // Re-export a few things
-pub use float_slice::FloatSliceEval;
-pub use grad_slice::GradSliceEval;
-pub use interval::IntervalEval;
-pub use point::PointEval;
-pub use tape::Tape;
+pub use tape::TapeData;
 pub use tracing::Choice;
 pub use vars::Vars;
 
 use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
+use types::{Grad, Interval};
 
-/// A "family" of evaluators (JIT, interpreter, etc)
-pub trait Family: Clone {
-    /// Register limit for this evaluator family.
-    const REG_LIMIT: u8;
+/// Helper trait to enforce equality of two types
+pub trait TyEq {}
+impl<T> TyEq for (T, T) {}
 
-    /// Single-point evaluator
-    type PointEval: TracingEvaluator<f32, Self>
-        + EvaluatorStorage<Self>
-        + Clone
-        + Send
-        + Sync;
-    /// Interval evaluator
-    type IntervalEval: TracingEvaluator<types::Interval, Self>
-        + EvaluatorStorage<Self>
-        + Clone
-        + Send
-        + Sync;
-
+/// A shape can produce a float slice evaluator
+pub trait ShapeFloatSliceEval {
     /// Bulk point evaluator
-    type FloatSliceEval: BulkEvaluator<f32, Self>
-        + EvaluatorStorage<Self>
-        + Clone
-        + Send
-        + Sync;
-    /// Bulk gradient evaluator
-    type GradSliceEval: BulkEvaluator<types::Grad, Self>
-        + EvaluatorStorage<Self>
-        + Clone
-        + Send
-        + Sync;
+    type Eval: BulkEvaluator<f32>;
 
+    /// Returns a tape for use in a float slice evaluator
+    fn tape(&self) -> <Self::Eval as BulkEvaluator<f32>>::Tape;
+}
+
+/// A shape can produce a grad slice evaluator
+pub trait ShapeGradSliceEval {
+    /// Bulk grad evaluator
+    type Eval: BulkEvaluator<Grad>;
+
+    /// Returns a tape for use in a float slice evaluator
+    fn tape(&self) -> <Self::Eval as BulkEvaluator<Grad>>::Tape;
+}
+
+/// A shape can produce an interval evaluator
+pub trait ShapeIntervalEval {
+    /// Interval evaluator
+    type Eval: TracingEvaluator<types::Interval>;
+
+    /// Returns a tape for use in a single interval tracing evaluator
+    fn tape(&self) -> <Self::Eval as TracingEvaluator<Interval>>::Tape;
+}
+
+/// A shape can produce a point evaluator
+pub trait ShapePointEval {
+    /// Point evaluator
+    type Eval: TracingEvaluator<f32>;
+
+    /// Returns a tape for use in a single interval tracing evaluator
+    fn tape(&self) -> <Self::Eval as TracingEvaluator<f32>>::Tape;
+}
+
+/// A shape can be simplified
+pub trait ShapeSimplify {
+    /// Associated types for traces captured during evaluation
+    type Trace;
+
+    /// Generates a simplified shape based on a captured trace
+    ///
+    /// # Panics
+    /// This function may panic if the trace is incompatible with this shape
+    fn simplify(&self, trace: &Self::Trace) -> Self;
+}
+
+/// A shape represents an implicit surface
+///
+/// It is mostly agnostic to _how_ that surface is represented; we simply
+/// require that the shape can generate evaluators of various kinds.
+///
+/// This trait doesn't actually implement any functions itself; it simply
+/// stitches together a bunch of other traits with appropriate equality
+/// constraints.
+pub trait Shape:
+    ShapeFloatSliceEval
+    + ShapeGradSliceEval
+    + ShapePointEval
+    + ShapeIntervalEval
+    + ShapeSimplify
+    + ShapeRenderHints
+where
+    (
+        <<Self as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace,
+        Self::Trace,
+    ): TyEq,
+    (
+        <<Self as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Trace,
+        Self::Trace,
+    ): TyEq,
+{
+    // Nothing to add here
+}
+
+/// A shape can offer hints as to how it should be rendered
+pub trait ShapeRenderHints {
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
 
@@ -93,21 +139,8 @@ pub trait Family: Clone {
     }
 }
 
-/// An evaluator with some internal (immutable) storage
-///
-/// For example, the JIT evaluators declare their allocated `mmap` data as their
-/// `Storage`, which allows us to reuse pages.
-pub trait EvaluatorStorage<F> {
-    /// Storage type associated with this evaluator
-    type Storage: Default;
-
-    /// Constructs the evaluator, giving it a chance to reuse storage
-    ///
-    /// The incoming `Storage` is consumed, though it may not necessarily be
-    /// used to construct the new tape (e.g. if it's a memory-mapped region and
-    /// is too small).
-    fn new_with_storage(tape: &Tape<F>, storage: Self::Storage) -> Self;
-
-    /// Extract the internal storage for reuse, if possible
-    fn take(self) -> Option<Self::Storage>;
+/// A [`Shape`] which is generated from a math tree
+pub trait MathShape {
+    /// Build a new shape from the given math tree
+    fn new(ctx: &crate::context::Context, node: crate::context::Node) -> Self;
 }

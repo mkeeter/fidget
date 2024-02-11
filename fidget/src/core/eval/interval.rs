@@ -1,32 +1,10 @@
-//! Interval evaluation
-use crate::eval::{
-    tracing::{TracingEval, TracingEvalData, TracingEvaluator},
-    types::Interval,
-    EvaluatorStorage, Family,
-};
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Evaluator for intervals, returning an interval and capturing a trace
-pub type IntervalEval<F> =
-    TracingEval<Interval, <F as Family>::IntervalEval, F>;
-
-/// Scratch data used by an interval evaluator from a particular family `F`
-pub type IntervalEvalData<F> = TracingEvalData<
-    <<F as Family>::IntervalEval as TracingEvaluator<Interval, F>>::Data,
-    F,
->;
-
-/// Immutable data used by an interval evaluator from a particular family `F`
-pub type IntervalEvalStorage<F> =
-    <<F as Family>::IntervalEval as EvaluatorStorage<F>>::Storage;
-
-////////////////////////////////////////////////////////////////////////////////
-
+//! Interval evaluation tests
+//!
+//! If the `eval-tests` feature is set, then this exposes a standard test suite
+//! for interval evaluators; otherwise, the module has no public exports.
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::eval::Choice;
+    use crate::{eval::types::Interval, eval::Choice};
 
     #[test]
     fn test_interval() {
@@ -42,7 +20,6 @@ mod test {
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod eval_tests {
-    use super::*;
     use crate::{
         context::Context,
         eval::{Choice, Tape, Vars},
