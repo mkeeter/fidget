@@ -4,17 +4,18 @@
 //! `new_X_evaluator` on [`Tape`].
 //!
 //! ```rust
-//! use fidget::vm;
+//! use fidget::vm::VmShape;
 //! use fidget::context::Context;
-//! use fidget::eval::Tape;
+//! use fidget::eval::{MathShape, Shape};
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let tape = Tape::<vm::Eval>::new(&ctx, x)?;
+//! let shape = VmShape::new(&ctx, x)?;
 //!
 //! // Let's build a single point evaluator:
-//! let mut eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(0.25, 0.0, 0.0, &[])?.0, 0.25);
+//! let mut eval = VmShape::new_float_slice_eval();
+//! let tape = shape.float_slice_tape();
+//! assert_eq!(eval.eval(&tape, 0.25, 0.0, 0.0, &[])?.0, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 use crate::Error;
@@ -42,62 +43,6 @@ use bulk::BulkEvaluator;
 use tracing::TracingEvaluator;
 use types::{Grad, Interval};
 
-/// Helper trait to enforce equality of two types
-pub trait TyEq {}
-impl<T> TyEq for (T, T) {}
-
-/// A shape can produce a float slice evaluator
-pub trait ShapeFloatSliceEval {
-    /// Bulk point evaluator
-    type Eval: BulkEvaluator<f32>;
-
-    /// Returns a tape for use in a float slice evaluator
-    fn tape(&self) -> <Self::Eval as BulkEvaluator<f32>>::Tape;
-}
-
-/// A shape can produce a grad slice evaluator
-pub trait ShapeGradSliceEval {
-    /// Bulk grad evaluator
-    type Eval: BulkEvaluator<Grad>;
-
-    /// Returns a tape for use in a float slice evaluator
-    fn tape(&self) -> <Self::Eval as BulkEvaluator<Grad>>::Tape;
-}
-
-/// A shape can produce an interval evaluator
-pub trait ShapeIntervalEval {
-    /// Interval evaluator
-    type Eval: TracingEvaluator<types::Interval>;
-
-    /// Returns a tape for use in a single interval tracing evaluator
-    fn tape(&self) -> <Self::Eval as TracingEvaluator<Interval>>::Tape;
-
-    /// Generates a simplified shape based on a captured trace
-    fn simplify(
-        &self,
-        trace: &<Self::Eval as TracingEvaluator<Interval>>::Trace,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-}
-
-/// A shape can produce a point evaluator
-pub trait ShapePointEval {
-    /// Point evaluator
-    type Eval: TracingEvaluator<f32>;
-
-    /// Returns a tape for use in a single interval tracing evaluator
-    fn tape(&self) -> <Self::Eval as TracingEvaluator<f32>>::Tape;
-
-    /// Generates a simplified shape based on a captured trace
-    fn simplify(
-        &self,
-        trace: &<Self::Eval as TracingEvaluator<f32>>::Trace,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-}
-
 /// A shape represents an implicit surface
 ///
 /// It is mostly agnostic to _how_ that surface is represented; we simply
@@ -105,19 +50,46 @@ pub trait ShapePointEval {
 ///
 /// Shapes are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
-///
-/// This trait doesn't actually implement any functions itself; it simply
-/// stitches together a bunch of other traits with appropriate equality
-/// constraints.
-pub trait Shape:
-    ShapeFloatSliceEval
-    + ShapeGradSliceEval
-    + ShapePointEval
-    + ShapeIntervalEval
-    + ShapeRenderHints
-    + Clone
-{
-    // Nothing to add here
+pub trait Shape {
+    /// Associated type traces collected during tracing evaluation
+    type Trace;
+
+    /// Associated type for single-point tracing evaluation
+    type PointEval: TracingEvaluator<f32, Self::Trace>;
+
+    /// Associated type for single interval tracing evaluation
+    type IntervalEval: TracingEvaluator<Interval, Self::Trace>;
+
+    /// Associated type for evaluating many points in one call
+    type FloatSliceEval: BulkEvaluator<f32>;
+
+    /// Associated type for evaluating many gradients in one call
+    type GradSliceEval: BulkEvaluator<Grad>;
+
+    /// Returns an evaluation tape for a point evaluator
+    fn point_tape(
+        &self,
+    ) -> <Self::PointEval as TracingEvaluator<f32, Self::Trace>>::Tape;
+
+    /// Returns an evaluation tape for an interval evaluator
+    fn interval_tape(
+        &self,
+    ) -> <Self::IntervalEval as TracingEvaluator<Interval, Self::Trace>>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn float_slice_tape(
+        &self,
+    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn grad_slice_tape(
+        &self,
+    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
+
+    /// Computes a simplified tape using the given trace
+    fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
+    where
+        Self: Sized;
 }
 
 /// A shape can offer hints as to how it should be rendered

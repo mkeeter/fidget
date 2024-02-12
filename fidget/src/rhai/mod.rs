@@ -6,12 +6,13 @@
 //! with pre-defined variables `x`, `y`, `z`.
 //!
 //! ```
-//! use fidget::{eval::Tape, vm, rhai::eval};
+//! use fidget::{eval::{MathShape, Shape}, vm::VmShape, rhai::eval};
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(1.0, 2.0, 0.0, &[])?.0, 3.0);
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let eval = VmShape::new_point_eval();
+//! let tape = shape.point_tape();
+//! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[])?.0, 3.0);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

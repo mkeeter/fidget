@@ -199,7 +199,7 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d`](crate::render::render2d())
-    pub fn run<S: Shape + Send, M: RenderMode + Sync>(
+    pub fn run<S: Shape + Clone + Send, M: RenderMode + Sync>(
         &self,
         shape: S,
         mode: &M,
@@ -215,7 +215,7 @@ impl RenderConfig<3> {
     /// [`fidget::render::render3d`](crate::render::render3d())
     ///
     /// Returns a tuple of heightmap, RGB image.
-    pub fn run<S: Shape + Send>(
+    pub fn run<S: Shape + Clone + Send>(
         &self,
         shape: S,
     ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {

@@ -4,7 +4,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Shape, ShapeFloatSliceEval, ShapeGradSliceEval, ShapeIntervalEval,
+        Shape,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -42,34 +42,26 @@ impl Scratch {
 struct ShapeAndTape<S: Shape> {
     shape: S,
 
-    i_tape: Option<
-        <<S as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Tape,
-    >,
-    f_tape:
-        Option<<<S as ShapeFloatSliceEval>::Eval as BulkEvaluator<f32>>::Tape>,
-    g_tape:
-        Option<<<S as ShapeGradSliceEval>::Eval as BulkEvaluator<Grad>>::Tape>,
+    i_tape:
+        Option<<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
+    g_tape: Option<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
-    ) -> &<<S as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Tape
-    {
+    ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
         self.i_tape
-            .get_or_insert_with(|| ShapeIntervalEval::tape(&self.shape))
+            .get_or_insert_with(|| self.shape.interval_tape())
     }
-    fn f_tape(
-        &mut self,
-    ) -> &<<S as ShapeFloatSliceEval>::Eval as BulkEvaluator<f32>>::Tape {
+    fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
         self.f_tape
-            .get_or_insert_with(|| ShapeFloatSliceEval::tape(&self.shape))
+            .get_or_insert_with(|| self.shape.float_slice_tape())
     }
-    fn g_tape(
-        &mut self,
-    ) -> &<<S as ShapeGradSliceEval>::Eval as BulkEvaluator<Grad>>::Tape {
+    fn g_tape(&mut self) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
         self.g_tape
-            .get_or_insert_with(|| ShapeGradSliceEval::tape(&self.shape))
+            .get_or_insert_with(|| self.shape.grad_slice_tape())
     }
 }
 
@@ -81,9 +73,9 @@ struct Worker<'a, S: Shape> {
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
 
-    eval_float_slice: <S as ShapeFloatSliceEval>::Eval,
-    eval_grad_slice: <S as ShapeGradSliceEval>::Eval,
-    eval_interval: <S as ShapeIntervalEval>::Eval,
+    eval_float_slice: S::FloatSliceEval,
+    eval_grad_slice: S::GradSliceEval,
+    eval_interval: S::IntervalEval,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -157,8 +149,7 @@ impl<S: Shape> Worker<'_, S> {
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
         let mut sub_tape = if let Some(trace) = trace.as_ref() {
-            let next =
-                ShapeIntervalEval::simplify(&shape.shape, trace).unwrap();
+            let next = shape.shape.simplify(trace).unwrap();
             Some(ShapeAndTape {
                 shape: next,
                 i_tape: None,
@@ -363,9 +354,9 @@ fn worker<S: Shape>(
         color: vec![],
         config,
 
-        eval_float_slice: <S as ShapeFloatSliceEval>::Eval::new(),
-        eval_interval: <S as ShapeIntervalEval>::Eval::new(),
-        eval_grad_slice: <S as ShapeGradSliceEval>::Eval::new(),
+        eval_float_slice: S::FloatSliceEval::new(),
+        eval_interval: S::IntervalEval::new(),
+        eval_grad_slice: S::GradSliceEval::new(),
     };
 
     let mut shape = ShapeAndTape {
@@ -419,7 +410,7 @@ fn worker<S: Shape>(
 ///
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
-pub fn render<S: Shape + Send>(
+pub fn render<S: Shape + Clone + Send>(
     shape: S,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {

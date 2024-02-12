@@ -2,7 +2,6 @@
 use crate::{
     eval::{
         bulk::BulkEvaluator, tracing::TracingEvaluator, types::Interval, Shape,
-        ShapeFloatSliceEval, ShapeIntervalEval,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -173,8 +172,8 @@ struct Worker<'a, S: Shape, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
-    eval_float_slice: <S as ShapeFloatSliceEval>::Eval,
-    eval_interval: <S as ShapeIntervalEval>::Eval,
+    eval_float_slice: S::FloatSliceEval,
+    eval_interval: S::IntervalEval,
 
     image: Vec<M::Output>,
 }
@@ -182,26 +181,21 @@ struct Worker<'a, S: Shape, M: RenderMode> {
 /// A specific shape, and its associated tapes
 struct ShapeAndTape<S: Shape> {
     shape: S,
-    i_tape: Option<
-        <<S as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Tape,
-    >,
-    f_tape:
-        Option<<<S as ShapeFloatSliceEval>::Eval as BulkEvaluator<f32>>::Tape>,
+    i_tape:
+        Option<<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
-    ) -> &<<S as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Tape
-    {
+    ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
         self.i_tape
-            .get_or_insert_with(|| ShapeIntervalEval::tape(&self.shape))
+            .get_or_insert_with(|| self.shape.interval_tape())
     }
-    fn f_tape(
-        &mut self,
-    ) -> &<<S as ShapeFloatSliceEval>::Eval as BulkEvaluator<f32>>::Tape {
+    fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
         self.f_tape
-            .get_or_insert_with(|| ShapeFloatSliceEval::tape(&self.shape))
+            .get_or_insert_with(|| self.shape.float_slice_tape())
     }
 }
 
@@ -254,7 +248,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
         let mut sub_tape = if let Some(data) = simplify.as_ref() {
             Some(ShapeAndTape {
-                shape: ShapeIntervalEval::simplify(&shape.shape, data).unwrap(),
+                shape: shape.shape.simplify(data).unwrap(),
                 i_tape: None,
                 f_tape: None,
             })
@@ -340,8 +334,8 @@ fn worker<S: Shape, M: RenderMode>(
         scratch,
         image: vec![],
         config,
-        eval_float_slice: <S as ShapeFloatSliceEval>::Eval::new(),
-        eval_interval: <S as ShapeIntervalEval>::Eval::new(),
+        eval_float_slice: S::FloatSliceEval::new(),
+        eval_interval: S::IntervalEval::new(),
     };
     let mut shape = ShapeAndTape {
         shape,
@@ -368,7 +362,7 @@ fn worker<S: Shape, M: RenderMode>(
 /// This function is parameterized by both evaluator family (which determines
 /// how we perform evaluation) and render mode (which tells us how to color in
 /// the resulting pixels).
-pub fn render<S: Shape + Send, M: RenderMode + Sync>(
+pub fn render<S: Shape + Send + Clone, M: RenderMode + Sync>(
     shape: S,
     config: &RenderConfig<2>,
     mode: &M,

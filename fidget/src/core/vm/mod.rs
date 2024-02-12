@@ -5,9 +5,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, MathShape, ShapeFloatSliceEval, ShapeGradSliceEval,
-        ShapeIntervalEval, ShapePointEval, ShapeRenderHints, ShapeVars,
-        TapeData,
+        Choice, MathShape, Shape, ShapeRenderHints, ShapeVars, TapeData,
     },
     Error,
 };
@@ -19,19 +17,6 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Clone)]
 pub struct VmShape(Arc<TapeData>);
 
-impl VmShape {
-    /// Generates a simplified shape based on a captured trace
-    ///
-    /// # Panics
-    /// This function may panic if the trace is incompatible with this shape
-    fn simplify(&self, trace: &[Choice]) -> Result<Self, Error> {
-        let mut workspace = crate::eval::tape::Workspace::default();
-        let next = TapeData::default();
-        let d = self.0.simplify_with(trace, &mut workspace, next)?;
-        Ok(Self(Arc::new(d)))
-    }
-}
-
 impl ShapeRenderHints for VmShape {
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
@@ -42,37 +27,35 @@ impl ShapeRenderHints for VmShape {
     }
 }
 
-impl ShapeFloatSliceEval for VmShape {
-    type Eval = BulkVmEval<f32>;
-    fn tape(&self) -> Self {
-        self.clone()
+impl VmShape {
+    fn simplify_inner(&self, choices: &[Choice]) -> Result<Self, Error> {
+        let mut workspace = crate::eval::tape::Workspace::default();
+        let next = TapeData::default();
+        let d = self.0.simplify_with(choices, &mut workspace, next)?;
+        Ok(Self(Arc::new(d)))
     }
 }
 
-impl ShapeGradSliceEval for VmShape {
-    type Eval = BulkVmEval<Grad>;
-    fn tape(&self) -> Self {
+impl Shape for VmShape {
+    type FloatSliceEval = BulkVmEval<f32>;
+    fn float_slice_tape(&self) -> Self {
         self.clone()
     }
-}
-
-impl ShapePointEval for VmShape {
-    type Eval = TracingVmEval<f32>;
-    fn tape(&self) -> Self {
+    type GradSliceEval = BulkVmEval<Grad>;
+    fn grad_slice_tape(&self) -> Self {
         self.clone()
     }
+    type PointEval = TracingVmEval<f32>;
+    fn point_tape(&self) -> Self {
+        self.clone()
+    }
+    type IntervalEval = TracingVmEval<Interval>;
+    fn interval_tape(&self) -> Self {
+        self.clone()
+    }
+    type Trace = Vec<Choice>;
     fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
-        self.simplify(trace.as_slice())
-    }
-}
-
-impl ShapeIntervalEval for VmShape {
-    type Eval = TracingVmEval<Interval>;
-    fn tape(&self) -> Self {
-        self.clone()
-    }
-    fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
-        self.simplify(trace.as_slice())
+        self.simplify_inner(trace.as_slice())
     }
 }
 
@@ -159,9 +142,8 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     }
 }
 
-impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
+impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
     type Tape = VmShape;
-    type Trace = Vec<Choice>;
 
     fn eval<F: Into<Interval>>(
         &mut self,
@@ -170,7 +152,7 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(Interval, Option<&Self::Trace>), Error> {
+    ) -> Result<(Interval, Option<&Vec<Choice>>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
@@ -281,9 +263,8 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
     }
 }
 
-impl TracingEvaluator<f32> for TracingVmEval<f32> {
+impl TracingEvaluator<f32, Vec<Choice>> for TracingVmEval<f32> {
     type Tape = VmShape;
-    type Trace = Vec<Choice>;
 
     fn eval<F: Into<f32>>(
         &mut self,
@@ -292,7 +273,7 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(f32, Option<&Self::Trace>), Error> {
+    ) -> Result<(f32, Option<&Vec<Choice>>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
