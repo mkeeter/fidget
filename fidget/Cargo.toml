@@ -35,7 +35,7 @@ crossbeam-deque = { version = "0.8", optional = true }
 
 [features]
 #default = ["jit", "rhai", "render", "mesh"]
-default = []
+default = ["rhai", "render"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on

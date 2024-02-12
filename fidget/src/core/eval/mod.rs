@@ -103,6 +103,9 @@ pub trait ShapePointEval {
 /// It is mostly agnostic to _how_ that surface is represented; we simply
 /// require that the shape can generate evaluators of various kinds.
 ///
+/// Shapes are shared between threads, so they should be cheap to clone.  In
+/// most cases, they're a thin wrapper around an `Arc<..>`.
+///
 /// This trait doesn't actually implement any functions itself; it simply
 /// stitches together a bunch of other traits with appropriate equality
 /// constraints.
@@ -112,11 +115,7 @@ pub trait Shape:
     + ShapePointEval
     + ShapeIntervalEval
     + ShapeRenderHints
-where
-    (
-        <<Self as ShapePointEval>::Eval as TracingEvaluator<f32>>::Trace,
-        <<Self as ShapeIntervalEval>::Eval as TracingEvaluator<Interval>>::Trace,
-    ): TyEq,
+    + Clone
 {
     // Nothing to add here
 }

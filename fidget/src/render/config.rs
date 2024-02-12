@@ -1,9 +1,4 @@
-use crate::{
-    context::{Context, Node},
-    eval::{Family, Tape},
-    render::RenderMode,
-    Error,
-};
+use crate::{eval::Shape, render::RenderMode, Error};
 use nalgebra::{
     allocator::Allocator, geometry::Transform, Const, DefaultAllocator,
     DimNameAdd, DimNameSub, DimNameSum, U1,
@@ -204,14 +199,12 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d`](crate::render::render2d())
-    pub fn run<I: Family, M: RenderMode + Sync>(
+    pub fn run<S: Shape + Send, M: RenderMode + Sync>(
         &self,
-        root: Node,
-        context: Context,
+        shape: S,
         mode: &M,
     ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        let tape = Tape::new(&context, root)?;
-        Ok(crate::render::render2d::<I, M>(tape, self, mode))
+        Ok(crate::render::render2d::<S, M>(shape, self, mode))
     }
 }
 
@@ -222,13 +215,11 @@ impl RenderConfig<3> {
     /// [`fidget::render::render3d`](crate::render::render3d())
     ///
     /// Returns a tuple of heightmap, RGB image.
-    pub fn run<I: Family>(
+    pub fn run<S: Shape + Send>(
         &self,
-        root: Node,
-        context: Context,
+        shape: S,
     ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        let tape = Tape::new(&context, root)?;
-        Ok(crate::render::render3d::<I>(tape, self))
+        Ok(crate::render::render3d::<S>(shape, self))
     }
 }
 
