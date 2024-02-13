@@ -1,6 +1,5 @@
 use crate::{
     context::{Context, IntoNode, Node},
-    eval::MathShape,
     Error,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -132,11 +131,6 @@ impl BoundNode {
     /// Builds a square root operation
     pub fn sqrt(self) -> Self {
         self.op_unary(Context::sqrt)
-    }
-
-    /// Converts this node into a tape, using its internal context
-    pub fn get_shape<S: MathShape>(&self) -> Result<S, Error> {
-        S::new(&self.ctx.0.borrow(), self.node)
     }
 
     /// Evaluates the node at a particular point

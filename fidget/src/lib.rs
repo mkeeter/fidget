@@ -54,14 +54,16 @@
 //! passing it some position `(x, y, z)` and getting back a result.  This will
 //! be done _a lot_, so it has to be fast.
 //!
+//! TODO update these docs
+//!
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Tape::new`](crate::eval::Tape::new):
 //! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! use fidget::{eval::{Shape, MathShape}, rhai, vm::VmShape};
 //!
-//! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
+//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let shape = VmShape::new(&ctx, sum)?;
+//! assert_eq!(shape.len(), 3); // X, Y, and (X + Y)
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -189,16 +191,18 @@
 //! Here's a quick example:
 //! ```
 //! use fidget::context::Context;
-//! use fidget::rhai::eval;
-//! use fidget::vm;
+//! use fidget::rhai;
+//! use fidget::eval::MathShape;
+//! use fidget::vm::VmShape;
 //! use fidget::render::{BitRenderMode, RenderConfig};
 //!
-//! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1")?;
+//! let (shape, ctx) = rhai::eval("sqrt(x*x + y*y) - 1")?;
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode)?;
+//! let shape = VmShape::new(&ctx, shape);
+//! let out = cfg.run(shape, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

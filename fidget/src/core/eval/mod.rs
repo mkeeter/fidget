@@ -35,12 +35,12 @@ pub mod types;
 mod vars;
 
 // Re-export a few things
+pub use bulk::BulkEvaluator;
 pub use tape::TapeData;
 pub use tracing::Choice;
+pub use tracing::TracingEvaluator;
 pub use vars::Vars;
 
-use bulk::BulkEvaluator;
-use tracing::TracingEvaluator;
 use types::{Grad, Interval};
 
 /// A shape represents an implicit surface
@@ -57,14 +57,34 @@ pub trait Shape {
     /// Associated type for single-point tracing evaluation
     type PointEval: TracingEvaluator<f32, Self::Trace>;
 
+    /// Builds a new point evaluator
+    fn new_point_eval() -> Self::PointEval {
+        Self::PointEval::new()
+    }
+
     /// Associated type for single interval tracing evaluation
     type IntervalEval: TracingEvaluator<Interval, Self::Trace>;
+
+    /// Builds a new interval evaluator
+    fn new_interval_eval() -> Self::IntervalEval {
+        Self::IntervalEval::new()
+    }
 
     /// Associated type for evaluating many points in one call
     type FloatSliceEval: BulkEvaluator<f32>;
 
+    /// Builds a new float slice evaluator
+    fn new_float_slice_eval() -> Self::FloatSliceEval {
+        Self::FloatSliceEval::new()
+    }
+
     /// Associated type for evaluating many gradients in one call
     type GradSliceEval: BulkEvaluator<Grad>;
+
+    /// Builds a new gradient slice evaluator
+    fn new_grad_slice_eval() -> Self::GradSliceEval {
+        Self::GradSliceEval::new()
+    }
 
     /// Returns an evaluation tape for a point evaluator
     fn point_tape(
@@ -90,6 +110,13 @@ pub trait Shape {
     fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Returns a size associated with this shape
+    ///
+    /// This is underspecified and only used for unit testing; for tape-based
+    /// shapes, it's typically the length of the tape,
+    #[cfg(test)]
+    fn size(&self) -> usize;
 }
 
 /// A shape can offer hints as to how it should be rendered
@@ -109,21 +136,6 @@ pub trait ShapeRenderHints {
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
     }
-}
-
-/// A [`Shape`] which is generated from a math tree
-#[allow(clippy::len_without_is_empty)]
-pub trait MathShape {
-    /// Build a new shape from the given math tree
-    fn new(
-        ctx: &crate::context::Context,
-        node: crate::context::Node,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    /// Returns the length of the inner tape
-    fn len(&self) -> usize;
 }
 
 /// A [`Shape`] which contains named variables

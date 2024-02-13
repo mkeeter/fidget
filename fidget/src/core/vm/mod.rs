@@ -5,7 +5,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, MathShape, Shape, ShapeRenderHints, ShapeVars, TapeData,
+        Choice, Shape, ShapeRenderHints, ShapeVars, TapeData,
     },
     Error,
 };
@@ -28,6 +28,14 @@ impl ShapeRenderHints for VmShape {
 }
 
 impl VmShape {
+    /// Build a new shape for VM evaluation
+    pub fn new(
+        ctx: &crate::Context,
+        node: crate::context::Node,
+    ) -> Result<Self, Error> {
+        let d = TapeData::new(ctx, node)?;
+        Ok(Self(Arc::new(d)))
+    }
     fn simplify_inner(&self, choices: &[Choice]) -> Result<Self, Error> {
         let mut workspace = crate::eval::tape::Workspace::default();
         let next = TapeData::default();
@@ -57,18 +65,19 @@ impl Shape for VmShape {
     fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
         self.simplify_inner(trace.as_slice())
     }
+    #[cfg(test)]
+    fn size(&self) -> usize {
+        self.0.len()
+    }
 }
 
-impl MathShape for VmShape {
-    fn new(
-        ctx: &crate::Context,
-        node: crate::context::Node,
+#[cfg(test)]
+impl TryFrom<(&crate::Context, crate::context::Node)> for VmShape {
+    type Error = Error;
+    fn try_from(
+        c: (&crate::Context, crate::context::Node),
     ) -> Result<Self, Error> {
-        let d = TapeData::new(ctx, node)?;
-        Ok(Self(Arc::new(d)))
-    }
-    fn len(&self) -> usize {
-        self.0.len()
+        Self::new(&c.0, c.1)
     }
 }
 
