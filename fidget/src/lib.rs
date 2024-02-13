@@ -59,11 +59,11 @@
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Tape::new`](crate::eval::Tape::new):
 //! ```
-//! use fidget::{eval::{Shape, MathShape}, rhai, vm::VmShape};
+//! use fidget::{eval::Shape, rhai, vm::VmShape};
 //!
 //! let (sum, ctx) = rhai::eval("x + y")?;
 //! let shape = VmShape::new(&ctx, sum)?;
-//! assert_eq!(shape.len(), 3); // X, Y, and (X + Y)
+//! assert_eq!(shape.size(), 3); // X, Y, and (X + Y)
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -112,17 +112,19 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! use fidget::{eval::{Shape, TracingEvaluator}, rhai, vm::VmShape};
 //!
-//! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let mut interval_eval = tape.new_interval_evaluator();
-//! let (out, _) = interval_eval.eval(
-//!         [0.0, 1.0], // X
-//!         [2.0, 3.0], // Y
-//!         [0.0, 0.0], // Z
-//!         &[]         // variables (unused)
-//!     )?;
+//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let mut interval_eval = VmShape::new_interval_eval();
+//! let tape = shape.interval_tape();
+//! let (out, _trace) = interval_eval.eval(
+//!     &tape,
+//!     [0.0, 1.0], // X
+//!     [2.0, 3.0], // Y
+//!     [0.0, 0.0], // Z
+//!     &[]         // variables (unused)
+//! )?;
 //! assert_eq!(out, [2.0, 4.0].into());
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -136,17 +138,19 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! use fidget::{eval::{TracingEvaluator, Shape}, rhai, vm::VmShape};
 //!
-//! let (sum, ctx) = eval("min(x, y)")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let mut interval_eval = tape.new_interval_evaluator();
+//! let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let mut interval_eval = VmShape::new_interval_eval();
+//! let tape = shape.interval_tape();
 //! let (out, simplify) = interval_eval.eval(
-//!         [0.0, 1.0], // X
-//!         [2.0, 3.0], // Y
-//!         [0.0, 0.0], // Z
-//!         &[]         // variables (unused)
-//!     )?;
+//!     &tape,
+//!     [0.0, 1.0], // X
+//!     [2.0, 3.0], // Y
+//!     [0.0, 0.0], // Z
+//!     &[]         // variables (unused)
+//! )?;
 //! assert_eq!(out, [0.0, 1.0].into());
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -161,20 +165,22 @@
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
-//! # use fidget::{eval::Tape, rhai::eval, vm};
-//! # let (sum, ctx) = eval("min(x, y)")?;
-//! # let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! # let mut interval_eval = tape.new_interval_evaluator();
-//! # let (out, simplify) = interval_eval.eval(
+//! # use fidget::{eval::{TracingEvaluator, Shape}, rhai, vm::VmShape};
+//! # let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! # let shape = VmShape::new(&ctx, sum)?;
+//! # let mut interval_eval = VmShape::new_interval_eval();
+//! # let tape = shape.interval_tape();
+//! # let (out, trace) = interval_eval.eval(
+//! #         &tape,
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
 //! #         &[]         // variables (unused)
 //! #     )?;
 //! // (same code as above)
-//! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = simplify.unwrap().simplify()?;
-//! assert_eq!(new_tape.len(), 1); // just the 'X' term
+//! assert_eq!(tape.size(), 3);
+//! let new_shape = shape.simplify(trace.unwrap())?;
+//! assert_eq!(new_shape.interval_tape().size(), 1); // just the 'X' term
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -192,7 +198,6 @@
 //! ```
 //! use fidget::context::Context;
 //! use fidget::rhai;
-//! use fidget::eval::MathShape;
 //! use fidget::vm::VmShape;
 //! use fidget::render::{BitRenderMode, RenderConfig};
 //!
@@ -201,7 +206,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let shape = VmShape::new(&ctx, shape);
+//! let shape = VmShape::new(&ctx, shape)?;
 //! let out = cfg.run(shape, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {

@@ -42,6 +42,10 @@ impl VmShape {
         let d = self.0.simplify_with(choices, &mut workspace, next)?;
         Ok(Self(Arc::new(d)))
     }
+    /// Returns a characteristic size (the length of the inner assembly tape)
+    pub fn size(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Shape for VmShape {
@@ -67,7 +71,7 @@ impl Shape for VmShape {
     }
     #[cfg(test)]
     fn size(&self) -> usize {
-        self.0.len()
+        VmShape::size(self)
     }
 }
 
@@ -77,7 +81,7 @@ impl TryFrom<(&crate::Context, crate::context::Node)> for VmShape {
     fn try_from(
         c: (&crate::Context, crate::context::Node),
     ) -> Result<Self, Error> {
-        Self::new(&c.0, c.1)
+        Self::new(c.0, c.1)
     }
 }
 

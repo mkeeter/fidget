@@ -7,7 +7,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{MathShape, Shape, TracingEvaluator},
+//!     eval::{Shape, TracingEvaluator},
 //!     vm::VmShape,
 //!     rhai::eval
 //! };
@@ -25,7 +25,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{MathShape, Shape, TracingEvaluator},
+//!     eval::{Shape, TracingEvaluator},
 //!     vm::VmShape,
 //!     rhai::Engine
 //! };

@@ -6,16 +6,17 @@
 //! ```rust
 //! use fidget::vm::VmShape;
 //! use fidget::context::Context;
-//! use fidget::eval::{MathShape, Shape};
+//! use fidget::eval::{TracingEvaluator, Shape};
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let shape = VmShape::new(&ctx, x)?;
 //!
 //! // Let's build a single point evaluator:
-//! let mut eval = VmShape::new_float_slice_eval();
-//! let tape = shape.float_slice_tape();
-//! assert_eq!(eval.eval(&tape, 0.25, 0.0, 0.0, &[])?.0, 0.25);
+//! let mut eval = VmShape::new_point_eval();
+//! let tape = shape.point_tape();
+//! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0, &[])?;
+//! assert_eq!(value, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 use crate::Error;
