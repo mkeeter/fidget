@@ -13,8 +13,7 @@ use super::{
     Mesh, Settings,
 };
 use crate::eval::{BulkEvaluator, Shape, TracingEvaluator};
-use once_cell::sync::OnceCell;
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{cell::OnceCell, num::NonZeroUsize, sync::Arc};
 
 /// Helper struct to contain a set of matched evaluators
 ///
