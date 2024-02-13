@@ -12,27 +12,24 @@ use super::{
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
-use crate::eval::{
-    float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
-    grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
-    interval::{IntervalEvalData, IntervalEvalStorage},
-    tape, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
-};
+use crate::eval::{BulkEvaluator, Shape, TracingEvaluator};
 use once_cell::sync::OnceCell;
 use std::{num::NonZeroUsize, sync::Arc};
 
 /// Helper struct to contain a set of matched evaluators
 ///
 /// Note that this is `Send + Sync` and can be used with shared references!
-pub struct EvalGroup<I: Family> {
-    pub tape: Tape<I>,
+pub struct EvalGroup<S: Shape> {
+    pub shape: S,
 
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
-    // indirection (since the evaluators also contain `Arc`); could we flatten
-    // them out?  (same with `Tape`, which is an `Arc<Data>`)
-    pub interval: OnceCell<IntervalEval<I>>,
-    pub float_slice: OnceCell<FloatSliceEval<I>>,
-    pub grad_slice: OnceCell<GradSliceEval<I>>,
+    // indirection (since the tapes also contain `Arc`); could we flatten
+    // them out?  (same with the shape, which is usually an `Arc`)
+    pub interval: OnceCell<
+        <S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape,
+    >,
+    pub float_slice: OnceCell<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
+    pub grad_slice: OnceCell<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
 
 impl<I: Family> EvalGroup<I> {

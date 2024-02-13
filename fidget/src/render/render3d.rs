@@ -10,7 +10,7 @@ use crate::{
 };
 
 use nalgebra::{Point3, Vector3};
-use std::collections::BTreeMap;
+use std::{cell::OnceCell, collections::BTreeMap};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,26 +42,24 @@ impl Scratch {
 struct ShapeAndTape<S: Shape> {
     shape: S,
 
-    i_tape:
-        Option<<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape>,
-    f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
-    g_tape: Option<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
+    i_tape: OnceCell<
+        <S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape,
+    >,
+    f_tape: OnceCell<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
+    g_tape: OnceCell<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
-        self.i_tape
-            .get_or_insert_with(|| self.shape.interval_tape())
+        self.i_tape.get_or_init(|| self.shape.interval_tape())
     }
     fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
-        self.f_tape
-            .get_or_insert_with(|| self.shape.float_slice_tape())
+        self.f_tape.get_or_init(|| self.shape.float_slice_tape())
     }
     fn g_tape(&mut self) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
-        self.g_tape
-            .get_or_insert_with(|| self.shape.grad_slice_tape())
+        self.g_tape.get_or_init(|| self.shape.grad_slice_tape())
     }
 }
 
@@ -152,9 +150,9 @@ impl<S: Shape> Worker<'_, S> {
             let next = shape.shape.simplify(trace).unwrap();
             Some(ShapeAndTape {
                 shape: next,
-                i_tape: None,
-                f_tape: None,
-                g_tape: None,
+                i_tape: OnceCell::new(),
+                f_tape: OnceCell::new(),
+                g_tape: OnceCell::new(),
             })
         } else {
             None
@@ -361,9 +359,9 @@ fn worker<S: Shape>(
 
     let mut shape = ShapeAndTape {
         shape,
-        i_tape: None,
-        f_tape: None,
-        g_tape: None,
+        i_tape: OnceCell::new(),
+        f_tape: OnceCell::new(),
+        g_tape: OnceCell::new(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted
