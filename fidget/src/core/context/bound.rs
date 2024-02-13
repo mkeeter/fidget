@@ -77,6 +77,11 @@ impl IntoNode for BoundNode {
 }
 
 impl BoundNode {
+    /// Borrows the context and node
+    pub fn borrow(&self) -> (&Context, Node) {
+        (self.ctx.as_ref(), self.node)
+    }
+
     fn op_bin<A: IntoNode>(
         self,
         other: A,

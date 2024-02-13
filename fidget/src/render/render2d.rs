@@ -362,7 +362,7 @@ fn worker<S: Shape, M: RenderMode>(
 /// This function is parameterized by both evaluator family (which determines
 /// how we perform evaluation) and render mode (which tells us how to color in
 /// the resulting pixels).
-pub fn render<S: Shape + Send + Clone, M: RenderMode + Sync>(
+pub fn render<S: Shape, M: RenderMode + Sync>(
     shape: S,
     config: &RenderConfig<2>,
     mode: &M,

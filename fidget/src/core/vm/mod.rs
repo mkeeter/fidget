@@ -5,7 +5,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, Shape, ShapeRenderHints, ShapeVars, TapeData,
+        Choice, Shape, ShapeVars, TapeData,
     },
     Error,
 };
@@ -16,16 +16,6 @@ use std::{collections::HashMap, sync::Arc};
 /// Shape that use a VM backend for evaluation
 #[derive(Clone)]
 pub struct VmShape(Arc<TapeData>);
-
-impl ShapeRenderHints for VmShape {
-    fn tile_sizes_3d() -> &'static [usize] {
-        &[256, 128, 64, 32, 16, 8]
-    }
-
-    fn tile_sizes_2d() -> &'static [usize] {
-        &[256, 128, 64, 32, 16, 8]
-    }
-}
 
 impl VmShape {
     /// Build a new shape for VM evaluation
@@ -72,6 +62,14 @@ impl Shape for VmShape {
     #[cfg(test)]
     fn size(&self) -> usize {
         VmShape::size(self)
+    }
+
+    fn tile_sizes_3d() -> &'static [usize] {
+        &[256, 128, 64, 32, 16, 8]
+    }
+
+    fn tile_sizes_2d() -> &'static [usize] {
+        &[256, 128, 64, 32, 16, 8]
     }
 }
 

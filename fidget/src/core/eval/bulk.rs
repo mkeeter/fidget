@@ -26,7 +26,7 @@ pub trait BulkEvaluator<T>: Default {
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
     /// or a metaphorical instruction tape (e.g. a JIT function).
-    type Tape;
+    type Tape: Send + Sync;
 
     /// Evaluates many points using the given instruction tape
     ///

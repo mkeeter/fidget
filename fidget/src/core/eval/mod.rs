@@ -51,12 +51,12 @@ use types::{Grad, Interval};
 ///
 /// Shapes are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
-pub trait Shape {
+pub trait Shape: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
     type Trace;
 
     /// Associated type for single-point tracing evaluation
-    type PointEval: TracingEvaluator<f32, Self::Trace>;
+    type PointEval: TracingEvaluator<f32, Self::Trace> + Send + Sync;
 
     /// Builds a new point evaluator
     fn new_point_eval() -> Self::PointEval {
@@ -64,7 +64,7 @@ pub trait Shape {
     }
 
     /// Associated type for single interval tracing evaluation
-    type IntervalEval: TracingEvaluator<Interval, Self::Trace>;
+    type IntervalEval: TracingEvaluator<Interval, Self::Trace> + Send + Sync;
 
     /// Builds a new interval evaluator
     fn new_interval_eval() -> Self::IntervalEval {
@@ -72,7 +72,7 @@ pub trait Shape {
     }
 
     /// Associated type for evaluating many points in one call
-    type FloatSliceEval: BulkEvaluator<f32>;
+    type FloatSliceEval: BulkEvaluator<f32> + Send + Sync;
 
     /// Builds a new float slice evaluator
     fn new_float_slice_eval() -> Self::FloatSliceEval {
@@ -80,7 +80,7 @@ pub trait Shape {
     }
 
     /// Associated type for evaluating many gradients in one call
-    type GradSliceEval: BulkEvaluator<Grad>;
+    type GradSliceEval: BulkEvaluator<Grad> + Send + Sync;
 
     /// Builds a new gradient slice evaluator
     fn new_grad_slice_eval() -> Self::GradSliceEval {
@@ -118,10 +118,7 @@ pub trait Shape {
     /// shapes, it's typically the length of the tape,
     #[cfg(test)]
     fn size(&self) -> usize;
-}
 
-/// A shape can offer hints as to how it should be rendered
-pub trait ShapeRenderHints {
     /// Recommended tile sizes for 3D rendering
     fn tile_sizes_3d() -> &'static [usize];
 

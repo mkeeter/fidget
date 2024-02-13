@@ -27,6 +27,7 @@ pub mod eval_tests {
 
     /// Helper struct to put constrains on our `Shape` object
     pub struct TestInterval<S>(std::marker::PhantomData<*const S>);
+
     impl<S> TestInterval<S>
     where
         for<'a> S: Shape + TryFrom<(&'a Context, Node)> + ShapeVars,

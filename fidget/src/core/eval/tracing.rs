@@ -64,7 +64,7 @@ pub trait TracingEvaluator<T: From<f32>, Trace>: Default {
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
     /// or a metaphorical instruction tape (e.g. a JIT function).
-    type Tape;
+    type Tape: Send + Sync;
 
     /// Evaluates the given value, using `choices` and `data` as scratch memory.
     fn eval<F: Into<T>>(

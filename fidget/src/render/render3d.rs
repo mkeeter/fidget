@@ -408,7 +408,7 @@ fn worker<S: Shape>(
 ///
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
-pub fn render<S: Shape + Clone + Send>(
+pub fn render<S: Shape>(
     shape: S,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
