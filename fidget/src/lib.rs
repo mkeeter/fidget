@@ -43,9 +43,9 @@
 //! a shape from a script:
 //!
 //! ```
-//! use fidget::rhai::eval;
+//! use fidget::rhai;
 //!
-//! let (sum, ctx) = eval("x + y")?;
+//! let (sum, ctx) = rhai::eval("x + y")?;
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -54,7 +54,18 @@
 //! passing it some position `(x, y, z)` and getting back a result.  This will
 //! be done _a lot_, so it has to be fast.
 //!
-//! TODO update these docs
+//! Evaluation is deliberately agnostic to the specific details of **how** we go
+//! from position to results.  This abstraction is represented by the
+//! [`Shape` trait](crate::eval::Shape), which defines how to make both
+//! **evaluators** and **tapes**.
+//!
+//! An **evaluator** is an object which performs evaluation of some kind (point,
+//! array, gradient, interval).  It carries no persistent data, and can be
+//! constructed (for example) on a per-thread basis.
+//!
+//! A **tape** contains instructions for an evaluator.
+//!
+//! TODO this is all out of date
 //!
 //! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
 //! This is performed by [`Tape::new`](crate::eval::Tape::new):
@@ -84,16 +95,15 @@
 //! registers](crate::eval::Family::REG_LIMIT), which affects tape planning;
 //! don't worry, this won't be on the test)
 //!
-//! At the moment, Fidget implements two evaluator families:
+//! At the moment, Fidget implements two kinds of shapes:
 //!
-//! - [`fidget::jit::Eval`](crate::jit::Eval) performs fast evaluation by
-//!   compiling shapes down to native code.  This is only functional on an ARM64
-//!   system running natively.
-//! - [`fidget::vm::Eval`](crate::vm::Eval) evaluates
+//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates
 //!   using an interpreter.  This is slower, but can run in more situations (e.g.
-//!   x86 machines or in WebAssembly).
+//!   in WebAssembly).
+//! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
+//!   by compiling shapes down to native code.
 //!
-//! Looking at the [`eval::Family`](crate::eval::Family) trait, you may notice
+//! Looking at the [`eval::Shape`](crate::eval::Shape) trait, you may notice
 //! that it requires four different kinds of evaluation:
 //!
 //! - Single-point evaluation
