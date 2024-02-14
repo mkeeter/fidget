@@ -66,7 +66,7 @@ pub trait TracingEvaluator<T: From<f32>, Trace>: Default {
     /// or a metaphorical instruction tape (e.g. a JIT function).
     type Tape: Send + Sync;
 
-    /// Evaluates the given value, using `choices` and `data` as scratch memory.
+    /// Evaluates the given tape at a particular position
     fn eval<F: Into<T>>(
         &mut self,
         tape: &Self::Tape,
@@ -79,6 +79,19 @@ pub trait TracingEvaluator<T: From<f32>, Trace>: Default {
     /// Build a new empty evaluator
     fn new() -> Self {
         Self::default()
+    }
+
+    /// Helper function to check input arguments
+    fn check_arguments(
+        &self,
+        vars: &[f32],
+        var_count: usize,
+    ) -> Result<(), Error> {
+        if vars.len() != var_count {
+            Err(Error::BadVarSlice(vars.len(), var_count))
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(test)]

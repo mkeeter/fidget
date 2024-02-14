@@ -50,4 +50,22 @@ pub trait BulkEvaluator<T>: Default {
     fn new() -> Self {
         Self::default()
     }
+
+    /// Helper function to return an error if the inputs are invalid
+    fn check_arguments(
+        &self,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+        tape_var_count: usize, // TODO: maybe a trait instead?
+    ) -> Result<(), Error> {
+        if xs.len() != ys.len() || ys.len() != zs.len() {
+            Err(Error::MismatchedSlices)
+        } else if vars.len() != tape_var_count {
+            Err(Error::BadVarSlice(vars.len(), tape_var_count))
+        } else {
+            Ok(())
+        }
+    }
 }

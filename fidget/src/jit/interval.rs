@@ -1,4 +1,3 @@
-use crate::jit::{AssemblerData, JitTracingEval};
+use crate::jit::AssemblerData;
 
 pub struct IntervalAssembler(pub(crate) AssemblerData<[f32; 2]>);
-pub type JitIntervalEval = JitTracingEval<IntervalAssembler>;

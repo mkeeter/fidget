@@ -48,6 +48,13 @@ impl BoundContext {
         };
         (x, y, z)
     }
+    pub fn constant(&self, f: f64) -> BoundNode {
+        let node = self.borrow_mut().constant(f);
+        BoundNode {
+            node,
+            ctx: self.clone(),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -77,9 +84,12 @@ impl IntoNode for BoundNode {
 }
 
 impl BoundNode {
-    /// Borrows the context and node
-    pub fn borrow(&self) -> (&Context, Node) {
-        (self.ctx.as_ref(), self.node)
+    pub fn convert<T: for<'a> TryFrom<(&'a Context, Node)>>(&self) -> T {
+        let ctx = self.ctx.borrow();
+        let Ok(out) = (&*ctx, self.node).try_into() else {
+            unreachable!("invalid node for our own context?")
+        };
+        out
     }
 
     fn op_bin<A: IntoNode>(

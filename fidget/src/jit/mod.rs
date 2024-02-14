@@ -20,17 +20,20 @@
 use crate::{
     compiler::RegOp,
     eval::{
-        bulk::BulkEvaluator, tape::Data as TapeData, tracing::TracingEvaluator,
-        Choice, EvaluatorStorage, Family, Tape,
+        bulk::BulkEvaluator,
+        tracing::TracingEvaluator,
+        types::{Grad, Interval},
+        Choice, Shape, ShapeVars, TapeData,
     },
     jit::mmap::Mmap,
+    vm::VmShape,
     Error,
 };
 use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 mod mmap;
 
@@ -213,7 +216,7 @@ pub trait AssemblerT {
 }
 
 /// Trait defining SIMD width
-pub trait SimdAssembler {
+pub trait SimdSize {
     /// Number of elements processed in a single iteration
     ///
     /// This value is used when checking array sizes, as we want to be sure to
@@ -580,7 +583,10 @@ impl From<Mmap> for MmapAssembler {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
+fn build_asm_fn_with_storage<A: AssemblerT>(
+    t: &TapeData<REGISTER_LIMIT>,
+    s: Mmap,
+) -> Mmap {
     // This guard may be a unit value on some systems
     #[allow(clippy::let_unit_value)]
     let _guard = Mmap::thread_mode_write();
@@ -677,16 +683,61 @@ fn build_asm_fn_with_storage<A: AssemblerT>(t: &TapeData, s: Mmap) -> Mmap {
     // JIT execute mode is restored here when the _guard is dropped
 }
 
-/// JIT evaluator family
+/// Shape for use with a JIT evaluator
 #[derive(Clone)]
-pub enum Eval {}
-impl Family for Eval {
-    const REG_LIMIT: u8 = REGISTER_LIMIT;
+pub struct JitShape(VmShape<REGISTER_LIMIT>);
 
-    type IntervalEval = interval::JitIntervalEval;
-    type PointEval = point::JitPointEval;
-    type FloatSliceEval = float_slice::JitFloatSliceEval;
-    type GradSliceEval = grad_slice::JitGradSliceEval;
+impl JitShape {
+    fn tracing_tape<A: AssemblerT>(&self) -> JitTracingFn<A::Data> {
+        // TODO reuse storage?
+        let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
+        let ptr = f.as_ptr();
+        JitTracingFn {
+            mmap: f.into(),
+            var_count: self.0.var_count(),
+            choice_count: self.0.choice_count(),
+            fn_trace: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+    fn bulk_tape<A: AssemblerT>(&self) -> JitBulkFn<A::Data> {
+        // TODO reuse storage?
+        let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
+        let ptr = f.as_ptr();
+        JitBulkFn {
+            mmap: f.into(),
+            var_count: self.0.var_count(),
+            fn_bulk: unsafe { std::mem::transmute(ptr) },
+        }
+    }
+}
+
+impl Shape for JitShape {
+    type Trace = Vec<Choice>;
+
+    type IntervalEval = JitTracingEval;
+    type PointEval = JitTracingEval;
+    type FloatSliceEval = JitBulkEval<f32>;
+    type GradSliceEval = JitBulkEval<Grad>;
+
+    fn point_tape(&self) -> JitTracingFn<f32> {
+        self.tracing_tape::<point::PointAssembler>()
+    }
+
+    fn interval_tape(&self) -> JitTracingFn<Interval> {
+        self.tracing_tape::<interval::IntervalAssembler>()
+    }
+
+    fn float_slice_tape(&self) -> JitBulkFn<f32> {
+        self.bulk_tape::<float_slice::FloatSliceAssembler>()
+    }
+
+    fn grad_slice_tape(&self) -> JitBulkFn<Grad> {
+        self.bulk_tape::<grad_slice::GradSliceAssembler>()
+    }
+
+    fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
+        self.0.simplify_inner(trace).map(JitShape)
+    }
 
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
@@ -699,6 +750,11 @@ impl Family for Eval {
     fn simplify_tree_during_meshing(d: usize) -> bool {
         // Unscientifically selected, but similar to tile_sizes_3d
         d % 8 == 4
+    }
+
+    #[cfg(test)]
+    fn size(&self) -> usize {
+        self.0.size()
     }
 }
 
@@ -733,164 +789,138 @@ macro_rules! jit_fn {
 ///
 /// Users are unlikely to use this directly; consider using the
 /// [`jit::Eval`](Eval) evaluator family instead.
-pub struct JitTracingEval<I: AssemblerT> {
+#[derive(Default)]
+pub struct JitTracingEval {
+    choices: Vec<Choice>,
+}
+
+/// Handle to an owned function pointer for tracing evaluation
+pub struct JitTracingFn<T> {
+    #[allow(unused)]
     mmap: Arc<Mmap>,
     var_count: usize,
+    choice_count: usize,
     fn_trace: jit_fn!(
         unsafe fn(
-            I::Data,    // X
-            I::Data,    // Y
-            I::Data,    // Z
+            T,          // X
+            T,          // Y
+            T,          // Z
             *const f32, // vars
             *mut u8,    // choices
             *mut u8,    // simplify (single boolean)
-        ) -> I::Data
+        ) -> T
     ),
 }
 
-impl<I: AssemblerT> Clone for JitTracingEval<I> {
-    fn clone(&self) -> Self {
-        Self {
-            mmap: self.mmap.clone(),
-            var_count: self.var_count,
-            fn_trace: self.fn_trace,
-        }
-    }
-}
-
-// SAFETY: there is no mutable state in a `JitTracingEval`, and the pointer
+// SAFETY: there is no mutable state in a `JitTracingFn`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: AssemblerT> Send for JitTracingEval<I> {}
-unsafe impl<I: AssemblerT> Sync for JitTracingEval<I> {}
+unsafe impl<T> Send for JitTracingFn<T> {}
+unsafe impl<T> Sync for JitTracingFn<T> {}
 
-impl<I: AssemblerT> EvaluatorStorage<Eval> for JitTracingEval<I> {
-    type Storage = Mmap;
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<I>(t, prev);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_trace: unsafe { std::mem::transmute(ptr) },
-        }
-    }
+impl<T: From<f32>> TracingEvaluator<T, Vec<Choice>> for JitTracingEval {
+    type Tape = JitTracingFn<T>;
 
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-}
-
-impl<I: AssemblerT> TracingEvaluator<I::Data, Eval> for JitTracingEval<I> {
-    type Data = ();
-
-    /// Evaluates a single point, capturing execution in `choices`
-    fn eval_with(
-        &self,
-        x: I::Data,
-        y: I::Data,
-        z: I::Data,
+    /// Evaluates a single point, capturing an evaluation trace
+    fn eval<F: Into<T>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: F,
+        y: F,
+        z: F,
         vars: &[f32],
-        choices: &mut [Choice],
-        _data: &mut (),
-    ) -> (I::Data, bool) {
+    ) -> Result<(T, Option<&Vec<Choice>>), Error> {
+        let x = x.into();
+        let y = y.into();
+        let z = z.into();
         let mut simplify = 0;
-        assert_eq!(vars.len(), self.var_count);
+        self.choices.resize(tape.choice_count, Choice::Unknown);
+        self.choices.fill(Choice::Unknown);
+        if vars.len() != tape.var_count {
+            return Err(Error::BadVarSlice(vars.len(), tape.var_count));
+        }
         let out = unsafe {
-            (self.fn_trace)(
+            (tape.fn_trace)(
                 x,
                 y,
                 z,
                 vars.as_ptr(),
-                choices.as_mut_ptr() as *mut u8,
+                self.choices.as_mut_ptr() as *mut u8,
                 &mut simplify,
             )
         };
-        (out, simplify != 0)
+        Ok((
+            out,
+            if simplify != 0 {
+                Some(&self.choices)
+            } else {
+                None
+            },
+        ))
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle owning a JIT-compiled bulk function of some kind
-///
-/// Users are unlikely to use this directly; consider using the
-/// [`jit::Eval`](Eval) evaluator family instead.
-pub struct JitBulkEval<I: AssemblerT> {
+/// Handle to an owned function pointer for bulk evaluation
+pub struct JitBulkFn<T> {
+    #[allow(unused)]
     mmap: Arc<Mmap>,
     var_count: usize,
     fn_bulk: jit_fn!(
         unsafe fn(
-            *const f32,   // X
-            *const f32,   // Y
-            *const f32,   // Z
-            *const f32,   // vars
-            *mut I::Data, // out
-            u64,          // size
-        ) -> I::Data
+            *const f32, // X
+            *const f32, // Y
+            *const f32, // Z
+            *const f32, // vars
+            *mut T,     // out
+            u64,        // size
+        ) -> T
     ),
 }
 
-impl<I: AssemblerT> Clone for JitBulkEval<I> {
-    fn clone(&self) -> Self {
-        Self {
-            mmap: self.mmap.clone(),
-            var_count: self.var_count,
-            fn_bulk: self.fn_bulk,
-        }
+/// Bulk evaluator for JIT functions
+pub struct JitBulkEval<T> {
+    /// Output array that's written to during evaluation
+    out: Vec<T>,
+}
+
+impl<T> Default for JitBulkEval<T> {
+    fn default() -> Self {
+        Self { out: vec![] }
     }
 }
 
-// SAFETY: there is no mutable state in a `JitBulkEval`, and the pointer
+// SAFETY: there is no mutable state in a `JitBulkFn`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
-unsafe impl<I: AssemblerT> Send for JitBulkEval<I> {}
-unsafe impl<I: AssemblerT> Sync for JitBulkEval<I> {}
+unsafe impl<T> Send for JitBulkFn<T> {}
+unsafe impl<T> Sync for JitBulkFn<T> {}
 
-impl<I: AssemblerT> EvaluatorStorage<Eval> for JitBulkEval<I> {
-    type Storage = Mmap;
-    fn new_with_storage(t: &Tape<Eval>, prev: Self::Storage) -> Self {
-        let mmap = build_asm_fn_with_storage::<I>(t, prev);
-        let ptr = mmap.as_ptr();
-        Self {
-            mmap: Arc::new(mmap),
-            var_count: t.var_count(),
-            fn_bulk: unsafe { std::mem::transmute(ptr) },
-        }
-    }
-
-    fn take(self) -> Option<Self::Storage> {
-        Arc::try_unwrap(self.mmap).ok()
-    }
-}
-
-impl<I: AssemblerT + SimdAssembler> BulkEvaluator<I::Data, Eval>
-    for JitBulkEval<I>
+impl<T> BulkEvaluator<T> for JitBulkEval<T>
 where
-    I::Data: Copy + From<f32>,
+    T: From<f32> + Copy + SimdSize,
 {
-    type Data = ();
+    type Tape = JitBulkFn<T>;
 
     /// Evaluate multiple points
-    fn eval_with(
-        &self,
+    fn eval(
+        &mut self,
+        tape: &Self::Tape,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
         vars: &[f32],
-        out: &mut [I::Data],
-        _data: &mut (),
-    ) {
-        assert_eq!(xs.len(), ys.len());
-        assert_eq!(ys.len(), zs.len());
-        assert_eq!(zs.len(), out.len());
-        assert_eq!(vars.len(), self.var_count);
+    ) -> Result<&[T], Error> {
+        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
 
         let n = xs.len();
+        self.out.resize(n, f32::NAN.into());
+        self.out.fill(f32::NAN.into());
 
         // Special case for when we have fewer items than the native SIMD size,
         // in which case the input slices can't be used as workspace (because
         // they are not valid for the entire range of values read in assembly)
-        if n < I::SIMD_SIZE {
-            // We can't use I::SIMD_SIZE directly here due to Rust limitations.
+        if n < T::SIMD_SIZE {
+            // We can't use T::SIMD_SIZE directly here due to Rust limitations.
             // Instead we hard-code a maximum SIMD size along with an assertion
             // that should be optimized out; we can't use a constant assertion
             // here due to the same compiler limitations.
@@ -898,7 +928,7 @@ where
             let mut x = [0.0; MAX_SIMD_WIDTH];
             let mut y = [0.0; MAX_SIMD_WIDTH];
             let mut z = [0.0; MAX_SIMD_WIDTH];
-            assert!(I::SIMD_SIZE <= MAX_SIMD_WIDTH);
+            assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
             x[0..n].copy_from_slice(xs);
             y[0..n].copy_from_slice(ys);
@@ -907,28 +937,28 @@ where
             let mut tmp = [std::f32::NAN.into(); MAX_SIMD_WIDTH];
 
             unsafe {
-                (self.fn_bulk)(
+                (tape.fn_bulk)(
                     x.as_ptr(),
                     y.as_ptr(),
                     z.as_ptr(),
                     vars.as_ptr(),
                     tmp.as_mut_ptr(),
-                    I::SIMD_SIZE as u64,
+                    T::SIMD_SIZE as u64,
                 );
             }
-            out[0..n].copy_from_slice(&tmp[0..n]);
+            self.out.copy_from_slice(&tmp[0..n]);
         } else {
             // Our vectorized function only accepts sets of a particular width,
             // so we'll find the biggest multiple, then do an extra operation to
             // process any remainders.
-            let m = (n / I::SIMD_SIZE) * I::SIMD_SIZE; // Round down
+            let m = (n / T::SIMD_SIZE) * T::SIMD_SIZE; // Round down
             unsafe {
-                (self.fn_bulk)(
+                (tape.fn_bulk)(
                     xs.as_ptr(),
                     ys.as_ptr(),
                     zs.as_ptr(),
                     vars.as_ptr(),
-                    out.as_mut_ptr(),
+                    self.out.as_mut_ptr(),
                     m as u64,
                 );
             }
@@ -937,17 +967,34 @@ where
             // vector in the array again.
             if n != m {
                 unsafe {
-                    (self.fn_bulk)(
-                        xs.as_ptr().add(n - I::SIMD_SIZE),
-                        ys.as_ptr().add(n - I::SIMD_SIZE),
-                        zs.as_ptr().add(n - I::SIMD_SIZE),
+                    (tape.fn_bulk)(
+                        xs.as_ptr().add(n - T::SIMD_SIZE),
+                        ys.as_ptr().add(n - T::SIMD_SIZE),
+                        zs.as_ptr().add(n - T::SIMD_SIZE),
                         vars.as_ptr(),
-                        out.as_mut_ptr().add(n - I::SIMD_SIZE),
-                        I::SIMD_SIZE as u64,
+                        self.out.as_mut_ptr().add(n - T::SIMD_SIZE),
+                        T::SIMD_SIZE as u64,
                     );
                 }
             }
         }
+        Ok(&self.out)
+    }
+}
+
+#[cfg(test)]
+impl TryFrom<(&crate::Context, crate::context::Node)> for JitShape {
+    type Error = Error;
+    fn try_from(
+        c: (&crate::Context, crate::context::Node),
+    ) -> Result<Self, Error> {
+        VmShape::new(c.0, c.1).map(JitShape)
+    }
+}
+
+impl ShapeVars for JitShape {
+    fn vars(&self) -> Arc<HashMap<String, u32>> {
+        self.0.vars()
     }
 }
 
@@ -956,8 +1003,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_slice_tests!(Eval);
-    crate::interval_tests!(Eval);
-    crate::float_slice_tests!(Eval);
-    crate::point_tests!(Eval);
+    crate::grad_slice_tests!(JitShape);
+    crate::interval_tests!(JitShape);
+    crate::float_slice_tests!(JitShape);
+    crate::point_tests!(JitShape);
 }

@@ -15,9 +15,9 @@ use std::{collections::HashMap, sync::Arc};
 
 /// Shape that use a VM backend for evaluation
 #[derive(Clone)]
-pub struct VmShape(Arc<TapeData>);
+pub struct VmShape<const N: u8 = { u8::MAX }>(Arc<TapeData<N>>);
 
-impl VmShape {
+impl<const N: u8> VmShape<N> {
     /// Build a new shape for VM evaluation
     pub fn new(
         ctx: &crate::Context,
@@ -26,7 +26,10 @@ impl VmShape {
         let d = TapeData::new(ctx, node)?;
         Ok(Self(Arc::new(d)))
     }
-    fn simplify_inner(&self, choices: &[Choice]) -> Result<Self, Error> {
+    pub(crate) fn simplify_inner(
+        &self,
+        choices: &[Choice],
+    ) -> Result<Self, Error> {
         let mut workspace = crate::eval::tape::Workspace::default();
         let next = TapeData::default();
         let d = self.0.simplify_with(choices, &mut workspace, next)?;
@@ -35,6 +38,21 @@ impl VmShape {
     /// Returns a characteristic size (the length of the inner assembly tape)
     pub fn size(&self) -> usize {
         self.0.len()
+    }
+
+    /// Borrows the inner [`TapeData`]
+    pub fn data(&self) -> &TapeData<N> {
+        self.0.as_ref()
+    }
+
+    /// Returns the number of variables in the tape
+    pub fn var_count(&self) -> usize {
+        self.0.var_count()
+    }
+
+    /// Returns the number of choices (i.e. `min` and `max` nodes) in the tape
+    pub fn choice_count(&self) -> usize {
+        self.0.choice_count()
     }
 }
 
@@ -74,7 +92,9 @@ impl Shape for VmShape {
 }
 
 #[cfg(test)]
-impl TryFrom<(&crate::Context, crate::context::Node)> for VmShape {
+impl<const N: u8> TryFrom<(&crate::Context, crate::context::Node)>
+    for VmShape<N>
+{
     type Error = Error;
     fn try_from(
         c: (&crate::Context, crate::context::Node),
@@ -83,7 +103,7 @@ impl TryFrom<(&crate::Context, crate::context::Node)> for VmShape {
     }
 }
 
-impl ShapeVars for VmShape {
+impl<const N: u8> ShapeVars for VmShape<N> {
     fn vars(&self) -> Arc<HashMap<String, u32>> {
         self.0.vars()
     }
@@ -139,18 +159,6 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
         self.choices.resize(tape.choice_count(), Choice::Unknown);
         self.choices.fill(Choice::Unknown);
     }
-
-    fn check_arguments(
-        &self,
-        tape: &TapeData,
-        vars: &[f32],
-    ) -> Result<(), Error> {
-        if vars.len() != tape.var_count() {
-            Err(Error::BadVarSlice(vars.len(), tape.var_count()))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
@@ -168,7 +176,7 @@ impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
         let y = y.into();
         let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(tape, vars)?;
+        self.check_arguments(vars, tape.var_count())?;
         self.resize_slots(tape);
         assert_eq!(vars.len(), tape.var_count());
 
@@ -289,9 +297,8 @@ impl TracingEvaluator<f32, Vec<Choice>> for TracingVmEval<f32> {
         let y = y.into();
         let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(tape, vars)?;
+        self.check_arguments(vars, tape.var_count())?;
         self.resize_slots(tape);
-        assert_eq!(vars.len(), tape.var_count());
 
         let mut choice_index = 0;
         let mut simplify = false;
@@ -472,23 +479,6 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
             s.resize(size, f32::NAN.into());
         }
     }
-
-    fn check_arguments(
-        &self,
-        tape: &TapeData,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
-        vars: &[f32],
-    ) -> Result<(), Error> {
-        if xs.len() != ys.len() || ys.len() != zs.len() {
-            Err(Error::MismatchedSlices)
-        } else if vars.len() != tape.var_count() {
-            Err(Error::BadVarSlice(vars.len(), tape.var_count()))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl BulkEvaluator<f32> for BulkVmEval<f32> {
@@ -503,7 +493,7 @@ impl BulkEvaluator<f32> for BulkVmEval<f32> {
         vars: &[f32],
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(tape, xs, ys, zs, vars)?;
+        self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
         self.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
@@ -659,7 +649,7 @@ impl BulkEvaluator<Grad> for BulkVmEval<Grad> {
         vars: &[f32],
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(tape, xs, ys, zs, vars)?;
+        self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
         self.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());

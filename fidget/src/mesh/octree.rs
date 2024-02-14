@@ -1332,7 +1332,7 @@ mod test {
         let cube = cube(&ctx, [-f, f], [-f, 0.3], [-f, 0.6]);
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
-        let shape = VmShape::new(&ctx, f).unwrap();
+        let shape: VmShape = cube.convert();
         let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
         let v = octree.verts[0].pos;
@@ -1382,11 +1382,11 @@ mod test {
     fn test_mesh_basic() {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.2);
-        let tape = VmShape::new(&ctx, shape).unwrap();
+        let shape: VmShape = shape.convert();
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
-        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+        let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(Cell::Empty, octree.cells[0].into(),);
         assert_eq!(octree.verts.len(), 0);
@@ -1396,7 +1396,7 @@ mod test {
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
         assert_eq!(
             Cell::Branch {
@@ -1428,8 +1428,8 @@ mod test {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.2);
 
-        let tape = VmShape::new(&ctx, shape).unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let shape: VmShape = shape.convert();
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
 
         let mut edge_count = 0;
@@ -1465,7 +1465,7 @@ mod test {
     fn test_sphere_manifold() {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.85);
-        let tape = VmShape::new(&ctx, shape).unwrap();
+        let shape: VmShape = shape.convert();
 
         for threads in [0, 8] {
             let settings = Settings {
@@ -1473,7 +1473,7 @@ mod test {
                 max_depth: 5,
                 threads,
             };
-            let octree = Octree::build(&tape, settings);
+            let octree = Octree::build(&shape, settings);
             let sphere_mesh = octree.walk_dual(settings);
             sphere_mesh
                 .write_stl(
@@ -1496,8 +1496,8 @@ mod test {
         let ctx = BoundContext::new();
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
-        let tape = VmShape::new(&ctx, shape).unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let shape: VmShape = shape.convert();
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         let mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
@@ -1546,8 +1546,8 @@ mod test {
                 for offset in [0.0, -0.2, 0.2] {
                     let (x, y, z) = ctx.axes();
                     let f = x * dx + y * dy + z + offset;
-                    let tape = VmShape::new(&ctx, f).unwrap();
-                    let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+                    let shape: VmShape = f.convert();
+                    let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
                     let pos = octree.verts[0].pos;
@@ -1561,10 +1561,12 @@ mod test {
                         "bad vertex position at dx: {dx}, dy: {dy}, \
                          offset: {offset} => {pos:?} != {mass_point:?}"
                     );
-                    let eval = tape.new_point_evaluator();
+                    let mut eval = VmShape::new_point_eval();
+                    let tape = shape.point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
-                        let (r, _) = eval.eval(v.x, v.y, v.z, &[]).unwrap();
+                        let (r, _) =
+                            eval.eval(&tape, v.x, v.y, v.z, &[]).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
                 }
@@ -1582,15 +1584,17 @@ mod test {
             let ctx = BoundContext::new();
             let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
             let shape = cone(&ctx, corner, tip, 0.1);
-            let tape = VmShape::new(&ctx, shape).unwrap();
+            let shape: VmShape = shape.convert();
 
-            let eval = tape.new_point_evaluator();
-            let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
+            let mut eval = VmShape::new_point_eval();
+            let tape = shape.point_tape();
+            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z, &[]).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
-            let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
+            let (v, _) =
+                eval.eval(&tape, corner.x, corner.y, corner.z, &[]).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
-            let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+            let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
             assert_eq!(octree.cells.len(), 8);
             assert_eq!(octree.verts.len(), 4);
 
@@ -1626,13 +1630,13 @@ mod test {
 
                 // Now, we have our shape, which is 0-8 spheres placed at the
                 // corners of the cell spanning [0, 0.25]
-                let tape = VmShape::new(&ctx, shape).unwrap();
+                let shape: VmShape = shape.convert();
                 let settings = Settings {
                     min_depth: 2,
                     max_depth: 2,
                     threads,
                 };
-                let octree = Octree::build(&tape, settings);
+                let octree = Octree::build(&shape, settings);
 
                 let mesh = octree.walk_dual(settings);
                 if i != 0 && i != 255 {
@@ -1654,10 +1658,12 @@ mod test {
     fn test_collapsible() {
         let ctx = BoundContext::new();
 
-        fn builder(shape: BoundNode, settings: Settings) -> OctreeBuilder {
-            let (ctx, shape) = shape.borrow();
-            let tape = VmShape::new(ctx, shape).unwrap();
-            let eval = Arc::new(EvalGroup::new(tape));
+        fn builder(
+            shape: BoundNode,
+            settings: Settings,
+        ) -> OctreeBuilder<VmShape> {
+            let shape: VmShape = shape.convert();
+            let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
             out.recurse(&eval, CellIndex::default(), settings);
             out
@@ -1687,7 +1693,7 @@ mod test {
         // Make a very smol sphere that won't be sampled
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.1; 3], 0.05);
-        let tape = VmShape::new(&ctx, shape).unwrap();
+        let tape: VmShape = shape.convert();
         for threads in [0, 4] {
             let settings = Settings {
                 min_depth: 1,

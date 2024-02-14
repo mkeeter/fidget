@@ -33,8 +33,7 @@ nalgebra = { version = "0.31" }
 crossbeam-deque = { version = "0.8", optional = true }
 
 [features]
-#default = ["jit", "rhai", "render", "mesh"]
-default = ["rhai", "render", "mesh"]
+default = ["jit", "rhai", "render", "mesh"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on
