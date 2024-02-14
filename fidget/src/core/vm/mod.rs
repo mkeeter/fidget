@@ -14,10 +14,16 @@ use std::{collections::HashMap, sync::Arc};
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Shape that use a VM backend for evaluation
-#[derive(Clone)]
-pub struct VmShape<const N: u8 = { u8::MAX }>(Arc<TapeData<N>>);
+pub type VmShape = GenericVmShape<{ u8::MAX }>;
 
-impl<const N: u8> VmShape<N> {
+/// VM-backed shape with a configurable number of registers
+///
+/// You are unlikely to use this directly; [`VmShape`] should be used for
+/// VM-based evaluation.
+#[derive(Clone)]
+pub struct GenericVmShape<const N: u8>(Arc<TapeData<N>>);
+
+impl<const N: u8> GenericVmShape<N> {
     /// Build a new shape for VM evaluation
     pub fn new(
         ctx: &crate::Context,
@@ -93,7 +99,7 @@ impl Shape for VmShape {
 
 #[cfg(test)]
 impl<const N: u8> TryFrom<(&crate::Context, crate::context::Node)>
-    for VmShape<N>
+    for GenericVmShape<N>
 {
     type Error = Error;
     fn try_from(
@@ -103,7 +109,7 @@ impl<const N: u8> TryFrom<(&crate::Context, crate::context::Node)>
     }
 }
 
-impl<const N: u8> ShapeVars for VmShape<N> {
+impl<const N: u8> ShapeVars for GenericVmShape<N> {
     fn vars(&self) -> Arc<HashMap<String, u32>> {
         self.0.vars()
     }

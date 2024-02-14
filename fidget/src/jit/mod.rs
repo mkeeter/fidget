@@ -4,21 +4,24 @@
 //! is a [`Family`] of JIT evaluators.
 //!
 //! ```
-//! use fidget::{rhai::eval, jit, eval::Tape};
+//! use fidget::{rhai, eval::{TracingEvaluator, Shape}, jit::JitShape};
 //!
-//! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<jit::Eval>::new(&ctx, sum)?;
+//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let shape = JitShape::new(&ctx, sum)?;
 //!
 //! // Generate machine code to execute the tape
-//! let mut eval = tape.new_point_evaluator();
+//! let tape = shape.point_tape();
+//! let mut eval = JitShape::new_point_eval();
 //!
 //! // This calls directly into that machine code!
-//! assert_eq!(eval.eval(0.1, 0.3, 0.0, &[])?.0, 0.1 + 0.3);
+//! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0, &[])?;
+//! assert_eq!(r, 0.1 + 0.3);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 
 use crate::{
     compiler::RegOp,
+    context::{Context, Node},
     eval::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
@@ -26,7 +29,7 @@ use crate::{
         Choice, Shape, ShapeVars, TapeData,
     },
     jit::mmap::Mmap,
-    vm::VmShape,
+    vm::GenericVmShape,
     Error,
 };
 use dynasmrt::{
@@ -685,9 +688,13 @@ fn build_asm_fn_with_storage<A: AssemblerT>(
 
 /// Shape for use with a JIT evaluator
 #[derive(Clone)]
-pub struct JitShape(VmShape<REGISTER_LIMIT>);
+pub struct JitShape(GenericVmShape<REGISTER_LIMIT>);
 
 impl JitShape {
+    /// Build a new shape for the given node
+    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        GenericVmShape::new(ctx, node).map(JitShape)
+    }
     fn tracing_tape<A: AssemblerT>(&self) -> JitTracingFn<A::Data> {
         // TODO reuse storage?
         let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
@@ -983,12 +990,10 @@ where
 }
 
 #[cfg(test)]
-impl TryFrom<(&crate::Context, crate::context::Node)> for JitShape {
+impl TryFrom<(&Context, Node)> for JitShape {
     type Error = Error;
-    fn try_from(
-        c: (&crate::Context, crate::context::Node),
-    ) -> Result<Self, Error> {
-        VmShape::new(c.0, c.1).map(JitShape)
+    fn try_from(c: (&Context, Node)) -> Result<Self, Error> {
+        JitShape::new(c.0, c.1)
     }
 }
 
