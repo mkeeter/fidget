@@ -183,6 +183,9 @@ struct Worker<'a, S: Shape, M: RenderMode> {
     /// Spare shape storage for reuse
     shape_storage: Vec<S::Storage>,
 
+    /// Workspace for shape simplification
+    workspace: S::Workspace,
+
     image: Vec<M::Output>,
 }
 
@@ -260,7 +263,10 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         let mut sub_tape = if let Some(data) = simplify.as_ref() {
             let s = self.shape_storage.pop();
             Some(ShapeAndTape {
-                shape: shape.shape.simplify(data, s).unwrap(),
+                shape: shape
+                    .shape
+                    .simplify(data, s, &mut self.workspace)
+                    .unwrap(),
                 i_tape: None,
                 f_tape: None,
             })
@@ -361,6 +367,7 @@ fn worker<S: Shape, M: RenderMode>(
         eval_interval: S::IntervalEval::new(),
         tape_storage: vec![],
         shape_storage: vec![],
+        workspace: Default::default(),
     };
     let mut shape = ShapeAndTape {
         shape,

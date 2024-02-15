@@ -38,7 +38,9 @@ pub mod eval_tests {
             let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap();
             assert_eq!(r, 1.5);
 
-            let next = shape.simplify(trace.unwrap(), None).unwrap();
+            let next = shape
+                .simplify(trace.unwrap(), None, &mut Default::default())
+                .unwrap();
             assert_eq!(next.size(), 1);
 
             let tape = next.point_tape(None);
@@ -162,14 +164,24 @@ pub mod eval_tests {
             assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
             assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
-            let next =
-                shape.simplify(&vec![Choice::Left].into(), None).unwrap();
+            let next = shape
+                .simplify(
+                    &vec![Choice::Left].into(),
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
             let tape = next.point_tape(None);
             assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
             assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
 
-            let next =
-                shape.simplify(&vec![Choice::Right].into(), None).unwrap();
+            let next = shape
+                .simplify(
+                    &vec![Choice::Right].into(),
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
             let tape = next.point_tape(None);
             assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
             assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -181,14 +193,24 @@ pub mod eval_tests {
             assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
             assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
 
-            let next =
-                shape.simplify(&vec![Choice::Left].into(), None).unwrap();
+            let next = shape
+                .simplify(
+                    &vec![Choice::Left].into(),
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
             let tape = next.point_tape(None);
             assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
             assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
 
-            let next =
-                shape.simplify(&vec![Choice::Right].into(), None).unwrap();
+            let next = shape
+                .simplify(
+                    &vec![Choice::Right].into(),
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
             let tape = next.point_tape(None);
             assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
             assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);

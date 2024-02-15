@@ -58,6 +58,9 @@ pub trait Shape: Send + Sync + Clone {
     /// Associated type for storage used by the shape itself
     type Storage: Send;
 
+    /// Associated type for workspace used during shape simplification
+    type Workspace: Default + Send;
+
     /// Associated type for storage used by tapes
     ///
     /// For simplicity, we require that every tape use the same type for storage.
@@ -139,6 +142,7 @@ pub trait Shape: Send + Sync + Clone {
         &self,
         trace: &Self::Trace,
         storage: Option<Self::Storage>,
+        workspace: &mut Self::Workspace,
     ) -> Result<Self, Error>
     where
         Self: Sized;

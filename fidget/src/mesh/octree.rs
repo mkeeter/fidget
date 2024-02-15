@@ -183,6 +183,7 @@ impl Octree {
                 eval_interval: S::new_interval_eval(),
                 tape_storage: vec![],
                 shape_storage: vec![],
+                workspace: Default::default(),
             };
             b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
             octree = b.into();
@@ -386,6 +387,7 @@ pub(crate) struct OctreeBuilder<S: Shape> {
 
     tape_storage: Vec<S::TapeStorage>,
     shape_storage: Vec<S::Storage>,
+    workspace: S::Workspace,
 }
 
 impl<S: Shape> Default for OctreeBuilder<S> {
@@ -436,6 +438,7 @@ impl<S: Shape> OctreeBuilder<S> {
             eval_interval: S::new_interval_eval(),
             tape_storage: vec![],
             shape_storage: vec![],
+            workspace: Default::default(),
         }
     }
 
@@ -458,6 +461,7 @@ impl<S: Shape> OctreeBuilder<S> {
 
             tape_storage: vec![],
             shape_storage: vec![],
+            workspace: Default::default(),
         }
     }
 
@@ -519,7 +523,9 @@ impl<S: Shape> OctreeBuilder<S> {
             let sub_tape = if S::simplify_tree_during_meshing(cell.depth) {
                 let s = self.shape_storage.pop();
                 r.map(|r| {
-                    Arc::new(EvalGroup::new(eval.shape.simplify(r, s).unwrap()))
+                    Arc::new(EvalGroup::new(
+                        eval.shape.simplify(r, s, &mut self.workspace).unwrap(),
+                    ))
                 })
             } else {
                 None

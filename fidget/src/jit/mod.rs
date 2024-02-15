@@ -727,6 +727,8 @@ impl JitShape {
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
     type Storage = TapeData<REGISTER_LIMIT>;
+    type Workspace = crate::eval::tape::Workspace;
+
     type TapeStorage = Mmap;
 
     type IntervalEval = JitTracingEval;
@@ -754,8 +756,11 @@ impl Shape for JitShape {
         &self,
         trace: &Self::Trace,
         storage: Option<Self::Storage>,
+        workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
-        self.0.simplify_inner(trace, storage).map(JitShape)
+        self.0
+            .simplify_inner(trace, storage, workspace)
+            .map(JitShape)
     }
 
     fn recycle(self) -> Option<Self::Storage> {

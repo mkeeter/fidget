@@ -87,6 +87,7 @@ struct Worker<'a, S: Shape> {
 
     tape_storage: Vec<S::TapeStorage>,
     shape_storage: Vec<S::Storage>,
+    workspace: S::Workspace,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -161,7 +162,8 @@ impl<S: Shape> Worker<'_, S> {
         // simplified tape isn't any shorter.
         let mut sub_tape = if let Some(trace) = trace.as_ref() {
             let s = self.shape_storage.pop();
-            let next = shape.shape.simplify(trace, s).unwrap();
+            let next =
+                shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
             Some(ShapeAndTape {
                 shape: next,
                 i_tape: OnceCell::new(),
@@ -387,6 +389,7 @@ fn worker<S: Shape>(
 
         tape_storage: vec![],
         shape_storage: vec![],
+        workspace: Default::default(),
     };
 
     let mut shape = ShapeAndTape {

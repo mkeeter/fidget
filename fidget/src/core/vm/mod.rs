@@ -43,10 +43,10 @@ impl<const N: u8> GenericVmShape<N> {
         &self,
         choices: &[Choice],
         storage: Option<TapeData<N>>,
+        workspace: &mut crate::eval::tape::Workspace,
     ) -> Result<Self, Error> {
-        let mut workspace = crate::eval::tape::Workspace::default();
         let next = storage.unwrap_or_default();
-        let d = self.0.simplify_with(choices, &mut workspace, next)?;
+        let d = self.0.simplify_with(choices, workspace, next)?;
         Ok(Self(Arc::new(d)))
     }
     /// Returns a characteristic size (the length of the inner assembly tape)
@@ -78,6 +78,8 @@ impl<const N: u8> GenericVmShape<N> {
 impl Shape for VmShape {
     type FloatSliceEval = BulkVmEval<f32>;
     type Storage = TapeData;
+    type Workspace = crate::eval::tape::Workspace;
+
     type TapeStorage = ();
 
     fn float_slice_tape(&self, _storage: Option<()>) -> Self {
@@ -100,8 +102,9 @@ impl Shape for VmShape {
         &self,
         trace: &Vec<Choice>,
         storage: Option<TapeData>,
+        workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
-        self.simplify_inner(trace.as_slice(), storage)
+        self.simplify_inner(trace.as_slice(), storage, workspace)
     }
 
     fn recycle(self) -> Option<Self::Storage> {
