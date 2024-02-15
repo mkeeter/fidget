@@ -10,7 +10,7 @@
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
-use crate::Error;
+use crate::{eval::Tape, Error};
 
 /// A single choice made at a min/max node.
 ///
@@ -64,7 +64,7 @@ pub trait TracingEvaluator<T: From<f32>>: Default {
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
     /// or a metaphorical instruction tape (e.g. a JIT function).
-    type Tape: Send + Sync;
+    type Tape: Tape + Send + Sync;
 
     /// Associated type for the trace captured during evaluation
     type Trace;

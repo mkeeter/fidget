@@ -5,7 +5,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, Shape, ShapeVars, TapeData,
+        Choice, Shape, ShapeVars, Tape, TapeData,
     },
     Error,
 };
@@ -15,6 +15,13 @@ use std::{collections::HashMap, sync::Arc};
 
 /// Shape that use a VM backend for evaluation
 pub type VmShape = GenericVmShape<{ u8::MAX }>;
+
+impl Tape for VmShape {
+    type Storage = ();
+    fn recycle(self) -> Self::Storage {
+        // nothing to do here
+    }
+}
 
 /// VM-backed shape with a configurable number of registers
 ///

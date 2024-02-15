@@ -14,7 +14,7 @@
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
-use crate::Error;
+use crate::{eval::Tape, Error};
 
 /// Trait for bulk evaluation returning the given type `T`
 ///
@@ -26,7 +26,7 @@ pub trait BulkEvaluator<T>: Default {
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
     /// or a metaphorical instruction tape (e.g. a JIT function).
-    type Tape: Send + Sync;
+    type Tape: Tape + Send + Sync;
 
     /// Evaluates many points using the given instruction tape
     ///

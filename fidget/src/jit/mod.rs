@@ -26,7 +26,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, Shape, ShapeVars, TapeData,
+        Choice, Shape, ShapeVars, Tape, TapeData,
     },
     jit::mmap::Mmap,
     vm::GenericVmShape,
@@ -819,6 +819,13 @@ pub struct JitTracingFn<T> {
     ),
 }
 
+impl<T> Tape for JitTracingFn<T> {
+    type Storage = Mmap;
+    fn recycle(self) -> Self::Storage {
+        self.mmap
+    }
+}
+
 // SAFETY: there is no mutable state in a `JitTracingFn`, and the pointer
 // inside of it points to its own `Mmap`, which is owned by an `Arc`
 unsafe impl<T> Send for JitTracingFn<T> {}
@@ -884,6 +891,13 @@ pub struct JitBulkFn<T> {
             u64,        // size
         ) -> T
     ),
+}
+
+impl<T> Tape for JitBulkFn<T> {
+    type Storage = Mmap;
+    fn recycle(self) -> Self::Storage {
+        self.mmap
+    }
 }
 
 /// Bulk evaluator for JIT functions

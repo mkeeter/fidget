@@ -141,3 +141,17 @@ pub trait ShapeVars {
     /// Returns the variable map for ease of binding
     fn vars(&self) -> Arc<HashMap<String, u32>>;
 }
+
+/// A tape represents something that can be evaluated by an evaluator
+///
+/// The only property enforced on the trait is that we must have some way to
+/// recycle its internal storage.  This matters most for JIT evaluators, whose
+/// tapes are regions of executable memory-mapped RAM (which is expensive to map
+/// and unmap).
+pub trait Tape {
+    /// Associated type for this tape's data storage
+    type Storage: Default;
+
+    /// Attempt to retrieve the internal storage from this tape
+    fn recycle(self) -> Self::Storage;
+}
