@@ -175,7 +175,7 @@ fn run2d<S: fidget::eval::Shape>(
     sdf: bool,
 ) -> Vec<u8> {
     if brute {
-        let tape = shape.float_slice_tape();
+        let tape = shape.float_slice_tape(None);
         let mut eval = S::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
         for _ in 0..settings.n {

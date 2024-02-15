@@ -2,6 +2,7 @@
 use crate::{
     eval::{
         bulk::BulkEvaluator, tracing::TracingEvaluator, types::Interval, Shape,
+        Tape,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -168,12 +169,16 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Per-thread worker
 struct Worker<'a, S: Shape, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
     eval_float_slice: S::FloatSliceEval,
     eval_interval: S::IntervalEval,
+
+    /// Spare tape storage for reuse
+    storage: Vec<S::TapeStorage>,
 
     image: Vec<M::Output>,
 }
@@ -188,13 +193,17 @@ struct ShapeAndTape<S: Shape> {
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
+        storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.i_tape
-            .get_or_insert_with(|| self.shape.interval_tape())
+            .get_or_insert_with(|| self.shape.interval_tape(storage.pop()))
     }
-    fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+    fn f_tape(
+        &mut self,
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
         self.f_tape
-            .get_or_insert_with(|| self.shape.float_slice_tape())
+            .get_or_insert_with(|| self.shape.float_slice_tape(storage.pop()))
     }
 }
 
@@ -232,7 +241,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
         let (i, simplify) = self
             .eval_interval
-            .eval(shape.i_tape(), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.storage), x, y, z, &[])
             .unwrap();
 
         let fill = mode.interval(i, depth);
@@ -254,14 +263,14 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         } else {
             None
         };
-        let sub_tape = sub_tape.as_mut().unwrap_or(shape);
+        let sub_tape_ref = sub_tape.as_mut().unwrap_or(shape);
 
         if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;
             for j in 0..n {
                 for i in 0..n {
                     self.render_tile_recurse(
-                        sub_tape,
+                        sub_tape_ref,
                         depth + 1,
                         self.config.new_tile([
                             tile.corner[0] + i * next_tile_size,
@@ -272,7 +281,15 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile, mode);
+            self.render_tile_pixels(sub_tape_ref, tile_size, tile, mode);
+        }
+        if let Some(sub_tape) = sub_tape {
+            if let Some(i_tape) = sub_tape.i_tape {
+                self.storage.push(i_tape.recycle());
+            }
+            if let Some(f_tape) = sub_tape.f_tape {
+                self.storage.push(f_tape.recycle());
+            }
         }
     }
 
@@ -299,7 +316,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         let out = self
             .eval_float_slice
             .eval(
-                shape.f_tape(),
+                shape.f_tape(&mut self.storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
@@ -335,6 +352,7 @@ fn worker<S: Shape, M: RenderMode>(
         config,
         eval_float_slice: S::FloatSliceEval::new(),
         eval_interval: S::IntervalEval::new(),
+        storage: vec![],
     };
     let mut shape = ShapeAndTape {
         shape,

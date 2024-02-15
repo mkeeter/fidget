@@ -44,19 +44,24 @@ impl<S: Shape> EvalGroup<S> {
     }
     fn interval_tape(
         &self,
+        storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
-        self.interval.get_or_init(|| self.shape.interval_tape())
+        self.interval
+            .get_or_init(|| self.shape.interval_tape(storage.pop()))
     }
     fn float_slice_tape(
         &self,
+        storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
         self.float_slice
-            .get_or_init(|| self.shape.float_slice_tape())
+            .get_or_init(|| self.shape.float_slice_tape(storage.pop()))
     }
     fn grad_slice_tape(
         &self,
+        storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
-        self.grad_slice.get_or_init(|| self.shape.grad_slice_tape())
+        self.grad_slice
+            .get_or_init(|| self.shape.grad_slice_tape(storage.pop()))
     }
 }
 
@@ -176,6 +181,7 @@ impl Octree {
                 eval_float_slice: S::new_float_slice_eval(),
                 eval_grad_slice: S::new_grad_slice_eval(),
                 eval_interval: S::new_interval_eval(),
+                storage: vec![],
             };
             b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
             octree = b.into();
@@ -376,6 +382,8 @@ pub(crate) struct OctreeBuilder<S: Shape> {
     eval_float_slice: S::FloatSliceEval,
     eval_interval: S::IntervalEval,
     eval_grad_slice: S::GradSliceEval,
+
+    storage: Vec<S::TapeStorage>,
 }
 
 impl<S: Shape> Default for OctreeBuilder<S> {
@@ -424,6 +432,7 @@ impl<S: Shape> OctreeBuilder<S> {
             eval_float_slice: S::new_float_slice_eval(),
             eval_grad_slice: S::new_grad_slice_eval(),
             eval_interval: S::new_interval_eval(),
+            storage: vec![],
         }
     }
 
@@ -443,6 +452,8 @@ impl<S: Shape> OctreeBuilder<S> {
             eval_float_slice: S::new_float_slice_eval(),
             eval_grad_slice: S::new_grad_slice_eval(),
             eval_interval: S::new_interval_eval(),
+
+            storage: vec![],
         }
     }
 
@@ -489,7 +500,7 @@ impl<S: Shape> OctreeBuilder<S> {
         let (i, r) = self
             .eval_interval
             .eval(
-                eval.interval_tape(),
+                eval.interval_tape(&mut self.storage),
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
@@ -606,7 +617,7 @@ impl<S: Shape> OctreeBuilder<S> {
 
         let out = self
             .eval_float_slice
-            .eval(eval.float_slice_tape(), &xs, &ys, &zs, &[])
+            .eval(eval.float_slice_tape(&mut self.storage), &xs, &ys, &zs, &[])
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -707,7 +718,7 @@ impl<S: Shape> OctreeBuilder<S> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval(eval.float_slice_tape(), xs, ys, zs, &[])
+                .eval(eval.float_slice_tape(&mut self.storage), xs, ys, zs, &[])
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -766,7 +777,7 @@ impl<S: Shape> OctreeBuilder<S> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval(eval.grad_slice_tape(), xs, ys, zs, &[])
+            .eval(eval.grad_slice_tape(&mut self.storage), xs, ys, zs, &[])
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
@@ -1561,7 +1572,7 @@ mod test {
                          offset: {offset} => {pos:?} != {mass_point:?}"
                     );
                     let mut eval = VmShape::new_point_eval();
-                    let tape = shape.point_tape();
+                    let tape = shape.point_tape(None);
                     for v in &octree.verts {
                         let v = v.pos;
                         let (r, _) =
@@ -1586,7 +1597,7 @@ mod test {
             let shape: VmShape = shape.convert();
 
             let mut eval = VmShape::new_point_eval();
-            let tape = shape.point_tape();
+            let tape = shape.point_tape(None);
             let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z, &[]).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
             let (v, _) =

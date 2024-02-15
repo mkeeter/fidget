@@ -55,8 +55,19 @@ pub trait Shape: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
     type Trace;
 
+    /// Associated type for storage used by tapes
+    ///
+    /// For simplicity, we require that every tape use the same type for storage.
+    /// This could change in the future!
+    type TapeStorage: Send;
+
     /// Associated type for single-point tracing evaluation
-    type PointEval: TracingEvaluator<f32, Trace = Self::Trace> + Send + Sync;
+    type PointEval: TracingEvaluator<
+            f32,
+            Trace = Self::Trace,
+            TapeStorage = Self::TapeStorage,
+        > + Send
+        + Sync;
 
     /// Builds a new point evaluator
     fn new_point_eval() -> Self::PointEval {
@@ -64,8 +75,11 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for single interval tracing evaluation
-    type IntervalEval: TracingEvaluator<Interval, Trace = Self::Trace>
-        + Send
+    type IntervalEval: TracingEvaluator<
+            Interval,
+            Trace = Self::Trace,
+            TapeStorage = Self::TapeStorage,
+        > + Send
         + Sync;
 
     /// Builds a new interval evaluator
@@ -74,7 +88,9 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for evaluating many points in one call
-    type FloatSliceEval: BulkEvaluator<f32> + Send + Sync;
+    type FloatSliceEval: BulkEvaluator<f32, TapeStorage = Self::TapeStorage>
+        + Send
+        + Sync;
 
     /// Builds a new float slice evaluator
     fn new_float_slice_eval() -> Self::FloatSliceEval {
@@ -82,7 +98,9 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for evaluating many gradients in one call
-    type GradSliceEval: BulkEvaluator<Grad> + Send + Sync;
+    type GradSliceEval: BulkEvaluator<Grad, TapeStorage = Self::TapeStorage>
+        + Send
+        + Sync;
 
     /// Builds a new gradient slice evaluator
     fn new_grad_slice_eval() -> Self::GradSliceEval {
@@ -90,21 +108,27 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Returns an evaluation tape for a point evaluator
-    fn point_tape(&self) -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
+    fn point_tape(
+        &self,
+        storage: Option<Self::TapeStorage>,
+    ) -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
 
     /// Returns an evaluation tape for an interval evaluator
     fn interval_tape(
         &self,
+        storage: Option<Self::TapeStorage>,
     ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn float_slice_tape(
         &self,
+        storage: Option<Self::TapeStorage>,
     ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn grad_slice_tape(
         &self,
+        storage: Option<Self::TapeStorage>,
     ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
 
     /// Computes a simplified tape using the given trace

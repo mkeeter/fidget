@@ -4,7 +4,7 @@ use crate::{
         bulk::BulkEvaluator,
         tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Shape,
+        Shape, Tape,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
@@ -50,14 +50,26 @@ struct ShapeAndTape<S: Shape> {
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
+        storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
-        self.i_tape.get_or_init(|| self.shape.interval_tape())
+        self.i_tape
+            .get_or_init(|| self.shape.interval_tape(storage.pop()))
     }
-    fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
-        self.f_tape.get_or_init(|| self.shape.float_slice_tape())
+    fn f_tape(
+        &mut self,
+
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+        self.f_tape
+            .get_or_init(|| self.shape.float_slice_tape(storage.pop()))
     }
-    fn g_tape(&mut self) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
-        self.g_tape.get_or_init(|| self.shape.grad_slice_tape())
+    fn g_tape(
+        &mut self,
+
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
+        self.g_tape
+            .get_or_init(|| self.shape.grad_slice_tape(storage.pop()))
     }
 }
 
@@ -72,6 +84,8 @@ struct Worker<'a, S: Shape> {
     eval_float_slice: S::FloatSliceEval,
     eval_grad_slice: S::GradSliceEval,
     eval_interval: S::IntervalEval,
+
+    storage: Vec<S::TapeStorage>,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -125,7 +139,7 @@ impl<S: Shape> Worker<'_, S> {
 
         let (i, trace) = self
             .eval_interval
-            .eval(shape.i_tape(), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.storage), x, y, z, &[])
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -155,7 +169,7 @@ impl<S: Shape> Worker<'_, S> {
         } else {
             None
         };
-        let sub_tape = sub_tape.as_mut().unwrap_or(shape);
+        let sub_tape_ref = sub_tape.as_mut().unwrap_or(shape);
 
         // Recurse!
         if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
@@ -165,7 +179,7 @@ impl<S: Shape> Worker<'_, S> {
                 for i in 0..n {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
-                            sub_tape,
+                            sub_tape_ref,
                             depth + 1,
                             self.config.new_tile([
                                 tile.corner[0] + i * next_tile_size,
@@ -177,8 +191,20 @@ impl<S: Shape> Worker<'_, S> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile);
+            self.render_tile_pixels(sub_tape_ref, tile_size, tile);
         };
+
+        if let Some(mut sub_tape) = sub_tape {
+            if let Some(i_tape) = sub_tape.i_tape.take() {
+                self.storage.push(i_tape.recycle());
+            }
+            if let Some(f_tape) = sub_tape.f_tape.take() {
+                self.storage.push(f_tape.recycle());
+            }
+            if let Some(g_tape) = sub_tape.g_tape.take() {
+                self.storage.push(g_tape.recycle());
+            }
+        }
     }
 
     fn render_tile_pixels(
@@ -238,7 +264,7 @@ impl<S: Shape> Worker<'_, S> {
         let out = self
             .eval_float_slice
             .eval(
-                shape.f_tape(),
+                shape.f_tape(&mut self.storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
@@ -299,7 +325,7 @@ impl<S: Shape> Worker<'_, S> {
             let out = self
                 .eval_grad_slice
                 .eval(
-                    shape.g_tape(),
+                    shape.g_tape(&mut self.storage),
                     &self.scratch.x,
                     &self.scratch.y,
                     &self.scratch.z,
@@ -353,6 +379,7 @@ fn worker<S: Shape>(
         eval_float_slice: S::FloatSliceEval::new(),
         eval_interval: S::IntervalEval::new(),
         eval_grad_slice: S::GradSliceEval::new(),
+        storage: vec![],
     };
 
     let mut shape = ShapeAndTape {

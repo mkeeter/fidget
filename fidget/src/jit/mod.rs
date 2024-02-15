@@ -695,9 +695,12 @@ impl JitShape {
     pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
         GenericVmShape::new(ctx, node).map(JitShape)
     }
-    fn tracing_tape<A: AssemblerT>(&self) -> JitTracingFn<A::Data> {
-        // TODO reuse storage?
-        let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
+    fn tracing_tape<A: AssemblerT>(
+        &self,
+        storage: Option<Mmap>,
+    ) -> JitTracingFn<A::Data> {
+        let storage = storage.unwrap_or_else(|| Mmap::new(0).unwrap());
+        let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitTracingFn {
             mmap: f,
@@ -706,9 +709,12 @@ impl JitShape {
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
     }
-    fn bulk_tape<A: AssemblerT>(&self) -> JitBulkFn<A::Data> {
-        // TODO reuse storage?
-        let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
+    fn bulk_tape<A: AssemblerT>(
+        &self,
+        storage: Option<Mmap>,
+    ) -> JitBulkFn<A::Data> {
+        let storage = storage.unwrap_or_else(|| Mmap::new(0).unwrap());
+        let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitBulkFn {
             mmap: f,
@@ -720,26 +726,27 @@ impl JitShape {
 
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
+    type TapeStorage = Mmap;
 
     type IntervalEval = JitTracingEval;
     type PointEval = JitTracingEval;
     type FloatSliceEval = JitBulkEval<f32>;
     type GradSliceEval = JitBulkEval<Grad>;
 
-    fn point_tape(&self) -> JitTracingFn<f32> {
-        self.tracing_tape::<point::PointAssembler>()
+    fn point_tape(&self, storage: Option<Mmap>) -> JitTracingFn<f32> {
+        self.tracing_tape::<point::PointAssembler>(storage)
     }
 
-    fn interval_tape(&self) -> JitTracingFn<Interval> {
-        self.tracing_tape::<interval::IntervalAssembler>()
+    fn interval_tape(&self, storage: Option<Mmap>) -> JitTracingFn<Interval> {
+        self.tracing_tape::<interval::IntervalAssembler>(storage)
     }
 
-    fn float_slice_tape(&self) -> JitBulkFn<f32> {
-        self.bulk_tape::<float_slice::FloatSliceAssembler>()
+    fn float_slice_tape(&self, storage: Option<Mmap>) -> JitBulkFn<f32> {
+        self.bulk_tape::<float_slice::FloatSliceAssembler>(storage)
     }
 
-    fn grad_slice_tape(&self) -> JitBulkFn<Grad> {
-        self.bulk_tape::<grad_slice::GradSliceAssembler>()
+    fn grad_slice_tape(&self, storage: Option<Mmap>) -> JitBulkFn<Grad> {
+        self.bulk_tape::<grad_slice::GradSliceAssembler>(storage)
     }
 
     fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
@@ -834,6 +841,7 @@ unsafe impl<T> Sync for JitTracingFn<T> {}
 impl<T: From<f32>> TracingEvaluator<T> for JitTracingEval {
     type Tape = JitTracingFn<T>;
     type Trace = Vec<Choice>;
+    type TapeStorage = Mmap;
 
     /// Evaluates a single point, capturing an evaluation trace
     fn eval<F: Into<T>>(
@@ -922,6 +930,7 @@ where
     T: From<f32> + Copy + SimdSize,
 {
     type Tape = JitBulkFn<T>;
+    type TapeStorage = Mmap;
 
     /// Evaluate multiple points
     fn eval(

@@ -71,19 +71,21 @@ impl<const N: u8> GenericVmShape<N> {
 
 impl Shape for VmShape {
     type FloatSliceEval = BulkVmEval<f32>;
-    fn float_slice_tape(&self) -> Self {
+    type TapeStorage = ();
+
+    fn float_slice_tape(&self, _storage: Option<()>) -> Self {
         self.clone()
     }
     type GradSliceEval = BulkVmEval<Grad>;
-    fn grad_slice_tape(&self) -> Self {
+    fn grad_slice_tape(&self, _storage: Option<()>) -> Self {
         self.clone()
     }
     type PointEval = TracingVmEval<f32>;
-    fn point_tape(&self) -> Self {
+    fn point_tape(&self, _storage: Option<()>) -> Self {
         self.clone()
     }
     type IntervalEval = TracingVmEval<Interval>;
-    fn interval_tape(&self) -> Self {
+    fn interval_tape(&self, _storage: Option<()>) -> Self {
         self.clone()
     }
     type Trace = Vec<Choice>;
@@ -177,6 +179,7 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
 impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
     type Tape = VmShape;
     type Trace = Vec<Choice>;
+    type TapeStorage = ();
 
     fn eval<F: Into<Interval>>(
         &mut self,
@@ -298,6 +301,7 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
 impl TracingEvaluator<f32> for TracingVmEval<f32> {
     type Tape = VmShape;
     type Trace = Vec<Choice>;
+    type TapeStorage = ();
 
     fn eval<F: Into<f32>>(
         &mut self,
@@ -496,6 +500,7 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
 
 impl BulkEvaluator<f32> for BulkVmEval<f32> {
     type Tape = VmShape;
+    type TapeStorage = ();
 
     fn eval(
         &mut self,
@@ -652,6 +657,7 @@ impl BulkEvaluator<f32> for BulkVmEval<f32> {
 
 impl BulkEvaluator<Grad> for BulkVmEval<Grad> {
     type Tape = VmShape;
+    type TapeStorage = ();
 
     fn eval(
         &mut self,
