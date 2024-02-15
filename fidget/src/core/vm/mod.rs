@@ -257,7 +257,6 @@ impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
                 RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
-                    println!("{value} {choice:?}");
                     v[out] = value;
                     self.choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
@@ -477,7 +476,6 @@ pub struct BulkVmEval<T> {
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
     fn resize_slots(&mut self, tape: &TapeData, size: usize) {
-        println!("resizing to {size}");
         assert!(tape.reg_limit() == u8::MAX);
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);
