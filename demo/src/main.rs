@@ -6,10 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::{
-    context::{Context, Node},
-    eval::Tape,
-};
+use fidget::{context::Context, eval::BulkEvaluator};
 
 /// Simple test program
 #[derive(Parser)]
@@ -115,34 +112,28 @@ struct MeshSettings {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<I: fidget::eval::Family>(
-    ctx: &Context,
-    node: Node,
+fn run3d<S: fidget::eval::Shape>(
+    shape: S,
     settings: &ImageSettings,
     isometric: bool,
     mode_color: bool,
-) -> (Vec<u8>, std::time::Instant) {
-    let start = Instant::now();
-    let tape = Tape::new(ctx, node).unwrap();
-    info!("Built tape in {:?}", start.elapsed());
-
+) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
     let cfg = fidget::render::RenderConfig {
         image_size: settings.size as usize,
-        tile_sizes: I::tile_sizes_3d().to_vec(),
+        tile_sizes: S::tile_sizes_3d().to_vec(),
         threads: settings.threads,
 
         mat,
     };
 
-    let start = Instant::now();
     let mut depth = vec![];
     let mut color = vec![];
     for _ in 0..settings.n {
-        (depth, color) = fidget::render::render3d::<I>(tape.clone(), &cfg);
+        (depth, color) = fidget::render::render3d(shape.clone(), &cfg);
     }
 
     let out = if mode_color {
@@ -172,26 +163,21 @@ fn run3d<I: fidget::eval::Family>(
             .collect()
     };
 
-    (out, start)
+    out
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<I: fidget::eval::Family>(
-    ctx: &Context,
-    node: Node,
+fn run2d<S: fidget::eval::Shape>(
+    shape: S,
     settings: &ImageSettings,
     brute: bool,
     sdf: bool,
-) -> (Vec<u8>, std::time::Instant) {
-    let start = Instant::now();
-    let tape = Tape::<I>::new(ctx, node).unwrap();
-    info!("Built tape in {:?}", start.elapsed());
-
+) -> Vec<u8> {
     if brute {
-        let eval = tape.new_float_slice_evaluator();
+        let tape = shape.float_slice_tape();
+        let mut eval = S::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
-        let start = Instant::now();
         for _ in 0..settings.n {
             let mut xs = vec![];
             let mut ys = vec![];
@@ -205,30 +191,27 @@ fn run2d<I: fidget::eval::Family>(
                 }
             }
             let zs = vec![0.0; xs.len()];
-            let values = eval.eval(&xs, &ys, &zs, &[]).unwrap();
-            out = values.into_iter().map(|v| v <= 0.0).collect();
+            let values = eval.eval(&tape, &xs, &ys, &zs, &[]).unwrap();
+            out = values.iter().map(|v| *v <= 0.0).collect();
         }
         // Convert from Vec<bool> to an image
-        let out = out
-            .into_iter()
+        out.into_iter()
             .map(|b| if b { [u8::MAX; 4] } else { [0, 0, 0, 255] })
             .flat_map(|i| i.into_iter())
-            .collect();
-        (out, start)
+            .collect()
     } else {
         let cfg = fidget::render::RenderConfig {
             image_size: settings.size as usize,
-            tile_sizes: I::tile_sizes_2d().to_vec(),
+            tile_sizes: S::tile_sizes_2d().to_vec(),
             threads: settings.threads,
 
             mat: nalgebra::Transform2::identity(),
         };
-        let start = Instant::now();
-        let out = if sdf {
+        if sdf {
             let mut image = vec![];
             for _ in 0..settings.n {
                 image = fidget::render::render2d(
-                    tape.clone(),
+                    shape.clone(),
                     &cfg,
                     &fidget::render::SdfRenderMode,
                 );
@@ -241,7 +224,7 @@ fn run2d<I: fidget::eval::Family>(
             let mut image = vec![];
             for _ in 0..settings.n {
                 image = fidget::render::render2d(
-                    tape.clone(),
+                    shape.clone(),
                     &cfg,
                     &fidget::render::DebugRenderMode,
                 );
@@ -250,23 +233,16 @@ fn run2d<I: fidget::eval::Family>(
                 .into_iter()
                 .flat_map(|p| p.as_debug_color().into_iter())
                 .collect()
-        };
-        (out, start)
+        }
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run_mesh<I: fidget::eval::Family>(
-    ctx: &Context,
-    node: Node,
+fn run_mesh<S: fidget::eval::Shape>(
+    shape: S,
     settings: &MeshSettings,
-) -> (fidget::mesh::Mesh, std::time::Instant) {
-    let start = Instant::now();
-    let tape = Tape::<I>::new(ctx, node).unwrap();
-    info!("Built tape in {:?}", start.elapsed());
-
-    let start = Instant::now();
+) -> fidget::mesh::Mesh {
     let mut mesh = fidget::mesh::Mesh::new();
 
     for _ in 0..settings.n {
@@ -275,10 +251,10 @@ fn run_mesh<I: fidget::eval::Family>(
             min_depth: settings.depth,
             max_depth: settings.max_depth.unwrap_or(settings.depth),
         };
-        let octree = fidget::mesh::Octree::build(&tape, settings);
+        let octree = fidget::mesh::Octree::build(&shape, settings);
         mesh = octree.walk_dual(settings);
     }
-    (mesh, start)
+    mesh
 }
 
 fn main() -> Result<()> {
@@ -297,13 +273,18 @@ fn main() -> Result<()> {
             brute,
             sdf,
         } => {
-            let (buffer, start) = match settings.eval {
+            let start = Instant::now();
+            let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
-                EvalMode::Jit => run2d::<fidget::jit::Eval>(
-                    &ctx, root, &settings, brute, sdf,
-                ),
+                EvalMode::Jit => {
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run2d(shape, &settings, brute, sdf)
+                }
                 EvalMode::Vm => {
-                    run2d::<fidget::vm::Eval>(&ctx, root, &settings, brute, sdf)
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run2d(shape, &settings, brute, sdf)
                 }
             };
 
@@ -329,14 +310,19 @@ fn main() -> Result<()> {
             color,
             isometric,
         } => {
-            let (buffer, start) = match settings.eval {
+            let start = Instant::now();
+            let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
-                EvalMode::Jit => run3d::<fidget::jit::Eval>(
-                    &ctx, root, &settings, isometric, color,
-                ),
-                EvalMode::Vm => run3d::<fidget::vm::Eval>(
-                    &ctx, root, &settings, isometric, color,
-                ),
+                EvalMode::Jit => {
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run3d(shape, &settings, isometric, color)
+                }
+                EvalMode::Vm => {
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run3d(shape, &settings, isometric, color)
+                }
             };
             info!(
                 "Rendered {}x at {:?} ms/frame",
@@ -358,13 +344,18 @@ fn main() -> Result<()> {
             }
         }
         Command::Mesh { settings } => {
-            let (mesh, start) = match settings.eval {
+            let start = Instant::now();
+            let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    run_mesh::<fidget::jit::Eval>(&ctx, root, &settings)
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run_mesh(shape, &settings)
                 }
                 EvalMode::Vm => {
-                    run_mesh::<fidget::vm::Eval>(&ctx, root, &settings)
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    info!("Built shape in {:?}", start.elapsed());
+                    run_mesh(shape, &settings)
                 }
             };
             info!(
