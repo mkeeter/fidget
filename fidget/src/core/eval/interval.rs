@@ -40,7 +40,7 @@ pub mod eval_tests {
             let y = ctx.y();
 
             let shape = S::try_from((&ctx, x)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(
                 eval.eval_xy(&tape, [0.0, 1.0], [2.0, 3.0]),
@@ -52,7 +52,7 @@ pub mod eval_tests {
             );
 
             let shape = S::try_from((&ctx, y)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(
                 eval.eval_xy(&tape, [0.0, 1.0], [2.0, 3.0]),
@@ -70,7 +70,7 @@ pub mod eval_tests {
             let abs_x = ctx.abs(x).unwrap();
 
             let shape = S::try_from((&ctx, abs_x)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
             assert_eq!(eval.eval_x(&tape, [1.0, 5.0]), [1.0, 5.0].into());
@@ -82,7 +82,7 @@ pub mod eval_tests {
             let abs_y = ctx.abs(y).unwrap();
             let sum = ctx.add(abs_x, abs_y).unwrap();
             let shape = S::try_from((&ctx, sum)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(
                 eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
@@ -104,7 +104,7 @@ pub mod eval_tests {
             let sqrt_x = ctx.sqrt(x).unwrap();
 
             let shape = S::try_from((&ctx, sqrt_x)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
             assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [0.0, 2.0].into());
@@ -126,7 +126,7 @@ pub mod eval_tests {
             let sqrt_x = ctx.square(x).unwrap();
 
             let shape = S::try_from((&ctx, sqrt_x)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
             assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [0.0, 16.0].into());
@@ -148,7 +148,7 @@ pub mod eval_tests {
             let neg_x = ctx.neg(x).unwrap();
 
             let shape = S::try_from((&ctx, neg_x)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-1.0, 0.0].into());
             assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [-4.0, 0.0].into());
@@ -171,7 +171,7 @@ pub mod eval_tests {
             let mul = ctx.mul(x, y).unwrap();
 
             let shape = S::try_from((&ctx, mul)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(
                 eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
@@ -212,14 +212,14 @@ pub mod eval_tests {
             let x = ctx.x();
             let mul = ctx.mul(x, 2.0).unwrap();
             let shape = S::try_from((&ctx, mul)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 2.0].into());
             assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [2.0, 4.0].into());
 
             let mul = ctx.mul(x, -3.0).unwrap();
             let shape = S::try_from((&ctx, mul)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-3.0, 0.0].into());
             assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-6.0, -3.0].into());
@@ -232,7 +232,7 @@ pub mod eval_tests {
             let sub = ctx.sub(x, y).unwrap();
 
             let shape = S::try_from((&ctx, sub)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(
                 eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
@@ -261,14 +261,14 @@ pub mod eval_tests {
             let x = ctx.x();
             let sub = ctx.sub(x, 2.0).unwrap();
             let shape = S::try_from((&ctx, sub)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-2.0, -1.0].into());
             assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-1.0, 0.0].into());
 
             let sub = ctx.sub(-3.0, x).unwrap();
             let shape = S::try_from((&ctx, sub)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-4.0, -3.0].into());
             assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-5.0, -4.0].into());
@@ -279,7 +279,7 @@ pub mod eval_tests {
             let x = ctx.x();
             let recip = ctx.recip(x).unwrap();
             let shape = S::try_from((&ctx, recip)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
 
             let nanan = eval.eval_x(&tape, [0.0, 1.0]);
@@ -304,7 +304,7 @@ pub mod eval_tests {
             let y = ctx.y();
             let div = ctx.div(x, y).unwrap();
             let shape = S::try_from((&ctx, div)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
 
             let nanan = eval.eval_xy(&tape, [0.0, 1.0], [-1.0, 1.0]);
@@ -351,7 +351,7 @@ pub mod eval_tests {
             let min = ctx.min(x, y).unwrap();
 
             let shape = S::try_from((&ctx, min)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (r, data) = eval
                 .eval(&tape, [0.0, 1.0], [0.5, 1.5], [0.0; 2], &[])
@@ -392,7 +392,7 @@ pub mod eval_tests {
             let min = ctx.min(x, 1.0).unwrap();
 
             let shape = S::try_from((&ctx, min)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (r, data) = eval
                 .eval(&tape, [0.0, 1.0], [0.0; 2], [0.0; 2], &[])
@@ -420,7 +420,7 @@ pub mod eval_tests {
             let max = ctx.max(x, y).unwrap();
 
             let shape = S::try_from((&ctx, max)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (r, data) = eval
                 .eval(&tape, [0.0, 1.0], [0.5, 1.5], [0.0; 2], &[])
@@ -457,7 +457,7 @@ pub mod eval_tests {
             let z = ctx.z();
             let max_xy_z = ctx.max(max, z).unwrap();
             let shape = S::try_from((&ctx, max_xy_z)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (r, data) = eval
                 .eval(&tape, [2.0, 3.0], [0.0, 1.0], [4.0, 5.0], &[])
@@ -484,7 +484,7 @@ pub mod eval_tests {
             let min = ctx.min(x, 1.0).unwrap();
 
             let shape = S::try_from((&ctx, min)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (out, data) = eval
                 .eval(&tape, [0.0, 2.0], [0.0; 2], [0.0; 2], &[])
@@ -506,7 +506,7 @@ pub mod eval_tests {
 
             let max = ctx.max(x, 1.0).unwrap();
             let shape = S::try_from((&ctx, max)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (out, data) = eval
                 .eval(&tape, [0.0, 2.0], [0.0; 2], [0.0; 2], &[])
@@ -533,7 +533,7 @@ pub mod eval_tests {
             let max = ctx.max(x, 1.0).unwrap();
 
             let shape = S::try_from((&ctx, max)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut eval = S::new_interval_eval();
             let (r, data) = eval
                 .eval(&tape, [0.0, 2.0], [0.0, 0.0], [0.0, 0.0], &[])
@@ -561,7 +561,7 @@ pub mod eval_tests {
             let sum = ctx.add(a, 1.0).unwrap();
             let min = ctx.div(sum, b).unwrap();
             let shape = S::try_from((&ctx, min)).unwrap();
-            let tape = shape.interval_tape();
+            let tape = shape.interval_tape(None);
             let mut vars = Vars::new(shape.vars());
             let mut eval = S::new_interval_eval();
 

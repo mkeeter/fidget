@@ -23,7 +23,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, x)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
                 Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -36,7 +36,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, y)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
                 Grad::new(3.0, 0.0, 1.0, 0.0)
@@ -49,7 +49,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, z)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
                 Grad::new(4.0, 0.0, 0.0, 1.0)
@@ -63,7 +63,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(0.0, 0.0, 0.0, 0.0)
@@ -89,7 +89,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -107,7 +107,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(1.0, 0.5, 0.0, 0.0)
@@ -126,7 +126,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(0.0, 0.0, 1.0, 0.0)
@@ -152,7 +152,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(0.5, 0.5, 0.0, 0.0)
@@ -166,7 +166,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, s)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(1.0, -1.0, 0.0, 0.0)
@@ -185,7 +185,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, m)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -206,7 +206,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, max)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -229,7 +229,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, m)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(3.0, 0.0, 1.0, 0.0)
@@ -253,7 +253,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, sub)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
                 Grad::new(0.5, 1.0, 0.0, 0.0)
@@ -277,7 +277,7 @@ pub mod eval_tests {
             let a = ctx.var("a").unwrap();
             let shape = S::try_from((&ctx, a)).unwrap();
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
                 1.0.into()
@@ -294,7 +294,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, div)).unwrap();
 
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
             assert_eq!(
                 eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
                 1.0.into()
@@ -312,7 +312,7 @@ pub mod eval_tests {
             let shape = S::try_from((&ctx, min)).unwrap();
             let mut vars = Vars::new(shape.vars());
             let mut eval = S::new_grad_slice_eval();
-            let tape = shape.grad_slice_tape();
+            let tape = shape.grad_slice_tape(None);
 
             assert_eq!(
                 eval.eval(
