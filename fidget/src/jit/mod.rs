@@ -824,8 +824,9 @@ pub struct JitTracingFn<T> {
 unsafe impl<T> Send for JitTracingFn<T> {}
 unsafe impl<T> Sync for JitTracingFn<T> {}
 
-impl<T: From<f32>> TracingEvaluator<T, Vec<Choice>> for JitTracingEval {
+impl<T: From<f32>> TracingEvaluator<T> for JitTracingEval {
     type Tape = JitTracingFn<T>;
+    type Trace = Vec<Choice>;
 
     /// Evaluates a single point, capturing an evaluation trace
     fn eval<F: Into<T>>(

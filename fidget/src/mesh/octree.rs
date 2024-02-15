@@ -27,9 +27,8 @@ pub struct EvalGroup<S: Shape> {
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
     // indirection (since the tapes also contain `Arc`); could we flatten
     // them out?  (same with the shape, which is usually an `Arc`)
-    pub interval: OnceLock<
-        <S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape,
-    >,
+    pub interval:
+        OnceLock<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
     pub float_slice: OnceLock<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
     pub grad_slice: OnceLock<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
@@ -45,7 +44,7 @@ impl<S: Shape> EvalGroup<S> {
     }
     fn interval_tape(
         &self,
-    ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
+    ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.interval.get_or_init(|| self.shape.interval_tape())
     }
     fn float_slice_tape(

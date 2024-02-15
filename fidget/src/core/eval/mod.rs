@@ -56,7 +56,7 @@ pub trait Shape: Send + Sync + Clone {
     type Trace;
 
     /// Associated type for single-point tracing evaluation
-    type PointEval: TracingEvaluator<f32, Self::Trace> + Send + Sync;
+    type PointEval: TracingEvaluator<f32, Trace = Self::Trace> + Send + Sync;
 
     /// Builds a new point evaluator
     fn new_point_eval() -> Self::PointEval {
@@ -64,7 +64,9 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for single interval tracing evaluation
-    type IntervalEval: TracingEvaluator<Interval, Self::Trace> + Send + Sync;
+    type IntervalEval: TracingEvaluator<Interval, Trace = Self::Trace>
+        + Send
+        + Sync;
 
     /// Builds a new interval evaluator
     fn new_interval_eval() -> Self::IntervalEval {
@@ -88,14 +90,12 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Returns an evaluation tape for a point evaluator
-    fn point_tape(
-        &self,
-    ) -> <Self::PointEval as TracingEvaluator<f32, Self::Trace>>::Tape;
+    fn point_tape(&self) -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
 
     /// Returns an evaluation tape for an interval evaluator
     fn interval_tape(
         &self,
-    ) -> <Self::IntervalEval as TracingEvaluator<Interval, Self::Trace>>::Tape;
+    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn float_slice_tape(

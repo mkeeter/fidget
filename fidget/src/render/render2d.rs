@@ -181,15 +181,14 @@ struct Worker<'a, S: Shape, M: RenderMode> {
 /// A specific shape, and its associated tapes
 struct ShapeAndTape<S: Shape> {
     shape: S,
-    i_tape:
-        Option<<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape>,
+    i_tape: Option<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
     f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
-    ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
+    ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.i_tape
             .get_or_insert_with(|| self.shape.interval_tape())
     }

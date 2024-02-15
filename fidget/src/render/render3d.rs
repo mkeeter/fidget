@@ -42,9 +42,7 @@ impl Scratch {
 struct ShapeAndTape<S: Shape> {
     shape: S,
 
-    i_tape: OnceCell<
-        <S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape,
-    >,
+    i_tape: OnceCell<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
     f_tape: OnceCell<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
     g_tape: OnceCell<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
@@ -52,7 +50,7 @@ struct ShapeAndTape<S: Shape> {
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
-    ) -> &<S::IntervalEval as TracingEvaluator<Interval, S::Trace>>::Tape {
+    ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.i_tape.get_or_init(|| self.shape.interval_tape())
     }
     fn f_tape(&mut self) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {

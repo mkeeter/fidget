@@ -167,8 +167,9 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     }
 }
 
-impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
+impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
     type Tape = VmShape;
+    type Trace = Vec<Choice>;
 
     fn eval<F: Into<Interval>>(
         &mut self,
@@ -287,8 +288,9 @@ impl TracingEvaluator<Interval, Vec<Choice>> for TracingVmEval<Interval> {
     }
 }
 
-impl TracingEvaluator<f32, Vec<Choice>> for TracingVmEval<f32> {
+impl TracingEvaluator<f32> for TracingVmEval<f32> {
     type Tape = VmShape;
+    type Trace = Vec<Choice>;
 
     fn eval<F: Into<f32>>(
         &mut self,
