@@ -85,7 +85,8 @@ struct Worker<'a, S: Shape> {
     eval_grad_slice: S::GradSliceEval,
     eval_interval: S::IntervalEval,
 
-    storage: Vec<S::TapeStorage>,
+    tape_storage: Vec<S::TapeStorage>,
+    shape_storage: Vec<S::Storage>,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
@@ -139,7 +140,7 @@ impl<S: Shape> Worker<'_, S> {
 
         let (i, trace) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.storage), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -159,7 +160,8 @@ impl<S: Shape> Worker<'_, S> {
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
         let mut sub_tape = if let Some(trace) = trace.as_ref() {
-            let next = shape.shape.simplify(trace).unwrap();
+            let s = self.shape_storage.pop();
+            let next = shape.shape.simplify(trace, s).unwrap();
             Some(ShapeAndTape {
                 shape: next,
                 i_tape: OnceCell::new(),
@@ -196,13 +198,16 @@ impl<S: Shape> Worker<'_, S> {
 
         if let Some(mut sub_tape) = sub_tape {
             if let Some(i_tape) = sub_tape.i_tape.take() {
-                self.storage.push(i_tape.recycle());
+                self.tape_storage.push(i_tape.recycle());
             }
             if let Some(f_tape) = sub_tape.f_tape.take() {
-                self.storage.push(f_tape.recycle());
+                self.tape_storage.push(f_tape.recycle());
             }
             if let Some(g_tape) = sub_tape.g_tape.take() {
-                self.storage.push(g_tape.recycle());
+                self.tape_storage.push(g_tape.recycle());
+            }
+            if let Some(s) = sub_tape.shape.recycle() {
+                self.shape_storage.push(s);
             }
         }
     }
@@ -264,7 +269,7 @@ impl<S: Shape> Worker<'_, S> {
         let out = self
             .eval_float_slice
             .eval(
-                shape.f_tape(&mut self.storage),
+                shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
@@ -325,7 +330,7 @@ impl<S: Shape> Worker<'_, S> {
             let out = self
                 .eval_grad_slice
                 .eval(
-                    shape.g_tape(&mut self.storage),
+                    shape.g_tape(&mut self.tape_storage),
                     &self.scratch.x,
                     &self.scratch.y,
                     &self.scratch.z,
@@ -379,7 +384,9 @@ fn worker<S: Shape>(
         eval_float_slice: S::FloatSliceEval::new(),
         eval_interval: S::IntervalEval::new(),
         eval_grad_slice: S::GradSliceEval::new(),
-        storage: vec![],
+
+        tape_storage: vec![],
+        shape_storage: vec![],
     };
 
     let mut shape = ShapeAndTape {

@@ -55,6 +55,9 @@ pub trait Shape: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
     type Trace;
 
+    /// Associated type for storage used by the shape itself
+    type Storage: Send;
+
     /// Associated type for storage used by tapes
     ///
     /// For simplicity, we require that every tape use the same type for storage.
@@ -131,10 +134,20 @@ pub trait Shape: Send + Sync + Clone {
         storage: Option<Self::TapeStorage>,
     ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
 
-    /// Computes a simplified tape using the given trace
-    fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
+    /// Computes a simplified tape using the given trace, and reusing storage
+    fn simplify(
+        &self,
+        trace: &Self::Trace,
+        storage: Option<Self::Storage>,
+    ) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Attempt to reclaim storage from this shape
+    ///
+    /// This may fail, because shapes are `Clone` and are often implemented
+    /// using an `Arc` around a heavier data structure.
+    fn recycle(self) -> Option<Self::Storage>;
 
     /// Returns a size associated with this shape
     ///

@@ -42,15 +42,21 @@ impl<const N: u8> GenericVmShape<N> {
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
+        storage: Option<TapeData<N>>,
     ) -> Result<Self, Error> {
         let mut workspace = crate::eval::tape::Workspace::default();
-        let next = TapeData::default();
+        let next = storage.unwrap_or_default();
         let d = self.0.simplify_with(choices, &mut workspace, next)?;
         Ok(Self(Arc::new(d)))
     }
     /// Returns a characteristic size (the length of the inner assembly tape)
     pub fn size(&self) -> usize {
         self.0.len()
+    }
+
+    /// Reclaim the inner `TapeData` if there's only a single reference
+    pub fn recycle(self) -> Option<TapeData<N>> {
+        Arc::try_unwrap(self.0).ok()
     }
 
     /// Borrows the inner [`TapeData`]
@@ -71,6 +77,7 @@ impl<const N: u8> GenericVmShape<N> {
 
 impl Shape for VmShape {
     type FloatSliceEval = BulkVmEval<f32>;
+    type Storage = TapeData;
     type TapeStorage = ();
 
     fn float_slice_tape(&self, _storage: Option<()>) -> Self {
@@ -89,9 +96,18 @@ impl Shape for VmShape {
         self.clone()
     }
     type Trace = Vec<Choice>;
-    fn simplify(&self, trace: &Vec<Choice>) -> Result<Self, Error> {
-        self.simplify_inner(trace.as_slice())
+    fn simplify(
+        &self,
+        trace: &Vec<Choice>,
+        storage: Option<TapeData>,
+    ) -> Result<Self, Error> {
+        self.simplify_inner(trace.as_slice(), storage)
     }
+
+    fn recycle(self) -> Option<Self::Storage> {
+        VmShape::recycle(self)
+    }
+
     #[cfg(test)]
     fn size(&self) -> usize {
         VmShape::size(self)

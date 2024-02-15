@@ -181,7 +181,8 @@ impl Octree {
                 eval_float_slice: S::new_float_slice_eval(),
                 eval_grad_slice: S::new_grad_slice_eval(),
                 eval_interval: S::new_interval_eval(),
-                storage: vec![],
+                tape_storage: vec![],
+                shape_storage: vec![],
             };
             b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
             octree = b.into();
@@ -383,7 +384,8 @@ pub(crate) struct OctreeBuilder<S: Shape> {
     eval_interval: S::IntervalEval,
     eval_grad_slice: S::GradSliceEval,
 
-    storage: Vec<S::TapeStorage>,
+    tape_storage: Vec<S::TapeStorage>,
+    shape_storage: Vec<S::Storage>,
 }
 
 impl<S: Shape> Default for OctreeBuilder<S> {
@@ -432,7 +434,8 @@ impl<S: Shape> OctreeBuilder<S> {
             eval_float_slice: S::new_float_slice_eval(),
             eval_grad_slice: S::new_grad_slice_eval(),
             eval_interval: S::new_interval_eval(),
-            storage: vec![],
+            tape_storage: vec![],
+            shape_storage: vec![],
         }
     }
 
@@ -453,7 +456,8 @@ impl<S: Shape> OctreeBuilder<S> {
             eval_grad_slice: S::new_grad_slice_eval(),
             eval_interval: S::new_interval_eval(),
 
-            storage: vec![],
+            tape_storage: vec![],
+            shape_storage: vec![],
         }
     }
 
@@ -500,7 +504,7 @@ impl<S: Shape> OctreeBuilder<S> {
         let (i, r) = self
             .eval_interval
             .eval(
-                eval.interval_tape(&mut self.storage),
+                eval.interval_tape(&mut self.tape_storage),
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
@@ -513,8 +517,9 @@ impl<S: Shape> OctreeBuilder<S> {
             CellResult::Done(Cell::Empty)
         } else {
             let sub_tape = if S::simplify_tree_during_meshing(cell.depth) {
+                let s = self.shape_storage.pop();
                 r.map(|r| {
-                    Arc::new(EvalGroup::new(eval.shape.simplify(r).unwrap()))
+                    Arc::new(EvalGroup::new(eval.shape.simplify(r, s).unwrap()))
                 })
             } else {
                 None
@@ -617,7 +622,13 @@ impl<S: Shape> OctreeBuilder<S> {
 
         let out = self
             .eval_float_slice
-            .eval(eval.float_slice_tape(&mut self.storage), &xs, &ys, &zs, &[])
+            .eval(
+                eval.float_slice_tape(&mut self.tape_storage),
+                &xs,
+                &ys,
+                &zs,
+                &[],
+            )
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -718,7 +729,13 @@ impl<S: Shape> OctreeBuilder<S> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval(eval.float_slice_tape(&mut self.storage), xs, ys, zs, &[])
+                .eval(
+                    eval.float_slice_tape(&mut self.tape_storage),
+                    xs,
+                    ys,
+                    zs,
+                    &[],
+                )
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -777,7 +794,13 @@ impl<S: Shape> OctreeBuilder<S> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval(eval.grad_slice_tape(&mut self.storage), xs, ys, zs, &[])
+            .eval(
+                eval.grad_slice_tape(&mut self.tape_storage),
+                xs,
+                ys,
+                zs,
+                &[],
+            )
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();

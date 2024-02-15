@@ -178,7 +178,10 @@ struct Worker<'a, S: Shape, M: RenderMode> {
     eval_interval: S::IntervalEval,
 
     /// Spare tape storage for reuse
-    storage: Vec<S::TapeStorage>,
+    tape_storage: Vec<S::TapeStorage>,
+
+    /// Spare shape storage for reuse
+    shape_storage: Vec<S::Storage>,
 
     image: Vec<M::Output>,
 }
@@ -241,7 +244,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
         let (i, simplify) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.storage), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
             .unwrap();
 
         let fill = mode.interval(i, depth);
@@ -255,8 +258,9 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         }
 
         let mut sub_tape = if let Some(data) = simplify.as_ref() {
+            let s = self.shape_storage.pop();
             Some(ShapeAndTape {
-                shape: shape.shape.simplify(data).unwrap(),
+                shape: shape.shape.simplify(data, s).unwrap(),
                 i_tape: None,
                 f_tape: None,
             })
@@ -285,10 +289,13 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         }
         if let Some(sub_tape) = sub_tape {
             if let Some(i_tape) = sub_tape.i_tape {
-                self.storage.push(i_tape.recycle());
+                self.tape_storage.push(i_tape.recycle());
             }
             if let Some(f_tape) = sub_tape.f_tape {
-                self.storage.push(f_tape.recycle());
+                self.tape_storage.push(f_tape.recycle());
+            }
+            if let Some(s) = sub_tape.shape.recycle() {
+                self.shape_storage.push(s);
             }
         }
     }
@@ -316,7 +323,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         let out = self
             .eval_float_slice
             .eval(
-                shape.f_tape(&mut self.storage),
+                shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
@@ -352,7 +359,8 @@ fn worker<S: Shape, M: RenderMode>(
         config,
         eval_float_slice: S::FloatSliceEval::new(),
         eval_interval: S::IntervalEval::new(),
-        storage: vec![],
+        tape_storage: vec![],
+        shape_storage: vec![],
     };
     let mut shape = ShapeAndTape {
         shape,

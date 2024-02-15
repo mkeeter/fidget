@@ -726,6 +726,7 @@ impl JitShape {
 
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
+    type Storage = TapeData<REGISTER_LIMIT>;
     type TapeStorage = Mmap;
 
     type IntervalEval = JitTracingEval;
@@ -749,8 +750,16 @@ impl Shape for JitShape {
         self.bulk_tape::<grad_slice::GradSliceAssembler>(storage)
     }
 
-    fn simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
-        self.0.simplify_inner(trace).map(JitShape)
+    fn simplify(
+        &self,
+        trace: &Self::Trace,
+        storage: Option<Self::Storage>,
+    ) -> Result<Self, Error> {
+        self.0.simplify_inner(trace, storage).map(JitShape)
+    }
+
+    fn recycle(self) -> Option<Self::Storage> {
+        self.0.recycle()
     }
 
     fn tile_sizes_3d() -> &'static [usize] {
