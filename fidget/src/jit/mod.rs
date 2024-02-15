@@ -700,7 +700,7 @@ impl JitShape {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
         let ptr = f.as_ptr();
         JitTracingFn {
-            mmap: f.into(),
+            mmap: f,
             var_count: self.0.var_count(),
             choice_count: self.0.choice_count(),
             fn_trace: unsafe { std::mem::transmute(ptr) },
@@ -711,7 +711,7 @@ impl JitShape {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), Mmap::empty());
         let ptr = f.as_ptr();
         JitBulkFn {
-            mmap: f.into(),
+            mmap: f,
             var_count: self.0.var_count(),
             fn_bulk: unsafe { std::mem::transmute(ptr) },
         }
@@ -804,7 +804,7 @@ pub struct JitTracingEval {
 /// Handle to an owned function pointer for tracing evaluation
 pub struct JitTracingFn<T> {
     #[allow(unused)]
-    mmap: Arc<Mmap>,
+    mmap: Mmap,
     var_count: usize,
     choice_count: usize,
     fn_trace: jit_fn!(
@@ -872,7 +872,7 @@ impl<T: From<f32>> TracingEvaluator<T> for JitTracingEval {
 /// Handle to an owned function pointer for bulk evaluation
 pub struct JitBulkFn<T> {
     #[allow(unused)]
-    mmap: Arc<Mmap>,
+    mmap: Mmap,
     var_count: usize,
     fn_bulk: jit_fn!(
         unsafe fn(
