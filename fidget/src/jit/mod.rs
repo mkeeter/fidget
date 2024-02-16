@@ -118,6 +118,11 @@ pub trait AssemblerT {
     /// stack for slot spills.
     fn init(m: Mmap, slot_count: usize) -> Self;
 
+    /// Returns an approximate bytes per clause value, used for preallocation
+    fn bytes_per_clause() -> usize {
+        8 // probably wrong!
+    }
+
     /// Builds a load from memory to a register
     fn build_load(&mut self, dst_reg: u8, src_mem: u32);
 
@@ -588,11 +593,16 @@ impl From<Mmap> for MmapAssembler {
 
 fn build_asm_fn_with_storage<A: AssemblerT>(
     t: &TapeData<REGISTER_LIMIT>,
-    s: Mmap,
+    mut s: Mmap,
 ) -> Mmap {
     // This guard may be a unit value on some systems
     #[allow(clippy::let_unit_value)]
     let _guard = Mmap::thread_mode_write();
+
+    let size_estimate = t.len() & A::bytes_per_clause();
+    if size_estimate > 2 * s.len() {
+        s = Mmap::new(size_estimate).expect("failed to build mmap")
+    }
 
     s.make_write();
     let mut asm = A::init(s, t.slot_count());

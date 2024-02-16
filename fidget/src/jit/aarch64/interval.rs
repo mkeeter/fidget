@@ -51,6 +51,11 @@ impl AssemblerT for IntervalAssembler {
         out.prepare_stack(slot_count);
         Self(out)
     }
+
+    fn bytes_per_clause() -> usize {
+        40
+    }
+
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);
