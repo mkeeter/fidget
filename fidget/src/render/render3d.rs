@@ -10,7 +10,7 @@ use crate::{
 };
 
 use nalgebra::{Point3, Vector3};
-use std::{cell::OnceCell, collections::BTreeMap};
+use std::{collections::HashMap, sync::Arc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,9 +42,9 @@ impl Scratch {
 struct ShapeAndTape<S: Shape> {
     shape: S,
 
-    i_tape: OnceCell<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
-    f_tape: OnceCell<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
-    g_tape: OnceCell<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
+    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
+    g_tape: Option<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
@@ -52,8 +52,9 @@ impl<S: Shape> ShapeAndTape<S> {
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
-        self.i_tape
-            .get_or_init(|| self.shape.interval_tape(storage.pop()))
+        self.i_tape.get_or_insert_with(|| {
+            Arc::new(self.shape.interval_tape(storage.pop()))
+        })
     }
     fn f_tape(
         &mut self,
@@ -61,7 +62,7 @@ impl<S: Shape> ShapeAndTape<S> {
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
         self.f_tape
-            .get_or_init(|| self.shape.float_slice_tape(storage.pop()))
+            .get_or_insert_with(|| self.shape.float_slice_tape(storage.pop()))
     }
     fn g_tape(
         &mut self,
@@ -69,7 +70,7 @@ impl<S: Shape> ShapeAndTape<S> {
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
         self.g_tape
-            .get_or_init(|| self.shape.grad_slice_tape(storage.pop()))
+            .get_or_insert_with(|| self.shape.grad_slice_tape(storage.pop()))
     }
 }
 
@@ -166,9 +167,9 @@ impl<S: Shape> Worker<'_, S> {
                 shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
             Some(ShapeAndTape {
                 shape: next,
-                i_tape: OnceCell::new(),
-                f_tape: OnceCell::new(),
-                g_tape: OnceCell::new(),
+                i_tape: None,
+                f_tape: None,
+                g_tape: None,
             })
         } else {
             None
@@ -200,7 +201,9 @@ impl<S: Shape> Worker<'_, S> {
 
         if let Some(mut sub_tape) = sub_tape {
             if let Some(i_tape) = sub_tape.i_tape.take() {
-                self.tape_storage.push(i_tape.recycle());
+                if let Ok(t) = Arc::try_unwrap(i_tape) {
+                    self.tape_storage.push(t.recycle());
+                }
             }
             if let Some(f_tape) = sub_tape.f_tape.take() {
                 self.tape_storage.push(f_tape.recycle());
@@ -367,12 +370,12 @@ impl Image {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<S: Shape>(
-    shape: S,
+    mut shape: ShapeAndTape<S>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
-) -> BTreeMap<[usize; 2], Image> {
-    let mut out = BTreeMap::new();
+) -> HashMap<[usize; 2], Image> {
+    let mut out = HashMap::new();
 
     // Calculate maximum evaluation buffer size
     let buf_size = *config.tile_sizes.last().unwrap();
@@ -390,13 +393,6 @@ fn worker<S: Shape>(
         tape_storage: vec![],
         shape_storage: vec![],
         workspace: Default::default(),
-    };
-
-    let mut shape = ShapeAndTape {
-        shape,
-        i_tape: OnceCell::new(),
-        f_tape: OnceCell::new(),
-        g_tape: OnceCell::new(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted
@@ -471,8 +467,16 @@ pub fn render<S: Shape>(
         tile_queues.push(Queue::new(ts.to_vec()));
     }
 
+    let i_tape = Arc::new(shape.interval_tape(None));
+
     // Special-case for single-threaded operation, to give simpler backtraces
     let out = if config.threads == 1 {
+        let shape = ShapeAndTape {
+            shape,
+            i_tape: Some(i_tape),
+            f_tape: None,
+            g_tape: None,
+        };
         worker::<S>(shape, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
@@ -482,7 +486,12 @@ pub fn render<S: Shape>(
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
             for i in 0..config.threads {
-                let shape = shape.clone();
+                let shape = ShapeAndTape {
+                    shape: shape.clone(),
+                    i_tape: Some(i_tape.clone()),
+                    f_tape: None,
+                    g_tape: None,
+                };
                 handles.push(
                     s.spawn(move || worker::<S>(shape, queues, i, config_ref)),
                 );
