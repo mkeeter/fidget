@@ -193,6 +193,6 @@ pub trait Tape {
     /// Associated type for this tape's data storage
     type Storage: Default;
 
-    /// Attempt to retrieve the internal storage from this tape
+    /// Retrieves the internal storage from this tape
     fn recycle(self) -> Self::Storage;
 }
