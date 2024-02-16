@@ -7,6 +7,7 @@ use crate::{
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 use nalgebra::{Point2, Vector2};
+use std::sync::Arc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -192,7 +193,13 @@ struct Worker<'a, S: Shape, M: RenderMode> {
 /// A specific shape, and its associated tapes
 struct ShapeAndTape<S: Shape> {
     shape: S,
-    i_tape: Option<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
+
+    /// Interval tape to evaluate the given shape
+    ///
+    /// This is shareable because we use the same tape for all threads when they
+    /// start evaluating the root shape (which is the most expensive to build a
+    /// tape for, since it's the largest).
+    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>>,
     f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
 }
 
@@ -201,8 +208,9 @@ impl<S: Shape> ShapeAndTape<S> {
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
-        self.i_tape
-            .get_or_insert_with(|| self.shape.interval_tape(storage.pop()))
+        self.i_tape.get_or_insert_with(|| {
+            Arc::new(self.shape.interval_tape(storage.pop()))
+        })
     }
     fn f_tape(
         &mut self,
@@ -298,7 +306,9 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         }
         if let Some(sub_tape) = sub_tape {
             if let Some(i_tape) = sub_tape.i_tape {
-                self.tape_storage.push(i_tape.recycle());
+                if let Ok(v) = Arc::try_unwrap(i_tape) {
+                    self.tape_storage.push(v.recycle());
+                }
             }
             if let Some(f_tape) = sub_tape.f_tape {
                 self.tape_storage.push(f_tape.recycle());
@@ -354,7 +364,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<S: Shape, M: RenderMode>(
-    shape: S,
+    mut shape: ShapeAndTape<S>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
     mode: &M,
@@ -371,11 +381,6 @@ fn worker<S: Shape, M: RenderMode>(
         tape_storage: vec![],
         shape_storage: vec![],
         workspace: Default::default(),
-    };
-    let mut shape = ShapeAndTape {
-        shape,
-        i_tape: None,
-        f_tape: None,
     };
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
@@ -418,12 +423,18 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
         }
     }
 
+    let i_tape = Some(Arc::new(shape.interval_tape(None)));
     let queue = Queue::new(tiles);
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            let i = shape.clone();
-            handles.push(s.spawn(|| worker::<S, M>(i, &queue, &config, mode)));
+            let shape = ShapeAndTape {
+                shape: shape.clone(),
+                i_tape: i_tape.clone(),
+                f_tape: None,
+            };
+            handles
+                .push(s.spawn(|| worker::<S, M>(shape, &queue, &config, mode)));
         }
         let mut out = vec![];
         for h in handles {
