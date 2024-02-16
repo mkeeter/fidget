@@ -122,12 +122,12 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{eval::{Shape, TracingEvaluator}, rhai, vm::VmShape};
+//! use fidget::{eval::{Shape, EzShape, TracingEvaluator}, rhai, vm::VmShape};
 //!
 //! let (sum, ctx) = rhai::eval("x + y")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut interval_eval = VmShape::new_interval_eval();
-//! let tape = shape.interval_tape();
+//! let tape = shape.ez_interval_tape();
 //! let (out, _trace) = interval_eval.eval(
 //!     &tape,
 //!     [0.0, 1.0], // X
@@ -148,12 +148,12 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{eval::{TracingEvaluator, Shape}, rhai, vm::VmShape};
+//! use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
 //!
 //! let (sum, ctx) = rhai::eval("min(x, y)")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut interval_eval = VmShape::new_interval_eval();
-//! let tape = shape.interval_tape();
+//! let tape = shape.ez_interval_tape();
 //! let (out, simplify) = interval_eval.eval(
 //!     &tape,
 //!     [0.0, 1.0], // X
@@ -175,11 +175,11 @@
 //! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
 //!
 //! ```
-//! # use fidget::{eval::{TracingEvaluator, Shape}, rhai, vm::VmShape};
+//! # use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
 //! # let (sum, ctx) = rhai::eval("min(x, y)")?;
 //! # let shape = VmShape::new(&ctx, sum)?;
 //! # let mut interval_eval = VmShape::new_interval_eval();
-//! # let tape = shape.interval_tape();
+//! # let tape = shape.ez_interval_tape();
 //! # let (out, trace) = interval_eval.eval(
 //! #         &tape,
 //! #         [0.0, 1.0], // X
@@ -189,8 +189,8 @@
 //! #     )?;
 //! // (same code as above)
 //! assert_eq!(tape.size(), 3);
-//! let new_shape = shape.simplify(trace.unwrap())?;
-//! assert_eq!(new_shape.interval_tape().size(), 1); // just the 'X' term
+//! let new_shape = shape.ez_simplify(trace.unwrap())?;
+//! assert_eq!(new_shape.ez_interval_tape().size(), 1); // just the 'X' term
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

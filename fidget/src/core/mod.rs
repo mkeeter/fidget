@@ -3,7 +3,7 @@
 //! ```
 //! use fidget::{
 //!     context::Context,
-//!     eval::{Shape, TracingEvaluator},
+//!     eval::{Shape, EzShape, TracingEvaluator},
 //!     vm::VmShape
 //! };
 //! let mut ctx = Context::new();
@@ -16,7 +16,7 @@
 //!
 //! let shape = VmShape::new(&ctx, circle)?;
 //! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.point_tape();
+//! let tape = shape.ez_point_tape();
 //!
 //! let (v, _trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[])?;
 //! assert_eq!(v, -1.0);

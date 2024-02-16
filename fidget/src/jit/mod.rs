@@ -4,13 +4,13 @@
 //! is a [`Family`] of JIT evaluators.
 //!
 //! ```
-//! use fidget::{rhai, eval::{TracingEvaluator, Shape}, jit::JitShape};
+//! use fidget::{rhai, eval::{TracingEvaluator, Shape, EzShape}, jit::JitShape};
 //!
 //! let (sum, ctx) = rhai::eval("x + y")?;
 //! let shape = JitShape::new(&ctx, sum)?;
 //!
 //! // Generate machine code to execute the tape
-//! let tape = shape.point_tape();
+//! let tape = shape.ez_point_tape();
 //! let mut eval = JitShape::new_point_eval();
 //!
 //! // This calls directly into that machine code!

@@ -7,7 +7,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{Shape, TracingEvaluator},
+//!     eval::{Shape, EzShape, TracingEvaluator},
 //!     vm::VmShape,
 //!     rhai::eval
 //! };
@@ -15,7 +15,7 @@
 //! let (sum, ctx) = eval("x + y")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.point_tape();
+//! let tape = shape.ez_point_tape();
 //! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[])?.0, 3.0);
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -25,7 +25,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{Shape, TracingEvaluator},
+//!     eval::{Shape, EzShape, TracingEvaluator},
 //!     vm::VmShape,
 //!     rhai::Engine
 //! };
@@ -36,7 +36,7 @@
 //! assert_eq!(out.shapes.len(), 1);
 //! let shape = VmShape::new(&out.context, out.shapes[0].shape)?;
 //! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.point_tape();
+//! let tape = shape.ez_point_tape();
 //! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0, &[])?.0, 1.5);
 //! # Ok::<(), fidget::Error>(())
 //! ```
