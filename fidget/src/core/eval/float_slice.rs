@@ -7,7 +7,7 @@
 pub mod eval_tests {
     use crate::{
         context::{Context, Node},
-        eval::{BulkEvaluator, Shape, ShapeVars, Vars},
+        eval::{BulkEvaluator, EzShape, Shape, ShapeVars, Vars},
     };
 
     /// Helper struct to put constrains on our `Shape` object
@@ -29,7 +29,7 @@ pub mod eval_tests {
             // This is a fuzz test for icache issues
             let mut eval = S::new_float_slice_eval();
             for _ in 0..10000 {
-                let tape = shape_x.float_slice_tape(None);
+                let tape = shape_x.ez_float_slice_tape();
                 let out = eval
                     .eval(
                         &tape,
@@ -43,7 +43,7 @@ pub mod eval_tests {
 
                 // TODO: reuse tape data here
 
-                let tape = shape_y.float_slice_tape(None);
+                let tape = shape_y.ez_float_slice_tape();
                 let out = eval
                     .eval(
                         &tape,
@@ -64,7 +64,7 @@ pub mod eval_tests {
 
             let mut eval = S::new_float_slice_eval();
             let shape = S::try_from((&ctx, x)).unwrap();
-            let tape = shape.float_slice_tape(None);
+            let tape = shape.ez_float_slice_tape();
             let out = eval
                 .eval(
                     &tape,
@@ -100,7 +100,7 @@ pub mod eval_tests {
 
             let mul = ctx.mul(y, 2.0).unwrap();
             let shape = S::try_from((&ctx, mul)).unwrap();
-            let tape = shape.float_slice_tape(None);
+            let tape = shape.ez_float_slice_tape();
             let out = eval
                 .eval(
                     &tape,
@@ -144,7 +144,7 @@ pub mod eval_tests {
 
             let shape = S::try_from((&ctx, min)).unwrap();
             let mut eval = S::new_float_slice_eval();
-            let tape = shape.float_slice_tape(None);
+            let tape = shape.ez_float_slice_tape();
             let mut vars = Vars::new(shape.vars());
 
             assert_eq!(

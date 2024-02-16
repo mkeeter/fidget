@@ -42,11 +42,10 @@ impl<const N: u8> GenericVmShape<N> {
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
-        storage: Option<TapeData<N>>,
+        storage: TapeData<N>,
         workspace: &mut crate::eval::tape::Workspace,
     ) -> Result<Self, Error> {
-        let next = storage.unwrap_or_default();
-        let d = self.0.simplify_with(choices, workspace, next)?;
+        let d = self.0.simplify_with(choices, workspace, storage)?;
         Ok(Self(Arc::new(d)))
     }
     /// Returns a characteristic size (the length of the inner assembly tape)
@@ -82,26 +81,26 @@ impl Shape for VmShape {
 
     type TapeStorage = ();
 
-    fn float_slice_tape(&self, _storage: Option<()>) -> Self {
+    fn float_slice_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
     type GradSliceEval = BulkVmEval<Grad>;
-    fn grad_slice_tape(&self, _storage: Option<()>) -> Self {
+    fn grad_slice_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
     type PointEval = TracingVmEval<f32>;
-    fn point_tape(&self, _storage: Option<()>) -> Self {
+    fn point_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
     type IntervalEval = TracingVmEval<Interval>;
-    fn interval_tape(&self, _storage: Option<()>) -> Self {
+    fn interval_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
     type Trace = Vec<Choice>;
     fn simplify(
         &self,
         trace: &Vec<Choice>,
-        storage: Option<TapeData>,
+        storage: TapeData,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         self.simplify_inner(trace.as_slice(), storage, workspace)

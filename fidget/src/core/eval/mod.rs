@@ -56,7 +56,7 @@ pub trait Shape: Send + Sync + Clone {
     type Trace;
 
     /// Associated type for storage used by the shape itself
-    type Storage: Send;
+    type Storage: Default + Send;
 
     /// Associated type for workspace used during shape simplification
     type Workspace: Default + Send;
@@ -65,7 +65,7 @@ pub trait Shape: Send + Sync + Clone {
     ///
     /// For simplicity, we require that every tape use the same type for storage.
     /// This could change in the future!
-    type TapeStorage: Send;
+    type TapeStorage: Default + Send;
 
     /// Associated type for single-point tracing evaluation
     type PointEval: TracingEvaluator<
@@ -116,32 +116,32 @@ pub trait Shape: Send + Sync + Clone {
     /// Returns an evaluation tape for a point evaluator
     fn point_tape(
         &self,
-        storage: Option<Self::TapeStorage>,
+        storage: Self::TapeStorage,
     ) -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
 
     /// Returns an evaluation tape for an interval evaluator
     fn interval_tape(
         &self,
-        storage: Option<Self::TapeStorage>,
+        storage: Self::TapeStorage,
     ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn float_slice_tape(
         &self,
-        storage: Option<Self::TapeStorage>,
+        storage: Self::TapeStorage,
     ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn grad_slice_tape(
         &self,
-        storage: Option<Self::TapeStorage>,
+        storage: Self::TapeStorage,
     ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
 
     /// Computes a simplified tape using the given trace, and reusing storage
     fn simplify(
         &self,
         trace: &Self::Trace,
-        storage: Option<Self::Storage>,
+        storage: Self::Storage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error>
     where
@@ -173,6 +173,69 @@ pub trait Shape: Send + Sync + Clone {
     /// certain depths.
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
+    }
+}
+
+/// Extension trait for working with a shape without thinking much about memory
+///
+/// All of the [`Shape`] functions that use significant amounts of memory
+/// pedantically require you to pass in storage for reuse.  This trait allows
+/// you to ignore that, at the cost of performance; we require that all storage
+/// types implement [`Default`], so these functions do the boilerplate for you.
+pub trait EzShape: Shape {
+    /// Returns an evaluation tape for a point evaluator
+    fn ez_point_tape(&self)
+        -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
+
+    /// Returns an evaluation tape for an interval evaluator
+    fn ez_interval_tape(
+        &self,
+    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn ez_float_slice_tape(
+        &self,
+    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn ez_grad_slice_tape(
+        &self,
+    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
+
+    /// Computes a simplified tape using the given trace, and reusing storage
+    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
+    where
+        Self: Sized;
+}
+
+impl<S: Shape> EzShape for S {
+    fn ez_point_tape(
+        &self,
+    ) -> <Self::PointEval as TracingEvaluator<f32>>::Tape {
+        self.point_tape(Default::default())
+    }
+
+    fn ez_interval_tape(
+        &self,
+    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape {
+        self.interval_tape(Default::default())
+    }
+
+    fn ez_float_slice_tape(
+        &self,
+    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+        self.float_slice_tape(Default::default())
+    }
+
+    fn ez_grad_slice_tape(
+        &self,
+    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape {
+        self.grad_slice_tape(Default::default())
+    }
+
+    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
+        let mut workspace = Default::default();
+        self.simplify(trace, Default::default(), &mut workspace)
     }
 }
 

@@ -707,9 +707,8 @@ impl JitShape {
     }
     fn tracing_tape<A: AssemblerT>(
         &self,
-        storage: Option<Mmap>,
+        storage: Mmap,
     ) -> JitTracingFn<A::Data> {
-        let storage = storage.unwrap_or_else(|| Mmap::new(0).unwrap());
         let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitTracingFn {
@@ -719,11 +718,7 @@ impl JitShape {
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
     }
-    fn bulk_tape<A: AssemblerT>(
-        &self,
-        storage: Option<Mmap>,
-    ) -> JitBulkFn<A::Data> {
-        let storage = storage.unwrap_or_else(|| Mmap::new(0).unwrap());
+    fn bulk_tape<A: AssemblerT>(&self, storage: Mmap) -> JitBulkFn<A::Data> {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitBulkFn {
@@ -746,26 +741,26 @@ impl Shape for JitShape {
     type FloatSliceEval = JitBulkEval<f32>;
     type GradSliceEval = JitBulkEval<Grad>;
 
-    fn point_tape(&self, storage: Option<Mmap>) -> JitTracingFn<f32> {
+    fn point_tape(&self, storage: Mmap) -> JitTracingFn<f32> {
         self.tracing_tape::<point::PointAssembler>(storage)
     }
 
-    fn interval_tape(&self, storage: Option<Mmap>) -> JitTracingFn<Interval> {
+    fn interval_tape(&self, storage: Mmap) -> JitTracingFn<Interval> {
         self.tracing_tape::<interval::IntervalAssembler>(storage)
     }
 
-    fn float_slice_tape(&self, storage: Option<Mmap>) -> JitBulkFn<f32> {
+    fn float_slice_tape(&self, storage: Mmap) -> JitBulkFn<f32> {
         self.bulk_tape::<float_slice::FloatSliceAssembler>(storage)
     }
 
-    fn grad_slice_tape(&self, storage: Option<Mmap>) -> JitBulkFn<Grad> {
+    fn grad_slice_tape(&self, storage: Mmap) -> JitBulkFn<Grad> {
         self.bulk_tape::<grad_slice::GradSliceAssembler>(storage)
     }
 
     fn simplify(
         &self,
         trace: &Self::Trace,
-        storage: Option<Self::Storage>,
+        storage: Self::Storage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         self.0

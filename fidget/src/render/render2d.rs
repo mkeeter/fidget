@@ -209,15 +209,19 @@ impl<S: Shape> ShapeAndTape<S> {
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.i_tape.get_or_insert_with(|| {
-            Arc::new(self.shape.interval_tape(storage.pop()))
+            Arc::new(
+                self.shape.interval_tape(storage.pop().unwrap_or_default()),
+            )
         })
     }
     fn f_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
-        self.f_tape
-            .get_or_insert_with(|| self.shape.float_slice_tape(storage.pop()))
+        self.f_tape.get_or_insert_with(|| {
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
 }
 
@@ -269,7 +273,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         }
 
         let mut sub_tape = if let Some(data) = simplify.as_ref() {
-            let s = self.shape_storage.pop();
+            let s = self.shape_storage.pop().unwrap_or_default();
             Some(ShapeAndTape {
                 shape: shape
                     .shape
@@ -423,7 +427,7 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
         }
     }
 
-    let i_tape = Some(Arc::new(shape.interval_tape(None)));
+    let i_tape = Some(Arc::new(shape.interval_tape(Default::default())));
     let queue = Queue::new(tiles);
     let out = std::thread::scope(|s| {
         let mut handles = vec![];

@@ -46,22 +46,27 @@ impl<S: Shape> EvalGroup<S> {
         &self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
-        self.interval
-            .get_or_init(|| self.shape.interval_tape(storage.pop()))
+        self.interval.get_or_init(|| {
+            self.shape.interval_tape(storage.pop().unwrap_or_default())
+        })
     }
     fn float_slice_tape(
         &self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
-        self.float_slice
-            .get_or_init(|| self.shape.float_slice_tape(storage.pop()))
+        self.float_slice.get_or_init(|| {
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
     fn grad_slice_tape(
         &self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
-        self.grad_slice
-            .get_or_init(|| self.shape.grad_slice_tape(storage.pop()))
+        self.grad_slice.get_or_init(|| {
+            self.shape
+                .grad_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
 }
 
@@ -521,7 +526,7 @@ impl<S: Shape> OctreeBuilder<S> {
             CellResult::Done(Cell::Empty)
         } else {
             let sub_tape = if S::simplify_tree_during_meshing(cell.depth) {
-                let s = self.shape_storage.pop();
+                let s = self.shape_storage.pop().unwrap_or_default();
                 r.map(|r| {
                     Arc::new(EvalGroup::new(
                         eval.shape.simplify(r, s, &mut self.workspace).unwrap(),
@@ -1321,6 +1326,7 @@ mod test {
     use super::*;
     use crate::{
         context::bound::{self, BoundContext, BoundNode},
+        eval::EzShape,
         mesh::types::{Edge, X, Y, Z},
         vm::VmShape,
     };
@@ -1601,7 +1607,7 @@ mod test {
                          offset: {offset} => {pos:?} != {mass_point:?}"
                     );
                     let mut eval = VmShape::new_point_eval();
-                    let tape = shape.point_tape(None);
+                    let tape = shape.ez_point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
                         let (r, _) =
@@ -1626,7 +1632,7 @@ mod test {
             let shape: VmShape = shape.convert();
 
             let mut eval = VmShape::new_point_eval();
-            let tape = shape.point_tape(None);
+            let tape = shape.ez_point_tape();
             let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z, &[]).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
             let (v, _) =

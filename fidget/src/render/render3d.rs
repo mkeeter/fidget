@@ -53,7 +53,9 @@ impl<S: Shape> ShapeAndTape<S> {
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
         self.i_tape.get_or_insert_with(|| {
-            Arc::new(self.shape.interval_tape(storage.pop()))
+            Arc::new(
+                self.shape.interval_tape(storage.pop().unwrap_or_default()),
+            )
         })
     }
     fn f_tape(
@@ -61,16 +63,20 @@ impl<S: Shape> ShapeAndTape<S> {
 
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
-        self.f_tape
-            .get_or_insert_with(|| self.shape.float_slice_tape(storage.pop()))
+        self.f_tape.get_or_insert_with(|| {
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
     fn g_tape(
         &mut self,
 
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
-        self.g_tape
-            .get_or_insert_with(|| self.shape.grad_slice_tape(storage.pop()))
+        self.g_tape.get_or_insert_with(|| {
+            self.shape
+                .grad_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
 }
 
@@ -162,7 +168,7 @@ impl<S: Shape> Worker<'_, S> {
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
         let mut sub_tape = if let Some(trace) = trace.as_ref() {
-            let s = self.shape_storage.pop();
+            let s = self.shape_storage.pop().unwrap_or_default();
             let next =
                 shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
             Some(ShapeAndTape {
@@ -467,7 +473,7 @@ pub fn render<S: Shape>(
         tile_queues.push(Queue::new(ts.to_vec()));
     }
 
-    let i_tape = Arc::new(shape.interval_tape(None));
+    let i_tape = Arc::new(shape.interval_tape(Default::default()));
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out = if config.threads == 1 {
