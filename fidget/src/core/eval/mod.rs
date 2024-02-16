@@ -157,7 +157,6 @@ pub trait Shape: Send + Sync + Clone {
     ///
     /// This is underspecified and only used for unit testing; for tape-based
     /// shapes, it's typically the length of the tape,
-    #[cfg(test)]
     fn size(&self) -> usize;
 
     /// Recommended tile sizes for 3D rendering

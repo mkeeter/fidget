@@ -780,7 +780,6 @@ impl Shape for JitShape {
         d % 8 == 4
     }
 
-    #[cfg(test)]
     fn size(&self) -> usize {
         self.0.size()
     }

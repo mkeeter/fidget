@@ -273,7 +273,10 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         } else {
             None
         };
-        let sub_tape_ref = sub_tape.as_mut().unwrap_or(shape);
+        let sub_tape_ref = sub_tape
+            .as_mut()
+            .filter(|t| t.shape.size() < shape.shape.size())
+            .unwrap_or(shape);
 
         if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;

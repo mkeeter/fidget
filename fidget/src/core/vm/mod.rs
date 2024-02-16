@@ -111,7 +111,6 @@ impl Shape for VmShape {
         VmShape::recycle(self)
     }
 
-    #[cfg(test)]
     fn size(&self) -> usize {
         VmShape::size(self)
     }
