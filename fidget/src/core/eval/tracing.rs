@@ -1,16 +1,15 @@
 //! Capturing a trace of function evaluation for further optimization
 //!
 //! Tracing evaluators are run on a single data type and capture a trace of
-//! execution, recording decision points in a [`Vec<Choice>`](Choice).  Decision
-//! points are places where the code could take a single branch out of multiple
-//! options; for example, a `min` or `max` node.
+//! execution, which is the [`Trace` associated type](TracingEvaluator::Trace).
 //!
-//! The resulting trace can be used to simplify the instruction tape.
+//! The resulting trace can be used to simplify the original shape.
 //!
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
 
 use crate::{eval::Tape, Error};
+
 /// Evaluator for single values which simultaneously captures an execution trace
 ///
 /// The trace can later be used to simplify the [`Shape`](crate::eval::Shape)

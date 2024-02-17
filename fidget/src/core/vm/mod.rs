@@ -20,7 +20,7 @@ pub use data::{VmData, VmWorkspace};
 
 /// Shape that use a VM backend for evaluation
 ///
-/// Internally, the [`VmShape`] stores an [`Arc<VmData>`](TapeData), and
+/// Internally, the [`VmShape`] stores an [`Arc<VmData>`](VmData), and
 /// iterates over a [`Vec<RegOp>`](RegOp) to perform evaluation.
 ///
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
