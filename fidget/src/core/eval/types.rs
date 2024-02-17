@@ -464,3 +464,17 @@ impl std::ops::Neg for Interval {
         Interval::new(-self.upper, -self.lower)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::{eval::types::Interval, eval::Choice};
+
+    #[test]
+    fn test_interval() {
+        let a = Interval::new(0.0, 1.0);
+        let b = Interval::new(0.5, 1.5);
+        let (v, c) = a.min_choice(b);
+        assert_eq!(v, [0.0, 1.0].into());
+        assert_eq!(c, Choice::Both);
+    }
+}

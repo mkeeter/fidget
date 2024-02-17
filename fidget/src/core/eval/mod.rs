@@ -23,11 +23,8 @@
 use crate::Error;
 use std::{collections::HashMap, sync::Arc};
 
-// Evaluators
-pub mod float_slice;
-pub mod grad_slice;
-pub mod interval;
-pub mod point;
+#[cfg(any(test, feature = "eval-tests"))]
+pub mod test;
 
 mod bulk;
 mod tracing;
