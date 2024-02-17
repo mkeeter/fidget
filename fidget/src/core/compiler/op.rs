@@ -172,7 +172,7 @@ opcodes!(
     ///
     /// We have a maximum of 256 registers, though some tapes (e.g. ones
     /// targeting physical hardware) may choose to use fewer.
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub enum RegOp<u8> {
         // default variants
         /// Read from a memory slot to a register

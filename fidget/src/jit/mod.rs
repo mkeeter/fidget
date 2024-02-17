@@ -23,10 +23,9 @@ use crate::{
     compiler::RegOp,
     context::{Context, Node},
     eval::{
-        bulk::BulkEvaluator,
-        tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, Shape, ShapeVars, Tape, TapeData,
+        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TapeData,
+        TracingEvaluator,
     },
     jit::mmap::Mmap,
     vm::GenericVmShape,

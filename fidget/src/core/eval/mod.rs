@@ -1,7 +1,8 @@
 //! Traits and data structures for evaluation
 //!
-//! The easiest way to build an evaluator of a particular kind is by calling
-//! `new_X_evaluator` on [`Tape`].
+//! There are a bunch of things in here, but the most important trait is
+//! [`Shape`], followed by the evaluator traits ([`BulkEvaluator`] and
+//! [`TracingEvaluator`]).
 //!
 //! ```rust
 //! use fidget::vm::VmShape;
@@ -28,9 +29,10 @@ pub mod grad_slice;
 pub mod interval;
 pub mod point;
 
-pub mod bulk;
+mod bulk;
+mod tracing;
+
 pub mod tape;
-pub mod tracing;
 pub mod types;
 
 mod vars;
@@ -182,6 +184,9 @@ pub trait Shape: Send + Sync + Clone {
 /// pedantically require you to pass in storage for reuse.  This trait allows
 /// you to ignore that, at the cost of performance; we require that all storage
 /// types implement [`Default`], so these functions do the boilerplate for you.
+///
+/// This trait is automatically implemented for every [`Shape`], but must be
+/// imported separately as a speed-bump to using it everywhere.
 pub trait EzShape: Shape {
     /// Returns an evaluation tape for a point evaluator
     fn ez_point_tape(&self)
@@ -202,7 +207,7 @@ pub trait EzShape: Shape {
         &self,
     ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
 
-    /// Computes a simplified tape using the given trace, and reusing storage
+    /// Computes a simplified tape using the given trace
     fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
     where
         Self: Sized;

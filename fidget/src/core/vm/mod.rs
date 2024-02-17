@@ -2,10 +2,9 @@
 use crate::{
     compiler::RegOp,
     eval::{
-        bulk::BulkEvaluator,
-        tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Choice, Shape, ShapeVars, Tape, TapeData,
+        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TapeData,
+        TracingEvaluator,
     },
     Error,
 };
@@ -14,6 +13,13 @@ use std::{collections::HashMap, sync::Arc};
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Shape that use a VM backend for evaluation
+///
+/// Internally, the [`VmShape`] stores an [`Arc<TapeData>`](TapeData), and
+/// iterates over a [`Vec<RegOp>`](RegOp) to perform evaluation.
+///
+/// All of the associated [`Tape`] types simply clone the internal `Arc`;
+/// there's no separate planning required to generate a tape.
+///
 pub type VmShape = GenericVmShape<{ u8::MAX }>;
 
 impl Tape for VmShape {

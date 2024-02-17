@@ -9,11 +9,46 @@ use std::{collections::HashMap, sync::Arc};
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
-/// Under the hood, [`Data`](Self) stores two different representations:
-/// - A tape in single static assignment form ([`ssa::Tape`](SsaTape)), which is
-///   suitable for use during tape simplification
-/// - A tape in register-allocated form ([`vm::Tape`](RegTape)), which can be
-///   efficiently evaluated or lowered into machine assembly
+/// Under the hood, [`TapeData`] stores two different representations:
+/// - A tape in [single static assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+///   ([`SsaTape`]), which is suitable for use during tape simplification
+/// - A tape in register-allocated form ([`RegTape`]), which can be efficiently
+///   evaluated or lowered into machine assembly
+///
+/// # Example
+/// Consider the expression `x + y`.  The SSA tape will look something like
+/// this:
+/// ```text
+/// $0 = INPUT 0   // X
+/// $1 = INPUT 1   // Y
+/// $2 = ADD $0 $1 // (X + Y)
+/// ```
+///
+/// This will be lowered into a tape using real (or VM) registers:
+/// ```text
+/// r0 = INPUT 0 // X
+/// r1 = INPUT 1 // Y
+/// r0 = ADD r0 r1 // (X + Y)
+/// ```
+///
+/// Note that in this form, registers are reused (e.g. `r0` stores both `X` and
+/// `X + Y`).
+///
+/// We can peek at the internals and see this register-allocated tape:
+/// ```
+/// use fidget::{eval::TapeData, compiler::RegOp, rhai, vm::VmShape};
+///
+/// let (sum, ctx) = rhai::eval("x + y")?;
+/// let data = TapeData::<255>::new(&ctx, sum)?;
+/// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
+///
+/// let mut iter = data.iter_asm();
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, 0));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, 1));
+/// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
+/// # Ok::<(), fidget::Error>(())
+/// ```
+///
 #[derive(Default)]
 pub struct TapeData<const N: u8 = { u8::MAX }> {
     ssa: SsaTape,
@@ -71,7 +106,7 @@ impl<const N: u8> TapeData<N> {
 
     /// Simplifies both inner tapes, using the provided choice array
     ///
-    /// To minimize allocations, this function takes a [`Workspace`] _and_ spare
+    /// To minimize allocations, this function takes a [`Workspace`] and spare
     /// [`TapeData`]; it will reuse those allocations.
     pub fn simplify(
         &self,
@@ -89,7 +124,7 @@ impl<const N: u8> TapeData<N> {
         tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
+        workspace.reset(reg_limit, self.ssa.tape.len(), tape.asm);
 
         let mut choice_count = 0;
 
@@ -258,10 +293,10 @@ impl<const N: u8> TapeData<N> {
 /// This is exposed to minimize reallocations in hot loops.
 pub struct Workspace {
     /// Register allocator
-    pub alloc: RegisterAllocator,
+    pub(crate) alloc: RegisterAllocator,
 
     /// Current bindings from SSA variables to registers
-    pub bind: Vec<u32>,
+    pub(crate) bind: Vec<u32>,
 
     /// Number of active SSA bindings
     ///
@@ -301,23 +336,10 @@ impl Workspace {
         self.bind[i as usize] = bind;
     }
 
-    /// Resets the workspace, preserving allocations
-    pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
-        self.alloc.reset(num_registers, tape_len);
-        self.bind.fill(u32::MAX);
-        self.bind.resize(tape_len, u32::MAX);
-        self.count = 0;
-    }
-
     /// Resets the workspace, preserving allocations and claiming the given
     /// [`RegTape`].
-    pub fn reset_with_storage(
-        &mut self,
-        num_registers: u8,
-        tape_len: usize,
-        tape: RegTape,
-    ) {
-        self.alloc.reset_with_storage(num_registers, tape_len, tape);
+    pub fn reset(&mut self, num_registers: u8, tape_len: usize, tape: RegTape) {
+        self.alloc.reset(num_registers, tape_len, tape);
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
         self.count = 0;

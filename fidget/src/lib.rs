@@ -3,8 +3,8 @@
 //!
 //! An **implicit surface** is a function `f(x, y, z)`, where `x`, `y`, and `z`
 //! represent a position in 3D space.  By convention, if `f(x, y, z) < 0`, then
-//! that position is **inside** the shape; if it's `> 0`, then that position is
-//! **outside** the shape; otherwise, it's on the boundary of the shape.
+//! that position is _inside_ the shape; if it's `> 0`, then that position is
+//! _outside_ the shape; otherwise, it's on the boundary of the shape.
 //!
 //! A **closed-form** implicit surface means that the function is given as a
 //! fixed expression built from closed-form operations (addition, subtraction,
@@ -66,23 +66,7 @@
 //! A **tape** contains instructions for an evaluator.
 //!
 //! For example, the [`VmShape`](crate::vm::VmShape) type uses a simple virtual
-//! machine to perform evaluation.
-//!
-//! ```
-//! use fidget::{eval::Shape, rhai, vm::VmShape};
-//!
-//! let (sum, ctx) = rhai::eval("x + y")?;
-//! let shape = VmShape::new(&ctx, sum)?;
-//! assert_eq!(shape.size(), 3); // X, Y, and (X + Y)
-//! # Ok::<(), fidget::Error>(())
-//! ```
-//!
-//! In this case, the `VmShape`'s internal instructions are something like this:
-//! ```text
-//! $0 = INPUT 0   // X
-//! $1 = INPUT 1   // Y
-//! $2 = ADD $0 $1 // (X + Y)
-//! ```
+//! machine to perform evaluation.  Here's a peek at the internals:
 //!
 //! At the moment, Fidget implements two kinds of shapes:
 //!

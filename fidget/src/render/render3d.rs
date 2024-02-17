@@ -1,10 +1,8 @@
 //! 3D bitmap rendering / rasterization
 use crate::{
     eval::{
-        bulk::BulkEvaluator,
-        tracing::TracingEvaluator,
         types::{Grad, Interval},
-        Shape, Tape,
+        BulkEvaluator, Shape, Tape, TracingEvaluator,
     },
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };

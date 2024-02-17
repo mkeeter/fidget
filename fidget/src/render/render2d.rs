@@ -1,9 +1,6 @@
 //! 2D bitmap rendering / rasterization
 use crate::{
-    eval::{
-        bulk::BulkEvaluator, tracing::TracingEvaluator, types::Interval, Shape,
-        Tape,
-    },
+    eval::{types::Interval, BulkEvaluator, Shape, Tape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 use nalgebra::{Point2, Vector2};

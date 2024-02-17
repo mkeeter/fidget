@@ -87,18 +87,8 @@ impl RegisterAllocator {
         }
     }
 
-    /// Resets the internal state, reusing allocations if possible
-    pub fn reset(&mut self, reg_limit: u8, size: usize) {
-        self.reset_with_storage(reg_limit, size, RegTape::default())
-    }
-
     /// Resets internal state, reusing allocations and the provided tape
-    pub fn reset_with_storage(
-        &mut self,
-        reg_limit: u8,
-        size: usize,
-        tape: RegTape,
-    ) {
+    pub fn reset(&mut self, reg_limit: u8, size: usize, tape: RegTape) {
         assert!(self.out.is_empty());
         self.allocations.fill(u32::MAX);
         self.allocations.resize(size, u32::MAX);
