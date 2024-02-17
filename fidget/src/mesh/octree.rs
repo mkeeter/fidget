@@ -386,8 +386,8 @@ pub(crate) struct OctreeBuilder<S: Shape> {
     eval_interval: S::IntervalEval,
     eval_grad_slice: S::GradSliceEval,
 
-    tape_storage: Vec<S::TapeStorage>,
-    shape_storage: Vec<S::Storage>,
+    pub tape_storage: Vec<S::TapeStorage>,
+    pub shape_storage: Vec<S::Storage>,
     workspace: S::Workspace,
 }
 

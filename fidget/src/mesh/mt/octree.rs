@@ -1,7 +1,7 @@
 //! Multithreaded octree construction
 use super::pool::{QueuePool, ThreadContext, ThreadPool};
 use crate::{
-    eval::Shape,
+    eval::{Shape, Tape},
     mesh::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
@@ -229,6 +229,22 @@ impl<S: Shape> OctreeWorker<S> {
                 // wake up to try stealing tasks.
                 if self.queue.changed() {
                     ctx.wake();
+                } else if let Ok(t) = Arc::try_unwrap(task.data) {
+                    // Try recycling the tapes, if no one else is using them
+                    if let Ok(mut e) = Arc::try_unwrap(t.eval) {
+                        if let Some(s) = e.shape.recycle() {
+                            self.octree.shape_storage.push(s);
+                        }
+                        if let Some(i_tape) = e.interval.take() {
+                            self.octree.tape_storage.push(i_tape.recycle());
+                        }
+                        if let Some(f_tape) = e.float_slice.take() {
+                            self.octree.tape_storage.push(f_tape.recycle());
+                        }
+                        if let Some(g_tape) = e.grad_slice.take() {
+                            self.octree.tape_storage.push(g_tape.recycle());
+                        }
+                    }
                 }
 
                 // We've successfully done some work, so start the loop again
