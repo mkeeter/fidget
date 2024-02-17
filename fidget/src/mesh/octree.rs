@@ -598,6 +598,10 @@ impl<S: Shape> OctreeBuilder<S> {
                     self.recurse(&sub_eval, cell, settings);
                 }
 
+                if let Ok(t) = Arc::try_unwrap(sub_eval) {
+                    self.reclaim(t);
+                }
+
                 let r = self.check_done(cell, index).unwrap();
 
                 self.o[cell] = match r {
