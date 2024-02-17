@@ -1,4 +1,4 @@
-//! Shapes that use a VM backend for evaluation
+//! Simple virtual machine for shape evaluation
 use crate::{
     compiler::RegOp,
     eval::{
@@ -45,7 +45,7 @@ impl<const N: u8> GenericVmShape<N> {
         storage: TapeData<N>,
         workspace: &mut crate::eval::tape::Workspace,
     ) -> Result<Self, Error> {
-        let d = self.0.simplify_with(choices, workspace, storage)?;
+        let d = self.0.simplify(choices, workspace, storage)?;
         Ok(Self(Arc::new(d)))
     }
     /// Returns a characteristic size (the length of the inner assembly tape)

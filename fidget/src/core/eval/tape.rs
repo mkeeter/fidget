@@ -73,7 +73,7 @@ impl<const N: u8> TapeData<N> {
     ///
     /// To minimize allocations, this function takes a [`Workspace`] _and_ spare
     /// [`TapeData`]; it will reuse those allocations.
-    pub fn simplify_with(
+    pub fn simplify(
         &self,
         choices: &[Choice],
         workspace: &mut Workspace,
@@ -253,7 +253,7 @@ impl<const N: u8> TapeData<N> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Data structures used during [`Tape::simplify`]
+/// Data structures used during [`TapeData::simplify`]
 ///
 /// This is exposed to minimize reallocations in hot loops.
 pub struct Workspace {

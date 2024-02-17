@@ -1,7 +1,7 @@
 //! Compilation down to native machine code
 //!
-//! Users are unlikely to use anything in this module other than [`Eval`], which
-//! is a [`Family`] of JIT evaluators.
+//! Users are unlikely to use anything in this module other than [`JitShape`],
+//! which is a [`Shape`] that uses JIT evaluation.
 //!
 //! ```
 //! use fidget::{rhai, eval::{TracingEvaluator, Shape, EzShape}, jit::JitShape};
@@ -817,10 +817,10 @@ macro_rules! jit_fn {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Handle owning a JIT-compiled tracing function of some kind
+/// Evaluator for a JIT-compiled tracing function
 ///
-/// Users are unlikely to use this directly; consider using the
-/// [`jit::Eval`](Eval) evaluator family instead.
+/// Users are unlikely to use this directly, but it's public because it's an
+/// associated type on [`JitShape`].
 #[derive(Default)]
 pub struct JitTracingEval {
     choices: Vec<Choice>,

@@ -54,11 +54,10 @@ impl std::ops::BitOrAssign<Choice> for Choice {
     }
 }
 
-/// A tracing evaluator performs evaluation of a single `T`, capturing a trace
-/// of execution for further simplification.
+/// Evaluator for single values which simultaneously captures an execution trace
 ///
-/// This trait is unlikely to be used directly; instead, use a [`TracingEval`],
-/// which offers a user-friendly API.
+/// The trace can later be used to simplify the [`Shape`](crate::eval::Shape)
+/// using [`Shape::simplify`](crate::eval::Shape::simplify).
 pub trait TracingEvaluator<T: From<f32>>: Default {
     /// Instruction tape used during evaluation
     ///

@@ -17,9 +17,8 @@ where
 
     /// Tile sizes to use during evaluation.
     ///
-    /// You'll likely want to use
-    /// [`Family::tile_sizes_2d`] or [`Family::tile_sizes_3d`] to select this
-    /// based on evaluator type.
+    /// You'll likely want to use [`Shape::tile_sizes_2d`] or
+    /// [`Shape::tile_sizes_3d`] to select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
 
     /// Number of threads to use; 8 by default

@@ -54,21 +54,20 @@
 //! passing it some position `(x, y, z)` and getting back a result.  This will
 //! be done _a lot_, so it has to be fast.
 //!
-//! Evaluation is deliberately agnostic to the specific details of **how** we go
+//! Evaluation is deliberately agnostic to the specific details of how we go
 //! from position to results.  This abstraction is represented by the
 //! [`Shape` trait](crate::eval::Shape), which defines how to make both
 //! **evaluators** and **tapes**.
 //!
 //! An **evaluator** is an object which performs evaluation of some kind (point,
-//! array, gradient, interval).  It carries no persistent data, and can be
-//! constructed (for example) on a per-thread basis.
+//! array, gradient, interval).  It carries no persistent data, and would
+//! typically be constructed on a per-thread basis.
 //!
 //! A **tape** contains instructions for an evaluator.
 //!
-//! TODO this is all out of date
+//! For example, the [`VmShape`](crate::vm::VmShape) type uses a simple virtual
+//! machine to perform evaluation.
 //!
-//! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
-//! This is performed by [`Tape::new`](crate::eval::Tape::new):
 //! ```
 //! use fidget::{eval::Shape, rhai, vm::VmShape};
 //!
@@ -78,26 +77,16 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
-//! A tape is a set of operations for a very simple virtual machine; the
-//! expression above would be something like
+//! In this case, the `VmShape`'s internal instructions are something like this:
 //! ```text
 //! $0 = INPUT 0   // X
 //! $1 = INPUT 1   // Y
 //! $2 = ADD $0 $1 // (X + Y)
 //! ```
 //!
-//! The `Tape` is parameterized by a particular
-//! [evaluator family](crate::eval::Family);
-//! in `Tape::<vm::Eval>::new(&ctx, ...)`, the associated family is `vm::Eval`.
-//!
-//! (Parameterizing the tape is required because different evaluator families
-//! have different numbers of [available
-//! registers](crate::eval::Family::REG_LIMIT), which affects tape planning;
-//! don't worry, this won't be on the test)
-//!
 //! At the moment, Fidget implements two kinds of shapes:
 //!
-//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates
+//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates a list of opcodes
 //!   using an interpreter.  This is slower, but can run in more situations (e.g.
 //!   in WebAssembly).
 //! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
@@ -116,7 +105,8 @@
 //! - Interval evaluation can conservatively prove large regions of space to be
 //!   empty or full, at which point they don't need to be considered further.
 //! - Array-of-points evaluation speeds up calculating occupancy (inside /
-//!   outside) when given a set of voxels by amortizing dispatch overhead.
+//!   outside) when given a set of voxels, because dispatch overhead is
+//!   amortized over many points.
 //! - At the surface of the model, partial derivatives represent normals and
 //!   can be used for shading.
 //!
@@ -139,7 +129,7 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
-//! # Tape simplification
+//! # Shape simplification
 //! Interval evaluation serves two purposes.  As we already mentioned, it can be
 //! used to prove large regions empty or filled, which lets us do less work when
 //! rendering.  In addition, it can discover **sections of the tape** that are
@@ -154,7 +144,7 @@
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
-//! let (out, simplify) = interval_eval.eval(
+//! let (out, trace) = interval_eval.eval(
 //!     &tape,
 //!     [0.0, 1.0], // X
 //!     [2.0, 3.0], // Y
@@ -169,10 +159,9 @@
 //! than** `y` in the `min(x, y)` clause.  This means that we can simplify the
 //! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
 //!
-//! Simplification is done with
-//! [`TracingEvalResult::simplify`](crate::eval::tracing::TracingEvalResult::simplify),
-//! using the `TracingEvalResult` returned from
-//! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
+//! Interval evaluation is a kind of
+//! [tracing evaluation](crate::eval::TracingEvaluator), which returns a tuple
+//! of `(value, trace)`.  The trace can be used to simplify the original shape:
 //!
 //! ```
 //! # use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};

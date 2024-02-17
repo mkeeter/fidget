@@ -18,8 +18,9 @@ impl RegTape {
     /// Lowers the tape to assembly with a particular register limit
     ///
     /// Note that if you _also_ want to simplify the tape, it's more efficient
-    /// to use [`simplify`](crate::eval::Tape::simplify), which simultaneously
-    /// simplifies **and** performs register allocation in a single pass.
+    /// to use [`TapeData::simplify`](crate::eval::TapeData::simplify), which
+    /// simultaneously simplifies **and** performs register allocation in a
+    /// single pass.
     pub fn new(ssa: &SsaTape, reg_limit: u8) -> Self {
         let mut alloc = RegisterAllocator::new(reg_limit, ssa.len());
         for &op in ssa.iter() {
