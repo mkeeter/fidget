@@ -24,10 +24,10 @@ use crate::{
     context::{Context, Node},
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TapeData,
-        TracingEvaluator,
+        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     jit::mmap::Mmap,
+    tape::{TapeData, TapeWorkspace},
     vm::GenericVmShape,
     Error,
 };
@@ -731,14 +731,14 @@ impl JitShape {
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
     type Storage = TapeData<REGISTER_LIMIT>;
-    type Workspace = crate::eval::tape::Workspace;
+    type Workspace = TapeWorkspace;
 
     type TapeStorage = Mmap;
 
-    type IntervalEval = JitTracingEval;
-    type PointEval = JitTracingEval;
-    type FloatSliceEval = JitBulkEval<f32>;
-    type GradSliceEval = JitBulkEval<Grad>;
+    type IntervalEval = JitIntervalEval;
+    type PointEval = JitPointEval;
+    type FloatSliceEval = JitFloatSliceEval;
+    type GradSliceEval = JitGradSliceEval;
 
     fn point_tape(&self, storage: Mmap) -> JitTracingFn<f32> {
         self.tracing_tape::<point::PointAssembler>(storage)
@@ -821,7 +821,7 @@ macro_rules! jit_fn {
 /// Users are unlikely to use this directly, but it's public because it's an
 /// associated type on [`JitShape`].
 #[derive(Default)]
-pub struct JitTracingEval {
+struct JitTracingEval {
     choices: Vec<Choice>,
 }
 
@@ -855,29 +855,22 @@ impl<T> Tape for JitTracingFn<T> {
 unsafe impl<T> Send for JitTracingFn<T> {}
 unsafe impl<T> Sync for JitTracingFn<T> {}
 
-impl<T: From<f32>> TracingEvaluator<T> for JitTracingEval {
-    type Tape = JitTracingFn<T>;
-    type Trace = Vec<Choice>;
-    type TapeStorage = Mmap;
-
+impl JitTracingEval {
     /// Evaluates a single point, capturing an evaluation trace
-    fn eval<F: Into<T>>(
+    fn eval<T: From<f32>, F: Into<T>>(
         &mut self,
-        tape: &Self::Tape,
+        tape: &JitTracingFn<T>,
         x: F,
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(T, Option<&Vec<Choice>>), Error> {
+    ) -> (T, Option<&Vec<Choice>>) {
         let x = x.into();
         let y = y.into();
         let z = z.into();
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         self.choices.fill(Choice::Unknown);
-        if vars.len() != tape.var_count {
-            return Err(Error::BadVarSlice(vars.len(), tape.var_count));
-        }
         let out = unsafe {
             (tape.fn_trace)(
                 x,
@@ -888,14 +881,58 @@ impl<T: From<f32>> TracingEvaluator<T> for JitTracingEval {
                 &mut simplify,
             )
         };
-        Ok((
+        (
             out,
             if simplify != 0 {
                 Some(&self.choices)
             } else {
                 None
             },
-        ))
+        )
+    }
+}
+
+/// JIT-based tracing evaluator for interval values
+#[derive(Default)]
+pub struct JitIntervalEval(JitTracingEval);
+impl TracingEvaluator for JitIntervalEval {
+    type Data = Interval;
+    type Tape = JitTracingFn<Interval>;
+    type Trace = Vec<Choice>;
+    type TapeStorage = Mmap;
+
+    fn eval<F: Into<Self::Data>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: F,
+        y: F,
+        z: F,
+        vars: &[f32],
+    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+        self.check_arguments(vars, tape.var_count)?;
+        Ok(self.0.eval(tape, x, y, z, vars))
+    }
+}
+
+/// JIT-based tracing evaluator for point values
+#[derive(Default)]
+pub struct JitPointEval(JitTracingEval);
+impl TracingEvaluator for JitPointEval {
+    type Data = f32;
+    type Tape = JitTracingFn<f32>;
+    type Trace = Vec<Choice>;
+    type TapeStorage = Mmap;
+
+    fn eval<F: Into<Self::Data>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: F,
+        y: F,
+        z: F,
+        vars: &[f32],
+    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+        self.check_arguments(vars, tape.var_count)?;
+        Ok(self.0.eval(tape, x, y, z, vars))
     }
 }
 
@@ -926,7 +963,7 @@ impl<T> Tape for JitBulkFn<T> {
 }
 
 /// Bulk evaluator for JIT functions
-pub struct JitBulkEval<T> {
+struct JitBulkEval<T> {
     /// Output array that's written to during evaluation
     out: Vec<T>,
 }
@@ -942,24 +979,16 @@ impl<T> Default for JitBulkEval<T> {
 unsafe impl<T> Send for JitBulkFn<T> {}
 unsafe impl<T> Sync for JitBulkFn<T> {}
 
-impl<T> BulkEvaluator<T> for JitBulkEval<T>
-where
-    T: From<f32> + Copy + SimdSize,
-{
-    type Tape = JitBulkFn<T>;
-    type TapeStorage = Mmap;
-
+impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
     fn eval(
         &mut self,
-        tape: &Self::Tape,
+        tape: &JitBulkFn<T>,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
         vars: &[f32],
-    ) -> Result<&[T], Error> {
-        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
-
+    ) -> &[T] {
         let n = xs.len();
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
@@ -1026,7 +1055,49 @@ where
                 }
             }
         }
-        Ok(&self.out)
+        &self.out
+    }
+}
+
+/// JIT-based bulk evaluator for arrays of points, yielding point values
+#[derive(Default)]
+pub struct JitFloatSliceEval(JitBulkEval<f32>);
+impl BulkEvaluator for JitFloatSliceEval {
+    type Data = f32;
+    type Tape = JitBulkFn<Self::Data>;
+    type TapeStorage = Mmap;
+
+    fn eval(
+        &mut self,
+        tape: &Self::Tape,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+    ) -> Result<&[Self::Data], Error> {
+        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
+        Ok(self.0.eval(tape, xs, ys, zs, vars))
+    }
+}
+
+/// JIT-based bulk evaluator for arrays of points, yielding gradient values
+#[derive(Default)]
+pub struct JitGradSliceEval(JitBulkEval<Grad>);
+impl BulkEvaluator for JitGradSliceEval {
+    type Data = Grad;
+    type Tape = JitBulkFn<Self::Data>;
+    type TapeStorage = Mmap;
+
+    fn eval(
+        &mut self,
+        tape: &Self::Tape,
+        xs: &[f32],
+        ys: &[f32],
+        zs: &[f32],
+        vars: &[f32],
+    ) -> Result<&[Self::Data], Error> {
+        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
+        Ok(self.0.eval(tape, xs, ys, zs, vars))
     }
 }
 

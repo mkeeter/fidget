@@ -777,7 +777,7 @@ impl IntoNode for f64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::eval::TapeData;
+    use crate::tape::TapeData;
 
     // This can't be in a doctest, because it uses a private function
     #[test]

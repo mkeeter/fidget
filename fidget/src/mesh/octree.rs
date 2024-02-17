@@ -12,10 +12,7 @@ use super::{
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
-use crate::eval::{
-    types::{Grad, Interval},
-    BulkEvaluator, Shape, TracingEvaluator,
-};
+use crate::eval::{BulkEvaluator, Shape, TracingEvaluator};
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
 
 /// Helper struct to contain a set of matched evaluators
@@ -27,10 +24,9 @@ pub struct EvalGroup<S: Shape> {
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
     // indirection (since the tapes also contain `Arc`); could we flatten
     // them out?  (same with the shape, which is usually an `Arc`)
-    pub interval:
-        OnceLock<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>,
-    pub float_slice: OnceLock<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
-    pub grad_slice: OnceLock<<S::GradSliceEval as BulkEvaluator<Grad>>::Tape>,
+    pub interval: OnceLock<<S::IntervalEval as TracingEvaluator>::Tape>,
+    pub float_slice: OnceLock<<S::FloatSliceEval as BulkEvaluator>::Tape>,
+    pub grad_slice: OnceLock<<S::GradSliceEval as BulkEvaluator>::Tape>,
 }
 
 impl<S: Shape> EvalGroup<S> {
@@ -45,7 +41,7 @@ impl<S: Shape> EvalGroup<S> {
     fn interval_tape(
         &self,
         storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
+    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
         self.interval.get_or_init(|| {
             self.shape.interval_tape(storage.pop().unwrap_or_default())
         })
@@ -53,7 +49,7 @@ impl<S: Shape> EvalGroup<S> {
     fn float_slice_tape(
         &self,
         storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
         self.float_slice.get_or_init(|| {
             self.shape
                 .float_slice_tape(storage.pop().unwrap_or_default())
@@ -62,7 +58,7 @@ impl<S: Shape> EvalGroup<S> {
     fn grad_slice_tape(
         &self,
         storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::GradSliceEval as BulkEvaluator<Grad>>::Tape {
+    ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
         self.grad_slice.get_or_init(|| {
             self.shape
                 .grad_slice_tape(storage.pop().unwrap_or_default())

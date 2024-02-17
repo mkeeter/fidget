@@ -196,15 +196,15 @@ struct ShapeAndTape<S: Shape> {
     /// This is shareable because we use the same tape for all threads when they
     /// start evaluating the root shape (which is the most expensive to build a
     /// tape for, since it's the largest).
-    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator<Interval>>::Tape>>,
-    f_tape: Option<<S::FloatSliceEval as BulkEvaluator<f32>>::Tape>,
+    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator>::Tape>,
 }
 
 impl<S: Shape> ShapeAndTape<S> {
     fn i_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::IntervalEval as TracingEvaluator<Interval>>::Tape {
+    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
         self.i_tape.get_or_insert_with(|| {
             Arc::new(
                 self.shape.interval_tape(storage.pop().unwrap_or_default()),
@@ -214,7 +214,7 @@ impl<S: Shape> ShapeAndTape<S> {
     fn f_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
         self.f_tape.get_or_insert_with(|| {
             self.shape
                 .float_slice_tape(storage.pop().unwrap_or_default())

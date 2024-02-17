@@ -29,14 +29,12 @@ pub mod test;
 mod bulk;
 mod tracing;
 
-pub mod tape;
 pub mod types;
 
 mod vars;
 
 // Re-export a few things
 pub use bulk::BulkEvaluator;
-pub use tape::TapeData;
 pub use tracing::Choice;
 pub use tracing::TracingEvaluator;
 pub use vars::Vars;
@@ -68,7 +66,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Associated type for single-point tracing evaluation
     type PointEval: TracingEvaluator<
-            f32,
+            Data = f32,
             Trace = Self::Trace,
             TapeStorage = Self::TapeStorage,
         > + Send
@@ -81,7 +79,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Associated type for single interval tracing evaluation
     type IntervalEval: TracingEvaluator<
-            Interval,
+            Data = Interval,
             Trace = Self::Trace,
             TapeStorage = Self::TapeStorage,
         > + Send
@@ -93,7 +91,7 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for evaluating many points in one call
-    type FloatSliceEval: BulkEvaluator<f32, TapeStorage = Self::TapeStorage>
+    type FloatSliceEval: BulkEvaluator<Data = f32, TapeStorage = Self::TapeStorage>
         + Send
         + Sync;
 
@@ -103,7 +101,7 @@ pub trait Shape: Send + Sync + Clone {
     }
 
     /// Associated type for evaluating many gradients in one call
-    type GradSliceEval: BulkEvaluator<Grad, TapeStorage = Self::TapeStorage>
+    type GradSliceEval: BulkEvaluator<Data = Grad, TapeStorage = Self::TapeStorage>
         + Send
         + Sync;
 
@@ -116,25 +114,25 @@ pub trait Shape: Send + Sync + Clone {
     fn point_tape(
         &self,
         storage: Self::TapeStorage,
-    ) -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
+    ) -> <Self::PointEval as TracingEvaluator>::Tape;
 
     /// Returns an evaluation tape for an interval evaluator
     fn interval_tape(
         &self,
         storage: Self::TapeStorage,
-    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
+    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn float_slice_tape(
         &self,
         storage: Self::TapeStorage,
-    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
+    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn grad_slice_tape(
         &self,
         storage: Self::TapeStorage,
-    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
+    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
 
     /// Computes a simplified tape using the given trace, and reusing storage
     fn simplify(
@@ -186,23 +184,22 @@ pub trait Shape: Send + Sync + Clone {
 /// imported separately as a speed-bump to using it everywhere.
 pub trait EzShape: Shape {
     /// Returns an evaluation tape for a point evaluator
-    fn ez_point_tape(&self)
-        -> <Self::PointEval as TracingEvaluator<f32>>::Tape;
+    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape;
 
     /// Returns an evaluation tape for an interval evaluator
     fn ez_interval_tape(
         &self,
-    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape;
+    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn ez_float_slice_tape(
         &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape;
+    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn ez_grad_slice_tape(
         &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape;
+    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
 
     /// Computes a simplified tape using the given trace
     fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
@@ -211,27 +208,25 @@ pub trait EzShape: Shape {
 }
 
 impl<S: Shape> EzShape for S {
-    fn ez_point_tape(
-        &self,
-    ) -> <Self::PointEval as TracingEvaluator<f32>>::Tape {
+    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape {
         self.point_tape(Default::default())
     }
 
     fn ez_interval_tape(
         &self,
-    ) -> <Self::IntervalEval as TracingEvaluator<Interval>>::Tape {
+    ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
         self.interval_tape(Default::default())
     }
 
     fn ez_float_slice_tape(
         &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator<f32>>::Tape {
+    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
         self.float_slice_tape(Default::default())
     }
 
     fn ez_grad_slice_tape(
         &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator<Grad>>::Tape {
+    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
         self.grad_slice_tape(Default::default())
     }
 

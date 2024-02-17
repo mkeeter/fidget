@@ -58,7 +58,10 @@ impl std::ops::BitOrAssign<Choice> for Choice {
 ///
 /// The trace can later be used to simplify the [`Shape`](crate::eval::Shape)
 /// using [`Shape::simplify`](crate::eval::Shape::simplify).
-pub trait TracingEvaluator<T: From<f32>>: Default {
+pub trait TracingEvaluator: Default {
+    /// Data type used during evaluation
+    type Data: From<f32> + Copy + Clone;
+
     /// Instruction tape used during evaluation
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
@@ -74,14 +77,14 @@ pub trait TracingEvaluator<T: From<f32>>: Default {
     type Trace;
 
     /// Evaluates the given tape at a particular position
-    fn eval<F: Into<T>>(
+    fn eval<F: Into<Self::Data>>(
         &mut self,
         tape: &Self::Tape,
         x: F,
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(T, Option<&Self::Trace>), Error>;
+    ) -> Result<(Self::Data, Option<&Self::Trace>), Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {
@@ -102,14 +105,29 @@ pub trait TracingEvaluator<T: From<f32>>: Default {
     }
 
     #[cfg(test)]
-    fn eval_x<J: Into<T>>(&mut self, tape: &Self::Tape, x: J) -> T {
-        self.eval(tape, x.into(), T::from(0.0), T::from(0.0), &[])
-            .unwrap()
-            .0
+    fn eval_x<J: Into<Self::Data>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: J,
+    ) -> Self::Data {
+        self.eval(
+            tape,
+            x.into(),
+            Self::Data::from(0.0),
+            Self::Data::from(0.0),
+            &[],
+        )
+        .unwrap()
+        .0
     }
     #[cfg(test)]
-    fn eval_xy<J: Into<T>>(&mut self, tape: &Self::Tape, x: J, y: J) -> T {
-        self.eval(tape, x.into(), y.into(), T::from(0.0), &[])
+    fn eval_xy<J: Into<Self::Data>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: J,
+        y: J,
+    ) -> Self::Data {
+        self.eval(tape, x.into(), y.into(), Self::Data::from(0.0), &[])
             .unwrap()
             .0
     }

@@ -1,12 +1,13 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
     compiler::RegOp,
+    context::Node,
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TapeData,
-        TracingEvaluator,
+        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TracingEvaluator,
     },
-    Error,
+    tape::{TapeData, TapeWorkspace},
+    Context, Error,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -38,10 +39,7 @@ pub struct GenericVmShape<const N: u8>(Arc<TapeData<N>>);
 
 impl<const N: u8> GenericVmShape<N> {
     /// Build a new shape for VM evaluation
-    pub fn new(
-        ctx: &crate::Context,
-        node: crate::context::Node,
-    ) -> Result<Self, Error> {
+    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
         let d = TapeData::new(ctx, node)?;
         Ok(Self(Arc::new(d)))
     }
@@ -49,7 +47,7 @@ impl<const N: u8> GenericVmShape<N> {
         &self,
         choices: &[Choice],
         storage: TapeData<N>,
-        workspace: &mut crate::eval::tape::Workspace,
+        workspace: &mut TapeWorkspace,
     ) -> Result<Self, Error> {
         let d = self.0.simplify(choices, workspace, storage)?;
         Ok(Self(Arc::new(d)))
@@ -81,24 +79,24 @@ impl<const N: u8> GenericVmShape<N> {
 }
 
 impl Shape for VmShape {
-    type FloatSliceEval = BulkVmEval<f32>;
+    type FloatSliceEval = VmFloatSliceEval;
     type Storage = TapeData;
-    type Workspace = crate::eval::tape::Workspace;
+    type Workspace = TapeWorkspace;
 
     type TapeStorage = ();
 
     fn float_slice_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
-    type GradSliceEval = BulkVmEval<Grad>;
+    type GradSliceEval = VmGradSliceEval;
     fn grad_slice_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
-    type PointEval = TracingVmEval<f32>;
+    type PointEval = VmPointEval;
     fn point_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
-    type IntervalEval = TracingVmEval<Interval>;
+    type IntervalEval = VmIntervalEval;
     fn interval_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
@@ -130,13 +128,9 @@ impl Shape for VmShape {
 }
 
 #[cfg(test)]
-impl<const N: u8> TryFrom<(&crate::Context, crate::context::Node)>
-    for GenericVmShape<N>
-{
+impl<const N: u8> TryFrom<(&Context, Node)> for GenericVmShape<N> {
     type Error = Error;
-    fn try_from(
-        c: (&crate::Context, crate::context::Node),
-    ) -> Result<Self, Error> {
+    fn try_from(c: (&Context, Node)) -> Result<Self, Error> {
         Self::new(c.0, c.1)
     }
 }
@@ -177,7 +171,7 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Generic VM evaluator for tracing evaluation
-pub struct TracingVmEval<T> {
+struct TracingVmEval<T> {
     slots: Vec<T>,
     choices: Vec<Choice>,
 }
@@ -199,7 +193,11 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     }
 }
 
-impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
+/// VM-based tracing evaluator for intervals
+#[derive(Default)]
+pub struct VmIntervalEval(TracingVmEval<Interval>);
+impl TracingEvaluator for VmIntervalEval {
+    type Data = Interval;
     type Tape = VmShape;
     type Trace = Vec<Choice>;
     type TapeStorage = ();
@@ -217,12 +215,12 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
         let z = z.into();
         let tape = tape.0.as_ref();
         self.check_arguments(vars, tape.var_count())?;
-        self.resize_slots(tape);
+        self.0.resize_slots(tape);
         assert_eq!(vars.len(), tape.var_count());
 
         let mut simplify = false;
         let mut choice_index = 0;
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
@@ -274,14 +272,14 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
-                    self.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
-                    self.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
@@ -292,14 +290,14 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
-                    self.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
-                    self.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
@@ -315,13 +313,21 @@ impl TracingEvaluator<Interval> for TracingVmEval<Interval> {
             }
         }
         Ok((
-            self.slots[0],
-            if simplify { Some(&self.choices) } else { None },
+            self.0.slots[0],
+            if simplify {
+                Some(&self.0.choices)
+            } else {
+                None
+            },
         ))
     }
 }
 
-impl TracingEvaluator<f32> for TracingVmEval<f32> {
+/// VM-based tracing evaluator for single points
+#[derive(Default)]
+pub struct VmPointEval(TracingVmEval<f32>);
+impl TracingEvaluator for VmPointEval {
+    type Data = f32;
     type Tape = VmShape;
     type Trace = Vec<Choice>;
     type TapeStorage = ();
@@ -339,11 +345,11 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
         let z = z.into();
         let tape = tape.0.as_ref();
         self.check_arguments(vars, tape.var_count())?;
-        self.resize_slots(tape);
+        self.0.resize_slots(tape);
 
         let mut choice_index = 0;
         let mut simplify = false;
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
@@ -395,39 +401,39 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a < imm {
-                        self.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Left;
                         a
                     } else if imm < a {
-                        self.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Right;
                         imm
                     } else {
-                        self.choices[choice_index] |= Choice::Both;
+                        self.0.choices[choice_index] |= Choice::Both;
                         if a.is_nan() || imm.is_nan() {
                             f32::NAN
                         } else {
                             imm
                         }
                     };
-                    simplify |= self.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a > imm {
-                        self.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Left;
                         a
                     } else if imm > a {
-                        self.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Right;
                         imm
                     } else {
-                        self.choices[choice_index] |= Choice::Both;
+                        self.0.choices[choice_index] |= Choice::Both;
                         if a.is_nan() || imm.is_nan() {
                             f32::NAN
                         } else {
                             imm
                         }
                     };
-                    simplify |= self.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
@@ -446,40 +452,40 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a < b {
-                        self.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Left;
                         a
                     } else if b < a {
-                        self.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Right;
                         b
                     } else {
-                        self.choices[choice_index] |= Choice::Both;
+                        self.0.choices[choice_index] |= Choice::Both;
                         if a.is_nan() || b.is_nan() {
                             f32::NAN
                         } else {
                             b
                         }
                     };
-                    simplify |= self.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a > b {
-                        self.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Left;
                         a
                     } else if b > a {
-                        self.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Right;
                         b
                     } else {
-                        self.choices[choice_index] |= Choice::Both;
+                        self.0.choices[choice_index] |= Choice::Both;
                         if a.is_nan() || b.is_nan() {
                             f32::NAN
                         } else {
                             b
                         }
                     };
-                    simplify |= self.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::CopyImm(out, imm) => {
@@ -494,17 +500,21 @@ impl TracingEvaluator<f32> for TracingVmEval<f32> {
             }
         }
         Ok((
-            self.slots[0],
-            if simplify { Some(&self.choices) } else { None },
+            self.0.slots[0],
+            if simplify {
+                Some(&self.0.choices)
+            } else {
+                None
+            },
         ))
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Float-point interpreter-style evaluator for a tape of [`RegOp`]
+/// Bulk evaluator for VM tapes
 #[derive(Default)]
-pub struct BulkVmEval<T> {
+struct BulkVmEval<T> {
     /// Workspace for data
     slots: Vec<Vec<T>>,
 }
@@ -521,7 +531,11 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
     }
 }
 
-impl BulkEvaluator<f32> for BulkVmEval<f32> {
+/// VM-based bulk evaluator for arrays of points, yielding point values
+#[derive(Default)]
+pub struct VmFloatSliceEval(BulkVmEval<f32>);
+impl BulkEvaluator for VmFloatSliceEval {
+    type Data = f32;
     type Tape = VmShape;
     type TapeStorage = ();
 
@@ -535,14 +549,14 @@ impl BulkEvaluator<f32> for BulkVmEval<f32> {
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
-        self.resize_slots(tape, xs.len());
+        self.0.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(vars.len(), tape.var_count());
 
         let size = xs.len();
 
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
@@ -672,13 +686,15 @@ impl BulkEvaluator<f32> for BulkVmEval<f32> {
                 }
             }
         }
-        Ok(&self.slots[0])
+        Ok(&self.0.slots[0])
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-impl BulkEvaluator<Grad> for BulkVmEval<Grad> {
+/// VM-based bulk evaluator for arrays of points, yielding gradient values
+#[derive(Default)]
+pub struct VmGradSliceEval(BulkVmEval<Grad>);
+impl BulkEvaluator for VmGradSliceEval {
+    type Data = Grad;
     type Tape = VmShape;
     type TapeStorage = ();
 
@@ -692,13 +708,13 @@ impl BulkEvaluator<Grad> for BulkVmEval<Grad> {
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
-        self.resize_slots(tape, xs.len());
+        self.0.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
         assert_eq!(vars.len(), tape.var_count());
 
         let size = xs.len();
-        let mut v = SlotArray(&mut self.slots);
+        let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, j) => {
@@ -845,7 +861,7 @@ impl BulkEvaluator<Grad> for BulkVmEval<Grad> {
                 }
             }
         }
-        Ok(&self.slots[0])
+        Ok(&self.0.slots[0])
     }
 }
 

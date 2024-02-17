@@ -106,12 +106,12 @@ impl<const N: u8> TapeData<N> {
 
     /// Simplifies both inner tapes, using the provided choice array
     ///
-    /// To minimize allocations, this function takes a [`Workspace`] and spare
-    /// [`TapeData`]; it will reuse those allocations.
+    /// To minimize allocations, this function takes a [`TapeWorkspace`] and
+    /// spare [`TapeData`]; it will reuse those allocations.
     pub fn simplify(
         &self,
         choices: &[Choice],
-        workspace: &mut Workspace,
+        workspace: &mut TapeWorkspace,
         mut tape: TapeData<N>,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
@@ -291,7 +291,7 @@ impl<const N: u8> TapeData<N> {
 /// Data structures used during [`TapeData::simplify`]
 ///
 /// This is exposed to minimize reallocations in hot loops.
-pub struct Workspace {
+pub struct TapeWorkspace {
     /// Register allocator
     pub(crate) alloc: RegisterAllocator,
 
@@ -305,7 +305,7 @@ pub struct Workspace {
     count: u32,
 }
 
-impl Default for Workspace {
+impl Default for TapeWorkspace {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
@@ -315,7 +315,7 @@ impl Default for Workspace {
     }
 }
 
-impl Workspace {
+impl TapeWorkspace {
     fn active(&self, i: u32) -> Option<u32> {
         if self.bind[i as usize] != u32::MAX {
             Some(self.bind[i as usize])

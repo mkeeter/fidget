@@ -18,7 +18,10 @@ use crate::{eval::Tape, Error};
 /// It's uncommon to use this trait outside the library itself; it's an
 /// abstraction to reduce code duplication, and is public because it's used as a
 /// constraint on other public APIs.
-pub trait BulkEvaluator<T>: Default {
+pub trait BulkEvaluator: Default {
+    /// Data type used during evaluation
+    type Data: From<f32> + Copy + Clone;
+
     /// Instruction tape used during evaluation
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
@@ -46,7 +49,7 @@ pub trait BulkEvaluator<T>: Default {
         y: &[f32],
         z: &[f32],
         vars: &[f32],
-    ) -> Result<&[T], Error>;
+    ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {
