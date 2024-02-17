@@ -2,14 +2,14 @@
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
-    eval::Choice,
+    vm::Choice,
     Error,
 };
 use std::{collections::HashMap, sync::Arc};
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
-/// Under the hood, [`TapeData`] stores two different representations:
+/// Under the hood, [`VmData`] stores two different representations:
 /// - A tape in [single static assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
 ///   ([`SsaTape`]), which is suitable for use during tape simplification
 /// - A tape in register-allocated form ([`RegTape`]), which can be efficiently
@@ -36,10 +36,10 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// We can peek at the internals and see this register-allocated tape:
 /// ```
-/// use fidget::{eval::TapeData, compiler::RegOp, rhai, vm::VmShape};
+/// use fidget::{eval::VmData, compiler::RegOp, rhai, vm::VmShape};
 ///
 /// let (sum, ctx) = rhai::eval("x + y")?;
-/// let data = TapeData::<255>::new(&ctx, sum)?;
+/// let data = VmData::<255>::new(&ctx, sum)?;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///
 /// let mut iter = data.iter_asm();
@@ -50,12 +50,12 @@ use std::{collections::HashMap, sync::Arc};
 /// ```
 ///
 #[derive(Default)]
-pub struct TapeData<const N: u8 = { u8::MAX }> {
+pub struct VmData<const N: u8 = { u8::MAX }> {
     ssa: SsaTape,
     asm: RegTape,
 }
 
-impl<const N: u8> TapeData<N> {
+impl<const N: u8> VmData<N> {
     /// Builds a new tape for the given node
     pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
         let ssa = SsaTape::new(context, node)?;
@@ -106,13 +106,13 @@ impl<const N: u8> TapeData<N> {
 
     /// Simplifies both inner tapes, using the provided choice array
     ///
-    /// To minimize allocations, this function takes a [`TapeWorkspace`] and
-    /// spare [`TapeData`]; it will reuse those allocations.
+    /// To minimize allocations, this function takes a [`VmWorkspace`] and
+    /// spare [`VmData`]; it will reuse those allocations.
     pub fn simplify(
         &self,
         choices: &[Choice],
-        workspace: &mut TapeWorkspace,
-        mut tape: TapeData<N>,
+        workspace: &mut VmWorkspace,
+        mut tape: VmData<N>,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
@@ -262,7 +262,7 @@ impl<const N: u8> TapeData<N> {
         assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
-        Ok(TapeData {
+        Ok(VmData {
             ssa: SsaTape {
                 tape: ops_out,
                 choice_count,
@@ -288,10 +288,10 @@ impl<const N: u8> TapeData<N> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Data structures used during [`TapeData::simplify`]
+/// Data structures used during [`VmData::simplify`]
 ///
 /// This is exposed to minimize reallocations in hot loops.
-pub struct TapeWorkspace {
+pub struct VmWorkspace {
     /// Register allocator
     pub(crate) alloc: RegisterAllocator,
 
@@ -305,7 +305,7 @@ pub struct TapeWorkspace {
     count: u32,
 }
 
-impl Default for TapeWorkspace {
+impl Default for VmWorkspace {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
@@ -315,7 +315,7 @@ impl Default for TapeWorkspace {
     }
 }
 
-impl TapeWorkspace {
+impl VmWorkspace {
     fn active(&self, i: u32) -> Option<u32> {
         if self.bind[i as usize] != u32::MAX {
             Some(self.bind[i as usize])

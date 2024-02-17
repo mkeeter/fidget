@@ -4,7 +4,8 @@
 //! for point evaluators; otherwise, the module has no public exports.
 use crate::{
     context::{Context, Node},
-    eval::{Choice, EzShape, Shape, ShapeVars, TracingEvaluator, Vars},
+    eval::{EzShape, Shape, ShapeVars, TracingEvaluator, Vars},
+    vm::Choice,
 };
 
 /// Helper struct to put constrains on our `Shape` object

@@ -24,11 +24,10 @@ use crate::{
     context::{Context, Node},
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     jit::mmap::Mmap,
-    tape::{TapeData, TapeWorkspace},
-    vm::GenericVmShape,
+    vm::{Choice, GenericVmShape, VmData, VmWorkspace},
     Error,
 };
 use dynasmrt::{
@@ -591,7 +590,7 @@ impl From<Mmap> for MmapAssembler {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 fn build_asm_fn_with_storage<A: AssemblerT>(
-    t: &TapeData<REGISTER_LIMIT>,
+    t: &VmData<REGISTER_LIMIT>,
     mut s: Mmap,
 ) -> Mmap {
     // This guard may be a unit value on some systems
@@ -730,8 +729,8 @@ impl JitShape {
 
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
-    type Storage = TapeData<REGISTER_LIMIT>;
-    type Workspace = TapeWorkspace;
+    type Storage = VmData<REGISTER_LIMIT>;
+    type Workspace = VmWorkspace;
 
     type TapeStorage = Mmap;
 

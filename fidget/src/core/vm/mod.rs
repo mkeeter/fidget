@@ -4,18 +4,23 @@ use crate::{
     context::Node,
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Choice, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, Shape, ShapeVars, Tape, TracingEvaluator,
     },
-    tape::{TapeData, TapeWorkspace},
     Context, Error,
 };
 use std::{collections::HashMap, sync::Arc};
+
+mod choice;
+mod data;
+
+pub use choice::Choice;
+pub use data::{VmData, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Shape that use a VM backend for evaluation
 ///
-/// Internally, the [`VmShape`] stores an [`Arc<TapeData>`](TapeData), and
+/// Internally, the [`VmShape`] stores an [`Arc<VmData>`](TapeData), and
 /// iterates over a [`Vec<RegOp>`](RegOp) to perform evaluation.
 ///
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
@@ -35,19 +40,19 @@ impl Tape for VmShape {
 /// You are unlikely to use this directly; [`VmShape`] should be used for
 /// VM-based evaluation.
 #[derive(Clone)]
-pub struct GenericVmShape<const N: u8>(Arc<TapeData<N>>);
+pub struct GenericVmShape<const N: u8>(Arc<VmData<N>>);
 
 impl<const N: u8> GenericVmShape<N> {
     /// Build a new shape for VM evaluation
     pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        let d = TapeData::new(ctx, node)?;
+        let d = VmData::new(ctx, node)?;
         Ok(Self(Arc::new(d)))
     }
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
-        storage: TapeData<N>,
-        workspace: &mut TapeWorkspace,
+        storage: VmData<N>,
+        workspace: &mut VmWorkspace,
     ) -> Result<Self, Error> {
         let d = self.0.simplify(choices, workspace, storage)?;
         Ok(Self(Arc::new(d)))
@@ -57,13 +62,13 @@ impl<const N: u8> GenericVmShape<N> {
         self.0.len()
     }
 
-    /// Reclaim the inner `TapeData` if there's only a single reference
-    pub fn recycle(self) -> Option<TapeData<N>> {
+    /// Reclaim the inner `VmData` if there's only a single reference
+    pub fn recycle(self) -> Option<VmData<N>> {
         Arc::try_unwrap(self.0).ok()
     }
 
-    /// Borrows the inner [`TapeData`]
-    pub fn data(&self) -> &TapeData<N> {
+    /// Borrows the inner [`VmData`]
+    pub fn data(&self) -> &VmData<N> {
         self.0.as_ref()
     }
 
@@ -80,8 +85,8 @@ impl<const N: u8> GenericVmShape<N> {
 
 impl Shape for VmShape {
     type FloatSliceEval = VmFloatSliceEval;
-    type Storage = TapeData;
-    type Workspace = TapeWorkspace;
+    type Storage = VmData;
+    type Workspace = VmWorkspace;
 
     type TapeStorage = ();
 
@@ -104,7 +109,7 @@ impl Shape for VmShape {
     fn simplify(
         &self,
         trace: &Vec<Choice>,
-        storage: TapeData,
+        storage: VmData,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         self.simplify_inner(trace.as_slice(), storage, workspace)
@@ -186,7 +191,7 @@ impl<T> Default for TracingVmEval<T> {
 }
 
 impl<T: From<f32> + Clone> TracingVmEval<T> {
-    fn resize_slots(&mut self, tape: &TapeData) {
+    fn resize_slots(&mut self, tape: &VmData) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
         self.choices.resize(tape.choice_count(), Choice::Unknown);
         self.choices.fill(Choice::Unknown);
@@ -521,7 +526,7 @@ struct BulkVmEval<T> {
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
-    fn resize_slots(&mut self, tape: &TapeData, size: usize) {
+    fn resize_slots(&mut self, tape: &VmData, size: usize) {
         assert!(tape.reg_limit() == u8::MAX);
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);

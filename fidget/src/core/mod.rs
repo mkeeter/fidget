@@ -58,7 +58,6 @@ pub use context::Context;
 
 pub mod compiler;
 pub mod eval;
-pub mod tape;
 pub mod vm;
 
 #[cfg(test)]

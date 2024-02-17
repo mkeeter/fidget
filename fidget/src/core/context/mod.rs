@@ -777,7 +777,7 @@ impl IntoNode for f64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tape::TapeData;
+    use crate::vm::VmData;
 
     // This can't be in a doctest, because it uses a private function
     #[test]
@@ -802,7 +802,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = TapeData::<255>::new(&ctx, c9).unwrap();
+        let tape = VmData::<255>::new(&ctx, c9).unwrap();
         assert_eq!(tape.len(), 8);
     }
 
@@ -812,7 +812,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = TapeData::<255>::new(&ctx, x_squared).unwrap();
+        let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
     }
 

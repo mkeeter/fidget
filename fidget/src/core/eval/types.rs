@@ -1,5 +1,5 @@
 //! Custom types used during evaluation
-use crate::eval::Choice;
+use crate::vm::Choice;
 
 /// A point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -467,7 +467,7 @@ impl std::ops::Neg for Interval {
 
 #[cfg(test)]
 mod test {
-    use crate::{eval::types::Interval, eval::Choice};
+    use super::*;
 
     #[test]
     fn test_interval() {

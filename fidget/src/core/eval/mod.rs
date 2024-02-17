@@ -35,7 +35,6 @@ mod vars;
 
 // Re-export a few things
 pub use bulk::BulkEvaluator;
-pub use tracing::Choice;
 pub use tracing::TracingEvaluator;
 pub use vars::Vars;
 
