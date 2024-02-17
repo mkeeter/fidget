@@ -12,7 +12,7 @@ use super::{
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
-use crate::eval::{BulkEvaluator, Shape, TracingEvaluator};
+use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
 
 /// Helper struct to contain a set of matched evaluators
@@ -533,7 +533,11 @@ impl<S: Shape> OctreeBuilder<S> {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                CellResult::Done(self.leaf(&eval, cell))
+                let out = CellResult::Done(self.leaf(&eval, cell));
+                if let Ok(t) = Arc::try_unwrap(eval) {
+                    self.reclaim(t);
+                }
+                out
             } else {
                 CellResult::Recurse(sub_tape.unwrap_or_else(|| eval.clone()))
             }
@@ -1099,6 +1103,21 @@ impl<S: Shape> OctreeBuilder<S> {
                 }
             }
             Cell::Invalid => panic!(),
+        }
+    }
+
+    pub(crate) fn reclaim(&mut self, mut e: EvalGroup<S>) {
+        if let Some(s) = e.shape.recycle() {
+            self.shape_storage.push(s);
+        }
+        if let Some(i_tape) = e.interval.take() {
+            self.tape_storage.push(i_tape.recycle());
+        }
+        if let Some(f_tape) = e.float_slice.take() {
+            self.tape_storage.push(f_tape.recycle());
+        }
+        if let Some(g_tape) = e.grad_slice.take() {
+            self.tape_storage.push(g_tape.recycle());
         }
     }
 }
