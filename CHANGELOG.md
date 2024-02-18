@@ -1,4 +1,4 @@
-# 0.2.0: The Big Refactoring (unreleased)
+# 0.2.0: The Big Refactoring
 This release includes a significant amount of reorganization and refactoring.
 There are two main sets of changes, along with some minor tweaks.
 
@@ -24,6 +24,7 @@ being split between `fidget::ssa` and `fidget::vm`.
 - Improve meshing quality (better vertex placement, etc)
 - Add parallelism to meshing implementation, configured by the new
   `fidget::mesh::Settings`.
+- Added documentation to `fidget::mesh` modules
 
 # 0.1.4
 - Added support for `aarch64-unknown-linux-*` to the JIT compiler; previously,
