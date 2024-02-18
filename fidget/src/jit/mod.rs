@@ -1100,7 +1100,6 @@ impl BulkEvaluator for JitGradSliceEval {
     }
 }
 
-#[cfg(test)]
 impl TryFrom<(&Context, Node)> for JitShape {
     type Error = Error;
     fn try_from(c: (&Context, Node)) -> Result<Self, Error> {

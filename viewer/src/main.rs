@@ -3,10 +3,7 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::{
-    eval::{Family, Tape},
-    render::RenderConfig,
-};
+use fidget::render::RenderConfig;
 use log::{debug, error, info};
 use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
@@ -14,10 +11,10 @@ use notify::Watcher;
 use std::{error::Error, path::Path};
 
 #[cfg(feature = "jit")]
-type Eval = fidget::jit::Eval;
+type Shape = fidget::jit::JitShape;
 
 #[cfg(not(feature = "jit"))]
-type Eval = fidget::vm::Eval;
+type Shape = fidget::vm::VmShape;
 
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
@@ -73,12 +70,16 @@ struct RenderResult {
     image_size: usize,
 }
 
-fn render_thread(
+fn render_thread<S>(
     cfg: Receiver<RenderSettings>,
     rx: Receiver<Result<fidget::rhai::ScriptContext, String>>,
     tx: Sender<Result<RenderResult, String>>,
     wake: Sender<()>,
-) -> Result<()> {
+) -> Result<()>
+where
+    for<'a> S: fidget::eval::Shape
+        + TryFrom<(&'a fidget::Context, fidget::context::Node)>,
+{
     let mut config = None;
     let mut script_ctx = None;
     let mut changed = false;
@@ -125,7 +126,7 @@ fn render_thread(
             };
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape = Tape::<Eval>::new(&out.context, s.shape).unwrap();
+                let tape = Shape::new(&out.context, s.shape).unwrap();
                 render(
                     &render_config.mode,
                     tape,
@@ -146,9 +147,9 @@ fn render_thread(
     }
 }
 
-fn render(
+fn render<S: fidget::eval::Shape>(
     mode: &RenderMode,
-    tape: fidget::eval::Tape<Eval>,
+    shape: S,
     image_size: usize,
     color: [u8; 3],
     pixels: &mut [egui::Color32],
@@ -167,7 +168,7 @@ fn render(
 
             let config = RenderConfig {
                 image_size,
-                tile_sizes: Eval::tile_sizes_2d().to_vec(),
+                tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
 
                 mat,
@@ -175,7 +176,7 @@ fn render(
             match mode {
                 TwoDMode::Color => {
                     let image = fidget::render::render2d(
-                        tape,
+                        shape,
                         &config,
                         &fidget::render::BitRenderMode,
                     );
@@ -194,7 +195,7 @@ fn render(
 
                 TwoDMode::Sdf => {
                     let image = fidget::render::render2d(
-                        tape,
+                        shape,
                         &config,
                         &fidget::render::SdfRenderMode,
                     );
@@ -205,7 +206,7 @@ fn render(
 
                 TwoDMode::Debug => {
                     let image = fidget::render::render2d(
-                        tape,
+                        shape,
                         &config,
                         &fidget::render::DebugRenderMode,
                     );
@@ -230,12 +231,12 @@ fn render(
 
             let config = RenderConfig {
                 image_size,
-                tile_sizes: Eval::tile_sizes_2d().to_vec(),
+                tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
 
                 mat,
             };
-            let (depth, color) = fidget::render::render3d(tape, &config);
+            let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {
                 ThreeDMode::Color => {
                     for (p, (&d, &c)) in
@@ -295,7 +296,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         info!("rhai script thread is done");
     });
     std::thread::spawn(move || {
-        let _ = render_thread(config_rx, rhai_result_rx, render_tx, wake_tx);
+        let _ = render_thread::<Shape>(
+            config_rx,
+            rhai_result_rx,
+            render_tx,
+            wake_tx,
+        );
         info!("render thread is done");
     });
 

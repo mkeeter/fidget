@@ -132,7 +132,6 @@ impl Shape for VmShape {
     }
 }
 
-#[cfg(test)]
 impl<const N: u8> TryFrom<(&Context, Node)> for GenericVmShape<N> {
     type Error = Error;
     fn try_from(c: (&Context, Node)) -> Result<Self, Error> {
