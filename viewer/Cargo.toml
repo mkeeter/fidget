@@ -20,6 +20,7 @@ log = "0.4"
 nalgebra = "0.31"
 notify = "5.0"
 rhai = "1.10"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = ["jit"]

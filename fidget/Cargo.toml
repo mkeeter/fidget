@@ -31,6 +31,7 @@ nalgebra = { version = "0.31" }
 
 # Meshing
 crossbeam-deque = { version = "0.8", optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = ["jit", "rhai", "render", "mesh"]
