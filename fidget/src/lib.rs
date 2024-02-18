@@ -43,9 +43,7 @@
 //! a shape from a script:
 //!
 //! ```
-//! use fidget::rhai;
-//!
-//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -65,19 +63,16 @@
 //!
 //! A **tape** contains instructions for an evaluator.
 //!
-//! For example, the [`VmShape`](crate::vm::VmShape) type uses a simple virtual
-//! machine to perform evaluation.  Here's a peek at the internals:
-//!
 //! At the moment, Fidget implements two kinds of shapes:
 //!
 //! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates a list of opcodes
-//!   using an interpreter.  This is slower, but can run in more situations (e.g.
-//!   in WebAssembly).
+//!   using an interpreter.  This is slower, but can run in more situations
+//!   (e.g. in WebAssembly).
 //! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
 //!   by compiling shapes down to native code.
 //!
-//! Looking at the [`eval::Shape`](crate::eval::Shape) trait, you may notice
-//! that it requires four different kinds of evaluation:
+//! The [`eval::Shape`](crate::eval::Shape) trait requires four different kinds
+//! of evaluation:
 //!
 //! - Single-point evaluation
 //! - Interval evaluation
@@ -96,9 +91,12 @@
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{eval::{Shape, EzShape, TracingEvaluator}, rhai, vm::VmShape};
+//! use fidget::{
+//!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     vm::VmShape
+//! };
 //!
-//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
@@ -122,9 +120,12 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
+//! use fidget::{
+//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     vm::VmShape
+//! };
 //!
-//! let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! let (sum, ctx) = fidget::rhai::eval("min(x, y)")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
@@ -148,8 +149,11 @@
 //! of `(value, trace)`.  The trace can be used to simplify the original shape:
 //!
 //! ```
-//! # use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
-//! # let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! # use fidget::{
+//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     vm::VmShape
+//! };
+//! # let (sum, ctx) = fidget::rhai::eval("min(x, y)")?;
 //! # let shape = VmShape::new(&ctx, sum)?;
 //! # let mut interval_eval = VmShape::new_interval_eval();
 //! # let tape = shape.ez_interval_tape();
@@ -172,19 +176,20 @@
 //! sure this is upheld!
 //!
 //! # Rasterization
-//! At the moment, Fidget uses all of this machinery to build two user-facing
-//! algorithms: rasterization of implicit surfaces in 2D and 3D.
+//! Fidget implements both 2D and 3D rasterization of implicit surfaces.
 //!
-//! They are implemented in the [`fidget::render` namespace](crate::render).
+//! They are implemented in the [`fidget::render` module](render).
 //!
 //! Here's a quick example:
 //! ```
-//! use fidget::context::Context;
-//! use fidget::rhai;
-//! use fidget::vm::VmShape;
-//! use fidget::render::{BitRenderMode, RenderConfig};
+//! use fidget::{
+//!     context::Context,
+//!     eval::MathShape,
+//!     render::{BitRenderMode, RenderConfig},
+//!     vm::VmShape,
+//! };
 //!
-//! let (shape, ctx) = rhai::eval("sqrt(x*x + y*y) - 1")?;
+//! let (shape, ctx) = fidget::rhai::eval("sqrt(x*x + y*y) - 1")?;
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
@@ -221,6 +226,13 @@
 //! //           XXXXXXXXXX
 //! # Ok::<(), fidget::Error>(())
 //! ```
+//!
+//! # Meshing
+//! Fidget implements
+//! [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf),
+//! which converts from implicit surfaces to triangle meshes.
+//!
+//! This is documented in the [`fidget::mesh`](mesh) module.
 //!
 //! # Feature flags
 #![doc = document_features::document_features!()]

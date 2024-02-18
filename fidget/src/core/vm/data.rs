@@ -36,9 +36,9 @@ use std::{collections::HashMap, sync::Arc};
 ///
 /// We can peek at the internals and see this register-allocated tape:
 /// ```
-/// use fidget::{compiler::RegOp, rhai, vm::{VmShape, VmData}};
+/// use fidget::{compiler::RegOp, eval::MathShape, vm::{VmShape, VmData}};
 ///
-/// let (sum, ctx) = rhai::eval("x + y")?;
+/// let (sum, ctx) = fidget::rhai::eval("x + y")?;
 /// let data = VmData::<255>::new(&ctx, sum)?;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///

@@ -1,4 +1,41 @@
 //! Octree construction and meshing
+//!
+//! This module implements
+//! [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf),
+//! to generate a triangle mesh from an implicit surface (or anything
+//! implementing [`Shape`](crate::eval::Shape)).
+//!
+//! The resulting meshes should be
+//! - Manifold
+//! - Watertight
+//! - Preserving sharp features (corners / edges)
+//!
+//! However, they may contain self-intersections, and are not guaranteed to
+//! catch thin features (below the sampling grid resolution).
+//!
+//! The resulting [`Mesh`] objects can be written out as STL files.
+//!
+//! Here's a full example:
+//!
+//! ```
+//! use fidget::{
+//!     eval::MathShape,
+//!     mesh::{Octree, Settings},
+//!     vm::VmShape
+//! };
+//!
+//! let (node, ctx) = fidget::rhai::eval("sphere(0, 0, 0, 0.6).call(x, y, z)")?;
+//! let shape = VmShape::new(&ctx, node)?;
+//! let settings = Settings { threads: 8, min_depth: 4, max_depth: 4 };
+//! let o = Octree::build(&shape, settings);
+//! let mesh = o.walk_dual(settings);
+//!
+//! // Open a file to write, e.g.
+//! // let mut f = std::fs::File::create("out.stl")?;
+//! # let mut f = vec![];
+//! mesh.write_stl(&mut f)?;
+//! # Ok::<(), fidget::Error>(())
+//! ```
 
 mod builder;
 mod cell;

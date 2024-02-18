@@ -4,9 +4,12 @@
 //! which is a [`Shape`] that uses JIT evaluation.
 //!
 //! ```
-//! use fidget::{rhai, eval::{TracingEvaluator, Shape, EzShape}, jit::JitShape};
+//! use fidget::{
+//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     jit::JitShape
+//! };
 //!
-//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
 //! let shape = JitShape::new(&ctx, sum)?;
 //!
 //! // Generate machine code to execute the tape

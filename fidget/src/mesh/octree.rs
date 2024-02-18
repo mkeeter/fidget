@@ -1344,10 +1344,12 @@ impl LeafHermiteData {
 mod test {
     use super::*;
     use crate::{
-        context::bound::{self, BoundContext, BoundNode},
-        eval::{EzShape, MathShape},
+        context::{Context, Node},
+        eval::MathShape,
         mesh::types::{Edge, X, Y, Z},
+        rhai::eval,
         vm::VmShape,
+        Error,
     };
     use std::collections::BTreeMap;
 
@@ -1362,41 +1364,14 @@ mod test {
         threads: 0,
     };
 
-    fn sphere(
-        ctx: &BoundContext,
-        center: [f32; 3],
-        radius: f32,
-    ) -> bound::BoundNode {
-        let (x, y, z) = ctx.axes();
-        ((x - center[0]).square()
-            + (y - center[1]).square()
-            + (z - center[2]).square())
-        .sqrt()
-            - radius
-    }
-
-    fn cube(
-        ctx: &BoundContext,
-        bx: [f32; 2],
-        by: [f32; 2],
-        bz: [f32; 2],
-    ) -> BoundNode {
-        let (x, y, z) = ctx.axes();
-        let x_bounds = (bx[0] - x.clone()).max(x - bx[1]);
-        let y_bounds = (by[0] - y.clone()).max(y - by[1]);
-        let z_bounds = (bz[0] - z.clone()).max(z - bz[1]);
-        x_bounds.max(y_bounds).max(z_bounds)
-    }
-
     #[test]
-    fn test_cube_edge() {
+    fn test_cube_edge() -> Result<(), Error> {
         const EPSILON: f32 = 1e-3;
-        let ctx = BoundContext::new();
         let f = 2.0;
-        let cube = cube(&ctx, [-f, f], [-f, 0.3], [-f, 0.6]);
+        let (node, ctx) = eval("cube(-{f}, {f}, -{f}, 0.3, -{f}, 0.6)")?;
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
-        let shape: VmShape = cube.convert();
+        let shape = VmShape::new(&ctx, node)?;
         let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
         let v = octree.verts[0].pos;
@@ -1405,6 +1380,7 @@ mod test {
             (v - expected).norm() < EPSILON,
             "bad edge vertex {v:?}; expected {expected:?}"
         );
+        Ok(())
     }
 
     fn cone(
@@ -1444,9 +1420,8 @@ mod test {
 
     #[test]
     fn test_mesh_basic() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.2);
-        let shape: VmShape = shape.convert();
+        let (ctx, node) = sphere([0.0; 3], 0.2);
+        let shape = VmShape::new(&ctx, node).unwrap();
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
@@ -1490,9 +1465,9 @@ mod test {
     #[test]
     fn test_sphere_verts() {
         let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.2);
+        let (ctx, node) = sphere([0.0; 3], 0.2);
 
-        let shape: VmShape = shape.convert();
+        let shape: VmShape = VmShape::new(&ctx, node).unwrap();
         let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
 
@@ -1723,32 +1698,33 @@ mod test {
         let ctx = BoundContext::new();
 
         fn builder(
-            shape: BoundNode,
+            ctx: &Context,
+            node: Node,
             settings: Settings,
         ) -> OctreeBuilder<VmShape> {
-            let shape: VmShape = shape.convert();
+            let shape = VmShape::new(ctx, node).unwrap();
             let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
             out.recurse(&eval, CellIndex::default(), settings);
             out
         }
 
-        let shape = sphere(&ctx, [0.0; 3], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let (node, ctx) = crate::rhai::eval("sphere(0, 0, 0, 0.1)").unwrap();
+        let octree = builder(&ctx, node, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
-        let shape = sphere(&ctx, [-1.0; 3], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let (node, ctx) = crate::rhai::eval("sphere(-1, -1, -1, 0.1").unwrap();
+        let octree = builder(&ctx, node, DEPTH1_SINGLE_THREAD);
         assert!(octree.collapsible(8));
 
-        let shape = sphere(&ctx, [-1.0, 0.0, 1.0], 0.1);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let (ctx, node) = sphere([-1.0, 0.0, 1.0], 0.1);
+        let octree = builder(&ctx, node, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
-        let a = sphere(&ctx, [-1.0; 3], 0.1);
-        let b = sphere(&ctx, [1.0; 3], 0.1);
+        let a = sphere([-1.0; 3], 0.1);
+        let b = sphere([1.0; 3], 0.1);
         let shape = a.min(b);
-        let octree = builder(shape, DEPTH1_SINGLE_THREAD);
+        let octree = builder(&ctx, node, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
     }
 
@@ -1757,7 +1733,7 @@ mod test {
         // Make a very smol sphere that won't be sampled
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.1; 3], 0.05);
-        let tape: VmShape = shape.convert();
+        let tape: VmShape = VmShape::new(&ctx, node).unwrap();
         for threads in [0, 4] {
             let settings = Settings {
                 min_depth: 1,

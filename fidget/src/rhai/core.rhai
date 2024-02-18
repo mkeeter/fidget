@@ -13,6 +13,14 @@ fn circle(cx, cy, r) {
     }
 }
 
+fn sphere(cx, cy, cz, r) {
+    |x, y, z| {
+        sqrt((x - cx) * (x - cx) +
+             (y - cy) * (y - cy) +
+             (z - cz) * (z - cz)) - r
+    }
+}
+
 fn move(shape, dx, dy) {
     |x, y| {
         shape.call(x - dx, y - dy)

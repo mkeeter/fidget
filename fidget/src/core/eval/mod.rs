@@ -7,7 +7,7 @@
 //! ```rust
 //! use fidget::vm::VmShape;
 //! use fidget::context::Context;
-//! use fidget::eval::{TracingEvaluator, Shape, EzShape};
+//! use fidget::eval::{TracingEvaluator, Shape, MathShape, EzShape};
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();

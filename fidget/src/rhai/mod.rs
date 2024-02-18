@@ -7,12 +7,11 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{Shape, EzShape, TracingEvaluator},
+//!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
 //!     vm::VmShape,
-//!     rhai::eval
 //! };
 //!
-//! let (sum, ctx) = eval("x + y")?;
+//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
 //! let shape = VmShape::new(&ctx, sum)?;
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
@@ -25,7 +24,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::{Shape, EzShape, TracingEvaluator},
+//!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
 //!     vm::VmShape,
 //!     rhai::Engine
 //! };
