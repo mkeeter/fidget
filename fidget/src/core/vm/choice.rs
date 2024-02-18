@@ -5,7 +5,7 @@
 ///
 /// Note that this is a bitfield such that
 /// ```rust
-/// # use fidget::eval::Choice;
+/// # use fidget::vm::Choice;
 /// # assert!(
 /// Choice::Both as u8 == Choice::Left as u8 | Choice::Right as u8
 /// # );
