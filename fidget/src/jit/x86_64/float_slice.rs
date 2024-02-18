@@ -1,6 +1,6 @@
 use crate::jit::{
-    float_slice::FloatSliceAssembler, mmap::Mmap, reg, AssemblerData,
-    AssemblerT, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
+    float_slice::FloatSliceAssembler, mmap::Mmap, reg, Assembler,
+    AssemblerData, Error, IMM_REG, OFFSET, REGISTER_LIMIT,
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
@@ -26,7 +26,7 @@ pub const SIMD_WIDTH: usize = 8;
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
-impl AssemblerT for FloatSliceAssembler {
+impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {

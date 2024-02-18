@@ -1,8 +1,8 @@
 use crate::{
     eval::types::Interval,
     jit::{
-        interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
     Error,
@@ -22,7 +22,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
 #[cfg(target_arch = "x86_64")]
-impl AssemblerT for IntervalAssembler {
+impl Assembler for IntervalAssembler {
     type Data = Interval;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {

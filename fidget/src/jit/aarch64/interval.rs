@@ -1,8 +1,8 @@
 use crate::{
     eval::types::Interval,
     jit::{
-        interval::IntervalAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
     Error,
@@ -25,7 +25,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
 /// the upper bound; for example, `V0.S0` represents the lower bound for X.
-impl AssemblerT for IntervalAssembler {
+impl Assembler for IntervalAssembler {
     type Data = Interval;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {

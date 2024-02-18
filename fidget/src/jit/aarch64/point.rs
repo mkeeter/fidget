@@ -1,6 +1,6 @@
 use crate::{
     jit::{
-        mmap::Mmap, point::PointAssembler, reg, AssemblerData, AssemblerT,
+        mmap::Mmap, point::PointAssembler, reg, Assembler, AssemblerData,
         CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
@@ -20,7 +20,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `vars`     | `x0`     | `*const f32` (array)  |
 /// | `out`      | `x1`     | `*mut u8` (array)     |
 /// | `count`    | `x2`     | `*mut u8` (single)    |
-impl AssemblerT for PointAssembler {
+impl Assembler for PointAssembler {
     type Data = f32;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {

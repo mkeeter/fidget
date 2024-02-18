@@ -1,8 +1,8 @@
 use crate::{
     eval::types::Grad,
     jit::{
-        grad_slice::GradSliceAssembler, mmap::Mmap, reg, AssemblerData,
-        AssemblerT, IMM_REG, OFFSET, REGISTER_LIMIT,
+        grad_slice::GradSliceAssembler, mmap::Mmap, reg, Assembler,
+        AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
     },
     Error,
 };
@@ -23,7 +23,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
-impl AssemblerT for GradSliceAssembler {
+impl Assembler for GradSliceAssembler {
     type Data = Grad;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {

@@ -241,7 +241,7 @@ pub trait ShapeVars {
     fn vars(&self) -> Arc<HashMap<String, u32>>;
 }
 
-/// A ['Shape'] which can be built from a math expression
+/// A [`Shape`] which can be built from a math expression
 pub trait MathShape {
     /// Builds a new shape from the given context and node
     fn new(ctx: &Context, node: Node) -> Result<Self, Error>

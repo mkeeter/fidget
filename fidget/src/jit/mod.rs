@@ -107,7 +107,7 @@ const CHOICE_BOTH: u32 = Choice::Both as u32;
 /// This is public because it's used to parameterize various other types, but
 /// shouldn't be used by clients; indeed, there are no public implementors of
 /// this trait.
-pub trait AssemblerT {
+pub trait Assembler {
     /// Data type used during evaluation.
     ///
     /// This should be a `repr(C)` type, so it can be passed around directly.
@@ -592,7 +592,7 @@ impl From<Mmap> for MmapAssembler {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-fn build_asm_fn_with_storage<A: AssemblerT>(
+fn build_asm_fn_with_storage<A: Assembler>(
     t: &VmData<REGISTER_LIMIT>,
     mut s: Mmap,
 ) -> Mmap {
@@ -702,7 +702,7 @@ fn build_asm_fn_with_storage<A: AssemblerT>(
 pub struct JitShape(GenericVmShape<REGISTER_LIMIT>);
 
 impl JitShape {
-    fn tracing_tape<A: AssemblerT>(
+    fn tracing_tape<A: Assembler>(
         &self,
         storage: Mmap,
     ) -> JitTracingFn<A::Data> {
@@ -715,7 +715,7 @@ impl JitShape {
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
     }
-    fn bulk_tape<A: AssemblerT>(&self, storage: Mmap) -> JitBulkFn<A::Data> {
+    fn bulk_tape<A: Assembler>(&self, storage: Mmap) -> JitBulkFn<A::Data> {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitBulkFn {
