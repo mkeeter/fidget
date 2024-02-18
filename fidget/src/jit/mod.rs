@@ -103,10 +103,6 @@ const CHOICE_RIGHT: u32 = Choice::Right as u32;
 const CHOICE_BOTH: u32 = Choice::Both as u32;
 
 /// Trait for generating machine assembly
-///
-/// This is public because it's used to parameterize various other types, but
-/// shouldn't be used by clients; indeed, there are no public implementors of
-/// this trait.
 trait Assembler {
     /// Data type used during evaluation.
     ///
