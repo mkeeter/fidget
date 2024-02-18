@@ -400,9 +400,9 @@ fn worker<S: Shape, M: RenderMode>(
 /// The tape provides the shape; the configuration supplies resolution,
 /// transforms, etc.
 ///
-/// This function is parameterized by both evaluator family (which determines
-/// how we perform evaluation) and render mode (which tells us how to color in
-/// the resulting pixels).
+/// This function is parameterized by both shape type (which determines how we
+/// perform evaluation) and render mode (which tells us how to color in the
+/// resulting pixels).
 pub fn render<S: Shape, M: RenderMode + Sync>(
     shape: S,
     config: &RenderConfig<2>,
