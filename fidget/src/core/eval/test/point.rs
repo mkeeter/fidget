@@ -3,8 +3,8 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for point evaluators; otherwise, the module has no public exports.
 use crate::{
-    context::{Context, Node},
-    eval::{EzShape, Shape, ShapeVars, TracingEvaluator, Vars},
+    context::Context,
+    eval::{EzShape, MathShape, Shape, ShapeVars, TracingEvaluator, Vars},
     vm::Choice,
 };
 
@@ -12,15 +12,14 @@ use crate::{
 pub struct TestPoint<S>(std::marker::PhantomData<*const S>);
 impl<S> TestPoint<S>
 where
-    for<'a> S: Shape + TryFrom<(&'a Context, Node)> + ShapeVars,
-    for<'a> <S as TryFrom<(&'a Context, Node)>>::Error: std::fmt::Debug,
+    S: Shape + MathShape + ShapeVars,
     <S as Shape>::Trace: AsRef<[Choice]>,
     <S as Shape>::Trace: From<Vec<Choice>>,
 {
     pub fn test_constant() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
-        let shape = S::try_from((&ctx, p)).unwrap();
+        let shape = S::new(&ctx, p).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
@@ -31,7 +30,7 @@ where
         let a = ctx.constant(1.5);
         let x = ctx.x();
         let min = ctx.min(a, x).unwrap();
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap();
@@ -54,7 +53,7 @@ where
         let radius = ctx.add(x_squared, y_squared).unwrap();
         let circle = ctx.sub(radius, 1.0).unwrap();
 
-        let shape = S::try_from((&ctx, circle)).unwrap();
+        let shape = S::new(&ctx, circle).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
@@ -70,7 +69,7 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
@@ -105,7 +104,7 @@ where
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let shape = S::try_from((&ctx, max)).unwrap();
+        let shape = S::new(&ctx, max).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
 
@@ -138,7 +137,7 @@ where
         let y = ctx.y();
         let sum = ctx.add(x, 1.0).unwrap();
         let min = ctx.min(sum, y).unwrap();
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -155,7 +154,7 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
@@ -172,7 +171,7 @@ where
         assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
 
         let min = ctx.min(x, 1.0).unwrap();
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
@@ -194,13 +193,13 @@ where
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape = S::try_from((&ctx, x)).unwrap();
+        let shape = S::new(&ctx, x).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
         assert_eq!(eval.eval(&tape, 3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
 
-        let shape = S::try_from((&ctx, y)).unwrap();
+        let shape = S::new(&ctx, y).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
@@ -209,7 +208,7 @@ where
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
-        let shape = S::try_from((&ctx, sum)).unwrap();
+        let shape = S::new(&ctx, sum).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 6.0);
@@ -218,7 +217,7 @@ where
     pub fn test_var() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
-        let shape = S::try_from((&ctx, a)).unwrap();
+        let shape = S::new(&ctx, a).unwrap();
         let tape = shape.ez_point_tape();
         let mut vars = Vars::new(shape.vars());
         let mut eval = S::new_point_eval();
@@ -250,7 +249,7 @@ where
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut vars = Vars::new(shape.vars());
         let mut eval = S::new_point_eval();

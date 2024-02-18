@@ -4,8 +4,8 @@
 //! for such evaluators; otherwise, the module has no public exports.
 
 use crate::{
-    context::{Context, Node},
-    eval::{BulkEvaluator, EzShape, Shape, ShapeVars, Vars},
+    context::Context,
+    eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -13,16 +13,15 @@ pub struct TestFloatSlice<S>(std::marker::PhantomData<*const S>);
 
 impl<S> TestFloatSlice<S>
 where
-    for<'a> S: Shape + TryFrom<(&'a Context, Node)> + ShapeVars,
-    for<'a> <S as TryFrom<(&'a Context, Node)>>::Error: std::fmt::Debug,
+    S: Shape + MathShape + ShapeVars,
 {
     pub fn test_give_take() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape_x = S::try_from((&ctx, x)).unwrap();
-        let shape_y = S::try_from((&ctx, y)).unwrap();
+        let shape_x = S::new(&ctx, x).unwrap();
+        let shape_y = S::new(&ctx, y).unwrap();
 
         // This is a fuzz test for icache issues
         let mut eval = S::new_float_slice_eval();
@@ -61,7 +60,7 @@ where
         let y = ctx.y();
 
         let mut eval = S::new_float_slice_eval();
-        let shape = S::try_from((&ctx, x)).unwrap();
+        let shape = S::new(&ctx, x).unwrap();
         let tape = shape.ez_float_slice_tape();
         let out = eval
             .eval(
@@ -97,7 +96,7 @@ where
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let shape = S::try_from((&ctx, mul)).unwrap();
+        let shape = S::new(&ctx, mul).unwrap();
         let tape = shape.ez_float_slice_tape();
         let out = eval
             .eval(
@@ -140,7 +139,7 @@ where
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
 
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let mut eval = S::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
         let mut vars = Vars::new(shape.vars());

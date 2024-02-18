@@ -4,7 +4,7 @@ use crate::{
     context::Node,
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     Context, Error,
 };
@@ -43,11 +43,6 @@ impl Tape for VmShape {
 pub struct GenericVmShape<const N: u8>(Arc<VmData<N>>);
 
 impl<const N: u8> GenericVmShape<N> {
-    /// Build a new shape for VM evaluation
-    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        let d = VmData::new(ctx, node)?;
-        Ok(Self(Arc::new(d)))
-    }
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
@@ -132,10 +127,10 @@ impl Shape for VmShape {
     }
 }
 
-impl<const N: u8> TryFrom<(&Context, Node)> for GenericVmShape<N> {
-    type Error = Error;
-    fn try_from(c: (&Context, Node)) -> Result<Self, Error> {
-        Self::new(c.0, c.1)
+impl<const N: u8> MathShape for GenericVmShape<N> {
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        let d = VmData::new(ctx, node)?;
+        Ok(Self(Arc::new(d)))
     }
 }
 

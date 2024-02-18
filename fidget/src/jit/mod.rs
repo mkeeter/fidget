@@ -24,7 +24,7 @@ use crate::{
     context::{Context, Node},
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     jit::mmap::Mmap,
     vm::{Choice, GenericVmShape, VmData, VmWorkspace},
@@ -699,10 +699,6 @@ fn build_asm_fn_with_storage<A: AssemblerT>(
 pub struct JitShape(GenericVmShape<REGISTER_LIMIT>);
 
 impl JitShape {
-    /// Build a new shape for the given node
-    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        GenericVmShape::new(ctx, node).map(JitShape)
-    }
     fn tracing_tape<A: AssemblerT>(
         &self,
         storage: Mmap,
@@ -1100,10 +1096,9 @@ impl BulkEvaluator for JitGradSliceEval {
     }
 }
 
-impl TryFrom<(&Context, Node)> for JitShape {
-    type Error = Error;
-    fn try_from(c: (&Context, Node)) -> Result<Self, Error> {
-        JitShape::new(c.0, c.1)
+impl MathShape for JitShape {
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        GenericVmShape::new(ctx, node).map(JitShape)
     }
 }
 

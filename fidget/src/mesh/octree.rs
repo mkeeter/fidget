@@ -1345,7 +1345,7 @@ mod test {
     use super::*;
     use crate::{
         context::bound::{self, BoundContext, BoundNode},
-        eval::EzShape,
+        eval::{EzShape, MathShape},
         mesh::types::{Edge, X, Y, Z},
         vm::VmShape,
     };

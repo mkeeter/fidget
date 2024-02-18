@@ -1,5 +1,6 @@
 use crate::{
     context::{Context, IntoNode, Node},
+    eval::MathShape,
     Error,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -84,9 +85,9 @@ impl IntoNode for BoundNode {
 }
 
 impl BoundNode {
-    pub fn convert<T: for<'a> TryFrom<(&'a Context, Node)>>(&self) -> T {
+    pub fn convert<T: MathShape>(&self) -> T {
         let ctx = self.ctx.borrow();
-        let Ok(out) = (&*ctx, self.node).try_into() else {
+        let Ok(out) = T::new(&*ctx, self.node) else {
             unreachable!("invalid node for our own context?")
         };
         out

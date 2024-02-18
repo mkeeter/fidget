@@ -3,7 +3,7 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::render::RenderConfig;
+use fidget::{eval::MathShape, render::RenderConfig};
 use log::{debug, error, info};
 use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
@@ -77,8 +77,7 @@ fn render_thread<S>(
     wake: Sender<()>,
 ) -> Result<()>
 where
-    for<'a> S: fidget::eval::Shape
-        + TryFrom<(&'a fidget::Context, fidget::context::Node)>,
+    S: fidget::eval::Shape + fidget::eval::MathShape,
 {
     let mut config = None;
     let mut script_ctx = None;

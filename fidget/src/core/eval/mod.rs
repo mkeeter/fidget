@@ -20,7 +20,7 @@
 //! assert_eq!(value, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
-use crate::Error;
+use crate::{context::Node, Context, Error};
 use std::{collections::HashMap, sync::Arc};
 
 #[cfg(any(test, feature = "eval-tests"))]
@@ -239,6 +239,14 @@ impl<S: Shape> EzShape for S {
 pub trait ShapeVars {
     /// Returns the variable map for ease of binding
     fn vars(&self) -> Arc<HashMap<String, u32>>;
+}
+
+/// A ['Shape'] which can be built from a math expression
+pub trait MathShape {
+    /// Builds a new shape from the given context and node
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    where
+        Self: Sized;
 }
 
 /// A tape represents something that can be evaluated by an evaluator

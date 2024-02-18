@@ -3,8 +3,10 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
 use crate::{
-    context::{Context, Node},
-    eval::{types::Grad, BulkEvaluator, EzShape, Shape, ShapeVars, Vars},
+    context::Context,
+    eval::{
+        types::Grad, BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars,
+    },
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -12,13 +14,12 @@ pub struct TestGradSlice<S>(std::marker::PhantomData<*const S>);
 
 impl<S> TestGradSlice<S>
 where
-    for<'a> S: Shape + TryFrom<(&'a Context, Node)> + ShapeVars,
-    for<'a> <S as TryFrom<(&'a Context, Node)>>::Error: std::fmt::Debug,
+    S: Shape + MathShape + ShapeVars,
 {
     pub fn test_g_x() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = S::try_from((&ctx, x)).unwrap();
+        let shape = S::new(&ctx, x).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -31,7 +32,7 @@ where
     pub fn test_g_y() {
         let mut ctx = Context::new();
         let y = ctx.y();
-        let shape = S::try_from((&ctx, y)).unwrap();
+        let shape = S::new(&ctx, y).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -44,7 +45,7 @@ where
     pub fn test_g_z() {
         let mut ctx = Context::new();
         let z = ctx.z();
-        let shape = S::try_from((&ctx, z)).unwrap();
+        let shape = S::new(&ctx, z).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -58,7 +59,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -84,7 +85,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.abs(x).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -102,7 +103,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -121,7 +122,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -147,7 +148,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -161,7 +162,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let shape = S::try_from((&ctx, s)).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -180,7 +181,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.min(x, y).unwrap();
-        let shape = S::try_from((&ctx, m)).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -201,7 +202,7 @@ where
         let z = ctx.z();
         let min = ctx.min(x, y).unwrap();
         let max = ctx.max(min, z).unwrap();
-        let shape = S::try_from((&ctx, max)).unwrap();
+        let shape = S::new(&ctx, max).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -224,7 +225,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.max(x, y).unwrap();
-        let shape = S::try_from((&ctx, m)).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -248,7 +249,7 @@ where
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
         let sub = ctx.sub(sqrt, 0.5).unwrap();
-        let shape = S::try_from((&ctx, sub)).unwrap();
+        let shape = S::new(&ctx, sub).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -273,7 +274,7 @@ where
     pub fn test_g_var() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
-        let shape = S::try_from((&ctx, a)).unwrap();
+        let shape = S::new(&ctx, a).unwrap();
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -289,7 +290,7 @@ where
         let a = ctx.var("a").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let div = ctx.div(sum, 2.0).unwrap();
-        let shape = S::try_from((&ctx, div)).unwrap();
+        let shape = S::new(&ctx, div).unwrap();
 
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
@@ -307,7 +308,7 @@ where
         let b = ctx.var("b").unwrap();
         let sum = ctx.add(a, 1.0).unwrap();
         let min = ctx.div(sum, b).unwrap();
-        let shape = S::try_from((&ctx, min)).unwrap();
+        let shape = S::new(&ctx, min).unwrap();
         let mut vars = Vars::new(shape.vars());
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();

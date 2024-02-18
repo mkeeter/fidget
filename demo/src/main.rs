@@ -6,7 +6,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::{context::Context, eval::BulkEvaluator};
+use fidget::{
+    context::Context,
+    eval::{BulkEvaluator, MathShape},
+};
 
 /// Simple test program
 #[derive(Parser)]
