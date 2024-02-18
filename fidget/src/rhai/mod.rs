@@ -6,12 +6,17 @@
 //! with pre-defined variables `x`, `y`, `z`.
 //!
 //! ```
-//! use fidget::{eval::Tape, vm, rhai::eval};
+//! use fidget::{
+//!     eval::{Shape, EzShape, TracingEvaluator},
+//!     vm::VmShape,
+//!     rhai::eval
+//! };
 //!
 //! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(1.0, 2.0, 0.0, &[])?.0, 3.0);
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let mut eval = VmShape::new_point_eval();
+//! let tape = shape.ez_point_tape();
+//! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[])?.0, 3.0);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -19,15 +24,20 @@
 //! construct an [`Engine`] then call [`Engine::run`]:
 //!
 //! ```
-//! use fidget::{eval::Tape, vm, rhai::Engine};
+//! use fidget::{
+//!     eval::{Shape, EzShape, TracingEvaluator},
+//!     vm::VmShape,
+//!     rhai::Engine
+//! };
 //!
 //! let mut engine = Engine::new();
 //! let out = engine.run("draw(|x, y| x + y - 1)")?;
 //!
 //! assert_eq!(out.shapes.len(), 1);
-//! let tape = Tape::<vm::Eval>::new(&out.context, out.shapes[0].shape)?;
-//! let eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(0.5, 2.0, 0.0, &[])?.0, 1.5);
+//! let shape = VmShape::new(&out.context, out.shapes[0].shape)?;
+//! let mut eval = VmShape::new_point_eval();
+//! let tape = shape.ez_point_tape();
+//! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0, &[])?.0, 1.5);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

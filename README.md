@@ -124,5 +124,5 @@ For example, it only includes a debug GUI, and its meshing is much less
 battle-tested than `libfive`.
 
 ## License
-© 2022-2023 Matthew Keeter  
+© 2022-2024 Matthew Keeter  
 Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)

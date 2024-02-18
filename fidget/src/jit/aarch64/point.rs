@@ -40,6 +40,11 @@ impl AssemblerT for PointAssembler {
 
         Self(out)
     }
+
+    fn bytes_per_clause() -> usize {
+        10
+    }
+
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!(dst_reg < REGISTER_LIMIT);

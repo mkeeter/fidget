@@ -2,141 +2,67 @@
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
-    eval::{self, Choice, Family},
+    vm::Choice,
     Error,
 };
 use std::{collections::HashMap, sync::Arc};
 
-/// Light-weight handle for tape data, which deferences to
-/// [`Data`].
-///
-/// This can be passed by value and cloned.
-///
-/// It is parameterized by an [`Family`] type, which sets the register count of
-/// the inner VM tape.
-pub struct Tape<R>(Arc<Data>, std::marker::PhantomData<*const R>);
-
-impl<R> Clone for Tape<R> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone(), std::marker::PhantomData)
-    }
-}
-
-// SAFETY: the tape contains a single `Arc`, which is already `Send + Sync`;
-// the only reason this can't be derived automatically is due to the
-// `PhantomData` and Rust limitations.
-unsafe impl<R> Send for Tape<R> {}
-unsafe impl<R> Sync for Tape<R> {}
-
-impl<E: Family> Tape<E> {
-    /// Build a new tape for the given node
-    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
-        let ssa = SsaTape::new(context, node)?;
-        let asm = RegTape::new(&ssa, E::REG_LIMIT);
-        Ok(Self(Arc::new(Data { ssa, asm }), std::marker::PhantomData))
-    }
-
-    /// Simplifies a tape based on the array of choices
-    ///
-    /// The choice slice must be the same size as
-    /// [`self.choice_count()`](Data::choice_count),
-    /// which should be ensured by the caller.
-    pub fn simplify(&self, choices: &[Choice]) -> Result<Self, Error> {
-        self.simplify_with(choices, &mut Default::default(), Default::default())
-    }
-
-    /// Simplifies a tape, reusing workspace and allocations
-    pub fn simplify_with(
-        &self,
-        choices: &[Choice],
-        workspace: &mut Workspace,
-        prev: Data,
-    ) -> Result<Self, Error> {
-        self.0
-            .simplify_with(choices, workspace, prev)
-            .map(Arc::new)
-            .map(|t| Tape(t, std::marker::PhantomData))
-    }
-
-    /// Tries to claim the inner [`Data`]
-    ///
-    /// This will fail if there are multiple `Tape` objects sharing the `Data`.
-    pub fn take(self) -> Option<Data> {
-        Arc::try_unwrap(self.0).ok()
-    }
-
-    /// Builds a point evaluator from the given `Tape`
-    pub fn new_point_evaluator(&self) -> eval::point::PointEval<E> {
-        eval::point::PointEval::new(self)
-    }
-
-    /// Builds an interval evaluator from the given `Tape`
-    pub fn new_interval_evaluator(&self) -> eval::interval::IntervalEval<E> {
-        eval::interval::IntervalEval::new(self)
-    }
-
-    /// Builds an interval evaluator from the given `Tape`, reusing storage
-    pub fn new_interval_evaluator_with_storage(
-        &self,
-        storage: eval::interval::IntervalEvalStorage<E>,
-    ) -> eval::interval::IntervalEval<E> {
-        eval::interval::IntervalEval::new_with_storage(self, storage)
-    }
-
-    /// Builds a float evaluator from the given `Tape`
-    pub fn new_float_slice_evaluator(
-        &self,
-    ) -> eval::float_slice::FloatSliceEval<E> {
-        eval::float_slice::FloatSliceEval::new(self)
-    }
-
-    /// Builds a float slice evaluator from the given `Tape`, reusing storage
-    pub fn new_float_slice_evaluator_with_storage(
-        &self,
-        storage: eval::float_slice::FloatSliceEvalStorage<E>,
-    ) -> eval::float_slice::FloatSliceEval<E> {
-        eval::float_slice::FloatSliceEval::new_with_storage(self, storage)
-    }
-
-    /// Builds a grad slice evaluator from the given `Tape`
-    pub fn new_grad_slice_evaluator(
-        &self,
-    ) -> eval::grad_slice::GradSliceEval<E> {
-        eval::grad_slice::GradSliceEval::new(self)
-    }
-
-    /// Builds a float slice evaluator from the given `Tape`, reusing storage
-    pub fn new_grad_slice_evaluator_with_storage(
-        &self,
-        storage: eval::grad_slice::GradSliceEvalStorage<E>,
-    ) -> eval::grad_slice::GradSliceEval<E> {
-        eval::grad_slice::GradSliceEval::new_with_storage(self, storage)
-    }
-}
-
-impl<E> std::ops::Deref for Tape<E> {
-    type Target = Data;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
-/// Under the hood, [`Data`](Self) stores two different representations:
-/// - A tape in single static assignment form ([`ssa::Tape`](SsaTape)), which is
-///   suitable for use during tape simplification
-/// - A tape in register-allocated form ([`vm::Tape`](RegTape)), which can be
-///   efficiently evaluated or lowered into machine assembly
+/// Under the hood, [`VmData`] stores two different representations:
+/// - A tape in [single static assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+///   ([`SsaTape`]), which is suitable for use during tape simplification
+/// - A tape in register-allocated form ([`RegTape`]), which can be efficiently
+///   evaluated or lowered into machine assembly
+///
+/// # Example
+/// Consider the expression `x + y`.  The SSA tape will look something like
+/// this:
+/// ```text
+/// $0 = INPUT 0   // X
+/// $1 = INPUT 1   // Y
+/// $2 = ADD $0 $1 // (X + Y)
+/// ```
+///
+/// This will be lowered into a tape using real (or VM) registers:
+/// ```text
+/// r0 = INPUT 0 // X
+/// r1 = INPUT 1 // Y
+/// r0 = ADD r0 r1 // (X + Y)
+/// ```
+///
+/// Note that in this form, registers are reused (e.g. `r0` stores both `X` and
+/// `X + Y`).
+///
+/// We can peek at the internals and see this register-allocated tape:
+/// ```
+/// use fidget::{compiler::RegOp, rhai, vm::{VmShape, VmData}};
+///
+/// let (sum, ctx) = rhai::eval("x + y")?;
+/// let data = VmData::<255>::new(&ctx, sum)?;
+/// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
+///
+/// let mut iter = data.iter_asm();
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, 0));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, 1));
+/// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
+/// # Ok::<(), fidget::Error>(())
+/// ```
+///
 #[derive(Default)]
-pub struct Data {
+pub struct VmData<const N: u8 = { u8::MAX }> {
     ssa: SsaTape,
     asm: RegTape,
 }
 
-impl Data {
+impl<const N: u8> VmData<N> {
+    /// Builds a new tape for the given node
+    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
+        let ssa = SsaTape::new(context, node)?;
+        let asm = RegTape::new(&ssa, N);
+        Ok(Self { ssa, asm })
+    }
+
     /// Returns this tape's mapping of variable names to indexes
     pub fn vars(&self) -> Arc<HashMap<String, u32>> {
         self.ssa.vars.clone()
@@ -180,13 +106,13 @@ impl Data {
 
     /// Simplifies both inner tapes, using the provided choice array
     ///
-    /// To minimize allocations, this function takes a [`Workspace`] _and_ spare
-    /// [`Data`]; it will reuse those allocations.
-    pub fn simplify_with(
+    /// To minimize allocations, this function takes a [`VmWorkspace`] and
+    /// spare [`VmData`]; it will reuse those allocations.
+    pub fn simplify(
         &self,
         choices: &[Choice],
-        workspace: &mut Workspace,
-        mut tape: Data,
+        workspace: &mut VmWorkspace,
+        mut tape: VmData<N>,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
@@ -198,7 +124,7 @@ impl Data {
         tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset_with_storage(reg_limit, self.ssa.tape.len(), tape.asm);
+        workspace.reset(reg_limit, self.ssa.tape.len(), tape.asm);
 
         let mut choice_count = 0;
 
@@ -336,7 +262,7 @@ impl Data {
         assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
-        Ok(Data {
+        Ok(VmData {
             ssa: SsaTape {
                 tape: ops_out,
                 choice_count,
@@ -362,15 +288,15 @@ impl Data {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Data structures used during [`Tape::simplify`]
+/// Data structures used during [`VmData::simplify`]
 ///
 /// This is exposed to minimize reallocations in hot loops.
-pub struct Workspace {
+pub struct VmWorkspace {
     /// Register allocator
-    pub alloc: RegisterAllocator,
+    pub(crate) alloc: RegisterAllocator,
 
     /// Current bindings from SSA variables to registers
-    pub bind: Vec<u32>,
+    pub(crate) bind: Vec<u32>,
 
     /// Number of active SSA bindings
     ///
@@ -379,7 +305,7 @@ pub struct Workspace {
     count: u32,
 }
 
-impl Default for Workspace {
+impl Default for VmWorkspace {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
@@ -389,7 +315,7 @@ impl Default for Workspace {
     }
 }
 
-impl Workspace {
+impl VmWorkspace {
     fn active(&self, i: u32) -> Option<u32> {
         if self.bind[i as usize] != u32::MAX {
             Some(self.bind[i as usize])
@@ -410,23 +336,10 @@ impl Workspace {
         self.bind[i as usize] = bind;
     }
 
-    /// Resets the workspace, preserving allocations
-    pub fn reset(&mut self, num_registers: u8, tape_len: usize) {
-        self.alloc.reset(num_registers, tape_len);
-        self.bind.fill(u32::MAX);
-        self.bind.resize(tape_len, u32::MAX);
-        self.count = 0;
-    }
-
     /// Resets the workspace, preserving allocations and claiming the given
     /// [`RegTape`].
-    pub fn reset_with_storage(
-        &mut self,
-        num_registers: u8,
-        tape_len: usize,
-        tape: RegTape,
-    ) {
-        self.alloc.reset_with_storage(num_registers, tape_len, tape);
+    pub fn reset(&mut self, num_registers: u8, tape_len: usize, tape: RegTape) {
+        self.alloc.reset(num_registers, tape_len, tape);
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
         self.count = 0;

@@ -25,8 +25,7 @@ impl Mmap {
     /// If `len == 0`, this will return an `Mmap` of size `PAGE_SIZE`; for a
     /// empty `Mmap` (which makes no system calls), use `Mmap::empty` instead.
     pub fn new(len: usize) -> Result<Self, std::io::Error> {
-        let len = (len.max(1) + Self::PAGE_SIZE - 1) / Self::PAGE_SIZE
-            * Self::PAGE_SIZE;
+        let len = len.max(1).next_multiple_of(Self::PAGE_SIZE);
 
         let ptr = unsafe {
             libc::mmap(

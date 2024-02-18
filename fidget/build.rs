@@ -113,10 +113,10 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
             .chain(empty_regions.into_iter())
             .enumerate()
         {
-            for j in 0..8 {
+            for (j, region) in regions.iter_mut().enumerate() {
                 if r & (1 << j) != 0 {
-                    assert_eq!(regions[j], u8::MAX);
-                    regions[j as usize] = i as u8;
+                    assert_eq!(*region, u8::MAX);
+                    *region = i as u8;
                 }
             }
         }

@@ -1,6 +1,5 @@
 use crate::{
     context::{Context, IntoNode, Node},
-    eval::{Family, Tape},
     Error,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -85,6 +84,14 @@ impl IntoNode for BoundNode {
 }
 
 impl BoundNode {
+    pub fn convert<T: for<'a> TryFrom<(&'a Context, Node)>>(&self) -> T {
+        let ctx = self.ctx.borrow();
+        let Ok(out) = (&*ctx, self.node).try_into() else {
+            unreachable!("invalid node for our own context?")
+        };
+        out
+    }
+
     fn op_bin<A: IntoNode>(
         self,
         other: A,
@@ -139,11 +146,6 @@ impl BoundNode {
     /// Builds a square root operation
     pub fn sqrt(self) -> Self {
         self.op_unary(Context::sqrt)
-    }
-
-    /// Converts this node into a tape, using its internal context
-    pub fn get_tape<E: Family>(&self) -> Result<Tape<E>, Error> {
-        Tape::new(&self.ctx.0.borrow(), self.node)
     }
 
     /// Evaluates the node at a particular point

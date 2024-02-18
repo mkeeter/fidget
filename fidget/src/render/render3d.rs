@@ -1,54 +1,24 @@
 //! 3D bitmap rendering / rasterization
 use crate::{
-    eval::{
-        float_slice::{
-            FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
-        },
-        grad_slice::{GradSliceEval, GradSliceEvalData, GradSliceEvalStorage},
-        interval::{IntervalEval, IntervalEvalData},
-        tape::{Data as TapeData, Tape, Workspace},
-        types::{Grad, Interval},
-        Choice, EvaluatorStorage, Family,
-    },
+    eval::{types::Interval, BulkEvaluator, Shape, Tape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 
 use nalgebra::{Point3, Vector3};
-use std::collections::BTreeMap;
-
-////////////////////////////////////////////////////////////////////////////////
-/// Tiny extension trait to add a checked counterpart to `.take().unwrap()`
-trait Give<V> {
-    /// Gives the value `v` to us.
-    ///
-    /// If we already contain a value, panics.
-    fn give(&mut self, v: V);
-}
-
-impl<V> Give<V> for Option<V> {
-    #[inline]
-    fn give(&mut self, v: V) {
-        assert!(self.is_none());
-        *self = Some(v)
-    }
-}
+use std::{collections::HashMap, sync::Arc};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Scratch<F: Family> {
+struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-
-    data_float: FloatSliceEvalData<F>,
-    data_interval: IntervalEvalData<F>,
-    data_grad: GradSliceEvalData<F>,
 
     /// Depth of each column
     columns: Vec<usize>,
 }
 
-impl<F: Family> Scratch<F> {
+impl Scratch {
     fn new(tile_size: usize) -> Self {
         let size2 = tile_size.pow(2);
         let size3 = tile_size.pow(3);
@@ -57,134 +27,90 @@ impl<F: Family> Scratch<F> {
             y: vec![0.0; size3],
             z: vec![0.0; size3],
 
-            data_float: Default::default(),
-            data_interval: Default::default(),
-            data_grad: Default::default(),
-
             columns: vec![0; size2],
         }
     }
-    fn eval_s<'a>(
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct ShapeAndTape<S: Shape> {
+    shape: S,
+
+    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator>::Tape>,
+    g_tape: Option<<S::GradSliceEval as BulkEvaluator>::Tape>,
+}
+
+impl<S: Shape> ShapeAndTape<S> {
+    fn i_tape(
         &mut self,
-        f: &mut FloatSliceEval<F>,
-        size: usize,
-        data: &'a mut FloatSliceEvalData<F>,
-    ) -> &'a [f32] {
-        f.eval_with(
-            &self.x[0..size],
-            &self.y[0..size],
-            &self.z[0..size],
-            &[],
-            data,
-        )
-        .unwrap()
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
+        self.i_tape.get_or_insert_with(|| {
+            Arc::new(
+                self.shape.interval_tape(storage.pop().unwrap_or_default()),
+            )
+        })
     }
-    fn eval_g<'a>(
+    fn f_tape(
         &mut self,
-        f: &mut GradSliceEval<F>,
-        size: usize,
-        data: &'a mut GradSliceEvalData<F>,
-    ) -> &'a [Grad] {
-        f.eval_with(
-            &self.x[0..size],
-            &self.y[0..size],
-            &self.z[0..size],
-            &[],
-            data,
-        )
-        .unwrap()
+
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
+        self.f_tape.get_or_insert_with(|| {
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
+        })
+    }
+    fn g_tape(
+        &mut self,
+
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
+        self.g_tape.get_or_insert_with(|| {
+            self.shape
+                .grad_slice_tape(storage.pop().unwrap_or_default())
+        })
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Evaluators<I: Family> {
-    level: usize,
-    tape: Tape<I>,
-    interval: Option<IntervalEval<I>>,
-    float_slice: Option<FloatSliceEval<I>>,
-    grad: Option<GradSliceEval<I>>,
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-struct Worker<'a, I: Family> {
+struct Worker<'a, S: Shape> {
     config: &'a AlignedRenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
-    scratch: Scratch<I>,
+    scratch: Scratch,
+
+    eval_float_slice: S::FloatSliceEval,
+    eval_grad_slice: S::GradSliceEval,
+    eval_interval: S::IntervalEval,
+
+    tape_storage: Vec<S::TapeStorage>,
+    shape_storage: Vec<S::Storage>,
+    workspace: S::Workspace,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
     color: Vec<[u8; 3]>,
-
-    /// Storage for float slice evaluators
-    ///
-    /// This has `n + 1` slots, where `n` is the number of render levels; one
-    /// level for each round of interval evaluation, and one for the voxel
-    /// stage.  Don't be mislead by the use of `Option` here; slots should
-    /// always be populated except when someone is borrowing them, and borrowers
-    /// must give them back (using the `.give()` extension method)
-    ///
-    /// This means that we'll often use `.take().unwrap()`, to ensure that we
-    /// didn't mess up our invariants.
-    float_storage: Vec<Option<FloatSliceEvalStorage<I>>>,
-
-    /// Equivalent to `float_storage`, for gradient evaluators
-    grad_storage: Vec<Option<GradSliceEvalStorage<I>>>,
-
-    /// Storage for interval evaluators.
-    ///
-    /// This has `n` slots, where `n` is the number of render levels.  The first
-    /// slot is always `None`, because philosophically, it represents the
-    /// storage of `i_handle` (but `i_handle` is shared between multiple
-    /// threads, so we never actually reclaim its storage).
-    interval_storage: Vec<
-        Option<<<I as Family>::IntervalEval as EvaluatorStorage<I>>::Storage>,
-    >,
-
-    /// Spare tapes to avoid allocation churn
-    ///
-    /// This has `n + 1` slots: one for each render level, and one for per-voxel
-    /// evaluation (after the final tape simplification).
-    spare_tapes: Vec<Option<TapeData>>,
-
-    /// Reusable workspace for tape simplification, to minimize allocation
-    workspace: Workspace,
 }
 
-impl<I: Family> Worker<'_, I> {
-    fn reclaim_storage(&mut self, eval: Evaluators<I>) -> TapeData {
-        if let Some(float) = eval.float_slice {
-            self.float_storage[eval.level].give(float.take().unwrap());
-        }
-        if let Some(interval) = eval.interval {
-            self.interval_storage[eval.level].give(interval.take().unwrap());
-        }
-        if let Some(grad) = eval.grad {
-            self.grad_storage[eval.level].give(grad.take().unwrap());
-        }
-
-        // Use Err to indicate that we have to shorten the tape
-        // (basically a bootleg Either)
-        eval.tape.take().unwrap()
-    }
-
+impl<S: Shape> Worker<'_, S> {
     fn render_tile_recurse(
         &mut self,
-        eval: &mut Evaluators<I>,
-        sibling: Option<(Vec<Choice>, Evaluators<I>)>,
-        level: usize,
+        shape: &mut ShapeAndTape<S>,
+        depth: usize,
         tile: Tile<3>,
-    ) -> Option<(Vec<Choice>, Evaluators<I>)> {
+    ) {
         // Early exit if every single pixel is filled
-        let tile_size = self.config.tile_sizes[level];
+        let tile_size = self.config.tile_sizes[depth];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
             let i = self.config.tile_to_offset(tile, 0, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
         }) {
-            return sibling;
+            return;
         }
 
         // Brute-force way to find the (interval) bounding box of the region
@@ -215,14 +141,9 @@ impl<I: Family> Worker<'_, I> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(z_min, z_max);
 
-        let mut data_interval = std::mem::take(&mut self.scratch.data_interval);
-        let (i, simplify) = eval
-            .interval
-            .get_or_insert_with(|| {
-                let storage = self.interval_storage[eval.level].take().unwrap();
-                eval.tape.new_interval_evaluator_with_storage(storage)
-            })
-            .eval_with(x, y, z, &[], &mut data_interval)
+        let (i, trace) = self
+            .eval_interval
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -234,165 +155,72 @@ impl<I: Family> Worker<'_, I> {
                     self.depth[i + x] = self.depth[i + x].max(fill_z);
                 }
             }
-            // TODO: handle gradients here as well?
-            self.scratch.data_interval = data_interval;
-            return sibling;
+            return;
         } else if i.lower() > 0.0 {
-            self.scratch.data_interval = data_interval;
-            return sibling;
+            return;
         }
 
         // Calculate a simplified tape, reverting to the parent tape if the
         // simplified tape isn't any shorter.
-        let (mut sub_eval, mut prev_sibling) = if let Some(simplify) =
-            simplify.as_ref()
-        {
-            // See if our previous tape shortening used the exact same set of
-            // choices; in that case, then we can reuse it.
-            //
-            // This is likely because of spatial locality!
-            let res = if let Some((choices, sibling_eval)) = sibling {
-                if choices == simplify.choices() {
-                    Ok((choices, sibling_eval))
-                } else {
-                    // The sibling didn't make the same choices, so we'll tear
-                    // it down for parts and build our own tape here.
-                    //
-                    // Release all of the sibling evaluators, which should free
-                    // up the tape for reuse.
-                    let tape = self.reclaim_storage(sibling_eval);
-
-                    // Use Err to indicate that we have to shorten the tape
-                    // (basically a bootleg Either)
-                    Err((tape, choices))
-                }
-            } else {
-                Err((self.spare_tapes[eval.level].take().unwrap(), vec![]))
-            };
-
-            let out = match res {
-                Ok(out) => Some(out),
-                Err((tape, mut choices)) => {
-                    let sub_tape = simplify
-                        .simplify_with(&mut self.workspace, tape)
-                        .unwrap();
-
-                    if sub_tape.len() < eval.tape.len() {
-                        choices
-                            .resize(simplify.choices().len(), Choice::Unknown);
-                        choices.copy_from_slice(simplify.choices());
-                        Some((
-                            choices,
-                            Evaluators {
-                                level: eval.level + 1,
-                                tape: sub_tape,
-                                interval: None,
-                                float_slice: None,
-                                grad: None,
-                            },
-                        ))
-                    } else {
-                        // Immediately return the spare tape
-                        //
-                        // TODO: reuse choices
-                        self.spare_tapes[eval.level]
-                            .give(sub_tape.take().unwrap());
-
-                        // Alas, the sibling has been consumed, so we can't
-                        // reuse it at all.
-                        None
-                    }
-                }
-            };
-            (out, None) // prev_sibling is always consumed
+        let mut sub_tape = if let Some(trace) = trace.as_ref() {
+            let s = self.shape_storage.pop().unwrap_or_default();
+            let next =
+                shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
+            Some(ShapeAndTape {
+                shape: next,
+                i_tape: None,
+                f_tape: None,
+                g_tape: None,
+            })
         } else {
-            // If we're not simplifying this tape, then keep the sibling around,
-            // since it's still useful.
-            (None, sibling)
+            None
         };
-
-        // Return `data_interval` to our scratch buffer
-        self.scratch.data_interval = data_interval;
-
-        // At this point, only one of `sub_eval` and `prev_sibling` can be
-        // `Some`; both could also be `None`, if we consumed `prev_sibling` then
-        // realized that it didn't shorten the tape.
-        //
-        // There's probably a better abstraction here!
+        let sub_tape_ref = sub_tape.as_mut().unwrap_or(shape);
 
         // Recurse!
-        let new_sibling = if let Some(&next_size) =
-            self.config.tile_sizes.get(level + 1)
-        {
-            let n = tile_size / next_size;
-
-            // If we didn't simplify, then we can attempt to reuse the sibling
-            // passed into this function call, which is still valid.
-            let mut sibling = if sub_eval.is_none() {
-                prev_sibling.take()
-            } else {
-                assert!(prev_sibling.is_none());
-                None
-            };
+        if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
+            let n = tile_size / next_tile_size;
 
             for j in 0..n {
                 for i in 0..n {
                     for k in (0..n).rev() {
-                        sibling = self.render_tile_recurse(
-                            sub_eval.as_mut().map(|c| &mut c.1).unwrap_or(eval),
-                            sibling,
-                            level + 1,
+                        self.render_tile_recurse(
+                            sub_tape_ref,
+                            depth + 1,
                             self.config.new_tile([
-                                tile.corner[0] + i * next_size,
-                                tile.corner[1] + j * next_size,
-                                tile.corner[2] + k * next_size,
+                                tile.corner[0] + i * next_tile_size,
+                                tile.corner[1] + j * next_tile_size,
+                                tile.corner[2] + k * next_tile_size,
                             ]),
                         );
                     }
                 }
             }
-            sibling
         } else {
-            self.render_tile_pixels(
-                sub_eval.as_mut().map(|c| &mut c.1).unwrap_or(eval),
-                tile_size,
-                tile,
-            );
-            // We never generate a sibling from pixel rendering, since we don't
-            // simplify the tape any further, so return the previous sibling
-            // (if one existed)
-            None
+            self.render_tile_pixels(sub_tape_ref, tile_size, tile);
         };
 
-        // Since we simplified the tape here, the sibling is only valid for
-        // calls that we're making here.  Alas, we are done with these calls, so
-        // we have to recycle it here.
-        if let Some((choices, sub)) = sub_eval {
-            assert!(prev_sibling.is_none());
-            if let Some((_choices, sibling)) = new_sibling {
-                assert!(sibling.level == sub.level + 1);
-                let tape = self.reclaim_storage(sibling);
-                self.spare_tapes[sub.level].give(tape);
-                // TODO: reuse _choices
+        if let Some(mut sub_tape) = sub_tape {
+            if let Some(i_tape) = sub_tape.i_tape.take() {
+                if let Ok(t) = Arc::try_unwrap(i_tape) {
+                    self.tape_storage.push(t.recycle());
+                }
             }
-            // We return our own subtape, which can be a sibling subtape in
-            // future calls.
-            Some((choices, sub))
-        } else if prev_sibling.is_some() {
-            // new_sibling only exists in a branch where prev_sibling is
-            // consumed to make it, so they can't coexist here.
-            assert!(new_sibling.is_none());
-            prev_sibling
-        } else {
-            // Otherwise, since we didn't simplify here, the sibling
-            // evaluator (if present) is also valid for our parent
-            new_sibling
+            if let Some(f_tape) = sub_tape.f_tape.take() {
+                self.tape_storage.push(f_tape.recycle());
+            }
+            if let Some(g_tape) = sub_tape.g_tape.take() {
+                self.tape_storage.push(g_tape.recycle());
+            }
+            if let Some(s) = sub_tape.shape.recycle() {
+                self.shape_storage.push(s);
+            }
         }
     }
 
     fn render_tile_pixels(
         &mut self,
-        eval: &mut Evaluators<I>,
+        shape: &mut ShapeAndTape<S>,
         tile_size: usize,
         tile: Tile<3>,
     ) {
@@ -444,16 +272,16 @@ impl<I: Family> Worker<'_, I> {
         let size = index;
         assert!(size > 0);
 
-        // Reuse the FloatSliceFunc handle passed in, or build one if it
-        // wasn't already available (which makes it available to siblings)
-        let func = eval.float_slice.get_or_insert_with(|| {
-            let storage = self.float_storage[eval.level].take().unwrap();
-            eval.tape.new_float_slice_evaluator_with_storage(storage)
-        });
-
-        // Borrow the scratch data, returning it at the end of the function
-        let mut data_float = std::mem::take(&mut self.scratch.data_float);
-        let out = self.scratch.eval_s(func, size, &mut data_float);
+        let out = self
+            .eval_float_slice
+            .eval(
+                shape.f_tape(&mut self.tape_storage),
+                &self.scratch.x,
+                &self.scratch.y,
+                &self.scratch.z,
+                &[],
+            )
+            .unwrap();
 
         // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile
@@ -505,24 +333,21 @@ impl<I: Family> Worker<'_, I> {
         }
 
         if grad > 0 {
-            // Reuse the FloatSliceFunc handle passed in, or build one if it
-            // wasn't already available (which makes it available to siblings)
-            let func = eval.grad.get_or_insert_with(|| {
-                let storage = self.grad_storage[eval.level].take().unwrap();
-                eval.tape.new_grad_slice_evaluator_with_storage(storage)
-            });
-            let mut data_grad = std::mem::take(&mut self.scratch.data_grad);
-            let out_grad = self.scratch.eval_g(func, grad, &mut data_grad);
+            let out = self
+                .eval_grad_slice
+                .eval(
+                    shape.g_tape(&mut self.tape_storage),
+                    &self.scratch.x,
+                    &self.scratch.y,
+                    &self.scratch.z,
+                    &[],
+                )
+                .unwrap();
 
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
-                self.color[*o] =
-                    out_grad[index].to_rgb().unwrap_or([255, 0, 0]);
+                self.color[*o] = out[index].to_rgb().unwrap_or([255, 0, 0]);
             }
-            self.scratch.data_grad = data_grad;
         }
-
-        // Return the scratch data
-        self.scratch.data_float = data_float;
     }
 }
 
@@ -545,39 +370,30 @@ impl Image {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: Family>(
-    i_handle: IntervalEval<I>,
+fn worker<S: Shape>(
+    mut shape: ShapeAndTape<S>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
-) -> BTreeMap<[usize; 2], Image> {
-    let mut out = BTreeMap::new();
+) -> HashMap<[usize; 2], Image> {
+    let mut out = HashMap::new();
 
     // Calculate maximum evaluation buffer size
     let buf_size = *config.tile_sizes.last().unwrap();
     let scratch = Scratch::new(buf_size);
-    let mut w: Worker<I> = Worker {
+    let mut w: Worker<S> = Worker {
         scratch,
         depth: vec![],
         color: vec![],
         config,
 
-        // Notice that these are all populated with Some(...)!
-        float_storage: (0..=config.tile_sizes.len())
-            .map(|_| Some(Default::default()))
-            .collect(),
-        grad_storage: (0..=config.tile_sizes.len())
-            .map(|_| Some(Default::default()))
-            .collect(),
+        eval_float_slice: S::FloatSliceEval::new(),
+        eval_interval: S::IntervalEval::new(),
+        eval_grad_slice: S::GradSliceEval::new(),
 
-        interval_storage: (0..config.tile_sizes.len())
-            .map(|_| Some(Default::default()))
-            .collect(),
-
-        workspace: Workspace::default(),
-        spare_tapes: (0..=config.tile_sizes.len())
-            .map(|_| Some(Default::default()))
-            .collect(),
+        tape_storage: vec![],
+        shape_storage: vec![],
+        workspace: Default::default(),
     };
 
     // Every thread has a set of tiles assigned to it, which are in Z-sorted
@@ -594,34 +410,7 @@ fn worker<I: Family>(
             // Prepare to render, allocating space for a tile
             w.depth = image.depth;
             w.color = image.color;
-            let mut eval = Evaluators {
-                level: 0,
-                tape: i_handle.tape(),
-                interval: Some(i_handle.clone()),
-                float_slice: None,
-                grad: None,
-            };
-            if let Some((_, e)) =
-                w.render_tile_recurse(&mut eval, None, 0, tile)
-            {
-                if let Some(i) = e.interval {
-                    w.interval_storage[1].give(i.take().unwrap());
-                }
-                if let Some(f) = e.float_slice {
-                    w.float_storage[1].give(f.take().unwrap());
-                }
-                if let Some(g) = e.grad {
-                    w.grad_storage[1].give(g.take().unwrap());
-                }
-                w.spare_tapes[0].give(e.tape.take().unwrap());
-            }
-
-            // Check our invariants, to make sure that everyone gave back their
-            // storage data when complete.
-            assert!(w.interval_storage.iter().all(Option::is_some));
-            assert!(w.float_storage.iter().all(Option::is_some));
-            assert!(w.grad_storage.iter().all(Option::is_some));
-            assert!(w.spare_tapes.iter().all(Option::is_some));
+            w.render_tile_recurse(&mut shape, 0, tile);
 
             // Steal the tile, replacing it with an empty vec
             let depth = std::mem::take(&mut w.depth);
@@ -649,10 +438,10 @@ fn worker<I: Family>(
 /// The tape provides the shape; the configuration supplies resolution,
 /// transforms, etc.
 ///
-/// This function is parameterized by both evaluator family, which determines
-/// how we perform evaluation.
-pub fn render<I: Family>(
-    tape: Tape<I>,
+/// This function is parameterized by shape type, which determines how we
+/// perform evaluation.
+pub fn render<S: Shape>(
+    shape: S,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let config = config.align();
@@ -661,7 +450,6 @@ pub fn render<I: Family>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
@@ -680,9 +468,17 @@ pub fn render<I: Family>(
         tile_queues.push(Queue::new(ts.to_vec()));
     }
 
+    let i_tape = Arc::new(shape.interval_tape(Default::default()));
+
     // Special-case for single-threaded operation, to give simpler backtraces
     let out = if config.threads == 1 {
-        worker::<I>(i_handle, tile_queues.as_slice(), 0, &config)
+        let shape = ShapeAndTape {
+            shape,
+            i_tape: Some(i_tape),
+            f_tape: None,
+            g_tape: None,
+        };
+        worker::<S>(shape, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
     } else {
@@ -691,9 +487,14 @@ pub fn render<I: Family>(
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
             for i in 0..config.threads {
-                let handle = i_handle.clone();
+                let shape = ShapeAndTape {
+                    shape: shape.clone(),
+                    i_tape: Some(i_tape.clone()),
+                    f_tape: None,
+                    g_tape: None,
+                };
                 handles.push(
-                    s.spawn(move || worker::<I>(handle, queues, i, config_ref)),
+                    s.spawn(move || worker::<S>(shape, queues, i, config_ref)),
                 );
             }
             let mut out = vec![];

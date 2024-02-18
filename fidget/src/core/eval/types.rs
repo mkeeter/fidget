@@ -1,5 +1,5 @@
 //! Custom types used during evaluation
-use crate::eval::Choice;
+use crate::vm::Choice;
 
 /// A point in space with associated partial derivatives.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -462,5 +462,19 @@ impl std::ops::Neg for Interval {
     type Output = Self;
     fn neg(self) -> Self {
         Interval::new(-self.upper, -self.lower)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_interval() {
+        let a = Interval::new(0.0, 1.0);
+        let b = Interval::new(0.5, 1.5);
+        let (v, c) = a.min_choice(b);
+        assert_eq!(v, [0.0, 1.0].into());
+        assert_eq!(c, Choice::Both);
     }
 }

@@ -12,115 +12,57 @@ use super::{
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
-use crate::eval::{
-    float_slice::{FloatSliceEvalData, FloatSliceEvalStorage},
-    grad_slice::{GradSliceEvalData, GradSliceEvalStorage},
-    interval::{IntervalEvalData, IntervalEvalStorage},
-    tape, Family, FloatSliceEval, GradSliceEval, IntervalEval, Tape,
-};
-use once_cell::sync::OnceCell;
-use std::{num::NonZeroUsize, sync::Arc};
+use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
+use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
 
 /// Helper struct to contain a set of matched evaluators
 ///
 /// Note that this is `Send + Sync` and can be used with shared references!
-pub struct EvalGroup<I: Family> {
-    pub tape: Tape<I>,
+pub struct EvalGroup<S: Shape> {
+    pub shape: S,
 
     // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
-    // indirection (since the evaluators also contain `Arc`); could we flatten
-    // them out?  (same with `Tape`, which is an `Arc<Data>`)
-    pub interval: OnceCell<IntervalEval<I>>,
-    pub float_slice: OnceCell<FloatSliceEval<I>>,
-    pub grad_slice: OnceCell<GradSliceEval<I>>,
+    // indirection (since the tapes also contain `Arc`); could we flatten
+    // them out?  (same with the shape, which is usually an `Arc`)
+    pub interval: OnceLock<<S::IntervalEval as TracingEvaluator>::Tape>,
+    pub float_slice: OnceLock<<S::FloatSliceEval as BulkEvaluator>::Tape>,
+    pub grad_slice: OnceLock<<S::GradSliceEval as BulkEvaluator>::Tape>,
 }
 
-impl<I: Family> EvalGroup<I> {
-    fn new(tape: Tape<I>) -> Self {
+impl<S: Shape> EvalGroup<S> {
+    fn new(shape: S) -> Self {
         Self {
-            tape,
-            interval: OnceCell::new(),
-            float_slice: OnceCell::new(),
-            grad_slice: OnceCell::new(),
+            shape,
+            interval: OnceLock::new(),
+            float_slice: OnceLock::new(),
+            grad_slice: OnceLock::new(),
         }
     }
-    fn interval(
+    fn interval_tape(
         &self,
-        s: &mut Vec<IntervalEvalStorage<I>>,
-    ) -> &IntervalEval<I> {
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
         self.interval.get_or_init(|| {
-            self.tape.new_interval_evaluator_with_storage(
-                s.pop().unwrap_or_default(),
-            )
+            self.shape.interval_tape(storage.pop().unwrap_or_default())
         })
     }
-    fn float_slice(
+    fn float_slice_tape(
         &self,
-        s: &mut Vec<FloatSliceEvalStorage<I>>,
-    ) -> &FloatSliceEval<I> {
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
         self.float_slice.get_or_init(|| {
-            self.tape.new_float_slice_evaluator_with_storage(
-                s.pop().unwrap_or_default(),
-            )
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
         })
     }
-    fn grad_slice(
+    fn grad_slice_tape(
         &self,
-        s: &mut Vec<GradSliceEvalStorage<I>>,
-    ) -> &GradSliceEval<I> {
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
         self.grad_slice.get_or_init(|| {
-            self.tape.new_grad_slice_evaluator_with_storage(
-                s.pop().unwrap_or_default(),
-            )
+            self.shape
+                .grad_slice_tape(storage.pop().unwrap_or_default())
         })
-    }
-}
-
-pub struct EvalData<I: Family> {
-    float_data: FloatSliceEvalData<I>,
-    grad_data: GradSliceEvalData<I>,
-    interval_data: IntervalEvalData<I>,
-}
-
-impl<I: Family> Default for EvalData<I> {
-    fn default() -> Self {
-        Self {
-            float_data: Default::default(),
-            grad_data: Default::default(),
-            interval_data: Default::default(),
-        }
-    }
-}
-
-pub struct EvalStorage<I: Family> {
-    pub workspace: tape::Workspace,
-    pub tape_storage: Vec<tape::Data>,
-    pub float_storage: Vec<FloatSliceEvalStorage<I>>,
-    pub interval_storage: Vec<IntervalEvalStorage<I>>,
-    pub grad_storage: Vec<GradSliceEvalStorage<I>>,
-}
-
-impl<I: Family> EvalStorage<I> {
-    pub fn claim(&mut self, mut e: EvalGroup<I>) {
-        self.interval_storage
-            .extend(e.interval.take().and_then(|s| s.take()));
-        self.float_storage
-            .extend(e.float_slice.take().and_then(|s| s.take()));
-        self.grad_storage
-            .extend(e.grad_slice.take().and_then(|s| s.take()));
-        self.tape_storage.extend(e.tape.take());
-    }
-}
-
-impl<I: Family> Default for EvalStorage<I> {
-    fn default() -> Self {
-        Self {
-            workspace: Default::default(),
-            tape_storage: Default::default(),
-            float_storage: Default::default(),
-            grad_storage: Default::default(),
-            interval_storage: Default::default(),
-        }
     }
 }
 
@@ -185,18 +127,12 @@ impl Octree {
     /// Builds an octree to the given depth
     ///
     /// The shape is evaluated on the region `[-1, 1]` on all axes
-    pub fn build<I: Family>(tape: &Tape<I>, settings: Settings) -> Self {
-        let eval = Arc::new(EvalGroup::new(tape.clone()));
+    pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
+        let eval = Arc::new(EvalGroup::new(shape.clone()));
 
         let mut octree = if settings.threads == 0 {
             let mut out = OctreeBuilder::new();
-            out.recurse(
-                &eval,
-                &mut EvalData::default(),
-                &mut EvalStorage::default(),
-                CellIndex::default(),
-                settings,
-            );
+            out.recurse(&eval, CellIndex::default(), settings);
             out.into()
         } else {
             OctreeWorker::scheduler(eval.clone(), settings)
@@ -243,14 +179,14 @@ impl Octree {
                 leafs,
                 hermite: vec![LeafHermiteData::default()],
                 hermite_slots: vec![],
+                eval_float_slice: S::new_float_slice_eval(),
+                eval_grad_slice: S::new_grad_slice_eval(),
+                eval_interval: S::new_interval_eval(),
+                tape_storage: vec![],
+                shape_storage: vec![],
+                workspace: Default::default(),
             };
-            b.refine(
-                &eval,
-                &mut EvalData::default(),
-                &mut EvalStorage::default(),
-                CellIndex::default(),
-                &fixup.needs_fixing,
-            );
+            b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
             octree = b.into();
         }
         octree
@@ -422,7 +358,7 @@ impl std::ops::IndexMut<CellIndex> for Octree {
 
 /// Data structure for an under-construction octree
 #[derive(Debug)]
-pub(crate) struct OctreeBuilder {
+pub(crate) struct OctreeBuilder<S: Shape> {
     /// Internal octree
     ///
     /// Note that in this internal octree, the `index` field of leaf nodes
@@ -445,16 +381,24 @@ pub(crate) struct OctreeBuilder {
 
     /// Available slots in the `hermite` array
     hermite_slots: Vec<usize>,
+
+    eval_float_slice: S::FloatSliceEval,
+    eval_interval: S::IntervalEval,
+    eval_grad_slice: S::GradSliceEval,
+
+    pub tape_storage: Vec<S::TapeStorage>,
+    pub shape_storage: Vec<S::Storage>,
+    workspace: S::Workspace,
 }
 
-impl Default for OctreeBuilder {
+impl<S: Shape> Default for OctreeBuilder<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl From<OctreeBuilder> for Octree {
-    fn from(o: OctreeBuilder) -> Self {
+impl<S: Shape> From<OctreeBuilder<S>> for Octree {
+    fn from(o: OctreeBuilder<S>) -> Self {
         // Convert from "leaf index into self.leafs" (in the builder) to
         // "leaf index into self.verts" (in the resulting Octree)
         let cells =
@@ -479,7 +423,7 @@ impl From<OctreeBuilder> for Octree {
     }
 }
 
-impl OctreeBuilder {
+impl<S: Shape> OctreeBuilder<S> {
     /// Builds a new octree, which allocates data for 8 root cells
     pub(crate) fn new() -> Self {
         Self {
@@ -490,6 +434,12 @@ impl OctreeBuilder {
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
             hermite_slots: vec![],
+            eval_float_slice: S::new_float_slice_eval(),
+            eval_grad_slice: S::new_grad_slice_eval(),
+            eval_interval: S::new_interval_eval(),
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
         }
     }
 
@@ -505,6 +455,14 @@ impl OctreeBuilder {
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
             hermite_slots: vec![],
+
+            eval_float_slice: S::new_float_slice_eval(),
+            eval_grad_slice: S::new_grad_slice_eval(),
+            eval_interval: S::new_interval_eval(),
+
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
         }
     }
 
@@ -542,22 +500,20 @@ impl OctreeBuilder {
     /// Leaf data is stored in `self.verts`; cell results are **not** written
     /// back to the `cells` array, because the cell may be rooted in a different
     /// octree (e.g. on another thread).
-    pub(crate) fn eval_cell<I: Family>(
+    pub(crate) fn eval_cell(
         &mut self,
-        eval: &Arc<EvalGroup<I>>,
-        data: &mut EvalData<I>,
-        storage: &mut EvalStorage<I>,
+        eval: &Arc<EvalGroup<S>>,
         cell: CellIndex,
         settings: Settings,
-    ) -> CellResult<I> {
-        let (i, r) = eval
-            .interval(&mut storage.interval_storage)
-            .eval_with(
+    ) -> CellResult<S> {
+        let (i, r) = self
+            .eval_interval
+            .eval(
+                eval.interval_tape(&mut self.tape_storage),
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
                 &[],
-                &mut data.interval_data,
             )
             .unwrap();
         if i.upper() < 0.0 {
@@ -565,14 +521,11 @@ impl OctreeBuilder {
         } else if i.lower() > 0.0 {
             CellResult::Done(Cell::Empty)
         } else {
-            let sub_tape = if I::simplify_tree_during_meshing(cell.depth) {
+            let sub_tape = if S::simplify_tree_during_meshing(cell.depth) {
+                let s = self.shape_storage.pop().unwrap_or_default();
                 r.map(|r| {
                     Arc::new(EvalGroup::new(
-                        r.simplify_with(
-                            &mut storage.workspace,
-                            storage.tape_storage.pop().unwrap_or_default(),
-                        )
-                        .unwrap(),
+                        eval.shape.simplify(r, s, &mut self.workspace).unwrap(),
                     ))
                 })
             } else {
@@ -580,7 +533,11 @@ impl OctreeBuilder {
             };
             if cell.depth == settings.min_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                CellResult::Done(self.leaf(&eval, data, storage, cell))
+                let out = CellResult::Done(self.leaf(&eval, cell));
+                if let Ok(t) = Arc::try_unwrap(eval) {
+                    self.reclaim(t);
+                }
+                out
             } else {
                 CellResult::Recurse(sub_tape.unwrap_or_else(|| eval.clone()))
             }
@@ -623,15 +580,13 @@ impl OctreeBuilder {
     }
 
     /// Recurse down the octree, building the given cell
-    fn recurse<I: Family>(
+    fn recurse(
         &mut self,
-        eval: &Arc<EvalGroup<I>>,
-        data: &mut EvalData<I>,
-        storage: &mut EvalStorage<I>,
+        eval: &Arc<EvalGroup<S>>,
         cell: CellIndex,
         settings: Settings,
     ) {
-        match self.eval_cell(eval, data, storage, cell, settings) {
+        match self.eval_cell(eval, cell, settings) {
             CellResult::Done(c) => self.o[cell] = c.into(),
             CellResult::Recurse(sub_eval) => {
                 let index = self.o.cells.len();
@@ -640,7 +595,11 @@ impl OctreeBuilder {
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&sub_eval, data, storage, cell, settings);
+                    self.recurse(&sub_eval, cell, settings);
+                }
+
+                if let Ok(t) = Arc::try_unwrap(sub_eval) {
+                    self.reclaim(t);
                 }
 
                 let r = self.check_done(cell, index).unwrap();
@@ -656,11 +615,6 @@ impl OctreeBuilder {
                     }
                 }
                 .into();
-
-                // Try to recycle tape storage
-                if let Ok(e) = Arc::try_unwrap(sub_eval) {
-                    storage.claim(e);
-                }
             }
         }
     }
@@ -670,15 +624,7 @@ impl OctreeBuilder {
     /// Writes the leaf vertex to `self.o.verts`, hermite data to
     /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
     /// anything to `self.o.cells`; the cell is returned instead.
-    fn leaf<I: Family>(
-        &mut self,
-        eval: &EvalGroup<I>,
-        data: &mut EvalData<I>,
-        storage: &mut EvalStorage<I>,
-        cell: CellIndex,
-    ) -> Cell {
-        let float_eval = eval.float_slice(&mut storage.float_storage);
-
+    fn leaf(&mut self, eval: &EvalGroup<S>, cell: CellIndex) -> Cell {
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
         let mut zs = [0.0; 8];
@@ -689,8 +635,15 @@ impl OctreeBuilder {
             zs[i.index()] = z;
         }
 
-        let out = float_eval
-            .eval_with(&xs, &ys, &zs, &[], &mut data.float_data)
+        let out = self
+            .eval_float_slice
+            .eval(
+                eval.float_slice_tape(&mut self.tape_storage),
+                &xs,
+                &ys,
+                &zs,
+                &[],
+            )
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -789,8 +742,15 @@ impl OctreeBuilder {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out = float_eval
-                .eval_with(xs, ys, zs, &[], &mut data.float_data)
+            let out = self
+                .eval_float_slice
+                .eval(
+                    eval.float_slice_tape(&mut self.tape_storage),
+                    xs,
+                    ys,
+                    zs,
+                    &[],
+                )
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -847,9 +807,15 @@ impl OctreeBuilder {
         }
 
         // TODO: special case for cells with multiple gradients ("features")
-        let grad_eval = eval.grad_slice(&mut storage.grad_storage);
-        let grads = grad_eval
-            .eval_with(xs, ys, zs, &[], &mut data.grad_data)
+        let grads = self
+            .eval_grad_slice
+            .eval(
+                eval.grad_slice_tape(&mut self.tape_storage),
+                xs,
+                ys,
+                zs,
+                &[],
+            )
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
@@ -1097,11 +1063,9 @@ impl OctreeBuilder {
     }
 
     /// Recurse down the octree, splitting the given leaf cells
-    fn refine<I: Family>(
+    fn refine(
         &mut self,
-        eval: &Arc<EvalGroup<I>>,
-        data: &mut EvalData<I>,
-        storage: &mut EvalStorage<I>,
+        eval: &Arc<EvalGroup<S>>,
         cell: CellIndex,
         needs_fixing: &[bool],
     ) {
@@ -1116,7 +1080,7 @@ impl OctreeBuilder {
                 // Evaluate all 8 leafs
                 for i in Corner::iter() {
                     let subcell = cell.child(index, i);
-                    let leaf = self.leaf(eval, data, storage, subcell);
+                    let leaf = self.leaf(eval, subcell);
                     match leaf {
                         Cell::Leaf(Leaf { index, .. }) => {
                             // Discard hermite data immediately, because we
@@ -1139,24 +1103,33 @@ impl OctreeBuilder {
             Cell::Branch { index, .. } => {
                 assert!(!needs_fixing[cell.index]);
                 for i in Corner::iter() {
-                    self.refine(
-                        eval,
-                        data,
-                        storage,
-                        cell.child(index, i),
-                        needs_fixing,
-                    )
+                    self.refine(eval, cell.child(index, i), needs_fixing)
                 }
             }
             Cell::Invalid => panic!(),
         }
     }
+
+    pub(crate) fn reclaim(&mut self, mut e: EvalGroup<S>) {
+        if let Some(s) = e.shape.recycle() {
+            self.shape_storage.push(s);
+        }
+        if let Some(i_tape) = e.interval.take() {
+            self.tape_storage.push(i_tape.recycle());
+        }
+        if let Some(f_tape) = e.float_slice.take() {
+            self.tape_storage.push(f_tape.recycle());
+        }
+        if let Some(g_tape) = e.grad_slice.take() {
+            self.tape_storage.push(g_tape.recycle());
+        }
+    }
 }
 
 /// Result of a single cell evaluation
-pub enum CellResult<I: Family> {
+pub enum CellResult<S: Shape> {
     Done(Cell),
-    Recurse(Arc<EvalGroup<I>>),
+    Recurse(Arc<EvalGroup<S>>),
 }
 
 /// Result of a branch evaluation (8-fold division)
@@ -1372,7 +1345,9 @@ mod test {
     use super::*;
     use crate::{
         context::bound::{self, BoundContext, BoundNode},
+        eval::EzShape,
         mesh::types::{Edge, X, Y, Z},
+        vm::VmShape,
     };
     use std::collections::BTreeMap;
 
@@ -1421,8 +1396,8 @@ mod test {
         let cube = cube(&ctx, [-f, f], [-f, 0.3], [-f, 0.6]);
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
-        let tape = cube.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+        let shape: VmShape = cube.convert();
+        let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.verts.len(), 5);
         let v = octree.verts[0].pos;
         let expected = nalgebra::Vector3::new(0.0, 0.3, 0.6);
@@ -1471,11 +1446,11 @@ mod test {
     fn test_mesh_basic() {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.2);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let shape: VmShape = shape.convert();
 
         // If we only build a depth-0 octree, then it's a leaf without any
         // vertices (since all the corners are empty)
-        let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+        let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
         assert_eq!(Cell::Empty, octree.cells[0].into(),);
         assert_eq!(octree.verts.len(), 0);
@@ -1485,7 +1460,7 @@ mod test {
         assert!(empty_mesh.triangles.is_empty());
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         assert_eq!(octree.cells.len(), 16); // we always build at least 8 cells
         assert_eq!(
             Cell::Branch {
@@ -1517,8 +1492,8 @@ mod test {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.2);
 
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let shape: VmShape = shape.convert();
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         let sphere_mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
 
         let mut edge_count = 0;
@@ -1554,7 +1529,7 @@ mod test {
     fn test_sphere_manifold() {
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.0; 3], 0.85);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let shape: VmShape = shape.convert();
 
         for threads in [0, 8] {
             let settings = Settings {
@@ -1562,7 +1537,7 @@ mod test {
                 max_depth: 5,
                 threads,
             };
-            let octree = Octree::build(&tape, settings);
+            let octree = Octree::build(&shape, settings);
             let sphere_mesh = octree.walk_dual(settings);
             sphere_mesh
                 .write_stl(
@@ -1585,8 +1560,8 @@ mod test {
         let ctx = BoundContext::new();
         let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-        let octree = Octree::build(&tape, DEPTH1_SINGLE_THREAD);
+        let shape: VmShape = shape.convert();
+        let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
         let mesh = octree.walk_dual(DEPTH1_SINGLE_THREAD);
         const EPSILON: f32 = 2.0 / u16::MAX as f32;
         assert!(!mesh.vertices.is_empty());
@@ -1635,8 +1610,8 @@ mod test {
                 for offset in [0.0, -0.2, 0.2] {
                     let (x, y, z) = ctx.axes();
                     let f = x * dx + y * dy + z + offset;
-                    let tape = f.get_tape::<crate::vm::Eval>().unwrap();
-                    let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+                    let shape: VmShape = f.convert();
+                    let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
 
                     assert_eq!(octree.cells.len(), 8);
                     let pos = octree.verts[0].pos;
@@ -1650,10 +1625,12 @@ mod test {
                         "bad vertex position at dx: {dx}, dy: {dy}, \
                          offset: {offset} => {pos:?} != {mass_point:?}"
                     );
-                    let eval = tape.new_point_evaluator();
+                    let mut eval = VmShape::new_point_eval();
+                    let tape = shape.ez_point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
-                        let (r, _) = eval.eval(v.x, v.y, v.z, &[]).unwrap();
+                        let (r, _) =
+                            eval.eval(&tape, v.x, v.y, v.z, &[]).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
                 }
@@ -1671,15 +1648,17 @@ mod test {
             let ctx = BoundContext::new();
             let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
             let shape = cone(&ctx, corner, tip, 0.1);
-            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+            let shape: VmShape = shape.convert();
 
-            let eval = tape.new_point_evaluator();
-            let (v, _) = eval.eval(tip.x, tip.y, tip.z, &[]).unwrap();
+            let mut eval = VmShape::new_point_eval();
+            let tape = shape.ez_point_tape();
+            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z, &[]).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
-            let (v, _) = eval.eval(corner.x, corner.y, corner.z, &[]).unwrap();
+            let (v, _) =
+                eval.eval(&tape, corner.x, corner.y, corner.z, &[]).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
-            let octree = Octree::build(&tape, DEPTH0_SINGLE_THREAD);
+            let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
             assert_eq!(octree.cells.len(), 8);
             assert_eq!(octree.verts.len(), 4);
 
@@ -1715,13 +1694,13 @@ mod test {
 
                 // Now, we have our shape, which is 0-8 spheres placed at the
                 // corners of the cell spanning [0, 0.25]
-                let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+                let shape: VmShape = shape.convert();
                 let settings = Settings {
                     min_depth: 2,
                     max_depth: 2,
                     threads,
                 };
-                let octree = Octree::build(&tape, settings);
+                let octree = Octree::build(&shape, settings);
 
                 let mesh = octree.walk_dual(settings);
                 if i != 0 && i != 255 {
@@ -1743,17 +1722,14 @@ mod test {
     fn test_collapsible() {
         let ctx = BoundContext::new();
 
-        fn builder(shape: BoundNode, settings: Settings) -> OctreeBuilder {
-            let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
-            let eval = Arc::new(EvalGroup::new(tape));
+        fn builder(
+            shape: BoundNode,
+            settings: Settings,
+        ) -> OctreeBuilder<VmShape> {
+            let shape: VmShape = shape.convert();
+            let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
-            out.recurse(
-                &eval,
-                &mut EvalData::default(),
-                &mut EvalStorage::default(),
-                CellIndex::default(),
-                settings,
-            );
+            out.recurse(&eval, CellIndex::default(), settings);
             out
         }
 
@@ -1781,7 +1757,7 @@ mod test {
         // Make a very smol sphere that won't be sampled
         let ctx = BoundContext::new();
         let shape = sphere(&ctx, [0.1; 3], 0.05);
-        let tape = shape.get_tape::<crate::vm::Eval>().unwrap();
+        let tape: VmShape = shape.convert();
         for threads in [0, 4] {
             let settings = Settings {
                 min_depth: 1,
@@ -1802,7 +1778,7 @@ mod test {
         const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
         let (ctx, root) =
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
-        let tape = Tape::<crate::vm::Eval>::new(&ctx, root).unwrap();
+        let tape = VmShape::new(&ctx, root).unwrap();
         for threads in [0, 8] {
             let settings = Settings {
                 min_depth: 5,

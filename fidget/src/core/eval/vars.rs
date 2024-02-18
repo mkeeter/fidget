@@ -1,4 +1,3 @@
-use crate::eval::tape::Data;
 use std::{collections::HashMap, sync::Arc};
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
@@ -10,8 +9,7 @@ pub struct Vars {
 
 impl Vars {
     /// Builds a new variable binding, initializing them all to 0
-    pub fn new(tape: &Data) -> Self {
-        let names = tape.vars();
+    pub fn new(names: Arc<HashMap<String, u32>>) -> Self {
         let values = vec![0.0; names.len()];
         Self { names, values }
     }

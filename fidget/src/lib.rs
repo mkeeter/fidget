@@ -3,8 +3,8 @@
 //!
 //! An **implicit surface** is a function `f(x, y, z)`, where `x`, `y`, and `z`
 //! represent a position in 3D space.  By convention, if `f(x, y, z) < 0`, then
-//! that position is **inside** the shape; if it's `> 0`, then that position is
-//! **outside** the shape; otherwise, it's on the boundary of the shape.
+//! that position is _inside_ the shape; if it's `> 0`, then that position is
+//! _outside_ the shape; otherwise, it's on the boundary of the shape.
 //!
 //! A **closed-form** implicit surface means that the function is given as a
 //! fixed expression built from closed-form operations (addition, subtraction,
@@ -43,9 +43,9 @@
 //! a shape from a script:
 //!
 //! ```
-//! use fidget::rhai::eval;
+//! use fidget::rhai;
 //!
-//! let (sum, ctx) = eval("x + y")?;
+//! let (sum, ctx) = rhai::eval("x + y")?;
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -54,44 +54,29 @@
 //! passing it some position `(x, y, z)` and getting back a result.  This will
 //! be done _a lot_, so it has to be fast.
 //!
-//! Before evaluation, a shape must be baked into a [`Tape`](crate::eval::Tape).
-//! This is performed by [`Tape::new`](crate::eval::Tape::new):
-//! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! Evaluation is deliberately agnostic to the specific details of how we go
+//! from position to results.  This abstraction is represented by the
+//! [`Shape` trait](crate::eval::Shape), which defines how to make both
+//! **evaluators** and **tapes**.
 //!
-//! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! assert_eq!(tape.len(), 3); // X, Y, and (X + Y)
-//! # Ok::<(), fidget::Error>(())
-//! ```
+//! An **evaluator** is an object which performs evaluation of some kind (point,
+//! array, gradient, interval).  It carries no persistent data, and would
+//! typically be constructed on a per-thread basis.
 //!
-//! A tape is a set of operations for a very simple virtual machine; the
-//! expression above would be something like
-//! ```text
-//! $0 = INPUT 0   // X
-//! $1 = INPUT 1   // Y
-//! $2 = ADD $0 $1 // (X + Y)
-//! ```
+//! A **tape** contains instructions for an evaluator.
 //!
-//! The `Tape` is parameterized by a particular
-//! [evaluator family](crate::eval::Family);
-//! in `Tape::<vm::Eval>::new(&ctx, ...)`, the associated family is `vm::Eval`.
+//! For example, the [`VmShape`](crate::vm::VmShape) type uses a simple virtual
+//! machine to perform evaluation.  Here's a peek at the internals:
 //!
-//! (Parameterizing the tape is required because different evaluator families
-//! have different numbers of [available
-//! registers](crate::eval::Family::REG_LIMIT), which affects tape planning;
-//! don't worry, this won't be on the test)
+//! At the moment, Fidget implements two kinds of shapes:
 //!
-//! At the moment, Fidget implements two evaluator families:
-//!
-//! - [`fidget::jit::Eval`](crate::jit::Eval) performs fast evaluation by
-//!   compiling shapes down to native code.  This is only functional on an ARM64
-//!   system running natively.
-//! - [`fidget::vm::Eval`](crate::vm::Eval) evaluates
+//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates a list of opcodes
 //!   using an interpreter.  This is slower, but can run in more situations (e.g.
-//!   x86 machines or in WebAssembly).
+//!   in WebAssembly).
+//! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
+//!   by compiling shapes down to native code.
 //!
-//! Looking at the [`eval::Family`](crate::eval::Family) trait, you may notice
+//! Looking at the [`eval::Shape`](crate::eval::Shape) trait, you may notice
 //! that it requires four different kinds of evaluation:
 //!
 //! - Single-point evaluation
@@ -104,28 +89,31 @@
 //! - Interval evaluation can conservatively prove large regions of space to be
 //!   empty or full, at which point they don't need to be considered further.
 //! - Array-of-points evaluation speeds up calculating occupancy (inside /
-//!   outside) when given a set of voxels by amortizing dispatch overhead.
+//!   outside) when given a set of voxels, because dispatch overhead is
+//!   amortized over many points.
 //! - At the surface of the model, partial derivatives represent normals and
 //!   can be used for shading.
 //!
 //! Here's a simple example of interval evaluation:
 //! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! use fidget::{eval::{Shape, EzShape, TracingEvaluator}, rhai, vm::VmShape};
 //!
-//! let (sum, ctx) = eval("x + y")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let mut interval_eval = tape.new_interval_evaluator();
-//! let (out, _) = interval_eval.eval(
-//!         [0.0, 1.0], // X
-//!         [2.0, 3.0], // Y
-//!         [0.0, 0.0], // Z
-//!         &[]         // variables (unused)
-//!     )?;
+//! let (sum, ctx) = rhai::eval("x + y")?;
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let mut interval_eval = VmShape::new_interval_eval();
+//! let tape = shape.ez_interval_tape();
+//! let (out, _trace) = interval_eval.eval(
+//!     &tape,
+//!     [0.0, 1.0], // X
+//!     [2.0, 3.0], // Y
+//!     [0.0, 0.0], // Z
+//!     &[]         // variables (unused)
+//! )?;
 //! assert_eq!(out, [2.0, 4.0].into());
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
-//! # Tape simplification
+//! # Shape simplification
 //! Interval evaluation serves two purposes.  As we already mentioned, it can be
 //! used to prove large regions empty or filled, which lets us do less work when
 //! rendering.  In addition, it can discover **sections of the tape** that are
@@ -134,17 +122,19 @@
 //! Consider evaluating `f(x, y, z) = max(x, y)` with `x = [0, 1]` and
 //! `y = [2, 3]`:
 //! ```
-//! use fidget::{eval::Tape, rhai::eval, vm};
+//! use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
 //!
-//! let (sum, ctx) = eval("min(x, y)")?;
-//! let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! let mut interval_eval = tape.new_interval_evaluator();
-//! let (out, simplify) = interval_eval.eval(
-//!         [0.0, 1.0], // X
-//!         [2.0, 3.0], // Y
-//!         [0.0, 0.0], // Z
-//!         &[]         // variables (unused)
-//!     )?;
+//! let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! let shape = VmShape::new(&ctx, sum)?;
+//! let mut interval_eval = VmShape::new_interval_eval();
+//! let tape = shape.ez_interval_tape();
+//! let (out, trace) = interval_eval.eval(
+//!     &tape,
+//!     [0.0, 1.0], // X
+//!     [2.0, 3.0], // Y
+//!     [0.0, 0.0], // Z
+//!     &[]         // variables (unused)
+//! )?;
 //! assert_eq!(out, [0.0, 1.0].into());
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -153,26 +143,27 @@
 //! than** `y` in the `min(x, y)` clause.  This means that we can simplify the
 //! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
 //!
-//! Simplification is done with
-//! [`TracingEvalResult::simplify`](crate::eval::tracing::TracingEvalResult::simplify),
-//! using the `TracingEvalResult` returned from
-//! [`IntervalEval::eval`](crate::eval::interval::IntervalEval::eval).
+//! Interval evaluation is a kind of
+//! [tracing evaluation](crate::eval::TracingEvaluator), which returns a tuple
+//! of `(value, trace)`.  The trace can be used to simplify the original shape:
 //!
 //! ```
-//! # use fidget::{eval::Tape, rhai::eval, vm};
-//! # let (sum, ctx) = eval("min(x, y)")?;
-//! # let tape = Tape::<vm::Eval>::new(&ctx, sum)?;
-//! # let mut interval_eval = tape.new_interval_evaluator();
-//! # let (out, simplify) = interval_eval.eval(
+//! # use fidget::{eval::{TracingEvaluator, Shape, EzShape}, rhai, vm::VmShape};
+//! # let (sum, ctx) = rhai::eval("min(x, y)")?;
+//! # let shape = VmShape::new(&ctx, sum)?;
+//! # let mut interval_eval = VmShape::new_interval_eval();
+//! # let tape = shape.ez_interval_tape();
+//! # let (out, trace) = interval_eval.eval(
+//! #         &tape,
 //! #         [0.0, 1.0], // X
 //! #         [2.0, 3.0], // Y
 //! #         [0.0, 0.0], // Z
 //! #         &[]         // variables (unused)
 //! #     )?;
 //! // (same code as above)
-//! assert_eq!(interval_eval.tape().len(), 3);
-//! let new_tape = simplify.unwrap().simplify()?;
-//! assert_eq!(new_tape.len(), 1); // just the 'X' term
+//! assert_eq!(tape.size(), 3);
+//! let new_shape = shape.ez_simplify(trace.unwrap())?;
+//! assert_eq!(new_shape.ez_interval_tape().size(), 1); // just the 'X' term
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -189,16 +180,17 @@
 //! Here's a quick example:
 //! ```
 //! use fidget::context::Context;
-//! use fidget::rhai::eval;
-//! use fidget::vm;
+//! use fidget::rhai;
+//! use fidget::vm::VmShape;
 //! use fidget::render::{BitRenderMode, RenderConfig};
 //!
-//! let (shape, ctx) = eval("sqrt(x*x + y*y) - 1")?;
+//! let (shape, ctx) = rhai::eval("sqrt(x*x + y*y) - 1")?;
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let out = cfg.run::<vm::Eval, _>(shape, ctx, &BitRenderMode)?;
+//! let shape = VmShape::new(&ctx, shape)?;
+//! let out = cfg.run(shape, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {

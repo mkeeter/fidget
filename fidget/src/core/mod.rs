@@ -1,7 +1,11 @@
 //! Core infrastructure for evaluating complex closed-form implicit surfaces.
 //!
 //! ```
-//! use fidget::{vm, context::Context, eval::Tape};
+//! use fidget::{
+//!     context::Context,
+//!     eval::{Shape, EzShape, TracingEvaluator},
+//!     vm::VmShape
+//! };
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
 //! let y = ctx.y();
@@ -10,17 +14,22 @@
 //! let radius = ctx.add(x_squared, y_squared)?;
 //! let circle = ctx.sub(radius, 1.0)?;
 //!
-//! let tape = Tape::<vm::Eval>::new(&ctx, circle)?;
-//! let mut eval = tape.new_point_evaluator();
-//! assert_eq!(eval.eval(0.0, 0.0, 0.0, &[])?.0, -1.0);
-//! assert_eq!(eval.eval(1.0, 0.0, 0.0, &[])?.0, 0.0);
+//! let shape = VmShape::new(&ctx, circle)?;
+//! let mut eval = VmShape::new_point_eval();
+//! let tape = shape.ez_point_tape();
+//!
+//! let (v, _trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[])?;
+//! assert_eq!(v, -1.0);
+//!
+//! let (v, _trace) = eval.eval(&tape, 1.0, 0.0, 0.0, &[])?;
+//! assert_eq!(v, 0.0);
 //!
 //! const N: usize = 15;
 //! for i in 0..N {
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let v = eval.eval(x, y, 0.0, &[])?.0;
+//!         let (v, _trace) = eval.eval(&tape, x, y, 0.0, &[])?;
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();

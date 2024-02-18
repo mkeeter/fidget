@@ -1,17 +1,10 @@
 //! 2D bitmap rendering / rasterization
 use crate::{
-    eval::{
-        float_slice::{
-            FloatSliceEval, FloatSliceEvalData, FloatSliceEvalStorage,
-        },
-        interval::{IntervalEval, IntervalEvalData, IntervalEvalStorage},
-        tape::{Data as TapeData, Tape, Workspace},
-        types::Interval,
-        Family,
-    },
+    eval::{types::Interval, BulkEvaluator, Shape, Tape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 use nalgebra::{Point2, Vector2};
+use std::sync::Arc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -174,35 +167,67 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, I: Family, M: RenderMode> {
+/// Per-thread worker
+struct Worker<'a, S: Shape, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
+    eval_float_slice: S::FloatSliceEval,
+    eval_interval: S::IntervalEval,
+
+    /// Spare tape storage for reuse
+    tape_storage: Vec<S::TapeStorage>,
+
+    /// Spare shape storage for reuse
+    shape_storage: Vec<S::Storage>,
+
+    /// Workspace for shape simplification
+    workspace: S::Workspace,
+
     image: Vec<M::Output>,
-
-    /// Storage for float slice evaluators
-    float_storage: [FloatSliceEvalStorage<I>; 2],
-
-    /// Storage for interval evaluators, based on recursion depth
-    interval_storage: Vec<IntervalEvalStorage<I>>,
-
-    /// Workspace for interval evaluators, based on recursion depth
-    interval_data: Vec<IntervalEvalData<I>>,
-
-    /// Workspace for pixel evaluators
-    float_data: FloatSliceEvalData<I>,
-
-    spare_tapes: Vec<TapeData>,
-    workspace: Workspace,
 }
 
-impl<I: Family, M: RenderMode> Worker<'_, I, M> {
+/// A specific shape, and its associated tapes
+struct ShapeAndTape<S: Shape> {
+    shape: S,
+
+    /// Interval tape to evaluate the given shape
+    ///
+    /// This is shareable because we use the same tape for all threads when they
+    /// start evaluating the root shape (which is the most expensive to build a
+    /// tape for, since it's the largest).
+    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
+    f_tape: Option<<S::FloatSliceEval as BulkEvaluator>::Tape>,
+}
+
+impl<S: Shape> ShapeAndTape<S> {
+    fn i_tape(
+        &mut self,
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
+        self.i_tape.get_or_insert_with(|| {
+            Arc::new(
+                self.shape.interval_tape(storage.pop().unwrap_or_default()),
+            )
+        })
+    }
+    fn f_tape(
+        &mut self,
+        storage: &mut Vec<S::TapeStorage>,
+    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
+        self.f_tape.get_or_insert_with(|| {
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
+        })
+    }
+}
+
+impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
     fn render_tile_recurse(
         &mut self,
-        i_handle: &mut IntervalEval<I>,
+        shape: &mut ShapeAndTape<S>,
         depth: usize,
         tile: Tile<2>,
-        float_handle: &mut Option<FloatSliceEval<I>>,
         mode: &M,
     ) {
         let tile_size = self.config.tile_sizes[depth];
@@ -229,9 +254,10 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
         let y = Interval::new(y_min, y_max);
         let z = Interval::new(0.0, 0.0);
 
-        let mut data = std::mem::take(&mut self.interval_data[depth]);
-        let (i, simplify) =
-            i_handle.eval_with(x, y, z, &[], &mut data).unwrap();
+        let (i, simplify) = self
+            .eval_interval
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
+            .unwrap();
 
         let fill = mode.interval(i, depth);
 
@@ -240,81 +266,65 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
                 let start = self.config.tile_to_offset(tile, 0, y);
                 self.image[start..][..tile_size].fill(fill);
             }
-        } else if let Some(next_tile_size) =
-            self.config.tile_sizes.get(depth + 1)
-        {
-            let sub_tape = if let Some(data) = simplify.as_ref() {
-                data.simplify_with(
-                    &mut self.workspace,
-                    std::mem::take(&mut self.spare_tapes[depth]),
-                )
-                .unwrap()
-            } else {
-                i_handle.tape()
-            };
-            let storage = std::mem::take(&mut self.interval_storage[depth]);
-            let mut sub_jit =
-                sub_tape.new_interval_evaluator_with_storage(storage);
+            return;
+        }
+
+        let mut sub_tape = if let Some(data) = simplify.as_ref() {
+            let s = self.shape_storage.pop().unwrap_or_default();
+            Some(ShapeAndTape {
+                shape: shape
+                    .shape
+                    .simplify(data, s, &mut self.workspace)
+                    .unwrap(),
+                i_tape: None,
+                f_tape: None,
+            })
+        } else {
+            None
+        };
+        let sub_tape_ref = sub_tape
+            .as_mut()
+            .filter(|t| t.shape.size() < shape.shape.size())
+            .unwrap_or(shape);
+
+        if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;
-            let mut float_handle = None;
             for j in 0..n {
                 for i in 0..n {
                     self.render_tile_recurse(
-                        &mut sub_jit,
+                        sub_tape_ref,
                         depth + 1,
                         self.config.new_tile([
                             tile.corner[0] + i * next_tile_size,
                             tile.corner[1] + j * next_tile_size,
                         ]),
-                        &mut float_handle,
                         mode,
                     );
                 }
             }
-            self.interval_storage[depth] = sub_jit.take().unwrap();
-            if let Some(f) = float_handle {
-                self.float_storage[0] = f.take().unwrap();
-            }
-            if simplify.is_some() {
-                self.spare_tapes[depth] = sub_tape.take().unwrap();
-            }
         } else {
-            // TODO this is not a place of honor
-            let sub_tape = if let Some(simplify) = simplify.as_ref() {
-                simplify
-                    .simplify_with(
-                        &mut self.workspace,
-                        std::mem::take(self.spare_tapes.last_mut().unwrap()),
-                    )
-                    .unwrap()
-            } else {
-                i_handle.tape()
-            };
-            self.render_tile_pixels(
-                i_handle.tape(),
-                &sub_tape,
-                tile_size,
-                tile,
-                float_handle,
-                mode,
-            );
-            if simplify.is_some() {
-                *self.spare_tapes.last_mut().unwrap() =
-                    sub_tape.take().unwrap();
+            self.render_tile_pixels(sub_tape_ref, tile_size, tile, mode);
+        }
+        if let Some(sub_tape) = sub_tape {
+            if let Some(i_tape) = sub_tape.i_tape {
+                if let Ok(v) = Arc::try_unwrap(i_tape) {
+                    self.tape_storage.push(v.recycle());
+                }
+            }
+            if let Some(f_tape) = sub_tape.f_tape {
+                self.tape_storage.push(f_tape.recycle());
+            }
+            if let Some(s) = sub_tape.shape.recycle() {
+                self.shape_storage.push(s);
             }
         }
-
-        // Return the data
-        self.interval_data[depth] = data;
     }
 
     fn render_tile_pixels(
         &mut self,
-        prev_tape: Tape<I>,
-        sub_tape: &Tape<I>,
+        shape: &mut ShapeAndTape<S>,
         tile_size: usize,
         tile: Tile<2>,
-        float_handle: &mut Option<FloatSliceEval<I>>,
         mode: &M,
     ) {
         let mut index = 0;
@@ -330,53 +340,16 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
             }
         }
 
-        // In some cases, the shortened tape isn't actually any shorter, so
-        // it's a waste of time to rebuild it.  Instead, we want to use a
-        // float-slice evaluator that's bound to the *parent* tape.
-        // Luckily, such a thing _may_ be passed into this function.  If
-        // not, we build it here and then pass it out, so future calls can
-        // use it.
-        //
-        // (this matters most for the JIT compiler, which is _expensive_)
-        let out = if sub_tape.len() < prev_tape.len() {
-            let storage = std::mem::take(&mut self.float_storage[1]);
-            let func = sub_tape.new_float_slice_evaluator_with_storage(storage);
-
-            let out = func
-                .eval_with(
-                    &self.scratch.x,
-                    &self.scratch.y,
-                    &self.scratch.z,
-                    &[],
-                    &mut self.float_data,
-                )
-                .unwrap();
-
-            // We consume the evaluator, so any reuse of memory between the
-            // FloatSliceFunc and FloatSliceEval should be cleared up and we
-            // should be able to reuse the working memory.
-            self.float_storage[1] = func.take().unwrap();
-            out
-        } else {
-            // Reuse the FloatSliceFunc handle passed in, or build one if it
-            // wasn't already available (which makes it available to siblings)
-            let func = float_handle.get_or_insert_with(|| {
-                let storage = std::mem::take(&mut self.float_storage[0]);
-                prev_tape.new_float_slice_evaluator_with_storage(storage)
-            });
-
-            func.eval_with(
+        let out = self
+            .eval_float_slice
+            .eval(
+                shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
                 &[],
-                &mut self.float_data,
             )
-            .unwrap()
-
-            // Don't release func to self.float_storage[0] here; it's done by
-            // the parent caller at the end of subtile iteration.
-        };
+            .unwrap();
 
         let mut index = 0;
         for j in 0..tile_size {
@@ -391,8 +364,8 @@ impl<I: Family, M: RenderMode> Worker<'_, I, M> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<I: Family, M: RenderMode>(
-    mut i_handle: IntervalEval<I>,
+fn worker<S: Shape, M: RenderMode>(
+    mut shape: ShapeAndTape<S>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
     mode: &M,
@@ -400,26 +373,19 @@ fn worker<I: Family, M: RenderMode>(
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
 
-    let mut w: Worker<I, M> = Worker {
+    let mut w: Worker<S, M> = Worker {
         scratch,
         image: vec![],
         config,
-        float_storage: Default::default(),
-        interval_storage: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
-            .collect(),
-        interval_data: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
-            .collect(),
-        spare_tapes: (0..config.tile_sizes.len())
-            .map(|_| Default::default())
-            .collect(),
-        float_data: Default::default(),
+        eval_float_slice: S::FloatSliceEval::new(),
+        eval_interval: S::IntervalEval::new(),
+        tape_storage: vec![],
+        shape_storage: vec![],
         workspace: Default::default(),
     };
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut i_handle, 0, tile, &mut None, mode);
+        w.render_tile_recurse(&mut shape, 0, tile, mode);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -437,8 +403,8 @@ fn worker<I: Family, M: RenderMode>(
 /// This function is parameterized by both evaluator family (which determines
 /// how we perform evaluation) and render mode (which tells us how to color in
 /// the resulting pixels).
-pub fn render<I: Family, M: RenderMode + Sync>(
-    tape: Tape<I>,
+pub fn render<S: Shape, M: RenderMode + Sync>(
+    shape: S,
     config: &RenderConfig<2>,
     mode: &M,
 ) -> Vec<M::Output> {
@@ -448,7 +414,6 @@ pub fn render<I: Family, M: RenderMode + Sync>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    let i_handle = tape.new_interval_evaluator();
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {
@@ -459,12 +424,18 @@ pub fn render<I: Family, M: RenderMode + Sync>(
         }
     }
 
+    let i_tape = Some(Arc::new(shape.interval_tape(Default::default())));
     let queue = Queue::new(tiles);
     let out = std::thread::scope(|s| {
         let mut handles = vec![];
         for _ in 0..config.threads {
-            let i = i_handle.clone();
-            handles.push(s.spawn(|| worker::<I, M>(i, &queue, &config, mode)));
+            let shape = ShapeAndTape {
+                shape: shape.clone(),
+                i_tape: i_tape.clone(),
+                f_tape: None,
+            };
+            handles
+                .push(s.spawn(|| worker::<S, M>(shape, &queue, &config, mode)));
         }
         let mut out = vec![];
         for h in handles {

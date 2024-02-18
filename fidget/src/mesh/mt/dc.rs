@@ -250,7 +250,7 @@ impl DcBuilder for DcWorker<'_> {
         let mut next = self.verts.len();
         assert!(next < (1 << 55));
         next |= 1 << 63;
-        next |= (self.thread_index as usize) << 55;
+        next |= self.thread_index << 55;
 
         match self.map[i].compare_exchange(
             0,
