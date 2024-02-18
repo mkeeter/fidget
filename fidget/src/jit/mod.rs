@@ -596,7 +596,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
     #[allow(clippy::let_unit_value)]
     let _guard = Mmap::thread_mode_write();
 
-    let size_estimate = t.len() & A::bytes_per_clause();
+    let size_estimate = t.len() * A::bytes_per_clause();
     if size_estimate > 2 * s.len() {
         s = Mmap::new(size_estimate).expect("failed to build mmap")
     }
