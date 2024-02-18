@@ -2,9 +2,9 @@
 //!
 //! The Fidget compiler operates in several stages:
 //! - A math graph (specified as a [`Context`](crate::Context) and
-//!   [`Node`](crate::context::Node)) is flattened into an `SsaTape`, i.e. a set
-//!   of operations in single-static assignment form.
-//! - An `SsaTape` goes through register allocation and becomes a `RegTape`,
+//!   [`Node`](crate::context::Node)) is flattened into an [`SsaTape`], i.e. a
+//!   set of operations in single-static assignment form.
+//! - An `SsaTape` goes through register allocation and becomes a [`RegTape`],
 //!   planned with some number of registers.
 
 mod alloc;
