@@ -65,7 +65,7 @@ eval-tests = []
 write-xor-execute = []
 
 [dev-dependencies]
-criterion = { version = "0.3", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
 name = "render"

@@ -8,7 +8,7 @@ fidget = { path = "../fidget", default-features = false, features = ["render", "
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-env_logger = "0.9"
+env_logger = "0.11.2"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"
 nalgebra = "0.31"
