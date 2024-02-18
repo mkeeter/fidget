@@ -87,7 +87,7 @@ impl IntoNode for BoundNode {
 impl BoundNode {
     pub fn convert<T: MathShape>(&self) -> T {
         let ctx = self.ctx.borrow();
-        let Ok(out) = T::new(&*ctx, self.node) else {
+        let Ok(out) = T::new(&ctx, self.node) else {
             unreachable!("invalid node for our own context?")
         };
         out

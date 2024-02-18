@@ -102,7 +102,7 @@ impl RegisterAllocator {
         self.bind_register(0, 0);
     }
 
-    /// Claims the internal `Vec<Op>`, leaving it empty
+    /// Claims the internal `Vec<RegOp>`, leaving it empty
     #[inline]
     pub fn finalize(&mut self) -> RegTape {
         std::mem::take(&mut self.out)

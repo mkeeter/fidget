@@ -3,18 +3,12 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::{eval::MathShape, render::RenderConfig};
+use fidget::render::RenderConfig;
 use log::{debug, error, info};
 use nalgebra::{Transform2, Transform3, Vector2, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
-
-#[cfg(feature = "jit")]
-type Shape = fidget::jit::JitShape;
-
-#[cfg(not(feature = "jit"))]
-type Shape = fidget::vm::VmShape;
 
 /// Minimal viewer, using Fidget to render a Rhai script
 #[derive(Parser, Debug)]
@@ -125,7 +119,7 @@ where
             };
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape = Shape::new(&out.context, s.shape).unwrap();
+                let tape = S::new(&out.context, s.shape).unwrap();
                 render(
                     &render_config.mode,
                     tape,
@@ -295,6 +289,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         info!("rhai script thread is done");
     });
     std::thread::spawn(move || {
+        #[cfg(feature = "jit")]
+        type Shape = fidget::jit::JitShape;
+
+        #[cfg(not(feature = "jit"))]
+        type Shape = fidget::vm::VmShape;
+
         let _ = render_thread::<Shape>(
             config_rx,
             rhai_result_rx,
