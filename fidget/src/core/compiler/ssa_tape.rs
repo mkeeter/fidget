@@ -57,7 +57,7 @@ pub struct SsaChoiceData {
 }
 
 impl SsaRoot {
-    /// Flattens a subtree of the graph into straight-line code.
+    /// Flattens a subtree of the graph into groups of straight-line code.
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
