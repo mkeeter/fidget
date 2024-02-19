@@ -1,3 +1,6 @@
+# 0.2.1 (unreleased)
+- Changed `fidget::eval::Vars` to borrow instead of use an `Arc`
+
 # 0.2.0: The Big Refactoring
 This release includes a significant amount of reorganization and refactoring.
 There are two main sets of changes, along with some minor tweaks.
