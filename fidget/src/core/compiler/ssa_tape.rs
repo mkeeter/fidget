@@ -390,6 +390,15 @@ impl SsaRoot {
                         };
 
                         if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
+                            // min(imm, reg) => MinImmReg(reg, imm)
+                            let (lhs, rhs) = if matches!(
+                                mapping[lhs],
+                                Slot::Immediate(..)
+                            ) {
+                                (rhs, lhs)
+                            } else {
+                                (lhs, rhs)
+                            };
                             let enable_left = node_to_group
                                 .get(lhs)
                                 .map(|g| group_index[g])
