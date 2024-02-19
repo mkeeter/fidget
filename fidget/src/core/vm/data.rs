@@ -164,7 +164,7 @@ impl<const N: u8> VmData<N> {
         groups_out.clear();
 
         let mut choice_count = 0;
-        let mut trace_iter = trace.iter();
+        let mut trace_iter = trace.iter().rev();
         for &g in &self.active_groups {
             let group = &self.root.groups[g];
 
