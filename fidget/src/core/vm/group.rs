@@ -32,6 +32,7 @@ struct ChoiceData {
 }
 
 struct GroupRoot {
+    /// Individual groups, in reverse-evaluation order
     groups: Vec<GroupData>,
 
     /// Total number of (SSA) operations in all the tape groups
