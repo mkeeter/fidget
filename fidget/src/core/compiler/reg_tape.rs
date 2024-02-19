@@ -3,7 +3,7 @@ use crate::compiler::{RegOp, RegisterAllocator, SsaRoot};
 
 /// Low-level tape for use with the Fidget virtual machine (or to be lowered
 /// further into machine instructions).
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RegTape {
     tape: Vec<RegOp>,
 

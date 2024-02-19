@@ -49,6 +49,7 @@ use std::{collections::HashMap, sync::Arc};
 /// # Ok::<(), fidget::Error>(())
 /// ```
 ///
+#[derive(Debug)]
 pub struct VmData<const N: u8 = { u8::MAX }> {
     /// Handle to the root, containing SSA groups
     root: Arc<SsaRoot>,
@@ -58,6 +59,11 @@ pub struct VmData<const N: u8 = { u8::MAX }> {
     /// This array is absolutely indexed, i.e. it has a slot for every choice in
     /// the root tape (though the shortened tape may be using fewer)
     choices: Vec<Choice>,
+
+    /// Number of active choices in this shortened tape
+    ///
+    /// This will always be `<= self.choices.len()`
+    choice_count: usize,
 
     /// Active groups, in reverse-evaluation order
     active_groups: Vec<usize>,
@@ -85,10 +91,12 @@ impl<const N: u8> VmData<N> {
         let root = SsaRoot::new(context, node)?;
         let tape = RegTape::new(&root, N);
         let choices = vec![Choice::Both; root.choice_count];
+        let choice_count = root.choice_count;
         let active_groups = (0..root.groups.len()).collect();
         Ok(Self {
             root: root.into(),
             choices,
+            choice_count,
             active_groups,
             tape,
         })
@@ -109,12 +117,12 @@ impl<const N: u8> VmData<N> {
         self.tape.is_empty()
     }
 
-    /// Returns the number of choice (min/max) nodes in the tape.
+    /// Returns the number of choice (min/max) nodes in the shortened tape.
     ///
     /// This is required because some evaluators pre-allocate spaces for the
     /// choice array.
     pub fn choice_count(&self) -> usize {
-        self.root.choice_count
+        self.choice_count
     }
 
     /// Returns the number of slots used by the inner VM tape
@@ -155,17 +163,28 @@ impl<const N: u8> VmData<N> {
         let mut groups_out = out.active_groups;
         groups_out.clear();
 
+        let mut choice_count = 0;
         let mut trace_iter = trace.iter();
         for &g in &self.active_groups {
             let group = &self.root.groups[g];
 
-            // Skip trace choices if the group is not active
+            // Prepare to modify the output choice array (which is global) by
+            // slicing an appropriate chunk of it.
+            let choice_out_slice =
+                &mut choices_out[group.choice_offset..][..group.choices.len()];
+
+            // Skip choices in the evaluation trace if the group is not active
+            // but the choice was previously active
             if !workspace.active[g] {
-                for _ in 0..group.choices.len() {
-                    trace_iter.next().unwrap();
+                for c in choice_out_slice {
+                    if *c == Choice::Both {
+                        trace_iter.next().unwrap();
+                    }
                 }
                 continue;
             }
+
+            // Otherwise, we need to simplify this group
             groups_out.push(g);
 
             // Enable the always-active nodes connected to this group
@@ -173,18 +192,17 @@ impl<const N: u8> VmData<N> {
                 workspace.active[e] = true;
             }
 
-            // Prepare to modify the output choice array (which is global) by
-            // slicing an appropriate chunk of it.
-            let choice_out_slice =
-                &mut choices_out[group.choice_offset..][..group.choices.len()];
-
             let mut choice_meta_iter = group.choices.iter().enumerate();
             for &op in &group.ops {
                 let op = if op.has_choice() {
-                    // Update the output choice array.
-                    let c = *trace_iter.next().unwrap();
+                    // Update the output choice array, if the choice was written
+                    // here (i.e. it was Choice::Both in the previous evaluation
+                    // trace)
                     let (i, meta) = choice_meta_iter.next().unwrap();
-                    choice_out_slice[i] &= c;
+                    if choice_out_slice[i] == Choice::Both {
+                        let c = *trace_iter.next().unwrap();
+                        choice_out_slice[i] &= c;
+                    }
 
                     // Enable conditional groups and patch the opcode if a
                     // choice was made here
@@ -192,6 +210,7 @@ impl<const N: u8> VmData<N> {
                         Choice::Both => {
                             workspace.active[meta.enable_left] = true;
                             workspace.active[meta.enable_right] = true;
+                            choice_count += 1;
                             op
                         }
                         Choice::Left => {
@@ -234,6 +253,7 @@ impl<const N: u8> VmData<N> {
         Ok(Self {
             root: self.root.clone(),
             choices: choices_out,
+            choice_count,
             active_groups: groups_out,
             tape: workspace.alloc.finalize(),
         })
