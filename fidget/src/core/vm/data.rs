@@ -146,7 +146,7 @@ impl<const N: u8> VmData<N> {
 
         // The new choices array starts out as identical to ours
         let mut choices_out = std::mem::take(&mut out.choices);
-        choices_out.resize(self.choices.len(), Choice::Unknown);
+        choices_out.resize(self.choices.len(), Choice::None);
         choices_out.copy_from_slice(&self.choices);
 
         workspace.alloc.reset(N, self.root.len(), out.tape);
@@ -221,7 +221,7 @@ impl<const N: u8> VmData<N> {
                                 _ => panic!("invalid choice op"),
                             }
                         }
-                        Choice::Unknown => panic!("cannot plan unknown"),
+                        Choice::None => panic!("cannot plan unknown"),
                     }
                 } else {
                     op

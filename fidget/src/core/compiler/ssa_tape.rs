@@ -92,7 +92,7 @@ impl SsaRoot {
                     .or_default()
                     .entry(root)
                     .or_default();
-                if *c & choice != Choice::Unknown {
+                if *c & choice != Choice::None {
                     continue;
                 }
                 *c |= choice;

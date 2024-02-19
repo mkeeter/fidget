@@ -1,8 +1,7 @@
 use crate::{
     jit::{
         mmap::Mmap, point::PointAssembler, reg, Assembler, AssemblerData,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
+        CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
     },
     Error,
 };
@@ -131,27 +130,25 @@ impl Assembler for PointAssembler {
             ; jb >R
 
             // Fallthrough for equal, so just copy to the output register
-            ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             // Fallthrough for NaN, which are !=; do a float addition to
             // propagate it to the output register.
             ; N:
-            ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             ; jmp >O
 
             ; R:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
             // fallthrough to out
 
@@ -167,25 +164,23 @@ impl Assembler for PointAssembler {
             ; jb >L
 
             // Fallthrough for equal, so just copy to the output register
-            ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             ; N:
-            ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rsi], CHOICE_RIGHT as i8
             ; or [rdx], 1
             ; jmp >O
 
             ; R:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rsi], CHOICE_LEFT as i8
             ; or [rdx], 1
             // fallthrough to out
 

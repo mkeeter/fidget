@@ -1,8 +1,7 @@
 use crate::{
     jit::{
         mmap::Mmap, point::PointAssembler, reg, Assembler, AssemblerData,
-        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
-        REGISTER_LIMIT,
+        CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
     },
     Error,
 };
@@ -114,23 +113,22 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20 // -> RHS
-            ; b.gt #32 // -> LHS
+            ; b.mi #16 // -> RHS
+            ; b.gt #28 // -> LHS
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_BOTH
             ; b #32 // -> end
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_LEFT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
             ; b #16
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
             // fall-through to end
 
@@ -142,23 +140,22 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20
-            ; b.gt #32
+            ; b.mi #16
+            ; b.gt #28
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_BOTH
             ; b #32 // -> end
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
             ; b #16
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_LEFT
             ; strb w14, [x2, #0]
             // fall-through to end
 

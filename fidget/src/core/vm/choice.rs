@@ -13,10 +13,8 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u8)]
 pub enum Choice {
-    /// This choice has not yet been assigned
-    ///
-    /// A value of `Unknown` is invalid after evaluation
-    Unknown = 0,
+    /// This operation has not picked either left or right-hand input
+    None = 0,
 
     /// The operation always picks the left-hand input
     Left = 1,
@@ -30,14 +28,14 @@ pub enum Choice {
 
 impl Default for Choice {
     fn default() -> Self {
-        Self::Unknown
+        Self::None
     }
 }
 
 impl std::ops::BitOrAssign<Choice> for Choice {
     fn bitor_assign(&mut self, other: Self) {
         *self = match (*self as u8) | (other as u8) {
-            0 => Self::Unknown,
+            0 => Self::None,
             1 => Self::Left,
             2 => Self::Right,
             3 => Self::Both,
@@ -50,10 +48,10 @@ impl std::ops::Not for Choice {
     type Output = Choice;
     fn not(self) -> Self {
         match self {
-            Self::Unknown => Self::Both,
+            Self::None => Self::Both,
             Self::Left => Self::Right,
             Self::Right => Self::Left,
-            Self::Both => Self::Unknown,
+            Self::Both => Self::None,
         }
     }
 }
@@ -68,7 +66,7 @@ impl std::ops::BitAnd<Choice> for Choice {
     type Output = Choice;
     fn bitand(self, other: Self) -> Self::Output {
         match (self as u8) & (other as u8) {
-            0 => Self::Unknown,
+            0 => Self::None,
             1 => Self::Left,
             2 => Self::Right,
             3 => Self::Both,

@@ -187,8 +187,8 @@ impl<T> Default for TracingVmEval<T> {
 impl<T: From<f32> + Clone> TracingVmEval<T> {
     fn resize_slots(&mut self, tape: &VmData) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
-        self.choices.resize(tape.choice_count(), Choice::Unknown);
-        self.choices.fill(Choice::Unknown);
+        self.choices.resize(tape.choice_count(), Choice::None);
+        self.choices.fill(Choice::None);
     }
 }
 
@@ -271,14 +271,14 @@ impl TracingEvaluator for VmIntervalEval {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= !choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= !choice;
                     choice_index += 1;
                     simplify |= choice != Choice::Both;
                 }
@@ -289,14 +289,14 @@ impl TracingEvaluator for VmIntervalEval {
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= !choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
+                    self.0.choices[choice_index] |= !choice;
                     simplify |= choice != Choice::Both;
                     choice_index += 1;
                 }
@@ -400,39 +400,33 @@ impl TracingEvaluator for VmPointEval {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a < imm {
-                        self.0.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Right;
                         a
                     } else if imm < a {
-                        self.0.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Left;
                         imm
+                    } else if a.is_nan() || imm.is_nan() {
+                        f32::NAN
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            imm
-                        }
+                        imm
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::None;
                     choice_index += 1;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let a = v[arg];
                     v[out] = if a > imm {
-                        self.0.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Right;
                         a
                     } else if imm > a {
-                        self.0.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Left;
                         imm
+                    } else if a.is_nan() || imm.is_nan() {
+                        f32::NAN
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            imm
-                        }
+                        imm
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::None;
                     choice_index += 1;
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
@@ -451,40 +445,34 @@ impl TracingEvaluator for VmPointEval {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a < b {
-                        self.0.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Right;
                         a
                     } else if b < a {
-                        self.0.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Left;
                         b
+                    } else if a.is_nan() || b.is_nan() {
+                        f32::NAN
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            f32::NAN
-                        } else {
-                            b
-                        }
+                        b
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::None;
                     choice_index += 1;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
                     v[out] = if a > b {
-                        self.0.choices[choice_index] |= Choice::Left;
+                        self.0.choices[choice_index] |= Choice::Right;
                         a
                     } else if b > a {
-                        self.0.choices[choice_index] |= Choice::Right;
+                        self.0.choices[choice_index] |= Choice::Left;
                         b
+                    } else if a.is_nan() || b.is_nan() {
+                        f32::NAN
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            f32::NAN
-                        } else {
-                            b
-                        }
+                        b
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
+                    simplify |= self.0.choices[choice_index] != Choice::None;
                     choice_index += 1;
                 }
                 RegOp::CopyImm(out, imm) => {
