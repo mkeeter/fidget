@@ -2,7 +2,8 @@ use crate::{
     eval::types::Interval,
     jit::{
         interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
-        CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
     },
     Error,
 };
@@ -319,9 +320,11 @@ impl Assembler for IntervalAssembler {
 
             // Fallthrough: ambiguous case
             ; vmaxps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_BOTH as i16
             ; jmp >E
 
             ; N:
+            ; or ax, CHOICE_BOTH as i16
             // Load NaN into out_reg
             ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
@@ -331,7 +334,7 @@ impl Assembler for IntervalAssembler {
             // lhs.upper < rhs.lower
             ; L:
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or ax, CHOICE_RIGHT as i16
+            ; or ax, CHOICE_LEFT as i16
             ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
             ; mov [rdx], cx
             ; jmp >E
@@ -339,7 +342,7 @@ impl Assembler for IntervalAssembler {
             // rhs.upper < lhs.lower
             ; R:
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or ax, CHOICE_LEFT as i16
+            ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
             // Fallthrough
@@ -354,12 +357,13 @@ impl Assembler for IntervalAssembler {
         // TODO: Godbolt uses unpcklps ?
         dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
-            //      *choices++ |= CHOICE_RIGHT
+            //      *choices++ |= CHOICE_LEFT
             //      out = lhs
             //  elif rhs.upper < lhs.lower
-            //      *choices++ |= CHOICE_LEFT
+            //      *choices++ |= CHOICE_RIGHT
             //      out = rhs
             //  else
+            //      *choices++ |= CHOICE_BOTH
             //      out = fmin(lhs, rhs)
 
             ; mov ax, [rsi]
@@ -380,9 +384,11 @@ impl Assembler for IntervalAssembler {
 
             // Fallthrough: ambiguous case
             ; vminps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_BOTH as i16
             ; jmp >E
 
             ; N:
+            ; or ax, CHOICE_BOTH as i16
             // Load NAN into out_reg
             ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
@@ -392,7 +398,7 @@ impl Assembler for IntervalAssembler {
             // lhs.upper < rhs.lower
             ; L:
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or ax, CHOICE_RIGHT as i16
+            ; or ax, CHOICE_LEFT as i16
             ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
             ; mov [rdx], cx
             ; jmp >E
@@ -400,7 +406,7 @@ impl Assembler for IntervalAssembler {
             // rhs.upper < lhs.lower
             ; R:
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or ax, CHOICE_LEFT as i16
+            ; or ax, CHOICE_RIGHT as i16
             ; mov cx, 1
             ; mov [rdx], cx
             // Fallthrough

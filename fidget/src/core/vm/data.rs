@@ -181,11 +181,10 @@ impl<const N: u8> VmData<N> {
             let mut choice_meta_iter = group.choices.iter().enumerate();
             for &op in &group.ops {
                 let op = if op.has_choice() {
-                    // Update the output choice array.  The trace is **bits to
-                    // clear**, so we clear them here with bitwise operations.
+                    // Update the output choice array.
                     let c = *trace_iter.next().unwrap();
                     let (i, meta) = choice_meta_iter.next().unwrap();
-                    choice_out_slice[i] &= !c;
+                    choice_out_slice[i] &= c;
 
                     // Enable conditional groups and patch the opcode if a
                     // choice was made here

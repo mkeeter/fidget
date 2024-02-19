@@ -2,7 +2,8 @@ use crate::{
     eval::types::Interval,
     jit::{
         interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
-        CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET, REGISTER_LIMIT,
+        CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
+        REGISTER_LIMIT,
     },
     Error,
 };
@@ -316,18 +317,19 @@ impl Assembler for IntervalAssembler {
 
             // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #24 // -> end
+            ; b #28 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_LEFT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #8 // -> end
+            ; b #12 // -> end
 
             // <- both
             ; fmax V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
             ; strb w14, [x1], #1 // post-increment
@@ -336,12 +338,13 @@ impl Assembler for IntervalAssembler {
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             //  if lhs.upper < rhs.lower
-            //      *choices++ |= CHOICE_RIGHT
+            //      *choices++ |= CHOICE_LEFT
             //      out = lhs
             //  elif rhs.upper < lhs.lower
-            //      *choices++ |= CHOICE_LEFT
+            //      *choices++ |= CHOICE_RIGHT
             //      out = rhs
             //  else
+            //      *choices++ |= CHOICE_BOTH
             //      out = fmin(lhs, rhs)
 
             // v4 = [lhs.upper, rhs.upper]
@@ -363,18 +366,19 @@ impl Assembler for IntervalAssembler {
 
             // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, #CHOICE_LEFT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #24 // -> end
+            ; b #28 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, #CHOICE_RIGHT
             ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #8
+            ; b #12
 
             // <- both
             ; fmin V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; orr w14, w14, #CHOICE_BOTH
 
             // <- end
             ; strb w14, [x1], #1 // post-increment
