@@ -61,7 +61,7 @@ impl SsaRoot {
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
     pub fn new(ctx: &Context, root: Node) -> Result<Self, Error> {
-        // We want to build a map from Node -> choide root -> Choice
+        // We want to build a map from Node -> choice root -> Choice
         let node_choices = {
             let mut node_choices: HashMap<Node, HashMap<Node, Choice>> =
                 HashMap::new();
@@ -85,7 +85,8 @@ impl SsaRoot {
                     continue;
                 }
 
-                // If we've already seen this node + choice, then no need to recurse
+                // If we've already seen this node + choice, then no need to
+                // recurse
                 let c = node_choices
                     .entry(node)
                     .or_default()
@@ -102,8 +103,9 @@ impl SsaRoot {
                         lhs,
                         rhs,
                     ) => {
-                        // Special case: min(reg, imm) and min(imm, reg) both become
-                        // MinRegImm nodes, so we swap Left and Right in that case
+                        // Special case: min(reg, imm) and min(imm, reg) both
+                        // become MinRegImm nodes, so we swap Left and Right in
+                        // that case
                         let (lhs, rhs) = if matches!(
                             ctx.get_op(*lhs).unwrap(),
                             Op::Const(..)
@@ -138,8 +140,8 @@ impl SsaRoot {
             node_choices
         };
 
-        // Special case: if the tape is only a constant, then we bail out early with
-        // a specially constructed SsaRoot
+        // Special case: if the tape is only a constant, then we bail out early
+        // with a specially constructed SsaRoot
         if node_choices.is_empty() {
             let c = ctx.const_value(root).unwrap().unwrap() as f32;
             return Ok(SsaRoot {
@@ -175,16 +177,16 @@ impl SsaRoot {
 
         // Build forward and reverse mappings from nodes to groups
         //
-        // (we can't use a bimap here because the group -> node map is many-to-one)
+        // (we can't use a bimap here because the group -> node map is
+        // many-to-one)
         let mut group_to_nodes: HashMap<GroupId, HashSet<Node>> =
             HashMap::new();
         let mut node_to_group: HashMap<Node, GroupId> = HashMap::new();
         for (n, k) in node_choices {
             // Convert into a common key type.  There's a special-case for nodes
-            // which are reachable from the root of the tree, since they will always
-            // be active.
-            let key = if k.contains_key(&root) {
-                assert_eq!(k[&root], Choice::Both);
+            // which are reachable from the root of the tree, since they will
+            // always be active.
+            let key = if k.get(&root) == Some(&Choice::Both) {
                 Key(vec![])
             } else {
                 let mut v: Vec<_> = k.into_iter().collect();
@@ -207,26 +209,31 @@ impl SsaRoot {
                     .iter()
                     .flat_map(|n| ctx.get_op(*n).unwrap().iter_children())
                 {
-                    let child_group = node_to_group[&child];
-                    parents.entry(child_group).or_default().insert(id);
-                    children.entry(id).or_default().insert(child_group);
+                    if let Some(&child_group) = node_to_group.get(&child) {
+                        // Ignore dependencies within the same group
+                        if child_group != id {
+                            parents.entry(child_group).or_default().insert(id);
+                            children.entry(id).or_default().insert(child_group);
+                        }
+                    }
                 }
             }
 
             // Build an ordered list of groups based on parent-child relationships
             let root_group = node_to_group[&root];
-            assert!(parents[&root_group].is_empty());
+            assert!(!parents.contains_key(&root_group));
             let mut group_index = HashMap::new();
             let mut ordered_groups = vec![];
             let mut todo = vec![root_group];
             let mut seen = HashSet::new();
             while let Some(g) = todo.pop() {
-                if !parents[&g].is_empty() || !seen.insert(g) {
+                if !parents.entry(g).or_default().is_empty() || !seen.insert(g)
+                {
                     continue;
                 }
                 group_index.insert(g, ordered_groups.len());
                 ordered_groups.push(g);
-                for c in &children[&g] {
+                for c in children.entry(g).or_default().iter() {
                     let r = parents.get_mut(c).unwrap().remove(&g);
                     assert!(r);
                     todo.push(*c);
@@ -294,7 +301,7 @@ impl SsaRoot {
                 let op = ctx.get_op(node).unwrap();
                 for child in op.iter_children() {
                     // Only handle nodes in this particular group
-                    if node_to_group[&child] != g {
+                    if node_to_group.get(&child) != Some(&g) {
                         continue;
                     }
                     children.entry(node).or_default().insert(child);
@@ -304,14 +311,15 @@ impl SsaRoot {
             let mut todo: Vec<Node> = group_to_nodes[&g]
                 .iter()
                 .cloned()
-                .filter(|n| parents[n].is_empty())
+                .filter(|n| !parents.contains_key(n))
                 .collect();
             let mut ordered_ops = vec![];
             let mut seen = HashSet::new();
             let mut enable_always = HashSet::new();
             let mut choices = vec![];
             while let Some(n) = todo.pop() {
-                if !parents[&n].is_empty() || !seen.insert(n) {
+                if !parents.entry(n).or_default().is_empty() || !seen.insert(n)
+                {
                     continue;
                 }
                 let Slot::Reg(i) = mapping[&n] else {
@@ -438,14 +446,14 @@ impl SsaRoot {
                 ordered_ops.push(op);
 
                 // Continue processing children in this group
-                for c in &children[&n] {
+                for c in children.entry(n).or_default().iter() {
                     let r = parents.get_mut(c).unwrap().remove(&n);
                     assert!(r);
                     todo.push(*c);
                 }
             }
-            // Increment our global choice counter, which sets an offset into the
-            // global choice array table during simplification
+            // Increment our global choice counter, which sets an offset into
+            // the global choice array table during simplification
             let choice_offset = choice_count;
             choice_count += choices.len();
 
