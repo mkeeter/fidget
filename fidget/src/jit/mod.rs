@@ -863,8 +863,8 @@ impl JitTracingEval {
         let y = y.into();
         let z = z.into();
         let mut simplify = 0;
-        self.choices.resize(tape.choice_count, Choice::Both);
-        self.choices.fill(Choice::Both);
+        self.choices.resize(tape.choice_count, Choice::None);
+        self.choices.fill(Choice::None);
         let out = unsafe {
             (tape.fn_trace)(
                 x,

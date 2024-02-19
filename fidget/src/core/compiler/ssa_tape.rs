@@ -218,15 +218,6 @@ impl SsaRoot {
                     }
                 }
             }
-            for (g, n) in &group_to_nodes {
-                println!("{g:?} => ");
-                for n in n {
-                    println!("  {n:?} => {:?}", ctx.get_op(*n).unwrap());
-                }
-            }
-            for p in &parents {
-                println!("{p:?}");
-            }
 
             // Build an ordered list of groups based on parent-child relationships
             let root_group = node_to_group[&root];
