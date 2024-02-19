@@ -6,7 +6,6 @@ use crate::{
     Context, Error,
 };
 
-use bimap::BiHashMap;
 use std::collections::{HashMap, HashSet};
 
 /// Instruction tape, storing groups of [opcodes in SSA form](crate::compiler::SsaOp)
@@ -164,9 +163,9 @@ impl SsaRoot {
         struct Key(Vec<(Node, Choice)>);
 
         // Map of cheaper key indexes (usize instead of Vec<..>)
-        let mut keys: BiHashMap<Key, GroupId> = BiHashMap::new();
+        let mut keys: HashMap<Key, GroupId> = HashMap::new();
         let mut get_group_id = |key| {
-            if let Some(id) = keys.get_by_left(&key) {
+            if let Some(id) = keys.get(&key) {
                 *id
             } else {
                 let next = GroupId(keys.len());
