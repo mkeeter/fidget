@@ -1,15 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// `Vars` contains the mapping of variable names to indexes, and a `Vec<f32>`
 /// which is suitably sized for use in evaluation.
-pub struct Vars {
-    names: Arc<HashMap<String, u32>>,
+pub struct Vars<'a> {
+    names: &'a HashMap<String, u32>,
     values: Vec<f32>,
 }
 
-impl Vars {
+impl<'a> Vars<'a> {
     /// Builds a new variable binding, initializing them all to 0
-    pub fn new(names: Arc<HashMap<String, u32>>) -> Self {
+    pub fn new(names: &'a HashMap<String, u32>) -> Self {
         let values = vec![0.0; names.len()];
         Self { names, values }
     }
@@ -20,7 +20,7 @@ impl Vars {
     /// present in this structure; they will be silently discarded.
     ///
     /// Unbound variables are assigned to `f32::NAN`.
-    pub fn bind<'a, I: Iterator<Item = (&'a str, f32)>>(
+    pub fn bind<'b, I: Iterator<Item = (&'b str, f32)>>(
         &mut self,
         iter: I,
     ) -> &[f32] {

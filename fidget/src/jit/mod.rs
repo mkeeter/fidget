@@ -37,7 +37,7 @@ use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 mod mmap;
 
@@ -1102,7 +1102,7 @@ impl MathShape for JitShape {
 }
 
 impl ShapeVars for JitShape {
-    fn vars(&self) -> Arc<HashMap<String, u32>> {
+    fn vars(&self) -> &HashMap<String, u32> {
         self.0.vars()
     }
 }

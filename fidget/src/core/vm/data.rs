@@ -5,7 +5,7 @@ use crate::{
     vm::Choice,
     Error,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
@@ -64,8 +64,8 @@ impl<const N: u8> VmData<N> {
     }
 
     /// Returns this tape's mapping of variable names to indexes
-    pub fn vars(&self) -> Arc<HashMap<String, u32>> {
-        self.ssa.vars.clone()
+    pub fn vars(&self) -> &HashMap<String, u32> {
+        &self.ssa.vars
     }
 
     /// Returns the length of the internal VM tape

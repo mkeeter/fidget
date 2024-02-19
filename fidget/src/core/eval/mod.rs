@@ -21,7 +21,7 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 use crate::{context::Node, Context, Error};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod test;
@@ -238,7 +238,7 @@ impl<S: Shape> EzShape for S {
 /// A [`Shape`] which contains named variables
 pub trait ShapeVars {
     /// Returns the variable map for ease of binding
-    fn vars(&self) -> Arc<HashMap<String, u32>>;
+    fn vars(&self) -> &HashMap<String, u32>;
 }
 
 /// A [`Shape`] which can be built from a math expression

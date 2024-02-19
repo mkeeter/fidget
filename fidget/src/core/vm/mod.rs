@@ -135,7 +135,7 @@ impl<const N: u8> MathShape for GenericVmShape<N> {
 }
 
 impl<const N: u8> ShapeVars for GenericVmShape<N> {
-    fn vars(&self) -> Arc<HashMap<String, u32>> {
+    fn vars(&self) -> &HashMap<String, u32> {
         self.0.vars()
     }
 }
