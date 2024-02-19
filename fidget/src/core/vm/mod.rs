@@ -12,6 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 
 mod choice;
 mod data;
+mod group;
 
 pub use choice::Choice;
 pub use data::{VmData, VmWorkspace};
