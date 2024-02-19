@@ -130,10 +130,8 @@ impl SsaOp {
             | SsaOp::MaxRegReg(out, ..) => *out,
         }
     }
-    /// Returns the number of choices made by the given opcode
-    ///
-    /// This is always zero or one.
-    pub fn choice_count(&self) -> usize {
+    /// Returns true if the given opcode is associated with a choice
+    pub fn has_choice(&self) -> bool {
         match self {
             SsaOp::Input(..)
             | SsaOp::Var(..)
@@ -153,11 +151,11 @@ impl SsaOp {
             | SsaOp::SubRegReg(..)
             | SsaOp::DivRegReg(..)
             | SsaOp::DivRegImm(..)
-            | SsaOp::DivImmReg(..) => 0,
+            | SsaOp::DivImmReg(..) => false,
             SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::MinRegReg(..)
-            | SsaOp::MaxRegReg(..) => 1,
+            | SsaOp::MaxRegReg(..) => true,
         }
     }
 }

@@ -39,3 +39,27 @@ impl std::ops::BitOrAssign<Choice> for Choice {
         }
     }
 }
+
+impl std::ops::Not for Choice {
+    type Output = Choice;
+    fn not(self) -> Self {
+        match self {
+            Self::Unknown => Self::Both,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Both => Self::Unknown,
+        }
+    }
+}
+
+impl std::ops::BitAndAssign<Choice> for Choice {
+    fn bitand_assign(&mut self, other: Self) {
+        *self = match (*self as u8) | ((!other as u8) & 0b11) {
+            0 => Self::Unknown,
+            1 => Self::Left,
+            2 => Self::Right,
+            3 => Self::Both,
+            _ => unreachable!(),
+        }
+    }
+}

@@ -133,7 +133,7 @@ impl<const N: u8> VmData<N> {
             let index = op.output();
 
             if workspace.active(index).is_none() {
-                for _ in 0..op.choice_count() {
+                if op.has_choice() {
                     choice_iter.next().unwrap();
                 }
                 continue;
