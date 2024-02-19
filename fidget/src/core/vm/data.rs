@@ -5,7 +5,7 @@ use crate::{
     vm::Choice,
     Error,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
