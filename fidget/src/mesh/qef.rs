@@ -80,7 +80,7 @@ impl QuadraticErrorSolver {
         let mut prev = None;
         for i in 0..4 {
             let epsilon = if i == 3 {
-                std::f32::INFINITY
+                f32::INFINITY
             } else {
                 use ieee754::Ieee754;
                 svd.singular_values[2 - i].prev()

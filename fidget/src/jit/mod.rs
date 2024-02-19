@@ -1005,7 +1005,7 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
             y[0..n].copy_from_slice(ys);
             z[0..n].copy_from_slice(zs);
 
-            let mut tmp = [std::f32::NAN.into(); MAX_SIMD_WIDTH];
+            let mut tmp = [f32::NAN.into(); MAX_SIMD_WIDTH];
 
             unsafe {
                 (tape.fn_bulk)(

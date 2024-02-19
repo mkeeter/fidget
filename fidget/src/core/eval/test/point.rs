@@ -84,13 +84,11 @@ where
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) =
-            eval.eval(&tape, std::f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
 
-        let (r, trace) =
-            eval.eval(&tape, 0.0, std::f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
     }
@@ -120,13 +118,11 @@ where
         assert_eq!(r, 2.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) =
-            eval.eval(&tape, std::f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
 
-        let (r, trace) =
-            eval.eval(&tape, 0.0, std::f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
     }

@@ -97,7 +97,7 @@ where
         assert!(nanan.upper().is_nan());
 
         let (v, _) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -119,7 +119,7 @@ where
         assert_eq!(eval.eval_x(&tape, [-6.0, 1.0]), [0.0, 36.0].into());
 
         let (v, _) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -141,7 +141,7 @@ where
         assert_eq!(eval.eval_x(&tape, [-6.0, 1.0]), [-1.0, 6.0].into());
 
         let (v, _) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -178,13 +178,13 @@ where
         );
 
         let (v, _) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
         let (v, _) = eval
-            .eval(&tape, [0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
+            .eval(&tape, [0.0, 1.0], [f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -315,13 +315,13 @@ where
         assert_eq!(out, [-2.0, 8.0].into());
 
         let (v, _) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
         let (v, _) = eval
-            .eval(&tape, [0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
+            .eval(&tape, [0.0, 1.0], [f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -355,14 +355,14 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let (v, data) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
         assert!(data.is_none());
 
         let (v, data) = eval
-            .eval(&tape, [0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
+            .eval(&tape, [0.0, 1.0], [f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
@@ -424,14 +424,14 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
         let (v, data) = eval
-            .eval(&tape, [std::f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
+            .eval(&tape, [f32::NAN; 2], [0.0, 1.0], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
         assert!(data.is_none());
 
         let (v, data) = eval
-            .eval(&tape, [0.0, 1.0], [std::f32::NAN; 2], [0.0; 2], &[])
+            .eval(&tape, [0.0, 1.0], [f32::NAN; 2], [0.0; 2], &[])
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());

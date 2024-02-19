@@ -250,7 +250,7 @@ impl Interval {
         } else if self.lower > 0.0 {
             Interval::new(self.lower.powi(2), self.upper.powi(2))
         } else if self.has_nan() {
-            std::f32::NAN.into()
+            f32::NAN.into()
         } else {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
@@ -264,7 +264,7 @@ impl Interval {
             if self.upper > 0.0 {
                 Interval::new(0.0, self.upper.sqrt())
             } else {
-                std::f32::NAN.into()
+                f32::NAN.into()
             }
         } else {
             Interval::new(self.lower.sqrt(), self.upper.sqrt())
@@ -277,7 +277,7 @@ impl Interval {
         if self.lower > 0.0 || self.upper < 0.0 {
             Interval::new(1.0 / self.upper, 1.0 / self.lower)
         } else {
-            std::f32::NAN.into()
+            f32::NAN.into()
         }
     }
     /// Calculates the minimum of two intervals
@@ -288,7 +288,7 @@ impl Interval {
     /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
     pub fn min_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
-            return (std::f32::NAN.into(), Choice::Both);
+            return (f32::NAN.into(), Choice::Both);
         }
         let choice = if self.upper < rhs.lower {
             Choice::Left
@@ -310,7 +310,7 @@ impl Interval {
     /// If either side is `NAN`, returns the `NAN` interval and `Choice::Both`.
     pub fn max_choice(self, rhs: Self) -> (Self, Choice) {
         if self.has_nan() || rhs.has_nan() {
-            return (std::f32::NAN.into(), Choice::Both);
+            return (f32::NAN.into(), Choice::Both);
         }
         let choice = if self.lower > rhs.upper {
             Choice::Left
@@ -403,7 +403,7 @@ impl std::ops::Mul<Interval> for Interval {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self {
         if self.has_nan() || rhs.has_nan() {
-            return std::f32::NAN.into();
+            return f32::NAN.into();
         }
         let mut out = [0.0; 4];
         let mut k = 0;
@@ -427,7 +427,7 @@ impl std::ops::Div<Interval> for Interval {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {
         if self.has_nan() {
-            return std::f32::NAN.into();
+            return f32::NAN.into();
         }
         if rhs.lower > 0.0 || rhs.upper < 0.0 {
             let mut out = [0.0; 4];
@@ -446,7 +446,7 @@ impl std::ops::Div<Interval> for Interval {
             }
             Interval::new(lower, upper)
         } else {
-            std::f32::NAN.into()
+            f32::NAN.into()
         }
     }
 }

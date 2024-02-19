@@ -19,12 +19,12 @@ impl Vars {
     /// The incoming iterator is allowed to include variable names that are not
     /// present in this structure; they will be silently discarded.
     ///
-    /// Unbound variables are assigned to `std::f32::NAN`.
+    /// Unbound variables are assigned to `f32::NAN`.
     pub fn bind<'a, I: Iterator<Item = (&'a str, f32)>>(
         &mut self,
         iter: I,
     ) -> &[f32] {
-        self.values.fill(std::f32::NAN);
+        self.values.fill(f32::NAN);
         for i in iter {
             if let Some(v) = self.names.get(i.0) {
                 self.values[*v as usize] = i.1;

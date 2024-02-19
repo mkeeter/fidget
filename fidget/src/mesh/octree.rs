@@ -1312,7 +1312,7 @@ impl LeafHermiteData {
         }
 
         // Accumulate minimum QEF error among valid child QEFs
-        out.qef_err = std::f32::INFINITY;
+        out.qef_err = f32::INFINITY;
         for e in leafs.iter().map(|q| q.qef_err).filter(|&e| e >= 0.0) {
             out.qef_err = out.qef_err.min(e);
         }
