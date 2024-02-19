@@ -98,6 +98,7 @@ impl RegisterAllocator {
         self.spare_registers.clear();
         self.spare_memory.clear();
         self.out = tape;
+        self.out.reset();
         self.bind_register(0, 0);
     }
 
