@@ -96,14 +96,6 @@ impl<const N: u8> VmData<N> {
         self.ssa.vars.len()
     }
 
-    /// Returns the register limit of the VM tape
-    ///
-    /// Note that this may exceed the slot count on particularly short (or
-    /// easy-to-plan) tapes.
-    pub fn reg_limit(&self) -> u8 {
-        self.asm.reg_limit()
-    }
-
     /// Simplifies both inner tapes, using the provided choice array
     ///
     /// To minimize allocations, this function takes a [`VmWorkspace`] and
@@ -120,11 +112,10 @@ impl<const N: u8> VmData<N> {
                 self.choice_count(),
             ));
         }
-        let reg_limit = self.asm.reg_limit();
         tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset(reg_limit, self.ssa.tape.len(), tape.asm);
+        workspace.reset(N, self.ssa.tape.len(), tape.asm);
 
         let mut choice_count = 0;
 

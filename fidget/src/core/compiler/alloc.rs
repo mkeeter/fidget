@@ -65,7 +65,7 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
-            out: RegTape::empty(reg_limit),
+            out: RegTape::empty(),
         };
         out.bind_register(0, 0);
         out
@@ -83,7 +83,7 @@ impl RegisterAllocator {
             spare_registers: ArrayVec::new(),
             spare_memory: vec![],
 
-            out: RegTape::empty(0),
+            out: RegTape::empty(),
         }
     }
 
@@ -98,7 +98,6 @@ impl RegisterAllocator {
         self.spare_registers.clear();
         self.spare_memory.clear();
         self.out = tape;
-        self.out.reset(reg_limit);
         self.bind_register(0, 0);
     }
 
@@ -124,7 +123,7 @@ impl RegisterAllocator {
         } else {
             let out = self.out.slot_count;
             self.out.slot_count += 1;
-            assert!(out >= self.out.reg_limit().into());
+            assert!(out >= self.reg_limit.into());
             out
         }
     }

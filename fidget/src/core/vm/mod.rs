@@ -521,7 +521,6 @@ struct BulkVmEval<T> {
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
     fn resize_slots(&mut self, tape: &VmData, size: usize) {
-        assert!(tape.reg_limit() == u8::MAX);
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);
         for s in self.slots.iter_mut() {

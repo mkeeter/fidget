@@ -9,9 +9,6 @@ pub struct RegTape {
 
     /// Total allocated slots
     pub(super) slot_count: u32,
-
-    /// Number of registers, before we fall back to Load/Store operations
-    reg_limit: u8,
 }
 
 impl RegTape {
@@ -30,23 +27,17 @@ impl RegTape {
     }
 
     /// Builds a new empty tape, with one allocated slot
-    pub(crate) fn empty(reg_limit: u8) -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             tape: vec![],
             slot_count: 1,
-            reg_limit,
         }
     }
 
     /// Resets this tape, retaining its allocations
-    pub fn reset(&mut self, reg_limit: u8) {
+    pub fn reset(&mut self) {
         self.tape.clear();
         self.slot_count = 1;
-        self.reg_limit = reg_limit;
-    }
-    /// Returns the register limit with which this tape was planned
-    pub fn reg_limit(&self) -> u8 {
-        self.reg_limit
     }
     /// Returns the number of unique register and memory locations that are used
     /// by this tape.
