@@ -14,5 +14,5 @@ debug = true
 lto = "thin"
 codegen-units = 1
 
-[profile.test]
-opt-level = 1
+#[profile.test]
+#opt-level = 1

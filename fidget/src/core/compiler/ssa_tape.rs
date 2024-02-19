@@ -75,7 +75,7 @@ impl SsaRoot {
             let mut todo = vec![Action {
                 node: root,
                 root,
-                choice: Choice::Both,
+                choice: Choice::None,
             }];
             while let Some(Action { node, root, choice }) = todo.pop() {
                 let op = ctx.get_op(node).ok_or(Error::BadNode)?;
@@ -186,7 +186,7 @@ impl SsaRoot {
             // Convert into a common key type.  There's a special-case for nodes
             // which are reachable from the root of the tree, since they will
             // always be active.
-            let key = if k.get(&root) == Some(&Choice::Both) {
+            let key = if k.get(&root) == Some(&Choice::None) {
                 Key(vec![])
             } else {
                 let mut v: Vec<_> = k.into_iter().collect();
@@ -217,6 +217,15 @@ impl SsaRoot {
                         }
                     }
                 }
+            }
+            for (g, n) in &group_to_nodes {
+                println!("{g:?} => ");
+                for n in n {
+                    println!("  {n:?} => {:?}", ctx.get_op(*n).unwrap());
+                }
+            }
+            for p in &parents {
+                println!("{p:?}");
             }
 
             // Build an ordered list of groups based on parent-child relationships
