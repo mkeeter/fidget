@@ -10,7 +10,7 @@
 /// Choice::Both as u8 == Choice::Left as u8 | Choice::Right as u8
 /// # );
 /// ```
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u8)]
 pub enum Choice {
     /// This choice has not yet been assigned
@@ -26,6 +26,12 @@ pub enum Choice {
 
     /// The operation may pick either input
     Both = 3,
+}
+
+impl Default for Choice {
+    fn default() -> Self {
+        Self::Unknown
+    }
 }
 
 impl std::ops::BitOrAssign<Choice> for Choice {
@@ -54,7 +60,14 @@ impl std::ops::Not for Choice {
 
 impl std::ops::BitAndAssign<Choice> for Choice {
     fn bitand_assign(&mut self, other: Self) {
-        *self = match (*self as u8) | ((!other as u8) & 0b11) {
+        *self = (*self) & other
+    }
+}
+
+impl std::ops::BitAnd<Choice> for Choice {
+    type Output = Choice;
+    fn bitand(self, other: Self) -> Self::Output {
+        match (self as u8) & (other as u8) {
             0 => Self::Unknown,
             1 => Self::Left,
             2 => Self::Right,
