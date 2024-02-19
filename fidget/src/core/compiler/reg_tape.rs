@@ -1,5 +1,5 @@
 //! Tape used for evaluation
-use crate::compiler::{RegOp, RegisterAllocator, SsaTape};
+use crate::compiler::{RegOp, RegisterAllocator, SsaRoot};
 
 /// Low-level tape for use with the Fidget virtual machine (or to be lowered
 /// further into machine instructions).
@@ -18,9 +18,9 @@ impl RegTape {
     /// to use [`VmData::simplify`](crate::vm::VmData::simplify), which
     /// simultaneously simplifies **and** performs register allocation in a
     /// single pass.
-    pub fn new(ssa: &SsaTape, reg_limit: u8) -> Self {
+    pub fn new(ssa: &SsaRoot, reg_limit: u8) -> Self {
         let mut alloc = RegisterAllocator::new(reg_limit, ssa.len());
-        for &op in ssa.iter() {
+        for &op in ssa.groups.iter().flat_map(|v| v.ops.iter()) {
             alloc.op(op)
         }
         alloc.finalize()

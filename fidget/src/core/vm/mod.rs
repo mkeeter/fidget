@@ -12,10 +12,9 @@ use std::{collections::HashMap, sync::Arc};
 
 mod choice;
 mod data;
-mod group;
 
 pub use choice::Choice;
-pub use data::{VmData, VmWorkspace};
+pub use data::{VmData, VmStorage, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -47,7 +46,7 @@ impl<const N: u8> GenericVmShape<N> {
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
-        storage: VmData<N>,
+        storage: VmStorage,
         workspace: &mut VmWorkspace,
     ) -> Result<Self, Error> {
         let d = self.0.simplify(choices, workspace, storage)?;
@@ -59,8 +58,8 @@ impl<const N: u8> GenericVmShape<N> {
     }
 
     /// Reclaim the inner `VmData` if there's only a single reference
-    pub fn recycle(self) -> Option<VmData<N>> {
-        Arc::try_unwrap(self.0).ok()
+    pub fn recycle(self) -> Option<VmStorage> {
+        Arc::try_unwrap(self.0).ok().map(VmData::recycle)
     }
 
     /// Borrows the inner [`VmData`]
@@ -81,7 +80,7 @@ impl<const N: u8> GenericVmShape<N> {
 
 impl Shape for VmShape {
     type FloatSliceEval = VmFloatSliceEval;
-    type Storage = VmData;
+    type Storage = VmStorage;
     type Workspace = VmWorkspace;
 
     type TapeStorage = ();
@@ -105,7 +104,7 @@ impl Shape for VmShape {
     fn simplify(
         &self,
         trace: &Vec<Choice>,
-        storage: VmData,
+        storage: VmStorage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         self.simplify_inner(trace.as_slice(), storage, workspace)

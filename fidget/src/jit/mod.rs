@@ -30,7 +30,7 @@ use crate::{
         BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     jit::mmap::Mmap,
-    vm::{Choice, GenericVmShape, VmData, VmWorkspace},
+    vm::{Choice, GenericVmShape, VmData, VmStorage, VmWorkspace},
     Error,
 };
 use dynasmrt::{
@@ -724,7 +724,7 @@ impl JitShape {
 
 impl Shape for JitShape {
     type Trace = Vec<Choice>;
-    type Storage = VmData<REGISTER_LIMIT>;
+    type Storage = VmStorage;
     type Workspace = VmWorkspace;
 
     type TapeStorage = Mmap;

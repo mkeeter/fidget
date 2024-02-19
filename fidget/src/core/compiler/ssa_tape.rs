@@ -5,25 +5,19 @@ use crate::{
     Context, Error,
 };
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
-/// Instruction tape, storing [opcodes in SSA form](crate::compiler::SsaOp)
+/// Instruction tape, storing groups of [opcodes in SSA form](crate::compiler::SsaOp)
 ///
-/// Each operation has the following parameters
-/// - 4-byte opcode (required)
-/// - 4-byte output register (required)
-/// - 4-byte LHS register
-/// - 4-byte RHS register (or immediate `f32`)
-///
-/// All register addressing is absolute.
-#[derive(Clone, Debug, Default)]
-pub struct SsaTape {
-    /// The tape is stored in reverse order, such that the root of the tree is
-    /// the first item in the tape.
-    pub tape: Vec<SsaOp>,
+/// The [`SsaRoot`] is typically stored in an `Arc`, so all of its fields are
+/// public (but should be immutable in normal usage).
+#[derive(Debug)]
+pub struct SsaRoot {
+    /// Individual groups, in reverse-evaluation order
+    pub groups: Vec<SsaGroup>,
+
+    /// Total number of (SSA) operations in all the tape groups
+    pub num_ops: usize,
 
     /// Number of choice operations in the tape
     pub choice_count: usize,
@@ -33,10 +27,36 @@ pub struct SsaTape {
     ///
     /// This is an `Arc` so it can be trivially shared by all of the tape's
     /// descendents, since the variable array order does not change.
-    pub vars: Arc<HashMap<String, u32>>,
+    pub vars: HashMap<String, u32>,
 }
 
-impl SsaTape {
+/// Individual group of [SSA operations](SsaOp)
+#[derive(Debug)]
+pub struct SsaGroup {
+    /// Operations in this group, in reverse-evaluation order
+    pub ops: Vec<SsaOp>,
+
+    /// Offset of this group's first choice in a global choice array
+    pub choice_offset: usize,
+
+    /// Subsequent groups which are **always** enabled if this group is active
+    pub enable_always: Vec<usize>,
+
+    /// Per-group choice data, in reverse-evaluation order
+    pub choices: Vec<SsaChoiceData>,
+}
+
+/// Downstream groups to enable for a given choice
+#[derive(Debug)]
+pub struct SsaChoiceData {
+    /// Group to enable if the choice includes `Choice::Left`
+    pub enable_left: usize,
+
+    /// Group to enable if the choice includes `Choice::Right`
+    pub enable_right: usize,
+}
+
+impl SsaRoot {
     /// Flattens a subtree of the graph into straight-line code.
     ///
     /// This should always succeed unless the `root` is from a different
@@ -207,38 +227,22 @@ impl SsaTape {
             tape.push(SsaOp::CopyImm(0, c));
         }
 
-        Ok(SsaTape {
-            tape,
+        Ok(SsaRoot {
+            groups: todo!(),
+            num_ops: todo!(),
             choice_count,
-            vars: Arc::new(var_names),
+            vars: var_names,
         })
     }
 
-    /// Checks whether the tape is empty
-    pub fn is_empty(&self) -> bool {
-        self.tape.is_empty()
-    }
-
-    /// Returns the length of the tape
+    /// Returns the total number of opcodes
     pub fn len(&self) -> usize {
-        self.tape.len()
+        self.num_ops
     }
 
-    /// Iterates over clauses in the tape in reverse-evaluation order
-    ///
-    /// The root (output) of the tape will be first in the iterator
-    pub fn iter(&self) -> impl Iterator<Item = &SsaOp> {
-        self.tape.iter()
-    }
-
-    /// Resets to an empty tape, preserving allocations
-    pub fn reset(&mut self) {
-        self.tape.clear();
-        self.choice_count = 0;
-    }
     /// Pretty-prints the given tape to `stdout`
     pub fn pretty_print(&self) {
-        for &op in self.tape.iter().rev() {
+        for &op in self.groups.iter().rev().flat_map(|g| g.ops.iter().rev()) {
             match op {
                 SsaOp::Input(out, i) => {
                     println!("${out} = INPUT {i}");
@@ -333,8 +337,8 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = SsaTape::new(&ctx, c9).unwrap();
-        assert_eq!(tape.len(), 8);
+        let root = SsaRoot::new(&ctx, c9).unwrap();
+        assert_eq!(root.len(), 8);
     }
 
     #[test]
@@ -343,7 +347,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = SsaTape::new(&ctx, x_squared).unwrap();
-        assert_eq!(tape.len(), 2);
+        let root = SsaRoot::new(&ctx, x_squared).unwrap();
+        assert_eq!(root.len(), 2);
     }
 }

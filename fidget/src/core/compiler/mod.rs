@@ -20,7 +20,7 @@ mod reg_tape;
 mod ssa_tape;
 
 pub use reg_tape::RegTape;
-pub use ssa_tape::SsaTape;
+pub use ssa_tape::SsaRoot;
 
 #[cfg(test)]
 mod test {

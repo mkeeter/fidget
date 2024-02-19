@@ -1,6 +1,6 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
-    compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
+    compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaRoot},
     context::{Context, Node},
     vm::Choice,
     Error,
@@ -49,33 +49,64 @@ use std::collections::HashMap;
 /// # Ok::<(), fidget::Error>(())
 /// ```
 ///
-#[derive(Default)]
 pub struct VmData<const N: u8 = { u8::MAX }> {
-    ssa: SsaTape,
-    asm: RegTape,
+    /// Handle to the root, containing SSA groups
+    root: Arc<SsaRoot>,
+
+    /// Choices made that led to this point
+    ///
+    /// This array is absolutely indexed, i.e. it has a slot for every choice in
+    /// the root tape (though the shortened tape may be using fewer)
+    choices: Vec<Choice>,
+
+    /// Active groups, in reverse-evaluation order
+    active_groups: Vec<usize>,
+
+    /// Resulting register-allocated tape
+    tape: RegTape,
+}
+
+/// Storage associated with `VmData`, to reduce memory allocation
+#[derive(Default)]
+pub struct VmStorage {
+    /// See [`VmData::choices`]
+    choices: Vec<Choice>,
+
+    /// See [`VmData::active_groups`]
+    active_groups: Vec<usize>,
+
+    /// See [`VmData::tape`]
+    tape: RegTape,
 }
 
 impl<const N: u8> VmData<N> {
     /// Builds a new tape for the given node
     pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
-        let ssa = SsaTape::new(context, node)?;
-        let asm = RegTape::new(&ssa, N);
-        Ok(Self { ssa, asm })
+        let root = SsaRoot::new(context, node)?;
+        let tape = RegTape::new(&root, N);
+        let choices = vec![Choice::Both; root.choice_count];
+        let active_groups = (0..root.groups.len()).collect();
+        Ok(Self {
+            root: root.into(),
+            choices,
+            active_groups,
+            tape,
+        })
     }
 
     /// Returns this tape's mapping of variable names to indexes
     pub fn vars(&self) -> &HashMap<String, u32> {
-        &self.ssa.vars
+        &self.root.vars
     }
 
     /// Returns the length of the internal VM tape
     pub fn len(&self) -> usize {
-        self.asm.len()
+        self.tape.len()
     }
 
     /// Returns true if the internal VM tape is empty
     pub fn is_empty(&self) -> bool {
-        self.asm.is_empty()
+        self.tape.is_empty()
     }
 
     /// Returns the number of choice (min/max) nodes in the tape.
@@ -83,17 +114,17 @@ impl<const N: u8> VmData<N> {
     /// This is required because some evaluators pre-allocate spaces for the
     /// choice array.
     pub fn choice_count(&self) -> usize {
-        self.ssa.choice_count
+        self.root.choice_count
     }
 
     /// Returns the number of slots used by the inner VM tape
     pub fn slot_count(&self) -> usize {
-        self.asm.slot_count()
+        self.tape.slot_count()
     }
 
     /// Returns the number of variables used in this tape
     pub fn var_count(&self) -> usize {
-        self.ssa.vars.len()
+        self.root.vars.len()
     }
 
     /// Simplifies both inner tapes, using the provided choice array
@@ -102,177 +133,129 @@ impl<const N: u8> VmData<N> {
     /// spare [`VmData`]; it will reuse those allocations.
     pub fn simplify(
         &self,
-        choices: &[Choice],
+        trace: &[Choice],
         workspace: &mut VmWorkspace,
-        mut tape: VmData<N>,
+        mut out: VmStorage,
     ) -> Result<Self, Error> {
-        if choices.len() != self.choice_count() {
-            return Err(Error::BadChoiceSlice(
-                choices.len(),
-                self.choice_count(),
-            ));
-        }
-        tape.ssa.reset();
+        // TODO check choice count (requires storing it)
 
-        // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset(N, self.ssa.tape.len(), tape.asm);
+        // Mark the root group of this tape as active
+        workspace.active.resize(self.root.groups.len(), false);
+        workspace.active.fill(false);
+        workspace.active[self.active_groups[0]] = true;
 
-        let mut choice_count = 0;
+        // The new choices array starts out as identical to ours
+        let mut choices_out = std::mem::take(&mut out.choices);
+        choices_out.resize(self.choices.len(), Choice::Unknown);
+        choices_out.copy_from_slice(&self.choices);
 
-        // The tape is constructed so that the output slot is first
-        assert_eq!(self.ssa.tape[0].output(), 0);
-        workspace.set_active(self.ssa.tape[0].output(), 0);
-        workspace.count += 1;
+        workspace.alloc.reset(N, self.root.len(), out.tape);
 
-        // Other iterators to consume various arrays in order
-        let mut choice_iter = choices.iter().rev();
+        // The new active groups array starts out empty
+        let mut groups_out = out.active_groups;
+        groups_out.clear();
 
-        let mut ops_out = tape.ssa.tape;
+        let mut trace_iter = trace.iter();
+        for &g in &self.active_groups {
+            let group = &self.root.groups[g];
 
-        for mut op in self.ssa.tape.iter().cloned() {
-            let index = op.output();
-
-            if workspace.active(index).is_none() {
-                if op.has_choice() {
-                    choice_iter.next().unwrap();
+            // Skip trace choices if the group is not active
+            if !workspace.active[g] {
+                for _ in 0..group.choices.len() {
+                    trace_iter.next().unwrap();
                 }
                 continue;
             }
+            groups_out.push(g);
 
-            // Because we reassign nodes when they're used as an *input*
-            // (while walking the tape in reverse), this node must have been
-            // assigned already.
-            let new_index = workspace.active(index).unwrap();
-
-            match &mut op {
-                SsaOp::Input(index, ..)
-                | SsaOp::Var(index, ..)
-                | SsaOp::CopyImm(index, ..) => {
-                    *index = new_index;
-                }
-                SsaOp::NegReg(index, arg)
-                | SsaOp::AbsReg(index, arg)
-                | SsaOp::RecipReg(index, arg)
-                | SsaOp::SqrtReg(index, arg)
-                | SsaOp::SquareReg(index, arg) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
-                }
-                SsaOp::CopyReg(index, src) => {
-                    // CopyReg effectively does
-                    //      dst <= src
-                    // If src has not yet been used (as we iterate backwards
-                    // through the tape), then we can replace it with dst
-                    // everywhere!
-                    match workspace.active(*src) {
-                        Some(new_src) => {
-                            *index = new_index;
-                            *src = new_src;
-                        }
-                        None => {
-                            workspace.set_active(*src, new_index);
-                            continue;
-                        }
-                    }
-                }
-                SsaOp::MinRegImm(index, arg, imm)
-                | SsaOp::MaxRegImm(index, arg, imm) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*arg) {
-                            Some(new_arg) => {
-                                op = SsaOp::CopyReg(new_index, new_arg);
-                            }
-                            None => {
-                                workspace.set_active(*arg, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Right => {
-                            op = SsaOp::CopyImm(new_index, *imm);
-                        }
-                        Choice::Both => {
-                            choice_count += 1;
-                            *index = new_index;
-                            *arg = workspace.get_or_insert_active(*arg);
-                        }
-                        Choice::Unknown => panic!("oh no"),
-                    }
-                }
-                SsaOp::MinRegReg(index, lhs, rhs)
-                | SsaOp::MaxRegReg(index, lhs, rhs) => {
-                    match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*lhs) {
-                            Some(new_lhs) => {
-                                op = SsaOp::CopyReg(new_index, new_lhs);
-                            }
-                            None => {
-                                workspace.set_active(*lhs, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Right => match workspace.active(*rhs) {
-                            Some(new_rhs) => {
-                                op = SsaOp::CopyReg(new_index, new_rhs);
-                            }
-                            None => {
-                                workspace.set_active(*rhs, new_index);
-                                continue;
-                            }
-                        },
-                        Choice::Both => {
-                            choice_count += 1;
-                            *index = new_index;
-                            *lhs = workspace.get_or_insert_active(*lhs);
-                            *rhs = workspace.get_or_insert_active(*rhs);
-                        }
-                        Choice::Unknown => panic!("oh no"),
-                    }
-                }
-                SsaOp::AddRegReg(index, lhs, rhs)
-                | SsaOp::MulRegReg(index, lhs, rhs)
-                | SsaOp::SubRegReg(index, lhs, rhs)
-                | SsaOp::DivRegReg(index, lhs, rhs) => {
-                    *index = new_index;
-                    *lhs = workspace.get_or_insert_active(*lhs);
-                    *rhs = workspace.get_or_insert_active(*rhs);
-                }
-                SsaOp::AddRegImm(index, arg, _imm)
-                | SsaOp::MulRegImm(index, arg, _imm)
-                | SsaOp::SubRegImm(index, arg, _imm)
-                | SsaOp::SubImmReg(index, arg, _imm)
-                | SsaOp::DivRegImm(index, arg, _imm)
-                | SsaOp::DivImmReg(index, arg, _imm) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
-                }
+            // Enable the always-active nodes connected to this group
+            for &e in &group.enable_always {
+                workspace.active[e] = true;
             }
-            workspace.alloc.op(op);
-            ops_out.push(op);
+
+            // Prepare to modify the output choice array (which is global) by
+            // slicing an appropriate chunk of it.
+            let choice_out_slice =
+                &mut choices_out[group.choice_offset..][..group.choices.len()];
+
+            let mut choice_meta_iter = group.choices.iter().enumerate();
+            for &op in &group.ops {
+                let op = if op.has_choice() {
+                    // Update the output choice array.  The trace is **bits to
+                    // clear**, so we clear them here with bitwise operations.
+                    let c = *trace_iter.next().unwrap();
+                    let (i, meta) = choice_meta_iter.next().unwrap();
+                    choice_out_slice[i] &= !c;
+
+                    // Enable conditional groups and patch the opcode if a
+                    // choice was made here
+                    match choice_out_slice[i] {
+                        Choice::Both => {
+                            workspace.active[meta.enable_left] = true;
+                            workspace.active[meta.enable_right] = true;
+                            op
+                        }
+                        Choice::Left => {
+                            workspace.active[meta.enable_left] = true;
+                            match op {
+                                SsaOp::MinRegReg(out, lhs, ..)
+                                | SsaOp::MaxRegReg(out, lhs, ..)
+                                | SsaOp::MinRegImm(out, lhs, ..)
+                                | SsaOp::MaxRegImm(out, lhs, ..) => {
+                                    SsaOp::CopyReg(out, lhs)
+                                }
+                                _ => panic!("invalid choice op"),
+                            }
+                        }
+                        Choice::Right => {
+                            workspace.active[meta.enable_right] = true;
+                            match op {
+                                SsaOp::MinRegReg(out, _lhs, rhs)
+                                | SsaOp::MaxRegReg(out, _lhs, rhs) => {
+                                    SsaOp::CopyReg(out, rhs)
+                                }
+                                SsaOp::MinRegImm(out, _lhs, imm)
+                                | SsaOp::MaxRegImm(out, _lhs, imm) => {
+                                    SsaOp::CopyImm(out, imm)
+                                }
+                                _ => panic!("invalid choice op"),
+                            }
+                        }
+                        Choice::Unknown => panic!("cannot plan unknown"),
+                    }
+                } else {
+                    op
+                };
+                workspace.alloc.op(op);
+            }
+            assert!(choice_meta_iter.next().is_none());
         }
+        assert!(trace_iter.next().is_none());
 
-        assert_eq!(workspace.count as usize, ops_out.len());
-        let asm_tape = workspace.alloc.finalize();
-
-        Ok(VmData {
-            ssa: SsaTape {
-                tape: ops_out,
-                choice_count,
-                vars: self.ssa.vars.clone(),
-            },
-            asm: asm_tape,
+        Ok(Self {
+            root: self.root.clone(),
+            choices: choices_out,
+            active_groups: groups_out,
+            tape: workspace.alloc.finalize(),
         })
     }
 
     /// Produces an iterator that visits [`RegOp`] values in evaluation order
     pub fn iter_asm(&self) -> impl Iterator<Item = RegOp> + '_ {
-        self.asm.iter().cloned().rev()
+        self.tape.iter().cloned().rev()
     }
 
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
-        self.ssa.pretty_print();
-        for a in self.iter_asm() {
-            println!("{a:?}");
+        self.root.pretty_print();
+    }
+
+    /// Recycles memory allocations for later reuse
+    pub fn recycle(self) -> VmStorage {
+        VmStorage {
+            choices: self.choices,
+            active_groups: self.active_groups,
+            tape: self.tape,
         }
     }
 }
@@ -286,53 +269,15 @@ pub struct VmWorkspace {
     /// Register allocator
     pub(crate) alloc: RegisterAllocator,
 
-    /// Current bindings from SSA variables to registers
-    pub(crate) bind: Vec<u32>,
-
-    /// Number of active SSA bindings
-    ///
-    /// This value is monotonically increasing; each SSA variable gets the next
-    /// value if it is unassigned when encountered.
-    count: u32,
+    /// Array indicating whether the given group is active
+    pub(crate) active: Vec<bool>,
 }
 
 impl Default for VmWorkspace {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
-            bind: vec![],
-            count: 0,
+            active: vec![],
         }
-    }
-}
-
-impl VmWorkspace {
-    fn active(&self, i: u32) -> Option<u32> {
-        if self.bind[i as usize] != u32::MAX {
-            Some(self.bind[i as usize])
-        } else {
-            None
-        }
-    }
-
-    fn get_or_insert_active(&mut self, i: u32) -> u32 {
-        if self.bind[i as usize] == u32::MAX {
-            self.bind[i as usize] = self.count;
-            self.count += 1;
-        }
-        self.bind[i as usize]
-    }
-
-    fn set_active(&mut self, i: u32, bind: u32) {
-        self.bind[i as usize] = bind;
-    }
-
-    /// Resets the workspace, preserving allocations and claiming the given
-    /// [`RegTape`].
-    pub fn reset(&mut self, num_registers: u8, tape_len: usize, tape: RegTape) {
-        self.alloc.reset(num_registers, tape_len, tape);
-        self.bind.fill(u32::MAX);
-        self.bind.resize(tape_len, u32::MAX);
-        self.count = 0;
     }
 }
