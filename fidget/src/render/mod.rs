@@ -17,14 +17,16 @@ pub use render2d::{BitRenderMode, DebugRenderMode, RenderMode, SdfRenderMode};
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{eval::MathShape, vm::VmShape, Context};
+    use crate::{
+        eval::{MathShape, Shape},
+        vm::VmShape,
+        Context,
+    };
 
     const HI: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../models/hi.vm"));
-    #[test]
-    fn render_hi_vm() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = VmShape::new(&ctx, root).unwrap();
+
+    fn render_and_compare<S: Shape>(shape: S, expected: &'static str) {
         let cfg = RenderConfig::<2> {
             image_size: 32,
             ..RenderConfig::default()
@@ -37,6 +39,17 @@ mod test {
             }
             img_str.push(if *b { 'X' } else { '.' });
         }
+        if img_str != expected {
+            println!("image mismatch detected!");
+            println!("Expected:\n{expected}\nGot:\n{img_str}");
+            panic!("image mismatch");
+        }
+    }
+
+    #[test]
+    fn render_hi_vm() {
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = VmShape::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
             .................X..............
             .................X..............
@@ -70,10 +83,6 @@ mod test {
             ................................
             ................................
             ................................";
-        if img_str != EXPECTED {
-            println!("image mismatch detected!");
-            println!("Expected:\n{EXPECTED}\nGot:\n{img_str}");
-            panic!("image mismatch");
-        }
+        render_and_compare(shape, EXPECTED);
     }
 }
