@@ -352,14 +352,14 @@ impl RegisterAllocator {
         //       |     | former r_a]
         //  -----|-----|----------------------------------------------------
         //   m_x | m_y | store r_a -> m_y
-        //       |     | r_a = op rA
+        //       |     | r_a = op r_a
         //       |     | store r_a -> m_x
         //       |     | [load r_a <- m_a]
         //       |     |
         //       |     | Afterwards, r_a points to arg, m_x and m_y are free,
         //       |     | [and m_a points to the former r_a]
         //  -----|-----|----------------------------------------------------
-        //   m_x |  U  | r_a = op rA
+        //   m_x |  U  | r_a = op r_a
         //       |     | store r_a -> m_x
         //       |     | [load r_a <- m_a]
         //       |     |
@@ -457,7 +457,7 @@ impl RegisterAllocator {
         //       |      |      | to the former r_a}
         //  -----|------|------|----------------------------------------------
         //   m_x | r_y  | m_z  | store r_a -> m_z
-        //       |      |      | r_a = op r_y rA
+        //       |      |      | r_a = op r_y r_a
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
         //       |      |      |
@@ -468,7 +468,7 @@ impl RegisterAllocator {
         //  -----|------|------|----------------------------------------------
         //   m_x | m_y  | m_z  | store r_a -> m_y
         //       |      |      | store r_b -> m_z
-        //       |      |      | r_a = op rA r_b
+        //       |      |      | r_a = op r_a r_b
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
         //       |      |      | [load r_b <- m_b]
@@ -477,7 +477,7 @@ impl RegisterAllocator {
         //       |      |      | rhs, m_x, m_y, m_z are all free, [m_a points to
         //       |      |      | the former r_a], [m_b points to the former r_b]
         //  -----|------|------|----------------------------------------------
-        //   m_x | r_y  | U    | r_a = op r_y rA
+        //   m_x | r_y  | U    | r_a = op r_y r_a
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
         //       |      |      |
@@ -486,7 +486,7 @@ impl RegisterAllocator {
         //  -----|------|------|----------------------------------------------
         //   m_x |  U   | r_z  | ibid
         //  -----|------|------|----------------------------------------------
-        //   m_x |  U   | U    | r_a = op rA r_b
+        //   m_x |  U   | U    | r_a = op r_a r_b
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
         //       |      |      | [load r_b <- m_b]
@@ -496,7 +496,7 @@ impl RegisterAllocator {
         //       |      |      | r_a], [m_b points to the former r_b]
         //  -----|------|------|----------------------------------------------
         //   m_x | m_y  | U    | store r_a -> m_y
-        //       |      |      | r_a = op rA r_b
+        //       |      |      | r_a = op r_a r_b
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
         //       |      |      | [load r_b <- m_b]
