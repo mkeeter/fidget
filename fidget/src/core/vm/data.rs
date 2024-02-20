@@ -5,7 +5,7 @@ use crate::{
     vm::Choice,
     Error,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
@@ -51,8 +51,17 @@ use std::collections::HashMap;
 ///
 #[derive(Default)]
 pub struct VmData<const N: usize = { u8::MAX as usize }> {
-    ssa: SsaTape,
     asm: RegTape,
+
+    /// Number of choice operations in the tape
+    pub choice_count: usize,
+
+    /// Mapping from variable names (in the original [`Context`]) to indexes in
+    /// the variable array used during evaluation.
+    ///
+    /// This is an `Arc` so it can be trivially shared by all of the tape's
+    /// descendents, since the variable array order does not change.
+    pub vars: Arc<HashMap<String, u32>>,
 }
 
 impl<const N: usize> VmData<N> {
@@ -60,12 +69,16 @@ impl<const N: usize> VmData<N> {
     pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
         let ssa = SsaTape::new(context, node)?;
         let asm = RegTape::new::<N>(&ssa);
-        Ok(Self { ssa, asm })
+        Ok(Self {
+            asm,
+            choice_count: ssa.choice_count,
+            vars: ssa.vars,
+        })
     }
 
     /// Returns this tape's mapping of variable names to indexes
     pub fn vars(&self) -> &HashMap<String, u32> {
-        &self.ssa.vars
+        &self.vars
     }
 
     /// Returns the length of the internal VM tape
@@ -83,7 +96,7 @@ impl<const N: usize> VmData<N> {
     /// This is required because some evaluators pre-allocate spaces for the
     /// choice array.
     pub fn choice_count(&self) -> usize {
-        self.ssa.choice_count
+        self.choice_count
     }
 
     /// Returns the number of slots used by the inner VM tape
@@ -93,7 +106,7 @@ impl<const N: usize> VmData<N> {
 
     /// Returns the number of variables used in this tape
     pub fn var_count(&self) -> usize {
-        self.ssa.vars.len()
+        self.vars.len()
     }
 
     /// Simplifies both inner tapes, using the provided choice array
@@ -104,7 +117,7 @@ impl<const N: usize> VmData<N> {
         &self,
         choices: &[Choice],
         workspace: &mut VmWorkspace<N>,
-        mut tape: VmData<N>,
+        tape: VmData<N>,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
@@ -112,24 +125,22 @@ impl<const N: usize> VmData<N> {
                 self.choice_count(),
             ));
         }
-        tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset(self.ssa.tape.len(), tape.asm);
+        // TODO this overestimates because it includes load/store
+        workspace.reset(self.asm.len(), tape.asm);
 
         let mut choice_count = 0;
 
         // The tape is constructed so that the output slot is first
-        assert_eq!(self.ssa.tape[0].output(), 0);
-        workspace.set_active(self.ssa.tape[0].output(), 0);
+        workspace.set_active(0, 0);
         workspace.count += 1;
 
         // Other iterators to consume various arrays in order
         let mut choice_iter = choices.iter().rev();
 
-        let mut ops_out = tape.ssa.tape;
-
-        for mut op in self.ssa.tape.iter().cloned() {
+        // TODO use borrowed array for RegTape::ssa() workspace
+        for mut op in self.asm.ssa() {
             let index = op.output();
 
             if workspace.active(index).is_none() {
@@ -247,19 +258,15 @@ impl<const N: usize> VmData<N> {
                 }
             }
             workspace.alloc.op(op);
-            ops_out.push(op);
         }
 
-        assert_eq!(workspace.count as usize, ops_out.len());
+        //assert_eq!(workspace.count as usize, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
         Ok(VmData {
-            ssa: SsaTape {
-                tape: ops_out,
-                choice_count,
-                vars: self.ssa.vars.clone(),
-            },
+            choice_count,
             asm: asm_tape,
+            vars: self.vars.clone(),
         })
     }
 
@@ -270,7 +277,6 @@ impl<const N: usize> VmData<N> {
 
     /// Pretty-prints the inner SSA tape
     pub fn pretty_print(&self) {
-        self.ssa.pretty_print();
         for a in self.iter_asm() {
             println!("{a:?}");
         }
