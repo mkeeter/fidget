@@ -101,61 +101,65 @@ opcodes!(
     }
 );
 
-impl SsaOp {
+impl RegOp {
     /// Returns the output pseudo-register
     pub fn output(&self) -> u32 {
         match self {
-            SsaOp::Input(out, ..)
-            | SsaOp::Var(out, ..)
-            | SsaOp::CopyImm(out, ..)
-            | SsaOp::NegReg(out, ..)
-            | SsaOp::AbsReg(out, ..)
-            | SsaOp::RecipReg(out, ..)
-            | SsaOp::SqrtReg(out, ..)
-            | SsaOp::SquareReg(out, ..)
-            | SsaOp::CopyReg(out, ..)
-            | SsaOp::AddRegImm(out, ..)
-            | SsaOp::MulRegImm(out, ..)
-            | SsaOp::DivRegImm(out, ..)
-            | SsaOp::DivImmReg(out, ..)
-            | SsaOp::SubImmReg(out, ..)
-            | SsaOp::SubRegImm(out, ..)
-            | SsaOp::AddRegReg(out, ..)
-            | SsaOp::MulRegReg(out, ..)
-            | SsaOp::DivRegReg(out, ..)
-            | SsaOp::SubRegReg(out, ..)
-            | SsaOp::MinRegImm(out, ..)
-            | SsaOp::MaxRegImm(out, ..)
-            | SsaOp::MinRegReg(out, ..)
-            | SsaOp::MaxRegReg(out, ..) => *out,
+            RegOp::Input(out, ..)
+            | RegOp::Var(out, ..)
+            | RegOp::CopyImm(out, ..)
+            | RegOp::NegReg(out, ..)
+            | RegOp::AbsReg(out, ..)
+            | RegOp::RecipReg(out, ..)
+            | RegOp::SqrtReg(out, ..)
+            | RegOp::SquareReg(out, ..)
+            | RegOp::CopyReg(out, ..)
+            | RegOp::AddRegImm(out, ..)
+            | RegOp::MulRegImm(out, ..)
+            | RegOp::DivRegImm(out, ..)
+            | RegOp::DivImmReg(out, ..)
+            | RegOp::SubImmReg(out, ..)
+            | RegOp::SubRegImm(out, ..)
+            | RegOp::AddRegReg(out, ..)
+            | RegOp::MulRegReg(out, ..)
+            | RegOp::DivRegReg(out, ..)
+            | RegOp::SubRegReg(out, ..)
+            | RegOp::MinRegImm(out, ..)
+            | RegOp::MaxRegImm(out, ..)
+            | RegOp::MinRegReg(out, ..)
+            | RegOp::MaxRegReg(out, ..)
+            | RegOp::Load(out, ..) => *out as u32,
+            RegOp::Store(_reg, mem) => *mem,
         }
     }
     /// Returns true if the given opcode is associated with a choice
     pub fn has_choice(&self) -> bool {
         match self {
-            SsaOp::Input(..)
-            | SsaOp::Var(..)
-            | SsaOp::CopyImm(..)
-            | SsaOp::NegReg(..)
-            | SsaOp::AbsReg(..)
-            | SsaOp::RecipReg(..)
-            | SsaOp::SqrtReg(..)
-            | SsaOp::SquareReg(..)
-            | SsaOp::CopyReg(..)
-            | SsaOp::AddRegImm(..)
-            | SsaOp::MulRegImm(..)
-            | SsaOp::SubRegImm(..)
-            | SsaOp::SubImmReg(..)
-            | SsaOp::AddRegReg(..)
-            | SsaOp::MulRegReg(..)
-            | SsaOp::SubRegReg(..)
-            | SsaOp::DivRegReg(..)
-            | SsaOp::DivRegImm(..)
-            | SsaOp::DivImmReg(..) => false,
-            SsaOp::MinRegImm(..)
-            | SsaOp::MaxRegImm(..)
-            | SsaOp::MinRegReg(..)
-            | SsaOp::MaxRegReg(..) => true,
+            RegOp::Input(..)
+            | RegOp::Var(..)
+            | RegOp::CopyImm(..)
+            | RegOp::NegReg(..)
+            | RegOp::AbsReg(..)
+            | RegOp::RecipReg(..)
+            | RegOp::SqrtReg(..)
+            | RegOp::SquareReg(..)
+            | RegOp::CopyReg(..)
+            | RegOp::AddRegImm(..)
+            | RegOp::MulRegImm(..)
+            | RegOp::SubRegImm(..)
+            | RegOp::SubImmReg(..)
+            | RegOp::AddRegReg(..)
+            | RegOp::MulRegReg(..)
+            | RegOp::SubRegReg(..)
+            | RegOp::DivRegReg(..)
+            | RegOp::DivRegImm(..)
+            | RegOp::DivImmReg(..)
+            | RegOp::Load(..)
+            | RegOp::Store(..) => false,
+            RegOp::MinRegImm(..)
+            | RegOp::MaxRegImm(..)
+            | RegOp::MinRegReg(..)
+            | RegOp::MaxRegReg(..) => true,
         }
     }
 }

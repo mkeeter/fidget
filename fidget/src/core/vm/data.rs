@@ -132,131 +132,214 @@ impl<const N: usize> VmData<N> {
 
         let mut choice_count = 0;
 
-        // The tape is constructed so that the output slot is first
-        workspace.set_active(0, 0);
-        workspace.count += 1;
+        // Register 0 must be the first SSA slot
+        workspace.reg(0);
 
         // Other iterators to consume various arrays in order
         let mut choice_iter = choices.iter().rev();
 
-        // TODO use borrowed array for RegTape::ssa() workspace
-        for mut op in self.asm.ssa() {
+        for op in self.asm.iter() {
+            // Skip clauses which are inactive, but handle their output binding
+            // and choice in the choice iterator.
             let index = op.output();
-
-            if workspace.active(index).is_none() {
+            if !workspace.active(index) {
+                // manually clear the binding
+                workspace.bind[index as usize] = u32::MAX;
                 if op.has_choice() {
                     choice_iter.next().unwrap();
                 }
                 continue;
             }
 
-            // Because we reassign nodes when they're used as an *input*
-            // (while walking the tape in reverse), this node must have been
-            // assigned already.
-            let new_index = workspace.active(index).unwrap();
-
-            match &mut op {
-                SsaOp::Input(index, ..)
-                | SsaOp::Var(index, ..)
-                | SsaOp::CopyImm(index, ..) => {
-                    *index = new_index;
+            // Convert from RegOp -> SsaOp
+            let op = match *op {
+                RegOp::Load(reg, mem) => {
+                    let prev = workspace.out(reg);
+                    assert_eq!(workspace.bind[mem as usize], u32::MAX);
+                    workspace.bind[mem as usize] = prev;
+                    continue;
                 }
-                SsaOp::NegReg(index, arg)
-                | SsaOp::AbsReg(index, arg)
-                | SsaOp::RecipReg(index, arg)
-                | SsaOp::SqrtReg(index, arg)
-                | SsaOp::SquareReg(index, arg) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
+                RegOp::Store(reg, mem) => {
+                    let prev = workspace.bind[mem as usize];
+                    workspace.bind[mem as usize] = u32::MAX;
+                    assert_eq!(workspace.bind[reg as usize], u32::MAX);
+                    workspace.bind[reg as usize] = prev;
+                    continue;
                 }
-                SsaOp::CopyReg(index, src) => {
-                    // CopyReg effectively does
-                    //      dst <= src
-                    // If src has not yet been used (as we iterate backwards
-                    // through the tape), then we can replace it with dst
-                    // everywhere!
-                    match workspace.active(*src) {
-                        Some(new_src) => {
-                            *index = new_index;
-                            *src = new_src;
-                        }
-                        None => {
-                            workspace.set_active(*src, new_index);
-                            continue;
-                        }
-                    }
+                RegOp::Input(out, i) => {
+                    SsaOp::Input(workspace.out(out), i as u32)
                 }
-                SsaOp::MinRegImm(index, arg, imm)
-                | SsaOp::MaxRegImm(index, arg, imm) => {
+                RegOp::Var(out, i) => SsaOp::Var(workspace.out(out), i),
+                RegOp::NegReg(out, arg) => {
+                    SsaOp::NegReg(workspace.out(out), workspace.reg(arg))
+                }
+                RegOp::AbsReg(out, arg) => {
+                    SsaOp::AbsReg(workspace.out(out), workspace.reg(arg))
+                }
+                RegOp::RecipReg(out, arg) => {
+                    SsaOp::RecipReg(workspace.out(out), workspace.reg(arg))
+                }
+                RegOp::SqrtReg(out, arg) => {
+                    SsaOp::SqrtReg(workspace.out(out), workspace.reg(arg))
+                }
+                RegOp::CopyReg(out, arg) => {
+                    let Some(op) = workspace.copy(out, arg) else {
+                        continue;
+                    };
+                    op
+                }
+                RegOp::SquareReg(out, arg) => {
+                    SsaOp::SquareReg(workspace.out(out), workspace.reg(arg))
+                }
+                RegOp::AddRegReg(out, lhs, rhs) => SsaOp::AddRegReg(
+                    workspace.out(out),
+                    workspace.reg(lhs),
+                    workspace.reg(rhs),
+                ),
+                RegOp::MulRegReg(out, lhs, rhs) => SsaOp::MulRegReg(
+                    workspace.out(out),
+                    workspace.reg(lhs),
+                    workspace.reg(rhs),
+                ),
+                RegOp::DivRegReg(out, lhs, rhs) => SsaOp::DivRegReg(
+                    workspace.out(out),
+                    workspace.reg(lhs),
+                    workspace.reg(rhs),
+                ),
+                RegOp::SubRegReg(out, lhs, rhs) => SsaOp::SubRegReg(
+                    workspace.out(out),
+                    workspace.reg(lhs),
+                    workspace.reg(rhs),
+                ),
+                RegOp::MinRegReg(out, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*arg) {
-                            Some(new_arg) => {
-                                op = SsaOp::CopyReg(new_index, new_arg);
-                            }
-                            None => {
-                                workspace.set_active(*arg, new_index);
+                        Choice::Left => {
+                            let Some(op) = workspace.copy(out, lhs) else {
                                 continue;
-                            }
-                        },
+                            };
+                            op
+                        }
                         Choice::Right => {
-                            op = SsaOp::CopyImm(new_index, *imm);
+                            let Some(op) = workspace.copy(out, rhs) else {
+                                continue;
+                            };
+                            op
                         }
                         Choice::Both => {
                             choice_count += 1;
-                            *index = new_index;
-                            *arg = workspace.get_or_insert_active(*arg);
+                            SsaOp::MinRegReg(
+                                workspace.out(out),
+                                workspace.reg(lhs),
+                                workspace.reg(rhs),
+                            )
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::MinRegReg(index, lhs, rhs)
-                | SsaOp::MaxRegReg(index, lhs, rhs) => {
+                RegOp::MaxRegReg(out, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => match workspace.active(*lhs) {
-                            Some(new_lhs) => {
-                                op = SsaOp::CopyReg(new_index, new_lhs);
-                            }
-                            None => {
-                                workspace.set_active(*lhs, new_index);
+                        Choice::Left => {
+                            let Some(op) = workspace.copy(out, lhs) else {
                                 continue;
-                            }
-                        },
-                        Choice::Right => match workspace.active(*rhs) {
-                            Some(new_rhs) => {
-                                op = SsaOp::CopyReg(new_index, new_rhs);
-                            }
-                            None => {
-                                workspace.set_active(*rhs, new_index);
+                            };
+                            op
+                        }
+                        Choice::Right => {
+                            let Some(op) = workspace.copy(out, rhs) else {
                                 continue;
-                            }
-                        },
+                            };
+                            op
+                        }
                         Choice::Both => {
                             choice_count += 1;
-                            *index = new_index;
-                            *lhs = workspace.get_or_insert_active(*lhs);
-                            *rhs = workspace.get_or_insert_active(*rhs);
+                            SsaOp::MaxRegReg(
+                                workspace.out(out),
+                                workspace.reg(lhs),
+                                workspace.reg(rhs),
+                            )
                         }
                         Choice::Unknown => panic!("oh no"),
                     }
                 }
-                SsaOp::AddRegReg(index, lhs, rhs)
-                | SsaOp::MulRegReg(index, lhs, rhs)
-                | SsaOp::SubRegReg(index, lhs, rhs)
-                | SsaOp::DivRegReg(index, lhs, rhs) => {
-                    *index = new_index;
-                    *lhs = workspace.get_or_insert_active(*lhs);
-                    *rhs = workspace.get_or_insert_active(*rhs);
+                RegOp::AddRegImm(out, arg, imm) => SsaOp::AddRegImm(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::MulRegImm(out, arg, imm) => SsaOp::MulRegImm(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::DivRegImm(out, arg, imm) => SsaOp::DivRegImm(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::DivImmReg(out, arg, imm) => SsaOp::DivImmReg(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::SubImmReg(out, arg, imm) => SsaOp::SubImmReg(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::SubRegImm(out, arg, imm) => SsaOp::SubRegImm(
+                    workspace.out(out),
+                    workspace.reg(arg),
+                    imm,
+                ),
+                RegOp::MinRegImm(out, arg, imm) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            let Some(op) = workspace.copy(out, arg) else {
+                                continue;
+                            };
+                            op
+                        }
+                        Choice::Right => {
+                            SsaOp::CopyImm(workspace.out(out), imm)
+                        }
+                        Choice::Both => {
+                            choice_count += 1;
+                            SsaOp::MinRegImm(
+                                workspace.out(out),
+                                workspace.reg(arg),
+                                imm,
+                            )
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
                 }
-                SsaOp::AddRegImm(index, arg, _imm)
-                | SsaOp::MulRegImm(index, arg, _imm)
-                | SsaOp::SubRegImm(index, arg, _imm)
-                | SsaOp::SubImmReg(index, arg, _imm)
-                | SsaOp::DivRegImm(index, arg, _imm)
-                | SsaOp::DivImmReg(index, arg, _imm) => {
-                    *index = new_index;
-                    *arg = workspace.get_or_insert_active(*arg);
+                RegOp::MaxRegImm(out, arg, imm) => {
+                    match choice_iter.next().unwrap() {
+                        Choice::Left => {
+                            let Some(op) = workspace.copy(out, arg) else {
+                                continue;
+                            };
+                            op
+                        }
+                        Choice::Right => {
+                            SsaOp::CopyImm(workspace.out(out), imm)
+                        }
+                        Choice::Both => {
+                            choice_count += 1;
+                            SsaOp::MaxRegImm(
+                                workspace.out(out),
+                                workspace.reg(arg),
+                                imm,
+                            )
+                        }
+                        Choice::Unknown => panic!("oh no"),
+                    }
                 }
-            }
+                RegOp::CopyImm(out, imm) => {
+                    SsaOp::CopyImm(workspace.out(out), imm)
+                }
+            };
+
             workspace.alloc.op(op);
         }
 
@@ -313,15 +396,8 @@ impl<const N: usize> Default for VmWorkspace<N> {
 }
 
 impl<const N: usize> VmWorkspace<N> {
-    fn active(&self, i: u32) -> Option<u32> {
-        if self.bind[i as usize] != u32::MAX {
-            Some(self.bind[i as usize])
-        } else {
-            None
-        }
-    }
-
-    fn get_or_insert_active(&mut self, i: u32) -> u32 {
+    /// Returns a register -> SSA binding, assigning a new binding if missing
+    fn reg(&mut self, i: u8) -> u32 {
         if self.bind[i as usize] == u32::MAX {
             self.bind[i as usize] = self.count;
             self.count += 1;
@@ -329,8 +405,28 @@ impl<const N: usize> VmWorkspace<N> {
         self.bind[i as usize]
     }
 
-    fn set_active(&mut self, i: u32, bind: u32) {
-        self.bind[i as usize] = bind;
+    /// Returns a register -> SSA binding, clearing that binding upon return
+    fn out(&mut self, i: u8) -> u32 {
+        assert_ne!(self.bind[i as usize], u32::MAX);
+        let out = self.bind[i as usize];
+        self.bind[i as usize] = u32::MAX;
+        out
+    }
+
+    /// Checks whether the given register is active, clearing it if so
+    fn active(&self, v: u32) -> bool {
+        self.bind[v as usize] != u32::MAX
+    }
+
+    fn copy(&mut self, dst: u8, src: u8) -> Option<SsaOp> {
+        let dst = self.out(dst);
+        if self.bind[src as usize] != u32::MAX {
+            Some(SsaOp::CopyReg(dst, self.reg(src)))
+        } else {
+            assert_eq!(self.bind[src as usize], u32::MAX);
+            self.bind[src as usize] = dst;
+            None
+        }
     }
 
     /// Resets the workspace, preserving allocations and claiming the given
