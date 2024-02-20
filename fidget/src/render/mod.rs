@@ -42,6 +42,10 @@ mod test {
         if img_str != expected {
             println!("image mismatch detected!");
             println!("Expected:\n{expected}\nGot:\n{img_str}");
+            println!("Diff:");
+            for (a, b) in img_str.chars().zip(expected.chars()) {
+                print!("{}", if a != b { '!' } else { a });
+            }
             panic!("image mismatch");
         }
     }
