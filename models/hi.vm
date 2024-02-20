@@ -1,0 +1,57 @@
+# The letters 'hi' in the upper-right quadrant
+_0 var-y
+_1 const 0.55
+_2 sub _0 _1
+_3 neg _0
+_4 max _2 _3
+_5 var-x
+_6 const 0.825
+_7 sub _5 _6
+_8 max _4 _7
+_9 const 0.725
+_a sub _9 _5
+_b max _8 _a
+_c const 0.7
+_d sub _0 _c
+_e square _d
+_f const 0.775
+_10 sub _5 _f
+_11 square _10
+_12 add _e _11
+_13 sqrt _12
+_14 const 0.075
+_15 sub _13 _14
+_16 min _b _15
+_17 const 0.275
+_18 sub _0 _17
+_19 max _3 _18
+_1a sub _5 _1
+_1b max _19 _1a
+_1c const 0.45
+_1d sub _1c _5
+_1e max _1b _1d
+_1f min _16 _1e
+_20 const 1
+_21 sub _0 _20
+_22 max _3 _21
+_23 const 0.1
+_24 sub _5 _23
+_25 max _22 _24
+_26 neg _5
+_27 max _25 _26
+_28 min _1f _27
+_29 max _2 _1a
+_2a max _29 _26
+_2b sub _17 _0
+_2c max _2a _2b
+_2d const 0.175
+_2e square _18
+_2f sub _5 _17
+_30 square _2f
+_31 add _2e _30
+_32 sqrt _31
+_33 sub _2d _32
+_34 max _2c _33
+_35 sub _32 _17
+_36 max _34 _35
+_37 min _28 _36

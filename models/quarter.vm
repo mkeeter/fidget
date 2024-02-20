@@ -1,0 +1,13 @@
+# A quarter-circle in the lower-left quadrant
+y var-y
+x var-x
+
+mxy max x y
+
+y2 square y
+x2 square x
+r2 add x2 y2
+f const 0.5
+circle sub r2 f
+
+out max mxy circle
