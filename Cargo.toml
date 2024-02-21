@@ -9,6 +9,7 @@ members = [
 
 [profile.release]
 debug = true
+overflow-checks = true
 
 [profile.bench]
 lto = "thin"
