@@ -469,7 +469,7 @@ mod test {
     use super::*;
     use crate::{
         eval::{MathShape, Shape},
-        vm::VmShape,
+        vm::{GenericVmShape, VmShape},
         Context,
     };
 
@@ -587,6 +587,11 @@ mod test {
         check_hi::<VmShape>();
     }
 
+    #[test]
+    fn render_hi_vm3() {
+        check_hi::<GenericVmShape<3>>();
+    }
+
     #[cfg(feature = "jit")]
     #[test]
     fn render_hi_jit() {
@@ -596,6 +601,11 @@ mod test {
     #[test]
     fn render_quarter_vm() {
         check_quarter::<VmShape>();
+    }
+
+    #[test]
+    fn render_quarter_vm3() {
+        check_quarter::<GenericVmShape<3>>();
     }
 
     #[cfg(feature = "jit")]
