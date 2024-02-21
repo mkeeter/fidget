@@ -7,7 +7,7 @@ use crate::mesh::{
     types::{X, Y, Z},
     Mesh, Octree,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
 enum Task {
@@ -42,8 +42,8 @@ pub struct DcWorker<'a> {
     /// - The top bit is always 1 (so 0 is not a valid claimed index)
     /// - The next 8 bits indicate which thread has claimed the vertex
     /// - The remaining bits are an index into that thread's [`DcWorker::verts`]
-    map: &'a [AtomicUsize],
-    tris: Vec<nalgebra::Vector3<usize>>,
+    map: &'a [AtomicU64],
+    tris: Vec<nalgebra::Vector3<u64>>,
     verts: Vec<nalgebra::Vector3<f32>>,
 
     /// Our personal queue of tasks to complete, along with references to other
@@ -58,7 +58,7 @@ impl<'a> DcWorker<'a> {
         let map = octree
             .verts
             .iter()
-            .map(|_| AtomicUsize::new(0))
+            .map(|_| AtomicU64::new(0))
             .collect::<Vec<_>>();
 
         let mut workers = queues
@@ -132,8 +132,9 @@ impl<'a> DcWorker<'a> {
                         .iter_mut()
                         .zip(tris.iter().map(|t| {
                             t.map(|v| {
-                                let thread = (v >> 55) & 0xFF;
-                                let i = v & ((1 << 55) - 1);
+                                let thread = ((v >> 55) & 0xFF) as usize;
+                                let i: usize =
+                                    (v & ((1 << 55) - 1)).try_into().unwrap();
                                 vert_offsets_ref[thread] + i
                             })
                         }))
@@ -152,7 +153,7 @@ impl<'a> DcWorker<'a> {
     pub fn run(
         mut self,
         pool: &ThreadPool,
-    ) -> (Vec<nalgebra::Vector3<usize>>, Vec<nalgebra::Vector3<f32>>) {
+    ) -> (Vec<nalgebra::Vector3<u64>>, Vec<nalgebra::Vector3<f32>>) {
         let mut ctx = pool.start(self.thread_index);
 
         loop {
@@ -202,6 +203,10 @@ impl<'a> DcWorker<'a> {
 
 #[allow(clippy::modulo_one, clippy::identity_op, unused_parens)]
 impl DcBuilder for DcWorker<'_> {
+    // We need to reserve 1 byte for multithreading info, so we'll force the use
+    // of a u64 here (rather than a usize, which is 32-bit on some platforms)
+    type VertexIndex = u64;
+
     fn cell(&mut self, _octree: &Octree, cell: CellIndex) {
         self.queue.push(Task::Cell(cell));
     }
@@ -231,7 +236,7 @@ impl DcBuilder for DcWorker<'_> {
         }
     }
 
-    fn triangle(&mut self, a: usize, b: usize, c: usize) {
+    fn triangle(&mut self, a: u64, b: u64, c: u64) {
         self.tris.push(nalgebra::Vector3::new(a, b, c))
     }
 
@@ -245,12 +250,12 @@ impl DcBuilder for DcWorker<'_> {
         i: usize,
         _cell: CellIndex,
         verts: &[CellVertex],
-    ) -> usize {
+    ) -> u64 {
         // Build our thread + vertex index
-        let mut next = self.verts.len();
+        let mut next = self.verts.len() as u64;
         assert!(next < (1 << 55));
         next |= 1 << 63;
-        next |= self.thread_index << 55;
+        next |= (self.thread_index as u64) << 55;
 
         match self.map[i].compare_exchange(
             0,

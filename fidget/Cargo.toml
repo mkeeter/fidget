@@ -33,6 +33,9 @@ nalgebra = { version = "0.31" }
 crossbeam-deque = { version = "0.8", optional = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [features]
 default = ["jit", "rhai", "render", "mesh"]
 

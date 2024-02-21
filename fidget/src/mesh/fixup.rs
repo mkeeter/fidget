@@ -33,6 +33,8 @@ impl DcFixup {
 }
 
 impl DcBuilder for DcFixup {
+    type VertexIndex = usize;
+
     fn cell(&mut self, octree: &Octree, cell: CellIndex) {
         if let Cell::Leaf(Leaf { index, mask }) =
             octree.cells[cell.index].into()

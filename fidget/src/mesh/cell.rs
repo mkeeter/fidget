@@ -41,11 +41,6 @@ impl std::fmt::Debug for CellData {
     }
 }
 
-static_assertions::const_assert_eq!(
-    std::mem::size_of::<usize>(),
-    std::mem::size_of::<u64>()
-);
-
 /// Unpacked form of [`CellData`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Cell {
@@ -74,22 +69,25 @@ impl Cell {
 
 impl From<CellData> for Cell {
     fn from(c: CellData) -> Self {
-        let i = c.0 as usize;
+        let i = c.0;
         match i {
             0 => Cell::Invalid,
             1 => Cell::Empty,
             2 => Cell::Full,
-            _ => match (i >> 62) & 0b11 {
-                0b10 => Cell::Branch {
-                    index: i & ((1 << 54) - 1),
-                    thread: (i >> 54) as u8,
-                },
-                0b11 => Cell::Leaf(Leaf {
-                    mask: (i >> 54) as u8,
-                    index: i & ((1 << 54) - 1),
-                }),
-                _ => panic!("invalid cell encoding"),
-            },
+            _ => {
+                let index = (i & ((1 << 54) - 1)).try_into().unwrap();
+                match (i >> 62) & 0b11 {
+                    0b10 => Cell::Branch {
+                        thread: (i >> 54) as u8,
+                        index,
+                    },
+                    0b11 => Cell::Leaf(Leaf {
+                        mask: (i >> 54) as u8,
+                        index,
+                    }),
+                    _ => panic!("invalid cell encoding"),
+                }
+            }
         }
     }
 }
