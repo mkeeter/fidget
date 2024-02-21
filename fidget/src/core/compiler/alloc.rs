@@ -335,37 +335,25 @@ impl RegisterAllocator {
         //       |     |
         //       |     | Afterwards, r_x is free
         //  -----|-----|----------------------------------------------------
-        //   r_x | m_y | store r_x -> m_y
-        //       |     | r_x = op r_x
+        //   r_x | m_y | r_x = op r_a
+        //       |     | store r_a -> m_y
+        //       |     | [load r_a <- m_a]
         //       |     |
-        //       |     | Afterward, r_x points to the former m_y
+        //       |     | Afterward, r_x is free and r_a points to the former m_y
         //  -----|-----|----------------------------------------------------
         //   r_x |  U  | r_x = op r_x
         //       |     |
         //       |     | Afterward, r_x points to the arg
         //  -----|-----|----------------------------------------------------
-        //   m_x | r_y | r_a = op r_y
-        //       |     | store r_a -> m_x
-        //       |     | [load r_a <- m_a]
-        //       |     |
-        //       |     | Afterward, r_a and m_x are free, [m_a points to the
-        //       |     | former r_a]
-        //  -----|-----|----------------------------------------------------
-        //   m_x | m_y | store r_a -> m_y
-        //       |     | r_a = op r_a
-        //       |     | store r_a -> m_x
-        //       |     | [load r_a <- m_a]
-        //       |     |
-        //       |     | Afterwards, r_a points to arg, m_x and m_y are free,
-        //       |     | [and m_a points to the former r_a]
-        //  -----|-----|----------------------------------------------------
-        //   m_x |  U  | r_a = op r_a
-        //       |     | store r_a -> m_x
-        //       |     | [load r_a <- m_a]
-        //       |     |
-        //       |     | Afterwards, r_a points to the arg, m_x is free,
-        //       |     | [and m_a points to the former r_a]
-        //  -----|-----|----------------------------------------------------
+        //
+        //  Cases with the output in memory (m_x) are identical except that they
+        //  include a trailing
+        //
+        //      store r_a -> m_x
+        //      [load r_a <- m_a]
+        //
+        // i.e. storing the value in the assigned memory slot, and then
+        // restoring the previous register value if present (when read forward).
         let r_x = self.get_out_reg(out);
         match self.get_allocation(arg) {
             Allocation::Register(r_y) => {
@@ -374,10 +362,11 @@ impl RegisterAllocator {
                 self.release_reg(r_x);
             }
             Allocation::Memory(m_y) => {
-                self.out.push(op(r_x, r_x));
-                self.rebind_register(arg, r_x);
-
-                self.push_store(r_x, m_y);
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a));
+                self.release_reg(r_x);
+                self.bind_register(arg, r_a);
             }
             Allocation::Unassigned => {
                 self.out.push(op(r_x, r_x));
@@ -410,17 +399,19 @@ impl RegisterAllocator {
         //       |      |      |
         //       |      |      | Afterwards, r_x is free
         //  -----|------|------|----------------------------------------------
-        //  r_x  | m_y  | r_z  | store r_x -> m_y
-        //       |      |      | r_x = op r_x r_z
+        //  r_x  | m_y  | r_z  | r_x = op r_a r_z
+        //       |      |      | store r_a -> m_y
+        //       |      |      | [load r_a <- m_a]
         //       |      |      |
-        //       |      |      | Afterwards, r_x points to the former m_y, and
-        //       |      |      | m_y is free
+        //       |      |      | Afterwards, r_x is free, r_a points to the
+        //       |      |      | former m_y, and m_y is free
         //  -----|------|------|----------------------------------------------
         //  r_x  | r_y  | m_z  | ibid
         //  -----|------|------|----------------------------------------------
-        //  r_x  | m_y  | m_z  | store r_x -> m_y
-        //       |      |      | store r_a -> m_z
-        //       |      |      | r_x = op r_x r_a
+        //  r_x  | m_y  | m_z  | r_x = op r_a r_b
+        //       |      |      | store r_b -> m_z
+        //       |      |      | [load r_b <- m_b]
+        //       |      |      | store r_a -> m_y
         //       |      |      | [load r_a <- m_a]
         //       |      |      |
         //       |      |      | Afterwards, r_x points to the former m_y, r_a
@@ -439,8 +430,8 @@ impl RegisterAllocator {
         //       |      |      | Afterward, r_x points to the lhs, r_a points to
         //       |      |      | rhs, [and m_a points to the former r_a]
         //  -----|------|------|----------------------------------------------
-        //  r_x  | U    | m_z  | store r_a -> m_z
-        //       |      |      | r_x = op r_x r_a
+        //  r_x  | U    | m_z  | r_x = op r_x r_a
+        //       |      |      | store r_a -> m_z
         //       |      |      | [load r_a <- m_a]
         //       |      |      |
         //       |      |      | Afterward, r_x points to the lhs, r_a points to
@@ -449,6 +440,15 @@ impl RegisterAllocator {
         //  -----|------|------|----------------------------------------------
         //  r_x  | m_y  | U    | ibid
         //  =====|======|======|==============================================
+        //
+        //  The operations with the output in the memory slot are identical,
+        //  except that they end with
+        //      store r_o -> m_o
+        //      [load r_o <- m_o]
+        //  (i.e. moving the register to memory immediately, and optionally
+        //  restoring the previous value.  Here's an example:
+        //
+        //  -----|------|------|----------------------------------------------
         //   m_x | r_y  | r_z  | r_a = op r_y r_z
         //       |      |      | store r_a -> m_x
         //       |      |      | [load r_a <- m_a]
@@ -456,56 +456,6 @@ impl RegisterAllocator {
         //       |      |      | Afterwards, r_a and m_x are free, [m_a points
         //       |      |      | to the former r_a}
         //  -----|------|------|----------------------------------------------
-        //   m_x | r_y  | m_z  | store r_a -> m_z
-        //       |      |      | r_a = op r_y r_a
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to rhs, m_z and m_x are
-        //       |      |      | free, [and m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | r_z  | ibid
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | m_z  | store r_a -> m_y
-        //       |      |      | store r_b -> m_z
-        //       |      |      | r_a = op r_a r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs, m_x, m_y, m_z are all free, [m_a points to
-        //       |      |      | the former r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | r_y  | U    | r_a = op r_y r_a
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to rhs, m_x is free,
-        //       |      |      | [m_a points to the former r_a]
-        //  -----|------|------|----------------------------------------------
-        //   m_x |  U   | r_z  | ibid
-        //  -----|------|------|----------------------------------------------
-        //   m_x |  U   | U    | r_a = op r_a r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs, m_x is free, [m_a points to the former
-        //       |      |      | r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x | m_y  | U    | store r_a -> m_y
-        //       |      |      | r_a = op r_a r_b
-        //       |      |      | store r_a -> m_x
-        //       |      |      | [load r_a <- m_a]
-        //       |      |      | [load r_b <- m_b]
-        //       |      |      |
-        //       |      |      | Afterwards, r_a points to lhs, r_b points to
-        //       |      |      | rhs,  m_x and m_y are free, [m_a points to the
-        //       |      |      | former r_a], [m_b points to the former r_b]
-        //  -----|------|------|----------------------------------------------
-        //   m_x  | U   | m_z  | ibid
         let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> RegOp) = match op {
             SsaOp::AddRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::AddRegReg)
@@ -534,31 +484,36 @@ impl RegisterAllocator {
                 self.release_reg(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
-                self.out.push(op(r_x, r_x, r_z));
-                self.rebind_register(lhs, r_x);
-
-                self.push_store(r_x, m_y);
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_z));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
             }
             (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
-                self.out.push(op(r_x, r_y, r_x));
-                self.rebind_register(rhs, r_x);
-
-                self.push_store(r_x, m_z);
+                let r_a = self.get_register();
+                self.push_store(r_a, m_z);
+                self.out.push(op(r_x, r_y, r_a));
+                self.release_reg(r_x);
+                self.bind_register(rhs, r_a);
+            }
+            (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_a));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
-                let r_a = if lhs == rhs { r_x } else { self.get_register() };
+                let r_a = self.get_register();
+                let r_b = self.get_register();
 
-                self.out.push(op(r_x, r_x, r_a));
-                self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
-
-                self.push_store(r_x, m_y);
-
-                if lhs != rhs {
-                    self.push_store(r_a, m_z);
-                }
+                self.push_store(r_a, m_y);
+                self.push_store(r_b, m_z);
+                self.out.push(op(r_x, r_a, r_b));
+                self.release_reg(r_x);
+                self.bind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
@@ -568,38 +523,36 @@ impl RegisterAllocator {
                 self.out.push(op(r_x, r_y, r_x));
                 self.rebind_register(rhs, r_x);
             }
+            (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
+                self.out.push(op(r_x, r_x, r_x));
+                self.rebind_register(lhs, r_x);
+            }
             (Allocation::Unassigned, Allocation::Unassigned) => {
-                let r_a = if lhs == rhs { r_x } else { self.get_register() };
+                let r_a = self.get_register();
 
                 self.out.push(op(r_x, r_x, r_a));
                 self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
+                self.bind_register(rhs, r_a);
             }
             (Allocation::Unassigned, Allocation::Memory(m_z)) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
-
-                self.out.push(op(r_x, r_x, r_a));
-                self.rebind_register(lhs, r_x);
-                if lhs != rhs {
-                    self.bind_register(rhs, r_a);
-                }
+                assert!(lhs != rhs);
 
                 self.push_store(r_a, m_z);
+                self.out.push(op(r_x, r_x, r_a));
+                self.rebind_register(lhs, r_x);
+                self.bind_register(rhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Unassigned) => {
                 let r_a = self.get_register();
                 assert!(r_a != r_x);
-
-                self.out.push(op(r_x, r_a, r_x));
-                self.bind_register(lhs, r_a);
-                if lhs != rhs {
-                    self.rebind_register(rhs, r_x);
-                }
+                assert!(lhs != rhs);
 
                 self.push_store(r_a, m_y);
+                self.out.push(op(r_x, r_a, r_x));
+                self.bind_register(lhs, r_a);
+                self.rebind_register(rhs, r_x);
             }
         }
     }
