@@ -203,10 +203,10 @@ impl RegisterAllocator {
         let prev_node = self.registers[reg as usize];
         self.allocations[prev_node as usize] = u32::MAX;
 
-        // Bind the register and update its use time
+        // Bind the register, but don't bother poking; whoever got the register
+        // for us is responsible for that step.
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.register_lru.poke(reg);
     }
 
     #[inline]
@@ -214,10 +214,10 @@ impl RegisterAllocator {
         assert!(self.allocations[n as usize] >= self.reg_limit as u32);
         assert!(self.registers[reg as usize] == u32::MAX);
 
-        // Bind the register and update its use time
+        // Bind the register, but don't bother poking; whoever got the register
+        // for us is responsible for that step.
         self.registers[reg as usize] = n;
         self.allocations[n as usize] = reg as u32;
-        self.register_lru.poke(reg);
     }
 
     /// Release a register back to the pool of spares
