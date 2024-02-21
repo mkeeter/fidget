@@ -16,5 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build
+    - name: Install wasm target
+      run: rustup target add wasm32-unknown-unknown
+    - name: Check
       run: cargo check --target=wasm32-unknown-unknown --release -pfidget --no-default-features --features="rhai,render,mesh"
