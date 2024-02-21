@@ -337,9 +337,9 @@ impl<S: Shape> Worker<'_, S> {
                 .eval_grad_slice
                 .eval(
                     shape.g_tape(&mut self.tape_storage),
-                    &self.scratch.x,
-                    &self.scratch.y,
-                    &self.scratch.z,
+                    &self.scratch.x[..grad],
+                    &self.scratch.y[..grad],
+                    &self.scratch.z[..grad],
                     &[],
                 )
                 .unwrap();
