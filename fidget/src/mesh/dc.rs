@@ -8,6 +8,12 @@ use crate::mesh::{
 };
 
 pub trait DcBuilder {
+    /// Type for vertex indexes
+    ///
+    /// This is typically a `usize`, but we'll sometimes explicitly force it to
+    /// be a `u64` if we're planning to use upper bits for flags.
+    type VertexIndex: Copy + Clone;
+
     fn cell(&mut self, octree: &Octree, cell: CellIndex);
     fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex);
 
@@ -49,7 +55,12 @@ pub trait DcBuilder {
     ///
     /// The vertices are given in a clockwise winding with the intersection
     /// vertex (i.e. the one on the edge) always last.
-    fn triangle(&mut self, a: usize, b: usize, c: usize);
+    fn triangle(
+        &mut self,
+        a: Self::VertexIndex,
+        b: Self::VertexIndex,
+        c: Self::VertexIndex,
+    );
 
     /// Looks up the given vertex, localizing it within a cell
     ///
@@ -60,7 +71,7 @@ pub trait DcBuilder {
         v: usize,
         cell: CellIndex,
         verts: &[CellVertex],
-    ) -> usize;
+    ) -> Self::VertexIndex;
 }
 
 pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {

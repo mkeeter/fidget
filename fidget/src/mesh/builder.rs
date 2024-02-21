@@ -24,6 +24,8 @@ impl MeshBuilder {
 }
 
 impl DcBuilder for MeshBuilder {
+    type VertexIndex = usize;
+
     fn cell(&mut self, octree: &Octree, cell: CellIndex) {
         dc::dc_cell(octree, cell, self);
     }
