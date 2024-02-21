@@ -276,9 +276,9 @@ impl<S: Shape> Worker<'_, S> {
             .eval_float_slice
             .eval(
                 shape.f_tape(&mut self.tape_storage),
-                &self.scratch.x,
-                &self.scratch.y,
-                &self.scratch.z,
+                &self.scratch.x[..index],
+                &self.scratch.y[..index],
+                &self.scratch.z[..index],
                 &[],
             )
             .unwrap();
