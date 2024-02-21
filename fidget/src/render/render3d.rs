@@ -160,18 +160,24 @@ impl<S: Shape> Worker<'_, S> {
             return;
         }
 
-        // Calculate a simplified tape, reverting to the parent tape if the
-        // simplified tape isn't any shorter.
+        // Calculate a simplified tape based on the trace
         let mut sub_tape = if let Some(trace) = trace.as_ref() {
             let s = self.shape_storage.pop().unwrap_or_default();
             let next =
                 shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
-            Some(ShapeAndTape {
-                shape: next,
-                i_tape: None,
-                f_tape: None,
-                g_tape: None,
-            })
+            if next.size() >= shape.shape.size() {
+                // Optimization: if the simplified shape isn't any shorter, then
+                // don't use it (this saves time spent generating tapes)
+                self.shape_storage.extend(next.recycle());
+                None
+            } else {
+                Some(ShapeAndTape {
+                    shape: next,
+                    i_tape: None,
+                    f_tape: None,
+                    g_tape: None,
+                })
+            }
         } else {
             None
         };
