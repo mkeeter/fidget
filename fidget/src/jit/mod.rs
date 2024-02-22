@@ -30,7 +30,7 @@ use crate::{
         BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
     },
     jit::mmap::Mmap,
-    vm::{Choice, GenericVmShape, VmData, VmWorkspace},
+    vm::{Choice, GenericVmShape, VmData, VmTrace, VmWorkspace},
     Error,
 };
 use dynasmrt::{
@@ -723,7 +723,7 @@ impl JitShape {
 }
 
 impl Shape for JitShape {
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     type Storage = VmData<REGISTER_LIMIT>;
     type Workspace = VmWorkspace;
 
@@ -757,7 +757,7 @@ impl Shape for JitShape {
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         self.0
-            .simplify_inner(trace, storage, workspace)
+            .simplify_inner(trace.as_slice(), storage, workspace)
             .map(JitShape)
     }
 
@@ -816,7 +816,7 @@ macro_rules! jit_fn {
 /// associated type on [`JitShape`].
 #[derive(Default)]
 struct JitTracingEval {
-    choices: Vec<Choice>,
+    choices: VmTrace,
 }
 
 /// Handle to an owned function pointer for tracing evaluation
@@ -858,7 +858,7 @@ impl JitTracingEval {
         y: F,
         z: F,
         vars: &[f32],
-    ) -> (T, Option<&Vec<Choice>>) {
+    ) -> (T, Option<&VmTrace>) {
         let x = x.into();
         let y = y.into();
         let z = z.into();
@@ -892,7 +892,7 @@ pub struct JitIntervalEval(JitTracingEval);
 impl TracingEvaluator for JitIntervalEval {
     type Data = Interval;
     type Tape = JitTracingFn<Interval>;
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     type TapeStorage = Mmap;
 
     fn eval<F: Into<Self::Data>>(
@@ -914,7 +914,7 @@ pub struct JitPointEval(JitTracingEval);
 impl TracingEvaluator for JitPointEval {
     type Data = f32;
     type Tape = JitTracingFn<f32>;
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     type TapeStorage = Mmap;
 
     fn eval<F: Into<Self::Data>>(

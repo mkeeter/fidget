@@ -49,7 +49,7 @@ use types::{Grad, Interval};
 /// most cases, they're a thin wrapper around an `Arc<..>`.
 pub trait Shape: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
-    type Trace;
+    type Trace: Clone + Eq + Send + Trace;
 
     /// Associated type for storage used by the shape itself
     type Storage: Default + Send;
@@ -261,4 +261,22 @@ pub trait Tape {
 
     /// Retrieves the internal storage from this tape
     fn recycle(self) -> Self::Storage;
+}
+
+/// Represents the trace captured by a tracing evaluation
+///
+/// The only property enforced on the trait is that we must have a way of
+/// reusing trace allocations.  Because [`Trace`] implies `Clone` where it's
+/// used in [`Shape`], this is trivial, but we can't provide a default
+/// implementation because it would fall afoul of `impl` specialization.
+pub trait Trace {
+    /// Copies the contents of `other` into `self`
+    fn copy_from(&mut self, other: &Self);
+}
+
+impl<T: Copy + Clone + Default> Trace for Vec<T> {
+    fn copy_from(&mut self, other: &Self) {
+        self.resize(other.len(), T::default());
+        self.copy_from_slice(other);
+    }
 }

@@ -4,7 +4,8 @@ use crate::{
     context::Node,
     eval::{
         types::{Grad, Interval},
-        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, Trace,
+        TracingEvaluator,
     },
     Context, Error,
 };
@@ -32,6 +33,56 @@ impl<const N: u8> Tape for GenericVmShape<N> {
     type Storage = ();
     fn recycle(self) -> Self::Storage {
         // nothing to do here
+    }
+}
+
+/// A trace captured by a VM evaluation
+///
+/// This is a thin wrapper around a [`Vec<Choice>`](Choice).
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct VmTrace(Vec<Choice>);
+
+impl VmTrace {
+    /// Fills the trace with the given value
+    pub fn fill(&mut self, v: Choice) {
+        self.0.fill(v);
+    }
+    /// Resizes the trace, using the new value if it needs to be extended
+    pub fn resize(&mut self, n: usize, v: Choice) {
+        self.0.resize(n, v);
+    }
+    /// Returns the inner choice slice
+    pub fn as_slice(&self) -> &[Choice] {
+        self.0.as_slice()
+    }
+    /// Returns the inner choice slice as a mutable reference
+    pub fn as_mut_slice(&mut self) -> &mut [Choice] {
+        self.0.as_mut_slice()
+    }
+    /// Returns a pointer to the allocated choice array
+    pub fn as_mut_ptr(&mut self) -> *mut Choice {
+        self.0.as_mut_ptr()
+    }
+}
+
+impl Trace for VmTrace {
+    fn copy_from(&mut self, other: &VmTrace) {
+        self.0.resize(other.0.len(), Choice::Unknown);
+        self.0.copy_from_slice(&other.0);
+    }
+}
+
+#[cfg(test)]
+impl From<Vec<Choice>> for VmTrace {
+    fn from(v: Vec<Choice>) -> Self {
+        Self(v)
+    }
+}
+
+#[cfg(test)]
+impl AsRef<[Choice]> for VmTrace {
+    fn as_ref(&self) -> &[Choice] {
+        &self.0
     }
 }
 
@@ -100,10 +151,10 @@ impl<const N: u8> Shape for GenericVmShape<N> {
     fn interval_tape(&self, _storage: ()) -> Self {
         self.clone()
     }
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     fn simplify(
         &self,
-        trace: &Vec<Choice>,
+        trace: &VmTrace,
         storage: VmData<N>,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
@@ -172,14 +223,14 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 /// Generic VM evaluator for tracing evaluation
 struct TracingVmEval<T> {
     slots: Vec<T>,
-    choices: Vec<Choice>,
+    choices: VmTrace,
 }
 
 impl<T> Default for TracingVmEval<T> {
     fn default() -> Self {
         Self {
             slots: vec![],
-            choices: vec![],
+            choices: VmTrace::default(),
         }
     }
 }
@@ -198,7 +249,7 @@ pub struct VmIntervalEval<const N: u8>(TracingVmEval<Interval>);
 impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
     type Data = Interval;
     type Tape = GenericVmShape<N>;
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     type TapeStorage = ();
 
     fn eval<F: Into<Interval>>(
@@ -208,7 +259,7 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(Interval, Option<&Vec<Choice>>), Error> {
+    ) -> Result<(Interval, Option<&VmTrace>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
@@ -218,8 +269,8 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
         assert_eq!(vars.len(), tape.var_count());
 
         let mut simplify = false;
-        let mut choice_index = 0;
         let mut v = SlotArray(&mut self.0.slots);
+        let mut choices = self.0.choices.as_mut_slice().iter_mut();
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
@@ -271,15 +322,13 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].min_choice(imm.into());
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
-                    choice_index += 1;
+                    *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let (value, choice) = v[arg].max_choice(imm.into());
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
-                    choice_index += 1;
+                    *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
@@ -289,16 +338,12 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
-                    simplify |= choice != Choice::Both;
-                    choice_index += 1;
+                    *choices.next().unwrap() |= choice;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
-                    self.0.choices[choice_index] |= choice;
-                    simplify |= choice != Choice::Both;
-                    choice_index += 1;
+                    *choices.next().unwrap() |= choice;
                 }
                 RegOp::CopyImm(out, imm) => {
                     v[out] = imm.into();
@@ -328,7 +373,7 @@ pub struct VmPointEval<const N: u8>(TracingVmEval<f32>);
 impl<const N: u8> TracingEvaluator for VmPointEval<N> {
     type Data = f32;
     type Tape = GenericVmShape<N>;
-    type Trace = Vec<Choice>;
+    type Trace = VmTrace;
     type TapeStorage = ();
 
     fn eval<F: Into<f32>>(
@@ -338,7 +383,7 @@ impl<const N: u8> TracingEvaluator for VmPointEval<N> {
         y: F,
         z: F,
         vars: &[f32],
-    ) -> Result<(f32, Option<&Vec<Choice>>), Error> {
+    ) -> Result<(f32, Option<&VmTrace>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
@@ -346,7 +391,7 @@ impl<const N: u8> TracingEvaluator for VmPointEval<N> {
         self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
-        let mut choice_index = 0;
+        let mut choices = self.0.choices.as_mut_slice().iter_mut();
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
@@ -399,41 +444,43 @@ impl<const N: u8> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     let a = v[arg];
-                    v[out] = if a < imm {
-                        self.0.choices[choice_index] |= Choice::Left;
-                        a
+                    let (choice, value) = if a < imm {
+                        (Choice::Left, a)
                     } else if imm < a {
-                        self.0.choices[choice_index] |= Choice::Right;
-                        imm
+                        (Choice::Right, imm)
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            imm
-                        }
+                        (
+                            Choice::Both,
+                            if a.is_nan() || imm.is_nan() {
+                                f32::NAN
+                            } else {
+                                imm
+                            },
+                        )
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
-                    choice_index += 1;
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let a = v[arg];
-                    v[out] = if a > imm {
-                        self.0.choices[choice_index] |= Choice::Left;
-                        a
+                    let (choice, value) = if a > imm {
+                        (Choice::Left, a)
                     } else if imm > a {
-                        self.0.choices[choice_index] |= Choice::Right;
-                        imm
+                        (Choice::Right, imm)
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            imm
-                        }
+                        (
+                            Choice::Both,
+                            if a.is_nan() || imm.is_nan() {
+                                f32::NAN
+                            } else {
+                                imm
+                            },
+                        )
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
-                    choice_index += 1;
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] + v[rhs];
@@ -450,42 +497,44 @@ impl<const N: u8> TracingEvaluator for VmPointEval<N> {
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
-                    v[out] = if a < b {
-                        self.0.choices[choice_index] |= Choice::Left;
-                        a
+                    let (choice, value) = if a < b {
+                        (Choice::Left, a)
                     } else if b < a {
-                        self.0.choices[choice_index] |= Choice::Right;
-                        b
+                        (Choice::Right, b)
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            f32::NAN
-                        } else {
-                            b
-                        }
+                        (
+                            Choice::Both,
+                            if a.is_nan() || b.is_nan() {
+                                f32::NAN
+                            } else {
+                                b
+                            },
+                        )
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
-                    choice_index += 1;
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let a = v[lhs];
                     let b = v[rhs];
-                    v[out] = if a > b {
-                        self.0.choices[choice_index] |= Choice::Left;
-                        a
+                    let (choice, value) = if a > b {
+                        (Choice::Left, a)
                     } else if b > a {
-                        self.0.choices[choice_index] |= Choice::Right;
-                        b
+                        (Choice::Right, b)
                     } else {
-                        self.0.choices[choice_index] |= Choice::Both;
-                        if a.is_nan() || b.is_nan() {
-                            f32::NAN
-                        } else {
-                            b
-                        }
+                        (
+                            Choice::Both,
+                            if a.is_nan() || b.is_nan() {
+                                f32::NAN
+                            } else {
+                                b
+                            },
+                        )
                     };
-                    simplify |= self.0.choices[choice_index] != Choice::Both;
-                    choice_index += 1;
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::CopyImm(out, imm) => {
                     v[out] = imm;
