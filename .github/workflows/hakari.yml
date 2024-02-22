@@ -1,3 +1,5 @@
+name: cargo hakari
+
 on:
   push:
     branches:
@@ -6,11 +8,8 @@ on:
     branches:
       - main
 
-name: cargo hakari
-
 jobs:
   workspace-hack-check:
-    name: Check workspace-hack
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
