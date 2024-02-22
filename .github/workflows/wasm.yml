@@ -10,10 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  check-wasm:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
     - name: Install wasm target
