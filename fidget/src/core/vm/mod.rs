@@ -339,11 +339,13 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].max_choice(v[rhs]);
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
                 }
                 RegOp::CopyImm(out, imm) => {
                     v[out] = imm.into();
