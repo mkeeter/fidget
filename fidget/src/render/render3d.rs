@@ -1,6 +1,7 @@
 //! 3D bitmap rendering / rasterization
+use super::RenderHandle;
 use crate::{
-    eval::{types::Interval, BulkEvaluator, Shape, Tape, TracingEvaluator},
+    eval::{types::Interval, BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 
@@ -34,49 +35,6 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct ShapeAndTape<S: Shape> {
-    shape: S,
-
-    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
-    f_tape: Option<<S::FloatSliceEval as BulkEvaluator>::Tape>,
-    g_tape: Option<<S::GradSliceEval as BulkEvaluator>::Tape>,
-}
-
-impl<S: Shape> ShapeAndTape<S> {
-    fn i_tape(
-        &mut self,
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
-        self.i_tape.get_or_insert_with(|| {
-            Arc::new(
-                self.shape.interval_tape(storage.pop().unwrap_or_default()),
-            )
-        })
-    }
-    fn f_tape(
-        &mut self,
-
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
-        self.f_tape.get_or_insert_with(|| {
-            self.shape
-                .float_slice_tape(storage.pop().unwrap_or_default())
-        })
-    }
-    fn g_tape(
-        &mut self,
-
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
-        self.g_tape.get_or_insert_with(|| {
-            self.shape
-                .grad_slice_tape(storage.pop().unwrap_or_default())
-        })
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 struct Worker<'a, S: Shape> {
     config: &'a AlignedRenderConfig<3>,
 
@@ -99,7 +57,7 @@ struct Worker<'a, S: Shape> {
 impl<S: Shape> Worker<'_, S> {
     fn render_tile_recurse(
         &mut self,
-        shape: &mut ShapeAndTape<S>,
+        shape: &mut RenderHandle<S>,
         depth: usize,
         tile: Tile<3>,
     ) {
@@ -161,27 +119,16 @@ impl<S: Shape> Worker<'_, S> {
         }
 
         // Calculate a simplified tape based on the trace
-        let mut sub_tape = if let Some(trace) = trace.as_ref() {
-            let s = self.shape_storage.pop().unwrap_or_default();
-            let next =
-                shape.shape.simplify(trace, s, &mut self.workspace).unwrap();
-            if next.size() >= shape.shape.size() {
-                // Optimization: if the simplified shape isn't any shorter, then
-                // don't use it (this saves time spent generating tapes)
-                self.shape_storage.extend(next.recycle());
-                None
-            } else {
-                Some(ShapeAndTape {
-                    shape: next,
-                    i_tape: None,
-                    f_tape: None,
-                    g_tape: None,
-                })
-            }
+        let sub_tape = if let Some(trace) = trace.as_ref() {
+            shape.simplify(
+                trace,
+                &mut self.workspace,
+                &mut self.shape_storage,
+                &mut self.tape_storage,
+            )
         } else {
-            None
+            shape
         };
-        let sub_tape_ref = sub_tape.as_mut().unwrap_or(shape);
 
         // Recurse!
         if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
@@ -191,7 +138,7 @@ impl<S: Shape> Worker<'_, S> {
                 for i in 0..n {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
-                            sub_tape_ref,
+                            sub_tape,
                             depth + 1,
                             self.config.new_tile([
                                 tile.corner[0] + i * next_tile_size,
@@ -203,30 +150,14 @@ impl<S: Shape> Worker<'_, S> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape_ref, tile_size, tile);
+            self.render_tile_pixels(sub_tape, tile_size, tile);
         };
-
-        if let Some(mut sub_tape) = sub_tape {
-            if let Some(i_tape) = sub_tape.i_tape.take() {
-                if let Ok(t) = Arc::try_unwrap(i_tape) {
-                    self.tape_storage.push(t.recycle());
-                }
-            }
-            if let Some(f_tape) = sub_tape.f_tape.take() {
-                self.tape_storage.push(f_tape.recycle());
-            }
-            if let Some(g_tape) = sub_tape.g_tape.take() {
-                self.tape_storage.push(g_tape.recycle());
-            }
-            if let Some(s) = sub_tape.shape.recycle() {
-                self.shape_storage.push(s);
-            }
-        }
+        // TODO recycle something here?
     }
 
     fn render_tile_pixels(
         &mut self,
-        shape: &mut ShapeAndTape<S>,
+        shape: &mut RenderHandle<S>,
         tile_size: usize,
         tile: Tile<3>,
     ) {
@@ -377,7 +308,7 @@ impl Image {
 ////////////////////////////////////////////////////////////////////////////////
 
 fn worker<S: Shape>(
-    mut shape: ShapeAndTape<S>,
+    mut shape: RenderHandle<S>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
@@ -478,12 +409,7 @@ pub fn render<S: Shape>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out = if config.threads == 1 {
-        let shape = ShapeAndTape {
-            shape,
-            i_tape: Some(i_tape),
-            f_tape: None,
-            g_tape: None,
-        };
+        let shape = RenderHandle::new(shape, i_tape);
         worker::<S>(shape, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
@@ -493,14 +419,9 @@ pub fn render<S: Shape>(
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
             for i in 0..config.threads {
-                let shape = ShapeAndTape {
-                    shape: shape.clone(),
-                    i_tape: Some(i_tape.clone()),
-                    f_tape: None,
-                    g_tape: None,
-                };
+                let handle = RenderHandle::new(shape.clone(), i_tape.clone());
                 handles.push(
-                    s.spawn(move || worker::<S>(shape, queues, i, config_ref)),
+                    s.spawn(move || worker::<S>(handle, queues, i, config_ref)),
                 );
             }
             let mut out = vec![];
