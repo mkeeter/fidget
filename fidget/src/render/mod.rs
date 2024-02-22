@@ -4,7 +4,7 @@
 //! [`RenderConfig::run`](RenderConfig::run); you can also use the lower-level
 //! functions ([`render2d`](render2d()) and [`render3d`](render3d())) for manual
 //! control over the input tape.
-use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
+use crate::eval::{BulkEvaluator, Shape, Tape, Trace, TracingEvaluator};
 use std::sync::Arc;
 
 mod config;
@@ -79,14 +79,18 @@ where
         tape_storage: &mut Vec<S::TapeStorage>,
     ) -> &mut Self {
         // Free self.next if it doesn't match our new set of choices
-        if let Some(neighbor) = &self.next {
+        let mut trace_storage = if let Some(neighbor) = &self.next {
             if &neighbor.0 != trace {
-                // TODO reuse traces as well?
-                let neighbor = self.next.take().unwrap().1;
+                let (trace, neighbor) = self.next.take().unwrap();
                 neighbor.recycle(shape_storage, tape_storage);
+                Some(trace)
                 // continue with simplification
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
         // Ordering is a little weird here, to persuade the borrow checker to be
         // happy about things.  At this point, `next` is empty if we can't reuse
@@ -101,8 +105,13 @@ where
                 self
             } else {
                 assert!(self.next.is_none());
+                if let Some(t) = trace_storage.as_mut() {
+                    t.copy_from(trace);
+                } else {
+                    trace_storage = Some(trace.clone());
+                }
                 self.next = Some((
-                    trace.clone(),
+                    trace_storage.unwrap(),
                     Box::new(RenderHandle {
                         shape: next,
                         i_tape: None,
