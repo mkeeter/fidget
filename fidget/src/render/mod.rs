@@ -132,7 +132,11 @@ where
         shape_storage: &mut Vec<S::Storage>,
         tape_storage: &mut Vec<S::TapeStorage>,
     ) {
-        shape_storage.extend(self.shape.recycle());
+        // Recycle the child first, in case it borrowed from us
+        if let Some((_trace, shape)) = self.next.take() {
+            shape.recycle(shape_storage, tape_storage);
+        }
+
         if let Some(i_tape) = self.i_tape.take() {
             if let Ok(i_tape) = Arc::try_unwrap(i_tape) {
                 tape_storage.push(i_tape.recycle());
@@ -141,8 +145,7 @@ where
         tape_storage.extend(self.g_tape.map(Tape::recycle));
         tape_storage.extend(self.f_tape.map(Tape::recycle));
 
-        if let Some((_trace, shape)) = self.next.take() {
-            shape.recycle(shape_storage, tape_storage);
-        }
+        // Do this step last because the evaluators may borrow the shape
+        shape_storage.extend(self.shape.recycle());
     }
 }
