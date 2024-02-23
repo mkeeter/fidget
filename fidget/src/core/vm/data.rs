@@ -50,16 +50,16 @@ use std::collections::HashMap;
 /// ```
 ///
 #[derive(Default)]
-pub struct VmData<const N: u8 = { u8::MAX }> {
+pub struct VmData<const N: usize = { u8::MAX as usize }> {
     ssa: SsaTape,
     asm: RegTape,
 }
 
-impl<const N: u8> VmData<N> {
+impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
     pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
         let ssa = SsaTape::new(context, node)?;
-        let asm = RegTape::new(&ssa, N);
+        let asm = RegTape::new::<N>(&ssa);
         Ok(Self { ssa, asm })
     }
 
@@ -103,7 +103,7 @@ impl<const N: u8> VmData<N> {
     pub fn simplify(
         &self,
         choices: &[Choice],
-        workspace: &mut VmWorkspace,
+        workspace: &mut VmWorkspace<N>,
         mut tape: VmData<N>,
     ) -> Result<Self, Error> {
         if choices.len() != self.choice_count() {
@@ -115,7 +115,7 @@ impl<const N: u8> VmData<N> {
         tape.ssa.reset();
 
         // Steal `tape.asm` and hand it to the workspace for use in allocator
-        workspace.reset(N, self.ssa.tape.len(), tape.asm);
+        workspace.reset(self.ssa.tape.len(), tape.asm);
 
         let mut choice_count = 0;
 
@@ -282,9 +282,9 @@ impl<const N: u8> VmData<N> {
 /// Data structures used during [`VmData::simplify`]
 ///
 /// This is exposed to minimize reallocations in hot loops.
-pub struct VmWorkspace {
+pub struct VmWorkspace<const N: usize> {
     /// Register allocator
-    pub(crate) alloc: RegisterAllocator,
+    pub(crate) alloc: RegisterAllocator<N>,
 
     /// Current bindings from SSA variables to registers
     pub(crate) bind: Vec<u32>,
@@ -296,7 +296,7 @@ pub struct VmWorkspace {
     count: u32,
 }
 
-impl Default for VmWorkspace {
+impl<const N: usize> Default for VmWorkspace<N> {
     fn default() -> Self {
         Self {
             alloc: RegisterAllocator::empty(),
@@ -306,7 +306,7 @@ impl Default for VmWorkspace {
     }
 }
 
-impl VmWorkspace {
+impl<const N: usize> VmWorkspace<N> {
     fn active(&self, i: u32) -> Option<u32> {
         if self.bind[i as usize] != u32::MAX {
             Some(self.bind[i as usize])
@@ -329,8 +329,8 @@ impl VmWorkspace {
 
     /// Resets the workspace, preserving allocations and claiming the given
     /// [`RegTape`].
-    pub fn reset(&mut self, num_registers: u8, tape_len: usize, tape: RegTape) {
-        self.alloc.reset(num_registers, tape_len, tape);
+    pub fn reset(&mut self, tape_len: usize, tape: RegTape) {
+        self.alloc.reset(tape_len, tape);
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
         self.count = 0;

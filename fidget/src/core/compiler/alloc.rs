@@ -10,9 +10,13 @@ enum Allocation {
 }
 
 /// Cheap and cheerful single-pass register allocation
-pub struct RegisterAllocator {
+pub struct RegisterAllocator<const N: usize> {
     /// Map from the index in the original (globally allocated) tape to a
     /// specific register or memory slot.
+    ///
+    /// Unallocated slots are marked with `u32::MAX`; allocated slots have the
+    /// value of their register or memory slot (which are both integers; the
+    /// dividing point is based on register count).
     allocations: Vec<u32>,
 
     /// Map from a particular register to the index in the original tape that's
@@ -22,18 +26,14 @@ pub struct RegisterAllocator {
     ///
     /// Only the first `reg_limit` indexes are valid, but we use a fixed
     /// (maximum) size array for speed.
-    registers: [u32; u8::MAX as usize],
+    registers: [u32; N],
 
     /// Stores a least-recently-used list of register
     ///
     /// This is sized with a backing array that can hold the maximum register
     /// count (`u8::MAX`), but will be constructed with the specific register
     /// limit in `new()`.
-    register_lru: Lru,
-
-    /// User-defined register limit; beyond this point we use load/store
-    /// operations to move values to and from memory.
-    reg_limit: u8,
+    register_lru: Lru<N>,
 
     /// Available short registers (index < 256)
     ///
@@ -49,19 +49,19 @@ pub struct RegisterAllocator {
     out: RegTape,
 }
 
-impl RegisterAllocator {
+impl<const N: usize> RegisterAllocator<N> {
     /// Builds a new `RegisterAllocator`.
     ///
     /// Upon construction, SSA register 0 is bound to local register 0; you
     /// would be well advised to use it as the output of your function.
-    pub fn new(reg_limit: u8, size: usize) -> Self {
+    pub fn new(size: usize) -> Self {
+        assert!(N <= u8::MAX as usize);
         let mut out = Self {
             allocations: vec![u32::MAX; size],
 
-            registers: [u32::MAX; u8::MAX as usize],
-            register_lru: Lru::new(reg_limit),
+            registers: [u32::MAX; N],
+            register_lru: Lru::new(),
 
-            reg_limit,
             spare_registers: ArrayVec::new(),
             spare_memory: Vec::with_capacity(1024),
 
@@ -76,10 +76,9 @@ impl RegisterAllocator {
         Self {
             allocations: vec![],
 
-            registers: [u32::MAX; u8::MAX as usize],
-            register_lru: Lru::new(0),
+            registers: [u32::MAX; N],
+            register_lru: Lru::new(),
 
-            reg_limit: 0,
             spare_registers: ArrayVec::new(),
             spare_memory: vec![],
 
@@ -88,13 +87,12 @@ impl RegisterAllocator {
     }
 
     /// Resets internal state, reusing allocations and the provided tape
-    pub fn reset(&mut self, reg_limit: u8, size: usize, tape: RegTape) {
+    pub fn reset(&mut self, size: usize, tape: RegTape) {
         assert!(self.out.is_empty());
         self.allocations.fill(u32::MAX);
         self.allocations.resize(size, u32::MAX);
         self.registers.fill(u32::MAX);
-        self.register_lru = Lru::new(reg_limit);
-        self.reg_limit = reg_limit;
+        self.register_lru = Lru::new();
         self.spare_registers.clear();
         self.spare_memory.clear();
         self.out = tape;
@@ -124,7 +122,7 @@ impl RegisterAllocator {
         } else {
             let out = self.out.slot_count;
             self.out.slot_count += 1;
-            assert!(out >= self.reg_limit.into());
+            assert!(out as usize >= N);
             out
         }
     }
@@ -146,7 +144,7 @@ impl RegisterAllocator {
     #[inline]
     fn get_allocation(&mut self, n: u32) -> Allocation {
         match self.allocations[n as usize] {
-            i if i < self.reg_limit as u32 => {
+            i if i < N as u32 => {
                 self.register_lru.poke(i as u8);
                 Allocation::Register(i as u8)
             }
@@ -159,7 +157,7 @@ impl RegisterAllocator {
     #[inline]
     fn get_spare_register(&mut self) -> Option<u8> {
         self.spare_registers.pop().or_else(|| {
-            if self.out.slot_count < self.reg_limit as u32 {
+            if self.out.slot_count < N as u32 {
                 let reg = self.out.slot_count;
                 assert!(self.registers[reg as usize] == u32::MAX);
                 self.out.slot_count += 1;
@@ -197,7 +195,7 @@ impl RegisterAllocator {
 
     #[inline]
     fn rebind_register(&mut self, n: u32, reg: u8) {
-        assert!(self.allocations[n as usize] >= self.reg_limit as u32);
+        assert!(self.allocations[n as usize] >= N as u32);
         assert!(self.registers[reg as usize] != u32::MAX);
 
         let prev_node = self.registers[reg as usize];
@@ -211,7 +209,7 @@ impl RegisterAllocator {
 
     #[inline]
     fn bind_register(&mut self, n: u32, reg: u8) {
-        assert!(self.allocations[n as usize] >= self.reg_limit as u32);
+        assert!(self.allocations[n as usize] >= N as u32);
         assert!(self.registers[reg as usize] == u32::MAX);
 
         // Bind the register, but don't bother poking; whoever got the register
@@ -224,7 +222,7 @@ impl RegisterAllocator {
     #[inline]
     fn release_reg(&mut self, reg: u8) {
         // Release the output register, so it could be used for inputs
-        assert!(reg < self.reg_limit);
+        assert!((reg as usize) < N);
 
         let node = self.registers[reg as usize];
         assert!(node != u32::MAX);
@@ -238,7 +236,7 @@ impl RegisterAllocator {
 
     #[inline]
     fn release_mem(&mut self, mem: u32) {
-        assert!(mem >= self.reg_limit as u32);
+        assert!(mem >= N as u32);
         self.spare_memory.push(mem);
         // This leaves self.allocations[...] stil pointing to the memory slot,
         // but that's okay, because it should never be used

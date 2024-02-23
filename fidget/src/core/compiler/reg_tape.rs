@@ -18,8 +18,8 @@ impl RegTape {
     /// to use [`VmData::simplify`](crate::vm::VmData::simplify), which
     /// simultaneously simplifies **and** performs register allocation in a
     /// single pass.
-    pub fn new(ssa: &SsaTape, reg_limit: u8) -> Self {
-        let mut alloc = RegisterAllocator::new(reg_limit, ssa.len());
+    pub fn new<const N: usize>(ssa: &SsaTape) -> Self {
+        let mut alloc = RegisterAllocator::<N>::new(ssa.len());
         for &op in ssa.iter() {
             alloc.op(op)
         }

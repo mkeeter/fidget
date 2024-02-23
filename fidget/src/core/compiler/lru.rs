@@ -16,20 +16,21 @@ struct LruNode {
 ///         ^                       oldest       newest     |
 ///         |-----------------------------------------------|
 /// ```
-pub struct Lru {
-    data: [LruNode; u8::MAX as usize],
+pub struct Lru<const N: usize> {
+    data: [LruNode; N],
     head: u8,
 }
 
-impl Lru {
-    pub fn new(size: u8) -> Self {
+impl<const N: usize> Lru<N> {
+    pub fn new() -> Self {
         let mut out = Self {
-            data: [LruNode::default(); u8::MAX as usize],
+            data: [LruNode::default(); N],
             head: 0,
         };
-        for i in 0..size {
-            out.data[i as usize].next = (i + 1) % size;
-            out.data[i as usize].prev = i.checked_sub(1).unwrap_or(size - 1);
+        for i in 0..N {
+            out.data[i as usize].next = ((i + 1) % N) as u8;
+            out.data[i as usize].prev =
+                (i.checked_sub(1).unwrap_or(N - 1)) as u8;
         }
         out
     }
@@ -81,7 +82,7 @@ mod test {
 
     #[test]
     fn test_tiny_lru() {
-        let mut lru: Lru = Lru::new(2);
+        let mut lru: Lru<2> = Lru::new();
         lru.poke(0);
         assert!(lru.pop() == 1);
         assert!(lru.pop() == 0);
@@ -93,7 +94,7 @@ mod test {
 
     #[test]
     fn test_medium_lru() {
-        let mut lru: Lru = Lru::new(10);
+        let mut lru: Lru<10> = Lru::new();
         lru.poke(0);
         for _ in 0..9 {
             assert!(lru.pop() != 0);

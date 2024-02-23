@@ -64,7 +64,7 @@ mod x86_64;
 use x86_64 as arch;
 
 /// Number of registers available when executing natively
-const REGISTER_LIMIT: u8 = arch::REGISTER_LIMIT;
+const REGISTER_LIMIT: usize = arch::REGISTER_LIMIT;
 
 /// Offset before the first useable register
 const OFFSET: u8 = arch::OFFSET;
@@ -725,7 +725,7 @@ impl JitShape {
 impl Shape for JitShape {
     type Trace = VmTrace;
     type Storage = VmData<REGISTER_LIMIT>;
-    type Workspace = VmWorkspace;
+    type Workspace = VmWorkspace<REGISTER_LIMIT>;
 
     type TapeStorage = Mmap;
 

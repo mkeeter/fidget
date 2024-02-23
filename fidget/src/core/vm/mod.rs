@@ -27,9 +27,9 @@ pub use data::{VmData, VmWorkspace};
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
 /// there's no separate planning required to generate a tape.
 ///
-pub type VmShape = GenericVmShape<{ u8::MAX }>;
+pub type VmShape = GenericVmShape<{ u8::MAX as usize }>;
 
-impl<const N: u8> Tape for GenericVmShape<N> {
+impl<const N: usize> Tape for GenericVmShape<N> {
     type Storage = ();
     fn recycle(self) -> Self::Storage {
         // nothing to do here
@@ -91,14 +91,14 @@ impl AsRef<[Choice]> for VmTrace {
 /// You are unlikely to use this directly; [`VmShape`] should be used for
 /// VM-based evaluation.
 #[derive(Clone)]
-pub struct GenericVmShape<const N: u8>(Arc<VmData<N>>);
+pub struct GenericVmShape<const N: usize>(Arc<VmData<N>>);
 
-impl<const N: u8> GenericVmShape<N> {
+impl<const N: usize> GenericVmShape<N> {
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
         storage: VmData<N>,
-        workspace: &mut VmWorkspace,
+        workspace: &mut VmWorkspace<N>,
     ) -> Result<Self, Error> {
         let d = self.0.simplify(choices, workspace, storage)?;
         Ok(Self(Arc::new(d)))
@@ -129,10 +129,10 @@ impl<const N: u8> GenericVmShape<N> {
     }
 }
 
-impl<const N: u8> Shape for GenericVmShape<N> {
+impl<const N: usize> Shape for GenericVmShape<N> {
     type FloatSliceEval = VmFloatSliceEval<N>;
     type Storage = VmData<N>;
-    type Workspace = VmWorkspace;
+    type Workspace = VmWorkspace<N>;
 
     type TapeStorage = ();
 
@@ -178,14 +178,14 @@ impl<const N: u8> Shape for GenericVmShape<N> {
     }
 }
 
-impl<const N: u8> MathShape for GenericVmShape<N> {
+impl<const N: usize> MathShape for GenericVmShape<N> {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
         let d = VmData::new(ctx, node)?;
         Ok(Self(Arc::new(d)))
     }
 }
 
-impl<const N: u8> ShapeVars for GenericVmShape<N> {
+impl<const N: usize> ShapeVars for GenericVmShape<N> {
     fn vars(&self) -> &HashMap<String, u32> {
         self.0.vars()
     }
@@ -236,7 +236,7 @@ impl<T> Default for TracingVmEval<T> {
 }
 
 impl<T: From<f32> + Clone> TracingVmEval<T> {
-    fn resize_slots<const N: u8>(&mut self, tape: &VmData<N>) {
+    fn resize_slots<const N: usize>(&mut self, tape: &VmData<N>) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
         self.choices.resize(tape.choice_count(), Choice::Unknown);
         self.choices.fill(Choice::Unknown);
@@ -245,8 +245,8 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
 
 /// VM-based tracing evaluator for intervals
 #[derive(Default)]
-pub struct VmIntervalEval<const N: u8>(TracingVmEval<Interval>);
-impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
+pub struct VmIntervalEval<const N: usize>(TracingVmEval<Interval>);
+impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
     type Data = Interval;
     type Tape = GenericVmShape<N>;
     type Trace = VmTrace;
@@ -371,8 +371,8 @@ impl<const N: u8> TracingEvaluator for VmIntervalEval<N> {
 
 /// VM-based tracing evaluator for single points
 #[derive(Default)]
-pub struct VmPointEval<const N: u8>(TracingVmEval<f32>);
-impl<const N: u8> TracingEvaluator for VmPointEval<N> {
+pub struct VmPointEval<const N: usize>(TracingVmEval<f32>);
+impl<const N: usize> TracingEvaluator for VmPointEval<N> {
     type Data = f32;
     type Tape = GenericVmShape<N>;
     type Trace = VmTrace;
@@ -571,7 +571,7 @@ struct BulkVmEval<T> {
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
     /// Reserves slots for the given tape and slice size
-    fn resize_slots<const N: u8>(&mut self, tape: &VmData<N>, size: usize) {
+    fn resize_slots<const N: usize>(&mut self, tape: &VmData<N>, size: usize) {
         self.slots
             .resize_with(tape.slot_count(), || vec![f32::NAN.into(); size]);
         for s in self.slots.iter_mut() {
@@ -582,8 +582,8 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
 
 /// VM-based bulk evaluator for arrays of points, yielding point values
 #[derive(Default)]
-pub struct VmFloatSliceEval<const N: u8>(BulkVmEval<f32>);
-impl<const N: u8> BulkEvaluator for VmFloatSliceEval<N> {
+pub struct VmFloatSliceEval<const N: usize>(BulkVmEval<f32>);
+impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Data = f32;
     type Tape = GenericVmShape<N>;
     type TapeStorage = ();
@@ -741,8 +741,8 @@ impl<const N: u8> BulkEvaluator for VmFloatSliceEval<N> {
 
 /// VM-based bulk evaluator for arrays of points, yielding gradient values
 #[derive(Default)]
-pub struct VmGradSliceEval<const N: u8>(BulkVmEval<Grad>);
-impl<const N: u8> BulkEvaluator for VmGradSliceEval<N> {
+pub struct VmGradSliceEval<const N: usize>(BulkVmEval<Grad>);
+impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Data = Grad;
     type Tape = GenericVmShape<N>;
     type TapeStorage = ();
