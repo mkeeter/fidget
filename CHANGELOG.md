@@ -1,7 +1,13 @@
-# 0.2.1 (unreleased)
+# 0.2.1
 - Changed `fidget::eval::Vars` to borrow instead of use an `Arc`
 - Properly pre-allocated `mmap` regions based on estimated size
 - Bump dependencies, fixing a Dependabot warning about `atty` being unmaintained
+- Fixed performance regressions in 3D rendering
+- Added `wasm32-unknown-unknown` target to CI checks
+- Reordered load/store generation so that register allocation generates linear
+  code ("linear" in the type-system sense).
+- Small optimizations to register allocation
+- Added unit tests for rendering correctness
 
 # 0.2.0: The Big Refactoring
 This release includes a significant amount of reorganization and refactoring.
