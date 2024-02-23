@@ -1,3 +1,5 @@
+# 0.2.2 (unreleased)
+
 # 0.2.1
 - Changed `fidget::eval::Vars` to borrow instead of use an `Arc`
 - Properly pre-allocated `mmap` regions based on estimated size
