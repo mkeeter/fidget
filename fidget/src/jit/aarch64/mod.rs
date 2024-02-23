@@ -19,7 +19,7 @@
 //! choices; they are caller-saved, so we can trash them at will.
 
 /// We can use registers `v8-15` (callee saved) and `v16-31` (caller saved)
-pub const REGISTER_LIMIT: u8 = 24;
+pub const REGISTER_LIMIT: usize = 24;
 /// `v3` is used for immediates, because `v0-2` contain inputs
 pub const IMM_REG: u8 = 3;
 /// `v4-7` are used for as temporary variables:w

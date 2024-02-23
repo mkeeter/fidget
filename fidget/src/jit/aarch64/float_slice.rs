@@ -96,7 +96,7 @@ impl Assembler for FloatSliceAssembler {
 
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
-        assert!(dst_reg < REGISTER_LIMIT);
+        assert!((dst_reg as usize) < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(src_mem);
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
@@ -106,7 +106,7 @@ impl Assembler for FloatSliceAssembler {
 
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
-        assert!(src_reg < REGISTER_LIMIT);
+        assert!((src_reg as usize) < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(dst_mem);
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
