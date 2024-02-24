@@ -219,8 +219,6 @@ impl<const N: usize> RegRegAlloc<N> {
 
         self.registers[reg as usize] = UNASSIGNED;
         self.spare_registers.push(reg);
-        // Modifying self.allocations isn't strictly necessary, but could help
-        // us detect logical errors (since it should never be used after this)
         self.allocations[node as usize] = UNASSIGNED;
     }
 
@@ -380,8 +378,9 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.bind_register(arg, r_a);
             }
             Allocation::Unassigned => {
-                self.out.push(op(r_x, r_x));
-                self.bind_register(arg, r_x);
+                let r_a = self.get_free_register();
+                self.out.push(op(r_x, r_a));
+                self.bind_register(arg, r_a);
             }
         }
     }
@@ -508,6 +507,7 @@ impl<const N: usize> RegRegAlloc<N> {
             }
             (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
                 let r_a = self.get_free_register();
+                assert_eq!(r_x, r_a);
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_a));
                 self.bind_register(lhs, r_a);
@@ -515,6 +515,8 @@ impl<const N: usize> RegRegAlloc<N> {
             (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
+                assert_eq!(r_x, r_a);
+                assert_ne!(r_a, r_b);
 
                 self.push_store(r_a, m_y);
                 self.push_store(r_b, m_z);
@@ -523,43 +525,57 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
-                self.out.push(op(r_x, r_x, r_z));
-                self.bind_register(lhs, r_x);
+                let r_a = self.get_free_register();
+                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_z);
+                self.out.push(op(r_x, r_a, r_z));
+                self.bind_register(lhs, r_a);
             }
             (Allocation::Register(r_y), Allocation::Unassigned) => {
-                self.out.push(op(r_x, r_y, r_x));
-                self.bind_register(rhs, r_x);
+                let r_b = self.get_free_register();
+                assert_eq!(r_b, r_x);
+                assert_ne!(r_b, r_y);
+                self.out.push(op(r_x, r_y, r_b));
+                self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
-                self.out.push(op(r_x, r_x, r_x));
-                self.bind_register(lhs, r_x);
+                let r_a = self.get_free_register();
+                assert_eq!(r_a, r_x);
+                self.out.push(op(r_x, r_a, r_a));
+                self.bind_register(lhs, r_a);
             }
             (Allocation::Unassigned, Allocation::Unassigned) => {
                 let r_a = self.get_free_register();
+                let r_b = self.get_free_register();
+                println!("    got {r_a} {r_b}");
 
-                self.out.push(op(r_x, r_x, r_a));
-                self.bind_register(lhs, r_x);
-                self.bind_register(rhs, r_a);
+                self.out.push(op(r_x, r_a, r_b));
+                self.bind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Memory(m_z)) => {
                 let r_a = self.get_free_register();
-                assert!(r_a != r_x);
-                assert!(lhs != rhs);
+                let r_b = self.get_free_register();
+                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_b);
+                assert_ne!(lhs, rhs);
 
-                self.push_store(r_a, m_z);
-                self.out.push(op(r_x, r_x, r_a));
-                self.bind_register(lhs, r_x);
-                self.bind_register(rhs, r_a);
+                self.push_store(r_b, m_z);
+                self.out.push(op(r_x, r_a, r_b));
+                self.bind_register(lhs, r_a);
+                self.bind_register(rhs, r_b);
             }
             (Allocation::Memory(m_y), Allocation::Unassigned) => {
                 let r_a = self.get_free_register();
-                assert!(r_a != r_x);
-                assert!(lhs != rhs);
+                let r_b = self.get_free_register();
+                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_b);
+                assert_ne!(lhs, rhs);
 
                 self.push_store(r_a, m_y);
-                self.out.push(op(r_x, r_a, r_x));
+                self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
-                self.bind_register(rhs, r_x);
+                self.bind_register(rhs, r_b);
             }
         }
     }
