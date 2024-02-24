@@ -138,7 +138,6 @@ impl<const N: usize> VmData<N> {
         let mut choice_iter = choices.iter().rev();
 
         for op in self.asm.iter() {
-            println!("initial op: {op:?}");
             // Skip clauses which are inactive, but handle their output binding
             // and choice in the choice iterator.
             let index = op.output();
@@ -146,7 +145,6 @@ impl<const N: usize> VmData<N> {
                 if op.has_choice() {
                     choice_iter.next().unwrap();
                 }
-                println!("  skipped!");
                 continue;
             }
 
@@ -155,8 +153,20 @@ impl<const N: usize> VmData<N> {
                 RegOp::MinRegReg(out, lhs, rhs)
                 | RegOp::MaxRegReg(out, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => RegOp::CopyReg(out, lhs),
-                        Choice::Right => RegOp::CopyReg(out, rhs),
+                        Choice::Left => {
+                            if out == lhs {
+                                workspace.set_active(lhs as u32);
+                                continue;
+                            }
+                            RegOp::CopyReg(out, lhs)
+                        }
+                        Choice::Right => {
+                            if out == rhs {
+                                workspace.set_active(rhs as u32);
+                                continue;
+                            }
+                            RegOp::CopyReg(out, rhs)
+                        }
                         Choice::Both => {
                             choice_count += 1;
                             *op
@@ -167,7 +177,13 @@ impl<const N: usize> VmData<N> {
                 RegOp::MinRegImm(out, arg, imm)
                 | RegOp::MaxRegImm(out, arg, imm) => {
                     match choice_iter.next().unwrap() {
-                        Choice::Left => RegOp::CopyReg(out, arg),
+                        Choice::Left => {
+                            if out == arg {
+                                workspace.set_active(arg as u32);
+                                continue;
+                            }
+                            RegOp::CopyReg(out, arg)
+                        }
                         Choice::Right => RegOp::CopyImm(out, imm),
                         Choice::Both => {
                             choice_count += 1;
@@ -178,7 +194,6 @@ impl<const N: usize> VmData<N> {
                 }
                 op => op,
             };
-            println!("translated to {op:?}");
             for c in op.iter_children() {
                 workspace.set_active(c);
             }

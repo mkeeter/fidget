@@ -388,17 +388,19 @@ impl<const N: usize> RegRegAlloc<N> {
         // i.e. storing the value in the assigned memory slot, and then
         // restoring the previous register value if present (when read forward).
         let r_x = self.get_out_reg(out);
-        self.release_reg(r_x); // TODO make this part of get_out_reg?
+        self.release_reg(r_x);
         match self.get_allocation(arg) {
             Allocation::Register(r_y) => {
-                assert!(r_x != r_y);
+                assert_ne!(r_x, r_y);
                 self.out.push(op(r_x, r_y));
             }
             Allocation::Memory(m_y) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a));
                 self.bind_register(arg, r_a);
+                self.spare_registers.push(r_x);
             }
             Allocation::Unassigned => {
                 let r_a = self.get_free_register();
@@ -511,46 +513,61 @@ impl<const N: usize> RegRegAlloc<N> {
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
-        self.release_reg(r_x); // TODO make this part of get_out_reg?
+        self.release_reg(r_x);
         match (self.get_allocation(lhs), self.get_allocation(rhs)) {
             (Allocation::Register(r_y), Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_y, r_z));
             }
             (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
+
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_z));
                 self.bind_register(lhs, r_a);
+                self.spare_registers.push(r_x);
             }
             (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
+                assert_ne!(r_x, r_a);
+
                 self.push_store(r_a, m_z);
                 self.out.push(op(r_x, r_y, r_a));
                 self.bind_register(rhs, r_a);
+                self.spare_registers.push(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
-                assert_eq!(r_x, r_a);
+                assert_ne!(r_x, r_a);
+
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_a));
                 self.bind_register(lhs, r_a);
+                self.spare_registers.push(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
-                assert_eq!(r_x, r_a);
+                assert_ne!(r_x, r_a);
+                assert_ne!(r_x, r_b);
                 assert_ne!(r_a, r_b);
 
                 self.push_store(r_a, m_y);
                 self.push_store(r_b, m_z);
+
                 self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
+                self.spare_registers.push(r_x);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
                 let r_a = self.get_free_register();
                 assert_eq!(r_a, r_x);
                 assert_ne!(r_a, r_z);
+
                 self.out.push(op(r_x, r_a, r_z));
                 self.bind_register(lhs, r_a);
             }
@@ -558,27 +575,32 @@ impl<const N: usize> RegRegAlloc<N> {
                 let r_b = self.get_free_register();
                 assert_eq!(r_b, r_x);
                 assert_ne!(r_b, r_y);
+
                 self.out.push(op(r_x, r_y, r_b));
                 self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
                 let r_a = self.get_free_register();
                 assert_eq!(r_a, r_x);
+
                 self.out.push(op(r_x, r_a, r_a));
                 self.bind_register(lhs, r_a);
             }
             (Allocation::Unassigned, Allocation::Unassigned) => {
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
+                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_b);
 
                 self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Memory(m_z)) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
-                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_x);
                 assert_ne!(r_a, r_b);
                 assert_ne!(lhs, rhs);
 
@@ -586,11 +608,14 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
+                self.spare_registers.push(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Unassigned) => {
+                let r_x = self.spare_registers.pop().unwrap();
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
-                assert_eq!(r_a, r_x);
+                assert_ne!(r_a, r_x);
+                assert_ne!(r_b, r_x);
                 assert_ne!(r_a, r_b);
                 assert_ne!(lhs, rhs);
 
@@ -598,6 +623,7 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
+                self.spare_registers.push(r_x);
             }
         }
     }
