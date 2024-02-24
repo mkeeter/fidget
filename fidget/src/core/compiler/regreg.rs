@@ -252,7 +252,6 @@ impl<const N: usize> RegRegAlloc<N> {
     /// Allocates the next operation in the tape
     #[inline(always)]
     pub fn op(&mut self, op: RegOp) {
-        println!("testing op: {op:?}");
         match op {
             RegOp::Var(out, i) => self.op_var(out, i),
             RegOp::Input(out, i) => self.op_input(out, i),
@@ -283,7 +282,10 @@ impl<const N: usize> RegRegAlloc<N> {
 
             RegOp::Load(reg, mem) => {
                 // mem -> reg (in forward evaluation), so reg -> mem in reverse
-                let prev = self.allocations[reg as usize];
+                let prev = std::mem::replace(
+                    &mut self.allocations[reg as usize],
+                    UNASSIGNED,
+                );
                 assert_ne!(prev, UNASSIGNED);
                 assert_eq!(self.allocations[mem as usize], UNASSIGNED);
                 self.allocations[mem as usize] = prev;
@@ -294,7 +296,10 @@ impl<const N: usize> RegRegAlloc<N> {
             }
             RegOp::Store(reg, mem) => {
                 // reg -> mem (in forward evaluation), so mem -> reg in reverse
-                let prev = self.allocations[mem as usize];
+                let prev = std::mem::replace(
+                    &mut self.allocations[mem as usize],
+                    UNASSIGNED,
+                );
                 assert_ne!(prev, UNASSIGNED);
                 assert_eq!(self.allocations[reg as usize], UNASSIGNED);
                 self.allocations[reg as usize] = prev;
@@ -302,6 +307,24 @@ impl<const N: usize> RegRegAlloc<N> {
                     assert_eq!(self.registers[prev as usize], mem);
                     self.registers[prev as usize] = reg as u32;
                 }
+            }
+        }
+    }
+
+    /// Checks that `self.registers` and `self.allocations` are consistent
+    #[allow(unused)]
+    fn self_check(&self) {
+        for (in_slot, out_reg) in self.allocations.iter().enumerate() {
+            if *out_reg < N as u32 {
+                assert_eq!(
+                    self.registers[*out_reg as usize], in_slot as u32,
+                    "in slot {in_slot} is incorrect"
+                );
+            }
+        }
+        for (r, in_slot) in self.registers.iter().enumerate() {
+            if *in_slot != UNASSIGNED {
+                assert_eq!(self.allocations[*in_slot as usize], r as u32);
             }
         }
     }
@@ -547,7 +570,6 @@ impl<const N: usize> RegRegAlloc<N> {
             (Allocation::Unassigned, Allocation::Unassigned) => {
                 let r_a = self.get_free_register();
                 let r_b = self.get_free_register();
-                println!("    got {r_a} {r_b}");
 
                 self.out.push(op(r_x, r_a, r_b));
                 self.bind_register(lhs, r_a);
