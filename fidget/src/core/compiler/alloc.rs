@@ -1,7 +1,5 @@
 use crate::compiler::{Lru, RegOp, RegTape, SsaOp};
 
-use arrayvec::ArrayVec;
-
 #[derive(Copy, Clone, Debug)]
 enum Allocation {
     Register(u8),
@@ -23,24 +21,19 @@ pub struct RegisterAllocator<const N: usize> {
     /// using that register, or `u32::MAX` if the register is currently unused.
     ///
     /// The inner `u32` here is an index into the original (SSA) tape
-    ///
-    /// Only the first `reg_limit` indexes are valid, but we use a fixed
-    /// (maximum) size array for speed.
     registers: [u32; N],
 
-    /// Stores a least-recently-used list of register
+    /// Stores a least-recently-used list of registers
     ///
-    /// This is sized with a backing array that can hold the maximum register
-    /// count (`u8::MAX`), but will be constructed with the specific register
-    /// limit in `new()`.
+    /// Registers are indexed by their value in the output tape
     register_lru: Lru<N>,
 
-    /// Available short registers (index < 256)
+    /// Available short registers (index < N)
     ///
     /// The most recently available is at the back
-    spare_registers: ArrayVec<u8, { u8::MAX as usize }>,
+    spare_registers: Vec<u8>,
 
-    /// Available extended registers (index >= 256)
+    /// Available extended registers (index >= N)
     ///
     /// The most recently available is at the back of the `Vec`
     spare_memory: Vec<u32>,
@@ -62,7 +55,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [u32::MAX; N],
             register_lru: Lru::new(),
 
-            spare_registers: ArrayVec::new(),
+            spare_registers: Vec::with_capacity(N),
             spare_memory: Vec::with_capacity(1024),
 
             out: RegTape::empty(),
@@ -79,7 +72,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [u32::MAX; N],
             register_lru: Lru::new(),
 
-            spare_registers: ArrayVec::new(),
+            spare_registers: Vec::with_capacity(N),
             spare_memory: vec![],
 
             out: RegTape::empty(),
