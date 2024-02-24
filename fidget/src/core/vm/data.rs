@@ -138,6 +138,7 @@ impl<const N: usize> VmData<N> {
         let mut choice_iter = choices.iter().rev();
 
         for op in self.asm.iter() {
+            println!("initial op: {op:?}");
             // Skip clauses which are inactive, but handle their output binding
             // and choice in the choice iterator.
             let index = op.output();
@@ -145,6 +146,7 @@ impl<const N: usize> VmData<N> {
                 if op.has_choice() {
                     choice_iter.next().unwrap();
                 }
+                println!("  skipped!");
                 continue;
             }
 
@@ -176,6 +178,7 @@ impl<const N: usize> VmData<N> {
                 }
                 op => op,
             };
+            println!("translated to {op:?}");
             for c in op.iter_children() {
                 workspace.set_active(c);
             }

@@ -12,9 +12,9 @@ const UNASSIGNED: u32 = u32::MAX;
 
 /// Cheap and cheerful single-pass register-to-register allocation
 pub struct RegRegAlloc<const N: usize> {
-    /// Map from the index in the original tape to a specific register or memory
-    /// slot.  The first `N` values represent registers in the original tape;
-    /// later values are memory slots.
+    /// Map from a register in the original tape to a specific register or
+    /// memory slot.  The first `N` values represent registers in the original
+    /// tape; later values are memory slots.
     ///
     /// Unallocated slots are marked with `UNASSIGNED` (`u32::MAX`); allocated
     /// slots have the value of their register or memory slot (which are both
@@ -25,7 +25,8 @@ pub struct RegRegAlloc<const N: usize> {
     /// using that register, or `UNASSIGNED` (`u32::MAX`) if the register is
     /// currently unused.
     ///
-    /// The inner `u32` here is an index into the original tape
+    /// The array is indexed by output register, and the inner `u32` here is an
+    /// input register (from the original tape).
     registers: [u32; N],
 
     /// Stores a least-recently-used list of register
@@ -52,7 +53,7 @@ pub struct RegRegAlloc<const N: usize> {
 impl<const N: usize> RegRegAlloc<N> {
     /// Builds a new `RegisterAllocator`.
     ///
-    /// Upon construction, SSA register 0 is bound to local register 0; you
+    /// Upon construction, input register 0 is bound to local register 0; you
     /// would be well advised to use it as the output of your function.
     pub fn new(size: usize) -> Self {
         assert!(N <= u8::MAX as usize);
@@ -137,8 +138,7 @@ impl<const N: usize> RegRegAlloc<N> {
 
     /// Returns the slot allocated to the given node
     ///
-    /// The input is an SSA assignment (i.e. an assignment in the input
-    /// `SsaTape`)
+    /// The input is a register in the input tape.
     ///
     /// If the output is a register, then it's poked to update recency
     #[inline]
@@ -168,8 +168,11 @@ impl<const N: usize> RegRegAlloc<N> {
         })
     }
 
+    /// Returns a free register, evicting an in-use register if necessary
+    ///
+    /// The returned register is marked as recently-used in the LRU cache
     #[inline]
-    fn get_register(&mut self) -> u8 {
+    fn get_free_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
             assert_eq!(self.registers[reg as usize], UNASSIGNED);
             self.register_lru.poke(reg);
@@ -193,20 +196,7 @@ impl<const N: usize> RegRegAlloc<N> {
         }
     }
 
-    #[inline]
-    fn rebind_register(&mut self, n: u8, reg: u8) {
-        assert!(self.allocations[n as usize] >= N as u32);
-        assert!(self.registers[reg as usize] != UNASSIGNED);
-
-        let prev_node = self.registers[reg as usize];
-        self.allocations[prev_node as usize] = UNASSIGNED;
-
-        // Bind the register, but don't bother poking; whoever got the register
-        // for us is responsible for that step.
-        self.registers[reg as usize] = n as u32;
-        self.allocations[n as usize] = reg as u32;
-    }
-
+    /// Binds input register `n` to output register `reg`, which must be empty
     #[inline]
     fn bind_register(&mut self, n: u8, reg: u8) {
         assert!(self.allocations[n as usize] >= N as u32);
@@ -264,6 +254,7 @@ impl<const N: usize> RegRegAlloc<N> {
     /// Allocates the next operation in the tape
     #[inline(always)]
     pub fn op(&mut self, op: RegOp) {
+        println!("testing op: {op:?}");
         match op {
             RegOp::Var(out, i) => self.op_var(out, i),
             RegOp::Input(out, i) => self.op_input(out, i),
@@ -322,11 +313,11 @@ impl<const N: usize> RegRegAlloc<N> {
         self.release_mem(mem);
     }
 
-    /// Returns a register that is bound to the given SSA input
+    /// Returns a register that is bound to the given input tape register
     ///
-    /// If the given SSA input is not already bound to a register, then we
-    /// evict the oldest register using `Self::get_register`, with the
-    /// appropriate set of LOAD/STORE operations.
+    /// If the given input register is not already bound to a output register,
+    /// then we evict the oldest register using `Self::get_free_register`, with
+    /// the appropriate set of LOAD/STORE operations.
     #[inline]
     fn get_out_reg(&mut self, out: u8) -> u8 {
         match self.get_allocation(out) {
@@ -334,7 +325,7 @@ impl<const N: usize> RegRegAlloc<N> {
             Allocation::Memory(m_x) => {
                 // TODO: this could be more efficient with a Swap instruction,
                 // since we know that we're about to free a memory slot.
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
 
                 self.push_store(r_a, m_x);
                 self.bind_register(out, r_a);
@@ -376,22 +367,21 @@ impl<const N: usize> RegRegAlloc<N> {
         // i.e. storing the value in the assigned memory slot, and then
         // restoring the previous register value if present (when read forward).
         let r_x = self.get_out_reg(out);
+        self.release_reg(r_x); // TODO make this part of get_out_reg?
         match self.get_allocation(arg) {
             Allocation::Register(r_y) => {
                 assert!(r_x != r_y);
                 self.out.push(op(r_x, r_y));
-                self.release_reg(r_x);
             }
             Allocation::Memory(m_y) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a));
-                self.release_reg(r_x);
                 self.bind_register(arg, r_a);
             }
             Allocation::Unassigned => {
                 self.out.push(op(r_x, r_x));
-                self.rebind_register(arg, r_x);
+                self.bind_register(arg, r_x);
             }
         }
     }
@@ -499,81 +489,77 @@ impl<const N: usize> RegRegAlloc<N> {
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
+        self.release_reg(r_x); // TODO make this part of get_out_reg?
         match (self.get_allocation(lhs), self.get_allocation(rhs)) {
             (Allocation::Register(r_y), Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_y, r_z));
-                self.release_reg(r_x);
             }
             (Allocation::Memory(m_y), Allocation::Register(r_z)) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_z));
-                self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
             }
             (Allocation::Register(r_y), Allocation::Memory(m_z)) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 self.push_store(r_a, m_z);
                 self.out.push(op(r_x, r_y, r_a));
-                self.release_reg(r_x);
                 self.bind_register(rhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Memory(..)) if lhs == rhs => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_a));
-                self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Memory(m_z)) => {
-                let r_a = self.get_register();
-                let r_b = self.get_register();
+                let r_a = self.get_free_register();
+                let r_b = self.get_free_register();
 
                 self.push_store(r_a, m_y);
                 self.push_store(r_b, m_z);
                 self.out.push(op(r_x, r_a, r_b));
-                self.release_reg(r_x);
                 self.bind_register(lhs, r_a);
                 self.bind_register(rhs, r_b);
             }
             (Allocation::Unassigned, Allocation::Register(r_z)) => {
                 self.out.push(op(r_x, r_x, r_z));
-                self.rebind_register(lhs, r_x);
+                self.bind_register(lhs, r_x);
             }
             (Allocation::Register(r_y), Allocation::Unassigned) => {
                 self.out.push(op(r_x, r_y, r_x));
-                self.rebind_register(rhs, r_x);
+                self.bind_register(rhs, r_x);
             }
             (Allocation::Unassigned, Allocation::Unassigned) if lhs == rhs => {
                 self.out.push(op(r_x, r_x, r_x));
-                self.rebind_register(lhs, r_x);
+                self.bind_register(lhs, r_x);
             }
             (Allocation::Unassigned, Allocation::Unassigned) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
 
                 self.out.push(op(r_x, r_x, r_a));
-                self.rebind_register(lhs, r_x);
+                self.bind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
             (Allocation::Unassigned, Allocation::Memory(m_z)) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 assert!(r_a != r_x);
                 assert!(lhs != rhs);
 
                 self.push_store(r_a, m_z);
                 self.out.push(op(r_x, r_x, r_a));
-                self.rebind_register(lhs, r_x);
+                self.bind_register(lhs, r_x);
                 self.bind_register(rhs, r_a);
             }
             (Allocation::Memory(m_y), Allocation::Unassigned) => {
-                let r_a = self.get_register();
+                let r_a = self.get_free_register();
                 assert!(r_a != r_x);
                 assert!(lhs != rhs);
 
                 self.push_store(r_a, m_y);
                 self.out.push(op(r_x, r_a, r_x));
                 self.bind_register(lhs, r_a);
-                self.rebind_register(rhs, r_x);
+                self.bind_register(rhs, r_x);
             }
         }
     }
