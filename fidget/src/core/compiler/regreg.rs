@@ -7,19 +7,23 @@ enum Allocation {
     Unassigned,
 }
 
+/// Marker value for unassigned registers
+const UNASSIGNED: u32 = u32::MAX;
+
 /// Cheap and cheerful single-pass register-to-register allocation
 pub struct RegRegAlloc<const N: usize> {
     /// Map from the index in the original tape to a specific register or memory
     /// slot.  The first `N` values represent registers in the original tape;
     /// later values are memory slots.
     ///
-    /// Unallocated slots are marked with `u32::MAX`; allocated slots have the
-    /// value of their register or memory slot (which are both integers; the
-    /// dividing point is based on register count).
+    /// Unallocated slots are marked with `UNASSIGNED` (`u32::MAX`); allocated
+    /// slots have the value of their register or memory slot (which are both
+    /// integers; the dividing point is based on register count).
     allocations: Vec<u32>,
 
     /// Map from a particular register to the index in the original tape that's
-    /// using that register, or `u32::MAX` if the register is currently unused.
+    /// using that register, or `UNASSIGNED` (`u32::MAX`) if the register is
+    /// currently unused.
     ///
     /// The inner `u32` here is an index into the original tape
     registers: [u32; N],
@@ -53,9 +57,9 @@ impl<const N: usize> RegRegAlloc<N> {
     pub fn new(size: usize) -> Self {
         assert!(N <= u8::MAX as usize);
         let mut out = Self {
-            allocations: vec![u32::MAX; size],
+            allocations: vec![UNASSIGNED; size],
 
-            registers: [u32::MAX; N],
+            registers: [UNASSIGNED; N],
             register_lru: Lru::new(),
 
             spare_registers: Vec::with_capacity(N),
@@ -72,7 +76,7 @@ impl<const N: usize> RegRegAlloc<N> {
         Self {
             allocations: vec![],
 
-            registers: [u32::MAX; N],
+            registers: [UNASSIGNED; N],
             register_lru: Lru::new(),
 
             spare_registers: Vec::with_capacity(N),
@@ -85,9 +89,9 @@ impl<const N: usize> RegRegAlloc<N> {
     /// Resets internal state, reusing allocations and the provided tape
     pub fn reset(&mut self, size: usize, tape: RegTape) {
         assert!(self.out.is_empty());
-        self.allocations.fill(u32::MAX);
-        self.allocations.resize(size, u32::MAX);
-        self.registers.fill(u32::MAX);
+        self.allocations.fill(UNASSIGNED);
+        self.allocations.resize(size, UNASSIGNED);
+        self.registers.fill(UNASSIGNED);
         self.register_lru = Lru::new();
         self.spare_registers.clear();
         self.spare_memory.clear();
@@ -144,7 +148,7 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.register_lru.poke(i as u8);
                 Allocation::Register(i as u8)
             }
-            u32::MAX => Allocation::Unassigned,
+            UNASSIGNED => Allocation::Unassigned,
             i => Allocation::Memory(i),
         }
     }
@@ -155,7 +159,7 @@ impl<const N: usize> RegRegAlloc<N> {
         self.spare_registers.pop().or_else(|| {
             if self.out.slot_count < N as u32 {
                 let reg = self.out.slot_count;
-                assert!(self.registers[reg as usize] == u32::MAX);
+                assert!(self.registers[reg as usize] == UNASSIGNED);
                 self.out.slot_count += 1;
                 Some(reg.try_into().unwrap())
             } else {
@@ -167,7 +171,7 @@ impl<const N: usize> RegRegAlloc<N> {
     #[inline]
     fn get_register(&mut self) -> u8 {
         if let Some(reg) = self.get_spare_register() {
-            assert_eq!(self.registers[reg as usize], u32::MAX);
+            assert_eq!(self.registers[reg as usize], UNASSIGNED);
             self.register_lru.poke(reg);
             reg
         } else {
@@ -182,7 +186,7 @@ impl<const N: usize> RegRegAlloc<N> {
             self.allocations[prev_node as usize] = mem;
 
             // This register is now unassigned
-            self.registers[reg as usize] = u32::MAX;
+            self.registers[reg as usize] = UNASSIGNED;
 
             self.out.push(RegOp::Load(reg, mem));
             reg
@@ -192,10 +196,10 @@ impl<const N: usize> RegRegAlloc<N> {
     #[inline]
     fn rebind_register(&mut self, n: u8, reg: u8) {
         assert!(self.allocations[n as usize] >= N as u32);
-        assert!(self.registers[reg as usize] != u32::MAX);
+        assert!(self.registers[reg as usize] != UNASSIGNED);
 
         let prev_node = self.registers[reg as usize];
-        self.allocations[prev_node as usize] = u32::MAX;
+        self.allocations[prev_node as usize] = UNASSIGNED;
 
         // Bind the register, but don't bother poking; whoever got the register
         // for us is responsible for that step.
@@ -206,7 +210,7 @@ impl<const N: usize> RegRegAlloc<N> {
     #[inline]
     fn bind_register(&mut self, n: u8, reg: u8) {
         assert!(self.allocations[n as usize] >= N as u32);
-        assert!(self.registers[reg as usize] == u32::MAX);
+        assert!(self.registers[reg as usize] == UNASSIGNED);
 
         // Bind the register, but don't bother poking; whoever got the register
         // for us is responsible for that step.
@@ -221,13 +225,13 @@ impl<const N: usize> RegRegAlloc<N> {
         assert!((reg as usize) < N);
 
         let node = self.registers[reg as usize];
-        assert!(node != u32::MAX);
+        assert!(node != UNASSIGNED);
 
-        self.registers[reg as usize] = u32::MAX;
+        self.registers[reg as usize] = UNASSIGNED;
         self.spare_registers.push(reg);
         // Modifying self.allocations isn't strictly necessary, but could help
         // us detect logical errors (since it should never be used after this)
-        self.allocations[node as usize] = u32::MAX;
+        self.allocations[node as usize] = UNASSIGNED;
     }
 
     #[inline]
@@ -291,8 +295,8 @@ impl<const N: usize> RegRegAlloc<N> {
             RegOp::Load(reg, mem) => {
                 // mem -> reg (in forward evaluation), so reg -> mem in reverse
                 let prev = self.allocations[reg as usize];
-                assert_ne!(prev, u32::MAX);
-                assert_eq!(self.allocations[mem as usize], u32::MAX);
+                assert_ne!(prev, UNASSIGNED);
+                assert_eq!(self.allocations[mem as usize], UNASSIGNED);
                 self.allocations[mem as usize] = prev;
                 if prev < N as u32 {
                     assert_eq!(self.registers[prev as usize], reg as u32);
@@ -302,8 +306,8 @@ impl<const N: usize> RegRegAlloc<N> {
             RegOp::Store(reg, mem) => {
                 // reg -> mem (in forward evaluation), so mem -> reg in reverse
                 let prev = self.allocations[mem as usize];
-                assert_ne!(prev, u32::MAX);
-                assert_eq!(self.allocations[reg as usize], u32::MAX);
+                assert_ne!(prev, UNASSIGNED);
+                assert_eq!(self.allocations[reg as usize], UNASSIGNED);
                 self.allocations[reg as usize] = prev;
                 if prev < N as u32 {
                     assert_eq!(self.registers[prev as usize], mem);
