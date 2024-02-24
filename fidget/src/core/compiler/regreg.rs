@@ -1,6 +1,4 @@
-use crate::compiler::{Lru, RegOp, RegTape, SsaOp};
-
-use arrayvec::ArrayVec;
+use crate::compiler::{Lru, RegOp, RegTape};
 
 #[derive(Copy, Clone, Debug)]
 enum Allocation {
@@ -20,9 +18,13 @@ pub struct RegRegAlloc<const N: usize> {
     /// dividing point is based on register count).
     allocations: Vec<u32>,
 
-    /// Stores a least-recently-used list of register
+    /// Map from a particular register to the index in the original tape that's
+    /// using that register, or `u32::MAX` if the register is currently unused.
     ///
-    /// This LRU is indexed by register value in the original tape
+    /// The inner `u32` here is an index into the original tape
+    registers: [u32; N],
+
+    /// Stores a least-recently-used list of register
     ///
     /// This is sized with a backing array that can hold the maximum register
     /// count (`u8::MAX`), but will be constructed with the specific register
@@ -32,7 +34,7 @@ pub struct RegRegAlloc<const N: usize> {
     /// Available short registers (index < 256)
     ///
     /// The most recently available is at the back
-    spare_registers: ArrayVec<u8, { u8::MAX as usize }>,
+    spare_registers: Vec<u8>,
 
     /// Available extended registers (index >= 256)
     ///
@@ -43,7 +45,7 @@ pub struct RegRegAlloc<const N: usize> {
     out: RegTape,
 }
 
-impl<const N: usize> RegisterAllocator<N> {
+impl<const N: usize> RegRegAlloc<N> {
     /// Builds a new `RegisterAllocator`.
     ///
     /// Upon construction, SSA register 0 is bound to local register 0; you
@@ -56,7 +58,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [u32::MAX; N],
             register_lru: Lru::new(),
 
-            spare_registers: ArrayVec::new(),
+            spare_registers: Vec::with_capacity(N),
             spare_memory: Vec::with_capacity(1024),
 
             out: RegTape::empty(),
@@ -73,7 +75,7 @@ impl<const N: usize> RegisterAllocator<N> {
             registers: [u32::MAX; N],
             register_lru: Lru::new(),
 
-            spare_registers: ArrayVec::new(),
+            spare_registers: Vec::with_capacity(N),
             spare_memory: vec![],
 
             out: RegTape::empty(),
@@ -136,7 +138,7 @@ impl<const N: usize> RegisterAllocator<N> {
     ///
     /// If the output is a register, then it's poked to update recency
     #[inline]
-    fn get_allocation(&mut self, n: u32) -> Allocation {
+    fn get_allocation(&mut self, n: u8) -> Allocation {
         match self.allocations[n as usize] {
             i if i < N as u32 => {
                 self.register_lru.poke(i as u8);
@@ -188,7 +190,7 @@ impl<const N: usize> RegisterAllocator<N> {
     }
 
     #[inline]
-    fn rebind_register(&mut self, n: u32, reg: u8) {
+    fn rebind_register(&mut self, n: u8, reg: u8) {
         assert!(self.allocations[n as usize] >= N as u32);
         assert!(self.registers[reg as usize] != u32::MAX);
 
@@ -197,18 +199,18 @@ impl<const N: usize> RegisterAllocator<N> {
 
         // Bind the register, but don't bother poking; whoever got the register
         // for us is responsible for that step.
-        self.registers[reg as usize] = n;
+        self.registers[reg as usize] = n as u32;
         self.allocations[n as usize] = reg as u32;
     }
 
     #[inline]
-    fn bind_register(&mut self, n: u32, reg: u8) {
+    fn bind_register(&mut self, n: u8, reg: u8) {
         assert!(self.allocations[n as usize] >= N as u32);
         assert!(self.registers[reg as usize] == u32::MAX);
 
         // Bind the register, but don't bother poking; whoever got the register
         // for us is responsible for that step.
-        self.registers[reg as usize] = n;
+        self.registers[reg as usize] = n as u32;
         self.allocations[n as usize] = reg as u32;
     }
 
@@ -242,14 +244,14 @@ impl<const N: usize> RegisterAllocator<N> {
     /// This may also push `Load` or `Store` instructions to the internal tape,
     /// if there aren't enough spare registers.
     #[inline(always)]
-    fn op_reg(&mut self, op: SsaOp) {
-        let (out, arg, op): (u32, u32, fn(u8, u8) -> RegOp) = match op {
-            SsaOp::NegReg(out, arg) => (out, arg, RegOp::NegReg),
-            SsaOp::AbsReg(out, arg) => (out, arg, RegOp::AbsReg),
-            SsaOp::RecipReg(out, arg) => (out, arg, RegOp::RecipReg),
-            SsaOp::SqrtReg(out, arg) => (out, arg, RegOp::SqrtReg),
-            SsaOp::SquareReg(out, arg) => (out, arg, RegOp::SquareReg),
-            SsaOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
+    fn op_reg(&mut self, op: RegOp) {
+        let (out, arg, op): (u8, u8, fn(u8, u8) -> RegOp) = match op {
+            RegOp::NegReg(out, arg) => (out, arg, RegOp::NegReg),
+            RegOp::AbsReg(out, arg) => (out, arg, RegOp::AbsReg),
+            RegOp::RecipReg(out, arg) => (out, arg, RegOp::RecipReg),
+            RegOp::SqrtReg(out, arg) => (out, arg, RegOp::SqrtReg),
+            RegOp::SquareReg(out, arg) => (out, arg, RegOp::SquareReg),
+            RegOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
         self.op_reg_fn(out, arg, op);
@@ -257,34 +259,57 @@ impl<const N: usize> RegisterAllocator<N> {
 
     /// Allocates the next operation in the tape
     #[inline(always)]
-    pub fn op(&mut self, op: SsaOp) {
+    pub fn op(&mut self, op: RegOp) {
         match op {
-            SsaOp::Var(out, i) => self.op_var(out, i),
-            SsaOp::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
-            SsaOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
+            RegOp::Var(out, i) => self.op_var(out, i),
+            RegOp::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
+            RegOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
 
-            SsaOp::NegReg(..)
-            | SsaOp::AbsReg(..)
-            | SsaOp::RecipReg(..)
-            | SsaOp::SqrtReg(..)
-            | SsaOp::SquareReg(..)
-            | SsaOp::CopyReg(..) => self.op_reg(op),
+            RegOp::NegReg(..)
+            | RegOp::AbsReg(..)
+            | RegOp::RecipReg(..)
+            | RegOp::SqrtReg(..)
+            | RegOp::SquareReg(..)
+            | RegOp::CopyReg(..) => self.op_reg(op),
 
-            SsaOp::AddRegImm(..)
-            | SsaOp::SubRegImm(..)
-            | SsaOp::SubImmReg(..)
-            | SsaOp::MulRegImm(..)
-            | SsaOp::DivRegImm(..)
-            | SsaOp::DivImmReg(..)
-            | SsaOp::MinRegImm(..)
-            | SsaOp::MaxRegImm(..) => self.op_reg_imm(op),
+            RegOp::AddRegImm(..)
+            | RegOp::SubRegImm(..)
+            | RegOp::SubImmReg(..)
+            | RegOp::MulRegImm(..)
+            | RegOp::DivRegImm(..)
+            | RegOp::DivImmReg(..)
+            | RegOp::MinRegImm(..)
+            | RegOp::MaxRegImm(..) => self.op_reg_imm(op),
 
-            SsaOp::AddRegReg(..)
-            | SsaOp::SubRegReg(..)
-            | SsaOp::MulRegReg(..)
-            | SsaOp::DivRegReg(..)
-            | SsaOp::MinRegReg(..)
-            | SsaOp::MaxRegReg(..) => self.op_reg_reg(op),
+            RegOp::AddRegReg(..)
+            | RegOp::SubRegReg(..)
+            | RegOp::MulRegReg(..)
+            | RegOp::DivRegReg(..)
+            | RegOp::MinRegReg(..)
+            | RegOp::MaxRegReg(..) => self.op_reg_reg(op),
+
+            RegOp::Load(reg, mem) => {
+                // mem -> reg (in forward evaluation), so reg -> mem in reverse
+                let prev = self.allocations[reg as usize];
+                assert_ne!(prev, u32::MAX);
+                assert_eq!(self.allocations[mem as usize], u32::MAX);
+                self.allocations[mem as usize] = prev;
+                if prev < N as u32 {
+                    assert_eq!(self.registers[prev as usize], reg as u32);
+                    self.registers[prev as usize] = mem as u32;
+                }
+            }
+            RegOp::Store(reg, mem) => {
+                // reg -> mem (in forward evaluation), so mem -> reg in reverse
+                let prev = self.allocations[mem as usize];
+                assert_ne!(prev, u32::MAX);
+                assert_eq!(self.allocations[reg as usize], u32::MAX);
+                self.allocations[reg as usize] = prev;
+                if prev < N as u32 {
+                    assert_eq!(self.registers[prev as usize], mem);
+                    self.registers[prev as usize] = reg as u32;
+                }
+            }
         }
     }
 
@@ -299,7 +324,7 @@ impl<const N: usize> RegisterAllocator<N> {
     /// evict the oldest register using `Self::get_register`, with the
     /// appropriate set of LOAD/STORE operations.
     #[inline]
-    fn get_out_reg(&mut self, out: u32) -> u8 {
+    fn get_out_reg(&mut self, out: u8) -> u8 {
         match self.get_allocation(out) {
             Allocation::Register(r_x) => r_x,
             Allocation::Memory(m_x) => {
@@ -316,7 +341,7 @@ impl<const N: usize> RegisterAllocator<N> {
     }
 
     #[inline(always)]
-    fn op_reg_fn(&mut self, out: u32, arg: u32, op: impl Fn(u8, u8) -> RegOp) {
+    fn op_reg_fn(&mut self, out: u8, arg: u8, op: impl Fn(u8, u8) -> RegOp) {
         // When we enter this function, the output can be assigned to either a
         // register or memory, and the input can be a register, memory, or
         // unassigned.  This gives us six unique situations.
@@ -378,7 +403,7 @@ impl<const N: usize> RegisterAllocator<N> {
     /// sounds; look at the source code for a table showing all 18 (!) possible
     /// configurations.
     #[inline(always)]
-    fn op_reg_reg(&mut self, op: SsaOp) {
+    fn op_reg_reg(&mut self, op: RegOp) {
         // Looking at this horrific table, you may be tempted to think "surely
         // there's a clean abstraction that wraps this up in a few functions".
         // You may be right, but I spent a few days chasing down terrible memory
@@ -449,22 +474,22 @@ impl<const N: usize> RegisterAllocator<N> {
         //       |      |      | to the former r_a}
         //  -----|------|------|----------------------------------------------
         let (out, lhs, rhs, op): (_, _, _, fn(u8, u8, u8) -> RegOp) = match op {
-            SsaOp::AddRegReg(out, lhs, rhs) => {
+            RegOp::AddRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::AddRegReg)
             }
-            SsaOp::SubRegReg(out, lhs, rhs) => {
+            RegOp::SubRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::SubRegReg)
             }
-            SsaOp::MulRegReg(out, lhs, rhs) => {
+            RegOp::MulRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::MulRegReg)
             }
-            SsaOp::DivRegReg(out, lhs, rhs) => {
+            RegOp::DivRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::DivRegReg)
             }
-            SsaOp::MinRegReg(out, lhs, rhs) => {
+            RegOp::MinRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::MinRegReg)
             }
-            SsaOp::MaxRegReg(out, lhs, rhs) => {
+            RegOp::MaxRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::MaxRegReg)
             }
             _ => panic!("Bad opcode: {op:?}"),
@@ -552,31 +577,31 @@ impl<const N: usize> RegisterAllocator<N> {
     /// Lowers a function taking one register and one immediate into an
     /// [`RegOp`], pushing it to the internal tape.
     #[inline(always)]
-    fn op_reg_imm(&mut self, op: SsaOp) {
+    fn op_reg_imm(&mut self, op: RegOp) {
         let (out, arg, imm, op): (_, _, _, fn(u8, u8, f32) -> RegOp) = match op
         {
-            SsaOp::AddRegImm(out, arg, imm) => {
+            RegOp::AddRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::AddRegImm)
             }
-            SsaOp::SubRegImm(out, arg, imm) => {
+            RegOp::SubRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::SubRegImm)
             }
-            SsaOp::SubImmReg(out, arg, imm) => {
+            RegOp::SubImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::SubImmReg)
             }
-            SsaOp::MulRegImm(out, arg, imm) => {
+            RegOp::MulRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::MulRegImm)
             }
-            SsaOp::DivRegImm(out, arg, imm) => {
+            RegOp::DivRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::DivRegImm)
             }
-            SsaOp::DivImmReg(out, arg, imm) => {
+            RegOp::DivImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::DivImmReg)
             }
-            SsaOp::MinRegImm(out, arg, imm) => {
+            RegOp::MinRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::MinRegImm)
             }
-            SsaOp::MaxRegImm(out, arg, imm) => {
+            RegOp::MaxRegImm(out, arg, imm) => {
                 (out, arg, imm, RegOp::MaxRegImm)
             }
             _ => panic!("Bad opcode: {op:?}"),
@@ -585,7 +610,7 @@ impl<const N: usize> RegisterAllocator<N> {
     }
 
     #[inline(always)]
-    fn op_out_only(&mut self, out: u32, op: impl Fn(u8) -> RegOp) {
+    fn op_out_only(&mut self, out: u8, op: impl Fn(u8) -> RegOp) {
         let r_x = self.get_out_reg(out);
         self.out.push(op(r_x));
         self.release_reg(r_x);
@@ -594,19 +619,19 @@ impl<const N: usize> RegisterAllocator<N> {
     /// Pushes a [`CopyImm`](crate::compiler::RegOp::CopyImm) operation to the
     /// tape
     #[inline(always)]
-    fn op_copy_imm(&mut self, out: u32, imm: f32) {
+    fn op_copy_imm(&mut self, out: u8, imm: f32) {
         self.op_out_only(out, |out| RegOp::CopyImm(out, imm));
     }
 
     /// Pushes an [`Input`](crate::compiler::RegOp::Input) operation to the tape
     #[inline(always)]
-    fn op_input(&mut self, out: u32, i: u8) {
+    fn op_input(&mut self, out: u8, i: u8) {
         self.op_out_only(out, |out| RegOp::Input(out, i));
     }
 
     /// Pushes an [`Var`](crate::compiler::RegOp::Var) operation to the tape
     #[inline(always)]
-    fn op_var(&mut self, out: u32, i: u32) {
+    fn op_var(&mut self, out: u8, i: u32) {
         self.op_out_only(out, |out| RegOp::Var(out, i));
     }
 }

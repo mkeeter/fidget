@@ -10,6 +10,8 @@
 mod alloc;
 pub use alloc::RegisterAllocator;
 
+mod regreg;
+
 mod op;
 
 mod lru;
