@@ -266,7 +266,7 @@ impl<const N: usize> RegRegAlloc<N> {
     pub fn op(&mut self, op: RegOp) {
         match op {
             RegOp::Var(out, i) => self.op_var(out, i),
-            RegOp::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
+            RegOp::Input(out, i) => self.op_input(out, i),
             RegOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
 
             RegOp::NegReg(..)
@@ -300,7 +300,7 @@ impl<const N: usize> RegRegAlloc<N> {
                 self.allocations[mem as usize] = prev;
                 if prev < N as u32 {
                     assert_eq!(self.registers[prev as usize], reg as u32);
-                    self.registers[prev as usize] = mem as u32;
+                    self.registers[prev as usize] = mem;
                 }
             }
             RegOp::Store(reg, mem) => {

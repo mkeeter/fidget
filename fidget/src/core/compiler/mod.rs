@@ -11,6 +11,7 @@ mod alloc;
 pub use alloc::RegisterAllocator;
 
 mod regreg;
+pub use regreg::RegRegAlloc;
 
 mod op;
 

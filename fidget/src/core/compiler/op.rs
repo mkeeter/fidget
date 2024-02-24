@@ -132,6 +132,42 @@ impl RegOp {
             RegOp::Store(_reg, mem) => *mem,
         }
     }
+
+    /// Iterates over children (both registers and memory)
+    pub fn iter_children(&self) -> impl Iterator<Item = u32> {
+        match self {
+            RegOp::Input(..) | RegOp::Var(..) | RegOp::CopyImm(..) => {
+                [None, None]
+            }
+            RegOp::NegReg(_out, arg)
+            | RegOp::AbsReg(_out, arg)
+            | RegOp::RecipReg(_out, arg)
+            | RegOp::SqrtReg(_out, arg)
+            | RegOp::SquareReg(_out, arg)
+            | RegOp::CopyReg(_out, arg)
+            | RegOp::AddRegImm(_out, arg, ..)
+            | RegOp::MulRegImm(_out, arg, ..)
+            | RegOp::DivRegImm(_out, arg, ..)
+            | RegOp::DivImmReg(_out, arg, ..)
+            | RegOp::SubImmReg(_out, arg, ..)
+            | RegOp::SubRegImm(_out, arg, ..)
+            | RegOp::MinRegImm(_out, arg, ..)
+            | RegOp::MaxRegImm(_out, arg, ..) => [Some(*arg as u32), None],
+            RegOp::AddRegReg(_out, lhs, rhs)
+            | RegOp::MulRegReg(_out, lhs, rhs)
+            | RegOp::DivRegReg(_out, lhs, rhs)
+            | RegOp::SubRegReg(_out, lhs, rhs)
+            | RegOp::MinRegReg(_out, lhs, rhs)
+            | RegOp::MaxRegReg(_out, lhs, rhs) => {
+                [Some(*lhs as u32), Some(*rhs as u32)]
+            }
+            RegOp::Load(_reg, mem) => [Some(*mem), None],
+            RegOp::Store(reg, _mem) => [Some(*reg as u32), None],
+        }
+        .into_iter()
+        .flatten()
+    }
+
     /// Returns true if the given opcode is associated with a choice
     pub fn has_choice(&self) -> bool {
         match self {
