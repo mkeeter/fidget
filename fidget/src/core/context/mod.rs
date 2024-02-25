@@ -511,6 +511,26 @@ impl Context {
         }
     }
 
+    /// Builds a node computing "less than"
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.less_than(x, 1.0).unwrap();
+    /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// ```
+    pub fn less_than<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary(a, b, BinaryOpcode::LessThan)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values
@@ -643,6 +663,7 @@ impl Context {
                     BinaryOpcode::Div => a / b,
                     BinaryOpcode::Min => a.min(b),
                     BinaryOpcode::Max => a.max(b),
+                    BinaryOpcode::LessThan => (a < b) as u8 as f64,
                 }
             }
 
@@ -769,6 +790,7 @@ impl Context {
                 BinaryOpcode::Div => out += "div",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
+                BinaryOpcode::LessThan => out += "less-than",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",

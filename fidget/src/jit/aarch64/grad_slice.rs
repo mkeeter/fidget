@@ -403,6 +403,10 @@ impl Assembler for GradSliceAssembler {
         )
     }
 
+    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

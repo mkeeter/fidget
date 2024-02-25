@@ -291,6 +291,9 @@ impl Assembler for FloatSliceAssembler {
             ; fmin V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
+    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
 
     /// Loads an immediate into register V4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {

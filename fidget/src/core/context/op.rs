@@ -30,6 +30,7 @@ pub enum BinaryOpcode {
     Div,
     Min,
     Max,
+    LessThan,
 }
 
 /// An operation in a math expression.
