@@ -251,10 +251,10 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "aarch64")]
     fn prepare_stack(&mut self, slot_count: usize) {
-        if slot_count < REGISTER_LIMIT as usize {
+        if slot_count < REGISTER_LIMIT {
             return;
         }
-        let stack_slots = slot_count - REGISTER_LIMIT as usize;
+        let stack_slots = slot_count - REGISTER_LIMIT;
         let mem = (stack_slots + 1) * std::mem::size_of::<T>();
 
         // Round up to the nearest multiple of 16 bytes, for alignment

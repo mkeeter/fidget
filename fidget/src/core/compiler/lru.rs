@@ -28,9 +28,8 @@ impl<const N: usize> Lru<N> {
             head: 0,
         };
         for i in 0..N {
-            out.data[i as usize].next = ((i + 1) % N) as u8;
-            out.data[i as usize].prev =
-                (i.checked_sub(1).unwrap_or(N - 1)) as u8;
+            out.data[i].next = ((i + 1) % N) as u8;
+            out.data[i].prev = (i.checked_sub(1).unwrap_or(N - 1)) as u8;
         }
         out
     }
