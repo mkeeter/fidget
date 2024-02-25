@@ -359,6 +359,33 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
                 RegOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
                 RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
+                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                    v[out] = if v[lhs].upper() < v[rhs].lower() {
+                        1.0.into()
+                    } else if v[lhs].lower() >= v[rhs].upper() {
+                        0.0.into()
+                    } else {
+                        Interval::new(0.0, 1.0)
+                    };
+                }
+                RegOp::LessThanRegImm(out, arg, imm) => {
+                    v[out] = if v[arg].upper() < imm {
+                        1.0.into()
+                    } else if v[arg].lower() >= imm {
+                        0.0.into()
+                    } else {
+                        Interval::new(0.0, 1.0)
+                    };
+                }
+                RegOp::LessThanImmReg(out, arg, imm) => {
+                    v[out] = if imm < v[arg].lower() {
+                        1.0.into()
+                    } else if v[arg].upper() >= imm {
+                        0.0.into()
+                    } else {
+                        Interval::new(0.0, 1.0)
+                    };
+                }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     let (value, choice) = v[lhs].min_choice(v[rhs]);
                     v[out] = value;
@@ -540,6 +567,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::DivRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] / v[rhs];
+                }
+                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                    v[out] = (v[lhs] < v[rhs]) as u8 as f32;
+                }
+                RegOp::LessThanRegImm(out, arg, imm) => {
+                    v[out] = (v[arg] < imm) as u8 as f32;
+                }
+                RegOp::LessThanImmReg(out, arg, imm) => {
+                    v[out] = (imm < v[arg]) as u8 as f32;
                 }
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
@@ -766,6 +802,16 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
+                RegOp::LessThanImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = (imm < v[arg][i]) as u8 as f32;
+                    }
+                }
+                RegOp::LessThanRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = (v[arg][i] < imm) as u8 as f32;
+                    }
+                }
                 RegOp::MinRegImm(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
@@ -802,6 +848,11 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
+                    }
+                }
+                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = (v[lhs][i] < v[rhs][i]) as u8 as f32;
                     }
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
@@ -996,6 +1047,24 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
+                RegOp::LessThanImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = if imm < v[arg][i].v {
+                            Grad::new(1.0, 0.0, 0.0, 0.0)
+                        } else {
+                            Grad::new(0.0, 0.0, 0.0, 0.0)
+                        }
+                    }
+                }
+                RegOp::LessThanRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = if v[arg][i].v < imm {
+                            Grad::new(1.0, 0.0, 0.0, 0.0)
+                        } else {
+                            Grad::new(0.0, 0.0, 0.0, 0.0)
+                        }
+                    }
+                }
                 RegOp::MinRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
@@ -1034,6 +1103,15 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] - v[rhs][i];
+                    }
+                }
+                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = if v[lhs][i].v < v[rhs][i].v {
+                            Grad::new(1.0, 0.0, 0.0, 0.0)
+                        } else {
+                            Grad::new(0.0, 0.0, 0.0, 0.0)
+                        };
                     }
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {

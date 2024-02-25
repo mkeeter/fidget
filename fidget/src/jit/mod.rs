@@ -171,6 +171,9 @@ trait Assembler {
     /// Natural log
     fn build_ln(&mut self, out_reg: u8, lhs_reg: u8);
 
+    /// Less than
+    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
     /// Square
     ///
     /// This has a default implementation, but can be overloaded for efficiency;
@@ -733,6 +736,17 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
+            }
+            RegOp::LessThanRegReg(out, lhs, rhs) => {
+                asm.build_lt(out, lhs, rhs);
+            }
+            RegOp::LessThanRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_lt(out, arg, reg);
+            }
+            RegOp::LessThanImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_lt(out, reg, arg);
             }
         }
     }
