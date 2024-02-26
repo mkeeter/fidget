@@ -268,6 +268,70 @@ where
         );
     }
 
+    pub fn test_g_lt() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let m = ctx.less_than(x, y).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
+
+        let mut eval = S::new_grad_slice_eval();
+        let tape = shape.ez_grad_slice_tape();
+        assert_eq!(
+            eval.eval(
+                &tape,
+                &[2.0, 3.0, 4.0],
+                &[3.0, 2.0, 4.0],
+                &[0.0; 3],
+                &[]
+            )
+            .unwrap(),
+            &[
+                Grad::new(1.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+            ]
+        );
+
+        let m = ctx.less_than(x, 2.5).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+        assert_eq!(
+            eval.eval(
+                &tape,
+                &[2.0, 3.0, 2.5],
+                &[3.0, 2.0, 4.0],
+                &[0.0; 3],
+                &[]
+            )
+            .unwrap(),
+            &[
+                Grad::new(1.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+            ]
+        );
+
+        let m = ctx.less_than(2.5, y).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+        assert_eq!(
+            eval.eval(
+                &tape,
+                &[2.0, 3.0, 2.5],
+                &[3.0, 2.0, 2.5],
+                &[0.0; 3],
+                &[]
+            )
+            .unwrap(),
+            &[
+                Grad::new(1.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+                Grad::new(0.0, 0.0, 0.0, 0.0),
+            ]
+        );
+    }
+
     pub fn test_g_circle() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -730,6 +794,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
+        $crate::grad_test!(test_g_lt, $t);
         $crate::grad_test!(test_g_min_max, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);
