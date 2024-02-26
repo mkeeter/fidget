@@ -291,8 +291,15 @@ impl Assembler for FloatSliceAssembler {
             ; fmin V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
+
     fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Note the swap here, from LT -> GT
+            ; fcmgt V(reg(out_reg)).S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
+            ; fmov s7, #1.0
+            ; dup v7.s4, v7.s[0]
+            ; and V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.B16
+        )
     }
 
     /// Loads an immediate into register V4, using W9 as an intermediary
