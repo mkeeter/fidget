@@ -20,7 +20,6 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const f32` (array)  |
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
-#[cfg(target_arch = "x86_64")]
 impl Assembler for PointAssembler {
     type Data = f32;
 

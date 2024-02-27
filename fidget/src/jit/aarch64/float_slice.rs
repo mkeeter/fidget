@@ -23,7 +23,6 @@ pub const SIMD_WIDTH: usize = 4;
 /// when they are used.
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`
-#[cfg(target_arch = "aarch64")]
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
