@@ -178,6 +178,30 @@ where
             0.5,
         );
     }
+
+    pub fn test_f_sin() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.sin(a).unwrap();
+
+        let shape = S::new(&ctx, b).unwrap();
+        let mut eval = S::new_float_slice_eval();
+        let tape = shape.ez_float_slice_tape();
+        let mut vars = Vars::new(shape.vars());
+
+        let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
+        assert_eq!(
+            eval.eval(
+                &tape,
+                &args,
+                &[0.0; 4],
+                &[0.0; 4],
+                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
+            )
+            .unwrap(),
+            args.map(f32::sin),
+        );
+    }
 }
 
 #[macro_export]
@@ -196,5 +220,6 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_give_take, $t);
         $crate::float_slice_test!(test_vectorized, $t);
         $crate::float_slice_test!(test_f_var, $t);
+        $crate::float_slice_test!(test_f_sin, $t);
     };
 }

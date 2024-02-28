@@ -124,6 +124,12 @@ impl Assembler for GradSliceAssembler {
             ; ldr S(reg(out_reg)), [x3, #(src_arg * 4)]
         );
     }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn grad_sin(v: Grad) -> Grad {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_sin);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }
@@ -288,5 +294,16 @@ impl Assembler for GradSliceAssembler {
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl GradSliceAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "C" fn(Grad) -> Grad,
+    ) {
+        unimplemented!()
     }
 }

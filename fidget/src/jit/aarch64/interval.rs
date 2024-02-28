@@ -81,6 +81,12 @@ impl Assembler for IntervalAssembler {
             ; dup V(reg(out_reg)).s2, w15
         );
     }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn interval_sin(v: Interval) -> Interval {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_sin);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
     }
@@ -415,5 +421,16 @@ impl Assembler for IntervalAssembler {
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl IntervalAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "C" fn(Interval) -> Interval,
+    ) {
+        unimplemented!()
     }
 }

@@ -61,6 +61,17 @@ impl Grad {
         }
     }
 
+    /// Sine
+    pub fn sin(self) -> Self {
+        let c = self.v.cos();
+        Grad {
+            v: self.v.sin(),
+            dx: self.dx * c,
+            dy: self.dy * c,
+            dz: self.dz * c,
+        }
+    }
+
     /// Reciprocal
     pub fn recip(self) -> Self {
         let v2 = -self.v.powi(2);
@@ -254,6 +265,13 @@ impl Interval {
         } else {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
+    }
+    /// Computes the sine of the interval
+    ///
+    /// Right now, this always returns the maximum range of `[-1, 1]`
+    pub fn sin(self) -> Self {
+        // TODO: make this smarter
+        Interval::new(-1.0, 1.0)
     }
     /// Calculates the square root of the interval
     ///

@@ -392,6 +392,19 @@ impl Context {
         self.op_unary(a, UnaryOpcode::Sqrt)
     }
 
+    /// Builds a node which calculates the sine of its input (in radians)
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.sin(x).unwrap();
+    /// let v = ctx.eval_xyz(op, std::f64::consts::PI / 2.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// ```
+    pub fn sin<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Sin)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     // Derived functions
     /// Builds a node which squares its input
@@ -600,6 +613,7 @@ impl Context {
                     UnaryOpcode::Recip => 1.0 / a,
                     UnaryOpcode::Sqrt => a.sqrt(),
                     UnaryOpcode::Square => a * a,
+                    UnaryOpcode::Sin => a.sin(),
                 }
             }
         };
@@ -713,6 +727,7 @@ impl Context {
                 UnaryOpcode::Recip => out += "recip",
                 UnaryOpcode::Sqrt => out += "sqrt",
                 UnaryOpcode::Square => out += "square",
+                UnaryOpcode::Sin => out += "sin",
             },
         };
         write!(
