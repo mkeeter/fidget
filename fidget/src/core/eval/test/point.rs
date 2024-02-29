@@ -127,6 +127,44 @@ where
         assert!(trace.is_none());
     }
 
+    pub fn test_p_sin()
+    where
+        <S as Shape>::Trace: AsRef<[Choice]>,
+    {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sin(x).unwrap();
+
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_point_tape();
+        let mut eval = S::new_point_eval();
+
+        for x in [0.0, 1.0, 2.0] {
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            assert_eq!(r, x.sin());
+            assert!(trace.is_none());
+
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            assert_eq!(r, x.sin());
+            assert!(trace.is_none());
+
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            assert_eq!(r, x.sin());
+            assert!(trace.is_none());
+        }
+
+        let y = ctx.y();
+        let s = ctx.add(s, y).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_point_tape();
+
+        for (x, y) in [(0.0, 1.0), (1.0, 3.0), (2.0, 8.0)] {
+            let (r, trace) = eval.eval(&tape, x, y, 0.0, &[]).unwrap();
+            assert_eq!(r, x.sin() + y);
+            assert!(trace.is_none());
+        }
+    }
+
     pub fn basic_interpreter() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -307,6 +345,7 @@ macro_rules! point_tests {
         $crate::point_test!(test_circle, $t);
         $crate::point_test!(test_p_max, $t);
         $crate::point_test!(test_p_min, $t);
+        $crate::point_test!(test_p_sin, $t);
         $crate::point_test!(basic_interpreter, $t);
         $crate::point_test!(test_push, $t);
         $crate::point_test!(test_var, $t);

@@ -117,6 +117,34 @@ where
         );
     }
 
+    pub fn test_g_sin() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sin(x).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+
+        let mut eval = S::new_grad_slice_eval();
+        let v = eval
+            .eval(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3], &[])
+            .unwrap();
+        v[0].compare_eq(Grad::new(1f32.sin(), 1f32.cos(), 0.0, 0.0));
+        v[1].compare_eq(Grad::new(2f32.sin(), 2f32.cos(), 0.0, 0.0));
+        v[2].compare_eq(Grad::new(3f32.sin(), 3f32.cos(), 0.0, 0.0));
+
+        let y = ctx.y();
+        let y = ctx.mul(y, 2.0).unwrap();
+        let s = ctx.sin(y).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+        let v = eval
+            .eval(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3], &[])
+            .unwrap();
+        v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
+        v[1].compare_eq(Grad::new(4f32.sin(), 0.0, 2.0 * 4f32.cos(), 0.0));
+        v[2].compare_eq(Grad::new(6f32.sin(), 0.0, 2.0 * 6f32.cos(), 0.0));
+    }
+
     pub fn test_g_mul() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -369,6 +397,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_abs, $t);
         $crate::grad_test!(test_g_square, $t);
         $crate::grad_test!(test_g_sqrt, $t);
+        $crate::grad_test!(test_g_sin, $t);
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);

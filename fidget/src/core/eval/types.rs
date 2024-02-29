@@ -100,6 +100,19 @@ impl Grad {
             rhs
         }
     }
+
+    /// Checks that the two values are roughly equal, panicking otherwise
+    #[cfg(test)]
+    pub(crate) fn compare_eq(&self, other: Self) {
+        let d = (self.v - other.v)
+            .abs()
+            .max((self.dx - other.dx).abs())
+            .max((self.dy - other.dy).abs())
+            .max((self.dz - other.dz).abs());
+        if d >= 1e-6 {
+            panic!("lhs != rhs ({self:?} != {other:?})");
+        }
+    }
 }
 
 impl From<f32> for Grad {
