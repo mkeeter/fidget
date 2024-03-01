@@ -482,10 +482,8 @@ impl IntervalAssembler {
             ; movsd [rsp + 80], xmm14
             ; movsd [rsp + 88], xmm15
 
-            // xmm0 = arg.lower
-            ; movss xmm0, Rx(reg(arg_reg))
-            // xmm1 = arg.upper
-            ; vpshufd xmm1, Rx(reg(arg_reg)), 1
+            // copy arg to xmm0
+            ; vmovq xmm0, Rx(reg(arg_reg))
             ; mov rdx, QWORD addr as _
             ; call rdx
 
@@ -510,7 +508,7 @@ impl IntervalAssembler {
             ; mov rdx, r14
 
             // Unpack the interval result
-            ; vpunpckldq Rx(reg(out_reg)), xmm0, xmm1
+            ; vmovq Rx(reg(out_reg)), xmm0
         );
     }
 }
