@@ -273,7 +273,7 @@ impl FloatSliceAssembler {
             ; vmovups ymm15, [rsp + 352]
 
             // Get the output value from the stack
-            ; vmovups Rx(reg(out_reg)), [rsp + 416]
+            ; vmovups Ry(reg(out_reg)), [rsp + 416]
             ; add rsp, 456 // oof
 
             // Restore X/Y/Z pointers
