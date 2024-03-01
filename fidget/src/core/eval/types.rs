@@ -403,6 +403,17 @@ impl Interval {
     pub fn width(self) -> f32 {
         self.upper - self.lower
     }
+
+    /// Checks that the two values are roughly equal, panicking otherwise
+    #[cfg(test)]
+    pub(crate) fn compare_eq(&self, other: Self) {
+        let d = (self.lower - other.lower)
+            .abs()
+            .max((self.upper - other.upper).abs());
+        if d >= 1e-6 {
+            panic!("lhs != rhs ({self:?} != {other:?})");
+        }
+    }
 }
 
 impl std::fmt::Display for Interval {

@@ -235,6 +235,27 @@ where
                 depth,
             );
         }
+
+        // Compare against the VmShape evaluator as a baseline.  It's possible
+        // that S is also a VmShape, but this comparison isn't particularly
+        // expensive, so we'll do it regardless.
+        use crate::vm::VmShape;
+        let shape = VmShape::new(&ctx, node).unwrap();
+        let mut eval = VmShape::new_float_slice_eval();
+        let tape = shape.ez_float_slice_tape();
+
+        let cmp = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        for (i, (a, b)) in out.iter().zip(cmp.iter()).enumerate() {
+            let err = (a - b).abs();
+            assert!(
+                err < 1e-6,
+                "mismatch at index {i} ({}, {}, {}): {a} != {b} [{err}], {}",
+                x[i],
+                y[i],
+                z[i],
+                depth,
+            );
+        }
     }
 
     pub fn test_f_stress() {

@@ -2,6 +2,7 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for point evaluators; otherwise, the module has no public exports.
+use super::build_stress_fn;
 use crate::{
     context::Context,
     eval::{EzShape, MathShape, Shape, ShapeVars, TracingEvaluator, Vars},
@@ -325,6 +326,63 @@ where
             0.5
         );
     }
+
+    pub fn test_p_stress_n(depth: usize) {
+        let (ctx, node) = build_stress_fn(depth);
+
+        // Pick an input slice that's guaranteed to be > 1 SIMD register
+        let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        let x: Vec<_> = args.clone();
+        let y: Vec<_> = x[1..].iter().chain(&x[0..1]).cloned().collect();
+        let z: Vec<_> = x[2..].iter().chain(&x[0..2]).cloned().collect();
+
+        let shape = S::new(&ctx, node).unwrap();
+        let mut eval = S::new_point_eval();
+        let tape = shape.ez_point_tape();
+
+        let mut out = vec![];
+        for i in 0..args.len() {
+            out.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+        }
+
+        for (i, v) in out.iter().cloned().enumerate() {
+            let q = ctx
+                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
+                .unwrap();
+            let err = (v as f64 - q).abs();
+            assert!(
+                err < 1e-2, // generous error bounds, for the 512-op case
+                "mismatch at index {i} ({}, {}, {}): {v} != {q} [{err}], {}",
+                x[i],
+                y[i],
+                z[i],
+                depth,
+            );
+        }
+
+        // Compare against the VmShape evaluator as a baseline.  It's possible
+        // that S is also a VmShape, but this comparison isn't particularly
+        // expensive, so we'll do it regardless.
+        use crate::vm::VmShape;
+        let shape = VmShape::new(&ctx, node).unwrap();
+        let mut eval = VmShape::new_point_eval();
+        let tape = shape.ez_point_tape();
+
+        let mut cmp = vec![];
+        for i in 0..args.len() {
+            cmp.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+        }
+
+        for (a, b) in out.iter().zip(cmp.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    pub fn test_p_stress() {
+        for n in [1, 2, 4, 8, 12, 16, 32, 512] {
+            Self::test_p_stress_n(n);
+        }
+    }
 }
 
 #[macro_export]
@@ -350,5 +408,6 @@ macro_rules! point_tests {
         $crate::point_test!(test_push, $t);
         $crate::point_test!(test_var, $t);
         $crate::point_test!(test_basic, $t);
+        $crate::point_test!(test_p_stress, $t);
     };
 }
