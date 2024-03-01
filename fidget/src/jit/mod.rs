@@ -268,7 +268,7 @@ impl<T> AssemblerData<T> {
     #[cfg(target_arch = "x86_64")]
     fn prepare_stack(&mut self, slot_count: usize) {
         // We always use the stack on x86_64, if only to store X/Y/Z
-        let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT as usize);
+        let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT);
 
         // We put X/Y/Z values at the top of the stack, where they can be
         // accessed with `movss [rbp - i*size_of(T)] xmm`.  This frees up the
