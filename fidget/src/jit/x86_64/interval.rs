@@ -28,6 +28,9 @@ impl Assembler for IntervalAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
+            ; push r12
+            ; push r13
+            ; push r14
             ; mov rbp, rsp
             ; vzeroupper
 
@@ -66,6 +69,12 @@ impl Assembler for IntervalAssembler {
             // Somewhat overkill, since we only need two values, but oh well
             ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
         );
+    }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn interval_sin(v: Interval) -> Interval {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_sin);
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -429,11 +438,79 @@ impl Assembler for IntervalAssembler {
         dynasm!(self.0.ops
             ; vmovq xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
+            ; pop r14
+            ; pop r13
+            ; pop r12
             ; pop rbp
             ; emms
             ; ret
         );
         let out = self.0.ops.finalize()?;
         Ok(out)
+    }
+}
+
+impl IntervalAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "sysv64" fn(Interval) -> Interval,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up X/Y/Z pointers to registers
+            ; mov r12, rdi
+            ; mov r13, rsi
+            ; mov r14, rdx
+
+            // Back up register values to the stack, treating them as doubles
+            // (since we want to back up all 64 bits)
+            //
+            // TODO should these be `movq` instead?
+            ; sub rsp, 96
+            ; movsd [rsp], xmm4
+            ; movsd [rsp + 8], xmm5
+            ; movsd [rsp + 16], xmm6
+            ; movsd [rsp + 24], xmm7
+            ; movsd [rsp + 32], xmm8
+            ; movsd [rsp + 40], xmm9
+            ; movsd [rsp + 48], xmm10
+            ; movsd [rsp + 56], xmm11
+            ; movsd [rsp + 64], xmm12
+            ; movsd [rsp + 72], xmm13
+            ; movsd [rsp + 80], xmm14
+            ; movsd [rsp + 88], xmm15
+
+            // xmm0 = arg.lower
+            ; movss Rx(0), Rx(reg(arg_reg))
+            // xmm1 = arg.upper
+            ; vpshufd xmm1, Rx(reg(arg_reg)), 1
+            ; mov rdx, QWORD addr as _
+            ; call rdx
+
+            // Restore float registers
+            ; movsd xmm4, [rsp]
+            ; movsd xmm5, [rsp + 8]
+            ; movsd xmm6, [rsp + 16]
+            ; movsd xmm7, [rsp + 24]
+            ; movsd xmm8, [rsp + 32]
+            ; movsd xmm9, [rsp + 40]
+            ; movsd xmm10, [rsp + 48]
+            ; movsd xmm11, [rsp + 56]
+            ; movsd xmm12, [rsp + 64]
+            ; movsd xmm13, [rsp + 72]
+            ; movsd xmm14, [rsp + 80]
+            ; movsd xmm15, [rsp + 88]
+            ; add rsp, 96
+
+            // Restore X/Y/Z pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+
+            // Unpack the interval result
+            ; vpunpckldq Rx(reg(out_reg)), xmm0, xmm1
+        );
     }
 }
