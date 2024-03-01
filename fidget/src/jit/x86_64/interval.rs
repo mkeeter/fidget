@@ -483,7 +483,7 @@ impl IntervalAssembler {
             ; movsd [rsp + 88], xmm15
 
             // xmm0 = arg.lower
-            ; movss Rx(0), Rx(reg(arg_reg))
+            ; movss xmm0, Rx(reg(arg_reg))
             // xmm1 = arg.upper
             ; vpshufd xmm1, Rx(reg(arg_reg)), 1
             ; mov rdx, QWORD addr as _

@@ -20,6 +20,9 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const f32` (array)  |
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
+///
+/// X, Y, and Z are stored on the stack during code execution, to free up those
+/// registers as scratch values.
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -236,7 +239,7 @@ impl PointAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to registers
+            // Back up X/Y/Z pointers to caller-saved registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
@@ -257,7 +260,7 @@ impl PointAssembler {
             ; movss [rsp + 44], xmm15
 
             // call the function
-            ; movss Rx(0), Rx(reg(arg_reg))
+            ; movss xmm0, Rx(reg(arg_reg))
             ; mov rdx, QWORD addr as _
             ; call rdx
 
@@ -281,7 +284,7 @@ impl PointAssembler {
             ; mov rsi, r13
             ; mov rdx, r14
 
-            ; movss Rx(reg(out_reg)), Rx(0)
+            ; movss Rx(reg(out_reg)), xmm0
         );
     }
 }

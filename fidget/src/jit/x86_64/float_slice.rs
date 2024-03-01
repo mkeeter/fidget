@@ -233,30 +233,30 @@ impl FloatSliceAssembler {
             // Put the function pointer into a caller-saved register
             ; mov r15, QWORD addr as _
             ; vmovups [rsp + 384], Ry(reg(arg_reg))
-            ; movd Rx(0), [rsp + 384]
+            ; movd xmm0, [rsp + 384]
             ; call r15
-            ; movd [rsp + 416], Rx(0)
-            ; movd Rx(0), [rsp + 388]
+            ; movd [rsp + 416], xmm0
+            ; movd xmm0, [rsp + 388]
             ; call r15
-            ; movd [rsp + 420], Rx(0)
-            ; movd Rx(0), [rsp + 392]
+            ; movd [rsp + 420], xmm0
+            ; movd xmm0, [rsp + 392]
             ; call r15
-            ; movd [rsp + 424], Rx(0)
-            ; movd Rx(0), [rsp + 396]
+            ; movd [rsp + 424], xmm0
+            ; movd xmm0, [rsp + 396]
             ; call r15
-            ; movd [rsp + 428], Rx(0)
-            ; movd Rx(0), [rsp + 400]
+            ; movd [rsp + 428], xmm0
+            ; movd xmm0, [rsp + 400]
             ; call r15
-            ; movd [rsp + 432], Rx(0)
-            ; movd Rx(0), [rsp + 404]
+            ; movd [rsp + 432], xmm0
+            ; movd xmm0, [rsp + 404]
             ; call r15
-            ; movd [rsp + 436], Rx(0)
-            ; movd Rx(0), [rsp + 408]
+            ; movd [rsp + 436], xmm0
+            ; movd xmm0, [rsp + 408]
             ; call r15
-            ; movd [rsp + 440], Rx(0)
-            ; movd Rx(0), [rsp + 412]
+            ; movd [rsp + 440], xmm0
+            ; movd xmm0, [rsp + 412]
             ; call r15
-            ; movd [rsp + 444], Rx(0)
+            ; movd [rsp + 444], xmm0
 
             // Restore float registers
             ; vmovups ymm4, [rsp]
