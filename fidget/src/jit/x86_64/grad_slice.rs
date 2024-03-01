@@ -39,15 +39,7 @@ impl Assembler for GradSliceAssembler {
             ; ->L:
 
             ; test r9, r9
-            ; jnz >B
-
-            // Finalization code, which happens after all evaluation is complete
-            ; add rsp, out.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; ret
-
-            ; B: // body of the loop
+            ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
             // Copy from the input pointers into the stack right below rbp
             ; mov eax, 1.0f32.to_bits() as i32
@@ -312,6 +304,13 @@ impl Assembler for GradSliceAssembler {
             ; add r8, 16 // 4x float
             ; sub r9, 1
             ; jmp ->L
+
+            // Finalization code, which happens after all evaluation is complete
+            ; -> X:
+            ; add rsp, self.0.mem_offset as i32
+            ; pop rbp
+            ; emms
+            ; ret
         );
 
         self.0.ops.finalize()

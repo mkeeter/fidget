@@ -306,7 +306,7 @@ struct MmapAssembler {
     global_labels: [Option<AssemblyOffset>; 26],
     local_labels: [Option<AssemblyOffset>; 26],
 
-    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 1>,
+    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 2>,
     local_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 8>,
 }
 

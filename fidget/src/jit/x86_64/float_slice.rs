@@ -46,20 +46,8 @@ impl Assembler for FloatSliceAssembler {
             ; ->L:
 
             ; test r9, r9
-            ; jnz >B
+            ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
-            // Finalization code, which happens after all evaluation is complete
-            ; add rsp, out.mem_offset as i32
-            ; pop r15
-            ; pop r14
-            ; pop r13
-            ; pop r12
-            ; pop rbp
-            ; emms
-            ; vzeroall
-            ; ret
-
-            ; B:
             // Copy from the input pointers into the stack right below rbp
             ; vmovups ymm0, [rdi]
             ; vmovups [rbp - 32], ymm0
@@ -191,6 +179,18 @@ impl Assembler for FloatSliceAssembler {
             ; add r8, 32
             ; sub r9, 8
             ; jmp ->L
+
+            // Finalization code, which happens after all evaluation is complete
+            ; ->X:
+            ; add rsp, self.0.mem_offset as i32
+            ; pop r15
+            ; pop r14
+            ; pop r13
+            ; pop r12
+            ; pop rbp
+            ; emms
+            ; vzeroall
+            ; ret
         );
 
         self.0.ops.finalize()
