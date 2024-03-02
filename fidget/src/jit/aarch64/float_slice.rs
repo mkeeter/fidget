@@ -282,20 +282,22 @@ impl FloatSliceAssembler {
             ; mov v4.s[3], v9.s[1]
 
             // Restore register state (lol)
-            ; ldp q30, q31, [sp, #32]!
-            ; ldp q28, q29, [sp, #32]!
-            ; ldp q26, q27, [sp, #32]!
-            ; ldp q24, q25, [sp, #32]!
-            ; ldp q22, q23, [sp, #32]!
-            ; ldp q20, q21, [sp, #32]!
-            ; ldp q18, q19, [sp, #32]!
-            ; ldp q16, q17, [sp, #32]!
-            ; ldp q14, q15, [sp, #32]!
-            ; ldp q12, q13, [sp, #32]!
-            ; ldp q10, q11, [sp, #32]!
-            ; ldp q8, q9, [sp, #32]!
-            ; ldp q2, q3, [sp, #32]!
-            ; ldp q0, q1, [sp, #32]!
+            ; ldp q30, q31, [sp], #32
+            ; ldp q28, q29, [sp], #32
+            ; ldp q26, q27, [sp], #32
+            ; ldp q24, q25, [sp], #32
+            ; ldp q22, q23, [sp], #32
+            ; ldp q20, q21, [sp], #32
+            ; ldp q18, q19, [sp], #32
+            ; ldp q16, q17, [sp], #32
+            ; ldp q14, q15, [sp], #32
+            ; ldp q12, q13, [sp], #32
+            ; ldp q10, q11, [sp], #32
+            ; ldp q8, q9, [sp], #32
+
+            ; ldp q2, q3, [sp], #32
+            ; ldp q0, q1, [sp], #32
+
             ; mov x0, x10
             ; mov x1, x11
             ; mov x2, x12

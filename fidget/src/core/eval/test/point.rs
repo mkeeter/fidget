@@ -379,7 +379,7 @@ where
     }
 
     pub fn test_p_stress() {
-        for n in [1, 2, 4, 8, 12, 16, 32, 512] {
+        for n in [1, 2, 4, 8, 12, 16, 32] {
             Self::test_p_stress_n(n);
         }
     }

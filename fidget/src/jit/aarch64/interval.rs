@@ -471,16 +471,16 @@ impl IntervalAssembler {
             ; mov v4.s[1], v1.s[0]
 
             // Restore register state (lol)
-            ; ldp d30, d31, [sp, #16]!
-            ; ldp d28, d29, [sp, #16]!
-            ; ldp d26, d27, [sp, #16]!
-            ; ldp d24, d25, [sp, #16]!
-            ; ldp d22, d23, [sp, #16]!
-            ; ldp d20, d21, [sp, #16]!
-            ; ldp d18, d19, [sp, #16]!
-            ; ldp d16, d17, [sp, #16]!
-            ; ldp d2, d3, [sp, #16]!
-            ; ldp d0, d1, [sp, #16]!
+            ; ldp d30, d31, [sp], #16
+            ; ldp d28, d29, [sp], #16
+            ; ldp d26, d27, [sp], #16
+            ; ldp d24, d25, [sp], #16
+            ; ldp d22, d23, [sp], #16
+            ; ldp d20, d21, [sp], #16
+            ; ldp d18, d19, [sp], #16
+            ; ldp d16, d17, [sp], #16
+            ; ldp d2, d3, [sp], #16
+            ; ldp d0, d1, [sp], #16
             ; mov x0, x10
             ; mov x1, x11
             ; mov x2, x12
