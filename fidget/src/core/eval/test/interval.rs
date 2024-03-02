@@ -3,9 +3,13 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
 
+use super::build_stress_fn;
 use crate::{
     context::Context,
-    eval::{EzShape, MathShape, Shape, ShapeVars, TracingEvaluator, Vars},
+    eval::{
+        types::Interval, EzShape, MathShape, Shape, ShapeVars,
+        TracingEvaluator, Vars,
+    },
     vm::Choice,
 };
 
@@ -123,6 +127,26 @@ where
             .unwrap();
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
+    }
+
+    pub fn test_i_sin() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sin(x).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_interval_tape();
+
+        let mut eval = S::new_interval_eval();
+        assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-1.0, 1.0].into());
+
+        let y = ctx.y();
+        let y = ctx.mul(y, 2.0).unwrap();
+        let s = ctx.sin(y).unwrap();
+        let s = ctx.add(x, s).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_interval_tape();
+
+        assert_eq!(eval.eval_x(&tape, [0.0, 3.0]), [-1.0, 4.0].into());
     }
 
     pub fn test_i_neg() {
@@ -585,6 +609,52 @@ where
             0.5.into(),
         );
     }
+
+    pub fn test_i_stress_n(depth: usize) {
+        let (ctx, node) = build_stress_fn(depth);
+
+        // Pick an input slice that's guaranteed to be > 1 SIMD register
+        let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        let x: Vec<_> = args
+            .iter()
+            .zip(args.iter())
+            .map(|(a, b)| Interval::new(*a, *a + *b))
+            .collect();
+        let y: Vec<_> = x[1..].iter().chain(&x[0..1]).cloned().collect();
+        let z: Vec<_> = x[2..].iter().chain(&x[0..2]).cloned().collect();
+
+        let shape = S::new(&ctx, node).unwrap();
+        let mut eval = S::new_interval_eval();
+        let tape = shape.ez_interval_tape();
+
+        let mut out = vec![];
+        for i in 0..args.len() {
+            out.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+        }
+
+        // Compare against the VmShape evaluator as a baseline.  It's possible
+        // that S is also a VmShape, but this comparison isn't particularly
+        // expensive, so we'll do it regardless.
+        use crate::vm::VmShape;
+        let shape = VmShape::new(&ctx, node).unwrap();
+        let mut eval = VmShape::new_interval_eval();
+        let tape = shape.ez_interval_tape();
+
+        let mut cmp = vec![];
+        for i in 0..args.len() {
+            cmp.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+        }
+
+        for (a, b) in out.iter().zip(cmp.iter()) {
+            a.compare_eq(*b)
+        }
+    }
+
+    pub fn test_i_stress() {
+        for n in [1, 2, 4, 8, 12, 16, 32] {
+            Self::test_i_stress_n(n);
+        }
+    }
 }
 
 #[macro_export]
@@ -604,6 +674,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_abs, $t);
         $crate::interval_test!(test_i_sqrt, $t);
         $crate::interval_test!(test_i_square, $t);
+        $crate::interval_test!(test_i_sin, $t);
         $crate::interval_test!(test_i_neg, $t);
         $crate::interval_test!(test_i_mul, $t);
         $crate::interval_test!(test_i_mul_imm, $t);
@@ -617,5 +688,6 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_max_imm, $t);
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);
+        $crate::interval_test!(test_i_stress, $t);
     };
 }

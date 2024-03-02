@@ -81,6 +81,12 @@ impl Assembler for IntervalAssembler {
             ; dup V(reg(out_reg)).s2, w15
         );
     }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn interval_sin(v: Interval) -> Interval {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_sin);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
     }
@@ -415,5 +421,72 @@ impl Assembler for IntervalAssembler {
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl IntervalAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "C" fn(Interval) -> Interval,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state to caller-saved registers
+            ; mov x10, x0
+            ; mov x11, x1
+            ; mov x12, x2
+
+            // Back up X/Y/Z values
+            ; stp d0, d1, [sp, #-16]!
+            ; stp d2, d3, [sp, #-16]!
+
+            // We use registers v8-v15 (callee saved lower 64 bytes, which is
+            // fine for intervals) and v16-v31 (caller saved)
+            ; stp d16, d17, [sp, #-16]!
+            ; stp d18, d19, [sp, #-16]!
+            ; stp d20, d21, [sp, #-16]!
+            ; stp d22, d23, [sp, #-16]!
+            ; stp d24, d25, [sp, #-16]!
+            ; stp d26, d27, [sp, #-16]!
+            ; stp d28, d29, [sp, #-16]!
+            ; stp d30, d31, [sp, #-16]!
+
+            // Load the function address, awkwardly, into a caller-saved
+            // register (so we only need to do this once)
+            ; movz x9, #((addr >> 48) as u32), lsl 48
+            ; movk x9, #((addr >> 32) as u32), lsl 32
+            ; movk x9, #((addr >> 16) as u32), lsl 16
+            ; movk x9, #(addr as u32)
+
+            // Prepare to call our stuff!
+            ; mov s0, V(reg(arg_reg)).s[0]
+            ; mov s1, V(reg(arg_reg)).s[1]
+
+            ; blr x9
+
+            // Copy into v4, because we're about to restore d0/1/2/3
+            ; mov v4.s[0], v0.s[0]
+            ; mov v4.s[1], v1.s[0]
+
+            // Restore register state (lol)
+            ; ldp d30, d31, [sp], #16
+            ; ldp d28, d29, [sp], #16
+            ; ldp d26, d27, [sp], #16
+            ; ldp d24, d25, [sp], #16
+            ; ldp d22, d23, [sp], #16
+            ; ldp d20, d21, [sp], #16
+            ; ldp d18, d19, [sp], #16
+            ; ldp d16, d17, [sp], #16
+            ; ldp d2, d3, [sp], #16
+            ; ldp d0, d1, [sp], #16
+            ; mov x0, x10
+            ; mov x1, x11
+            ; mov x2, x12
+
+            // Set our output value
+            ; fmov D(reg(out_reg)), d4
+        );
     }
 }

@@ -42,6 +42,9 @@ macro_rules! opcodes {
             #[doc = "Square the given register"]
             SquareReg($t, $t),
 
+            #[doc = "Computes the sine of the given register (in radians)"]
+            SinReg($t, $t),
+
             #[doc = "Copies the given register"]
             CopyReg($t, $t),
 
@@ -114,6 +117,7 @@ impl SsaOp {
             | SsaOp::SqrtReg(out, ..)
             | SsaOp::SquareReg(out, ..)
             | SsaOp::CopyReg(out, ..)
+            | SsaOp::SinReg(out, ..)
             | SsaOp::AddRegImm(out, ..)
             | SsaOp::MulRegImm(out, ..)
             | SsaOp::DivRegImm(out, ..)
@@ -142,6 +146,7 @@ impl SsaOp {
             | SsaOp::SqrtReg(..)
             | SsaOp::SquareReg(..)
             | SsaOp::CopyReg(..)
+            | SsaOp::SinReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::SubRegImm(..)

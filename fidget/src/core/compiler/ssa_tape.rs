@@ -193,6 +193,7 @@ impl SsaTape {
                         UnaryOpcode::Recip => SsaOp::RecipReg,
                         UnaryOpcode::Sqrt => SsaOp::SqrtReg,
                         UnaryOpcode::Square => SsaOp::SquareReg,
+                        UnaryOpcode::Sin => SsaOp::SinReg,
                     };
                     op(i, lhs)
                 }
@@ -251,13 +252,15 @@ impl SsaTape {
                 | SsaOp::RecipReg(out, arg)
                 | SsaOp::SqrtReg(out, arg)
                 | SsaOp::CopyReg(out, arg)
-                | SsaOp::SquareReg(out, arg) => {
+                | SsaOp::SquareReg(out, arg)
+                | SsaOp::SinReg(out, arg) => {
                     let op = match op {
                         SsaOp::NegReg(..) => "NEG",
                         SsaOp::AbsReg(..) => "ABS",
                         SsaOp::RecipReg(..) => "RECIP",
                         SsaOp::SqrtReg(..) => "SQRT",
                         SsaOp::SquareReg(..) => "SQUARE",
+                        SsaOp::SinReg(..) => "SIN",
                         SsaOp::CopyReg(..) => "COPY",
                         _ => unreachable!(),
                     };

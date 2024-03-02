@@ -33,6 +33,10 @@ impl Assembler for FloatSliceAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
+            ; push r12
+            ; push r13
+            ; push r14
+            ; push r15
             ; mov rbp, rsp
             ; vzeroupper
         );
@@ -42,16 +46,8 @@ impl Assembler for FloatSliceAssembler {
             ; ->L:
 
             ; test r9, r9
-            ; jnz >B
+            ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
-            // Finalization code, which happens after all evaluation is complete
-            ; add rsp, out.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; vzeroall
-            ; ret
-
-            ; B:
             // Copy from the input pointers into the stack right below rbp
             ; vmovups ymm0, [rdi]
             ; vmovups [rbp - 32], ymm0
@@ -91,6 +87,12 @@ impl Assembler for FloatSliceAssembler {
             ; vmovss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
             ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
         );
+    }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn float_sin(f: f32) -> f32 {
+            f.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_sin);
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -177,8 +179,110 @@ impl Assembler for FloatSliceAssembler {
             ; add r8, 32
             ; sub r9, 8
             ; jmp ->L
+
+            // Finalization code, which happens after all evaluation is complete
+            ; ->X:
+            ; add rsp, self.0.mem_offset as i32
+            ; pop r15
+            ; pop r14
+            ; pop r13
+            ; pop r12
+            ; pop rbp
+            ; emms
+            ; vzeroall
+            ; ret
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl FloatSliceAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "sysv64" fn(f32) -> f32,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up X/Y/Z pointers to registers
+            ; mov r12, rdi
+            ; mov r13, rsi
+            ; mov r14, rdx
+            ; push rcx
+            ; push r8
+            ; push r9
+
+            // Back up register values to the stack, treating them as doubles
+            // (since we want to back up all 64 bits)
+            ; sub rsp, 456 // ensure 16-byte alignment
+            ; vmovups [rsp], ymm4
+            ; vmovups [rsp + 32], ymm5
+            ; vmovups [rsp + 64], ymm6
+            ; vmovups [rsp + 96], ymm7
+            ; vmovups [rsp + 128], ymm8
+            ; vmovups [rsp + 160], ymm9
+            ; vmovups [rsp + 192], ymm10
+            ; vmovups [rsp + 224], ymm11
+            ; vmovups [rsp + 256], ymm12
+            ; vmovups [rsp + 288], ymm13
+            ; vmovups [rsp + 320], ymm14
+            ; vmovups [rsp + 352], ymm15
+
+            // Put the function pointer into a caller-saved register
+            ; mov r15, QWORD addr as _
+            ; vmovups [rsp + 384], Ry(reg(arg_reg))
+            ; movd xmm0, [rsp + 384]
+            ; call r15
+            ; movd [rsp + 416], xmm0
+            ; movd xmm0, [rsp + 388]
+            ; call r15
+            ; movd [rsp + 420], xmm0
+            ; movd xmm0, [rsp + 392]
+            ; call r15
+            ; movd [rsp + 424], xmm0
+            ; movd xmm0, [rsp + 396]
+            ; call r15
+            ; movd [rsp + 428], xmm0
+            ; movd xmm0, [rsp + 400]
+            ; call r15
+            ; movd [rsp + 432], xmm0
+            ; movd xmm0, [rsp + 404]
+            ; call r15
+            ; movd [rsp + 436], xmm0
+            ; movd xmm0, [rsp + 408]
+            ; call r15
+            ; movd [rsp + 440], xmm0
+            ; movd xmm0, [rsp + 412]
+            ; call r15
+            ; movd [rsp + 444], xmm0
+
+            // Restore float registers
+            ; vmovups ymm4, [rsp]
+            ; vmovups ymm5, [rsp + 32]
+            ; vmovups ymm6, [rsp + 64]
+            ; vmovups ymm7, [rsp + 96]
+            ; vmovups ymm8, [rsp + 128]
+            ; vmovups ymm9, [rsp + 160]
+            ; vmovups ymm10, [rsp + 192]
+            ; vmovups ymm11, [rsp + 224]
+            ; vmovups ymm12, [rsp + 256]
+            ; vmovups ymm13, [rsp + 288]
+            ; vmovups ymm14, [rsp + 320]
+            ; vmovups ymm15, [rsp + 352]
+
+            // Get the output value from the stack
+            ; vmovups Ry(reg(out_reg)), [rsp + 416]
+            ; add rsp, 456 // oof
+
+            // Restore X/Y/Z pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+            ; pop r9
+            ; pop r8
+            ; pop rcx
+        );
     }
 }

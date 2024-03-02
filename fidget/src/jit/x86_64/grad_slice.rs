@@ -39,15 +39,7 @@ impl Assembler for GradSliceAssembler {
             ; ->L:
 
             ; test r9, r9
-            ; jnz >B
-
-            // Finalization code, which happens after all evaluation is complete
-            ; add rsp, out.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; ret
-
-            ; B: // body of the loop
+            ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
             // Copy from the input pointers into the stack right below rbp
             ; mov eax, 1.0f32.to_bits() as i32
@@ -101,6 +93,12 @@ impl Assembler for GradSliceAssembler {
             ; vpxor Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; vmovss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
         );
+    }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn grad_sin(v: Grad) -> Grad {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_sin);
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
@@ -306,8 +304,89 @@ impl Assembler for GradSliceAssembler {
             ; add r8, 16 // 4x float
             ; sub r9, 1
             ; jmp ->L
+
+            // Finalization code, which happens after all evaluation is complete
+            ; -> X:
+            ; add rsp, self.0.mem_offset as i32
+            ; pop rbp
+            ; emms
+            ; ret
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl GradSliceAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "sysv64" fn(Grad) -> Grad,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up X/Y/Z pointers to caller-saved registers and the stack
+            ; mov r12, rdi
+            ; mov r13, rsi
+            ; mov r14, rdx
+            ; push rcx
+            ; push r8
+            ; push r9
+            ; push r9 // alignment?
+
+            // Back up register values to the stack
+            ; sub rsp, 192
+            ; vmovups [rsp], xmm4
+            ; vmovups [rsp + 16], xmm5
+            ; vmovups [rsp + 32], xmm6
+            ; vmovups [rsp + 48], xmm7
+            ; vmovups [rsp + 64], xmm8
+            ; vmovups [rsp + 80], xmm9
+            ; vmovups [rsp + 96], xmm10
+            ; vmovups [rsp + 112], xmm11
+            ; vmovups [rsp + 128], xmm12
+            ; vmovups [rsp + 144], xmm13
+            ; vmovups [rsp + 160], xmm14
+            ; vmovups [rsp + 176], xmm15
+
+            // call the function, packing the gradient into xmm0 + xmm1
+            ; movsd xmm0, Rx(reg(arg_reg))
+            ; vpshufd xmm1, Rx(reg(arg_reg)), 0b1110
+            ; mov rdx, QWORD addr as _
+            ; call rdx
+
+            // Restore gradient registers
+            ; vmovups xmm4, [rsp]
+            ; vmovups xmm5, [rsp + 16]
+            ; vmovups xmm6, [rsp + 32]
+            ; vmovups xmm7, [rsp + 48]
+            ; vmovups xmm8, [rsp + 64]
+            ; vmovups xmm9, [rsp + 80]
+            ; vmovups xmm10, [rsp + 96]
+            ; vmovups xmm11, [rsp + 112]
+            ; vmovups xmm12, [rsp + 128]
+            ; vmovups xmm13, [rsp + 144]
+            ; vmovups xmm14, [rsp + 160]
+            ; vmovups xmm15, [rsp + 176]
+            ; add rsp, 192
+
+            // Restore X/Y/Z pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+
+            // Collect the 4x floats into the out register
+            ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
+
+            // Restore X/Y/Z pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+            ; pop r9 // alignment
+            ; pop r9
+            ; pop r8
+            ; pop rcx
+        );
     }
 }

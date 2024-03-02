@@ -2,6 +2,7 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
+use super::build_stress_fn;
 use crate::{
     context::Context,
     eval::{
@@ -115,6 +116,34 @@ where
             eval.eval(&tape, &[4.0], &[0.0], &[0.0], &[]).unwrap()[0],
             Grad::new(2.0, 0.25, 0.0, 0.0)
         );
+    }
+
+    pub fn test_g_sin() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sin(x).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+
+        let mut eval = S::new_grad_slice_eval();
+        let v = eval
+            .eval(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3], &[])
+            .unwrap();
+        v[0].compare_eq(Grad::new(1f32.sin(), 1f32.cos(), 0.0, 0.0));
+        v[1].compare_eq(Grad::new(2f32.sin(), 2f32.cos(), 0.0, 0.0));
+        v[2].compare_eq(Grad::new(3f32.sin(), 3f32.cos(), 0.0, 0.0));
+
+        let y = ctx.y();
+        let y = ctx.mul(y, 2.0).unwrap();
+        let s = ctx.sin(y).unwrap();
+        let shape = S::new(&ctx, s).unwrap();
+        let tape = shape.ez_grad_slice_tape();
+        let v = eval
+            .eval(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3], &[])
+            .unwrap();
+        v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
+        v[1].compare_eq(Grad::new(4f32.sin(), 0.0, 2.0 * 4f32.cos(), 0.0));
+        v[2].compare_eq(Grad::new(6f32.sin(), 0.0, 2.0 * 6f32.cos(), 0.0));
     }
 
     pub fn test_g_mul() {
@@ -347,6 +376,59 @@ where
             0.5.into(),
         );
     }
+
+    pub fn test_g_stress_n(depth: usize) {
+        let (ctx, node) = build_stress_fn(depth);
+
+        // Pick an input slice that's guaranteed to be > 1 SIMD registers
+        let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        let x = args.clone();
+        let y: Vec<f32> =
+            args[1..].iter().chain(&args[0..1]).cloned().collect();
+        let z: Vec<f32> =
+            args[2..].iter().chain(&args[0..2]).cloned().collect();
+
+        let shape = S::new(&ctx, node).unwrap();
+        let mut eval = S::new_grad_slice_eval();
+        let tape = shape.ez_grad_slice_tape();
+
+        let out = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+
+        // Compare values (the `.v` term) with the context's evaluator
+        for (i, v) in out.iter().cloned().enumerate() {
+            let q = ctx
+                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
+                .unwrap();
+            let err = (v.v as f64 - q).abs();
+            assert!(
+                err < 1e-2, // generous error bounds, for the 512-op case
+                "mismatch at index {i} ({}, {}, {}): {v:?} != {q} [{err}], {}",
+                x[i],
+                y[i],
+                z[i],
+                depth,
+            );
+        }
+
+        // Compare against the VmShape evaluator as a baseline.  It's possible
+        // that S is also a VmShape, but this comparison isn't particularly
+        // expensive, so we'll do it regardless.
+        use crate::vm::VmShape;
+        let shape = VmShape::new(&ctx, node).unwrap();
+        let mut eval = VmShape::new_grad_slice_eval();
+        let tape = shape.ez_grad_slice_tape();
+
+        let cmp = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        for (a, b) in out.iter().zip(cmp.iter()) {
+            a.compare_eq(*b)
+        }
+    }
+
+    pub fn test_g_stress() {
+        for n in [1, 2, 4, 8, 12, 16, 32] {
+            Self::test_g_stress_n(n);
+        }
+    }
 }
 
 #[macro_export]
@@ -369,6 +451,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_abs, $t);
         $crate::grad_test!(test_g_square, $t);
         $crate::grad_test!(test_g_sqrt, $t);
+        $crate::grad_test!(test_g_sin, $t);
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
@@ -376,5 +459,6 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);
         $crate::grad_test!(test_g_var, $t);
+        $crate::grad_test!(test_g_stress, $t);
     };
 }

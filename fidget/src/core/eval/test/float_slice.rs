@@ -3,6 +3,7 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for such evaluators; otherwise, the module has no public exports.
 
+use super::build_stress_fn;
 use crate::{
     context::Context,
     eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
@@ -178,6 +179,90 @@ where
             0.5,
         );
     }
+
+    pub fn test_f_sin() {
+        let mut ctx = Context::new();
+        let a = ctx.x();
+        let b = ctx.sin(a).unwrap();
+
+        let shape = S::new(&ctx, b).unwrap();
+        let mut eval = S::new_float_slice_eval();
+        let tape = shape.ez_float_slice_tape();
+        let mut vars = Vars::new(shape.vars());
+
+        let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
+        assert_eq!(
+            eval.eval(
+                &tape,
+                &args,
+                &[0.0; 4],
+                &[0.0; 4],
+                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
+            )
+            .unwrap(),
+            args.map(f32::sin),
+        );
+    }
+
+    pub fn test_f_stress_n(depth: usize) {
+        let (ctx, node) = build_stress_fn(depth);
+
+        // Pick an input slice that's guaranteed to be > 1 SIMD register
+        let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        let x = args.clone();
+        let y: Vec<f32> =
+            args[1..].iter().chain(&args[0..1]).cloned().collect();
+        let z: Vec<f32> =
+            args[2..].iter().chain(&args[0..2]).cloned().collect();
+
+        let shape = S::new(&ctx, node).unwrap();
+        let mut eval = S::new_float_slice_eval();
+        let tape = shape.ez_float_slice_tape();
+
+        let out = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+
+        for (i, v) in out.iter().cloned().enumerate() {
+            let q = ctx
+                .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
+                .unwrap();
+            let err = (v as f64 - q).abs();
+            assert!(
+                err < 1e-2, // generous error bounds, for the 512-op case
+                "mismatch at index {i} ({}, {}, {}): {v} != {q} [{err}], {}",
+                x[i],
+                y[i],
+                z[i],
+                depth,
+            );
+        }
+
+        // Compare against the VmShape evaluator as a baseline.  It's possible
+        // that S is also a VmShape, but this comparison isn't particularly
+        // expensive, so we'll do it regardless.
+        use crate::vm::VmShape;
+        let shape = VmShape::new(&ctx, node).unwrap();
+        let mut eval = VmShape::new_float_slice_eval();
+        let tape = shape.ez_float_slice_tape();
+
+        let cmp = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        for (i, (a, b)) in out.iter().zip(cmp.iter()).enumerate() {
+            let err = (a - b).abs();
+            assert!(
+                err < 1e-6,
+                "mismatch at index {i} ({}, {}, {}): {a} != {b} [{err}], {}",
+                x[i],
+                y[i],
+                z[i],
+                depth,
+            );
+        }
+    }
+
+    pub fn test_f_stress() {
+        for n in [1, 2, 4, 8, 12, 16, 32] {
+            Self::test_f_stress_n(n);
+        }
+    }
 }
 
 #[macro_export]
@@ -196,5 +281,7 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_give_take, $t);
         $crate::float_slice_test!(test_vectorized, $t);
         $crate::float_slice_test!(test_f_var, $t);
+        $crate::float_slice_test!(test_f_sin, $t);
+        $crate::float_slice_test!(test_f_stress, $t);
     };
 }

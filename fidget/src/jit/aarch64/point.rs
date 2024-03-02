@@ -72,6 +72,12 @@ impl Assembler for PointAssembler {
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(reg(lhs_reg)))
     }
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn point_sin(v: f32) -> f32 {
+            v.sin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, point_sin);
+    }
     fn build_neg(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fneg S(reg(out_reg)), S(reg(lhs_reg)))
     }
@@ -195,5 +201,77 @@ impl Assembler for PointAssembler {
         );
 
         self.0.ops.finalize()
+    }
+}
+
+impl PointAssembler {
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "C" fn(f32) -> f32,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state to caller-saved registers
+            ; mov x10, x0
+            ; mov x11, x1
+            ; mov x12, x2
+
+            // Back up X/Y/Z values
+            ; sub sp, sp, #96 // stack pointer must be 16-byte aligned
+            ; stp s8, s9, [sp, #80] // we're overwriting these later
+            ; stp s0, s1, [sp, #72]
+            ; stp s2, s3, [sp, #64]
+
+            // We use registers v8-v15 (lower 64 bytes are callee saved, so
+            // that's fine) and v16-v31 (caller saved)
+            ; stp s16, s17, [sp, #56]
+            ; stp s18, s19, [sp, #48]
+            ; stp s20, s21, [sp, #40]
+            ; stp s22, s23, [sp, #32]
+            ; stp s24, s25, [sp, #24]
+            ; stp s26, s27, [sp, #16]
+            ; stp s28, s29, [sp, #8]
+            ; stp s30, s31, [sp, #0]
+
+            // Load the function address, awkwardly, into a caller-saved
+            // register
+            ; movz x9, #((addr >> 48) as u32), lsl 48
+            ; movk x9, #((addr >> 32) as u32), lsl 32
+            ; movk x9, #((addr >> 16) as u32), lsl 16
+            ; movk x9, #(addr as u32)
+
+            // Back up the input argument into s8
+            ; fmov s8, S(reg(arg_reg))
+
+            ; fmov s0, s8
+            ; blr x9
+            ; fmov s4, s0
+
+            // Restore register state (lol)
+            ; ldp s8, s9, [sp, #80]
+            ; ldp s0, s1, [sp, #72]
+            ; ldp s2, s3, [sp, #64]
+
+            // We use registers v8-v15 (lower 64 bytes are callee saved, so
+            // that's fine) and v16-v31 (caller saved)
+            ; ldp s16, s17, [sp, #56]
+            ; ldp s18, s19, [sp, #48]
+            ; ldp s20, s21, [sp, #40]
+            ; ldp s22, s23, [sp, #32]
+            ; ldp s24, s25, [sp, #24]
+            ; ldp s26, s27, [sp, #16]
+            ; ldp s28, s29, [sp, #8]
+            ; ldp s30, s31, [sp, #0]
+            ; add sp, sp, #96
+
+            ; mov x0, x10
+            ; mov x1, x11
+            ; mov x2, x12
+
+            // Set our output value
+            ; fmov S(reg(out_reg)), s4
+        );
     }
 }

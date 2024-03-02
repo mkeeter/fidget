@@ -299,6 +299,9 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::SquareReg(out, arg) => {
                     v[out] = v[arg].square();
                 }
+                RegOp::SinReg(out, arg) => {
+                    v[out] = v[arg].sin();
+                }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
@@ -422,6 +425,9 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 RegOp::SquareReg(out, arg) => {
                     let s = v[arg];
                     v[out] = s * s;
+                }
+                RegOp::SinReg(out, arg) => {
+                    v[out] = v[arg].sin();
                 }
                 RegOp::CopyReg(out, arg) => {
                     v[out] = v[arg];
@@ -643,6 +649,11 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = s * s;
                     }
                 }
+                RegOp::SinReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].sin();
+                    }
+                }
                 RegOp::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
@@ -810,6 +821,11 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
+                    }
+                }
+                RegOp::SinReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].sin();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {

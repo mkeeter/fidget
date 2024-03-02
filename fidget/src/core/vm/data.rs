@@ -154,7 +154,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::AbsReg(index, arg)
                 | SsaOp::RecipReg(index, arg)
                 | SsaOp::SqrtReg(index, arg)
-                | SsaOp::SquareReg(index, arg) => {
+                | SsaOp::SquareReg(index, arg)
+                | SsaOp::SinReg(index, arg) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }

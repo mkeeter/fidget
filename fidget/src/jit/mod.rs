@@ -147,6 +147,9 @@ trait Assembler {
     /// Square root
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8);
 
+    /// Sine
+    fn build_sin(&mut self, out_reg: u8, lhs_reg: u8);
+
     /// Square
     ///
     /// This has a default implementation, but can be overloaded for efficiency;
@@ -303,7 +306,7 @@ struct MmapAssembler {
     global_labels: [Option<AssemblyOffset>; 26],
     local_labels: [Option<AssemblyOffset>; 26],
 
-    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 1>,
+    global_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 2>,
     local_relocs: arrayvec::ArrayVec<(PatchLoc<Relocation>, u8), 8>,
 }
 
@@ -629,6 +632,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             }
             RegOp::SqrtReg(out, arg) => {
                 asm.build_sqrt(out, arg);
+            }
+            RegOp::SinReg(out, arg) => {
+                asm.build_sin(out, arg);
             }
             RegOp::CopyReg(out, arg) => {
                 asm.build_copy(out, arg);

@@ -61,6 +61,17 @@ impl Grad {
         }
     }
 
+    /// Sine
+    pub fn sin(self) -> Self {
+        let c = self.v.cos();
+        Grad {
+            v: self.v.sin(),
+            dx: self.dx * c,
+            dy: self.dy * c,
+            dz: self.dz * c,
+        }
+    }
+
     /// Reciprocal
     pub fn recip(self) -> Self {
         let v2 = -self.v.powi(2);
@@ -87,6 +98,19 @@ impl Grad {
             self
         } else {
             rhs
+        }
+    }
+
+    /// Checks that the two values are roughly equal, panicking otherwise
+    #[cfg(test)]
+    pub(crate) fn compare_eq(&self, other: Self) {
+        let d = (self.v - other.v)
+            .abs()
+            .max((self.dx - other.dx).abs())
+            .max((self.dy - other.dy).abs())
+            .max((self.dz - other.dz).abs());
+        if d >= 1e-6 {
+            panic!("lhs != rhs ({self:?} != {other:?})");
         }
     }
 }
@@ -255,6 +279,13 @@ impl Interval {
             Interval::new(0.0, self.lower.abs().max(self.upper.abs()).powi(2))
         }
     }
+    /// Computes the sine of the interval
+    ///
+    /// Right now, this always returns the maximum range of `[-1, 1]`
+    pub fn sin(self) -> Self {
+        // TODO: make this smarter
+        Interval::new(-1.0, 1.0)
+    }
     /// Calculates the square root of the interval
     ///
     /// If the entire interval is below 0, returns a `NAN` interval; otherwise,
@@ -371,6 +402,17 @@ impl Interval {
     /// ```
     pub fn width(self) -> f32 {
         self.upper - self.lower
+    }
+
+    /// Checks that the two values are roughly equal, panicking otherwise
+    #[cfg(test)]
+    pub(crate) fn compare_eq(&self, other: Self) {
+        let d = (self.lower - other.lower)
+            .abs()
+            .max((self.upper - other.upper).abs());
+        if d >= 1e-6 {
+            panic!("lhs != rhs ({self:?} != {other:?})");
+        }
     }
 }
 
