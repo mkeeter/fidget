@@ -219,7 +219,8 @@ impl PointAssembler {
             ; mov x12, x2
 
             // Back up X/Y/Z values
-            ; sub sp, sp, #80 // stack pointer must be 16-byte aligned
+            ; sub sp, sp, #96 // stack pointer must be 16-byte aligned
+            ; stp s8, s9, [sp, #80] // we're overwriting these later
             ; stp s0, s1, [sp, #72]
             ; stp s2, s3, [sp, #64]
 
@@ -249,6 +250,7 @@ impl PointAssembler {
             ; fmov s4, s0
 
             // Restore register state (lol)
+            ; ldp s8, s9, [sp, #80]
             ; ldp s0, s1, [sp, #72]
             ; ldp s2, s3, [sp, #64]
 
@@ -262,7 +264,7 @@ impl PointAssembler {
             ; ldp s26, s27, [sp, #16]
             ; ldp s28, s29, [sp, #8]
             ; ldp s30, s31, [sp, #0]
-            ; add sp, sp, #80
+            ; add sp, sp, #96
 
             ; mov x0, x10
             ; mov x1, x11
