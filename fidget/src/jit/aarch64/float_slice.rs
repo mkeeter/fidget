@@ -129,6 +129,48 @@ impl Assembler for FloatSliceAssembler {
         }
         self.call_fn_unary(out_reg, lhs_reg, float_sin);
     }
+    fn build_cos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_cos(f: f32) -> f32 {
+            f.cos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_cos);
+    }
+    fn build_tan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_tan(f: f32) -> f32 {
+            f.tan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_tan);
+    }
+    fn build_asin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_asin(f: f32) -> f32 {
+            f.asin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_asin);
+    }
+    fn build_acos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_acos(f: f32) -> f32 {
+            f.acos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_acos);
+    }
+    fn build_atan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_atan(f: f32) -> f32 {
+            f.atan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_atan);
+    }
+    fn build_exp(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_exp(f: f32) -> f32 {
+            f.exp()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_exp);
+    }
+    fn build_ln(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_ln(f: f32) -> f32 {
+            f.ln()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_ln);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }

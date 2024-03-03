@@ -71,6 +71,76 @@ impl Grad {
             dz: self.dz * c,
         }
     }
+    /// Cosine
+    pub fn cos(self) -> Self {
+        let s = -self.v.sin();
+        Grad {
+            v: self.v.cos(),
+            dx: self.dx * s,
+            dy: self.dy * s,
+            dz: self.dz * s,
+        }
+    }
+    /// Tangent
+    pub fn tan(self) -> Self {
+        let c = self.v.cos().powi(2);
+        Grad {
+            v: self.v.tan(),
+            dx: self.dx / c,
+            dy: self.dy / c,
+            dz: self.dz / c,
+        }
+    }
+    /// Arcsin
+    pub fn asin(self) -> Self {
+        let r = (1.0 - self.v.powi(2)).sqrt();
+        Grad {
+            v: self.v.asin(),
+            dx: self.dx / r,
+            dy: self.dy / r,
+            dz: self.dz / r,
+        }
+    }
+    /// Arccos
+    pub fn acos(self) -> Self {
+        let r = (1.0 - self.v.powi(2)).sqrt();
+        Grad {
+            v: self.v.acos(),
+            dx: -self.dx / r,
+            dy: -self.dy / r,
+            dz: -self.dz / r,
+        }
+    }
+    /// Arctangent
+    pub fn atan(self) -> Self {
+        let r = self.v.powi(2) + 1.0;
+        Grad {
+            v: self.v.atan(),
+            dx: self.dx / r,
+            dy: self.dy / r,
+            dz: self.dz / r,
+        }
+    }
+    /// Exponential function
+    pub fn exp(self) -> Self {
+        let v = self.v.exp();
+        Grad {
+            v,
+            dx: v * self.dx,
+            dy: v * self.dy,
+            dz: v * self.dz,
+        }
+    }
+    /// Natural log
+    pub fn ln(self) -> Self {
+        let v = self.v.exp();
+        Grad {
+            v,
+            dx: self.dx / v,
+            dy: self.dy / v,
+            dz: self.dz / v,
+        }
+    }
 
     /// Reciprocal
     pub fn recip(self) -> Self {
@@ -285,6 +355,68 @@ impl Interval {
     pub fn sin(self) -> Self {
         // TODO: make this smarter
         Interval::new(-1.0, 1.0)
+    }
+    /// Computes the cosine of the interval
+    ///
+    /// Right now, this always returns the maximum range of `[-1, 1]`
+    pub fn cos(self) -> Self {
+        // TODO: make this smarter
+        Interval::new(-1.0, 1.0)
+    }
+    /// Computes the tangent of the interval
+    ///
+    /// Returns the `NAN` interval if the result contains a undefined point
+    pub fn tan(self) -> Self {
+        let size = self.upper - self.lower;
+        if size >= std::f32::consts::PI {
+            f32::NAN.into()
+        } else {
+            let lower = self.lower.atan();
+            let upper = self.upper.atan();
+            if upper >= lower {
+                Interval::new(lower, upper)
+            } else {
+                f32::NAN.into()
+            }
+        }
+    }
+    /// Computes the arcsine of the interval
+    ///
+    /// Returns the `NAN` interval if the input is invalid
+    pub fn asin(self) -> Self {
+        if self.lower < -1.0 || self.upper > 1.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.lower.asin(), self.upper.asin())
+        }
+    }
+    /// Computes the arccosine of the interval
+    ///
+    /// Returns the `NAN` interval if the input is invalid
+    pub fn acos(self) -> Self {
+        if self.lower < -1.0 || self.upper > 1.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.upper.acos(), self.lower.acos())
+        }
+    }
+    /// Computes the arctangent of the interval
+    pub fn atan(self) -> Self {
+        Interval::new(self.upper.atan(), self.lower.atan())
+    }
+    /// Computes the exponent function applied to the interval
+    pub fn exp(self) -> Self {
+        Interval::new(self.upper.exp(), self.lower.exp())
+    }
+    /// Computes the natural log of the input interval
+    ///
+    /// Returns the `NAN` interval if the input contains zero
+    pub fn ln(self) -> Self {
+        if self.lower <= 0.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.upper.ln(), self.lower.ln())
+        }
     }
     /// Calculates the square root of the interval
     ///

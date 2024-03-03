@@ -150,6 +150,27 @@ trait Assembler {
     /// Sine
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8);
 
+    /// Cosine
+    fn build_cos(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Tangent
+    fn build_tan(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Arcsine
+    fn build_asin(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Arccosine
+    fn build_acos(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Arctangent
+    fn build_atan(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Exponent
+    fn build_exp(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Natural log
+    fn build_ln(&mut self, out_reg: u8, lhs_reg: u8);
+
     /// Square
     ///
     /// This has a default implementation, but can be overloaded for efficiency;
@@ -635,6 +656,27 @@ fn build_asm_fn_with_storage<A: Assembler>(
             }
             RegOp::SinReg(out, arg) => {
                 asm.build_sin(out, arg);
+            }
+            RegOp::CosReg(out, arg) => {
+                asm.build_cos(out, arg);
+            }
+            RegOp::TanReg(out, arg) => {
+                asm.build_tan(out, arg);
+            }
+            RegOp::AsinReg(out, arg) => {
+                asm.build_asin(out, arg);
+            }
+            RegOp::AcosReg(out, arg) => {
+                asm.build_acos(out, arg);
+            }
+            RegOp::AtanReg(out, arg) => {
+                asm.build_atan(out, arg);
+            }
+            RegOp::ExpReg(out, arg) => {
+                asm.build_exp(out, arg);
+            }
+            RegOp::LnReg(out, arg) => {
+                asm.build_ln(out, arg);
             }
             RegOp::CopyReg(out, arg) => {
                 asm.build_copy(out, arg);

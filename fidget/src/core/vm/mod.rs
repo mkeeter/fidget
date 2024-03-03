@@ -302,6 +302,27 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::SinReg(out, arg) => {
                     v[out] = v[arg].sin();
                 }
+                RegOp::CosReg(out, arg) => {
+                    v[out] = v[arg].cos();
+                }
+                RegOp::TanReg(out, arg) => {
+                    v[out] = v[arg].tan();
+                }
+                RegOp::AsinReg(out, arg) => {
+                    v[out] = v[arg].asin();
+                }
+                RegOp::AcosReg(out, arg) => {
+                    v[out] = v[arg].acos();
+                }
+                RegOp::AtanReg(out, arg) => {
+                    v[out] = v[arg].atan();
+                }
+                RegOp::ExpReg(out, arg) => {
+                    v[out] = v[arg].exp();
+                }
+                RegOp::LnReg(out, arg) => {
+                    v[out] = v[arg].ln();
+                }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
@@ -428,6 +449,27 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::SinReg(out, arg) => {
                     v[out] = v[arg].sin();
+                }
+                RegOp::CosReg(out, arg) => {
+                    v[out] = v[arg].cos();
+                }
+                RegOp::TanReg(out, arg) => {
+                    v[out] = v[arg].tan();
+                }
+                RegOp::AsinReg(out, arg) => {
+                    v[out] = v[arg].asin();
+                }
+                RegOp::AcosReg(out, arg) => {
+                    v[out] = v[arg].acos();
+                }
+                RegOp::AtanReg(out, arg) => {
+                    v[out] = v[arg].atan();
+                }
+                RegOp::ExpReg(out, arg) => {
+                    v[out] = v[arg].exp();
+                }
+                RegOp::LnReg(out, arg) => {
+                    v[out] = v[arg].ln();
                 }
                 RegOp::CopyReg(out, arg) => {
                     v[out] = v[arg];
@@ -654,6 +696,41 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = v[arg][i].sin();
                     }
                 }
+                RegOp::CosReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].cos();
+                    }
+                }
+                RegOp::TanReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].tan();
+                    }
+                }
+                RegOp::AsinReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].asin();
+                    }
+                }
+                RegOp::AcosReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].acos();
+                    }
+                }
+                RegOp::AtanReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].atan();
+                    }
+                }
+                RegOp::ExpReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].exp();
+                    }
+                }
+                RegOp::LnReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].ln();
+                    }
+                }
                 RegOp::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
@@ -826,6 +903,41 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::SinReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sin();
+                    }
+                }
+                RegOp::CosReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].cos();
+                    }
+                }
+                RegOp::TanReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].tan();
+                    }
+                }
+                RegOp::AsinReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].asin();
+                    }
+                }
+                RegOp::AcosReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].acos();
+                    }
+                }
+                RegOp::AtanReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].atan();
+                    }
+                }
+                RegOp::ExpReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].exp();
+                    }
+                }
+                RegOp::LnReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].ln();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {

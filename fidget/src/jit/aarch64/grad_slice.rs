@@ -130,6 +130,48 @@ impl Assembler for GradSliceAssembler {
         }
         self.call_fn_unary(out_reg, lhs_reg, grad_sin);
     }
+    fn build_cos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_cos(f: Grad) -> Grad {
+            f.cos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_cos);
+    }
+    fn build_tan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_tan(f: Grad) -> Grad {
+            f.tan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_tan);
+    }
+    fn build_asin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_asin(f: Grad) -> Grad {
+            f.asin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_asin);
+    }
+    fn build_acos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_acos(f: Grad) -> Grad {
+            f.acos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_acos);
+    }
+    fn build_atan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_atan(f: Grad) -> Grad {
+            f.atan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_atan);
+    }
+    fn build_exp(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_exp(f: Grad) -> Grad {
+            f.exp()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_exp);
+    }
+    fn build_ln(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_ln(f: Grad) -> Grad {
+            f.ln()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_ln);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }

@@ -194,6 +194,13 @@ impl SsaTape {
                         UnaryOpcode::Sqrt => SsaOp::SqrtReg,
                         UnaryOpcode::Square => SsaOp::SquareReg,
                         UnaryOpcode::Sin => SsaOp::SinReg,
+                        UnaryOpcode::Cos => SsaOp::CosReg,
+                        UnaryOpcode::Tan => SsaOp::TanReg,
+                        UnaryOpcode::Asin => SsaOp::AsinReg,
+                        UnaryOpcode::Acos => SsaOp::AcosReg,
+                        UnaryOpcode::Atan => SsaOp::AtanReg,
+                        UnaryOpcode::Exp => SsaOp::ExpReg,
+                        UnaryOpcode::Ln => SsaOp::LnReg,
                     };
                     op(i, lhs)
                 }
@@ -253,7 +260,14 @@ impl SsaTape {
                 | SsaOp::SqrtReg(out, arg)
                 | SsaOp::CopyReg(out, arg)
                 | SsaOp::SquareReg(out, arg)
-                | SsaOp::SinReg(out, arg) => {
+                | SsaOp::SinReg(out, arg)
+                | SsaOp::CosReg(out, arg)
+                | SsaOp::TanReg(out, arg)
+                | SsaOp::AsinReg(out, arg)
+                | SsaOp::AcosReg(out, arg)
+                | SsaOp::AtanReg(out, arg)
+                | SsaOp::ExpReg(out, arg)
+                | SsaOp::LnReg(out, arg) => {
                     let op = match op {
                         SsaOp::NegReg(..) => "NEG",
                         SsaOp::AbsReg(..) => "ABS",
@@ -261,6 +275,13 @@ impl SsaTape {
                         SsaOp::SqrtReg(..) => "SQRT",
                         SsaOp::SquareReg(..) => "SQUARE",
                         SsaOp::SinReg(..) => "SIN",
+                        SsaOp::CosReg(..) => "COS",
+                        SsaOp::TanReg(..) => "TAN",
+                        SsaOp::AsinReg(..) => "ASIN",
+                        SsaOp::AcosReg(..) => "ACOS",
+                        SsaOp::AtanReg(..) => "ATAN",
+                        SsaOp::ExpReg(..) => "EXP",
+                        SsaOp::LnReg(..) => "LN",
                         SsaOp::CopyReg(..) => "COPY",
                         _ => unreachable!(),
                     };
