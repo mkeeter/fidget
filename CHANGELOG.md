@@ -1,4 +1,6 @@
 # 0.2.2 (unreleased)
+- Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
+  `atan`, `exp`, `ln`
 
 # 0.2.1
 - Changed `fidget::eval::Vars` to borrow instead of use an `Arc`
