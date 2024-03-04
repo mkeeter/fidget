@@ -300,7 +300,10 @@ impl Interval {
     /// Panics if the resulting interval would be invalid
     #[inline]
     pub fn new(lower: f32, upper: f32) -> Self {
-        assert!(upper >= lower || (lower.is_nan() && upper.is_nan()));
+        assert!(
+            upper >= lower || (lower.is_nan() && upper.is_nan()),
+            "invalid interval [{lower}, {upper}]"
+        );
         Self { lower, upper }
     }
     /// Returns the lower bound of the interval
@@ -406,7 +409,7 @@ impl Interval {
     }
     /// Computes the exponent function applied to the interval
     pub fn exp(self) -> Self {
-        Interval::new(self.upper.exp(), self.lower.exp())
+        Interval::new(self.lower.exp(), self.upper.exp())
     }
     /// Computes the natural log of the input interval
     ///
