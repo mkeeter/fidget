@@ -261,6 +261,12 @@ pub(crate) struct AssemblerData<T> {
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
 
+    /// Set to true if we have saved certain callee-saved registers
+    ///
+    /// These registers are only modified in function calls, so normally we
+    /// don't save them.
+    saved_callee_regs: bool,
+
     _p: std::marker::PhantomData<*const T>,
 }
 
@@ -269,6 +275,7 @@ impl<T> AssemblerData<T> {
         Self {
             ops: MmapAssembler::from(mmap),
             mem_offset: 0,
+            saved_callee_regs: false,
             _p: std::marker::PhantomData,
         }
     }
