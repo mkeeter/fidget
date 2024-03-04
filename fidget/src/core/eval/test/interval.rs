@@ -697,13 +697,14 @@ where
             let tape = shape.ez_interval_tape();
 
             for &a in args.iter() {
-                let (o, _) = match i {
+                let (o, trace) = match i {
                     0 => eval.eval(&tape, a, 0.0.into(), 0.0.into(), &[]),
                     1 => eval.eval(&tape, 0.0.into(), a, 0.0.into(), &[]),
                     2 => eval.eval(&tape, 0.0.into(), 0.0.into(), a, &[]),
                     _ => unreachable!(),
                 }
                 .unwrap();
+                assert!(trace.is_none());
 
                 for i in 0..32 {
                     let pos = i as f32 / 31.0;
