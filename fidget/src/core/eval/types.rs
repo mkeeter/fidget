@@ -392,8 +392,8 @@ impl Interval {
         if size >= std::f32::consts::PI {
             f32::NAN.into()
         } else {
-            let lower = self.lower.atan();
-            let upper = self.upper.atan();
+            let lower = self.lower.tan();
+            let upper = self.upper.tan();
             if upper >= lower {
                 Interval::new(lower, upper)
             } else {
@@ -423,7 +423,7 @@ impl Interval {
     }
     /// Computes the arctangent of the interval
     pub fn atan(self) -> Self {
-        Interval::new(self.upper.atan(), self.lower.atan())
+        Interval::new(self.lower.atan(), self.upper.atan())
     }
     /// Computes the exponent function applied to the interval
     pub fn exp(self) -> Self {
@@ -436,7 +436,7 @@ impl Interval {
         if self.lower <= 0.0 {
             f32::NAN.into()
         } else {
-            Interval::new(self.upper.ln(), self.lower.ln())
+            Interval::new(self.lower.ln(), self.upper.ln())
         }
     }
     /// Calculates the square root of the interval

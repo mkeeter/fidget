@@ -260,13 +260,11 @@ impl FloatSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
-            ; mov x13, x3
-            ; mov x14, x4
-            ; mov x15, x5
+            // Back up our current state
+            // TODO use callee-saved registers instead?
+            ; stp x0, x1, [sp, #-16]!
+            ; stp x2, x3, [sp, #-16]!
+            ; stp x4, x5, [sp, #-16]!
 
             // Back up X/Y/Z values
             ; stp q0, q1, [sp, #-32]!
@@ -340,12 +338,9 @@ impl FloatSliceAssembler {
             ; ldp q2, q3, [sp], #32
             ; ldp q0, q1, [sp], #32
 
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
-            ; mov x3, x13
-            ; mov x4, x14
-            ; mov x5, x15
+            ; ldp x4, x5, [sp], #16
+            ; ldp x2, x3, [sp], #16
+            ; ldp x0, x1, [sp], #16
 
             // Set our output value
             ; mov V(reg(out_reg)).b16, v4.b16

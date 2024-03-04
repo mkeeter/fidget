@@ -33,6 +33,7 @@ impl Assembler for GradSliceAssembler {
             ; stp   x29, x30, [sp, #-16]!
             // Preserve sp
             ; mov   x29, sp
+
             // Preserve callee-saved floating-point registers
             ; stp   d8, d9, [sp, #-16]!
             ; stp   d10, d11, [sp, #-16]!
@@ -64,11 +65,13 @@ impl Assembler for GradSliceAssembler {
             //
             // Restore stack space used for spills
             ; add   sp, sp, #(out.mem_offset as u32)
+
             // Restore callee-saved floating-point registers
             ; ldp   d14, d15, [sp], #16
             ; ldp   d12, d13, [sp], #16
             ; ldp   d10, d11, [sp], #16
             ; ldp   d8, d9, [sp], #16
+
             // Restore frame and link register
             ; ldp   x29, x30, [sp], #16
             ; ret
@@ -348,13 +351,10 @@ impl GradSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
-            ; mov x13, x3
-            ; mov x14, x4
-            ; mov x15, x5
+            // Back up our current state
+            ; stp x0, x1, [sp, #-16]!
+            ; stp x2, x3, [sp, #-16]!
+            ; stp x4, x5, [sp, #-16]!
 
             // Back up X/Y/Z values
             ; stp q0, q1, [sp, #-32]!
@@ -409,14 +409,13 @@ impl GradSliceAssembler {
             ; ldp q12, q13, [sp], #32
             ; ldp q10, q11, [sp], #32
             ; ldp q8, q9, [sp], #32
+
             ; ldp q2, q3, [sp], #32
             ; ldp q0, q1, [sp], #32
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
-            ; mov x3, x13
-            ; mov x4, x14
-            ; mov x5, x15
+
+            ; ldp x4, x5, [sp], #16
+            ; ldp x2, x3, [sp], #16
+            ; ldp x0, x1, [sp], #16
 
             // Set our output value
             ; mov V(reg(out_reg)).b16, v4.b16

@@ -19,8 +19,8 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | Y          | `(s2, s3)` | `(f32, f32)`            |
 /// | Z          | `(s4, s5)` | `(f32, f32)`            |
 /// | `vars`     | `x0`       | `*const f32` (array)    |
-/// | `choices`  | `x1`       | `*const u8` (array)     |
-/// | `simplify` | `x2`       | `*const u8` (single)    |
+/// | `choices`  | `x1`       | `*mut u8` (array)       |
+/// | `simplify` | `x2`       | `*mut u8` (single)      |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
@@ -476,9 +476,8 @@ impl IntervalAssembler {
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
+            ; stp x0, x1, [sp, #-16]!
+            ; stp x2, x3, [sp, #-16]! // TODO: we don't actually use x3
 
             // Back up X/Y/Z values
             ; stp d0, d1, [sp, #-16]!
@@ -523,9 +522,8 @@ impl IntervalAssembler {
             ; ldp d16, d17, [sp], #16
             ; ldp d2, d3, [sp], #16
             ; ldp d0, d1, [sp], #16
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
+            ; ldp x2, x3, [sp], #16
+            ; ldp x0, x1, [sp], #16
 
             // Set our output value
             ; fmov D(reg(out_reg)), d4

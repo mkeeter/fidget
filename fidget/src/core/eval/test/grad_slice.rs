@@ -11,6 +11,12 @@ use crate::{
     Error,
 };
 
+macro_rules! grad_slice_unary {
+    (Context::$i:ident, $t:expr) => {
+        Self::test_unary(Context::$i, $t, stringify!($i));
+    };
+}
+
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestGradSlice<S>(std::marker::PhantomData<*const S>);
 
@@ -434,6 +440,7 @@ where
     pub fn test_unary(
         f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
         g: impl Fn(f64) -> f64,
+        name: &'static str,
     ) {
         // Pick a bunch of arguments, some of which are spicy
         let mut args =
@@ -445,6 +452,7 @@ where
         args.push(std::f32::consts::FRAC_1_PI);
         args.push(std::f32::consts::SQRT_2);
         args.push(f32::NAN);
+        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
@@ -454,7 +462,13 @@ where
             let mut eval = S::new_grad_slice_eval();
             let tape = shape.ez_grad_slice_tape();
 
-            let out = eval.eval(&tape, &args, &args, &args, &[]).unwrap();
+            let out = match i {
+                0 => eval.eval(&tape, &args, &zero, &zero, &[]),
+                1 => eval.eval(&tape, &zero, &args, &zero, &[]),
+                2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                _ => unreachable!(),
+            }
+            .unwrap();
             for (a, &o) in args.iter().zip(out.iter()) {
                 let v = g(*a as f64);
                 let err = (v as f32 - o.v).abs();
@@ -462,7 +476,7 @@ where
                     (o.v == v as f32)
                         || err < 1e-6
                         || (v.is_nan() && o.v.is_nan()),
-                    "mismatch at {a}: {v} != {o} ({err})"
+                    "mismatch in '{name}' at {a}: {v} != {o} ({err})"
                 );
 
                 let grad = o.d(i);
@@ -472,7 +486,7 @@ where
                     let err = (estimated_gradient as f32 - grad).abs();
                     assert!(
                         err < 1e-3,
-                        "gradient estimate mismatch at {a}:
+                        "gradient estimate mismatch in '{name}' at {a}:
                         {estimated_gradient} != {grad} ({err})"
                     );
                 }
@@ -481,16 +495,16 @@ where
     }
 
     pub fn test_g_unary_ops() {
-        Self::test_unary(Context::sin, |v| v.sin());
-        Self::test_unary(Context::cos, |v| v.cos());
-        Self::test_unary(Context::tan, |v| v.tan());
-        Self::test_unary(Context::asin, |v| v.asin());
-        Self::test_unary(Context::acos, |v| v.acos());
-        Self::test_unary(Context::atan, |v| v.atan());
-        Self::test_unary(Context::exp, |v| v.exp());
-        Self::test_unary(Context::ln, |v| v.ln());
-        Self::test_unary(Context::square, |v| v * v);
-        Self::test_unary(Context::sqrt, |v| v.sqrt());
+        grad_slice_unary!(Context::sin, |v| v.sin());
+        grad_slice_unary!(Context::cos, |v| v.cos());
+        grad_slice_unary!(Context::tan, |v| v.tan());
+        grad_slice_unary!(Context::asin, |v| v.asin());
+        grad_slice_unary!(Context::acos, |v| v.acos());
+        grad_slice_unary!(Context::atan, |v| v.atan());
+        grad_slice_unary!(Context::exp, |v| v.exp());
+        grad_slice_unary!(Context::ln, |v| v.ln());
+        grad_slice_unary!(Context::square, |v| v * v);
+        grad_slice_unary!(Context::sqrt, |v| v.sqrt());
     }
 }
 
