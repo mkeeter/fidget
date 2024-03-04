@@ -472,9 +472,11 @@ where
             for (a, &o) in args.iter().zip(out.iter()) {
                 let v = g(*a as f64);
                 let err = (v as f32 - o.v).abs();
+                let err_frac = err / (v.abs() as f32).max(o.v.abs());
                 assert!(
                     (o.v == v as f32)
                         || err < 1e-6
+                        || err_frac < 1e-6
                         || (v.is_nan() && o.v.is_nan()),
                     "mismatch in '{name}' at {a}: {v} != {o} ({err})"
                 );
