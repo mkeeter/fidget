@@ -15,10 +15,29 @@ pub struct Grad {
     pub dz: f32,
 }
 
+impl std::fmt::Display for Grad {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {}, {}, {})", self.v, self.dx, self.dy, self.dz)
+    }
+}
+
 impl Grad {
     /// Constructs a new gradient
     pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
         Self { v, dx, dy, dz }
+    }
+
+    /// Looks up a gradient by index (0 = x, 1 = y, 2 = z)
+    ///
+    /// # Panics
+    /// If the index is not in the 0-2 range
+    pub fn d(&self, i: usize) -> f32 {
+        match i {
+            0 => self.dx,
+            1 => self.dy,
+            2 => self.dz,
+            _ => panic!("invalid index {i}"),
+        }
     }
 
     /// Returns a normalized RGB color, or `None` if the gradient is 0
@@ -133,12 +152,11 @@ impl Grad {
     }
     /// Natural log
     pub fn ln(self) -> Self {
-        let v = self.v.exp();
         Grad {
-            v,
-            dx: self.dx / v,
-            dy: self.dy / v,
-            dz: self.dz / v,
+            v: self.v.ln(),
+            dx: self.dx / self.v,
+            dy: self.dy / self.v,
+            dz: self.dz / self.v,
         }
     }
 

@@ -4,10 +4,11 @@
 //! for interval evaluators; otherwise, the module has no public exports.
 use super::build_stress_fn;
 use crate::{
-    context::Context,
+    context::{Context, Node},
     eval::{
         types::Grad, BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars,
     },
+    Error,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -429,6 +430,68 @@ where
             Self::test_g_stress_n(n);
         }
     }
+
+    pub fn test_unary(
+        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
+        g: impl Fn(f64) -> f64,
+    ) {
+        // Pick a bunch of arguments, some of which are spicy
+        let mut args =
+            (-32..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        args.push(0.0);
+        args.push(1.0);
+        args.push(std::f32::consts::PI);
+        args.push(std::f32::consts::FRAC_PI_2);
+        args.push(std::f32::consts::FRAC_1_PI);
+        args.push(std::f32::consts::SQRT_2);
+        args.push(f32::NAN);
+
+        let mut ctx = Context::new();
+        for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
+            let node = f(&mut ctx, v).unwrap();
+
+            let shape = S::new(&ctx, node).unwrap();
+            let mut eval = S::new_grad_slice_eval();
+            let tape = shape.ez_grad_slice_tape();
+
+            let out = eval.eval(&tape, &args, &args, &args, &[]).unwrap();
+            for (a, &o) in args.iter().zip(out.iter()) {
+                let v = g(*a as f64);
+                let err = (v as f32 - o.v).abs();
+                assert!(
+                    (o.v == v as f32)
+                        || err < 1e-6
+                        || (v.is_nan() && o.v.is_nan()),
+                    "mismatch at {a}: {v} != {o} ({err})"
+                );
+
+                let grad = o.d(i);
+                if !v.is_nan() && grad < 1e9 && !grad.is_infinite() {
+                    let d = g(*a as f64 + 1e-8);
+                    let estimated_gradient = (d - v) / 1e-8;
+                    let err = (estimated_gradient as f32 - grad).abs();
+                    assert!(
+                        err < 1e-3,
+                        "gradient estimate mismatch at {a}:
+                        {estimated_gradient} != {grad} ({err})"
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn test_g_unary_ops() {
+        Self::test_unary(Context::sin, |v| v.sin());
+        Self::test_unary(Context::cos, |v| v.cos());
+        Self::test_unary(Context::tan, |v| v.tan());
+        Self::test_unary(Context::asin, |v| v.asin());
+        Self::test_unary(Context::acos, |v| v.acos());
+        Self::test_unary(Context::atan, |v| v.atan());
+        Self::test_unary(Context::exp, |v| v.exp());
+        Self::test_unary(Context::ln, |v| v.ln());
+        Self::test_unary(Context::square, |v| v * v);
+        Self::test_unary(Context::sqrt, |v| v.sqrt());
+    }
 }
 
 #[macro_export]
@@ -460,5 +523,6 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_recip, $t);
         $crate::grad_test!(test_g_var, $t);
         $crate::grad_test!(test_g_stress, $t);
+        $crate::grad_test!(test_g_unary_ops, $t);
     };
 }
