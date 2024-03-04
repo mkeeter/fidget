@@ -60,7 +60,7 @@ macro_rules! opcodes {
             #[doc = "Computes the arctangent of the given register (in radians)"]
             AtanReg($t, $t),
 
-            #[doc = "Computes the exponent of the given register"]
+            #[doc = "Computes the exponential function of the given register"]
             ExpReg($t, $t),
 
             #[doc = "Computes the natural log of the given register"]

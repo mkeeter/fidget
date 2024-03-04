@@ -110,6 +110,14 @@ impl Engine {
         register_binary_fns!("max", max, engine);
         register_unary_fns!("sqrt", sqrt, engine);
         register_unary_fns!("square", square, engine);
+        register_unary_fns!("sin", sin, engine);
+        register_unary_fns!("cos", cos, engine);
+        register_unary_fns!("tan", tan, engine);
+        register_unary_fns!("asin", asin, engine);
+        register_unary_fns!("acos", acos, engine);
+        register_unary_fns!("atan", atan, engine);
+        register_unary_fns!("exp", exp, engine);
+        register_unary_fns!("ln", ln, engine);
         register_unary_fns!("-", neg, engine);
 
         engine.set_fast_operators(false);
@@ -323,6 +331,14 @@ define_binary_fns!(max);
 define_unary_fns!(sqrt);
 define_unary_fns!(square);
 define_unary_fns!(neg);
+define_unary_fns!(sin);
+define_unary_fns!(cos);
+define_unary_fns!(tan);
+define_unary_fns!(asin);
+define_unary_fns!(acos);
+define_unary_fns!(atan);
+define_unary_fns!(exp);
+define_unary_fns!(ln);
 
 ////////////////////////////////////////////////////////////////////////////////
 
