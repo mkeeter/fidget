@@ -5,8 +5,9 @@
 
 use super::build_stress_fn;
 use crate::{
-    context::Context,
+    context::{Context, Node},
     eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
+    Error,
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -263,6 +264,54 @@ where
             Self::test_f_stress_n(n);
         }
     }
+
+    pub fn test_unary(
+        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
+        g: impl Fn(f32) -> f32,
+    ) {
+        // Pick a bunch of arguments, some of which are spicy
+        let mut args =
+            (-32..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        args.push(0.0);
+        args.push(1.0);
+        args.push(std::f32::consts::PI);
+        args.push(std::f32::consts::FRAC_PI_2);
+        args.push(std::f32::consts::FRAC_1_PI);
+        args.push(std::f32::consts::SQRT_2);
+        args.push(f32::NAN);
+
+        let mut ctx = Context::new();
+        for v in [ctx.x(), ctx.y(), ctx.z()] {
+            let node = f(&mut ctx, v).unwrap();
+
+            let shape = S::new(&ctx, node).unwrap();
+            let mut eval = S::new_float_slice_eval();
+            let tape = shape.ez_float_slice_tape();
+
+            let out = eval.eval(&tape, &args, &args, &args, &[]).unwrap();
+            for (a, &o) in args.iter().zip(out.iter()) {
+                let v = g(*a);
+                let err = (v - o).abs();
+                assert!(
+                    (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
+                    "mismatch at index {a}: {v} != {o} ({err})"
+                )
+            }
+        }
+    }
+
+    pub fn test_f_unary_ops() {
+        Self::test_unary(Context::sin, |v| v.sin());
+        Self::test_unary(Context::cos, |v| v.cos());
+        Self::test_unary(Context::tan, |v| v.tan());
+        Self::test_unary(Context::asin, |v| v.asin());
+        Self::test_unary(Context::acos, |v| v.acos());
+        Self::test_unary(Context::atan, |v| v.atan());
+        Self::test_unary(Context::exp, |v| v.exp());
+        Self::test_unary(Context::ln, |v| v.ln());
+        Self::test_unary(Context::square, |v| v * v);
+        Self::test_unary(Context::sqrt, |v| v.sqrt());
+    }
 }
 
 #[macro_export]
@@ -283,5 +332,6 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_f_var, $t);
         $crate::float_slice_test!(test_f_sin, $t);
         $crate::float_slice_test!(test_f_stress, $t);
+        $crate::float_slice_test!(test_f_unary_ops, $t);
     };
 }

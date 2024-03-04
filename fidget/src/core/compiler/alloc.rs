@@ -254,7 +254,7 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::SinReg(out, arg) => (out, arg, RegOp::SinReg),
             SsaOp::CosReg(out, arg) => (out, arg, RegOp::CosReg),
             SsaOp::TanReg(out, arg) => (out, arg, RegOp::TanReg),
-            SsaOp::AsinReg(out, arg) => (out, arg, RegOp::AcosReg),
+            SsaOp::AsinReg(out, arg) => (out, arg, RegOp::AsinReg),
             SsaOp::AcosReg(out, arg) => (out, arg, RegOp::AcosReg),
             SsaOp::AtanReg(out, arg) => (out, arg, RegOp::AtanReg),
             SsaOp::ExpReg(out, arg) => (out, arg, RegOp::ExpReg),
