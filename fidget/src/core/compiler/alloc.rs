@@ -252,6 +252,13 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::SqrtReg(out, arg) => (out, arg, RegOp::SqrtReg),
             SsaOp::SquareReg(out, arg) => (out, arg, RegOp::SquareReg),
             SsaOp::SinReg(out, arg) => (out, arg, RegOp::SinReg),
+            SsaOp::CosReg(out, arg) => (out, arg, RegOp::CosReg),
+            SsaOp::TanReg(out, arg) => (out, arg, RegOp::TanReg),
+            SsaOp::AsinReg(out, arg) => (out, arg, RegOp::AsinReg),
+            SsaOp::AcosReg(out, arg) => (out, arg, RegOp::AcosReg),
+            SsaOp::AtanReg(out, arg) => (out, arg, RegOp::AtanReg),
+            SsaOp::ExpReg(out, arg) => (out, arg, RegOp::ExpReg),
+            SsaOp::LnReg(out, arg) => (out, arg, RegOp::LnReg),
             SsaOp::CopyReg(out, arg) => (out, arg, RegOp::CopyReg),
             _ => panic!("Bad opcode: {op:?}"),
         };
@@ -272,7 +279,14 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::SqrtReg(..)
             | SsaOp::SquareReg(..)
             | SsaOp::CopyReg(..)
-            | SsaOp::SinReg(..) => self.op_reg(op),
+            | SsaOp::SinReg(..)
+            | SsaOp::CosReg(..)
+            | SsaOp::TanReg(..)
+            | SsaOp::AsinReg(..)
+            | SsaOp::AcosReg(..)
+            | SsaOp::AtanReg(..)
+            | SsaOp::ExpReg(..)
+            | SsaOp::LnReg(..) => self.op_reg(op),
 
             SsaOp::AddRegImm(..)
             | SsaOp::SubRegImm(..)

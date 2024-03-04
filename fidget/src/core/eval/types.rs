@@ -15,10 +15,29 @@ pub struct Grad {
     pub dz: f32,
 }
 
+impl std::fmt::Display for Grad {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {}, {}, {})", self.v, self.dx, self.dy, self.dz)
+    }
+}
+
 impl Grad {
     /// Constructs a new gradient
     pub fn new(v: f32, dx: f32, dy: f32, dz: f32) -> Self {
         Self { v, dx, dy, dz }
+    }
+
+    /// Looks up a gradient by index (0 = x, 1 = y, 2 = z)
+    ///
+    /// # Panics
+    /// If the index is not in the 0-2 range
+    pub fn d(&self, i: usize) -> f32 {
+        match i {
+            0 => self.dx,
+            1 => self.dy,
+            2 => self.dz,
+            _ => panic!("invalid index {i}"),
+        }
     }
 
     /// Returns a normalized RGB color, or `None` if the gradient is 0
@@ -69,6 +88,75 @@ impl Grad {
             dx: self.dx * c,
             dy: self.dy * c,
             dz: self.dz * c,
+        }
+    }
+    /// Cosine
+    pub fn cos(self) -> Self {
+        let s = -self.v.sin();
+        Grad {
+            v: self.v.cos(),
+            dx: self.dx * s,
+            dy: self.dy * s,
+            dz: self.dz * s,
+        }
+    }
+    /// Tangent
+    pub fn tan(self) -> Self {
+        let c = self.v.cos().powi(2);
+        Grad {
+            v: self.v.tan(),
+            dx: self.dx / c,
+            dy: self.dy / c,
+            dz: self.dz / c,
+        }
+    }
+    /// Arcsin
+    pub fn asin(self) -> Self {
+        let r = (1.0 - self.v.powi(2)).sqrt();
+        Grad {
+            v: self.v.asin(),
+            dx: self.dx / r,
+            dy: self.dy / r,
+            dz: self.dz / r,
+        }
+    }
+    /// Arccos
+    pub fn acos(self) -> Self {
+        let r = (1.0 - self.v.powi(2)).sqrt();
+        Grad {
+            v: self.v.acos(),
+            dx: -self.dx / r,
+            dy: -self.dy / r,
+            dz: -self.dz / r,
+        }
+    }
+    /// Arctangent
+    pub fn atan(self) -> Self {
+        let r = self.v.powi(2) + 1.0;
+        Grad {
+            v: self.v.atan(),
+            dx: self.dx / r,
+            dy: self.dy / r,
+            dz: self.dz / r,
+        }
+    }
+    /// Exponential function
+    pub fn exp(self) -> Self {
+        let v = self.v.exp();
+        Grad {
+            v,
+            dx: v * self.dx,
+            dy: v * self.dy,
+            dz: v * self.dz,
+        }
+    }
+    /// Natural log
+    pub fn ln(self) -> Self {
+        Grad {
+            v: self.v.ln(),
+            dx: self.dx / self.v,
+            dy: self.dy / self.v,
+            dz: self.dz / self.v,
         }
     }
 
@@ -230,7 +318,10 @@ impl Interval {
     /// Panics if the resulting interval would be invalid
     #[inline]
     pub fn new(lower: f32, upper: f32) -> Self {
-        assert!(upper >= lower || (lower.is_nan() && upper.is_nan()));
+        assert!(
+            upper >= lower || (lower.is_nan() && upper.is_nan()),
+            "invalid interval [{lower}, {upper}]"
+        );
         Self { lower, upper }
     }
     /// Returns the lower bound of the interval
@@ -285,6 +376,68 @@ impl Interval {
     pub fn sin(self) -> Self {
         // TODO: make this smarter
         Interval::new(-1.0, 1.0)
+    }
+    /// Computes the cosine of the interval
+    ///
+    /// Right now, this always returns the maximum range of `[-1, 1]`
+    pub fn cos(self) -> Self {
+        // TODO: make this smarter
+        Interval::new(-1.0, 1.0)
+    }
+    /// Computes the tangent of the interval
+    ///
+    /// Returns the `NAN` interval if the result contains a undefined point
+    pub fn tan(self) -> Self {
+        let size = self.upper - self.lower;
+        if size >= std::f32::consts::PI {
+            f32::NAN.into()
+        } else {
+            let lower = self.lower.tan();
+            let upper = self.upper.tan();
+            if upper >= lower {
+                Interval::new(lower, upper)
+            } else {
+                f32::NAN.into()
+            }
+        }
+    }
+    /// Computes the arcsine of the interval
+    ///
+    /// Returns the `NAN` interval if the input is invalid
+    pub fn asin(self) -> Self {
+        if self.lower < -1.0 || self.upper > 1.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.lower.asin(), self.upper.asin())
+        }
+    }
+    /// Computes the arccosine of the interval
+    ///
+    /// Returns the `NAN` interval if the input is invalid
+    pub fn acos(self) -> Self {
+        if self.lower < -1.0 || self.upper > 1.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.upper.acos(), self.lower.acos())
+        }
+    }
+    /// Computes the arctangent of the interval
+    pub fn atan(self) -> Self {
+        Interval::new(self.lower.atan(), self.upper.atan())
+    }
+    /// Computes the exponent function applied to the interval
+    pub fn exp(self) -> Self {
+        Interval::new(self.lower.exp(), self.upper.exp())
+    }
+    /// Computes the natural log of the input interval
+    ///
+    /// Returns the `NAN` interval if the input contains zero
+    pub fn ln(self) -> Self {
+        if self.lower <= 0.0 {
+            f32::NAN.into()
+        } else {
+            Interval::new(self.lower.ln(), self.upper.ln())
+        }
     }
     /// Calculates the square root of the interval
     ///

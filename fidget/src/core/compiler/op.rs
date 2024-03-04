@@ -45,6 +45,27 @@ macro_rules! opcodes {
             #[doc = "Computes the sine of the given register (in radians)"]
             SinReg($t, $t),
 
+            #[doc = "Computes the cosine of the given register (in radians)"]
+            CosReg($t, $t),
+
+            #[doc = "Computes the tangent of the given register (in radians)"]
+            TanReg($t, $t),
+
+            #[doc = "Computes the arcsin of the given register (in radians)"]
+            AsinReg($t, $t),
+
+            #[doc = "Computes the arccos of the given register (in radians)"]
+            AcosReg($t, $t),
+
+            #[doc = "Computes the arctangent of the given register (in radians)"]
+            AtanReg($t, $t),
+
+            #[doc = "Computes the exponential function of the given register"]
+            ExpReg($t, $t),
+
+            #[doc = "Computes the natural log of the given register"]
+            LnReg($t, $t),
+
             #[doc = "Copies the given register"]
             CopyReg($t, $t),
 
@@ -118,6 +139,13 @@ impl SsaOp {
             | SsaOp::SquareReg(out, ..)
             | SsaOp::CopyReg(out, ..)
             | SsaOp::SinReg(out, ..)
+            | SsaOp::CosReg(out, ..)
+            | SsaOp::TanReg(out, ..)
+            | SsaOp::AsinReg(out, ..)
+            | SsaOp::AcosReg(out, ..)
+            | SsaOp::AtanReg(out, ..)
+            | SsaOp::ExpReg(out, ..)
+            | SsaOp::LnReg(out, ..)
             | SsaOp::AddRegImm(out, ..)
             | SsaOp::MulRegImm(out, ..)
             | SsaOp::DivRegImm(out, ..)
@@ -147,6 +175,13 @@ impl SsaOp {
             | SsaOp::SquareReg(..)
             | SsaOp::CopyReg(..)
             | SsaOp::SinReg(..)
+            | SsaOp::CosReg(..)
+            | SsaOp::TanReg(..)
+            | SsaOp::AsinReg(..)
+            | SsaOp::AcosReg(..)
+            | SsaOp::AtanReg(..)
+            | SsaOp::ExpReg(..)
+            | SsaOp::LnReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::SubRegImm(..)

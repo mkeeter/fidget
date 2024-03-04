@@ -19,8 +19,8 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | Y          | `(s2, s3)` | `(f32, f32)`            |
 /// | Z          | `(s4, s5)` | `(f32, f32)`            |
 /// | `vars`     | `x0`       | `*const f32` (array)    |
-/// | `choices`  | `x1`       | `*const u8` (array)     |
-/// | `simplify` | `x2`       | `*const u8` (single)    |
+/// | `choices`  | `x1`       | `*mut u8` (array)       |
+/// | `simplify` | `x2`       | `*mut u8` (single)      |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
 /// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
@@ -86,6 +86,48 @@ impl Assembler for IntervalAssembler {
             v.sin()
         }
         self.call_fn_unary(out_reg, lhs_reg, interval_sin);
+    }
+    fn build_cos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_cos(f: Interval) -> Interval {
+            f.cos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_cos);
+    }
+    fn build_tan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_tan(f: Interval) -> Interval {
+            f.tan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_tan);
+    }
+    fn build_asin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_asin(f: Interval) -> Interval {
+            f.asin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_asin);
+    }
+    fn build_acos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_acos(f: Interval) -> Interval {
+            f.acos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_acos);
+    }
+    fn build_atan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_atan(f: Interval) -> Interval {
+            f.atan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_atan);
+    }
+    fn build_exp(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_exp(f: Interval) -> Interval {
+            f.exp()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_exp);
+    }
+    fn build_ln(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_ln(f: Interval) -> Interval {
+            f.ln()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_ln);
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(reg(lhs_reg)))
@@ -434,9 +476,8 @@ impl IntervalAssembler {
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
+            ; stp x0, x1, [sp, #-16]!
+            ; stp x2, x3, [sp, #-16]! // TODO: we don't actually use x3
 
             // Back up X/Y/Z values
             ; stp d0, d1, [sp, #-16]!
@@ -481,9 +522,8 @@ impl IntervalAssembler {
             ; ldp d16, d17, [sp], #16
             ; ldp d2, d3, [sp], #16
             ; ldp d0, d1, [sp], #16
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
+            ; ldp x2, x3, [sp], #16
+            ; ldp x0, x1, [sp], #16
 
             // Set our output value
             ; fmov D(reg(out_reg)), d4

@@ -11,6 +11,13 @@ pub enum UnaryOpcode {
     Sqrt,
     Square,
     Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Exp,
+    Ln,
 }
 
 /// A two-argument math operation

@@ -129,6 +129,48 @@ impl Assembler for FloatSliceAssembler {
         }
         self.call_fn_unary(out_reg, lhs_reg, float_sin);
     }
+    fn build_cos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_cos(f: f32) -> f32 {
+            f.cos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_cos);
+    }
+    fn build_tan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_tan(f: f32) -> f32 {
+            f.tan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_tan);
+    }
+    fn build_asin(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_asin(f: f32) -> f32 {
+            f.asin()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_asin);
+    }
+    fn build_acos(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_acos(f: f32) -> f32 {
+            f.acos()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_acos);
+    }
+    fn build_atan(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_atan(f: f32) -> f32 {
+            f.atan()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_atan);
+    }
+    fn build_exp(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_exp(f: f32) -> f32 {
+            f.exp()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_exp);
+    }
+    fn build_ln(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_ln(f: f32) -> f32 {
+            f.ln()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_ln);
+    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16)
     }
@@ -218,13 +260,11 @@ impl FloatSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
-            ; mov x13, x3
-            ; mov x14, x4
-            ; mov x15, x5
+            // Back up our current state
+            // TODO use callee-saved registers instead?
+            ; stp x0, x1, [sp, #-16]!
+            ; stp x2, x3, [sp, #-16]!
+            ; stp x4, x5, [sp, #-16]!
 
             // Back up X/Y/Z values
             ; stp q0, q1, [sp, #-32]!
@@ -298,12 +338,9 @@ impl FloatSliceAssembler {
             ; ldp q2, q3, [sp], #32
             ; ldp q0, q1, [sp], #32
 
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
-            ; mov x3, x13
-            ; mov x4, x14
-            ; mov x5, x15
+            ; ldp x4, x5, [sp], #16
+            ; ldp x2, x3, [sp], #16
+            ; ldp x0, x1, [sp], #16
 
             // Set our output value
             ; mov V(reg(out_reg)).b16, v4.b16

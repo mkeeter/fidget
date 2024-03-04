@@ -405,6 +405,48 @@ impl Context {
         self.op_unary(a, UnaryOpcode::Sin)
     }
 
+    /// Builds a node which calculates the cosine of its input (in radians)
+    pub fn cos<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Cos)
+    }
+
+    /// Builds a node which calculates the tangent of its input (in radians)
+    pub fn tan<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Tan)
+    }
+
+    /// Builds a node which calculates the arcsine of its input (in radians)
+    pub fn asin<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Asin)
+    }
+
+    /// Builds a node which calculates the arccosine of its input (in radians)
+    pub fn acos<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Acos)
+    }
+
+    /// Builds a node which calculates the arctangent of its input (in radians)
+    pub fn atan<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Atan)
+    }
+
+    /// Builds a node which calculates the exponent of its input
+    pub fn exp<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Exp)
+    }
+
+    /// Builds a node which calculates the natural log of its input
+    pub fn ln<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Ln)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     // Derived functions
     /// Builds a node which squares its input
@@ -614,6 +656,13 @@ impl Context {
                     UnaryOpcode::Sqrt => a.sqrt(),
                     UnaryOpcode::Square => a * a,
                     UnaryOpcode::Sin => a.sin(),
+                    UnaryOpcode::Cos => a.cos(),
+                    UnaryOpcode::Tan => a.tan(),
+                    UnaryOpcode::Asin => a.asin(),
+                    UnaryOpcode::Acos => a.acos(),
+                    UnaryOpcode::Atan => a.atan(),
+                    UnaryOpcode::Exp => a.exp(),
+                    UnaryOpcode::Ln => a.ln(),
                 }
             }
         };
@@ -728,6 +777,13 @@ impl Context {
                 UnaryOpcode::Sqrt => out += "sqrt",
                 UnaryOpcode::Square => out += "square",
                 UnaryOpcode::Sin => out += "sin",
+                UnaryOpcode::Cos => out += "cos",
+                UnaryOpcode::Tan => out += "tan",
+                UnaryOpcode::Asin => out += "asin",
+                UnaryOpcode::Acos => out += "acos",
+                UnaryOpcode::Atan => out += "atan",
+                UnaryOpcode::Exp => out += "exp",
+                UnaryOpcode::Ln => out += "ln",
             },
         };
         write!(

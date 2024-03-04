@@ -5,13 +5,20 @@
 
 use super::build_stress_fn;
 use crate::{
-    context::Context,
+    context::{Context, Node},
     eval::{
         types::Interval, EzShape, MathShape, Shape, ShapeVars,
         TracingEvaluator, Vars,
     },
     vm::Choice,
+    Error,
 };
+
+macro_rules! interval_unary {
+    (Context::$i:ident, $t:expr) => {
+        Self::test_unary(Context::$i, $t, stringify!($i));
+    };
+}
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestInterval<S>(std::marker::PhantomData<*const S>);
@@ -655,6 +662,82 @@ where
             Self::test_i_stress_n(n);
         }
     }
+
+    pub fn test_unary(
+        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
+        g: impl Fn(f32) -> f32,
+        name: &'static str,
+    ) {
+        // Pick a bunch of arguments, some of which are spicy
+        let mut values =
+            (-32..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+        values.push(0.0);
+        values.push(1.0);
+        values.push(std::f32::consts::PI);
+        values.push(std::f32::consts::FRAC_PI_2);
+        values.push(std::f32::consts::FRAC_1_PI);
+        values.push(std::f32::consts::SQRT_2);
+
+        let mut args = vec![];
+        for &lower in &values {
+            for &size in &values {
+                if size >= 0.0 {
+                    args.push(Interval::new(lower, lower + size));
+                }
+            }
+        }
+        args.push(Interval::new(f32::NAN, f32::NAN));
+
+        let mut ctx = Context::new();
+        for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
+            let node = f(&mut ctx, v).unwrap();
+
+            let shape = S::new(&ctx, node).unwrap();
+            let mut eval = S::new_interval_eval();
+            let tape = shape.ez_interval_tape();
+
+            for &a in args.iter() {
+                let (o, trace) = match i {
+                    0 => eval.eval(&tape, a, 0.0.into(), 0.0.into(), &[]),
+                    1 => eval.eval(&tape, 0.0.into(), a, 0.0.into(), &[]),
+                    2 => eval.eval(&tape, 0.0.into(), 0.0.into(), a, &[]),
+                    _ => unreachable!(),
+                }
+                .unwrap();
+                assert!(trace.is_none());
+
+                for i in 0..32 {
+                    let pos = i as f32 / 31.0;
+                    let inside = (a.lower() * pos + a.upper() * (1.0 - pos))
+                        .min(a.upper())
+                        .max(a.lower());
+                    let inside_value = g(inside);
+                    assert!(
+                        inside_value.is_nan()
+                            || o.lower().is_nan()
+                            || (inside_value >= o.lower()
+                                && inside_value <= o.upper()),
+                        "interval failure in '{name}': {inside} in {a} => \
+                         {inside_value} not in {o}"
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn test_i_unary_ops() {
+        interval_unary!(Context::sin, |v| v.sin());
+        interval_unary!(Context::sin, |v| v.sin());
+        interval_unary!(Context::cos, |v| v.cos());
+        interval_unary!(Context::tan, |v| v.tan());
+        interval_unary!(Context::asin, |v| v.asin());
+        interval_unary!(Context::acos, |v| v.acos());
+        interval_unary!(Context::atan, |v| v.atan());
+        interval_unary!(Context::exp, |v| v.exp());
+        interval_unary!(Context::ln, |v| v.ln());
+        interval_unary!(Context::square, |v| v * v);
+        interval_unary!(Context::sqrt, |v| v.sqrt());
+    }
 }
 
 #[macro_export]
@@ -689,5 +772,6 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);
+        $crate::interval_test!(test_i_unary_ops, $t);
     };
 }
