@@ -17,3 +17,7 @@ codegen-units = 1
 
 [profile.test]
 opt-level = 1
+
+[profile.fast-test]
+inherits = "test"
+opt-level = 0
