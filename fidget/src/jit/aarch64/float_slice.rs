@@ -40,7 +40,7 @@ impl Assembler for FloatSliceAssembler {
             ; stp   d14, d15, [sp, #-16]!
 
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, 0);
 
         dynasm!(out.ops
             // The loop returns here, and we check whether we need to loop

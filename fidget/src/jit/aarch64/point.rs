@@ -91,13 +91,12 @@ impl Assembler for PointAssembler {
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, STACK_SIZE as usize);
         dynasm!(out.ops
-            ; sub sp, sp, #STACK_SIZE
-            // Preserve frame and link register
+            // Preserve frame and link register, and set up the frame pointer
             ; stp   x29, x30, [sp, #0x0]
-            // Set up the frame pointer
             ; mov   x29, sp
+
             // Preserve callee-saved floating-point registers
             ; stp   d8, d9, [sp, #0x10]
             ; stp   d10, d11, [sp, #0x20]
@@ -307,6 +306,7 @@ impl Assembler for PointAssembler {
 
             // Restore frame and link register
             ; ldp   x29, x30, [sp, #0x0]
+
             // Restore callee-saved floating-point registers
             ; ldp   d8, d9, [sp, #0x10]
             ; ldp   d10, d11, [sp, #0x20]
@@ -314,7 +314,7 @@ impl Assembler for PointAssembler {
             ; ldp   d14, d15, [sp, #0x40]
 
             // Fix up the stack
-            ; add sp, sp, #(STACK_SIZE + self.0.mem_offset as u32)
+            ; add sp, sp, #(self.0.mem_offset as u32)
 
             ; ret
         );

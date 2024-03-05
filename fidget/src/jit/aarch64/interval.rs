@@ -22,24 +22,91 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `choices`  | `x1`       | `*mut u8` (array)       |
 /// | `simplify` | `x2`       | `*mut u8` (single)      |
 ///
-/// During evaluation, X, Y, and Z are stored in `V0-3.S2`.  Each SIMD register
-/// stores an interval.  `s[0]` is the lower bound of the interval and `s[1]` is
-/// the upper bound; for example, `V0.S0` represents the lower bound for X.
+/// During evaluation, `x0`, `x1`, and `x2` maintain their meaning, while X, Y,
+/// and Z are stored in `V0-2.S2`.  Intervals are stored in the lower two float
+/// of a SIMD register `Vx` `s[0]` is the lower bound of the interval and `s[1]`
+/// is the upper bound; for example, `V0.S0` represents the lower bound for X.
+///
+/// Here is the full table of registers used during evaluation:
+///
+/// | Register | Description                                          |
+/// |----------|------------------------------------------------------|
+/// | `v0.s2`  | X interval                                           |
+/// | `v1.s2`  | Y interval                                           |
+/// | `v2.s2`  | Z interval                                           |
+/// | `v3.s2`  | Immediate value (`IMM_REG`)                          |
+/// | `v4.s2`  | Scratch register                                     |
+/// | `v5.s2`  | Scratch register                                     |
+/// | `v8-15`  | Tape values (callee-saved)                           |
+/// | `v16-31` | Tape values (caller-saved)                           |
+/// | `x0`     | Function pointer for calls                           |
+/// | `w9`     | Staging for loading immediate                        |
+/// | `w14`    | Scratch space used for choice value                  |
+/// | `x15`    | Miscellaneous scratch space                          |
+///
+/// The stack is configured as follows (representing intervals as `dX`, since
+/// that's the right width to load / store):
+///
+/// ```text
+/// | Position | Value        | Notes                                       |
+/// |----------|------------------------------------------------------------|
+/// | 0x100    | ...          | Register spills live up here                |
+/// |----------|--------------|---------------------------------------------|
+/// | 0xf8     | `x22`        | During functions calls, we use these        |
+/// | 0xf0     | `x21`        | as temporary storage so must preserve their |
+/// | 0xe8     | `x20`        | previous values on the stack                |
+/// |----------|------------------------------------------------------------|
+/// | 0xe0     | `d2`         | During functions calls, X/Y/Z are saved on  |
+/// | 0xd8     | `d1`         | the stack                                   |
+/// | 0xd0     | `d0`         |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0xc8     | `d31`        | During functions calls, caller-saved tape   |
+/// | 0xc0     | `d30`        | registers are saved on the stack            |
+/// | 0xb8     | `d29`        |                                             |
+/// | 0xb0     | `d28`        |                                             |
+/// | 0xa8     | `d27`        |                                             |
+/// | 0xa0     | `d26`        |                                             |
+/// | 0x98     | `d25`        |                                             |
+/// | 0x90     | `d24`        |                                             |
+/// | 0x88     | `d23`        |                                             |
+/// | 0x80     | `d22`        |                                             |
+/// | 0x78     | `d21`        |                                             |
+/// | 0x70     | `d20`        |                                             |
+/// | 0x68     | `d19`        |                                             |
+/// | 0x60     | `d18`        |                                             |
+/// | 0x58     | `d17`        |                                             |
+/// | 0x50     | `d16`        |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x48     | `d15`        | Callee-saved registers                      |
+/// | 0x40     | `d14`        |                                             |
+/// | 0x38     | `d13`        |                                             |
+/// | 0x30     | `d12`        |                                             |
+/// | 0x28     | `d11`        |                                             |
+/// | 0x20     | `d10`        |                                             |
+/// | 0x18     | `d9`         |                                             |
+/// | 0x10     | `d8`         |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x8      | `sp` (`x30`) | Stack frame                                 |
+/// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
+/// ```
+const STACK_SIZE: u32 = 0x100;
+
 impl Assembler for IntervalAssembler {
     type Data = Interval;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
+        out.prepare_stack(slot_count, STACK_SIZE as usize);
         dynasm!(out.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
+            // Preserve frame and link register, and set up the frame pointer
+            ; stp   x29, x30, [sp, #0x0]
             ; mov   x29, sp
+
             // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
+            ; stp   d8, d9, [sp, #0x10]
+            ; stp   d10, d11, [sp, #0x20]
+            ; stp   d12, d13, [sp, #0x30]
+            ; stp   d14, d15, [sp, #0x40]
 
             // Arguments are passed in S0-5; collect them into V0-1
             ; mov v0.s[1], v1.s[0]
@@ -48,7 +115,6 @@ impl Assembler for IntervalAssembler {
             ; mov v2.s[0], v4.s[0]
             ; mov v2.s[1], v5.s[0]
         );
-        out.prepare_stack(slot_count);
         Self(out)
     }
 
@@ -59,14 +125,14 @@ impl Assembler for IntervalAssembler {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
-        let sp_offset = self.0.stack_pos(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem) + STACK_SIZE;
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
-        let sp_offset = self.0.stack_pos(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem) + STACK_SIZE;
         assert!(sp_offset <= 32768);
         dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
     }
@@ -446,19 +512,30 @@ impl Assembler for IntervalAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         assert!(self.0.mem_offset < 4096);
+        if self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Restore callee-saved registers
+                ; ldp x20, x21, [sp, #0xe8]
+                ; ldr x22, [sp, #0xf8]
+            )
+        }
         dynasm!(self.0.ops
             // Prepare our return value
             ; mov  s0, V(reg(out_reg)).s[0]
             ; mov  s1, V(reg(out_reg)).s[1]
-            // Restore stack space used for spills
-            ; add   sp, sp, #(self.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
+
             // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
+            ; ldp   x29, x30, [sp, #0x0]
+
+            // Restore callee-saved floating-point registers
+            ; ldp   d8, d9, [sp, #0x10]
+            ; ldp   d10, d11, [sp, #0x20]
+            ; ldp   d12, d13, [sp, #0x30]
+            ; ldp   d14, d15, [sp, #0x40]
+
+            // Fix up the stack
+            ; add sp, sp, #(self.0.mem_offset as u32)
+
             ; ret
         );
 
@@ -473,60 +550,69 @@ impl IntervalAssembler {
         arg_reg: u8,
         f: extern "C" fn(Interval) -> Interval,
     ) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, #0xe8]
+                ; str x22, [sp, #0xf8]
+            );
+            self.0.saved_callee_regs = true;
+        }
+
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up our current state to caller-saved registers
-            ; stp x0, x1, [sp, #-16]!
-            ; stp x2, x3, [sp, #-16]! // TODO: we don't actually use x3
+            // Back up our current state to callee-saved registers
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
 
-            // Back up X/Y/Z values
-            ; stp d0, d1, [sp, #-16]!
-            ; stp d2, d3, [sp, #-16]!
-
-            // We use registers v8-v15 (callee saved lower 64 bytes, which is
-            // fine for intervals) and v16-v31 (caller saved)
-            ; stp d16, d17, [sp, #-16]!
-            ; stp d18, d19, [sp, #-16]!
-            ; stp d20, d21, [sp, #-16]!
-            ; stp d22, d23, [sp, #-16]!
-            ; stp d24, d25, [sp, #-16]!
-            ; stp d26, d27, [sp, #-16]!
-            ; stp d28, d29, [sp, #-16]!
-            ; stp d30, d31, [sp, #-16]!
+            // Back up our state
+            ; stp d16, d17, [sp, #0x50]
+            ; stp d18, d19, [sp, #0x60]
+            ; stp d20, d21, [sp, #0x70]
+            ; stp d22, d23, [sp, #0x80]
+            ; stp d24, d25, [sp, #0x90]
+            ; stp d26, d27, [sp, #0xa0]
+            ; stp d28, d29, [sp, #0xb0]
+            ; stp d30, d31, [sp, #0xc0]
+            ; stp d0, d1, [sp, #0xd0]
+            ; str d2, [sp, #0xe0]
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
-            ; movz x9, #((addr >> 48) as u32), lsl 48
-            ; movk x9, #((addr >> 32) as u32), lsl 32
-            ; movk x9, #((addr >> 16) as u32), lsl 16
-            ; movk x9, #(addr as u32)
+            ; movz x0, #((addr >> 48) as u32), lsl 48
+            ; movk x0, #((addr >> 32) as u32), lsl 32
+            ; movk x0, #((addr >> 16) as u32), lsl 16
+            ; movk x0, #(addr as u32)
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
             ; mov s1, V(reg(arg_reg)).s[1]
 
-            ; blr x9
+            ; blr x0
 
-            // Copy into v4, because we're about to restore d0/1/2/3
-            ; mov v4.s[0], v0.s[0]
-            ; mov v4.s[1], v1.s[0]
-
-            // Restore register state (lol)
-            ; ldp d30, d31, [sp], #16
-            ; ldp d28, d29, [sp], #16
-            ; ldp d26, d27, [sp], #16
-            ; ldp d24, d25, [sp], #16
-            ; ldp d22, d23, [sp], #16
-            ; ldp d20, d21, [sp], #16
-            ; ldp d18, d19, [sp], #16
-            ; ldp d16, d17, [sp], #16
-            ; ldp d2, d3, [sp], #16
-            ; ldp d0, d1, [sp], #16
-            ; ldp x2, x3, [sp], #16
-            ; ldp x0, x1, [sp], #16
+            // Restore floating-point state
+            ; ldp d16, d17, [sp, #0x50]
+            ; ldp d18, d19, [sp, #0x60]
+            ; ldp d20, d21, [sp, #0x70]
+            ; ldp d22, d23, [sp, #0x80]
+            ; ldp d24, d25, [sp, #0x90]
+            ; ldp d26, d27, [sp, #0xa0]
+            ; ldp d28, d29, [sp, #0xb0]
+            ; ldp d30, d31, [sp, #0xc0]
 
             // Set our output value
-            ; fmov D(reg(out_reg)), d4
+            ; mov V(reg(out_reg)).s[0], v0.s[0]
+            ; mov V(reg(out_reg)).s[1], v1.s[0]
+
+            // Restore X/Y/Z values
+            ; ldp d0, d1, [sp, #0xd0]
+            ; ldr d2, [sp, #0xe0]
+
+            // Restore registers
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
         );
     }
 }
