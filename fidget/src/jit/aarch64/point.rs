@@ -41,17 +41,13 @@ use dynasmrt::{dynasm, DynasmApi};
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
-/// |----------|------------------------------------------------------------|
-/// | 0xc0     | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// | ...      |              | Alignment padding                           |
-/// |----------|------------------------------------------------------------|
 /// | 0xb0     | `x22`        | During functions calls, we use these        |
 /// | 0xa8     | `x21`        | as temporary storage so must preserve their |
 /// | 0xa0     | `x20`        | previous values on the stack                |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      |              | Alignment padding                           |
-/// |----------|------------------------------------------------------------|
+/// |----------|--------------|---------------------------------------------|
 /// | 0x98     | `s2`         | During functions calls, X/Y/Z are saved on  |
 /// | 0x94     | `s1`         | the stack                                   |
 /// | 0x90     | `s0`         |                                             |
@@ -85,7 +81,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0xc0; // nearest multiple of 16 bytes
+const STACK_SIZE: u32 = 0xb8;
 impl Assembler for PointAssembler {
     type Data = f32;
 

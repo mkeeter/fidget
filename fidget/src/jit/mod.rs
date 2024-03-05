@@ -282,16 +282,14 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "aarch64")]
     fn prepare_stack(&mut self, slot_count: usize, stack_size: usize) {
-        assert_eq!(stack_size % 16, 0);
-        self.mem_offset = if slot_count < REGISTER_LIMIT {
+        let mem = if slot_count < REGISTER_LIMIT {
             stack_size
         } else {
             let stack_slots = slot_count - REGISTER_LIMIT;
-            let mem = (stack_slots + 1) * std::mem::size_of::<T>();
-
-            // Round up to the nearest multiple of 16 bytes, for alignment
-            ((mem + 15) / 16) * 16 + stack_size
+            (stack_slots + 1) * std::mem::size_of::<T>() + stack_size
         };
+        // Round up to the nearest multiple of 16 bytes, for alignment
+        self.mem_offset = ((mem + 15) / 16) * 16;
         assert!(self.mem_offset < 4096);
         dynasm!(self.ops
             ; sub sp, sp, #(self.mem_offset as u32)
