@@ -21,29 +21,28 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `out`      | `x1`     | `*mut u8` (array)     |
 /// | `count`    | `x2`     | `*mut u8` (single)    |
 ///
-/// During evaluation, registers are identical.  In addition we use the
-/// following registers
+/// During evaluation, registers are identical.  In addition, we use the
+/// following registers during evaluation:
 ///
 /// | Register | Description                                          |
 /// |----------|------------------------------------------------------|
 /// | `s3`     | Immediate value (`IMM_REG`)                          |
 /// | `s7`     | Immediate value for `recip` (1.0)                    |
+/// | `s8-15`  | Tape values (callee-saved)                           |
+/// | `s16-31` | Tape values (caller-saved)                           |
 /// | `x0`     | Function pointer for calls                           |
 /// | `w9`     | Staging for loading immediate                        |
 /// | `w14`    | Choice byte (limited scope)                          |
 /// | `x20`    | Backup for `x0` during function calls (callee-saved) |
 /// | `x21`    | Backup for `x1` during function calls (callee-saved) |
 /// | `x22`    | Backup for `x2` during function calls (callee-saved) |
-/// | `x23`    | Beginning of spill slots in memory (callee-saved)    |
-/// | `s8-15`  | Tape values (callee-saved)                           |
-/// | `s16-31` | Tape values (caller-saved)                           |
 ///
 /// The stack is configured as follows
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|------------------------------------------------------------|
-/// | 0xb0.    | ...          | Register spills live up here                |
+/// | 0xc0     | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      |              | Alignment padding                           |
 /// |----------|------------------------------------------------------------|
@@ -299,7 +298,7 @@ impl Assembler for PointAssembler {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
                 ; ldp x20, x21, [sp, #0xa0]
-                ; ldp x22, x23, [sp, #0xb0]
+                ; ldr x22, [sp, #0xb0]
             )
         }
         dynasm!(self.0.ops
@@ -335,7 +334,7 @@ impl PointAssembler {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
                 ; stp x20, x21, [sp, #0xa0]
-                ; stp x22, x23, [sp, #0xb0]
+                ; str x22, [sp, #0xb0]
             );
             self.0.saved_callee_regs = true;
         }
@@ -361,13 +360,13 @@ impl PointAssembler {
 
             // Load the function address, awkwardly, into x0
             // (since it doesn't matter if it gets trashed)
-            ; movz x23, #((addr >> 48) as u32), lsl 48
-            ; movk x23, #((addr >> 32) as u32), lsl 32
-            ; movk x23, #((addr >> 16) as u32), lsl 16
-            ; movk x23, #(addr as u32)
+            ; movz x0, #((addr >> 48) as u32), lsl 48
+            ; movk x0, #((addr >> 32) as u32), lsl 32
+            ; movk x0, #((addr >> 16) as u32), lsl 16
+            ; movk x0, #(addr as u32)
 
             ; fmov s0, S(reg(arg_reg))
-            ; blr x23
+            ; blr x0
 
             // Restore floating-point state
             ; ldp s16, s17, [sp, #0x50]
