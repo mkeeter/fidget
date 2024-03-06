@@ -32,7 +32,9 @@ pub const SIMD_WIDTH: usize = 4;
 /// | `v3.s4`  | Immediate value (`IMM_REG`)                          |
 /// | `v7.s4`  | Immediate value for recip (1.0)                      |
 /// | `w9`     | Staging for loading immediates                       |
-/// | `w15`    | Staging to load variables
+/// | `w15`    | Staging to load variables                            |
+/// | `x20-25` | Backups for `x0-5` during function calls             |
+/// | `x26`    | Function call address                                |
 ///
 /// The stack is configured as follows
 ///
@@ -112,7 +114,7 @@ impl Assembler for FloatSliceAssembler {
             // calls. We have to use `str` here because we're outside the range
             // for `stp`, sadly
             //
-            // TODO: only do this if we're doing function calls
+            // TODO: only do this if we're doing function calls?
             ; str x20, [sp, 0x200]
             ; str x21, [sp, 0x208]
             ; str x22, [sp, 0x210]
@@ -323,7 +325,8 @@ impl Assembler for FloatSliceAssembler {
             ; ldp   d14, d15, [sp, 0x40]
 
             // Restore callee-saved registers (using `ldr` because we're outside
-            // the range for `ldp`)
+            // the range for `ldp`).  TODO: only do this if the tape contains
+            // function calls?
             ; ldr x20, [sp, 0x200]
             ; ldr x21, [sp, 0x208]
             ; ldr x22, [sp, 0x210]
