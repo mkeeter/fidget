@@ -90,14 +90,14 @@ impl Assembler for PointAssembler {
         out.prepare_stack(slot_count, STACK_SIZE as usize);
         dynasm!(out.ops
             // Preserve frame and link register, and set up the frame pointer
-            ; stp   x29, x30, [sp, #0x0]
+            ; stp   x29, x30, [sp, 0x0]
             ; mov   x29, sp
 
             // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #0x10]
-            ; stp   d10, d11, [sp, #0x20]
-            ; stp   d12, d13, [sp, #0x30]
-            ; stp   d14, d15, [sp, #0x40]
+            ; stp   d8, d9, [sp, 0x10]
+            ; stp   d10, d11, [sp, 0x20]
+            ; stp   d12, d13, [sp, 0x30]
+            ; stp   d14, d15, [sp, 0x40]
         );
 
         Self(out)
@@ -292,8 +292,8 @@ impl Assembler for PointAssembler {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
-                ; ldp x20, x21, [sp, #0xa0]
-                ; ldr x22, [sp, #0xb0]
+                ; ldp x20, x21, [sp, 0xa0]
+                ; ldr x22, [sp, 0xb0]
             )
         }
         dynasm!(self.0.ops
@@ -301,13 +301,13 @@ impl Assembler for PointAssembler {
             ; fmov  s0, S(reg(out_reg))
 
             // Restore frame and link register
-            ; ldp   x29, x30, [sp, #0x0]
+            ; ldp   x29, x30, [sp, 0x0]
 
             // Restore callee-saved floating-point registers
-            ; ldp   d8, d9, [sp, #0x10]
-            ; ldp   d10, d11, [sp, #0x20]
-            ; ldp   d12, d13, [sp, #0x30]
-            ; ldp   d14, d15, [sp, #0x40]
+            ; ldp   d8, d9, [sp, 0x10]
+            ; ldp   d10, d11, [sp, 0x20]
+            ; ldp   d12, d13, [sp, 0x30]
+            ; ldp   d14, d15, [sp, 0x40]
 
             // Fix up the stack
             ; add sp, sp, #(self.0.mem_offset as u32)
@@ -329,8 +329,8 @@ impl PointAssembler {
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, #0xa0]
-                ; str x22, [sp, #0xb0]
+                ; stp x20, x21, [sp, 0xa0]
+                ; str x22, [sp, 0xb0]
             );
             self.0.saved_callee_regs = true;
         }
@@ -343,16 +343,16 @@ impl PointAssembler {
             ; mov x22, x2
 
             // Back up our state
-            ; stp s16, s17, [sp, #0x50]
-            ; stp s18, s19, [sp, #0x58]
-            ; stp s20, s21, [sp, #0x60]
-            ; stp s22, s23, [sp, #0x68]
-            ; stp s24, s25, [sp, #0x70]
-            ; stp s26, s27, [sp, #0x78]
-            ; stp s28, s29, [sp, #0x80]
-            ; stp s30, s31, [sp, #0x88]
-            ; stp s0, s1, [sp, #0x90]
-            ; str s2, [sp, #0x98]
+            ; stp s16, s17, [sp, 0x50]
+            ; stp s18, s19, [sp, 0x58]
+            ; stp s20, s21, [sp, 0x60]
+            ; stp s22, s23, [sp, 0x68]
+            ; stp s24, s25, [sp, 0x70]
+            ; stp s26, s27, [sp, 0x78]
+            ; stp s28, s29, [sp, 0x80]
+            ; stp s30, s31, [sp, 0x88]
+            ; stp s0, s1, [sp, 0x90]
+            ; str s2, [sp, 0x98]
 
             // Load the function address, awkwardly, into x0
             // (since it doesn't matter if it gets trashed)
@@ -365,21 +365,21 @@ impl PointAssembler {
             ; blr x0
 
             // Restore floating-point state
-            ; ldp s16, s17, [sp, #0x50]
-            ; ldp s18, s19, [sp, #0x58]
-            ; ldp s20, s21, [sp, #0x60]
-            ; ldp s22, s23, [sp, #0x68]
-            ; ldp s24, s25, [sp, #0x70]
-            ; ldp s26, s27, [sp, #0x78]
-            ; ldp s28, s29, [sp, #0x80]
-            ; ldp s30, s31, [sp, #0x88]
+            ; ldp s16, s17, [sp, 0x50]
+            ; ldp s18, s19, [sp, 0x58]
+            ; ldp s20, s21, [sp, 0x60]
+            ; ldp s22, s23, [sp, 0x68]
+            ; ldp s24, s25, [sp, 0x70]
+            ; ldp s26, s27, [sp, 0x78]
+            ; ldp s28, s29, [sp, 0x80]
+            ; ldp s30, s31, [sp, 0x88]
 
             // Set our output value
             ; fmov S(reg(out_reg)), s0
 
             // Restore X/Y/Z values
-            ; ldp s0, s1, [sp, #0x90]
-            ; ldr s2, [sp, #0x98]
+            ; ldp s0, s1, [sp, 0x90]
+            ; ldr s2, [sp, 0x98]
 
             // Restore registers
             ; mov x0, x20

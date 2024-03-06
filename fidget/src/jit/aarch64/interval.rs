@@ -99,14 +99,14 @@ impl Assembler for IntervalAssembler {
         out.prepare_stack(slot_count, STACK_SIZE as usize);
         dynasm!(out.ops
             // Preserve frame and link register, and set up the frame pointer
-            ; stp   x29, x30, [sp, #0x0]
+            ; stp   x29, x30, [sp, 0x0]
             ; mov   x29, sp
 
             // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #0x10]
-            ; stp   d10, d11, [sp, #0x20]
-            ; stp   d12, d13, [sp, #0x30]
-            ; stp   d14, d15, [sp, #0x40]
+            ; stp   d8, d9, [sp, 0x10]
+            ; stp   d10, d11, [sp, 0x20]
+            ; stp   d12, d13, [sp, 0x30]
+            ; stp   d14, d15, [sp, 0x40]
 
             // Arguments are passed in S0-5; collect them into V0-1
             ; mov v0.s[1], v1.s[0]
@@ -214,11 +214,11 @@ impl Assembler for IntervalAssembler {
             ; fabs V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
 
             // Check whether lhs.upper < 0
-            ; tst x15, #0x1_0000_0000
+            ; tst x15, 0x1_0000_0000
             ; b.ne #24 // -> upper_lz
 
             // Check whether lhs.lower < 0
-            ; tst x15, #0x1
+            ; tst x15, 0x1
 
             // otherwise, we're good; return the original
             ; b.eq #20 // -> end
@@ -273,10 +273,10 @@ impl Assembler for IntervalAssembler {
             ; fmov x15, d4
 
             // Check whether lhs.upper < 0
-            ; tst x15, #0x1_0000_0000
+            ; tst x15, 0x1_0000_0000
             ; b.ne #40 // -> upper_lz
 
-            ; tst x15, #0x1
+            ; tst x15, 0x1
             ; b.ne #12 // -> lower_lz
 
             // Happy path
@@ -306,11 +306,11 @@ impl Assembler for IntervalAssembler {
             ; fmul V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
 
             // Check whether lhs.upper <= 0.0
-            ; tst x15, #0x1_0000_0000
+            ; tst x15, 0x1_0000_0000
             ; b.ne #28 // -> swap
 
             // Test whether lhs.lower <= 0.0
-            ; tst x15, #0x1
+            ; tst x15, 0x1
             ; b.eq #24 // -> end
 
             // If the input interval straddles 0, then the
@@ -423,10 +423,10 @@ impl Assembler for IntervalAssembler {
             ; fmov x15, d5
             ; ldrb w14, [x1]
 
-            ; tst x15, #0x1_0000_0000
+            ; tst x15, 0x1_0000_0000
             ; b.ne #28 // -> lhs
 
-            ; tst x15, #0x1
+            ; tst x15, 0x1
             ; b.eq #36 // -> both
 
             // LHS < RHS
@@ -472,10 +472,10 @@ impl Assembler for IntervalAssembler {
             ; fmov x15, d5
             ; ldrb w14, [x1]
 
-            ; tst x15, #0x1_0000_0000
+            ; tst x15, 0x1_0000_0000
             ; b.ne #28 // -> rhs
 
-            ; tst x15, #0x1
+            ; tst x15, 0x1
             ; b.eq #36 // -> both
 
             // Fallthrough: LHS < RHS
@@ -515,8 +515,8 @@ impl Assembler for IntervalAssembler {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
-                ; ldp x20, x21, [sp, #0xe8]
-                ; ldr x22, [sp, #0xf8]
+                ; ldp x20, x21, [sp, 0xe8]
+                ; ldr x22, [sp, 0xf8]
             )
         }
         dynasm!(self.0.ops
@@ -525,13 +525,13 @@ impl Assembler for IntervalAssembler {
             ; mov  s1, V(reg(out_reg)).s[1]
 
             // Restore frame and link register
-            ; ldp   x29, x30, [sp, #0x0]
+            ; ldp   x29, x30, [sp, 0x0]
 
             // Restore callee-saved floating-point registers
-            ; ldp   d8, d9, [sp, #0x10]
-            ; ldp   d10, d11, [sp, #0x20]
-            ; ldp   d12, d13, [sp, #0x30]
-            ; ldp   d14, d15, [sp, #0x40]
+            ; ldp   d8, d9, [sp, 0x10]
+            ; ldp   d10, d11, [sp, 0x20]
+            ; ldp   d12, d13, [sp, 0x30]
+            ; ldp   d14, d15, [sp, 0x40]
 
             // Fix up the stack
             ; add sp, sp, #(self.0.mem_offset as u32)
@@ -553,8 +553,8 @@ impl IntervalAssembler {
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, #0xe8]
-                ; str x22, [sp, #0xf8]
+                ; stp x20, x21, [sp, 0xe8]
+                ; str x22, [sp, 0xf8]
             );
             self.0.saved_callee_regs = true;
         }
@@ -567,16 +567,16 @@ impl IntervalAssembler {
             ; mov x22, x2
 
             // Back up our state
-            ; stp d16, d17, [sp, #0x50]
-            ; stp d18, d19, [sp, #0x60]
-            ; stp d20, d21, [sp, #0x70]
-            ; stp d22, d23, [sp, #0x80]
-            ; stp d24, d25, [sp, #0x90]
-            ; stp d26, d27, [sp, #0xa0]
-            ; stp d28, d29, [sp, #0xb0]
-            ; stp d30, d31, [sp, #0xc0]
-            ; stp d0, d1, [sp, #0xd0]
-            ; str d2, [sp, #0xe0]
+            ; stp d16, d17, [sp, 0x50]
+            ; stp d18, d19, [sp, 0x60]
+            ; stp d20, d21, [sp, 0x70]
+            ; stp d22, d23, [sp, 0x80]
+            ; stp d24, d25, [sp, 0x90]
+            ; stp d26, d27, [sp, 0xa0]
+            ; stp d28, d29, [sp, 0xb0]
+            ; stp d30, d31, [sp, 0xc0]
+            ; stp d0, d1, [sp, 0xd0]
+            ; str d2, [sp, 0xe0]
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
@@ -592,22 +592,22 @@ impl IntervalAssembler {
             ; blr x0
 
             // Restore floating-point state
-            ; ldp d16, d17, [sp, #0x50]
-            ; ldp d18, d19, [sp, #0x60]
-            ; ldp d20, d21, [sp, #0x70]
-            ; ldp d22, d23, [sp, #0x80]
-            ; ldp d24, d25, [sp, #0x90]
-            ; ldp d26, d27, [sp, #0xa0]
-            ; ldp d28, d29, [sp, #0xb0]
-            ; ldp d30, d31, [sp, #0xc0]
+            ; ldp d16, d17, [sp, 0x50]
+            ; ldp d18, d19, [sp, 0x60]
+            ; ldp d20, d21, [sp, 0x70]
+            ; ldp d22, d23, [sp, 0x80]
+            ; ldp d24, d25, [sp, 0x90]
+            ; ldp d26, d27, [sp, 0xa0]
+            ; ldp d28, d29, [sp, 0xb0]
+            ; ldp d30, d31, [sp, 0xc0]
 
             // Set our output value
             ; mov V(reg(out_reg)).s[0], v0.s[0]
             ; mov V(reg(out_reg)).s[1], v1.s[0]
 
             // Restore X/Y/Z values
-            ; ldp d0, d1, [sp, #0xd0]
-            ; ldr d2, [sp, #0xe0]
+            ; ldp d0, d1, [sp, 0xd0]
+            ; ldr d2, [sp, 0xe0]
 
             // Restore registers
             ; mov x0, x20
