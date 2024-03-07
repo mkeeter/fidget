@@ -93,6 +93,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
 const STACK_SIZE: u32 = 0x238;
+
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
@@ -136,8 +137,8 @@ impl Assembler for FloatSliceAssembler {
             // We'll be advancing x0, x1, x2 here (and decrementing x5 by 4);
             // x4 is advanced in finalize().
 
-            ; cmp x5, #0
-            ; b.eq ->E
+            ; cmp x5, 0
+            ; b.eq ->E // function exit
 
             // Loop body:
             //
@@ -247,7 +248,7 @@ impl Assembler for FloatSliceAssembler {
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmov s7, #1.0
+            ; fmov s7, 1.0
             ; dup v7.s4, v7.s[0]
             ; fdiv V(reg(out_reg)).s4, v7.s4, V(reg(lhs_reg)).s4
         )

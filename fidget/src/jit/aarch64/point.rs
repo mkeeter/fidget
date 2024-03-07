@@ -190,7 +190,7 @@ impl Assembler for PointAssembler {
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmov s7, #1.0
+            ; fmov s7, 1.0
             ; fdiv S(reg(out_reg)), s7, S(reg(lhs_reg))
         )
     }
@@ -224,56 +224,56 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20 // -> RHS
-            ; b.gt #32 // -> LHS
+            ; b.mi 20 // -> RHS
+            ; b.gt 32 // -> LHS
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #32 // -> end
+            ; b 32 // -> end
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #16
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 16
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], #1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20
-            ; b.gt #32
+            ; b.mi 20
+            ; b.gt 32
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #32 // -> end
+            ; b 32 // -> end
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #16
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 16
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0]
+            ; strb w14, [x2, 0]
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], #1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
 
