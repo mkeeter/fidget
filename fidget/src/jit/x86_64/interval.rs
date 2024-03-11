@@ -28,10 +28,10 @@ impl Assembler for IntervalAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
-            ; mov rbp, rsp
             ; push r12
             ; push r13
             ; push r14
+            ; mov rbp, rsp
             ; vzeroupper
 
             // Put X/Y/Z on the stack so we can use those registers
@@ -39,7 +39,7 @@ impl Assembler for IntervalAssembler {
             ; movq [rbp - 16], xmm1
             ; movq [rbp - 24], xmm2
         );
-        out.prepare_stack(slot_count, 4);
+        out.prepare_stack(slot_count, 4 * std::mem::size_of::<Self::Data>());
         Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
