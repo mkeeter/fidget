@@ -282,12 +282,11 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "aarch64")]
     fn prepare_stack(&mut self, slot_count: usize, stack_size: usize) {
-        let mem = if slot_count < REGISTER_LIMIT {
-            stack_size
-        } else {
-            let stack_slots = slot_count - REGISTER_LIMIT;
-            (stack_slots + 1) * std::mem::size_of::<T>() + stack_size
-        };
+        // We always use the stack, if only to store callee-saved registers
+        let mem = slot_count.saturating_sub(REGISTER_LIMIT)
+            * std::mem::size_of::<T>()
+            + stack_size;
+
         // Round up to the nearest multiple of 16 bytes, for alignment
         self.mem_offset = ((mem + 15) / 16) * 16;
         assert!(self.mem_offset < 4096);
