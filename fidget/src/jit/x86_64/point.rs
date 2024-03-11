@@ -30,18 +30,18 @@ impl Assembler for PointAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
+            ; mov rbp, rsp
             ; push r12
             ; push r13
             ; push r14
             ; push r15
             ; vzeroupper
-            ; mov rbp, rsp
             // Put X/Y/Z on the stack so we can use those registers
             ; vmovss [rbp - 4], xmm0
             ; vmovss [rbp - 8], xmm1
             ; vmovss [rbp - 12], xmm2
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, 4);
         Self(out)
     }
 

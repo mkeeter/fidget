@@ -33,7 +33,7 @@ impl Assembler for GradSliceAssembler {
             ; mov rbp, rsp
             ; vzeroupper
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, 4);
         dynasm!(out.ops
             // The loop returns here, and we check whether to keep looping
             ; ->L:

@@ -33,14 +33,14 @@ impl Assembler for FloatSliceAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
+            ; mov rbp, rsp
             ; push r12
             ; push r13
             ; push r14
             ; push r15
-            ; mov rbp, rsp
             ; vzeroupper
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, 4);
         dynasm!(out.ops
             // The loop returns here, and we check whether to keep looping
             ; ->L:
