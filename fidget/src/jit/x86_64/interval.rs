@@ -33,7 +33,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | -0x10    | `r13`        | as temporary storage so must preserve their |
 /// | -0x18    | `r14`        | previous values on the stack                |
 /// |----------|--------------|---------------------------------------------|
-/// | -0x20    | Z            | Inputs                                      |
+/// | -0x20    | Z            | Inputs (as 2x floats)                       |
 /// | -0x28    | Y            |                                             |
 /// | -0x30    | X            |                                             |
 /// |----------|--------------|---------------------------------------------|
