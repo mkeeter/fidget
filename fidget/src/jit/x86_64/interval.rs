@@ -21,6 +21,40 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const f32` (array)  |
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
+///
+/// The stack is configured as follows
+///
+/// ```text
+/// | Position | Value        | Notes                                       |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x00     | `rbp`        | Previous value for base pointer             |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x08    | `r12`        | During functions calls, we use these        |
+/// | -0x10    | `r13`        | as temporary storage so must preserve their |
+/// | -0x18    | `r14`        | previous values on the stack                |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x20    | Z            | Inputs                                      |
+/// | -0x28    | Y            |                                             |
+/// | -0x30    | X            |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | ...      | ...          | Register spills live up here                |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x58     | xmm15        | Caller-saved registers during functions     |
+/// | 0x50     | xmm14        | calls are placed here, then restored        |
+/// | 0x48     | xmm13        |                                             |
+/// | 0x40     | xmm12        |                                             |
+/// | 0x38     | xmm11        |                                             |
+/// | 0x30     | xmm10        |                                             |
+/// | 0x28     | xmm9         |                                             |
+/// | 0x20     | xmm8         |                                             |
+/// | 0x18     | xmm7         |                                             |
+/// | 0x10     | xmm6         |                                             |
+/// | 0x08     | xmm5         |                                             |
+/// | 0x00     | xmm4         |                                             |
+/// ```
+const STACK_SIZE_UPPER: usize = 0x30; // Positions relative to `rbp`
+const STACK_SIZE_LOWER: usize = 0x60; // Positions relative to `rsp`
+
 impl Assembler for IntervalAssembler {
     type Data = Interval;
 
@@ -28,23 +62,25 @@ impl Assembler for IntervalAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
-            ; push r12
-            ; push r13
-            ; push r14
             ; mov rbp, rsp
+        );
+        out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
+        dynasm!(out.ops
             ; vzeroupper
 
             // Put X/Y/Z on the stack so we can use those registers
-            ; movq [rbp - 8], xmm0
-            ; movq [rbp - 16], xmm1
-            ; movq [rbp - 24], xmm2
+            ; vmovsd [rbp - 0x30], xmm0
+            ; vmovsd [rbp - 0x28], xmm1
+            ; vmovsd [rbp - 0x20], xmm2
         );
-        out.prepare_stack(slot_count, 4 * std::mem::size_of::<Self::Data>());
         Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(src_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             // Pretend that we're a double
             ; movq Rx(reg(dst_reg)), [rsp + sp_offset]
@@ -52,15 +88,20 @@ impl Assembler for IntervalAssembler {
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(dst_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             // Pretend that we're a double
             ; movq [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        let pos = STACK_SIZE_UPPER as i32
+            - (std::mem::size_of::<Self::Data>() as i32) * (src_arg as i32);
         dynasm!(self.0.ops
-            ; vmovq Rx(reg(out_reg)), [rbp - 8 * (src_arg as i32 + 1)]
+            ; vmovq Rx(reg(out_reg)), [rbp - pos]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
@@ -477,18 +518,21 @@ impl Assembler for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+        if self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov r12, [rbp - 0x8]
+                ; mov r13, [rbp - 0x10]
+                ; mov r14, [rbp - 0x18]
+            );
+        }
         dynasm!(self.0.ops
             ; vmovq xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
-            ; pop r14
-            ; pop r13
-            ; pop r12
             ; pop rbp
             ; emms
             ; ret
         );
-        let out = self.0.ops.finalize()?;
-        Ok(out)
+        self.0.ops.finalize()
     }
 }
 
@@ -499,9 +543,18 @@ impl IntervalAssembler {
         arg_reg: u8,
         f: extern "sysv64" fn(Interval) -> Interval,
     ) {
+        // Back up a few callee-saved registers that we're about to use
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov [rbp - 0x8], r12
+                ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
+            );
+            self.0.saved_callee_regs = true
+        }
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to registers
+            // Back up vars/choice/simplify pointers to registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
@@ -510,19 +563,18 @@ impl IntervalAssembler {
             // (since we want to back up all 64 bits)
             //
             // TODO should these be `movq` instead?
-            ; sub rsp, 96
-            ; movsd [rsp], xmm4
-            ; movsd [rsp + 8], xmm5
-            ; movsd [rsp + 16], xmm6
-            ; movsd [rsp + 24], xmm7
-            ; movsd [rsp + 32], xmm8
-            ; movsd [rsp + 40], xmm9
-            ; movsd [rsp + 48], xmm10
-            ; movsd [rsp + 56], xmm11
-            ; movsd [rsp + 64], xmm12
-            ; movsd [rsp + 72], xmm13
-            ; movsd [rsp + 80], xmm14
-            ; movsd [rsp + 88], xmm15
+            ; vmovsd [rsp], xmm4
+            ; vmovsd [rsp + 0x08], xmm5
+            ; vmovsd [rsp + 0x10], xmm6
+            ; vmovsd [rsp + 0x18], xmm7
+            ; vmovsd [rsp + 0x20], xmm8
+            ; vmovsd [rsp + 0x28], xmm9
+            ; vmovsd [rsp + 0x30], xmm10
+            ; vmovsd [rsp + 0x38], xmm11
+            ; vmovsd [rsp + 0x40], xmm12
+            ; vmovsd [rsp + 0x48], xmm13
+            ; vmovsd [rsp + 0x50], xmm14
+            ; vmovsd [rsp + 0x58], xmm15
 
             // copy arg to xmm0
             ; vmovq xmm0, Rx(reg(arg_reg))
@@ -530,21 +582,20 @@ impl IntervalAssembler {
             ; call rdx
 
             // Restore float registers
-            ; movsd xmm4, [rsp]
-            ; movsd xmm5, [rsp + 8]
-            ; movsd xmm6, [rsp + 16]
-            ; movsd xmm7, [rsp + 24]
-            ; movsd xmm8, [rsp + 32]
-            ; movsd xmm9, [rsp + 40]
-            ; movsd xmm10, [rsp + 48]
-            ; movsd xmm11, [rsp + 56]
-            ; movsd xmm12, [rsp + 64]
-            ; movsd xmm13, [rsp + 72]
-            ; movsd xmm14, [rsp + 80]
-            ; movsd xmm15, [rsp + 88]
-            ; add rsp, 96
+            ; vmovsd xmm4, [rsp]
+            ; vmovsd xmm5, [rsp + 0x08]
+            ; vmovsd xmm6, [rsp + 0x10]
+            ; vmovsd xmm7, [rsp + 0x18]
+            ; vmovsd xmm8, [rsp + 0x20]
+            ; vmovsd xmm9, [rsp + 0x28]
+            ; vmovsd xmm10, [rsp + 0x30]
+            ; vmovsd xmm11, [rsp + 0x38]
+            ; vmovsd xmm12, [rsp + 0x40]
+            ; vmovsd xmm13, [rsp + 0x48]
+            ; vmovsd xmm14, [rsp + 0x50]
+            ; vmovsd xmm15, [rsp + 0x58]
 
-            // Restore X/Y/Z pointers
+            // Restore vars/choice/simplify pointers
             ; mov rdi, r12
             ; mov rsi, r13
             ; mov rdx, r14
