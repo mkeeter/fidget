@@ -78,5 +78,9 @@ harness = false
 name = "mesh"
 harness = false
 
+[[bench]]
+name = "function_call"
+harness = false
+
 [lib]
 bench = false
