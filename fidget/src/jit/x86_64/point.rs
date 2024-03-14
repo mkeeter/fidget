@@ -23,6 +23,40 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// X, Y, and Z are stored on the stack during code execution, to free up those
 /// registers as scratch values.
+///
+/// The stack is configured as follows
+///
+/// ```text
+/// | Position | Value        | Notes                                       |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x00     | `rbp`        | Previous value for base pointer             |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x08    | `r12`        | During functions calls, we use these        |
+/// | -0x10    | `r13`        | as temporary storage so must preserve their |
+/// | -0x18    | `r14`        | previous values on the stack                |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x20    | Z            | Inputs                                      |
+/// | -0x24    | Y            |                                             |
+/// | -0x28    | X            |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | ...      | ...          | Register spills live up here                |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x2c     | xmm15        | Caller-saved registers during functions     |
+/// | 0x28     | xmm14        | calls are placed here, then restored        |
+/// | 0x24     | xmm13        |                                             |
+/// | 0x20     | xmm12        |                                             |
+/// | 0x1c     | xmm11        |                                             |
+/// | 0x18     | xmm10        |                                             |
+/// | 0x14     | xmm9         |                                             |
+/// | 0x10     | xmm8         |                                             |
+/// | 0x0c     | xmm7         |                                             |
+/// | 0x08     | xmm6         |                                             |
+/// | 0x04     | xmm5         |                                             |
+/// | 0x00     | xmm4         |                                             |
+/// ```
+const STACK_SIZE_UPPER: usize = 0x28; // Positions relative to `rbp`
+const STACK_SIZE_LOWER: usize = 0x30; // Positions relative to `rsp`
+
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -30,39 +64,44 @@ impl Assembler for PointAssembler {
         let mut out = AssemblerData::new(mmap);
         dynasm!(out.ops
             ; push rbp
-            ; push r12
-            ; push r13
-            ; push r14
-            ; push r15
-            ; vzeroupper
             ; mov rbp, rsp
-            // Put X/Y/Z on the stack so we can use those registers
-            ; vmovss [rbp - 4], xmm0
-            ; vmovss [rbp - 8], xmm1
-            ; vmovss [rbp - 12], xmm2
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
+        dynasm!(out.ops
+            ; vzeroupper
+            // Put X/Y/Z on the stack to free up those registers
+            ; vmovss [rbp - 0x20], xmm2
+            ; vmovss [rbp - 0x24], xmm1
+            ; vmovss [rbp - 0x28], xmm0
+        );
         Self(out)
     }
 
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(src_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             ; vmovss Rx(reg(dst_reg)), [rsp + sp_offset]
         );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(dst_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             ; vmovss [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        let pos = STACK_SIZE_UPPER as i32 - 4 * (src_arg as i32);
         dynasm!(self.0.ops
             // Pull X/Y/Z from the stack, where they've been placed by init()
-            ; vmovss Rx(reg(out_reg)), [rbp - 4 * (src_arg as i32 + 1)]
+            ; vmovss Rx(reg(out_reg)), [rbp - pos]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
@@ -256,14 +295,17 @@ impl Assembler for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+        if self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov r12, [rbp - 0x8]
+                ; mov r13, [rbp - 0x10]
+                ; mov r14, [rbp - 0x18]
+            );
+        }
         dynasm!(self.0.ops
             // Prepare our return value
             ; vmovss xmm0, xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
-            ; pop r15
-            ; pop r14
-            ; pop r13
-            ; pop r12
             ; pop rbp
             ; emms
             ; ret
@@ -279,6 +321,15 @@ impl PointAssembler {
         arg_reg: u8,
         f: extern "sysv64" fn(f32) -> f32,
     ) {
+        // Back up a few callee-saved registers that we're about to use
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov [rbp - 0x8], r12
+                ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
+            );
+            self.0.saved_callee_regs = true
+        }
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up X/Y/Z pointers to caller-saved registers
@@ -286,20 +337,19 @@ impl PointAssembler {
             ; mov r13, rsi
             ; mov r14, rdx
 
-            // Back up X/Y/Z values to the stack
-            ; sub rsp, 48
+            // Back up all register values to the stack
             ; movss [rsp], xmm4
-            ; movss [rsp + 4], xmm5
-            ; movss [rsp + 8], xmm6
-            ; movss [rsp + 12], xmm7
-            ; movss [rsp + 16], xmm8
-            ; movss [rsp + 20], xmm9
-            ; movss [rsp + 24], xmm10
-            ; movss [rsp + 28], xmm11
-            ; movss [rsp + 32], xmm12
-            ; movss [rsp + 36], xmm13
-            ; movss [rsp + 40], xmm14
-            ; movss [rsp + 44], xmm15
+            ; movss [rsp + 0x4], xmm5
+            ; movss [rsp + 0x8], xmm6
+            ; movss [rsp + 0xc], xmm7
+            ; movss [rsp + 0x10], xmm8
+            ; movss [rsp + 0x14], xmm9
+            ; movss [rsp + 0x18], xmm10
+            ; movss [rsp + 0x1c], xmm11
+            ; movss [rsp + 0x20], xmm12
+            ; movss [rsp + 0x24], xmm13
+            ; movss [rsp + 0x28], xmm14
+            ; movss [rsp + 0x2c], xmm15
 
             // call the function
             ; movss xmm0, Rx(reg(arg_reg))
@@ -308,18 +358,17 @@ impl PointAssembler {
 
             // Restore float registers
             ; movss xmm4, [rsp]
-            ; movss xmm5, [rsp + 4]
-            ; movss xmm6, [rsp + 8]
-            ; movss xmm7, [rsp + 12]
-            ; movss xmm8, [rsp + 16]
-            ; movss xmm9, [rsp + 20]
-            ; movss xmm10, [rsp + 24]
-            ; movss xmm11, [rsp + 28]
-            ; movss xmm12, [rsp + 32]
-            ; movss xmm13, [rsp + 36]
-            ; movss xmm14, [rsp + 40]
-            ; movss xmm15, [rsp + 44]
-            ; add rsp, 48
+            ; movss xmm5, [rsp + 0x4]
+            ; movss xmm6, [rsp + 0x8]
+            ; movss xmm7, [rsp + 0xc]
+            ; movss xmm8, [rsp + 0x10]
+            ; movss xmm9, [rsp + 0x14]
+            ; movss xmm10, [rsp + 0x18]
+            ; movss xmm11, [rsp + 0x1c]
+            ; movss xmm12, [rsp + 0x20]
+            ; movss xmm13, [rsp + 0x24]
+            ; movss xmm14, [rsp + 0x28]
+            ; movss xmm15, [rsp + 0x2c]
 
             // Restore X/Y/Z pointers
             ; mov rdi, r12

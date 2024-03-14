@@ -20,23 +20,85 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `vars`     | `x0`     | `*const f32` (array)  |
 /// | `out`      | `x1`     | `*mut u8` (array)     |
 /// | `count`    | `x2`     | `*mut u8` (single)    |
+///
+/// During evaluation, registers are identical.  In addition, we use the
+/// following registers during evaluation:
+///
+/// | Register | Description                                          |
+/// |----------|------------------------------------------------------|
+/// | `s3`     | Immediate value (`IMM_REG`)                          |
+/// | `s7`     | Immediate value for `recip` (1.0)                    |
+/// | `s8-15`  | Tape values (callee-saved)                           |
+/// | `s16-31` | Tape values (caller-saved)                           |
+/// | `x0`     | Function pointer for calls                           |
+/// | `w9`     | Staging for loading immediate                        |
+/// | `w14`    | Choice byte (limited scope)                          |
+/// | `x20`    | Backup for `x0` during function calls (callee-saved) |
+/// | `x21`    | Backup for `x1` during function calls (callee-saved) |
+/// | `x22`    | Backup for `x2` during function calls (callee-saved) |
+///
+/// The stack is configured as follows
+///
+/// ```text
+/// | Position | Value        | Notes                                       |
+/// |----------|--------------|---------------------------------------------|
+/// | 0xb0     | `x22`        | During functions calls, we use these        |
+/// | 0xa8     | `x21`        | as temporary storage so must preserve their |
+/// | 0xa0     | `x20`        | previous values on the stack                |
+/// |----------|--------------|---------------------------------------------|
+/// | ...      |              | Alignment padding                           |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x98     | `s2`         | During functions calls, X/Y/Z are saved on  |
+/// | 0x94     | `s1`         | the stack                                   |
+/// | 0x90     | `s0`         |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x8c     | `s31`        | During functions calls, caller-saved tape   |
+/// | 0x88     | `s30`        | registers are saved on the stack            |
+/// | 0x84     | `s29`        |                                             |
+/// | 0x80     | `s28`        |                                             |
+/// | 0x7c     | `s27`        |                                             |
+/// | 0x78     | `s26`        |                                             |
+/// | 0x74     | `s25`        |                                             |
+/// | 0x70     | `s24`        |                                             |
+/// | 0x6c     | `s23`        |                                             |
+/// | 0x68     | `s22`        |                                             |
+/// | 0x64     | `s21`        |                                             |
+/// | 0x60     | `s20`        |                                             |
+/// | 0x5c     | `s19`        |                                             |
+/// | 0x58     | `s18`        |                                             |
+/// | 0x54     | `s17`        |                                             |
+/// | 0x50     | `s16`        |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x48     | `d15`        | Callee-saved registers                      |
+/// | 0x40     | `d14`        |                                             |
+/// | 0x38     | `d13`        |                                             |
+/// | 0x30     | `d12`        |                                             |
+/// | 0x28     | `d11`        |                                             |
+/// | 0x20     | `d10`        |                                             |
+/// | 0x18     | `d9`         |                                             |
+/// | 0x10     | `d8`         |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x8      | `sp` (`x30`) | Stack frame                                 |
+/// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
+/// ```
+const STACK_SIZE: u32 = 0xb8;
 impl Assembler for PointAssembler {
     type Data = f32;
 
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
+        out.prepare_stack(slot_count, STACK_SIZE as usize);
         dynasm!(out.ops
-            // Preserve frame and link register
-            ; stp   x29, x30, [sp, #-16]!
-            // Preserve sp
+            // Preserve frame and link register, and set up the frame pointer
+            ; stp   x29, x30, [sp, 0x0]
             ; mov   x29, sp
+
             // Preserve callee-saved floating-point registers
-            ; stp   d8, d9, [sp, #-16]!
-            ; stp   d10, d11, [sp, #-16]!
-            ; stp   d12, d13, [sp, #-16]!
-            ; stp   d14, d15, [sp, #-16]!
+            ; stp   d8, d9, [sp, 0x10]
+            ; stp   d10, d11, [sp, 0x20]
+            ; stp   d12, d13, [sp, 0x30]
+            ; stp   d14, d15, [sp, 0x40]
         );
-        out.prepare_stack(slot_count);
 
         Self(out)
     }
@@ -48,14 +110,14 @@ impl Assembler for PointAssembler {
     /// Reads from `src_mem` to `dst_reg`
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
-        let sp_offset = self.0.stack_pos(src_mem);
+        let sp_offset = self.0.stack_pos(src_mem) + STACK_SIZE;
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; ldr S(reg(dst_reg)), [sp, #(sp_offset)])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
-        let sp_offset = self.0.stack_pos(dst_mem);
+        let sp_offset = self.0.stack_pos(dst_mem) + STACK_SIZE;
         assert!(sp_offset <= 16384);
         dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, #(sp_offset)])
     }
@@ -128,7 +190,7 @@ impl Assembler for PointAssembler {
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fmov s7, #1.0
+            ; fmov s7, 1.0
             ; fdiv S(reg(out_reg)), s7, S(reg(lhs_reg))
         )
     }
@@ -162,56 +224,56 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20 // -> RHS
-            ; b.gt #32 // -> LHS
+            ; b.mi 20 // -> RHS
+            ; b.gt 32 // -> LHS
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmax S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #32 // -> end
+            ; b 32 // -> end
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #16
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 16
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], #1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; ldrb w14, [x1]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.mi #20
-            ; b.gt #32
+            ; b.mi 20
+            ; b.gt 32
 
             // Equal or NaN; do the comparison to collapse NaNs
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_BOTH
-            ; b #32 // -> end
+            ; b 32 // -> end
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, #CHOICE_LEFT
-            ; strb w14, [x2, #0] // write a non-zero value to simplify
-            ; b #16
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 16
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, #CHOICE_RIGHT
-            ; strb w14, [x2, #0]
+            ; strb w14, [x2, 0]
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], #1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
 
@@ -227,18 +289,29 @@ impl Assembler for PointAssembler {
     }
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+        if self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Restore callee-saved registers
+                ; ldp x20, x21, [sp, 0xa0]
+                ; ldr x22, [sp, 0xb0]
+            )
+        }
         dynasm!(self.0.ops
             // Prepare our return value
             ; fmov  s0, S(reg(out_reg))
-            // Restore stack space used for spills
-            ; add   sp, sp, #(self.0.mem_offset as u32)
-            // Restore callee-saved floating-point registers
-            ; ldp   d14, d15, [sp], #16
-            ; ldp   d12, d13, [sp], #16
-            ; ldp   d10, d11, [sp], #16
-            ; ldp   d8, d9, [sp], #16
+
             // Restore frame and link register
-            ; ldp   x29, x30, [sp], #16
+            ; ldp   x29, x30, [sp, 0x0]
+
+            // Restore callee-saved floating-point registers
+            ; ldp   d8, d9, [sp, 0x10]
+            ; ldp   d10, d11, [sp, 0x20]
+            ; ldp   d12, d13, [sp, 0x30]
+            ; ldp   d14, d15, [sp, 0x40]
+
+            // Fix up the stack
+            ; add sp, sp, #(self.0.mem_offset as u32)
+
             ; ret
         );
 
@@ -253,67 +326,65 @@ impl PointAssembler {
         arg_reg: u8,
         f: extern "C" fn(f32) -> f32,
     ) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, 0xa0]
+                ; str x22, [sp, 0xb0]
+            );
+            self.0.saved_callee_regs = true;
+        }
+
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up our current state to caller-saved registers
-            ; mov x10, x0
-            ; mov x11, x1
-            ; mov x12, x2
+            // Back up our current state to callee-saved registers
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
 
-            // Back up X/Y/Z values
-            ; sub sp, sp, #96 // stack pointer must be 16-byte aligned
-            ; stp s8, s9, [sp, #80] // we're overwriting these later
-            ; stp s0, s1, [sp, #72]
-            ; stp s2, s3, [sp, #64]
+            // Back up our state
+            ; stp s16, s17, [sp, 0x50]
+            ; stp s18, s19, [sp, 0x58]
+            ; stp s20, s21, [sp, 0x60]
+            ; stp s22, s23, [sp, 0x68]
+            ; stp s24, s25, [sp, 0x70]
+            ; stp s26, s27, [sp, 0x78]
+            ; stp s28, s29, [sp, 0x80]
+            ; stp s30, s31, [sp, 0x88]
+            ; stp s0, s1, [sp, 0x90]
+            ; str s2, [sp, 0x98]
 
-            // We use registers v8-v15 (lower 64 bytes are callee saved, so
-            // that's fine) and v16-v31 (caller saved)
-            ; stp s16, s17, [sp, #56]
-            ; stp s18, s19, [sp, #48]
-            ; stp s20, s21, [sp, #40]
-            ; stp s22, s23, [sp, #32]
-            ; stp s24, s25, [sp, #24]
-            ; stp s26, s27, [sp, #16]
-            ; stp s28, s29, [sp, #8]
-            ; stp s30, s31, [sp, #0]
+            // Load the function address, awkwardly, into x0
+            // (since it doesn't matter if it gets trashed)
+            ; movz x0, #((addr >> 48) as u32), lsl 48
+            ; movk x0, #((addr >> 32) as u32), lsl 32
+            ; movk x0, #((addr >> 16) as u32), lsl 16
+            ; movk x0, #(addr as u32)
 
-            // Load the function address, awkwardly, into a caller-saved
-            // register
-            ; movz x9, #((addr >> 48) as u32), lsl 48
-            ; movk x9, #((addr >> 32) as u32), lsl 32
-            ; movk x9, #((addr >> 16) as u32), lsl 16
-            ; movk x9, #(addr as u32)
+            ; fmov s0, S(reg(arg_reg))
+            ; blr x0
 
-            // Back up the input argument into s8
-            ; fmov s8, S(reg(arg_reg))
-
-            ; fmov s0, s8
-            ; blr x9
-            ; fmov s4, s0
-
-            // Restore register state (lol)
-            ; ldp s8, s9, [sp, #80]
-            ; ldp s0, s1, [sp, #72]
-            ; ldp s2, s3, [sp, #64]
-
-            // We use registers v8-v15 (lower 64 bytes are callee saved, so
-            // that's fine) and v16-v31 (caller saved)
-            ; ldp s16, s17, [sp, #56]
-            ; ldp s18, s19, [sp, #48]
-            ; ldp s20, s21, [sp, #40]
-            ; ldp s22, s23, [sp, #32]
-            ; ldp s24, s25, [sp, #24]
-            ; ldp s26, s27, [sp, #16]
-            ; ldp s28, s29, [sp, #8]
-            ; ldp s30, s31, [sp, #0]
-            ; add sp, sp, #96
-
-            ; mov x0, x10
-            ; mov x1, x11
-            ; mov x2, x12
+            // Restore floating-point state
+            ; ldp s16, s17, [sp, 0x50]
+            ; ldp s18, s19, [sp, 0x58]
+            ; ldp s20, s21, [sp, 0x60]
+            ; ldp s22, s23, [sp, 0x68]
+            ; ldp s24, s25, [sp, 0x70]
+            ; ldp s26, s27, [sp, 0x78]
+            ; ldp s28, s29, [sp, 0x80]
+            ; ldp s30, s31, [sp, 0x88]
 
             // Set our output value
-            ; fmov S(reg(out_reg)), s4
+            ; fmov S(reg(out_reg)), s0
+
+            // Restore X/Y/Z values
+            ; ldp s0, s1, [sp, 0x90]
+            ; ldr s2, [sp, 0x98]
+
+            // Restore registers
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
         );
     }
 }

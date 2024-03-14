@@ -261,6 +261,12 @@ pub(crate) struct AssemblerData<T> {
     /// Current offset of the stack pointer, in bytes
     mem_offset: usize,
 
+    /// Set to true if we have saved certain callee-saved registers
+    ///
+    /// These registers are only modified in function calls, so normally we
+    /// don't save them.
+    saved_callee_regs: bool,
+
     _p: std::marker::PhantomData<*const T>,
 }
 
@@ -269,20 +275,24 @@ impl<T> AssemblerData<T> {
         Self {
             ops: MmapAssembler::from(mmap),
             mem_offset: 0,
+            saved_callee_regs: false,
             _p: std::marker::PhantomData,
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
-    fn prepare_stack(&mut self, slot_count: usize) {
-        if slot_count < REGISTER_LIMIT {
-            return;
-        }
-        let stack_slots = slot_count - REGISTER_LIMIT;
-        let mem = (stack_slots + 1) * std::mem::size_of::<T>();
+    fn prepare_stack(&mut self, slot_count: usize, stack_size: usize) {
+        // We always use the stack, if only to store callee-saved registers
+        let mem = slot_count.saturating_sub(REGISTER_LIMIT)
+            * std::mem::size_of::<T>()
+            + stack_size;
 
         // Round up to the nearest multiple of 16 bytes, for alignment
         self.mem_offset = ((mem + 15) / 16) * 16;
+        self.push_stack();
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn push_stack(&mut self) {
         assert!(self.mem_offset < 4096);
         dynasm!(self.ops
             ; sub sp, sp, #(self.mem_offset as u32)
@@ -290,17 +300,7 @@ impl<T> AssemblerData<T> {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn prepare_stack(&mut self, slot_count: usize) {
-        // We always use the stack on x86_64, if only to store X/Y/Z
-        let stack_slots = slot_count.saturating_sub(REGISTER_LIMIT);
-
-        // We put X/Y/Z values at the top of the stack, where they can be
-        // accessed with `movss [rbp - i*size_of(T)] xmm`.  This frees up the
-        // incoming registers (xmm0-2) in the point evaluator.
-        let mem = (stack_slots + 4) * std::mem::size_of::<T>();
-
-        // Round up to the nearest multiple of 16 bytes, for alignment
-        self.mem_offset = ((mem + 15) / 16) * 16;
+    fn push_stack(&mut self) {
         dynasm!(self.ops
             ; sub rsp, self.mem_offset as i32
         );

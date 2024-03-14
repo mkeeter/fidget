@@ -23,6 +23,43 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
+///
+/// The stack is configured as follows
+///
+/// ```text
+/// | Position | Value        | Notes                                       |
+/// |----------|--------------|---------------------------------------------|
+/// | 0x00     | `rbp`        | Previous value for base pointer             |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x08    | `rdi`        | During functions calls, we use these        |
+/// | -0x10    | `rsi`        | as temporary storage so must preserve their |
+/// | -0x18    | `rdx`        | previous values on the stack                |
+/// | -0x20    | `rcx`        |                                             |
+/// | -0x28    | `r8`         |                                             |
+/// | -0x30    | `r9`         |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | -0x40    | Z            | Inputs (as 4x floats)                       |
+/// | -0x50    | Y            |                                             |
+/// | -0x60    | X            |                                             |
+/// |----------|--------------|---------------------------------------------|
+/// | ...      | ...          | Register spills live up here                |
+/// |----------|--------------|---------------------------------------------|
+/// | 0xb0     | xmm15        | Caller-saved registers during functions     |
+/// | 0xa0     | xmm14        | calls are placed here, then restored        |
+/// | 0x90     | xmm13        |                                             |
+/// | 0x80     | xmm12        |                                             |
+/// | 0x70     | xmm11        |                                             |
+/// | 0x60     | xmm10        |                                             |
+/// | 0x50     | xmm9         |                                             |
+/// | 0x40     | xmm8         |                                             |
+/// | 0x30     | xmm7         |                                             |
+/// | 0x20     | xmm6         |                                             |
+/// | 0x10     | xmm5         |                                             |
+/// | 0x00     | xmm4         |                                             |
+/// ```
+const STACK_SIZE_UPPER: usize = 0x60; // Positions relative to `rbp`
+const STACK_SIZE_LOWER: usize = 0xc0; // Positions relative to `rsp`
+
 impl Assembler for GradSliceAssembler {
     type Data = Grad;
 
@@ -31,10 +68,24 @@ impl Assembler for GradSliceAssembler {
         dynasm!(out.ops
             ; push rbp
             ; mov rbp, rsp
-            ; vzeroupper
         );
-        out.prepare_stack(slot_count);
+        out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
+        let input_pos = STACK_SIZE_UPPER as i32;
         dynasm!(out.ops
+            // Preload unchanging gradient values
+            ; mov eax, 1.0f32.to_bits() as i32
+            ; mov [rbp - (input_pos - 0x4)], eax  // d/dx(x) = 1
+            ; mov [rbp - (input_pos - 0x18)], eax // d/dy(y) = 1
+            ; mov [rbp - (input_pos - 0x2c)], eax // d/dz(z) = 1
+
+            ; mov eax, 0.0f32.to_bits() as i32
+            ; mov [rbp - (input_pos - 0x8)], eax // d/dy(x) = 0
+            ; mov [rbp - (input_pos - 0xc)], eax // d/dz(x) = 0
+            ; mov [rbp - (input_pos - 0x14)], eax // d/dx(y) = 0
+            ; mov [rbp - (input_pos - 0x1c)], eax // d/dz(y) = 0
+            ; mov [rbp - (input_pos - 0x24)], eax // d/dz(x) = 0
+            ; mov [rbp - (input_pos - 0x28)], eax // d/dz(y) = 0
+
             // The loop returns here, and we check whether to keep looping
             ; ->L:
 
@@ -42,50 +93,44 @@ impl Assembler for GradSliceAssembler {
             ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
             // Copy from the input pointers into the stack right below rbp
-            ; mov eax, 1.0f32.to_bits() as i32
-            ; mov [rbp - 12], eax  // 1
-            ; mov [rbp - 24], eax // 1
-            ; mov [rbp - 36], eax // 1
-
             ; mov eax, [rdi]
-            ; mov [rbp - 16], eax  // X
+            ; mov [rbp - input_pos], eax  // X
             ; add rdi, 4
 
             ; mov eax, [rsi]
-            ; mov [rbp - 32], eax // Y
+            ; mov [rbp - (input_pos - 0x10)], eax // Y
             ; add rsi, 4
 
             ; mov eax, [rdx]
-            ; mov [rbp - 48], eax // Z
+            ; mov [rbp - (input_pos - 0x20)], eax // Z
             ; add rdx, 4
-
-            ; mov eax, 0.0f32.to_bits() as i32
-            ; mov [rbp - 8], eax // 0
-            ; mov [rbp - 4], eax // 0
-            ; mov [rbp - 28], eax // 0
-            ; mov [rbp - 20], eax // 0
-            ; mov [rbp - 40], eax // 0
-            ; mov [rbp - 44], eax // 0
         );
         Self(out)
     }
     fn build_load(&mut self, dst_reg: u8, src_mem: u32) {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(src_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(src_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             ; vmovups Rx(reg(dst_reg)), [rsp + sp_offset]
         );
     }
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
-        let sp_offset: i32 = self.0.stack_pos(dst_mem).try_into().unwrap();
+        let sp_offset: i32 = (self.0.stack_pos(dst_mem)
+            + STACK_SIZE_LOWER as u32)
+            .try_into()
+            .unwrap();
         dynasm!(self.0.ops
             ; vmovups [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
+        let pos = STACK_SIZE_UPPER as i32 - 16 * (src_arg as i32);
         dynasm!(self.0.ops
-            ; vmovups Rx(reg(out_reg)), [rbp - 16 * (src_arg as i32 + 1)]
+            ; vmovups Rx(reg(out_reg)), [rbp - pos]
         );
     }
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
@@ -368,29 +413,27 @@ impl GradSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to caller-saved registers and the stack
-            ; mov r12, rdi
-            ; mov r13, rsi
-            ; mov r14, rdx
-            ; push rcx
-            ; push r8
-            ; push r9
-            ; push r9 // alignment?
+            // Back up X/Y/Z pointers to the stack
+            ; mov [rbp - 0x8], rdi
+            ; mov [rbp - 0x10], rsi
+            ; mov [rbp - 0x18], rdx
+            ; mov [rbp - 0x20], rcx
+            ; mov [rbp - 0x28], r8
+            ; mov [rbp - 0x30], r9
 
-            // Back up register values to the stack
-            ; sub rsp, 192
+            // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], xmm4
-            ; vmovups [rsp + 16], xmm5
-            ; vmovups [rsp + 32], xmm6
-            ; vmovups [rsp + 48], xmm7
-            ; vmovups [rsp + 64], xmm8
-            ; vmovups [rsp + 80], xmm9
-            ; vmovups [rsp + 96], xmm10
-            ; vmovups [rsp + 112], xmm11
-            ; vmovups [rsp + 128], xmm12
-            ; vmovups [rsp + 144], xmm13
-            ; vmovups [rsp + 160], xmm14
-            ; vmovups [rsp + 176], xmm15
+            ; vmovups [rsp + 0x10], xmm5
+            ; vmovups [rsp + 0x20], xmm6
+            ; vmovups [rsp + 0x30], xmm7
+            ; vmovups [rsp + 0x40], xmm8
+            ; vmovups [rsp + 0x50], xmm9
+            ; vmovups [rsp + 0x60], xmm10
+            ; vmovups [rsp + 0x70], xmm11
+            ; vmovups [rsp + 0x80], xmm12
+            ; vmovups [rsp + 0x90], xmm13
+            ; vmovups [rsp + 0xa0], xmm14
+            ; vmovups [rsp + 0xb0], xmm15
 
             // call the function, packing the gradient into xmm0 + xmm1
             ; movsd xmm0, Rx(reg(arg_reg))
@@ -400,35 +443,28 @@ impl GradSliceAssembler {
 
             // Restore gradient registers
             ; vmovups xmm4, [rsp]
-            ; vmovups xmm5, [rsp + 16]
-            ; vmovups xmm6, [rsp + 32]
-            ; vmovups xmm7, [rsp + 48]
-            ; vmovups xmm8, [rsp + 64]
-            ; vmovups xmm9, [rsp + 80]
-            ; vmovups xmm10, [rsp + 96]
-            ; vmovups xmm11, [rsp + 112]
-            ; vmovups xmm12, [rsp + 128]
-            ; vmovups xmm13, [rsp + 144]
-            ; vmovups xmm14, [rsp + 160]
-            ; vmovups xmm15, [rsp + 176]
-            ; add rsp, 192
+            ; vmovups xmm5, [rsp + 0x10]
+            ; vmovups xmm6, [rsp + 0x20]
+            ; vmovups xmm7, [rsp + 0x30]
+            ; vmovups xmm8, [rsp + 0x40]
+            ; vmovups xmm9, [rsp + 0x50]
+            ; vmovups xmm10, [rsp + 0x60]
+            ; vmovups xmm11, [rsp + 0x70]
+            ; vmovups xmm12, [rsp + 0x80]
+            ; vmovups xmm13, [rsp + 0x90]
+            ; vmovups xmm14, [rsp + 0xa0]
+            ; vmovups xmm15, [rsp + 0xb0]
 
             // Restore X/Y/Z pointers
-            ; mov rdi, r12
-            ; mov rsi, r13
-            ; mov rdx, r14
+            ; mov rdi, [rbp - 0x8]
+            ; mov rsi, [rbp - 0x10]
+            ; mov rdx, [rbp - 0x18]
+            ; mov rcx, [rbp - 0x20]
+            ; mov r8, [rbp - 0x28]
+            ; mov r9, [rbp - 0x30]
 
             // Collect the 4x floats into the out register
             ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
-
-            // Restore X/Y/Z pointers
-            ; mov rdi, r12
-            ; mov rsi, r13
-            ; mov rdx, r14
-            ; pop r9 // alignment
-            ; pop r9
-            ; pop r8
-            ; pop rcx
         );
     }
 }
