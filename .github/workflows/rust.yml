@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - name: Check
+      run: cargo check --all-targets --verbose
     - name: Build
       run: cargo build --verbose --package fidget
     - name: Run tests
