@@ -291,6 +291,15 @@ impl Assembler for FloatSliceAssembler {
             ; fmin V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
     }
+    fn build_mod(&mut self, out_reg: u8, arg_reg: u8, imm: f32) {
+        let r = self.load_imm(imm);
+        dynasm!(self.0.ops
+            ; fdiv v7.s4, V(reg(arg_reg)).s4, V(reg(r)).s4
+            ; frintm v7.s4, v7.s4 // round down
+            ; fmul v7.s4, v7.s4, V(reg(r)).s4
+            ; fsub V(reg(out_reg)).s4, V(reg(arg_reg)).s4, v7.s4
+        )
+    }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops

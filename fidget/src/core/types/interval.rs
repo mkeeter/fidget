@@ -287,6 +287,12 @@ impl Interval {
             panic!("lhs != rhs ({self:?} != {other:?})");
         }
     }
+
+    /// Least non-negative remainder
+    pub fn rem_euclid(&self, i: f32) -> Self {
+        // TODO optimize this
+        Interval::new(0.0, i)
+    }
 }
 
 impl std::fmt::Display for Interval {

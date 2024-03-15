@@ -297,7 +297,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::CompareRegImm(..)
-            | SsaOp::CompareImmReg(..) => self.op_reg_imm(op),
+            | SsaOp::CompareImmReg(..)
+            | SsaOp::ModRegImm(..) => self.op_reg_imm(op),
 
             SsaOp::AddRegReg(..)
             | SsaOp::SubRegReg(..)
@@ -608,6 +609,9 @@ impl<const N: usize> RegisterAllocator<N> {
             }
             SsaOp::CompareImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::CompareImmReg)
+            }
+            SsaOp::ModRegImm(out, arg, imm) => {
+                (out, arg, imm, RegOp::ModRegImm)
             }
             _ => panic!("Bad opcode: {op:?}"),
         };

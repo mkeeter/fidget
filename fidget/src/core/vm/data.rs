@@ -252,7 +252,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::DivRegImm(index, arg, _imm)
                 | SsaOp::DivImmReg(index, arg, _imm)
                 | SsaOp::CompareRegImm(index, arg, _imm)
-                | SsaOp::CompareImmReg(index, arg, _imm) => {
+                | SsaOp::CompareImmReg(index, arg, _imm)
+                | SsaOp::ModRegImm(index, arg, _imm) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }

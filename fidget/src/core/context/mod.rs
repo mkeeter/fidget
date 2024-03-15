@@ -672,6 +672,7 @@ impl Context {
                         .partial_cmp(&b)
                         .map(|i| i as i8 as f64)
                         .unwrap_or(f64::NAN),
+                    BinaryOpcode::Mod => a.rem_euclid(b),
                 }
             }
 
@@ -799,6 +800,7 @@ impl Context {
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
                 BinaryOpcode::Compare => out += "compare",
+                BinaryOpcode::Mod => out += "mod",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",

@@ -186,6 +186,15 @@ impl Grad {
         }
     }
 
+    /// Least non-negative remainder
+    pub fn rem_euclid(&self, i: f32) -> Self {
+        // TODO is this right, or should we have deltas at multiples of i?
+        Grad {
+            v: self.v.rem_euclid(i),
+            ..*self
+        }
+    }
+
     /// Checks that the two values are roughly equal, panicking otherwise
     #[cfg(test)]
     pub(crate) fn compare_eq(&self, other: Self) {

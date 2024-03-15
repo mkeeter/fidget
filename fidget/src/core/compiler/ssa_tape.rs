@@ -166,6 +166,11 @@ impl SsaTape {
                             SsaOp::CompareRegImm,
                             SsaOp::CompareImmReg,
                         ),
+                        BinaryOpcode::Mod => (
+                            |_, _, _| panic!("mod(reg, reg) is invalid"),
+                            |_, _, _| panic!("mod(imm, reg) is invalid"),
+                            SsaOp::ModRegImm,
+                        ),
                     };
 
                     if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
@@ -318,7 +323,8 @@ impl SsaTape {
                 | SsaOp::SubImmReg(out, arg, imm)
                 | SsaOp::SubRegImm(out, arg, imm)
                 | SsaOp::MinRegImm(out, arg, imm)
-                | SsaOp::MaxRegImm(out, arg, imm) => {
+                | SsaOp::MaxRegImm(out, arg, imm)
+                | SsaOp::ModRegImm(out, arg, imm) => {
                     let (op, swap) = match op {
                         SsaOp::AddRegImm(..) => ("ADD", false),
                         SsaOp::MulRegImm(..) => ("MUL", false),
@@ -328,6 +334,7 @@ impl SsaTape {
                         SsaOp::SubRegImm(..) => ("SUB", false),
                         SsaOp::MinRegImm(..) => ("MIN", false),
                         SsaOp::MaxRegImm(..) => ("MAX", false),
+                        SsaOp::ModRegImm(..) => ("MOD", false),
                         _ => unreachable!(),
                     };
                     if swap {
