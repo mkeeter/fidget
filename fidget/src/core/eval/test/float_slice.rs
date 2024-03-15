@@ -316,6 +316,9 @@ where
     }
 
     pub fn test_f_unary_ops() {
+        float_slice_unary!(Context::neg, |v| -v);
+        float_slice_unary!(Context::recip, |v| 1.0 / v);
+        float_slice_unary!(Context::abs, |v| v.abs());
         float_slice_unary!(Context::sin, |v| v.sin());
         float_slice_unary!(Context::cos, |v| v.cos());
         float_slice_unary!(Context::tan, |v| v.tan());

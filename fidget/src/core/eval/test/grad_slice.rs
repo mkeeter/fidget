@@ -497,6 +497,9 @@ where
     }
 
     pub fn test_g_unary_ops() {
+        grad_slice_unary!(Context::neg, |v| -v);
+        grad_slice_unary!(Context::recip, |v| 1.0 / v);
+        grad_slice_unary!(Context::abs, |v| v.abs());
         grad_slice_unary!(Context::sin, |v| v.sin());
         grad_slice_unary!(Context::cos, |v| v.cos());
         grad_slice_unary!(Context::tan, |v| v.tan());

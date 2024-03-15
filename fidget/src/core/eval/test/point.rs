@@ -435,6 +435,9 @@ where
     }
 
     pub fn test_p_unary_ops() {
+        point_unary!(Context::neg, |v| -v);
+        point_unary!(Context::recip, |v| 1.0 / v);
+        point_unary!(Context::abs, |v| v.abs());
         point_unary!(Context::sin, |v| v.sin());
         point_unary!(Context::cos, |v| v.cos());
         point_unary!(Context::tan, |v| v.tan());
