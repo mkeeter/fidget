@@ -726,6 +726,9 @@ where
     }
 
     pub fn test_i_unary_ops() {
+        interval_unary!(Context::neg, |v| -v);
+        interval_unary!(Context::recip, |v| 1.0 / v);
+        interval_unary!(Context::abs, |v| v.abs());
         interval_unary!(Context::sin, |v| v.sin());
         interval_unary!(Context::sin, |v| v.sin());
         interval_unary!(Context::cos, |v| v.cos());
