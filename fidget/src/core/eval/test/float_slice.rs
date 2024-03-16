@@ -313,6 +313,23 @@ where
         }
     }
 
+    pub fn compare_float_results(
+        lhs: &[f32],
+        rhs: &[f32],
+        out: &[f32],
+        g: impl Fn(f32, f32) -> f32,
+        name: &str,
+    ) {
+        for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
+            let v = g(*a, *b);
+            let err = (v - o).abs();
+            assert!(
+                (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
+                "mismatch in '{name}' at {a} {b}: {v} != {o} ({err})"
+            )
+        }
+    }
+
     pub fn test_binary_reg_reg(
         f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
         g: impl Fn(f32, f32) -> f32,
@@ -323,6 +340,7 @@ where
 
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
+        let name = format!("{name}(reg, reg)");
         for rot in 0..args.len() {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
@@ -348,18 +366,8 @@ where
                     }
                     .unwrap();
 
-                    let b = if i == j { &args } else { &rgsa };
-                    for ((a, b), &o) in args.iter().zip(b).zip(out.iter()) {
-                        let v = g(*a, *b);
-                        let err = (v - o).abs();
-                        assert!(
-                            (o == v)
-                                || err < 1e-6
-                                || (v.is_nan() && o.is_nan()),
-                            "mismatch in '{name}' at {a} {b}: \
-                             {v} != {o} ({err})"
-                        )
-                    }
+                    let rhs = if i == j { &args } else { &rgsa };
+                    Self::compare_float_results(&args, rhs, out, &g, &name);
                 }
             }
         }
@@ -376,6 +384,7 @@ where
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
 
+        let name = format!("{name}(reg, imm)");
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
@@ -396,17 +405,8 @@ where
                     }
                     .unwrap();
 
-                    for (a, &o) in args.iter().zip(out.iter()) {
-                        let v = g(*a, *rhs);
-                        let err = (v - o).abs();
-                        assert!(
-                            (o == v)
-                                || err < 1e-6
-                                || (v.is_nan() && o.is_nan()),
-                            "mismatch in '{name}' at {a}, {rhs} (constant): \
-                             {v} != {o} ({err})"
-                        )
-                    }
+                    let rhs = vec![*rhs; out.len()];
+                    Self::compare_float_results(&args, &rhs, out, &g, &name);
                 }
             }
         }
@@ -423,6 +423,7 @@ where
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
 
+        let name = format!("{name}(imm, reg)");
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
@@ -443,17 +444,8 @@ where
                     }
                     .unwrap();
 
-                    for (a, &o) in args.iter().zip(out.iter()) {
-                        let v = g(*lhs, *a);
-                        let err = (v - o).abs();
-                        assert!(
-                            (o == v)
-                                || err < 1e-6
-                                || (v.is_nan() && o.is_nan()),
-                            "mismatch in '{name}' at {lhs} (constant), {a}: \
-                             {v} != {o} ({err})"
-                        )
-                    }
+                    let lhs = vec![*lhs; out.len()];
+                    Self::compare_float_results(&lhs, &args, out, &g, &name);
                 }
             }
         }
