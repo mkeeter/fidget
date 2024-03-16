@@ -33,3 +33,16 @@ pub(crate) fn build_stress_fn(n: usize) -> (Context, Node) {
 
     (ctx, sum)
 }
+
+/// Pick a bunch of arguments, some of which are spicy
+fn test_args() -> Vec<f32> {
+    let mut args = (-32..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
+    args.push(0.0);
+    args.push(1.0);
+    args.push(std::f32::consts::PI);
+    args.push(std::f32::consts::FRAC_PI_2);
+    args.push(std::f32::consts::FRAC_1_PI);
+    args.push(std::f32::consts::SQRT_2);
+    args.push(f32::NAN);
+    args
+}

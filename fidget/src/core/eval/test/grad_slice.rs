@@ -2,7 +2,7 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
-use super::build_stress_fn;
+use super::{build_stress_fn, test_args};
 use crate::{
     context::{Context, Node},
     eval::{
@@ -442,16 +442,7 @@ where
         g: impl Fn(f64) -> f64,
         name: &'static str,
     ) {
-        // Pick a bunch of arguments, some of which are spicy
-        let mut args =
-            (-32..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
-        args.push(0.0);
-        args.push(1.0);
-        args.push(std::f32::consts::PI);
-        args.push(std::f32::consts::FRAC_PI_2);
-        args.push(std::f32::consts::FRAC_1_PI);
-        args.push(std::f32::consts::SQRT_2);
-        args.push(f32::NAN);
+        let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();

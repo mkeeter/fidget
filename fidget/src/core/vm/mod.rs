@@ -768,12 +768,20 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].min(imm);
+                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
+                            f32::NAN
+                        } else {
+                            v[arg][i].min(imm)
+                        };
                     }
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].max(imm);
+                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
+                            f32::NAN
+                        } else {
+                            v[arg][i].max(imm)
+                        };
                     }
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
