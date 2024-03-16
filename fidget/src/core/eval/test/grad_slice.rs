@@ -500,7 +500,7 @@ where
         rhs: &[f32],
         out: &[Grad],
         g: impl Fn(f64, f64) -> f64,
-        name: &'static str,
+        name: &str,
     ) {
         for ((a, b), &o) in lhs.iter().zip(rhs).zip(out.iter()) {
             let v = g(*a as f64, *b as f64);
@@ -573,6 +573,7 @@ where
 
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
+        let name = format!("{name}(reg, reg)");
         for rot in 0..args.len() {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
@@ -599,7 +600,9 @@ where
                     .unwrap();
 
                     let rhs = if i == j { &args } else { &rgsa };
-                    Self::compare_grad_results(i, j, &args, rhs, out, &g, name);
+                    Self::compare_grad_results(
+                        i, j, &args, rhs, out, &g, &name,
+                    );
                 }
             }
         }
