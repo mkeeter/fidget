@@ -21,6 +21,7 @@ macro_rules! grad_slice_binary {
     (Context::$i:ident, $t:expr) => {
         Self::test_binary_reg_reg(Context::$i, $t, stringify!($i));
         Self::test_binary_reg_imm(Context::$i, $t, stringify!($i));
+        Self::test_binary_imm_reg(Context::$i, $t, stringify!($i));
     };
 }
 
@@ -668,6 +669,47 @@ where
         }
     }
 
+    fn test_binary_imm_reg(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f64, f64) -> f64,
+        name: &'static str,
+    ) {
+        let args = test_args();
+        let zero = vec![0.0; args.len()];
+
+        let mut ctx = Context::new();
+        let inputs = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        for rot in 0..args.len() {
+            let mut args = args.clone();
+            args.rotate_left(rot);
+            for (i, &v) in inputs.iter().enumerate() {
+                for lhs in args.iter() {
+                    let c = ctx.constant(*lhs as f64);
+                    let node = f(&mut ctx, c, v).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let mut eval = S::new_grad_slice_eval();
+                    let tape = shape.ez_grad_slice_tape();
+
+                    let out = match i {
+                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
+                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
+                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+
+                    let lhs = vec![*lhs; out.len()];
+                    Self::compare_grad_results(
+                        3, i, &lhs, &args, out, &g, &name,
+                    );
+                }
+            }
+        }
+    }
+
     pub fn test_g_unary_ops() {
         grad_slice_unary!(Context::neg, |v| -v);
         grad_slice_unary!(Context::recip, |v| 1.0 / v);
@@ -696,11 +738,21 @@ where
             |a, b| if b == 0.0 { b } else { a * b },
             "mul",
         );
+        Self::test_binary_imm_reg(
+            Context::mul,
+            |a, b| if a == 0.0 { a } else { a * b },
+            "mul",
+        );
 
         // Multiplication short-circuits to 0, which means that
         // 0 (constant) / NaN = 0
         Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
         Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
+        Self::test_binary_imm_reg(
+            Context::div,
+            |a, b| if a == 0.0 { a } else { a / b },
+            "div",
+        );
 
         grad_slice_binary!(Context::min, |a, b| if a.is_nan() || b.is_nan() {
             f64::NAN
