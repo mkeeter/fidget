@@ -239,15 +239,33 @@ impl Assembler for FloatSliceAssembler {
         );
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // TODO: does this handle NaN correctly?
         dynasm!(self.0.ops
+            // Build a mask of NANs; conveniently, all 1s is a NAN
+            ; vcmpps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg)), 3
+            ; vcmpps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg)), 3
+            ; vorps ymm1, ymm2, ymm1
+
+            // Calculate the max, which ignores NANs
             ; vmaxps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+
+            // Set the NAN bits
+            ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
         );
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        // TODO: does this handle NaN correctly?
         dynasm!(self.0.ops
+            // Build a mask of NANs; conveniently, all 1s is a NAN
+            ; vcmpps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg)), 3
+            ; vcmpps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg)), 3
+            ; vorps ymm1, ymm2, ymm1
+
+            // Calculate the min, which ignores NANs
             ; vminps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+
+            // Set the NAN bits
+            // (note that we leave other bits unchanged, because it doesn't
+            // matter here!)
+            ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
         );
     }
     fn load_imm(&mut self, imm: f32) -> u8 {

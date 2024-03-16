@@ -768,12 +768,20 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].min(imm);
+                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
+                            f32::NAN
+                        } else {
+                            v[arg][i].min(imm)
+                        };
                     }
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].max(imm);
+                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
+                            f32::NAN
+                        } else {
+                            v[arg][i].max(imm)
+                        };
                     }
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
@@ -798,12 +806,22 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i].min(v[rhs][i]);
+                        v[out][i] = if v[lhs][i].is_nan() || v[rhs][i].is_nan()
+                        {
+                            f32::NAN
+                        } else {
+                            v[lhs][i].min(v[rhs][i])
+                        };
                     }
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i].max(v[rhs][i]);
+                        v[out][i] = if v[lhs][i].is_nan() || v[rhs][i].is_nan()
+                        {
+                            f32::NAN
+                        } else {
+                            v[lhs][i].max(v[rhs][i])
+                        };
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
@@ -981,13 +999,21 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::MinRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = v[arg][i].min(imm);
+                        v[out][i] = if v[arg][i].v.is_nan() || imm.v.is_nan() {
+                            f32::NAN.into()
+                        } else {
+                            v[arg][i].min(imm)
+                        };
                     }
                 }
                 RegOp::MaxRegImm(out, arg, imm) => {
                     let imm: Grad = imm.into();
                     for i in 0..size {
-                        v[out][i] = v[arg][i].max(imm);
+                        v[out][i] = if v[arg][i].v.is_nan() || imm.v.is_nan() {
+                            f32::NAN.into()
+                        } else {
+                            v[arg][i].max(imm)
+                        };
                     }
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
@@ -1012,12 +1038,22 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i].min(v[rhs][i]);
+                        v[out][i] =
+                            if v[lhs][i].v.is_nan() || v[rhs][i].v.is_nan() {
+                                f32::NAN.into()
+                            } else {
+                                v[lhs][i].min(v[rhs][i])
+                            };
                     }
                 }
                 RegOp::MaxRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i].max(v[rhs][i]);
+                        v[out][i] =
+                            if v[lhs][i].v.is_nan() || v[rhs][i].v.is_nan() {
+                                f32::NAN.into()
+                            } else {
+                                v[lhs][i].max(v[rhs][i])
+                            };
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
