@@ -297,8 +297,7 @@ impl FloatSliceAssembler {
             ; mov [rbp - 0x30], r9
             ; mov [rbp - 0x38], r15
 
-            // Back up register values to the stack, treating them as doubles
-            // (since we want to back up all 64 bits)
+            // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], ymm4
             ; vmovups [rsp + 0x20], ymm5
             ; vmovups [rsp + 0x40], ymm6
