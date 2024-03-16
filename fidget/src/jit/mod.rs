@@ -556,7 +556,7 @@ impl MmapAssembler {
 
         for (loc, label) in self.local_relocs.take() {
             let target =
-                self.local_labels.get(label as usize).unwrap().unwrap();
+                self.local_labels[label as usize].expect("invalid local label");
             let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(

@@ -363,26 +363,46 @@ impl Assembler for GradSliceAssembler {
         )
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.vs 24 // -> NaN
             ; b.gt 12 // -> lhs
+
             // Happy path: v >= 0, so we just copy the register
             ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
-            ; b 8 // -> end
+            ; b 24 // -> end
+
             // lhs:
             ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            ; b 16 // -> end
+
+            // NaN handler
+            ; movz w9, #(nan_u32 >> 16), lsl 16
+            ; movk w9, #(nan_u32)
+            ; fmov  S(reg(out_reg)), w9
             // end:
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.vs 24 // -> NaN
             ; b.lt 12 // -> lhs
+
             // Happy path: v >= 0, so we just copy the register
             ; mov V(reg(out_reg)).b16, V(reg(rhs_reg)).b16
-            ; b 8 // -> end
+            ; b 24 // -> end
+
             // lhs:
             ; mov V(reg(out_reg)).b16, V(reg(lhs_reg)).b16
+            ; b 16 // -> end
+
+            // NaN handler
+            ; movz w9, #(nan_u32 >> 16), lsl 16
+            ; movk w9, #(nan_u32)
+            ; fmov  S(reg(out_reg)), w9
             // end:
         )
     }

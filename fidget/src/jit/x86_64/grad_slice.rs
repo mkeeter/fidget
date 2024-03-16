@@ -344,10 +344,16 @@ impl Assembler for GradSliceAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jp >N // Parity flag is set if result is NAN
             ; ja >L
 
             // Fallthrough
             ; vmovups Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; jmp >E
+
+            ; N:
+            ; vpxor Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vcmpeqss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; jmp >E
 
             ; L:
@@ -361,10 +367,16 @@ impl Assembler for GradSliceAssembler {
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jp >N // Parity flag is set if result is NAN
             ; ja >R
 
             // Fallthrough
             ; vmovups Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; jmp >O
+
+            ; N:
+            ; vpxor Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vcmpeqss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; jmp >O
 
             ; R:
