@@ -524,7 +524,7 @@ where
             if i == j {
                 let grad = o.d(i);
                 if grad < 1e9 && !grad.is_infinite() {
-                    let d = g(a, b + EPSILON);
+                    let d = g(a + EPSILON, b + EPSILON);
                     let est_grad = (d - v) / EPSILON;
                     let err = (est_grad as f32 - grad).abs();
                     assert!(
@@ -537,7 +537,7 @@ where
             } else {
                 let grad = o.d(i);
                 if grad < 1e9 && !grad.is_infinite() {
-                    let d = g(a + EPSILON, b + EPSILON);
+                    let d = g(a + EPSILON, b);
                     let est_grad = (d - v) / EPSILON;
                     let err = (est_grad as f32 - grad).abs();
                     assert!(
