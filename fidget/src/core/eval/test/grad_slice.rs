@@ -512,7 +512,7 @@ where
                     || err < 1e-6
                     || err_frac < 1e-6
                     || (v.is_nan() && o.v.is_nan()),
-                "mismatch in '{name}' at {a}: {v} != {o} ({err})"
+                "value mismatch in '{name}' at ({a}, {b}): {v} != {o} ({err})"
             );
 
             if v.is_nan() {
@@ -527,7 +527,11 @@ where
                 if grad < 1e9 && !grad.is_infinite() {
                     let d = g(a + EPSILON, b + EPSILON);
                     let est_grad = (d - v) / EPSILON;
-                    let err = (est_grad as f32 - grad).abs();
+                    let mut err = (est_grad as f32 - grad).abs();
+
+                    let d = g(a - EPSILON, b);
+                    let est_grad = (v - d) / EPSILON;
+                    err = err.min((est_grad as f32 - grad).abs());
                     assert!(
                         err < 1e-3,
                         "gradient estimate mismatch in '{name}' at \
@@ -539,9 +543,15 @@ where
                 if i < 3 {
                     let grad = o.d(i);
                     if grad < 1e9 && !grad.is_infinite() {
+                        // Check both +epsilon and -epsilon positions, because
+                        // they may be different if there are C1 discontinuities
                         let d = g(a + EPSILON, b);
                         let est_grad = (d - v) / EPSILON;
-                        let err = (est_grad as f32 - grad).abs();
+                        let mut err = (est_grad as f32 - grad).abs();
+
+                        let d = g(a - EPSILON, b);
+                        let est_grad = (v - d) / EPSILON;
+                        err = err.min((est_grad as f32 - grad).abs());
                         assert!(
                             err < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
@@ -555,7 +565,11 @@ where
                     if grad < 1e9 && !grad.is_infinite() {
                         let d = g(a, b + EPSILON);
                         let est_grad = (d - v) / EPSILON;
-                        let err = (est_grad as f32 - grad).abs();
+                        let mut err = (est_grad as f32 - grad).abs();
+
+                        let d = g(a, b - EPSILON);
+                        let est_grad = (v - d) / EPSILON;
+                        err = err.min((est_grad as f32 - grad).abs());
                         assert!(
                             err < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
@@ -687,6 +701,17 @@ where
         // 0 (constant) / NaN = 0
         Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
         Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
+
+        grad_slice_binary!(Context::min, |a, b| if a.is_nan() || b.is_nan() {
+            f64::NAN
+        } else {
+            a.min(b)
+        });
+        grad_slice_binary!(Context::max, |a, b| if a.is_nan() || b.is_nan() {
+            f64::NAN
+        } else {
+            a.max(b)
+        });
     }
 }
 
