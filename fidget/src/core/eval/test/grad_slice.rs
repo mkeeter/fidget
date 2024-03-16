@@ -20,6 +20,7 @@ macro_rules! grad_slice_unary {
 macro_rules! grad_slice_binary {
     (Context::$i:ident, $t:expr) => {
         Self::test_binary_reg_reg(Context::$i, $t, stringify!($i));
+        Self::test_binary_reg_imm(Context::$i, $t, stringify!($i));
     };
 }
 
@@ -535,29 +536,33 @@ where
                     );
                 }
             } else {
-                let grad = o.d(i);
-                if grad < 1e9 && !grad.is_infinite() {
-                    let d = g(a + EPSILON, b);
-                    let est_grad = (d - v) / EPSILON;
-                    let err = (est_grad as f32 - grad).abs();
-                    assert!(
-                        err < 1e-3,
-                        "gradient estimate mismatch in '{name}' at \
-                         ({a} + epsilon, {b}): \
-                         {est_grad} != {grad} ({err})"
-                    );
+                if i < 3 {
+                    let grad = o.d(i);
+                    if grad < 1e9 && !grad.is_infinite() {
+                        let d = g(a + EPSILON, b);
+                        let est_grad = (d - v) / EPSILON;
+                        let err = (est_grad as f32 - grad).abs();
+                        assert!(
+                            err < 1e-3,
+                            "gradient estimate mismatch in '{name}' at \
+                             ({a} + epsilon, {b}): \
+                             {est_grad} != {grad} ({err})"
+                        );
+                    }
                 }
-                let grad = o.d(j);
-                if grad < 1e9 && !grad.is_infinite() {
-                    let d = g(a, b + EPSILON);
-                    let est_grad = (d - v) / EPSILON;
-                    let err = (est_grad as f32 - grad).abs();
-                    assert!(
-                        err < 1e-3,
-                        "gradient estimate mismatch in '{name}' at \
-                         ({a}, {b} + epsilon): \
-                         {est_grad} != {grad} ({err})"
-                    );
+                if j < 3 {
+                    let grad = o.d(j);
+                    if grad < 1e9 && !grad.is_infinite() {
+                        let d = g(a, b + EPSILON);
+                        let est_grad = (d - v) / EPSILON;
+                        let err = (est_grad as f32 - grad).abs();
+                        assert!(
+                            err < 1e-3,
+                            "gradient estimate mismatch in '{name}' at \
+                             ({a}, {b} + epsilon): \
+                             {est_grad} != {grad} ({err})"
+                        );
+                    }
                 }
             }
         }
@@ -608,6 +613,47 @@ where
         }
     }
 
+    fn test_binary_reg_imm(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f64, f64) -> f64,
+        name: &'static str,
+    ) {
+        let args = test_args();
+        let zero = vec![0.0; args.len()];
+
+        let mut ctx = Context::new();
+        let inputs = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        for rot in 0..args.len() {
+            let mut args = args.clone();
+            args.rotate_left(rot);
+            for (i, &v) in inputs.iter().enumerate() {
+                for rhs in args.iter() {
+                    let c = ctx.constant(*rhs as f64);
+                    let node = f(&mut ctx, v, c).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let mut eval = S::new_grad_slice_eval();
+                    let tape = shape.ez_grad_slice_tape();
+
+                    let out = match i {
+                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
+                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
+                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+
+                    let rhs = vec![*rhs; out.len()];
+                    Self::compare_grad_results(
+                        i, 3, &args, &rhs, out, &g, &name,
+                    );
+                }
+            }
+        }
+    }
+
     pub fn test_g_unary_ops() {
         grad_slice_unary!(Context::neg, |v| -v);
         grad_slice_unary!(Context::recip, |v| 1.0 / v);
@@ -627,9 +673,20 @@ where
     pub fn test_g_binary_ops() {
         grad_slice_binary!(Context::add, |a, b| a + b);
         grad_slice_binary!(Context::sub, |a, b| a - b);
-        grad_slice_binary!(Context::mul, |a, b| a * b);
-        grad_slice_binary!(Context::div, |a, b| a / b);
-        grad_slice_binary!(Context::add, |a, b| a + b);
+
+        // Multiplication short-circuits to 0, which means that
+        // 0 (constant) * NaN = 0
+        Self::test_binary_reg_reg(Context::mul, |a, b| a * b, "mul");
+        Self::test_binary_reg_imm(
+            Context::mul,
+            |a, b| if b == 0.0 { b } else { a * b },
+            "mul",
+        );
+
+        // Multiplication short-circuits to 0, which means that
+        // 0 (constant) / NaN = 0
+        Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
+        Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
     }
 }
 
