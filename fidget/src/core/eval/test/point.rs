@@ -19,6 +19,8 @@ macro_rules! point_unary {
 macro_rules! point_binary {
     (Context::$i:ident, $t:expr) => {
         Self::test_binary_reg_reg(Context::$i, $t, stringify!($i));
+        Self::test_binary_reg_imm(Context::$i, $t, stringify!($i));
+        Self::test_binary_imm_reg(Context::$i, $t, stringify!($i));
     };
 }
 
@@ -432,6 +434,22 @@ where
         }
     }
 
+    pub fn compare_point_results(
+        lhs: f32,
+        rhs: f32,
+        out: f32,
+        g: impl Fn(f32, f32) -> f32,
+        name: &str,
+    ) {
+        let value = g(lhs, rhs);
+        let err = (value - out).abs();
+        assert!(
+            (out == value) || err < 1e-6 || value.is_nan() && out.is_nan(),
+            "mismatch in '{name}' at ({lhs}, {rhs}): \
+                            {value} != {out} ({err})"
+        )
+    }
+
     pub fn test_binary_reg_reg(
         f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
         g: impl Fn(f32, f32) -> f32,
@@ -442,6 +460,7 @@ where
         let mut ctx = Context::new();
         let xyz = [ctx.x(), ctx.y(), ctx.z()];
 
+        let name = format!("{name}(reg, reg)");
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
@@ -467,16 +486,78 @@ where
                         .unwrap();
 
                         let rhs = if i == j { lhs } else { rhs };
-                        let value = g(lhs, rhs);
-                        let err = (value - out).abs();
-                        assert!(
-                            (out == value)
-                                || err < 1e-6
-                                || value.is_nan() && out.is_nan(),
-                            "mismatch in '{name}' at ({lhs}, {rhs}): \
-                            {value} != {out} ({err})"
-                        )
+                        Self::compare_point_results(lhs, rhs, out, &g, &name);
                     }
+                }
+            }
+        }
+    }
+
+    pub fn test_binary_reg_imm(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f32, f32) -> f32,
+        name: &'static str,
+    ) {
+        let args = test_args();
+
+        let mut ctx = Context::new();
+        let xyz = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        for &lhs in args.iter() {
+            for &rhs in args.iter() {
+                for (i, &u) in xyz.iter().enumerate() {
+                    let c = ctx.constant(rhs as f64);
+                    let node = f(&mut ctx, u, c).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let mut eval = S::new_point_eval();
+                    let tape = shape.ez_point_tape();
+
+                    let (out, _trace) = match i {
+                        0 => eval.eval(&tape, lhs, 0.0, 0.0, &[]),
+                        1 => eval.eval(&tape, 0.0, lhs, 0.0, &[]),
+                        2 => eval.eval(&tape, 0.0, 0.0, lhs, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+
+                    Self::compare_point_results(lhs, rhs, out, &g, &name);
+                }
+            }
+        }
+    }
+
+    pub fn test_binary_imm_reg(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f32, f32) -> f32,
+        name: &'static str,
+    ) {
+        let args = test_args();
+
+        let mut ctx = Context::new();
+        let xyz = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        for &lhs in args.iter() {
+            for &rhs in args.iter() {
+                for (i, &u) in xyz.iter().enumerate() {
+                    let c = ctx.constant(lhs as f64);
+                    let node = f(&mut ctx, c, u).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let mut eval = S::new_point_eval();
+                    let tape = shape.ez_point_tape();
+
+                    let (out, _trace) = match i {
+                        0 => eval.eval(&tape, rhs, 0.0, 0.0, &[]),
+                        1 => eval.eval(&tape, 0.0, rhs, 0.0, &[]),
+                        2 => eval.eval(&tape, 0.0, 0.0, rhs, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+
+                    Self::compare_point_results(lhs, rhs, out, &g, &name);
                 }
             }
         }
@@ -505,10 +586,26 @@ where
         // Multiplication short-circuits to 0, which means that
         // 0 (constant) * NaN = 0
         Self::test_binary_reg_reg(Context::mul, |a, b| a * b, "mul");
+        Self::test_binary_reg_imm(
+            Context::mul,
+            |a, b| if b == 0.0 { b } else { a * b },
+            "mul",
+        );
+        Self::test_binary_imm_reg(
+            Context::mul,
+            |a, b| if a == 0.0 { a } else { a * b },
+            "mul",
+        );
 
         // Multiplication short-circuits to 0, which means that
         // 0 (constant) / NaN = 0
         Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
+        Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
+        Self::test_binary_imm_reg(
+            Context::div,
+            |a, b| if a == 0.0 { a } else { a / b },
+            "div",
+        );
 
         point_binary!(Context::min, |a, b| if a.is_nan() || b.is_nan() {
             f32::NAN
