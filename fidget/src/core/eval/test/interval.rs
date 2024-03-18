@@ -3,11 +3,11 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
 
-use super::{build_stress_fn, test_args};
+use super::{build_stress_fn, test_args, test_args_n};
 use crate::{
     context::{Context, Node},
     eval::{
-        types::Interval, EzShape, MathShape, Shape, ShapeVars,
+        types::Interval, EzShape, MathShape, Shape, ShapeVars, Tape,
         TracingEvaluator, Vars,
     },
     vm::Choice,
@@ -17,6 +17,14 @@ use crate::{
 macro_rules! interval_unary {
     (Context::$i:ident, $t:expr) => {
         Self::test_unary(Context::$i, $t, stringify!($i));
+    };
+}
+
+macro_rules! interval_binary {
+    (Context::$i:ident, $t:expr) => {
+        Self::test_binary_reg_reg(Context::$i, $t, stringify!($i));
+        Self::test_binary_reg_imm(Context::$i, $t, stringify!($i));
+        Self::test_binary_imm_reg(Context::$i, $t, stringify!($i));
     };
 }
 
@@ -663,30 +671,35 @@ where
         }
     }
 
+    pub fn interval_test_args() -> Vec<Interval> {
+        let args = test_args_n(8);
+        let mut out = vec![];
+        for &lower in &args {
+            for &size in &args {
+                if size >= 0.0 {
+                    out.push(Interval::new(lower, lower + size));
+                }
+            }
+        }
+        out.push(Interval::new(f32::NAN, f32::NAN));
+        out
+    }
+
     pub fn test_unary(
         f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
         g: impl Fn(f32) -> f32,
         name: &'static str,
     ) {
-        let values = test_args();
-
-        let mut args = vec![];
-        for &lower in &values {
-            for &size in &values {
-                if size >= 0.0 {
-                    args.push(Interval::new(lower, lower + size));
-                }
-            }
-        }
-        args.push(Interval::new(f32::NAN, f32::NAN));
+        let args = Self::interval_test_args();
 
         let mut ctx = Context::new();
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
             let node = f(&mut ctx, v).unwrap();
 
             let shape = S::new(&ctx, node).unwrap();
-            let mut eval = S::new_interval_eval();
-            let tape = shape.ez_interval_tape();
+            let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
             for &a in args.iter() {
                 let (o, trace) = match i {
@@ -714,6 +727,188 @@ where
                     );
                 }
             }
+            tape_data = Some(tape.recycle());
+        }
+    }
+
+    /// Check `out` against a grid of points in the LHS, RHS intervals
+    pub fn compare_interval_results(
+        lhs: Interval,
+        rhs: Interval,
+        out: Interval,
+        g: impl Fn(f32, f32) -> f32,
+        name: &str,
+    ) {
+        let i_max = if lhs.lower() == lhs.upper() { 1 } else { 8 };
+        let j_max = if rhs.lower() == rhs.upper() { 1 } else { 8 };
+        for i in 0..i_max {
+            for j in 0..j_max {
+                let i = i as f32 / (i_max - 1) as f32;
+                let j = j as f32 / (j_max - 1) as f32;
+                let v_lhs = (lhs.lower() * i + lhs.upper() * (1.0 - i))
+                    .min(lhs.upper())
+                    .max(lhs.lower());
+                let v_rhs = (rhs.lower() * j + rhs.upper() * (1.0 - j))
+                    .min(rhs.upper())
+                    .max(rhs.lower());
+                let inside_value = g(v_lhs, v_rhs);
+                assert!(
+                    inside_value.is_nan()
+                        || out.lower().is_nan()
+                        || (inside_value >= out.lower()
+                            && inside_value <= out.upper()),
+                    "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
+                    ({lhs}, {rhs}) => {inside_value} not in {out}"
+                );
+            }
+        }
+    }
+
+    pub fn test_binary_reg_reg(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f32, f32) -> f32,
+        name: &'static str,
+    ) {
+        let args = Self::interval_test_args();
+
+        let mut ctx = Context::new();
+        let xyz = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, reg)");
+        let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
+        for &lhs in args.iter() {
+            for &rhs in args.iter() {
+                for (i, &u) in xyz.iter().enumerate() {
+                    for (j, &v) in xyz.iter().enumerate() {
+                        let node = f(&mut ctx, u, v).unwrap();
+
+                        // Special-case for things like x * x, which get
+                        // optimized to x**2 (with a different interval result)
+                        let op = ctx.get_op(node).unwrap();
+                        if matches!(op, crate::context::Op::Unary(..)) {
+                            continue;
+                        }
+
+                        let shape = S::new(&ctx, node).unwrap();
+                        let tape =
+                            shape.interval_tape(tape_data.unwrap_or_default());
+
+                        let (out, _trace) = match (i, j) {
+                            (0, 0) => eval.eval(&tape, lhs, zero, zero, &[]),
+                            (0, 1) => eval.eval(&tape, lhs, rhs, zero, &[]),
+                            (0, 2) => eval.eval(&tape, lhs, zero, rhs, &[]),
+                            (1, 0) => eval.eval(&tape, rhs, lhs, zero, &[]),
+                            (1, 1) => eval.eval(&tape, zero, lhs, zero, &[]),
+                            (1, 2) => eval.eval(&tape, zero, lhs, rhs, &[]),
+                            (2, 0) => eval.eval(&tape, rhs, zero, lhs, &[]),
+                            (2, 1) => eval.eval(&tape, zero, rhs, lhs, &[]),
+                            (2, 2) => eval.eval(&tape, zero, zero, lhs, &[]),
+                            _ => unreachable!(),
+                        }
+                        .unwrap();
+                        tape_data = Some(tape.recycle());
+
+                        let rhs = if i == j { lhs } else { rhs };
+                        Self::compare_interval_results(
+                            lhs, rhs, out, &g, &name,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn test_binary_reg_imm(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f32, f32) -> f32,
+        name: &'static str,
+    ) {
+        let values = test_args();
+        let args = Self::interval_test_args();
+
+        let mut ctx = Context::new();
+        let xyz = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
+        for &lhs in args.iter() {
+            for &rhs in values.iter() {
+                for (i, &u) in xyz.iter().enumerate() {
+                    let c = ctx.constant(rhs as f64);
+                    let node = f(&mut ctx, u, c).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let tape =
+                        shape.interval_tape(tape_data.unwrap_or_default());
+
+                    let (out, _trace) = match i {
+                        0 => eval.eval(&tape, lhs, zero, zero, &[]),
+                        1 => eval.eval(&tape, zero, lhs, zero, &[]),
+                        2 => eval.eval(&tape, zero, zero, lhs, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                    tape_data = Some(tape.recycle());
+
+                    Self::compare_interval_results(
+                        lhs,
+                        rhs.into(),
+                        out,
+                        &g,
+                        &name,
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn test_binary_imm_reg(
+        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
+        g: impl Fn(f32, f32) -> f32,
+        name: &'static str,
+    ) {
+        let values = test_args();
+        let args = Self::interval_test_args();
+
+        let mut ctx = Context::new();
+        let xyz = [ctx.x(), ctx.y(), ctx.z()];
+
+        let name = format!("{name}(reg, imm)");
+        let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
+        for &lhs in values.iter() {
+            for &rhs in args.iter() {
+                for (i, &u) in xyz.iter().enumerate() {
+                    let c = ctx.constant(lhs as f64);
+                    let node = f(&mut ctx, c, u).unwrap();
+
+                    let shape = S::new(&ctx, node).unwrap();
+                    let tape =
+                        shape.interval_tape(tape_data.unwrap_or_default());
+
+                    let (out, _trace) = match i {
+                        0 => eval.eval(&tape, rhs, zero, zero, &[]),
+                        1 => eval.eval(&tape, zero, rhs, zero, &[]),
+                        2 => eval.eval(&tape, zero, zero, rhs, &[]),
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                    tape_data = Some(tape.recycle());
+
+                    Self::compare_interval_results(
+                        lhs.into(),
+                        rhs,
+                        out,
+                        &g,
+                        &name,
+                    );
+                }
+            }
         }
     }
 
@@ -732,6 +927,46 @@ where
         interval_unary!(Context::ln, |v| v.ln());
         interval_unary!(Context::square, |v| v * v);
         interval_unary!(Context::sqrt, |v| v.sqrt());
+    }
+
+    pub fn test_i_binary_ops() {
+        interval_binary!(Context::add, |a, b| a + b);
+        interval_binary!(Context::sub, |a, b| a - b);
+
+        // Multiplication short-circuits to 0, which means that
+        // 0 (constant) * NaN = 0
+        Self::test_binary_reg_reg(Context::mul, |a, b| a * b, "mul");
+        Self::test_binary_reg_imm(
+            Context::mul,
+            |a, b| if b == 0.0 { b } else { a * b },
+            "mul",
+        );
+        Self::test_binary_imm_reg(
+            Context::mul,
+            |a, b| if a == 0.0 { a } else { a * b },
+            "mul",
+        );
+
+        // Multiplication short-circuits to 0, which means that
+        // 0 (constant) / NaN = 0
+        Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
+        Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
+        Self::test_binary_imm_reg(
+            Context::div,
+            |a, b| if a == 0.0 { a } else { a / b },
+            "div",
+        );
+
+        interval_binary!(Context::min, |a, b| if a.is_nan() || b.is_nan() {
+            f32::NAN
+        } else {
+            a.min(b)
+        });
+        interval_binary!(Context::max, |a, b| if a.is_nan() || b.is_nan() {
+            f32::NAN
+        } else {
+            a.max(b)
+        });
     }
 }
 
@@ -768,5 +1003,6 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);
         $crate::interval_test!(test_i_unary_ops, $t);
+        $crate::interval_test!(test_i_binary_ops, $t);
     };
 }
