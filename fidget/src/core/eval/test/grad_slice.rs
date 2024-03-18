@@ -2,7 +2,7 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
-use super::{build_stress_fn, test_args};
+use super::{build_stress_fn, test_args, CanonicalUnaryOp};
 use crate::{
     context::{Context, Node},
     eval::{
@@ -10,12 +10,6 @@ use crate::{
     },
     Error,
 };
-
-macro_rules! grad_slice_unary {
-    (Context::$i:ident, $t:expr) => {
-        Self::test_unary(Context::$i, $t, stringify!($i));
-    };
-}
 
 macro_rules! grad_slice_binary {
     (Context::$i:ident, $t:expr) => {
@@ -445,17 +439,13 @@ where
         }
     }
 
-    pub fn test_unary(
-        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
-        g: impl Fn(f64) -> f64,
-        name: &'static str,
-    ) {
+    pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = f(&mut ctx, v).unwrap();
+            let node = C::build(&mut ctx, v);
 
             let shape = S::new(&ctx, node).unwrap();
             let mut eval = S::new_grad_slice_eval();
@@ -469,26 +459,28 @@ where
             }
             .unwrap();
             for (a, &o) in args.iter().zip(out.iter()) {
-                let v = g(*a as f64);
+                let v = C::eval_f64(*a as f64);
                 let err = (v as f32 - o.v).abs();
                 let err_frac = err / (v.abs() as f32).max(o.v.abs());
                 assert!(
-                    (o.v == v as f32)
+                    o.v == v as f32
                         || err < 1e-6
                         || err_frac < 1e-6
                         || (v.is_nan() && o.v.is_nan()),
-                    "mismatch in '{name}' at {a}: {v} != {o} ({err})"
+                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    C::NAME,
                 );
 
                 let grad = o.d(i);
                 if !v.is_nan() && grad < 1e9 && !grad.is_infinite() {
-                    let d = g(*a as f64 + 1e-8);
+                    let d = C::eval_f64(*a as f64 + 1e-8);
                     let estimated_gradient = (d - v) / 1e-8;
                     let err = (estimated_gradient as f32 - grad).abs();
                     assert!(
                         err < 1e-3,
-                        "gradient estimate mismatch in '{name}' at {a}:
-                        {estimated_gradient} != {grad} ({err})"
+                        "gradient estimate mismatch in '{}' at {a}:
+                        {estimated_gradient} != {grad} ({err})",
+                        C::NAME,
                     );
                 }
             }
@@ -711,19 +703,21 @@ where
     }
 
     pub fn test_g_unary_ops() {
-        grad_slice_unary!(Context::neg, |v| -v);
-        grad_slice_unary!(Context::recip, |v| 1.0 / v);
-        grad_slice_unary!(Context::abs, |v| v.abs());
-        grad_slice_unary!(Context::sin, |v| v.sin());
-        grad_slice_unary!(Context::cos, |v| v.cos());
-        grad_slice_unary!(Context::tan, |v| v.tan());
-        grad_slice_unary!(Context::asin, |v| v.asin());
-        grad_slice_unary!(Context::acos, |v| v.acos());
-        grad_slice_unary!(Context::atan, |v| v.atan());
-        grad_slice_unary!(Context::exp, |v| v.exp());
-        grad_slice_unary!(Context::ln, |v| v.ln());
-        grad_slice_unary!(Context::square, |v| v * v);
-        grad_slice_unary!(Context::sqrt, |v| v.sqrt());
+        use super::canonical::*;
+
+        Self::test_unary::<neg>();
+        Self::test_unary::<recip>();
+        Self::test_unary::<abs>();
+        Self::test_unary::<sin>();
+        Self::test_unary::<cos>();
+        Self::test_unary::<tan>();
+        Self::test_unary::<asin>();
+        Self::test_unary::<acos>();
+        Self::test_unary::<atan>();
+        Self::test_unary::<exp>();
+        Self::test_unary::<ln>();
+        Self::test_unary::<square>();
+        Self::test_unary::<sqrt>();
     }
 
     pub fn test_g_binary_ops() {

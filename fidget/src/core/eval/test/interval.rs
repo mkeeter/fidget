@@ -3,7 +3,7 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
 
-use super::{build_stress_fn, test_args, test_args_n};
+use super::{build_stress_fn, test_args, test_args_n, CanonicalUnaryOp};
 use crate::{
     context::{Context, Node},
     eval::{
@@ -13,12 +13,6 @@ use crate::{
     vm::Choice,
     Error,
 };
-
-macro_rules! interval_unary {
-    (Context::$i:ident, $t:expr) => {
-        Self::test_unary(Context::$i, $t, stringify!($i));
-    };
-}
 
 macro_rules! interval_binary {
     (Context::$i:ident, $t:expr) => {
@@ -685,18 +679,14 @@ where
         out
     }
 
-    pub fn test_unary(
-        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
-        g: impl Fn(f32) -> f32,
-        name: &'static str,
-    ) {
+    pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = Self::interval_test_args();
 
         let mut ctx = Context::new();
         let mut tape_data = None;
         let mut eval = S::new_interval_eval();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = f(&mut ctx, v).unwrap();
+            let node = C::build(&mut ctx, v);
 
             let shape = S::new(&ctx, node).unwrap();
             let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -716,14 +706,15 @@ where
                     let inside = (a.lower() * pos + a.upper() * (1.0 - pos))
                         .min(a.upper())
                         .max(a.lower());
-                    let inside_value = g(inside);
+                    let inside_value = C::eval_f32(inside);
                     assert!(
                         inside_value.is_nan()
                             || o.lower().is_nan()
                             || (inside_value >= o.lower()
                                 && inside_value <= o.upper()),
-                        "interval failure in '{name}': {inside} in {a} => \
-                         {inside_value} not in {o}"
+                        "interval failure in '{}': {inside} in {a} => \
+                         {inside_value} not in {o}",
+                        C::NAME,
                     );
                 }
             }
@@ -913,20 +904,21 @@ where
     }
 
     pub fn test_i_unary_ops() {
-        interval_unary!(Context::neg, |v| -v);
-        interval_unary!(Context::recip, |v| 1.0 / v);
-        interval_unary!(Context::abs, |v| v.abs());
-        interval_unary!(Context::sin, |v| v.sin());
-        interval_unary!(Context::sin, |v| v.sin());
-        interval_unary!(Context::cos, |v| v.cos());
-        interval_unary!(Context::tan, |v| v.tan());
-        interval_unary!(Context::asin, |v| v.asin());
-        interval_unary!(Context::acos, |v| v.acos());
-        interval_unary!(Context::atan, |v| v.atan());
-        interval_unary!(Context::exp, |v| v.exp());
-        interval_unary!(Context::ln, |v| v.ln());
-        interval_unary!(Context::square, |v| v * v);
-        interval_unary!(Context::sqrt, |v| v.sqrt());
+        use super::canonical::*;
+
+        Self::test_unary::<neg>();
+        Self::test_unary::<recip>();
+        Self::test_unary::<abs>();
+        Self::test_unary::<sin>();
+        Self::test_unary::<cos>();
+        Self::test_unary::<tan>();
+        Self::test_unary::<asin>();
+        Self::test_unary::<acos>();
+        Self::test_unary::<atan>();
+        Self::test_unary::<exp>();
+        Self::test_unary::<ln>();
+        Self::test_unary::<square>();
+        Self::test_unary::<sqrt>();
     }
 
     pub fn test_i_binary_ops() {

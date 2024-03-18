@@ -3,18 +3,12 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for such evaluators; otherwise, the module has no public exports.
 
-use super::{build_stress_fn, test_args};
+use super::{build_stress_fn, test_args, CanonicalUnaryOp};
 use crate::{
     context::{Context, Node},
     eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
     Error,
 };
-
-macro_rules! float_slice_unary {
-    (Context::$i:ident, $t:expr) => {
-        Self::test_unary(Context::$i, $t, stringify!($i));
-    };
-}
 
 macro_rules! float_slice_binary {
     (Context::$i:ident, $t:expr) => {
@@ -279,17 +273,13 @@ where
         }
     }
 
-    pub fn test_unary(
-        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
-        g: impl Fn(f32) -> f32,
-        name: &'static str,
-    ) {
+    pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = f(&mut ctx, v).unwrap();
+            let node = C::build(&mut ctx, v);
 
             let shape = S::new(&ctx, node).unwrap();
             let mut eval = S::new_float_slice_eval();
@@ -303,11 +293,12 @@ where
             }
             .unwrap();
             for (a, &o) in args.iter().zip(out.iter()) {
-                let v = g(*a);
+                let v = C::eval_f32(*a);
                 let err = (v - o).abs();
                 assert!(
                     (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                    "mismatch in '{name}' at {a}: {v} != {o} ({err})"
+                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    C::NAME,
                 )
             }
         }
@@ -452,19 +443,21 @@ where
     }
 
     pub fn test_f_unary_ops() {
-        float_slice_unary!(Context::neg, |v| -v);
-        float_slice_unary!(Context::recip, |v| 1.0 / v);
-        float_slice_unary!(Context::abs, |v| v.abs());
-        float_slice_unary!(Context::sin, |v| v.sin());
-        float_slice_unary!(Context::cos, |v| v.cos());
-        float_slice_unary!(Context::tan, |v| v.tan());
-        float_slice_unary!(Context::asin, |v| v.asin());
-        float_slice_unary!(Context::acos, |v| v.acos());
-        float_slice_unary!(Context::atan, |v| v.atan());
-        float_slice_unary!(Context::exp, |v| v.exp());
-        float_slice_unary!(Context::ln, |v| v.ln());
-        float_slice_unary!(Context::square, |v| v * v);
-        float_slice_unary!(Context::sqrt, |v| v.sqrt());
+        use super::canonical::*;
+
+        Self::test_unary::<neg>();
+        Self::test_unary::<recip>();
+        Self::test_unary::<abs>();
+        Self::test_unary::<sin>();
+        Self::test_unary::<cos>();
+        Self::test_unary::<tan>();
+        Self::test_unary::<asin>();
+        Self::test_unary::<acos>();
+        Self::test_unary::<atan>();
+        Self::test_unary::<exp>();
+        Self::test_unary::<ln>();
+        Self::test_unary::<square>();
+        Self::test_unary::<sqrt>();
     }
 
     pub fn test_f_binary_ops() {
