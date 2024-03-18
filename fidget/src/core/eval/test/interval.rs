@@ -7,7 +7,7 @@ use super::{build_stress_fn, test_args, test_args_n};
 use crate::{
     context::{Context, Node},
     eval::{
-        types::Interval, EzShape, MathShape, Shape, ShapeVars,
+        types::Interval, EzShape, MathShape, Shape, ShapeVars, Tape,
         TracingEvaluator, Vars,
     },
     vm::Choice,
@@ -693,12 +693,13 @@ where
         let args = Self::interval_test_args();
 
         let mut ctx = Context::new();
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
             let node = f(&mut ctx, v).unwrap();
 
             let shape = S::new(&ctx, node).unwrap();
-            let mut eval = S::new_interval_eval();
-            let tape = shape.ez_interval_tape();
+            let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
             for &a in args.iter() {
                 let (o, trace) = match i {
@@ -726,6 +727,7 @@ where
                     );
                 }
             }
+            tape_data = Some(tape.recycle());
         }
     }
 
@@ -774,6 +776,8 @@ where
 
         let name = format!("{name}(reg, reg)");
         let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
@@ -788,8 +792,8 @@ where
                         }
 
                         let shape = S::new(&ctx, node).unwrap();
-                        let mut eval = S::new_interval_eval();
-                        let tape = shape.ez_interval_tape();
+                        let tape =
+                            shape.interval_tape(tape_data.unwrap_or_default());
 
                         let (out, _trace) = match (i, j) {
                             (0, 0) => eval.eval(&tape, lhs, zero, zero, &[]),
@@ -804,6 +808,7 @@ where
                             _ => unreachable!(),
                         }
                         .unwrap();
+                        tape_data = Some(tape.recycle());
 
                         let rhs = if i == j { lhs } else { rhs };
                         Self::compare_interval_results(
@@ -828,6 +833,8 @@ where
 
         let name = format!("{name}(reg, imm)");
         let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
         for &lhs in args.iter() {
             for &rhs in values.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
@@ -835,8 +842,8 @@ where
                     let node = f(&mut ctx, u, c).unwrap();
 
                     let shape = S::new(&ctx, node).unwrap();
-                    let mut eval = S::new_interval_eval();
-                    let tape = shape.ez_interval_tape();
+                    let tape =
+                        shape.interval_tape(tape_data.unwrap_or_default());
 
                     let (out, _trace) = match i {
                         0 => eval.eval(&tape, lhs, zero, zero, &[]),
@@ -845,6 +852,7 @@ where
                         _ => unreachable!(),
                     }
                     .unwrap();
+                    tape_data = Some(tape.recycle());
 
                     Self::compare_interval_results(
                         lhs,
@@ -871,6 +879,8 @@ where
 
         let name = format!("{name}(reg, imm)");
         let zero = Interval::new(0.0, 0.0);
+        let mut tape_data = None;
+        let mut eval = S::new_interval_eval();
         for &lhs in values.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
@@ -878,8 +888,8 @@ where
                     let node = f(&mut ctx, c, u).unwrap();
 
                     let shape = S::new(&ctx, node).unwrap();
-                    let mut eval = S::new_interval_eval();
-                    let tape = shape.ez_interval_tape();
+                    let tape =
+                        shape.interval_tape(tape_data.unwrap_or_default());
 
                     let (out, _trace) = match i {
                         0 => eval.eval(&tape, rhs, zero, zero, &[]),
@@ -888,6 +898,7 @@ where
                         _ => unreachable!(),
                     }
                     .unwrap();
+                    tape_data = Some(tape.recycle());
 
                     Self::compare_interval_results(
                         lhs.into(),
