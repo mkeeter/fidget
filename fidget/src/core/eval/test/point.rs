@@ -2,19 +2,13 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for point evaluators; otherwise, the module has no public exports.
-use super::{build_stress_fn, test_args};
+use super::{build_stress_fn, test_args, CanonicalUnaryOp};
 use crate::{
     context::{Context, Node},
     eval::{EzShape, MathShape, Shape, ShapeVars, TracingEvaluator, Vars},
     vm::Choice,
     Error,
 };
-
-macro_rules! point_unary {
-    (Context::$i:ident, $t:expr) => {
-        Self::test_unary(Context::$i, $t, stringify!($i));
-    };
-}
 
 macro_rules! point_binary {
     (Context::$i:ident, $t:expr) => {
@@ -399,17 +393,13 @@ where
         }
     }
 
-    pub fn test_unary(
-        f: impl Fn(&mut Context, Node) -> Result<Node, Error>,
-        g: impl Fn(f32) -> f32,
-        name: &'static str,
-    ) {
+    pub fn test_unary<C: CanonicalUnaryOp>() {
         // Pick a bunch of arguments, some of which are spicy
         let args = test_args();
 
         let mut ctx = Context::new();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = f(&mut ctx, v).unwrap();
+            let node = C::build(&mut ctx, v);
 
             let shape = S::new(&ctx, node).unwrap();
             let mut eval = S::new_point_eval();
@@ -424,17 +414,18 @@ where
                 }
                 .unwrap();
                 assert!(trace.is_none());
-                let v = g(a);
+                let v = C::eval_f32(a);
                 let err = (v - o).abs();
                 assert!(
                     (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                    "mismatch in '{name}' at {a}: {v} != {o} ({err})"
+                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                    C::NAME,
                 )
             }
         }
     }
 
-    pub fn compare_point_results(
+    fn compare_point_results(
         lhs: f32,
         rhs: f32,
         out: f32,
@@ -563,22 +554,6 @@ where
         }
     }
 
-    pub fn test_p_unary_ops() {
-        point_unary!(Context::neg, |v| -v);
-        point_unary!(Context::recip, |v| 1.0 / v);
-        point_unary!(Context::abs, |v| v.abs());
-        point_unary!(Context::sin, |v| v.sin());
-        point_unary!(Context::cos, |v| v.cos());
-        point_unary!(Context::tan, |v| v.tan());
-        point_unary!(Context::asin, |v| v.asin());
-        point_unary!(Context::acos, |v| v.acos());
-        point_unary!(Context::atan, |v| v.atan());
-        point_unary!(Context::exp, |v| v.exp());
-        point_unary!(Context::ln, |v| v.ln());
-        point_unary!(Context::square, |v| v * v);
-        point_unary!(Context::sqrt, |v| v.sqrt());
-    }
-
     pub fn test_p_binary_ops() {
         point_binary!(Context::add, |a, b| a + b);
         point_binary!(Context::sub, |a, b| a - b);
@@ -617,6 +592,24 @@ where
         } else {
             a.max(b)
         });
+    }
+
+    pub fn test_p_unary_ops() {
+        use super::canonical::*;
+
+        Self::test_unary::<neg>();
+        Self::test_unary::<recip>();
+        Self::test_unary::<abs>();
+        Self::test_unary::<sin>();
+        Self::test_unary::<cos>();
+        Self::test_unary::<tan>();
+        Self::test_unary::<asin>();
+        Self::test_unary::<acos>();
+        Self::test_unary::<atan>();
+        Self::test_unary::<exp>();
+        Self::test_unary::<ln>();
+        Self::test_unary::<square>();
+        Self::test_unary::<sqrt>();
     }
 }
 
