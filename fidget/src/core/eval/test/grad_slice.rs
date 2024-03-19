@@ -2,22 +2,13 @@
 //!
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for interval evaluators; otherwise, the module has no public exports.
-use super::{build_stress_fn, test_args, CanonicalUnaryOp};
+use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
-    context::{Context, Node},
+    context::Context,
     eval::{
         types::Grad, BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars,
     },
-    Error,
 };
-
-macro_rules! grad_slice_binary {
-    (Context::$i:ident, $t:expr) => {
-        Self::test_binary_reg_reg(Context::$i, $t, stringify!($i));
-        Self::test_binary_reg_imm(Context::$i, $t, stringify!($i));
-        Self::test_binary_imm_reg(Context::$i, $t, stringify!($i));
-    };
-}
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestGradSlice<S>(std::marker::PhantomData<*const S>);
@@ -575,23 +566,19 @@ where
         }
     }
 
-    pub fn test_binary_reg_reg(
-        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
-        g: impl Fn(f64, f64) -> f64,
-        name: &'static str,
-    ) {
+    pub fn test_binary_reg_reg<C: CanonicalBinaryOp>() {
         let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
-        let name = format!("{name}(reg, reg)");
+        let name = format!("{}(reg, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
             for (i, &v) in inputs.iter().enumerate() {
                 for (j, &u) in inputs.iter().enumerate() {
-                    let node = f(&mut ctx, v, u).unwrap();
+                    let node = C::build(&mut ctx, v, u);
 
                     let shape = S::new(&ctx, node).unwrap();
                     let mut eval = S::new_grad_slice_eval();
@@ -613,32 +600,34 @@ where
 
                     let rhs = if i == j { &args } else { &rgsa };
                     Self::compare_grad_results(
-                        i, j, &args, rhs, out, &g, &name,
+                        i,
+                        j,
+                        &args,
+                        rhs,
+                        out,
+                        C::eval_reg_reg_f64,
+                        &name,
                     );
                 }
             }
         }
     }
 
-    fn test_binary_reg_imm(
-        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
-        g: impl Fn(f64, f64) -> f64,
-        name: &'static str,
-    ) {
+    fn test_binary_reg_imm<C: CanonicalBinaryOp>() {
         let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
 
-        let name = format!("{name}(reg, imm)");
+        let name = format!("{}(reg, imm)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
             for (i, &v) in inputs.iter().enumerate() {
                 for rhs in args.iter() {
                     let c = ctx.constant(*rhs as f64);
-                    let node = f(&mut ctx, v, c).unwrap();
+                    let node = C::build(&mut ctx, v, c);
 
                     let shape = S::new(&ctx, node).unwrap();
                     let mut eval = S::new_grad_slice_eval();
@@ -654,32 +643,34 @@ where
 
                     let rhs = vec![*rhs; out.len()];
                     Self::compare_grad_results(
-                        i, 3, &args, &rhs, out, &g, &name,
+                        i,
+                        3,
+                        &args,
+                        &rhs,
+                        out,
+                        C::eval_reg_imm_f64,
+                        &name,
                     );
                 }
             }
         }
     }
 
-    fn test_binary_imm_reg(
-        f: impl Fn(&mut Context, Node, Node) -> Result<Node, Error>,
-        g: impl Fn(f64, f64) -> f64,
-        name: &'static str,
-    ) {
+    fn test_binary_imm_reg<C: CanonicalBinaryOp>() {
         let args = test_args();
         let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
 
-        let name = format!("{name}(reg, imm)");
+        let name = format!("{}(reg, imm)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
             for (i, &v) in inputs.iter().enumerate() {
                 for lhs in args.iter() {
                     let c = ctx.constant(*lhs as f64);
-                    let node = f(&mut ctx, c, v).unwrap();
+                    let node = C::build(&mut ctx, c, v);
 
                     let shape = S::new(&ctx, node).unwrap();
                     let mut eval = S::new_grad_slice_eval();
@@ -695,7 +686,13 @@ where
 
                     let lhs = vec![*lhs; out.len()];
                     Self::compare_grad_results(
-                        3, i, &lhs, &args, out, &g, &name,
+                        3,
+                        i,
+                        &lhs,
+                        &args,
+                        out,
+                        C::eval_imm_reg_f64,
+                        &name,
                     );
                 }
             }
@@ -720,44 +717,21 @@ where
         Self::test_unary::<sqrt>();
     }
 
+    pub fn test_binary<C: CanonicalBinaryOp>() {
+        Self::test_binary_reg_reg::<C>();
+        Self::test_binary_reg_imm::<C>();
+        Self::test_binary_imm_reg::<C>();
+    }
+
     pub fn test_g_binary_ops() {
-        grad_slice_binary!(Context::add, |a, b| a + b);
-        grad_slice_binary!(Context::sub, |a, b| a - b);
+        use super::canonical::*;
 
-        // Multiplication short-circuits to 0, which means that
-        // 0 (constant) * NaN = 0
-        Self::test_binary_reg_reg(Context::mul, |a, b| a * b, "mul");
-        Self::test_binary_reg_imm(
-            Context::mul,
-            |a, b| if b == 0.0 { b } else { a * b },
-            "mul",
-        );
-        Self::test_binary_imm_reg(
-            Context::mul,
-            |a, b| if a == 0.0 { a } else { a * b },
-            "mul",
-        );
-
-        // Multiplication short-circuits to 0, which means that
-        // 0 (constant) / NaN = 0
-        Self::test_binary_reg_reg(Context::div, |a, b| a / b, "div");
-        Self::test_binary_reg_imm(Context::div, |a, b| a / b, "div");
-        Self::test_binary_imm_reg(
-            Context::div,
-            |a, b| if a == 0.0 { a } else { a / b },
-            "div",
-        );
-
-        grad_slice_binary!(Context::min, |a, b| if a.is_nan() || b.is_nan() {
-            f64::NAN
-        } else {
-            a.min(b)
-        });
-        grad_slice_binary!(Context::max, |a, b| if a.is_nan() || b.is_nan() {
-            f64::NAN
-        } else {
-            a.max(b)
-        });
+        Self::test_binary::<add>();
+        Self::test_binary::<sub>();
+        Self::test_binary::<mul>();
+        Self::test_binary::<div>();
+        Self::test_binary::<min>();
+        Self::test_binary::<max>();
     }
 }
 
