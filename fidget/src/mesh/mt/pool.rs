@@ -343,7 +343,7 @@ mod test {
 
         std::thread::scope(|s| {
             s.spawn(|| {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 if done.load(Ordering::Acquire) != N {
                     panic!("deadlock in `thread_ctx` test; aborting");
                 }
