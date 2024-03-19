@@ -11,7 +11,9 @@ env:
 
 jobs:
   build-and-test-native:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-14"]
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
