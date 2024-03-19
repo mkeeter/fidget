@@ -345,8 +345,7 @@ mod test {
             s.spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 if done.load(Ordering::Acquire) != N {
-                    eprintln!("deadlock in `thread_ctx` test; aborting");
-                    std::process::exit(1);
+                    panic!("deadlock in `thread_ctx` test; aborting");
                 }
             });
             for i in 0..N {
