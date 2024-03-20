@@ -157,7 +157,7 @@ macro_rules! declare_canonical_binary_full {
 }
 
 #[allow(non_camel_case_types)]
-mod canonical {
+pub mod canonical {
     use super::*;
 
     declare_canonical_unary!(Context::neg, |a| -a);
