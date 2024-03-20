@@ -556,35 +556,6 @@ where
         Self::test_binary_reg_imm::<C>();
         Self::test_binary_imm_reg::<C>();
     }
-
-    pub fn test_p_binary_ops() {
-        use super::canonical::*;
-
-        Self::test_binary::<add>();
-        Self::test_binary::<sub>();
-        Self::test_binary::<mul>();
-        Self::test_binary::<div>();
-        Self::test_binary::<min>();
-        Self::test_binary::<max>();
-    }
-
-    pub fn test_p_unary_ops() {
-        use super::canonical::*;
-
-        Self::test_unary::<neg>();
-        Self::test_unary::<recip>();
-        Self::test_unary::<abs>();
-        Self::test_unary::<sin>();
-        Self::test_unary::<cos>();
-        Self::test_unary::<tan>();
-        Self::test_unary::<asin>();
-        Self::test_unary::<acos>();
-        Self::test_unary::<atan>();
-        Self::test_unary::<exp>();
-        Self::test_unary::<ln>();
-        Self::test_unary::<square>();
-        Self::test_unary::<sqrt>();
-    }
 }
 
 #[macro_export]
@@ -611,7 +582,19 @@ macro_rules! point_tests {
         $crate::point_test!(test_var, $t);
         $crate::point_test!(test_basic, $t);
         $crate::point_test!(test_p_stress, $t);
-        $crate::point_test!(test_p_unary_ops, $t);
-        $crate::point_test!(test_p_binary_ops, $t);
+
+        mod p_unary {
+            use super::*;
+            $crate::all_unary_tests!(
+                $crate::eval::test::point::TestPoint::<$t>
+            );
+        }
+
+        mod p_binary {
+            use super::*;
+            $crate::all_binary_tests!(
+                $crate::eval::test::point::TestPoint::<$t>
+            );
+        }
     };
 }

@@ -907,30 +907,6 @@ macro_rules! interval_test {
 }
 
 #[macro_export]
-macro_rules! interval_unary_test {
-    ($i:ident, $t:ty) => {
-        #[test]
-        fn $i() {
-            $crate::eval::test::interval::TestInterval::<$t>::test_unary::<
-                $crate::eval::test::canonical::$i,
-            >()
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! interval_binary_test {
-    ($i:ident, $t:ty) => {
-        #[test]
-        fn $i() {
-            $crate::eval::test::interval::TestInterval::<$t>::test_binary::<
-                $crate::eval::test::canonical::$i,
-            >()
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! interval_tests {
     ($t:ty) => {
         $crate::interval_test!(test_interval, $t);
@@ -955,29 +931,16 @@ macro_rules! interval_tests {
 
         mod i_unary {
             use super::*;
-            $crate::interval_unary_test!(neg, $t);
-            $crate::interval_unary_test!(recip, $t);
-            $crate::interval_unary_test!(abs, $t);
-            $crate::interval_unary_test!(sin, $t);
-            $crate::interval_unary_test!(cos, $t);
-            $crate::interval_unary_test!(tan, $t);
-            $crate::interval_unary_test!(asin, $t);
-            $crate::interval_unary_test!(acos, $t);
-            $crate::interval_unary_test!(atan, $t);
-            $crate::interval_unary_test!(exp, $t);
-            $crate::interval_unary_test!(ln, $t);
-            $crate::interval_unary_test!(square, $t);
-            $crate::interval_unary_test!(sqrt, $t);
+            $crate::all_unary_tests!(
+                $crate::eval::test::interval::TestInterval::<$t>
+            );
         }
 
         mod i_binary {
             use super::*;
-            $crate::interval_binary_test!(add, $t);
-            $crate::interval_binary_test!(sub, $t);
-            $crate::interval_binary_test!(mul, $t);
-            $crate::interval_binary_test!(div, $t);
-            $crate::interval_binary_test!(min, $t);
-            $crate::interval_binary_test!(max, $t);
+            $crate::all_binary_tests!(
+                $crate::eval::test::interval::TestInterval::<$t>
+            );
         }
     };
 }
