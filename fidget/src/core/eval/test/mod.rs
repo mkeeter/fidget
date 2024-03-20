@@ -207,7 +207,7 @@ pub mod canonical {
     declare_canonical_binary!(Context::less_than, |a, b| if a.is_nan()
         || b.is_nan()
     {
-        a * b // get a NAN
+        f32::NAN.into()
     } else {
         ((a < b) as u8).into()
     });
