@@ -889,39 +889,10 @@ where
         }
     }
 
-    pub fn test_i_unary_ops() {
-        use super::canonical::*;
-
-        Self::test_unary::<neg>();
-        Self::test_unary::<recip>();
-        Self::test_unary::<abs>();
-        Self::test_unary::<sin>();
-        Self::test_unary::<cos>();
-        Self::test_unary::<tan>();
-        Self::test_unary::<asin>();
-        Self::test_unary::<acos>();
-        Self::test_unary::<atan>();
-        Self::test_unary::<exp>();
-        Self::test_unary::<ln>();
-        Self::test_unary::<square>();
-        Self::test_unary::<sqrt>();
-    }
-
     pub fn test_binary<C: CanonicalBinaryOp>() {
         Self::test_binary_reg_reg::<C>();
         Self::test_binary_reg_imm::<C>();
         Self::test_binary_imm_reg::<C>();
-    }
-
-    pub fn test_i_binary_ops() {
-        use super::canonical::*;
-
-        Self::test_binary::<add>();
-        Self::test_binary::<sub>();
-        Self::test_binary::<mul>();
-        Self::test_binary::<div>();
-        Self::test_binary::<min>();
-        Self::test_binary::<max>();
     }
 }
 
@@ -957,7 +928,19 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);
-        $crate::interval_test!(test_i_unary_ops, $t);
-        $crate::interval_test!(test_i_binary_ops, $t);
+
+        mod i_unary {
+            use super::*;
+            $crate::all_unary_tests!(
+                $crate::eval::test::interval::TestInterval::<$t>
+            );
+        }
+
+        mod i_binary {
+            use super::*;
+            $crate::all_binary_tests!(
+                $crate::eval::test::interval::TestInterval::<$t>
+            );
+        }
     };
 }

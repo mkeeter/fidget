@@ -157,7 +157,7 @@ macro_rules! declare_canonical_binary_full {
 }
 
 #[allow(non_camel_case_types)]
-mod canonical {
+pub mod canonical {
     use super::*;
 
     declare_canonical_unary!(Context::neg, |a| -a);
@@ -204,4 +204,55 @@ mod canonical {
             a.max(b)
         }
     );
+}
+
+#[macro_export]
+macro_rules! one_unary_test {
+    ($tester:ty, $i:ident) => {
+        #[test]
+        fn $i() {
+            <$tester>::test_unary::<$crate::eval::test::canonical::$i>()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! one_binary_test {
+    ($tester:ty, $i:ident) => {
+        #[test]
+        fn $i() {
+            <$tester>::test_binary::<$crate::eval::test::canonical::$i>()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! all_unary_tests {
+    ($tester:ty) => {
+        $crate::one_unary_test!($tester, neg);
+        $crate::one_unary_test!($tester, recip);
+        $crate::one_unary_test!($tester, abs);
+        $crate::one_unary_test!($tester, sin);
+        $crate::one_unary_test!($tester, cos);
+        $crate::one_unary_test!($tester, tan);
+        $crate::one_unary_test!($tester, asin);
+        $crate::one_unary_test!($tester, acos);
+        $crate::one_unary_test!($tester, atan);
+        $crate::one_unary_test!($tester, exp);
+        $crate::one_unary_test!($tester, ln);
+        $crate::one_unary_test!($tester, square);
+        $crate::one_unary_test!($tester, sqrt);
+    };
+}
+
+#[macro_export]
+macro_rules! all_binary_tests {
+    ($tester:ty) => {
+        $crate::one_binary_test!($tester, add);
+        $crate::one_binary_test!($tester, sub);
+        $crate::one_binary_test!($tester, mul);
+        $crate::one_binary_test!($tester, div);
+        $crate::one_binary_test!($tester, min);
+        $crate::one_binary_test!($tester, max);
+    };
 }
