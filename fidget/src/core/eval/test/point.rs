@@ -520,7 +520,7 @@ where
         let mut ctx = Context::new();
         let xyz = [ctx.x(), ctx.y(), ctx.z()];
 
-        let name = format!("{}(reg, imm)", C::NAME);
+        let name = format!("{}(imm, reg)", C::NAME);
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {

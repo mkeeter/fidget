@@ -854,7 +854,7 @@ where
         let mut ctx = Context::new();
         let xyz = [ctx.x(), ctx.y(), ctx.z()];
 
-        let name = format!("{}(reg, imm)", C::NAME);
+        let name = format!("{}(imm, reg)", C::NAME);
         let zero = Interval::new(0.0, 0.0);
         let mut tape_data = None;
         let mut eval = S::new_interval_eval();

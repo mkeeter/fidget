@@ -663,7 +663,7 @@ where
         let mut ctx = Context::new();
         let inputs = [ctx.x(), ctx.y(), ctx.z()];
 
-        let name = format!("{}(reg, imm)", C::NAME);
+        let name = format!("{}(imm, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
