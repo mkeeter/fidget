@@ -305,7 +305,7 @@ mod test {
     fn queue_pool() {
         let mut queues = QueuePool::new(2);
         let mut counters = [0i32; 2];
-        const DEPTH: usize = 5;
+        const DEPTH: usize = 6;
         queues[0].push(DEPTH);
 
         // Confirm that stealing leads to shared work between two threads
@@ -328,10 +328,11 @@ mod test {
             (1 << (DEPTH + 1)) - 1,
             "threads did not complete all work"
         );
-        assert_eq!(
-            counters[0].abs_diff(counters[1]),
-            1,
-            "unequal work distribution between threads"
+        assert!(
+            counters[0].abs_diff(counters[1]) < 2,
+            "unequal work distribution between threads: {} is far from {}",
+            counters[0],
+            counters[1],
         );
     }
 
