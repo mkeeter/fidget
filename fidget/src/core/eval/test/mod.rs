@@ -204,6 +204,13 @@ pub mod canonical {
             a.max(b)
         }
     );
+    declare_canonical_binary!(Context::less_than, |a, b| if a.is_nan()
+        || b.is_nan()
+    {
+        a * b // get a NAN
+    } else {
+        ((a < b) as u8).into()
+    });
 }
 
 #[macro_export]
@@ -254,5 +261,6 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, div);
         $crate::one_binary_test!($tester, min);
         $crate::one_binary_test!($tester, max);
+        $crate::one_binary_test!($tester, less_than);
     };
 }
