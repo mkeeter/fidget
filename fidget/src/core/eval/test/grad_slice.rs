@@ -468,7 +468,7 @@ where
                     let estimated_gradient = (d - v) / 1e-8;
                     let err = (estimated_gradient as f32 - grad).abs();
                     assert!(
-                        err < 1e-3,
+                        err.min(err / grad.abs()) < 1e-3,
                         "gradient estimate mismatch in '{}' at {a}:
                         {estimated_gradient} != {grad} ({err})",
                         C::NAME,
@@ -517,7 +517,7 @@ where
                     let est_grad = (v - d) / EPSILON;
                     err = err.min((est_grad as f32 - grad).abs());
                     assert!(
-                        err < 1e-3,
+                        err.min(err / grad.abs()) < 1e-3,
                         "gradient estimate mismatch in '{name}' at \
                          ({a} + epsilon, {b}): \
                          {est_grad} != {grad} ({err})"
@@ -537,7 +537,7 @@ where
                         let est_grad = (v - d) / EPSILON;
                         err = err.min((est_grad as f32 - grad).abs());
                         assert!(
-                            err < 1e-3,
+                            err.min(err / grad.abs()) < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
                              ({a} + epsilon, {b}): \
                              {est_grad} != {grad} ({err})"
@@ -555,7 +555,7 @@ where
                         let est_grad = (v - d) / EPSILON;
                         err = err.min((est_grad as f32 - grad).abs());
                         assert!(
-                            err < 1e-3,
+                            err.min(err / grad.abs()) < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
                              ({a}, {b} + epsilon): \
                              {est_grad} != {grad} ({err})"
