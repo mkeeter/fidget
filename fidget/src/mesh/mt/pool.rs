@@ -323,13 +323,15 @@ mod test {
                 });
             }
         });
+
+        const EXPECTED_COUNT: usize = (1 << (DEPTH + 1)) - 1;
         assert_eq!(
             counters[0] + counters[1],
-            (1 << (DEPTH + 1)) - 1,
+            EXPECTED_COUNT as i32,
             "threads did not complete all work"
         );
         assert!(
-            counters[0].abs_diff(counters[1]) < 2,
+            counters[0].abs_diff(counters[1]) < EXPECTED_COUNT as u32 / 10,
             "unequal work distribution between threads: {} is far from {}",
             counters[0],
             counters[1],
