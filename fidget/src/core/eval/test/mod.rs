@@ -156,7 +156,7 @@ macro_rules! declare_canonical_binary_full {
     };
 }
 
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::useless_conversion)]
 pub mod canonical {
     use super::*;
 
@@ -191,7 +191,7 @@ pub mod canonical {
     declare_canonical_binary!(
         Context::min,
         |a, b| if a.is_nan() || b.is_nan() {
-            a * b // get a NAN
+            f32::NAN.into()
         } else {
             a.min(b)
         }
@@ -199,7 +199,7 @@ pub mod canonical {
     declare_canonical_binary!(
         Context::max,
         |a, b| if a.is_nan() || b.is_nan() {
-            a * b // get a NAN
+            f32::NAN.into()
         } else {
             a.max(b)
         }
