@@ -382,12 +382,11 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     };
                 }
                 RegOp::LessThanImmReg(out, arg, imm) => {
-                    println!("LessThanImmReg {} {imm}", v[arg]);
                     v[out] = if v[arg].has_nan() || imm.is_nan() {
                         f32::NAN.into()
                     } else if imm < v[arg].lower() {
                         1.0.into()
-                    } else if v[arg].upper() >= imm {
+                    } else if imm >= v[arg].upper() {
                         0.0.into()
                     } else {
                         Interval::new(0.0, 1.0)
