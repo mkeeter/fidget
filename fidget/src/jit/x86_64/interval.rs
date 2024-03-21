@@ -261,9 +261,6 @@ impl Assembler for IntervalAssembler {
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; vpxor xmm0, xmm0, xmm0 // xmm0 = 0.0
-            ; vpshufd xmm1, Rx(reg(lhs_reg)), 1
-            ; vcomiss xmm0, xmm1
-            ; ja >U // upper_lz
             ; vcomiss xmm0, Rx(reg(lhs_reg))
             ; ja >L // lower_lz
 
@@ -271,15 +268,8 @@ impl Assembler for IntervalAssembler {
             ; vsqrtps Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >E
 
-            // lower < 0, upper > 0 => [0, sqrt(upper)]
+            // lower < 0 => [NaN, NaN]
             ; L:
-            ; vpxor xmm0, xmm0, xmm0 // clear xmm0
-            ; vsqrtss xmm0, xmm0, xmm1
-            ; vpshufd Rx(reg(out_reg)), xmm0, 0b11110011u8 as i8
-            ; jmp >E
-
-            // upper < 0 => [NaN, NaN]
-            ; U:
             ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
             ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
             ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
