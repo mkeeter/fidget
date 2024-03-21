@@ -146,10 +146,10 @@ impl Assembler for FloatSliceAssembler {
             //
             // We're actually loading two f32s, but we can pretend they're
             // doubles in order to move 64 bits at a time
-            ; ldr q0, [x0], #16
-            ; ldr q1, [x1], #16
-            ; ldr q2, [x2], #16
-            ; sub x5, x5, #4 // We handle 4 items at a time
+            ; ldr q0, [x0], 16
+            ; ldr q1, [x1], 16
+            ; ldr q2, [x2], 16
+            ; sub x5, x5, 4 // We handle 4 items at a time
         );
 
         Self(out)
@@ -309,7 +309,7 @@ impl Assembler for FloatSliceAssembler {
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x4], #16
+            ; stp D(reg(out_reg)), d0, [x4], 16
             ; b ->L
 
             ; ->E:
