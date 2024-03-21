@@ -292,7 +292,7 @@ impl Assembler for PointAssembler {
             ; fmov S(reg(out_reg)), 1.0
             ; b 8
 
-            // NAN
+            // Build a NAN by taking the min, which selects NAN
             ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
             // out
         );
