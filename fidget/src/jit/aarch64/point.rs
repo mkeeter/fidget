@@ -278,7 +278,24 @@ impl Assembler for PointAssembler {
     }
 
     fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; b.cc 20 // -> less than
+            ; b.vs 24 // -> NAN
+
+            // fallthrough: greater than
+            ; mov w14, 0
+            ; fmov S(reg(out_reg)), w14
+            ; b 16 // -> out
+
+            // -> less than
+            ; fmov S(reg(out_reg)), 1.0
+            ; b 8
+
+            // NAN
+            ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
+            // out
+        );
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
