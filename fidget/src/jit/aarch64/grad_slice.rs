@@ -405,9 +405,30 @@ impl Assembler for GradSliceAssembler {
 
     fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fcmgt V(reg(out_reg)).S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
-            ; fmov s7, #1.0
+            // Check whether either argument is NAN
+            ; fcmeq s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; dup v6.s4, v6.s[0]
+            ; fcmeq s7, S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; dup v7.s4, v7.s[0]
+            ; and v6.b16, v6.b16, v7.b16
+            ; mvn v6.b16, v6.b16
+            // At this point, v6 is all 1s if either argument is NAN
+
+            ; fcmgt S(reg(out_reg)), S(reg(rhs_reg)), S(reg(lhs_reg))
+            ; dup V(reg(out_reg)).s4, V(reg(out_reg)).s[0]
+            // at this point, out_reg is all 1s if lhs < rhs
+
+            // (lhs < rhs) & [1.0, 0.0, 0.0, 0.0]
+            ; fmov s7, 1.0
             ; and V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.B16
+
+            // Build NAN mask
+            ; mov w9, f32::NAN.to_bits().into()
+            ; fmov s7, w9
+            ; and v7.b16, v7.b16, v6.b16
+
+            // Build NAN to output
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.b16
         )
     }
 
