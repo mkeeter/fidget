@@ -483,7 +483,42 @@ impl Assembler for IntervalAssembler {
     }
 
     fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            // Very similar to build_min, but without writing choices
+            // (and producing slightly different output)
+
+            // v4 = [lhs.upper, rhs.upper]
+            // v5 = [rhs.lower, lhs.lower]
+            // This lets us do two comparisons simultaneously
+            ; zip2 v4.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
+
+            // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
+            ; fcmgt v5.s2, v5.s2, v4.s2
+            ; fmov x15, d5
+
+            ; tst x15, 0x1_0000_0000
+            ; b.ne 24 // -> rhs
+
+            ; tst x15, 0x1
+            ; b.eq 28 // -> both
+
+            // Fallthrough: LHS < RHS => [1.0, 1.0]
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; b 32 // -> end
+
+            // <- rhs (for when RHS < LHS) => [0.0, 0.0]
+            ; mov w9, 0
+            ; dup V(reg(out_reg)).s2, w9
+            ; b 20
+
+            // <- both (TODO)
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; mov w9, 0
+            ; mov V(reg(out_reg)).s[0], w9
+        );
     }
 
     /// Loads an immediate into register S4, using W9 as an intermediary
