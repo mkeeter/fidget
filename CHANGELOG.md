@@ -1,4 +1,4 @@
-# 0.2.2 (unreleased)
+# 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
   `atan`, `exp`, `ln`
 - Implemented more rigorous testing of evaluators, fixed a bunch of edge cases
