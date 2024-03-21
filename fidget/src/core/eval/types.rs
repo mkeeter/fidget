@@ -374,15 +374,23 @@ impl Interval {
     ///
     /// Right now, this always returns the maximum range of `[-1, 1]`
     pub fn sin(self) -> Self {
-        // TODO: make this smarter
-        Interval::new(-1.0, 1.0)
+        if self.has_nan() {
+            f32::NAN.into()
+        } else {
+            // TODO: make this smarter
+            Interval::new(-1.0, 1.0)
+        }
     }
     /// Computes the cosine of the interval
     ///
     /// Right now, this always returns the maximum range of `[-1, 1]`
     pub fn cos(self) -> Self {
-        // TODO: make this smarter
-        Interval::new(-1.0, 1.0)
+        if self.has_nan() {
+            f32::NAN.into()
+        } else {
+            // TODO: make this smarter
+            Interval::new(-1.0, 1.0)
+        }
     }
     /// Computes the tangent of the interval
     ///
@@ -441,15 +449,10 @@ impl Interval {
     }
     /// Calculates the square root of the interval
     ///
-    /// If the entire interval is below 0, returns a `NAN` interval; otherwise,
-    /// returns the valid (positive) interval.
+    /// If the interval contains values below 0, returns a `NAN` interval.
     pub fn sqrt(self) -> Self {
         if self.lower < 0.0 {
-            if self.upper > 0.0 {
-                Interval::new(0.0, self.upper.sqrt())
-            } else {
-                f32::NAN.into()
-            }
+            f32::NAN.into()
         } else {
             Interval::new(self.lower.sqrt(), self.upper.sqrt())
         }

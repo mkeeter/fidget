@@ -265,27 +265,16 @@ impl Assembler for IntervalAssembler {
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
-            // Store lhs <= 0.0 in x15
-            ; fcmle v4.s2, V(reg(lhs_reg)).s2, 0.0
+            // Store lhs < 0.0 in x15
+            ; fcmlt v4.s2, V(reg(lhs_reg)).s2, 0.0
             ; fmov x15, d4
-
-            // Check whether lhs.upper < 0
-            ; tst x15, 0x1_0000_0000
-            ; b.ne 40 // -> upper_lz
 
             ; tst x15, 0x1
             ; b.ne 12 // -> lower_lz
 
             // Happy path
             ; fsqrt V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
-            ; b 32 // -> end
-
-            // <- lower_lz
-            ; mov v4.s[0], V(reg(lhs_reg)).s[1]
-            ; fsqrt s4, s4
-            ; movi D(reg(out_reg)), 0
-            ; mov V(reg(out_reg)).s[1], v4.s[0]
-            ; b 12
+            ; b 12 // -> end
 
             // <- upper_lz
             ; mov w9, f32::NAN.to_bits().into()

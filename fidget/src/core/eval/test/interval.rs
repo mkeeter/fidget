@@ -98,7 +98,13 @@ where
         let mut eval = S::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [0.0, 2.0].into());
-        assert_eq!(eval.eval_x(&tape, [-2.0, 4.0]), [0.0, 2.0].into());
+
+        // Even a partial negative returns a NAN interval
+        let nanan = eval.eval_x(&tape, [-2.0, 4.0]);
+        assert!(nanan.lower().is_nan());
+        assert!(nanan.upper().is_nan());
+
+        // Full negatives are right out
         let nanan = eval.eval_x(&tape, [-2.0, -1.0]);
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
@@ -701,15 +707,23 @@ where
                         .min(a.upper())
                         .max(a.lower());
                     let inside_value = C::eval_f32(inside);
-                    assert!(
-                        inside_value.is_nan()
-                            || o.lower().is_nan()
-                            || (inside_value >= o.lower()
-                                && inside_value <= o.upper()),
-                        "interval failure in '{}': {inside} in {a} => \
-                         {inside_value} not in {o}",
-                        C::NAME,
-                    );
+
+                    if inside_value.is_nan() || inside_value.is_infinite() {
+                        assert!(
+                            o.has_nan(),
+                            "interval failure in '{}': {inside} in {a} => \
+                             {inside_value} not in {o} (should be [NaN, NaN])",
+                            C::NAME,
+                        );
+                    } else if !o.has_nan() {
+                        assert!(
+                            inside_value >= o.lower()
+                                && inside_value <= o.upper(),
+                            "interval failure in '{}': {inside} in {a} => \
+                             {inside_value} not in {o}",
+                            C::NAME,
+                        );
+                    }
                 }
             }
             tape_data = Some(tape.recycle());
@@ -737,14 +751,22 @@ where
                     .min(rhs.upper())
                     .max(rhs.lower());
                 let inside_value = g(v_lhs, v_rhs);
-                assert!(
-                    inside_value.is_nan()
-                        || out.lower().is_nan()
-                        || (inside_value >= out.lower()
-                            && inside_value <= out.upper()),
-                    "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
-                    ({lhs}, {rhs}) => {inside_value} not in {out}"
-                );
+
+                if inside_value.is_nan() || inside_value.is_infinite() {
+                    assert!(
+                        out.has_nan(),
+                        "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
+                        ({lhs}, {rhs}) => {inside_value} not in {out} \
+                        (should be [NaN, NaN])"
+                    );
+                } else if !out.has_nan() {
+                    assert!(
+                        inside_value >= out.lower()
+                            && inside_value <= out.upper(),
+                        "interval failure in '{name}': ({v_lhs}, {v_rhs}) in \
+                        ({lhs}, {rhs}) => {inside_value} not in {out}"
+                    );
+                }
             }
         }
     }
