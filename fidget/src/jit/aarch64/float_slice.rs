@@ -296,7 +296,7 @@ impl Assembler for FloatSliceAssembler {
         dynasm!(self.0.ops
             // Note the swap here, from LT -> GT
             ; fcmgt V(reg(out_reg)).S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
-            ; fmov s7, #1.0
+            ; fmov s7, 1.0
             ; dup v7.s4, v7.s[0]
             ; and V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.B16
         )
