@@ -239,20 +239,18 @@ impl Assembler for IntervalAssembler {
         )
     }
     fn build_recip(&mut self, out_reg: u8, lhs_reg: u8) {
-        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Check whether lhs.lower > 0.0
             ; fcmp S(reg(lhs_reg)), 0.0
-            ; b.gt 32 // -> okay
+            ; b.gt 28 // -> okay
 
             // Check whether lhs.upper < 0.0
             ; mov s4, V(reg(lhs_reg)).s[1]
             ; fcmp s4, 0.0
-            ; b.mi 20 // -> okay
+            ; b.mi 16 // -> okay
 
             // Bad case: the division spans 0, so return NaN
-            ; movz w15, #(nan_u32 >> 16), lsl 16
-            ; movk w15, #(nan_u32)
+            ; mov w15, f32::NAN.to_bits().into()
             ; dup V(reg(out_reg)).s2, w15
             ; b 20 // -> end
 
@@ -266,7 +264,6 @@ impl Assembler for IntervalAssembler {
         )
     }
     fn build_sqrt(&mut self, out_reg: u8, lhs_reg: u8) {
-        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Store lhs <= 0.0 in x15
             ; fcmle v4.s2, V(reg(lhs_reg)).s2, 0.0
@@ -281,18 +278,17 @@ impl Assembler for IntervalAssembler {
 
             // Happy path
             ; fsqrt V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
-            ; b 36 // -> end
+            ; b 32 // -> end
 
             // <- lower_lz
             ; mov v4.s[0], V(reg(lhs_reg)).s[1]
             ; fsqrt s4, s4
             ; movi D(reg(out_reg)), 0
             ; mov V(reg(out_reg)).s[1], v4.s[0]
-            ; b 16
+            ; b 12
 
             // <- upper_lz
-            ; movz w9, #(nan_u32 >> 16), lsl 16
-            ; movk w9, #(nan_u32)
+            ; mov w9, f32::NAN.to_bits().into()
             ; dup V(reg(out_reg)).s2, w9
 
             // <- end
@@ -376,20 +372,18 @@ impl Assembler for IntervalAssembler {
         }
     }
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        let nan_u32 = f32::NAN.to_bits();
         dynasm!(self.0.ops
             // Store rhs.lower > 0.0 in x15, then check rhs.lower > 0
             ; fcmp S(reg(rhs_reg)), 0.0
-            ; b.gt 32 // -> happy
+            ; b.gt 28 // -> happy
 
             // Store rhs.upper < 0.0 in x15, then check rhs.upper < 0
             ; mov s4, V(reg(rhs_reg)).s[1]
             ; fcmp s4, 0.0
-            ; b.lt 20
+            ; b.lt 16
 
             // Sad path: rhs spans 0, so the output includes NaN
-            ; movz w9, #(nan_u32 >> 16), lsl 16
-            ; movk w9, #(nan_u32)
+            ; mov w9, f32::NAN.to_bits().into()
             ; dup V(reg(out_reg)).s2, w9
             ; b 32 // -> end
 
