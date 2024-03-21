@@ -1,6 +1,9 @@
 # 0.2.2 (unreleased)
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
   `atan`, `exp`, `ln`
+- Implemented more rigorous testing of evaluators, fixed a bunch of edge cases
+  (mostly differences in `NAN` handling between platforms)
+- Tweaks to register allocator, for a small performance improvement
 
 # 0.2.1
 - Changed `fidget::eval::Vars` to borrow instead of use an `Arc`
