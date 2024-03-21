@@ -1,3 +1,5 @@
+# 0.2.3 (unreleased)
+
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
   `atan`, `exp`, `ln`
