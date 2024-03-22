@@ -241,8 +241,8 @@ impl Assembler for FloatSliceAssembler {
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN
-            ; vcmpps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg)), 3
-            ; vcmpps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg)), 3
+            ; vcmpunordps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg))
+            ; vcmpunordps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg))
             ; vorps ymm1, ymm2, ymm1
 
             // Calculate the max, which ignores NANs
@@ -255,8 +255,8 @@ impl Assembler for FloatSliceAssembler {
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN
-            ; vcmpps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg)), 3
-            ; vcmpps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg)), 3
+            ; vcmpunordps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg))
+            ; vcmpunordps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg))
             ; vorps ymm1, ymm2, ymm1
 
             // Calculate the min, which ignores NANs
