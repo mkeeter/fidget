@@ -387,6 +387,9 @@ impl Assembler for GradSliceAssembler {
         );
         self.0.ops.commit_local().unwrap();
     }
+    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        todo!()
+    }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
