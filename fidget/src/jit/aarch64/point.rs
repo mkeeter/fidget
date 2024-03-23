@@ -278,23 +278,36 @@ impl Assembler for PointAssembler {
     }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        // This is using SIMD instructions to avoid branch; dunno if it's faster
+        // but it means we can use very similar code to float / grad slice
+        // evaluators.
         dynasm!(self.0.ops
-            ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
-            ; b.cc 20 // -> less than
-            ; b.vs 24 // -> NAN
+            // Build a mask of NAN positions in s6
+            ; fcmeq s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; fcmeq s7, S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; and v6.b8, v6.b8, v7.b8
+            ; mvn v6.b8, v6.b8
 
-            // fallthrough: greater than
-            ; mov w14, 0
-            ; fmov S(reg(out_reg)), w14
-            ; b 16 // -> out
+            // Build our two comparisons
+            ; fcmgt s4, S(reg(rhs_reg)), S(reg(lhs_reg))
+            ; fcmgt s5, S(reg(lhs_reg)), S(reg(rhs_reg))
 
-            // -> less than
-            ; fmov S(reg(out_reg)), 1.0
-            ; b 8
+            // Apply -1 value (if relevant)
+            ; fmov s7, -1.0
+            ; and V(reg(out_reg)).B8, v4.B8, v7.B8
 
-            // Build a NAN by taking the min, which selects NAN
-            ; fmin S(reg(out_reg)), S(reg(lhs_reg)), S(reg(rhs_reg))
-            // out
+            // Apply +1 value (if relevant)
+            ; fmov s7, 1.0
+            ; and v5.B8, v5.B8, v7.B8
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v5.B8
+
+            // Apply NAN value
+            ; mov w9, f32::NAN.to_bits().into()
+            ; fmov s7, w9
+            ; and v7.b8, v7.b8, v6.b8
+
+            // Apply NAN mask to NAN positions
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v7.b8
         );
     }
 

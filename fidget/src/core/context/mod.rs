@@ -521,9 +521,9 @@ impl Context {
     /// let op = ctx.compare(x, 1.0).unwrap();
     /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, -1.0);
-    /// let v = ctx.compare(op, 2.0, 0.0, 0.0).unwrap();
+    /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
-    /// let v = ctx.compare(op, 1.0, 0.0, 0.0).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
     /// assert_eq!(v, 0.0);
     /// ```
     pub fn compare<A: IntoNode, B: IntoNode>(
@@ -670,7 +670,7 @@ impl Context {
                     BinaryOpcode::Max => a.max(b),
                     BinaryOpcode::Compare => a
                         .partial_cmp(&b)
-                        .map(|i| i as u8 as f64)
+                        .map(|i| i as i8 as f64)
                         .unwrap_or(f64::NAN),
                 }
             }
