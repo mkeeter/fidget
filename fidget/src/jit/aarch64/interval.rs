@@ -493,7 +493,7 @@ impl Assembler for IntervalAssembler {
             ; and v4.b8, v4.b8, v5.b8
             ; fmov x15, d4
             ; cmp x15, 0
-            ; b.ne 16
+            ; b.ne 16 // -> skip over NAN handling into main logic
 
             // NAN case
             ; mov w15, f32::NAN.to_bits().into()
@@ -516,21 +516,23 @@ impl Assembler for IntervalAssembler {
             ; tst x15, 0x1
             ; b.eq 28 // -> both
 
-            // Fallthrough: LHS < RHS => [1.0, 1.0]
-            ; fmov S(reg(out_reg)), 1.0
+            // Fallthrough: LHS < RHS => [-1, -1]
+            ; fmov S(reg(out_reg)), -1.0
             ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
             ; b 32 // -> end
 
-            // <- rhs (for when RHS < LHS) => [0.0, 0.0]
-            ; mov w9, 0
-            ; dup V(reg(out_reg)).s2, w9
-            ; b 20 // -> end
-
-            // <- both (TODO)
+            // <- rhs (for when RHS < LHS) => [1, 1]
             ; fmov S(reg(out_reg)), 1.0
             ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
-            ; mov w9, 0
-            ; mov V(reg(out_reg)).s[0], w9
+            ; b 20 // -> end
+
+            // <- both [-1, 1]
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; fmov s5, -1.0
+            ; mov V(reg(out_reg)).s[0], v5.s[0]
+
+            // TODO handle the case where LHS == RHS with no ambiguity
 
             // <- end
         );
