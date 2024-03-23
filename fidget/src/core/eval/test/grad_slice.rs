@@ -268,7 +268,7 @@ where
         );
     }
 
-    pub fn test_g_lt() {
+    pub fn test_g_less_than() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
@@ -794,7 +794,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
-        $crate::grad_test!(test_g_lt, $t);
+        $crate::grad_test!(test_g_less_than, $t);
         $crate::grad_test!(test_g_min_max, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);
