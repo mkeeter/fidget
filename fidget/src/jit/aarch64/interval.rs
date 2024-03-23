@@ -485,7 +485,20 @@ impl Assembler for IntervalAssembler {
     fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Very similar to build_min, but without writing choices
-            // (and producing slightly different output)
+            // (and producing different output)
+
+            // Build a !NAN mask
+            ; fcmeq v4.s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
+            ; fcmeq v5.s2, V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; and v4.b8, v4.b8, v5.b8
+            ; fmov x15, d4
+            ; cmp x15, 0
+            ; b.ne 16
+
+            // NAN case
+            ; mov w15, f32::NAN.to_bits().into()
+            ; dup V(reg(out_reg)).s2, w15
+            ; b 76 // -> end
 
             // v4 = [lhs.upper, rhs.upper]
             // v5 = [rhs.lower, lhs.lower]
@@ -511,13 +524,15 @@ impl Assembler for IntervalAssembler {
             // <- rhs (for when RHS < LHS) => [0.0, 0.0]
             ; mov w9, 0
             ; dup V(reg(out_reg)).s2, w9
-            ; b 20
+            ; b 20 // -> end
 
             // <- both (TODO)
             ; fmov S(reg(out_reg)), 1.0
             ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
             ; mov w9, 0
             ; mov V(reg(out_reg)).s[0], w9
+
+            // <- end
         );
     }
 
