@@ -303,13 +303,20 @@ impl Assembler for FloatSliceAssembler {
             ; mvn v6.b16, v6.b16
 
             // Note the swap here, from LT -> GT
-            ; fcmgt V(reg(out_reg)).S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
+            ; fcmgt v4.S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
+            ; fcmgt v5.S4, V(reg(lhs_reg)).S4, V(reg(rhs_reg)).S4
             // At this point, out_reg is all 1s where we should put 1.0
 
-            // Copy over 1.0s, leaving 0s everywhere else (which is 0.0)
+            // Build a map of -1.0 positions
+            ; fmov s7, -1.0
+            ; dup v7.s4, v7.s[0]
+            ; and V(reg(out_reg)).B16, v4.B16, v7.B16
+
+            // Build a map of -1.0 positions
             ; fmov s7, 1.0
             ; dup v7.s4, v7.s[0]
-            ; and V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.B16
+            ; and v5.B16, v5.B16, v7.B16
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
 
             // Build a NAN mask
             ; mov w9, f32::NAN.to_bits().into()
