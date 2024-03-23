@@ -240,7 +240,7 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::MulRegReg(index, lhs, rhs)
                 | SsaOp::SubRegReg(index, lhs, rhs)
                 | SsaOp::DivRegReg(index, lhs, rhs)
-                | SsaOp::LessThanRegReg(index, lhs, rhs) => {
+                | SsaOp::CompareRegReg(index, lhs, rhs) => {
                     *index = new_index;
                     *lhs = workspace.get_or_insert_active(*lhs);
                     *rhs = workspace.get_or_insert_active(*rhs);
@@ -251,8 +251,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::SubImmReg(index, arg, _imm)
                 | SsaOp::DivRegImm(index, arg, _imm)
                 | SsaOp::DivImmReg(index, arg, _imm)
-                | SsaOp::LessThanRegImm(index, arg, _imm)
-                | SsaOp::LessThanImmReg(index, arg, _imm) => {
+                | SsaOp::CompareRegImm(index, arg, _imm)
+                | SsaOp::CompareImmReg(index, arg, _imm) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }

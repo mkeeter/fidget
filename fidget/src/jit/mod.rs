@@ -172,7 +172,7 @@ trait Assembler {
     fn build_ln(&mut self, out_reg: u8, lhs_reg: u8);
 
     /// Less than
-    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     /// Square
     ///
@@ -737,16 +737,16 @@ fn build_asm_fn_with_storage<A: Assembler>(
                 let reg = asm.load_imm(imm);
                 asm.build_copy(out, reg);
             }
-            RegOp::LessThanRegReg(out, lhs, rhs) => {
-                asm.build_lt(out, lhs, rhs);
+            RegOp::CompareRegReg(out, lhs, rhs) => {
+                asm.build_compare(out, lhs, rhs);
             }
-            RegOp::LessThanRegImm(out, arg, imm) => {
+            RegOp::CompareRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_lt(out, arg, reg);
+                asm.build_compare(out, arg, reg);
             }
-            RegOp::LessThanImmReg(out, arg, imm) => {
+            RegOp::CompareImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
-                asm.build_lt(out, reg, arg);
+                asm.build_compare(out, reg, arg);
             }
         }
     }

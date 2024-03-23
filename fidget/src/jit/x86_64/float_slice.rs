@@ -268,7 +268,7 @@ impl Assembler for FloatSliceAssembler {
             ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
         );
     }
-    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN
             ; vcmpunordps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg))

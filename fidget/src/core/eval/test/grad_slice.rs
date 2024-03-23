@@ -268,70 +268,6 @@ where
         );
     }
 
-    pub fn test_g_less_than() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let m = ctx.less_than(x, y).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
-
-        let mut eval = S::new_grad_slice_eval();
-        let tape = shape.ez_grad_slice_tape();
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[2.0, 3.0, 4.0],
-                &[3.0, 2.0, 4.0],
-                &[0.0; 3],
-                &[]
-            )
-            .unwrap(),
-            &[
-                Grad::new(1.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-            ]
-        );
-
-        let m = ctx.less_than(x, 2.5).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
-        let tape = shape.ez_grad_slice_tape();
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[2.0, 3.0, 2.5],
-                &[3.0, 2.0, 4.0],
-                &[0.0; 3],
-                &[]
-            )
-            .unwrap(),
-            &[
-                Grad::new(1.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-            ]
-        );
-
-        let m = ctx.less_than(2.5, y).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
-        let tape = shape.ez_grad_slice_tape();
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[2.0, 3.0, 2.5],
-                &[3.0, 2.0, 2.5],
-                &[0.0; 3],
-                &[]
-            )
-            .unwrap(),
-            &[
-                Grad::new(1.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-                Grad::new(0.0, 0.0, 0.0, 0.0),
-            ]
-        );
-    }
-
     pub fn test_g_circle() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -542,7 +478,7 @@ where
         }
     }
 
-    pub fn compare_grad_results(
+    pub fn compare_grad_results<C: CanonicalBinaryOp>(
         i: usize,
         j: usize,
         lhs: &[f32],
@@ -564,6 +500,10 @@ where
             );
 
             if v.is_nan() {
+                continue;
+            }
+
+            if C::discontinuous_at(*a, *b) {
                 continue;
             }
 
@@ -663,7 +603,7 @@ where
                     .unwrap();
 
                     let rhs = if i == j { &args } else { &rgsa };
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         i,
                         j,
                         &args,
@@ -706,7 +646,7 @@ where
                     .unwrap();
 
                     let rhs = vec![*rhs; out.len()];
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         i,
                         3,
                         &args,
@@ -749,7 +689,7 @@ where
                     .unwrap();
 
                     let lhs = vec![*lhs; out.len()];
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         3,
                         i,
                         &lhs,
@@ -794,7 +734,6 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_mul, $t);
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
-        $crate::grad_test!(test_g_less_than, $t);
         $crate::grad_test!(test_g_min_max, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);

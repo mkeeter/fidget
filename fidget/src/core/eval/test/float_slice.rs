@@ -258,48 +258,6 @@ where
         }
     }
 
-    pub fn test_f_lt() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-
-        let x_lt_two = ctx.less_than(x, 2.0).unwrap();
-
-        let shape = S::new(&ctx, x_lt_two).unwrap();
-        let tape = shape.ez_float_slice_tape();
-        let mut eval = S::new_float_slice_eval();
-
-        assert_eq!(
-            eval.eval(&tape, &[0.0, 1.0, 2.0, 2.5], &[0.0; 4], &[0.0; 4], &[])
-                .unwrap(),
-            &[1.0, 1.0, 0.0, 0.0]
-        );
-
-        let two_lt_x = ctx.less_than(2.0, x).unwrap();
-        let shape = S::new(&ctx, two_lt_x).unwrap();
-        let tape = shape.ez_float_slice_tape();
-        assert_eq!(
-            eval.eval(&tape, &[0.0, 1.0, 2.0, 2.5], &[0.0; 4], &[0.0; 4], &[])
-                .unwrap(),
-            &[0.0, 0.0, 0.0, 1.0]
-        );
-
-        let y = ctx.y();
-        let x_lt_y = ctx.less_than(x, y).unwrap();
-        let shape = S::new(&ctx, x_lt_y).unwrap();
-        let tape = shape.ez_float_slice_tape();
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0, 1.0, 2.0, 2.5],
-                &[1.0, 0.0, 2.1, 2.5],
-                &[0.0; 4],
-                &[]
-            )
-            .unwrap(),
-            &[1.0, 0.0, 1.0, 0.0]
-        );
-    }
-
     pub fn test_f_stress() {
         for n in [1, 2, 4, 8, 12, 16, 32] {
             Self::test_f_stress_n(n);
@@ -505,7 +463,6 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_vectorized, $t);
         $crate::float_slice_test!(test_f_var, $t);
         $crate::float_slice_test!(test_f_sin, $t);
-        $crate::float_slice_test!(test_f_lt, $t);
         $crate::float_slice_test!(test_f_stress, $t);
 
         mod f_unary {

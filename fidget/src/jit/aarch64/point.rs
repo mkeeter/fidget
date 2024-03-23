@@ -277,7 +277,7 @@ impl Assembler for PointAssembler {
         )
     }
 
-    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.cc 20 // -> less than

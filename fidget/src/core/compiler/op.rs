@@ -85,10 +85,10 @@ macro_rules! opcodes {
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
             MaxRegImm($t, $t, f32),
-            #[doc = "Checks whether a register is less than an immediate"]
-            LessThanRegImm($t, $t, f32),
-            #[doc = "Checks whether the immediate is less than the register"]
-            LessThanImmReg($t, $t, f32),
+            #[doc = "Compares a register with an immediate"]
+            CompareRegImm($t, $t, f32),
+            #[doc = "Compares an immediate with a register"]
+            CompareImmReg($t, $t, f32),
 
             #[doc = "Add two registers"]
             AddRegReg($t, $t, $t),
@@ -102,8 +102,8 @@ macro_rules! opcodes {
             MinRegReg($t, $t, $t),
             #[doc = "Take the maximum of two registers"]
             MaxRegReg($t, $t, $t),
-            #[doc = "Checks whether the lhs < rhs"]
-            LessThanRegReg($t, $t, $t),
+            #[doc = "Compares two registers"]
+            CompareRegReg($t, $t, $t),
 
             #[doc = "Copy an immediate to a register"]
             CopyImm($t, f32),
@@ -166,9 +166,9 @@ impl SsaOp {
             | SsaOp::MaxRegImm(out, ..)
             | SsaOp::MinRegReg(out, ..)
             | SsaOp::MaxRegReg(out, ..)
-            | SsaOp::LessThanRegReg(out, ..)
-            | SsaOp::LessThanRegImm(out, ..)
-            | SsaOp::LessThanImmReg(out, ..) => *out,
+            | SsaOp::CompareRegReg(out, ..)
+            | SsaOp::CompareRegImm(out, ..)
+            | SsaOp::CompareImmReg(out, ..) => *out,
         }
     }
     /// Returns true if the given opcode is associated with a choice
@@ -201,9 +201,9 @@ impl SsaOp {
             | SsaOp::DivRegReg(..)
             | SsaOp::DivRegImm(..)
             | SsaOp::DivImmReg(..)
-            | SsaOp::LessThanRegReg(..)
-            | SsaOp::LessThanRegImm(..)
-            | SsaOp::LessThanImmReg(..) => false,
+            | SsaOp::CompareRegReg(..)
+            | SsaOp::CompareRegImm(..)
+            | SsaOp::CompareImmReg(..) => false,
             SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::MinRegReg(..)

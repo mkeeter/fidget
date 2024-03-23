@@ -292,7 +292,7 @@ impl Assembler for FloatSliceAssembler {
         )
     }
 
-    fn build_lt(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of valid positions (not NAN)
             ; fcmeq v6.S4, V(reg(lhs_reg)).S4, V(reg(lhs_reg)).S4

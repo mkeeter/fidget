@@ -359,37 +359,37 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
                 RegOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
                 RegOp::SubRegReg(out, lhs, rhs) => v[out] = v[lhs] - v[rhs],
-                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                RegOp::CompareRegReg(out, lhs, rhs) => {
                     v[out] = if v[lhs].has_nan() || v[rhs].has_nan() {
                         f32::NAN.into()
                     } else if v[lhs].upper() < v[rhs].lower() {
-                        1.0.into()
-                    } else if v[lhs].lower() >= v[rhs].upper() {
-                        0.0.into()
+                        Interval::from(-1.0)
+                    } else if v[lhs].lower() > v[rhs].upper() {
+                        Interval::from(1.0)
                     } else {
-                        Interval::new(0.0, 1.0)
+                        Interval::new(-1.0, 1.0)
                     };
                 }
-                RegOp::LessThanRegImm(out, arg, imm) => {
+                RegOp::CompareRegImm(out, arg, imm) => {
                     v[out] = if v[arg].has_nan() || imm.is_nan() {
                         f32::NAN.into()
                     } else if v[arg].upper() < imm {
-                        1.0.into()
-                    } else if v[arg].lower() >= imm {
-                        0.0.into()
+                        Interval::from(-1.0)
+                    } else if v[arg].lower() > imm {
+                        Interval::from(1.0)
                     } else {
-                        Interval::new(0.0, 1.0)
+                        Interval::new(-1.0, 1.0)
                     };
                 }
-                RegOp::LessThanImmReg(out, arg, imm) => {
+                RegOp::CompareImmReg(out, arg, imm) => {
                     v[out] = if v[arg].has_nan() || imm.is_nan() {
                         f32::NAN.into()
                     } else if imm < v[arg].lower() {
-                        1.0.into()
-                    } else if imm >= v[arg].upper() {
-                        0.0.into()
+                        Interval::from(-1.0)
+                    } else if imm > v[arg].upper() {
+                        Interval::from(1.0)
                     } else {
-                        Interval::new(0.0, 1.0)
+                        Interval::new(-1.0, 1.0)
                     };
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
@@ -574,26 +574,23 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 RegOp::DivRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] / v[rhs];
                 }
-                RegOp::LessThanRegReg(out, lhs, rhs) => {
-                    v[out] = if v[lhs].is_nan() || v[rhs].is_nan() {
-                        f32::NAN
-                    } else {
-                        (v[lhs] < v[rhs]) as u8 as f32
-                    };
+                RegOp::CompareRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs]
+                        .partial_cmp(&v[rhs])
+                        .map(|c| c as i8 as f32)
+                        .unwrap_or(f32::NAN)
                 }
-                RegOp::LessThanRegImm(out, arg, imm) => {
-                    v[out] = if v[arg].is_nan() || imm.is_nan() {
-                        f32::NAN
-                    } else {
-                        (v[arg] < imm) as u8 as f32
-                    };
+                RegOp::CompareRegImm(out, arg, imm) => {
+                    v[out] = v[arg]
+                        .partial_cmp(&imm)
+                        .map(|c| c as i8 as f32)
+                        .unwrap_or(f32::NAN)
                 }
-                RegOp::LessThanImmReg(out, arg, imm) => {
-                    v[out] = if v[arg].is_nan() || imm.is_nan() {
-                        f32::NAN
-                    } else {
-                        (imm < v[arg]) as u8 as f32
-                    };
+                RegOp::CompareImmReg(out, arg, imm) => {
+                    v[out] = imm
+                        .partial_cmp(&v[arg])
+                        .map(|c| c as i8 as f32)
+                        .unwrap_or(f32::NAN)
                 }
                 RegOp::SubRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] - v[rhs];
@@ -820,22 +817,20 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                RegOp::LessThanImmReg(out, arg, imm) => {
+                RegOp::CompareImmReg(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            (imm < v[arg][i]) as u8 as f32
-                        };
+                        v[out][i] = imm
+                            .partial_cmp(&v[arg][i])
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN)
                     }
                 }
-                RegOp::LessThanRegImm(out, arg, imm) => {
+                RegOp::CompareRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = if v[arg][i].is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            (v[arg][i] < imm) as u8 as f32
-                        };
+                        v[out][i] = v[arg][i]
+                            .partial_cmp(&imm)
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN)
                     }
                 }
                 RegOp::MinRegImm(out, arg, imm) => {
@@ -876,14 +871,12 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                RegOp::CompareRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].is_nan() || v[rhs][i].is_nan()
-                        {
-                            f32::NAN
-                        } else {
-                            (v[lhs][i] < v[rhs][i]) as u8 as f32
-                        };
+                        v[out][i] = v[lhs][i]
+                            .partial_cmp(&v[rhs][i])
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN)
                     }
                 }
                 RegOp::MinRegReg(out, lhs, rhs) => {
@@ -1078,23 +1071,22 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                         v[out][i] = v[arg][i] - imm;
                     }
                 }
-                RegOp::LessThanImmReg(out, arg, imm) => {
+                RegOp::CompareImmReg(out, arg, imm) => {
                     for i in 0..size {
-                        let p = if v[arg][i].v.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            (imm < v[arg][i].v) as u8 as f32
-                        };
+                        let p = imm
+                            .partial_cmp(&v[arg][i].v)
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN);
                         v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
                     }
                 }
-                RegOp::LessThanRegImm(out, arg, imm) => {
+                RegOp::CompareRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        let p = if v[arg][i].v.is_nan() || imm.is_nan() {
-                            f32::NAN
-                        } else {
-                            (v[arg][i].v < imm) as u8 as f32
-                        };
+                        let p = v[arg][i]
+                            .v
+                            .partial_cmp(&imm)
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN);
                         v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
                     }
                 }
@@ -1138,14 +1130,13 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                         v[out][i] = v[lhs][i] - v[rhs][i];
                     }
                 }
-                RegOp::LessThanRegReg(out, lhs, rhs) => {
+                RegOp::CompareRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        let p = if v[lhs][i].v.is_nan() || v[rhs][i].v.is_nan()
-                        {
-                            f32::NAN
-                        } else {
-                            (v[lhs][i].v < v[rhs][i].v) as u8 as f32
-                        };
+                        let p = v[lhs][i]
+                            .v
+                            .partial_cmp(&v[rhs][i].v)
+                            .map(|c| c as i8 as f32)
+                            .unwrap_or(f32::NAN);
                         v[out][i] = Grad::new(p, 0.0, 0.0, 0.0);
                     }
                 }
