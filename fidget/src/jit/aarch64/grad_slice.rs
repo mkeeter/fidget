@@ -414,13 +414,19 @@ impl Assembler for GradSliceAssembler {
             ; mvn v6.b16, v6.b16
             // At this point, v6 is all 1s if either argument is NAN
 
-            ; fcmgt S(reg(out_reg)), S(reg(rhs_reg)), S(reg(lhs_reg))
-            ; dup V(reg(out_reg)).s4, V(reg(out_reg)).s[0]
-            // at this point, out_reg is all 1s if lhs < rhs
+            // build masks for all 1s / all 0s
+            ; fcmgt s4, S(reg(rhs_reg)), S(reg(lhs_reg))
+            ; dup v4.s4, v4.s[0]
+            ; fcmgt s5, S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; dup v5.s4, v5.s[0]
 
             // (lhs < rhs) & [1.0, 0.0, 0.0, 0.0]
+            ; fmov s7, -1.0
+            ; and V(reg(out_reg)).b16, v4.b16, v7.b16
+
             ; fmov s7, 1.0
-            ; and V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.B16
+            ; and v5.B16, v5.B16, v7.B16
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
 
             // Build NAN mask
             ; mov w9, f32::NAN.to_bits().into()
