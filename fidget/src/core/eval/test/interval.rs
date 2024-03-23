@@ -570,6 +570,30 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
     }
 
+    pub fn test_i_less_than() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let max = ctx.less_than(x, y).unwrap();
+
+        let shape = S::new(&ctx, max).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        let nan = Interval::from(f32::NAN);
+
+        let (r, data) = eval
+            .eval(&tape, Interval::from(1.0), nan, 0f32.into(), &[])
+            .unwrap();
+        assert!(r.lower().is_nan());
+        assert!(r.upper().is_nan());
+        assert!(data.is_none());
+
+        let (r, data) = eval.eval(&tape, nan, nan, 0f32.into(), &[]).unwrap();
+        assert!(r.lower().is_nan());
+        assert!(r.upper().is_nan());
+        assert!(data.is_none());
+    }
+
     pub fn test_i_var() {
         let mut ctx = Context::new();
         let a = ctx.var("a").unwrap();
@@ -947,6 +971,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_min_imm, $t);
         $crate::interval_test!(test_i_max, $t);
         $crate::interval_test!(test_i_max_imm, $t);
+        $crate::interval_test!(test_i_less_than, $t);
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);
