@@ -499,7 +499,61 @@ impl Assembler for IntervalAssembler {
         self.0.ops.commit_local().unwrap();
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        todo!()
+        // TODO: Godbolt uses unpcklps ?
+        dynasm!(self.0.ops
+            //  if lhs.has_nan || rhs.has_nan
+            //      out = [NAN, NAN]
+            //  elif lhs.upper < rhs.lower
+            //      out = [-1, 1]
+            //  elif rhs.upper < lhs.lower
+            //      out = [1, 1]
+            //  else
+            //      out = [-1, 1]
+
+            // TODO: use cmpltss to do both comparisons?
+            // xmm1 = lhs.upper
+            ; vpshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8
+            ; vcomiss xmm1, Rx(reg(rhs_reg)) // compare lhs.upper and rhs.lower
+            ; jp >N
+            ; jb >L
+
+            // xmm1 = rhs.upper
+            ; vpshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8
+            ; vcomiss xmm1, Rx(reg(lhs_reg))
+            ; jp >N
+            ; jb >R
+
+            // Fallthrough: ambiguous case, so load [-1, 1]
+            ; mov eax, (-1f32).to_bits() as i32
+            ; vpinsrd Rx(reg(out_reg)), Rx(reg(out_reg)), eax, 0
+            ; mov eax, 1f32.to_bits() as i32
+            ; vpinsrd Rx(reg(out_reg)), Rx(reg(out_reg)), eax, 1
+            ; jmp >E
+
+            ; N:
+            // Load NAN into out_reg
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+            ; jmp >E
+
+            // lhs.upper < rhs.lower
+            ; L:
+            ; mov eax, (-1f32).to_bits() as i32
+            ; vmovd xmm1, eax
+            ; vbroadcastss Rx(reg(out_reg)), xmm1
+            ; jmp >E
+
+            // rhs.upper < lhs.lower
+            ; R:
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd xmm1, eax
+            ; vbroadcastss Rx(reg(out_reg)), xmm1
+            // Fallthrough
+
+            ; E:
+        );
+        self.0.ops.commit_local().unwrap();
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
