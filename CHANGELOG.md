@@ -1,4 +1,5 @@
 # 0.2.3 (unreleased)
+- Fix a possible crash during multithreaded 3D rendering of very small images
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
