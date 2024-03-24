@@ -165,8 +165,7 @@ fn render<S: fidget::eval::Shape>(
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
             };
-            let mut shape = fidget::eval::TransformedShape::new(shape);
-            shape.set_transform(mat.into());
+            let shape = fidget::eval::TransformedShape::new(shape, mat.into());
 
             match mode {
                 TwoDMode::Color => {
@@ -229,8 +228,7 @@ fn render<S: fidget::eval::Shape>(
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
             };
-            let mut shape = fidget::eval::TransformedShape::new(shape);
-            shape.set_transform(mat.into());
+            let shape = fidget::eval::TransformedShape::new(shape, mat.into());
             let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {
                 ThreeDMode::Color => {

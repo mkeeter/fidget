@@ -50,7 +50,7 @@ where
 {
     /// Returns a `RenderConfig` where the image size is padded to an even
     /// multiple of `tile_size`, and `mat` is populated based on image size.
-    pub(crate) fn align(&self) -> AlignedRenderConfig<N> {
+    pub(crate) fn align(&self) -> (AlignedRenderConfig<N>, NPlusOneMatrix<N>) {
         let mut tile_sizes: Vec<usize> = self
             .tile_sizes
             .iter()
@@ -87,13 +87,15 @@ where
             .append_scaling(scale)
             .append_translation(&v);
 
-        AlignedRenderConfig {
-            image_size,
-            orig_image_size: self.image_size,
-            tile_sizes,
-            threads: self.threads,
+        (
+            AlignedRenderConfig {
+                image_size,
+                orig_image_size: self.image_size,
+                tile_sizes,
+                threads: self.threads,
+            },
             mat,
-        }
+        )
     }
 }
 
@@ -111,8 +113,6 @@ where
 
     pub tile_sizes: Vec<usize>,
     pub threads: usize,
-
-    pub mat: NPlusOneMatrix<N>,
 }
 
 /// Type for a static `f32` matrix of size `N + 1`
@@ -219,20 +219,20 @@ mod test {
             tile_sizes: vec![64, 32],
             threads: 8,
         };
-        let aligned = config.align();
+        let (aligned, mat) = config.align();
         assert_eq!(aligned.image_size, config.image_size);
         assert_eq!(aligned.tile_sizes, config.tile_sizes);
         assert_eq!(aligned.threads, config.threads);
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, 0.0)),
             Point2::new(-1.0, -1.0)
         );
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(512.0, 0.0)),
+            mat.transform_point(&Point2::new(512.0, 0.0)),
             Point2::new(1.0, -1.0)
         );
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(512.0, 512.0)),
+            mat.transform_point(&Point2::new(512.0, 512.0)),
             Point2::new(1.0, 1.0)
         );
 
@@ -241,23 +241,21 @@ mod test {
             tile_sizes: vec![64, 32],
             threads: 8,
         };
-        let aligned = config.align();
+        let (aligned, mat) = config.align();
         assert_eq!(aligned.orig_image_size, 575);
         assert_eq!(aligned.image_size, 576);
         assert_eq!(aligned.tile_sizes, config.tile_sizes);
         assert_eq!(aligned.threads, config.threads);
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, 0.0)),
             Point2::new(-1.0, -1.0)
         );
         assert_eq!(
-            aligned
-                .mat
-                .transform_point(&Point2::new(config.image_size as f32, 0.0)),
+            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
             Point2::new(1.0, -1.0)
         );
         assert_eq!(
-            aligned.mat.transform_point(&Point2::new(
+            mat.transform_point(&Point2::new(
                 config.image_size as f32,
                 config.image_size as f32
             )),

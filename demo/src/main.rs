@@ -130,8 +130,7 @@ fn run3d<S: fidget::eval::Shape>(
         tile_sizes: S::tile_sizes_3d().to_vec(),
         threads: settings.threads,
     };
-    let mut shape = fidget::eval::TransformedShape::new(shape);
-    shape.set_transform(mat.into());
+    let shape = shape.apply_transform(mat.into());
 
     let mut depth = vec![];
     let mut color = vec![];

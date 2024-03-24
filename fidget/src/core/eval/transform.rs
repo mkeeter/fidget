@@ -13,11 +13,8 @@ pub struct TransformedShape<S> {
 
 impl<S> TransformedShape<S> {
     /// Builds a new [`TransformedShape`] with the identity transform
-    pub fn new(shape: S) -> Self {
-        Self {
-            shape,
-            mat: Matrix4::identity(),
-        }
+    pub fn new(shape: S, mat: Matrix4<f32>) -> Self {
+        Self { shape, mat }
     }
 
     /// Appends a translation to the transformation matrix
@@ -229,5 +226,11 @@ impl<S: Shape> Shape for TransformedShape<S> {
             shape,
             mat: self.mat,
         })
+    }
+
+    type TransformedShape = Self;
+    fn apply_transform(mut self, mat: Matrix4<f32>) -> Self::TransformedShape {
+        self.mat *= mat;
+        self
     }
 }

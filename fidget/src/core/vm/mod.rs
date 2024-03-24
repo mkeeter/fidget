@@ -5,10 +5,11 @@ use crate::{
     eval::{
         types::{Grad, Interval},
         BulkEvaluator, MathShape, Shape, ShapeVars, Tape, Trace,
-        TracingEvaluator,
+        TracingEvaluator, TransformedShape,
     },
     Context, Error,
 };
+use nalgebra::Matrix4;
 use std::{collections::HashMap, sync::Arc};
 
 mod choice;
@@ -175,6 +176,11 @@ impl<const N: usize> Shape for GenericVmShape<N> {
 
     fn tile_sizes_2d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
+    }
+
+    type TransformedShape = TransformedShape<Self>;
+    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
+        TransformedShape::new(self, mat)
     }
 }
 

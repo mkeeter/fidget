@@ -4,7 +4,7 @@ use crate::{
     eval::{types::Interval, BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
-use nalgebra::{Point2, Vector2};
+use nalgebra::Point2;
 use std::sync::Arc;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -199,25 +199,9 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         let tile_size = self.config.tile_sizes[depth];
 
         // Brute-force way to find the (interval) bounding box of the region
-        let mut x_min = f32::INFINITY;
-        let mut x_max = f32::NEG_INFINITY;
-        let mut y_min = f32::INFINITY;
-        let mut y_max = f32::NEG_INFINITY;
-        let base = Point2::from(tile.corner);
-        for i in 0..4 {
-            let offset = Vector2::new(
-                if (i & 1) == 0 { 0 } else { tile_size },
-                if (i & 2) == 0 { 0 } else { tile_size },
-            );
-            let p = (base + offset).cast::<f32>();
-            let p = self.config.mat.transform_point(&p);
-            x_min = x_min.min(p.x);
-            x_max = x_max.max(p.x);
-            y_min = y_min.min(p.y);
-            y_max = y_max.max(p.y);
-        }
-        let x = Interval::new(x_min, x_max);
-        let y = Interval::new(y_min, y_max);
+        let base = Point2::from(tile.corner).cast::<f32>();
+        let x = Interval::new(base.x, base.x + tile_size as f32);
+        let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(0.0, 0.0);
 
         let (i, simplify) = self
@@ -276,12 +260,8 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         let mut index = 0;
         for j in 0..tile_size {
             for i in 0..tile_size {
-                let p = self.config.mat.transform_point(&Point2::new(
-                    (tile.corner[0] + i) as f32,
-                    (tile.corner[1] + j) as f32,
-                ));
-                self.scratch.x[index] = p.x;
-                self.scratch.y[index] = p.y;
+                self.scratch.x[index] = (tile.corner[0] + i) as f32;
+                self.scratch.y[index] = (tile.corner[1] + j) as f32;
                 index += 1;
             }
         }
@@ -354,12 +334,25 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
     config: &RenderConfig<2>,
     mode: &M,
 ) -> Vec<M::Output> {
-    let config = config.align();
+    let (config, mat) = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
+    // Convert to a 4x4 matrix and apply to the shape
+    let mat = mat.insert_row(2, 0.0);
+    let mat = mat.insert_column(2, 0.0);
+    let shape = shape.apply_transform(mat);
+
+    render_inner(shape, config, mode)
+}
+
+fn render_inner<S: Shape, M: RenderMode + Sync>(
+    shape: S,
+    config: AlignedRenderConfig<2>,
+    mode: &M,
+) -> Vec<M::Output> {
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

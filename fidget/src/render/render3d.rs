@@ -5,7 +5,7 @@ use crate::{
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
 };
 
-use nalgebra::{Point3, Vector3};
+use nalgebra::Point3;
 use std::{collections::HashMap, sync::Arc};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -71,33 +71,10 @@ impl<S: Shape> Worker<'_, S> {
             return;
         }
 
-        // Brute-force way to find the (interval) bounding box of the region
-        let mut x_min = f32::INFINITY;
-        let mut x_max = f32::NEG_INFINITY;
-        let mut y_min = f32::INFINITY;
-        let mut y_max = f32::NEG_INFINITY;
-        let mut z_min = f32::INFINITY;
-        let mut z_max = f32::NEG_INFINITY;
-        let base = Point3::from(tile.corner);
-        for i in 0..8 {
-            let offset = Vector3::new(
-                if (i & 1) == 0 { 0 } else { tile_size },
-                if (i & 2) == 0 { 0 } else { tile_size },
-                if (i & 4) == 0 { 0 } else { tile_size },
-            );
-            let p = (base + offset).cast::<f32>();
-            let p = self.config.mat.transform_point(&p);
-            x_min = x_min.min(p.x);
-            x_max = x_max.max(p.x);
-            y_min = y_min.min(p.y);
-            y_max = y_max.max(p.y);
-            z_min = z_min.min(p.z);
-            z_max = z_max.max(p.z);
-        }
-
-        let x = Interval::new(x_min, x_max);
-        let y = Interval::new(y_min, y_max);
-        let z = Interval::new(z_min, z_max);
+        let base = Point3::from(tile.corner).cast::<f32>();
+        let x = Interval::new(base.x, base.x + tile_size as f32);
+        let y = Interval::new(base.y, base.y + tile_size as f32);
+        let z = Interval::new(base.z, base.z + tile_size as f32);
 
         let (i, trace) = self
             .eval_interval
@@ -178,18 +155,7 @@ impl<S: Shape> Worker<'_, S> {
                 continue;
             }
 
-            // The matrix transformation is separable until the final
-            // division by w.  We can precompute the XY-1 portion of the
-            // multiplication here, since it's shared by every voxel in this
-            // column of the image.
-            let v = ((tile.corner[0] + i) as f32) * self.config.mat.column(0)
-                + ((tile.corner[1] + j) as f32) * self.config.mat.column(1)
-                + self.config.mat.column(3);
-
             for k in (0..tile_size).rev() {
-                let v = v
-                    + ((tile.corner[2] + k) as f32) * self.config.mat.column(2);
-
                 // SAFETY:
                 // Index cannot exceed tile_size**3, which is (a) the size
                 // that we allocated in `Scratch::new` and (b) checked by
@@ -198,9 +164,12 @@ impl<S: Shape> Worker<'_, S> {
                 // Using unsafe indexing here is a roughly 2.5% speedup,
                 // since this is the hottest loop.
                 unsafe {
-                    *self.scratch.x.get_unchecked_mut(index) = v.x / v.w;
-                    *self.scratch.y.get_unchecked_mut(index) = v.y / v.w;
-                    *self.scratch.z.get_unchecked_mut(index) = v.z / v.w;
+                    *self.scratch.x.get_unchecked_mut(index) =
+                        (tile.corner[0] + i) as f32;
+                    *self.scratch.y.get_unchecked_mut(index) =
+                        (tile.corner[1] + j) as f32;
+                    *self.scratch.z.get_unchecked_mut(index) =
+                        (tile.corner[2] + k) as f32;
                 }
                 index += 1;
             }
@@ -253,14 +222,9 @@ impl<S: Shape> Worker<'_, S> {
             // We step one voxel above the surface to reduce
             // glitchiness on edges and corners, where rendering
             // inside the surface could pick the wrong normal.
-            let p = self.config.mat.transform_point(&Point3::new(
-                (tile.corner[0] + i) as f32,
-                (tile.corner[1] + j) as f32,
-                (tile.corner[2] + k + 1) as f32,
-            ));
-            self.scratch.x[grad] = p.x;
-            self.scratch.y[grad] = p.y;
-            self.scratch.z[grad] = p.z;
+            self.scratch.x[grad] = (tile.corner[0] + i) as f32;
+            self.scratch.y[grad] = (tile.corner[1] + j) as f32;
+            self.scratch.z[grad] = (tile.corner[2] + k) as f32;
 
             // This can only be called once per iteration, so we'll
             // never overwrite parts of columns that are still used
@@ -381,12 +345,20 @@ pub fn render<S: Shape>(
     shape: S,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
-    let config = config.align();
+    let (config, mat) = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
     for i in 0..config.tile_sizes.len() - 1 {
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
+    let shape = shape.apply_transform(mat);
+    render_inner(shape, config)
+}
+
+pub fn render_inner<S: Shape>(
+    shape: S,
+    config: AlignedRenderConfig<3>,
+) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
         for j in 0..config.image_size / config.tile_sizes[0] {

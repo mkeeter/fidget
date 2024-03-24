@@ -172,6 +172,19 @@ pub trait Shape: Send + Sync + Clone {
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
     }
+
+    /// Associated type returned when applying a transform
+    ///
+    /// This is normally [`TransformedShape<Self>`](TransformedShape), but if
+    /// `Self` is already `TransformedShape`, then the transform is stacked
+    /// (instead of creating a wrapped object).
+    type TransformedShape: Shape;
+
+    /// Returns a shape with the given transform applied
+    fn apply_transform(
+        self,
+        mat: nalgebra::Matrix4<f32>,
+    ) -> <Self as Shape>::TransformedShape;
 }
 
 /// Extension trait for working with a shape without thinking much about memory
