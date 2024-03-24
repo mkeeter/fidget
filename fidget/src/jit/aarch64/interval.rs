@@ -482,6 +482,62 @@ impl Assembler for IntervalAssembler {
         )
     }
 
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Very similar to build_min, but without writing choices
+            // (and producing different output)
+
+            // Build a !NAN mask
+            ; fcmeq v4.s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
+            ; fcmeq v5.s2, V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; and v4.b8, v4.b8, v5.b8
+            ; fmov x15, d4
+            ; cmp x15, 0
+            ; b.ne 16 // -> skip over NAN handling into main logic
+
+            // NAN case
+            ; mov w15, f32::NAN.to_bits().into()
+            ; dup V(reg(out_reg)).s2, w15
+            ; b 76 // -> end
+
+            // v4 = [lhs.upper, rhs.upper]
+            // v5 = [rhs.lower, lhs.lower]
+            // This lets us do two comparisons simultaneously
+            ; zip2 v4.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
+
+            // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
+            ; fcmgt v5.s2, v5.s2, v4.s2
+            ; fmov x15, d5
+
+            ; tst x15, 0x1_0000_0000
+            ; b.ne 24 // -> rhs
+
+            ; tst x15, 0x1
+            ; b.eq 28 // -> both
+
+            // Fallthrough: LHS < RHS => [-1, -1]
+            ; fmov S(reg(out_reg)), -1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; b 32 // -> end
+
+            // <- rhs (for when RHS < LHS) => [1, 1]
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; b 20 // -> end
+
+            // <- both [-1, 1]
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; fmov s5, -1.0
+            ; mov V(reg(out_reg)).s[0], v5.s[0]
+
+            // TODO handle the case where LHS == RHS with no ambiguity
+
+            // <- end
+        );
+    }
+
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

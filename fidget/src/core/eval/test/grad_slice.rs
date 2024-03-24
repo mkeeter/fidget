@@ -478,7 +478,7 @@ where
         }
     }
 
-    pub fn compare_grad_results(
+    pub fn compare_grad_results<C: CanonicalBinaryOp>(
         i: usize,
         j: usize,
         lhs: &[f32],
@@ -500,6 +500,10 @@ where
             );
 
             if v.is_nan() {
+                continue;
+            }
+
+            if C::discontinuous_at(*a, *b) {
                 continue;
             }
 
@@ -599,7 +603,7 @@ where
                     .unwrap();
 
                     let rhs = if i == j { &args } else { &rgsa };
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         i,
                         j,
                         &args,
@@ -642,7 +646,7 @@ where
                     .unwrap();
 
                     let rhs = vec![*rhs; out.len()];
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         i,
                         3,
                         &args,
@@ -685,7 +689,7 @@ where
                     .unwrap();
 
                     let lhs = vec![*lhs; out.len()];
-                    Self::compare_grad_results(
+                    Self::compare_grad_results::<C>(
                         3,
                         i,
                         &lhs,

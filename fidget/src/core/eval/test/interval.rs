@@ -619,6 +619,19 @@ where
         );
     }
 
+    pub fn test_i_compare() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let c = ctx.compare(x, y).unwrap();
+
+        let shape = S::new(&ctx, c).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        let (out, _trace) = eval.eval(&tape, -5.0, -6.0, 0.0, &[]).unwrap();
+        assert_eq!(out, Interval::from(1f32));
+    }
+
     pub fn test_i_stress_n(depth: usize) {
         let (ctx, node) = build_stress_fn(depth);
 
@@ -947,6 +960,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_min_imm, $t);
         $crate::interval_test!(test_i_max, $t);
         $crate::interval_test!(test_i_max_imm, $t);
+        $crate::interval_test!(test_i_compare, $t);
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);

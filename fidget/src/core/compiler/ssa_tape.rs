@@ -161,6 +161,11 @@ impl SsaTape {
                             SsaOp::MaxRegImm,
                             SsaOp::MaxRegImm,
                         ),
+                        BinaryOpcode::Compare => (
+                            SsaOp::CompareRegReg,
+                            SsaOp::CompareRegImm,
+                            SsaOp::CompareImmReg,
+                        ),
                     };
 
                     if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
@@ -330,6 +335,15 @@ impl SsaTape {
                     } else {
                         println!("${out} = {op} ${arg} {imm}");
                     }
+                }
+                SsaOp::CompareRegReg(out, lhs, rhs) => {
+                    println!("${out} = COMPARE {lhs} {rhs}")
+                }
+                SsaOp::CompareRegImm(out, arg, imm) => {
+                    println!("${out} = COMPARE {arg} {imm}")
+                }
+                SsaOp::CompareImmReg(out, arg, imm) => {
+                    println!("${out} = COMPARE {imm} {arg}")
                 }
                 SsaOp::CopyImm(out, imm) => {
                     println!("${out} = COPY {imm}");

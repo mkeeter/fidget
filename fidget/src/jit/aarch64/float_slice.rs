@@ -292,6 +292,42 @@ impl Assembler for FloatSliceAssembler {
         )
     }
 
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Build a mask of valid positions (not NAN)
+            ; fcmeq v6.S4, V(reg(lhs_reg)).S4, V(reg(lhs_reg)).S4
+            ; fcmeq v7.S4, V(reg(rhs_reg)).S4, V(reg(rhs_reg)).S4
+            ; and v6.b16, v6.b16, v7.b16
+
+            // Invert to get a mask of NAN position
+            ; mvn v6.b16, v6.b16
+
+            // Note the swap here, from LT -> GT
+            ; fcmgt v4.S4, V(reg(rhs_reg)).S4, V(reg(lhs_reg)).S4
+            ; fcmgt v5.S4, V(reg(lhs_reg)).S4, V(reg(rhs_reg)).S4
+            // At this point, out_reg is all 1s where we should put 1.0
+
+            // Build a map of -1.0 positions
+            ; fmov s7, -1.0
+            ; dup v7.s4, v7.s[0]
+            ; and V(reg(out_reg)).B16, v4.B16, v7.B16
+
+            // Build a map of -1.0 positions
+            ; fmov s7, 1.0
+            ; dup v7.s4, v7.s[0]
+            ; and v5.B16, v5.B16, v7.B16
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
+
+            // Build a NAN mask
+            ; mov w9, f32::NAN.to_bits().into()
+            ; dup v7.s4, w9
+            ; and v7.b16, v7.b16, v6.b16
+
+            // Apply NAN mask to NAN positions
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.b16
+        )
+    }
+
     /// Loads an immediate into register V4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

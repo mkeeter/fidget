@@ -403,6 +403,41 @@ impl Assembler for GradSliceAssembler {
         )
     }
 
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Check whether either argument is NAN
+            ; fcmeq s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; dup v6.s4, v6.s[0]
+            ; fcmeq s7, S(reg(rhs_reg)), S(reg(rhs_reg))
+            ; dup v7.s4, v7.s[0]
+            ; and v6.b16, v6.b16, v7.b16
+            ; mvn v6.b16, v6.b16
+            // At this point, v6 is all 1s if either argument is NAN
+
+            // build masks for all 1s / all 0s
+            ; fcmgt s4, S(reg(rhs_reg)), S(reg(lhs_reg))
+            ; dup v4.s4, v4.s[0]
+            ; fcmgt s5, S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; dup v5.s4, v5.s[0]
+
+            // (lhs < rhs) & [1.0, 0.0, 0.0, 0.0]
+            ; fmov s7, -1.0
+            ; and V(reg(out_reg)).b16, v4.b16, v7.b16
+
+            ; fmov s7, 1.0
+            ; and v5.B16, v5.B16, v7.B16
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
+
+            // Build NAN mask
+            ; mov w9, f32::NAN.to_bits().into()
+            ; fmov s7, w9
+            ; and v7.b16, v7.b16, v6.b16
+
+            // Build NAN to output
+            ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v7.b16
+        )
+    }
+
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();

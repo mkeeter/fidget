@@ -72,6 +72,14 @@ pub trait CanonicalBinaryOp {
     fn eval_reg_reg_f64(lhs: f64, rhs: f64) -> f64;
     fn eval_reg_imm_f64(lhs: f64, rhs: f64) -> f64;
     fn eval_imm_reg_f64(lhs: f64, rhs: f64) -> f64;
+
+    /// Returns true if there is a bidirectional discontinuity at a position
+    ///
+    /// This means that we should skip gradient checking, because we can't
+    /// accurately estimate the gradient on either side.
+    fn discontinuous_at(_lhs: f32, _rhs: f32) -> bool {
+        false
+    }
 }
 
 macro_rules! declare_canonical_unary {
@@ -93,7 +101,7 @@ macro_rules! declare_canonical_unary {
 }
 
 macro_rules! declare_canonical_binary {
-    (Context::$i:ident, |$lhs:ident, $rhs:ident| $t:expr) => {
+    (Context::$i:ident, |$lhs:ident, $rhs:ident| $t:expr, |$lhs2:ident, $rhs2: ident| $d:expr) => {
         pub struct $i;
         impl CanonicalBinaryOp for $i {
             const NAME: &'static str = stringify!($i);
@@ -118,7 +126,13 @@ macro_rules! declare_canonical_binary {
             fn eval_imm_reg_f64($lhs: f64, $rhs: f64) -> f64 {
                 $t
             }
+            fn discontinuous_at($lhs2: f32, $rhs2: f32) -> bool {
+                $d
+            }
         }
+    };
+    (Context::$i:ident, |$lhs:ident, $rhs:ident| $t:expr) => {
+        declare_canonical_binary!(Context::$i, |$lhs, $rhs| $t, |_a, _b| false);
     };
 }
 
@@ -204,6 +218,14 @@ pub mod canonical {
             a.max(b)
         }
     );
+    declare_canonical_binary!(
+        Context::compare,
+        |a, b| match a.partial_cmp(&b) {
+            None => f32::NAN.into(),
+            Some(v) => (v as i8).into(),
+        },
+        |a, b| a == b
+    );
 }
 
 #[macro_export]
@@ -254,5 +276,6 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, div);
         $crate::one_binary_test!($tester, min);
         $crate::one_binary_test!($tester, max);
+        $crate::one_binary_test!($tester, compare);
     };
 }

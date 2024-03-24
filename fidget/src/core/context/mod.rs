@@ -511,6 +511,31 @@ impl Context {
         }
     }
 
+    /// Builds a node that compares two values
+    ///
+    /// The result is -1 if `a < b`, +1 if `a > b`, 0 if `a == b`, and `NaN` if
+    /// either side is `NaN`.
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.compare(x, 1.0).unwrap();
+    /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, -1.0);
+    /// let v = ctx.eval_xyz(op, 2.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// ```
+    pub fn compare<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary(a, b, BinaryOpcode::Compare)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values
@@ -643,6 +668,10 @@ impl Context {
                     BinaryOpcode::Div => a / b,
                     BinaryOpcode::Min => a.min(b),
                     BinaryOpcode::Max => a.max(b),
+                    BinaryOpcode::Compare => a
+                        .partial_cmp(&b)
+                        .map(|i| i as i8 as f64)
+                        .unwrap_or(f64::NAN),
                 }
             }
 
@@ -769,6 +798,7 @@ impl Context {
                 BinaryOpcode::Div => out += "div",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
+                BinaryOpcode::Compare => out += "less-than",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",

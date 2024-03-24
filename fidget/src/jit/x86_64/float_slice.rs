@@ -268,6 +268,38 @@ impl Assembler for FloatSliceAssembler {
             ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
         );
     }
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Build a mask of NANs; conveniently, all 1s is a NAN
+            ; vcmpunordps ymm1, Ry(reg(lhs_reg)), Ry(reg(lhs_reg))
+            ; vcmpunordps ymm2, Ry(reg(rhs_reg)), Ry(reg(rhs_reg))
+            ; vorps ymm1, ymm2, ymm1
+
+            // Calculate the less-than mask in ymm2
+            ; vcmpltps ymm2, Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+
+            // Calculate the greater-than mask in ymm2
+            ; vcmpgtps ymm3, Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
+
+            // Put [-1.0; N] into the output register
+            ; mov eax, (-1f32).to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
+
+            // Apply the less-than mask to the [-1.0 x N] reg
+            ; vandps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm2
+
+            // Build and apply [1.0 x N] & greater-than
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd xmm2, eax
+            ; vbroadcastss ymm2, xmm2
+            ; vandps ymm2, ymm2, ymm3
+            ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm2
+
+            // Set the NAN bits
+            ; vorps Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+        );
+    }
     fn load_imm(&mut self, imm: f32) -> u8 {
         dynasm!(self.0.ops
             ; mov eax, imm.to_bits() as i32

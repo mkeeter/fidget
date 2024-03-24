@@ -85,6 +85,10 @@ macro_rules! opcodes {
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
             MaxRegImm($t, $t, f32),
+            #[doc = "Compares a register with an immediate"]
+            CompareRegImm($t, $t, f32),
+            #[doc = "Compares an immediate with a register"]
+            CompareImmReg($t, $t, f32),
 
             #[doc = "Add two registers"]
             AddRegReg($t, $t, $t),
@@ -98,6 +102,8 @@ macro_rules! opcodes {
             MinRegReg($t, $t, $t),
             #[doc = "Take the maximum of two registers"]
             MaxRegReg($t, $t, $t),
+            #[doc = "Compares two registers"]
+            CompareRegReg($t, $t, $t),
 
             #[doc = "Copy an immediate to a register"]
             CopyImm($t, f32),
@@ -159,7 +165,10 @@ impl SsaOp {
             | SsaOp::MinRegImm(out, ..)
             | SsaOp::MaxRegImm(out, ..)
             | SsaOp::MinRegReg(out, ..)
-            | SsaOp::MaxRegReg(out, ..) => *out,
+            | SsaOp::MaxRegReg(out, ..)
+            | SsaOp::CompareRegReg(out, ..)
+            | SsaOp::CompareRegImm(out, ..)
+            | SsaOp::CompareImmReg(out, ..) => *out,
         }
     }
     /// Returns true if the given opcode is associated with a choice
@@ -191,7 +200,10 @@ impl SsaOp {
             | SsaOp::SubRegReg(..)
             | SsaOp::DivRegReg(..)
             | SsaOp::DivRegImm(..)
-            | SsaOp::DivImmReg(..) => false,
+            | SsaOp::DivImmReg(..)
+            | SsaOp::CompareRegReg(..)
+            | SsaOp::CompareRegImm(..)
+            | SsaOp::CompareImmReg(..) => false,
             SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::MinRegReg(..)

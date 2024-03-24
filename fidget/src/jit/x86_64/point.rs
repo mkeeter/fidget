@@ -286,6 +286,36 @@ impl Assembler for PointAssembler {
         );
         self.0.ops.commit_local().unwrap()
     }
+    fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jp >N
+            ; ja >R
+            ; jb >L
+
+            // Fall-through for equal
+            ; mov eax, 0f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; jmp >O
+
+            ; L:
+            ; mov eax, (-1f32).to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; jmp >O
+
+            ; N:
+            // TODO: this can't be the best way to make a NAN
+            ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; jmp >O
+
+            ; R:
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            // fallthrough to out
+
+            ; O:
+        );
+    }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
