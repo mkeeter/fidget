@@ -3,6 +3,13 @@
 - Add `compare` operator (equivalent to `<=>` in C++ or `partial_cmp` in Rust,
   with the difference that unordered results are returned as `NAN`)
 - Fix a bug the x86 JIT evaluator's implementation of interval `abs`
+- Add generic `TransformedShape<S>`, representing a shape transformed by a 4x4
+  homogeneous matrix
+    - This replaces `RenderConfig::mat` as the way to handle rotation / scale /
+      translation / perspective transforms, e.g. for interactive visualization
+      (where you don't want to remap the underlying shape)
+    - It's a more general solution: for example, we can use the same type to
+      change bounds for meshing (by translating + scaling the underlying model).
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
