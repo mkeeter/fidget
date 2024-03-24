@@ -1,17 +1,12 @@
 use crate::{eval::Shape, render::RenderMode, Error};
 use nalgebra::{
-    allocator::Allocator, geometry::Transform, Const, DefaultAllocator,
-    DimNameAdd, DimNameSub, DimNameSum, U1,
+    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
+    DimNameSum, U1,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Container to store render configuration (resolution, etc)
-pub struct RenderConfig<const N: usize>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-{
+pub struct RenderConfig<const N: usize> {
     /// Image size (for a square output image)
     pub image_size: usize,
 
@@ -23,20 +18,9 @@ where
 
     /// Number of threads to use; 8 by default
     pub threads: usize,
-
-    /// Transform matrix to apply to the input coordinates
-    ///
-    /// By default, we render a cube spanning ±1 on all axes; `mat` allows for
-    /// rotation, scaling, transformation, and even perspective.
-    pub mat: Transform<f32, nalgebra::TGeneral, N>,
 }
 
-impl<const N: usize> Default for RenderConfig<N>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-{
+impl<const N: usize> Default for RenderConfig<N> {
     fn default() -> Self {
         Self {
             image_size: 512,
@@ -45,7 +29,6 @@ where
                 _ => vec![128, 64, 32, 16, 8],
             },
             threads: 8,
-            mat: Transform::identity(),
         }
     }
 }
@@ -65,8 +48,8 @@ where
     <nalgebra::Const<N> as DimNameAdd<nalgebra::Const<1>>>::Output:
         DimNameSub<nalgebra::Const<1>>,
 {
-    /// Returns a modified `RenderConfig` where `mat` is adjusted based on image
-    /// size, and the image size is padded to an even multiple of `tile_size`.
+    /// Returns a `RenderConfig` where the image size is padded to an even
+    /// multiple of `tile_size`, and `mat` is populated based on image size.
     pub(crate) fn align(&self) -> AlignedRenderConfig<N> {
         let mut tile_sizes: Vec<usize> = self
             .tile_sizes
@@ -98,12 +81,11 @@ where
                 U1,
             >>::Buffer,
         >::from_element(-1.0);
-        let mat = self.mat.matrix()
-            * nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
-                .matrix()
-                .append_scaling(2.0 / image_size as f32)
-                .append_scaling(scale)
-                .append_translation(&v);
+        let mat = nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
+            .matrix()
+            .append_scaling(2.0 / image_size as f32)
+            .append_scaling(scale)
+            .append_translation(&v);
 
         AlignedRenderConfig {
             image_size,
@@ -236,7 +218,6 @@ mod test {
             image_size: 512,
             tile_sizes: vec![64, 32],
             threads: 8,
-            mat: Transform::identity(),
         };
         let aligned = config.align();
         assert_eq!(aligned.image_size, config.image_size);
@@ -259,7 +240,6 @@ mod test {
             image_size: 575,
             tile_sizes: vec![64, 32],
             threads: 8,
-            mat: Transform::identity(),
         };
         let aligned = config.align();
         assert_eq!(aligned.orig_image_size, 575);
