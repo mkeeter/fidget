@@ -2,13 +2,43 @@ use crate::{
     eval::{BulkEvaluator, Interval, Shape, Tape, TracingEvaluator},
     Error,
 };
-use nalgebra::{Matrix4, Point3};
+use nalgebra::{Matrix4, Point3, Vector3};
 
 /// A generic [`Shape`] that has been transformed by a 4x4 transform matrix
 #[derive(Clone)]
 pub struct TransformedShape<S> {
     shape: S,
     mat: Matrix4<f32>,
+}
+
+impl<S> TransformedShape<S> {
+    /// Builds a new [`TransformedShape`] with the identity transform
+    pub fn new(shape: S) -> Self {
+        Self {
+            shape,
+            mat: Matrix4::identity(),
+        }
+    }
+
+    /// Appends a translation to the transformation matrix
+    pub fn translate(&mut self, offset: Vector3<f32>) {
+        self.mat.append_translation_mut(&offset);
+    }
+
+    /// Appends a uniform scale to the transformation matrix
+    pub fn scale(&mut self, scale: f32) {
+        self.mat.append_scaling_mut(scale);
+    }
+
+    /// Resets to the identity transform matrix
+    pub fn reset(&mut self) {
+        self.mat = Matrix4::identity();
+    }
+
+    /// Sets the transform matrix
+    pub fn set_transform(&mut self, mat: Matrix4<f32>) {
+        self.mat = mat;
+    }
 }
 
 /// A generic [`Tape`] with an associated 4x4 transform matrix
