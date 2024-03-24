@@ -621,6 +621,19 @@ impl std::ops::Mul<Interval> for Interval {
     }
 }
 
+impl std::ops::Mul<f32> for Interval {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        if self.has_nan() || rhs.is_nan() {
+            f32::NAN.into()
+        } else if rhs < 0.0 {
+            Interval::new(self.upper * rhs, self.lower * rhs)
+        } else {
+            Interval::new(self.lower * rhs, self.upper * rhs)
+        }
+    }
+}
+
 impl std::ops::Div<Interval> for Interval {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {

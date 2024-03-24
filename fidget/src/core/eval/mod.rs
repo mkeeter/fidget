@@ -28,6 +28,7 @@ pub mod test;
 
 mod bulk;
 mod tracing;
+mod transform;
 
 pub mod types;
 
@@ -36,6 +37,7 @@ mod vars;
 // Re-export a few things
 pub use bulk::BulkEvaluator;
 pub use tracing::TracingEvaluator;
+pub use transform::TransformedShape;
 pub use vars::Vars;
 
 use types::{Grad, Interval};

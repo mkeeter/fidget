@@ -328,7 +328,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     v[out] = v[arg] + imm.into();
                 }
                 RegOp::MulRegImm(out, arg, imm) => {
-                    v[out] = v[arg] * imm.into();
+                    v[out] = v[arg] * imm;
                 }
                 RegOp::DivRegImm(out, arg, imm) => {
                     v[out] = v[arg] / imm.into();
