@@ -391,10 +391,17 @@ impl Assembler for GradSliceAssembler {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jp >N
-            ; jae >R
+            ; ja >R
+            ; jb >L
 
-            // Fall-through for less than
-            ; mov eax, 1f32.to_bits() as i32
+            // Fall-through for equal
+            ; mov eax, 0f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; jmp >O
+
+            // Less than
+            ; L:
+            ; mov eax, (-1f32).to_bits() as i32
             ; vmovd Rx(reg(out_reg)), eax
             ; jmp >O
 
@@ -404,7 +411,7 @@ impl Assembler for GradSliceAssembler {
             ; jmp >O
 
             ; R:
-            ; mov eax, 0f32.to_bits() as i32
+            ; mov eax, 1f32.to_bits() as i32
             ; vmovd Rx(reg(out_reg)), eax
             // fallthrough to out
 
