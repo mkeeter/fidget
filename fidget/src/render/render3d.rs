@@ -404,6 +404,7 @@ pub fn render<S: Shape>(
     for ts in tiles.chunks(tiles_per_thread) {
         tile_queues.push(Queue::new(ts.to_vec()));
     }
+    tile_queues.resize_with(config.threads, || Queue::new(vec![]));
 
     let i_tape = Arc::new(shape.interval_tape(Default::default()));
 
@@ -454,4 +455,26 @@ pub fn render<S: Shape>(
         }
     }
     (image_depth, image_color)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{eval::MathShape, vm::VmShape, Context};
+
+    /// Make sure we don't crash if there's only a single tile
+    #[test]
+    fn test_tile_queues() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let shape = VmShape::new(&ctx, x).unwrap();
+
+        let cfg = RenderConfig::<3> {
+            image_size: 128, // very small!
+            threads: 8,
+            ..RenderConfig::default()
+        };
+        let out = cfg.run(shape);
+        assert!(out.is_ok());
+    }
 }
