@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
 use log::{debug, error, info};
-use nalgebra::{Transform2, Transform3, Vector2, Vector3};
+use nalgebra::{Transform3, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
@@ -149,13 +149,14 @@ fn render<S: fidget::eval::Shape>(
 ) {
     match mode {
         RenderMode::TwoD(camera, mode) => {
-            let mat = Transform2::from_matrix_unchecked(
-                Transform2::identity()
+            let mat = Transform3::from_matrix_unchecked(
+                Transform3::identity()
                     .matrix()
                     .append_scaling(camera.scale)
-                    .append_translation(&Vector2::new(
+                    .append_translation(&Vector3::new(
                         camera.offset.x,
                         camera.offset.y,
+                        0.0,
                     )),
             );
 
@@ -163,9 +164,9 @@ fn render<S: fidget::eval::Shape>(
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
-
-                mat,
             };
+            let shape = shape.apply_transform(mat.into());
+
             match mode {
                 TwoDMode::Color => {
                     let image = fidget::render::render2d(
@@ -226,9 +227,8 @@ fn render<S: fidget::eval::Shape>(
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
-
-                mat,
             };
+            let shape = shape.apply_transform(mat.into());
             let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {
                 ThreeDMode::Color => {

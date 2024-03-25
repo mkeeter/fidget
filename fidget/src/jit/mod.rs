@@ -28,6 +28,7 @@ use crate::{
     eval::{
         types::{Grad, Interval},
         BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
+        TransformedShape,
     },
     jit::mmap::Mmap,
     vm::{Choice, GenericVmShape, VmData, VmTrace, VmWorkspace},
@@ -37,6 +38,7 @@ use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
+use nalgebra::Matrix4;
 use std::collections::HashMap;
 
 mod mmap;
@@ -842,6 +844,11 @@ impl Shape for JitShape {
 
     fn size(&self) -> usize {
         self.0.size()
+    }
+
+    type TransformedShape = TransformedShape<Self>;
+    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
+        TransformedShape::new(self, mat)
     }
 }
 

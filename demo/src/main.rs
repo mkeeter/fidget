@@ -129,9 +129,8 @@ fn run3d<S: fidget::eval::Shape>(
         image_size: settings.size as usize,
         tile_sizes: S::tile_sizes_3d().to_vec(),
         threads: settings.threads,
-
-        mat,
     };
+    let shape = shape.apply_transform(mat.into());
 
     let mut depth = vec![];
     let mut color = vec![];
@@ -207,8 +206,6 @@ fn run2d<S: fidget::eval::Shape>(
             image_size: settings.size as usize,
             tile_sizes: S::tile_sizes_2d().to_vec(),
             threads: settings.threads,
-
-            mat: nalgebra::Transform2::identity(),
         };
         if sdf {
             let mut image = vec![];
