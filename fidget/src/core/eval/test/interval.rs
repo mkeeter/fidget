@@ -88,6 +88,19 @@ where
         );
     }
 
+    pub fn test_i_add_abs() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let v = ctx.add(x, 0.5).unwrap();
+        let out = ctx.abs(v).unwrap();
+
+        let shape = S::new(&ctx, out).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+
+        assert_eq!(eval.eval_x(&tape, [-1.0, 1.0]), [0.0, 1.5].into());
+    }
+
     pub fn test_i_sqrt() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -946,6 +959,7 @@ macro_rules! interval_tests {
     ($t:ty) => {
         $crate::interval_test!(test_interval, $t);
         $crate::interval_test!(test_i_abs, $t);
+        $crate::interval_test!(test_i_add_abs, $t);
         $crate::interval_test!(test_i_sqrt, $t);
         $crate::interval_test!(test_i_square, $t);
         $crate::interval_test!(test_i_sin, $t);
