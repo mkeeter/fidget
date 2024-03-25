@@ -2,6 +2,7 @@
 - Fix a possible crash during multithreaded 3D rendering of very small images
 - Add `compare` operator (equivalent to `<=>` in C++ or `partial_cmp` in Rust,
   with the difference that unordered results are returned as `NAN`)
+- Fix a bug the x86 JIT evaluator's implementation of interval `abs`
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
