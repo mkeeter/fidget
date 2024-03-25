@@ -223,7 +223,7 @@ impl Assembler for IntervalAssembler {
 
             // Clear the lowest value of the interval, leaving us with [0, ...]
             ; C:
-            ; mov eax, (0f32).to_bits() as i32
+            ; xor eax, eax
             ; vpinsrd Rx(reg(out_reg)), Rx(reg(out_reg)), eax, 0
             // fallthrough to end
 
