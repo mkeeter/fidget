@@ -78,7 +78,7 @@ impl Assembler for GradSliceAssembler {
             ; mov [rbp - (input_pos - 0x18)], eax // d/dy(y) = 1
             ; mov [rbp - (input_pos - 0x2c)], eax // d/dz(z) = 1
 
-            ; mov eax, 0.0f32.to_bits() as i32
+            ; xor eax, eax // set eax to 0u32, which is also 0f32
             ; mov [rbp - (input_pos - 0x8)], eax // d/dy(x) = 0
             ; mov [rbp - (input_pos - 0xc)], eax // d/dz(x) = 0
             ; mov [rbp - (input_pos - 0x14)], eax // d/dx(y) = 0
@@ -395,7 +395,7 @@ impl Assembler for GradSliceAssembler {
             ; jb >L
 
             // Fall-through for equal
-            ; mov eax, 0f32.to_bits() as i32
+            ; xor eax, eax // set eax to 0u32, which is also 0f32
             ; vmovd Rx(reg(out_reg)), eax
             ; jmp >O
 

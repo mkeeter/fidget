@@ -294,7 +294,7 @@ impl Assembler for PointAssembler {
             ; jb >L
 
             // Fall-through for equal
-            ; mov eax, 0f32.to_bits() as i32
+            ; xor eax, eax // set eax to 0u32, which is also 0f32
             ; vmovd Rx(reg(out_reg)), eax
             ; jmp >O
 
