@@ -1,5 +1,5 @@
 # 0.2.3 (unreleased)
-- Fix a possible crash during multithreaded 3D rendering of very small images
+- Fix a possible panic during multithreaded 3D rendering of very small images
 - Add `compare` operator (equivalent to `<=>` in C++ or `partial_cmp` in Rust,
   with the difference that unordered results are returned as `NAN`)
 - Fix a bug in the x86 JIT evaluator's implementation of interval `abs`
