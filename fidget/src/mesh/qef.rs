@@ -72,13 +72,25 @@ impl QuadraticErrorSolver {
         let atb = self.atb - self.ata * center;
 
         let svd = nalgebra::linalg::SVD::new(self.ata, true, true);
+
+        // Skip any eigenvalues that are **extremely** small relative to the
+        // maximum eigenvalue.  Without this filter, we can see failures in
+        // near-planar situations.
+        const EIGENVALUE_CUTOFF_RELATIVE: f32 = 1e-12;
+        let cutoff = svd.singular_values[0].abs() * EIGENVALUE_CUTOFF_RELATIVE;
+        let start = (0..3)
+            .filter(|i| svd.singular_values[*i].abs() < cutoff)
+            .last()
+            .unwrap_or(0);
+
         // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
         // when using normalized gradients, but I've found that fails on
         // things like the cone model.  Instead, we'll be a little more
         // clever: we'll pick the smallest epsilon that keeps the feature in
         // the cell without dramatically increasing QEF error.
         let mut prev = None;
-        for i in 0..4 {
+        for i in start..4 {
+            // i is the number of singular values to ignore
             let epsilon = if i == 3 {
                 f32::INFINITY
             } else {

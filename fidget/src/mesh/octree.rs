@@ -1870,4 +1870,23 @@ mod test {
             "bad accumulated QEF in center"
         );
     }
+
+    #[test]
+    fn test_qef_near_planar() {
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [0.0; 3], 0.75);
+
+        let shape: VmShape = shape.convert();
+        let settings = Settings {
+            min_depth: 4,
+            max_depth: 4,
+            threads: 0,
+        };
+
+        let octree = Octree::build(&shape, settings).walk_dual(settings);
+        for v in octree.vertices.iter() {
+            let n = v.norm();
+            assert!(n > 0.7 && n < 0.8, "invalid vertex at {v:?}: {n}");
+        }
+    }
 }
