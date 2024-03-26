@@ -1,5 +1,5 @@
 //! Data types used in the octree
-use crate::eval::types::Interval;
+use crate::types::Interval;
 
 use super::{
     gen::CELL_TO_EDGE_TO_VERT,

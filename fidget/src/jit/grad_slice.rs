@@ -1,6 +1,6 @@
 use crate::{
-    eval::types::Grad,
     jit::{AssemblerData, SimdSize},
+    types::Grad,
 };
 
 /// Assembler for automatic differentiation / gradient evaluation

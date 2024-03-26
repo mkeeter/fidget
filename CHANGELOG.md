@@ -10,6 +10,8 @@
       (where you don't want to remap the underlying shape)
     - It's a more general solution: for example, we can use the same type to
       change bounds for meshing (by translating + scaling the underlying model).
+- Move `Interval` and `Grad` to `fidget::types` module, instead of
+  `fidget::eval::types`.
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
