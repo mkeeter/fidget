@@ -3,10 +3,10 @@ use crate::{
     compiler::RegOp,
     context::Node,
     eval::{
-        types::{Grad, Interval},
         BulkEvaluator, MathShape, Shape, ShapeVars, Tape, Trace,
         TracingEvaluator, TransformedShape,
     },
+    types::{Grad, Interval},
     Context, Error,
 };
 use nalgebra::Matrix4;

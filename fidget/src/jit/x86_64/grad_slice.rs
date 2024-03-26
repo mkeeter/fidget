@@ -1,9 +1,9 @@
 use crate::{
-    eval::types::Grad,
     jit::{
         grad_slice::GradSliceAssembler, mmap::Mmap, reg, Assembler,
         AssemblerData, IMM_REG, OFFSET, REGISTER_LIMIT,
     },
+    types::Grad,
     Error,
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};

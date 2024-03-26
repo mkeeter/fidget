@@ -20,7 +20,11 @@
 //! assert_eq!(value, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
-use crate::{context::Node, Context, Error};
+use crate::{
+    context::Node,
+    types::{Grad, Interval},
+    Context, Error,
+};
 use std::collections::HashMap;
 
 #[cfg(any(test, feature = "eval-tests"))]
@@ -30,8 +34,6 @@ mod bulk;
 mod tracing;
 mod transform;
 
-pub mod types;
-
 mod vars;
 
 // Re-export a few things
@@ -39,8 +41,6 @@ pub use bulk::BulkEvaluator;
 pub use tracing::TracingEvaluator;
 pub use transform::TransformedShape;
 pub use vars::Vars;
-
-use types::{Grad, Interval};
 
 /// A shape represents an implicit surface
 ///

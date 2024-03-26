@@ -1,10 +1,10 @@
 use crate::{
-    eval::types::Interval,
     jit::{
         interval::IntervalAssembler, mmap::Mmap, reg, Assembler, AssemblerData,
         CHOICE_BOTH, CHOICE_LEFT, CHOICE_RIGHT, IMM_REG, OFFSET,
         REGISTER_LIMIT,
     },
+    types::Interval,
     Error,
 };
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};

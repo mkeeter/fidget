@@ -10,9 +10,9 @@ use super::{
 use crate::{
     context::Context,
     eval::{
-        types::Interval, EzShape, MathShape, Shape, ShapeVars, Tape,
-        TracingEvaluator, Vars,
+        EzShape, MathShape, Shape, ShapeVars, Tape, TracingEvaluator, Vars,
     },
+    types::Interval,
     vm::Choice,
 };
 

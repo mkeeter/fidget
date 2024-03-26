@@ -5,9 +5,8 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{
-        types::Grad, BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars,
-    },
+    eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
+    types::Grad,
 };
 
 /// Helper struct to put constrains on our `Shape` object

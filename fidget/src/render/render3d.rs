@@ -1,8 +1,9 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    eval::{types::Interval, BulkEvaluator, Shape, TracingEvaluator},
+    eval::{BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    types::Interval,
 };
 
 use nalgebra::Point3;

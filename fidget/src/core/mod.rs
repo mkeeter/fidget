@@ -58,6 +58,7 @@ pub use context::Context;
 
 pub mod compiler;
 pub mod eval;
+pub mod types;
 pub mod vm;
 
 #[cfg(test)]
