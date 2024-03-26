@@ -12,6 +12,8 @@
       change bounds for meshing (by translating + scaling the underlying model).
 - Move `Interval` and `Grad` to `fidget::types` module, instead of
   `fidget::eval::types`.
+- Fix an edge case in meshing where nearly-planar surfaces could produce
+  vertexes far from the desired position.
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
