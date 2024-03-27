@@ -129,12 +129,22 @@ impl Octree {
     /// The shape is evaluated on the region `[-1, 1]` on all axes
     pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         // Transform the shape given our bounds
-        let shape = shape
-            .clone()
-            .apply_transform(settings.bounds.transform().into());
-        let out = Self::build_inner(&shape, settings);
-        // TODO correct for vertex offsets
-        out
+        let t = settings.bounds.transform();
+        if t == nalgebra::Transform::identity() {
+            Self::build_inner(shape, settings)
+        } else {
+            let shape = shape.clone().apply_transform(t.into());
+            let mut out = Self::build_inner(&shape, settings);
+
+            // Apply the reverse transform to vertex coordinates
+            let ti = t.matrix().try_inverse().unwrap();
+            for v in &mut out.verts {
+                let p: nalgebra::Point3<f32> = v.pos.into();
+                let q = ti.transform_point(&p);
+                v.pos = q.coords;
+            }
+            out
+        }
     }
 
     fn build_inner<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
