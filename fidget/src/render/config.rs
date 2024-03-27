@@ -271,4 +271,64 @@ mod test {
             Point2::new(1.0, 1.0)
         );
     }
+
+    #[test]
+    fn test_bounded_config() {
+        // Simple alignment
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 512,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            bounds: Bounds {
+                center: nalgebra::Vector2::new(0.5, 0.5),
+                size: 0.5,
+            },
+        };
+        let (aligned, mat) = config.align();
+        assert_eq!(aligned.image_size, config.image_size);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 0.0)),
+            Point2::new(1.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 512.0)),
+            Point2::new(1.0, 1.0)
+        );
+
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 575,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            bounds: Bounds {
+                center: nalgebra::Vector2::new(0.5, 0.5),
+                size: 0.5,
+            },
+        };
+        let (aligned, mat) = config.align();
+        assert_eq!(aligned.orig_image_size, 575);
+        assert_eq!(aligned.image_size, 576);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
+            Point2::new(1.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size as f32,
+                config.image_size as f32
+            )),
+            Point2::new(1.0, 1.0)
+        );
+    }
 }
