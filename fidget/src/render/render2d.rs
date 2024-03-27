@@ -341,7 +341,6 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
         assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
     }
 
-    println!("applying transform\n{mat}");
     // Convert to a 4x4 matrix and apply to the shape
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
