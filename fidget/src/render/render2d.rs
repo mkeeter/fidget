@@ -405,6 +405,7 @@ mod test {
     use super::*;
     use crate::{
         eval::{MathShape, Shape},
+        shape::Bounds,
         vm::{GenericVmShape, VmShape},
         Context,
     };
@@ -416,9 +417,14 @@ mod test {
         "/../models/quarter.vm"
     ));
 
-    fn render_and_compare<S: Shape>(shape: S, expected: &'static str) {
+    fn render_and_compare_with_bounds<S: Shape>(
+        shape: S,
+        expected: &'static str,
+        bounds: Bounds<2>,
+    ) {
         let cfg = RenderConfig::<2> {
             image_size: 32,
+            bounds,
             ..RenderConfig::default()
         };
         let out = cfg.run(shape, &BitRenderMode).unwrap();
@@ -438,6 +444,10 @@ mod test {
             }
             panic!("image mismatch");
         }
+    }
+
+    fn render_and_compare<S: Shape>(shape: S, expected: &'static str) {
+        render_and_compare_with_bounds(shape, expected, Bounds::default())
     }
 
     fn check_hi<S: Shape + MathShape>() {
@@ -522,6 +532,52 @@ mod test {
         render_and_compare(shape, EXPECTED);
     }
 
+    fn check_hi_bounded<S: Shape + MathShape>() {
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = S::new(&ctx, root).unwrap();
+        const EXPECTED: &str = "
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX....................XXX.....
+            .XXX...................XXXXX....
+            .XXX...................XXXXX....
+            .XXX...................XXXX.....
+            .XXX............................
+            .XXX............................
+            .XXX............................
+            .XXX..XXXXXX............XXX.....
+            .XXXXXXXXXXXXX..........XXX.....
+            .XXXXXXXXXXXXXXX........XXX.....
+            .XXXXXX....XXXXX........XXX.....
+            .XXXXX.......XXXX.......XXX.....
+            .XXXX.........XXX.......XXX.....
+            .XXX..........XXXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            .XXX...........XXX......XXX.....
+            ................................";
+        render_and_compare_with_bounds(
+            shape,
+            EXPECTED,
+            Bounds {
+                center: nalgebra::Vector2::new(0.5, 0.5),
+                size: 0.5,
+            },
+        );
+    }
+
     fn check_quarter<S: Shape + MathShape>() {
         let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
         let shape = S::new(&ctx, root).unwrap();
@@ -591,6 +647,22 @@ mod test {
     #[test]
     fn render_hi_transformed_jit() {
         check_hi_transformed::<crate::jit::JitShape>();
+    }
+
+    #[test]
+    fn render_hi_bounded_vm() {
+        check_hi_bounded::<VmShape>();
+    }
+
+    #[test]
+    fn render_hi_bounded_vm3() {
+        check_hi_bounded::<GenericVmShape<3>>();
+    }
+
+    #[cfg(feature = "jit")]
+    #[test]
+    fn render_hi_bounded_jit() {
+        check_hi_bounded::<crate::jit::JitShape>();
     }
 
     #[test]

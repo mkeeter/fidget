@@ -131,7 +131,7 @@ impl Octree {
         // Transform the shape given our bounds
         let shape = shape
             .clone()
-            .apply_transform(settings.bounds.to_transform_matrix().into());
+            .apply_transform(settings.bounds.transform().into());
         let out = Self::build_inner(&shape, settings);
         // TODO correct for vertex offsets
         out

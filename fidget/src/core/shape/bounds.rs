@@ -36,18 +36,56 @@ where
 {
     /// Returns a homogeneous transform matrix for these bounds
     ///
-    /// When the matrix is applied, the given bounds will be mapped into the
-    /// `[-1, +1]` region (which is used for all rendering operations).
-    pub fn to_transform_matrix(&self) -> Transform<f32, nalgebra::TGeneral, N> {
+    /// When this matrix is applied, the `[-1, +1]` region (used for all
+    /// rendering operations) will be remapped to the original bounds.
+    pub fn transform(&self) -> Transform<f32, nalgebra::TGeneral, N> {
         let mut t = nalgebra::Translation::<f32, N>::identity();
-        for (t, c) in t.vector.iter_mut().zip(&self.center) {
-            *t = *c;
-        }
+        t.vector = -self.center;
 
         let mut out = Transform::<f32, nalgebra::TGeneral, N>::default();
+        out.matrix_mut().append_scaling_mut(1.0 / self.size);
         out *= t;
 
-        out.matrix_mut().append_scaling_mut(self.size);
         out
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use nalgebra::{Point2, Vector2};
+
+    #[test]
+    fn bounds_scale() {
+        let b = Bounds {
+            center: Vector2::zeros(),
+            size: 0.5,
+        };
+        let t = b.transform();
+        assert_eq!(
+            t.transform_point(&Point2::new(-0.5, -0.5)),
+            Point2::new(-1.0, -1.0)
+        );
+        assert_eq!(
+            t.transform_point(&Point2::new(0.5, 0.0)),
+            Point2::new(1.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn bounds_translate_scale() {
+        let b = Bounds {
+            center: Vector2::new(0.5, 0.5),
+            size: 0.5,
+        };
+        let t = b.transform();
+        assert_eq!(
+            t.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(-1.0, -1.0)
+        );
+        assert_eq!(
+            t.transform_point(&Point2::new(1.0, 1.0)),
+            Point2::new(1.0, 1.0)
+        );
     }
 }

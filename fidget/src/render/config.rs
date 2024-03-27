@@ -92,7 +92,7 @@ where
                 .append_scaling(scale)
                 .append_translation(&v);
 
-        mat *= self.bounds.to_transform_matrix().matrix();
+        mat *= self.bounds.transform().matrix();
 
         (
             AlignedRenderConfig {
