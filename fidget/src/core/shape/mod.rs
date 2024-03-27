@@ -1,3 +1,3 @@
 //! Shape-specific data types
-mod bound;
-pub use bound::Bounds;
+mod bounds;
+pub use bounds::Bounds;

@@ -26,7 +26,12 @@
 //!
 //! let (node, ctx) = fidget::rhai::eval("sphere(0, 0, 0, 0.6).call(x, y, z)")?;
 //! let shape = VmShape::new(&ctx, node)?;
-//! let settings = Settings { threads: 8, min_depth: 4, max_depth: 4 };
+//! let settings = Settings {
+//!     threads: 8,
+//!     min_depth: 4,
+//!     max_depth: 4,
+//!     ..Default::default()
+//! };
 //! let o = Octree::build(&shape, settings);
 //! let mesh = o.walk_dual(settings);
 //!
@@ -36,6 +41,8 @@
 //! mesh.write_stl(&mut f)?;
 //! # Ok::<(), fidget::Error>(())
 //! ```
+
+use crate::shape::Bounds;
 
 mod builder;
 mod cell;
@@ -92,4 +99,18 @@ pub struct Settings {
     ///
     /// This is **much slower**.
     pub max_depth: u8,
+
+    /// Bounds for meshing
+    pub bounds: Bounds<3>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            threads: 4,
+            min_depth: 3,
+            max_depth: 3,
+            bounds: Default::default(),
+        }
+    }
 }

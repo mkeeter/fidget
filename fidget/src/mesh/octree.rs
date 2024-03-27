@@ -128,6 +128,16 @@ impl Octree {
     ///
     /// The shape is evaluated on the region `[-1, 1]` on all axes
     pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
+        // Transform the shape given our bounds
+        let shape = shape
+            .clone()
+            .apply_transform(settings.bounds.to_transform_matrix().into());
+        let out = Self::build_inner(&shape, settings);
+        // TODO correct for vertex offsets
+        out
+    }
+
+    fn build_inner<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
         let mut octree = if settings.threads == 0 {
@@ -1347,19 +1357,29 @@ mod test {
         context::bound::{self, BoundContext, BoundNode},
         eval::{EzShape, MathShape},
         mesh::types::{Edge, X, Y, Z},
+        shape::Bounds,
         vm::VmShape,
     };
+    use nalgebra::Vector3;
     use std::collections::BTreeMap;
 
     const DEPTH0_SINGLE_THREAD: Settings = Settings {
         min_depth: 0,
         max_depth: 0,
         threads: 0,
+        bounds: Bounds {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            size: 1.0,
+        },
     };
     const DEPTH1_SINGLE_THREAD: Settings = Settings {
         min_depth: 1,
         max_depth: 1,
         threads: 0,
+        bounds: Bounds {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            size: 1.0,
+        },
     };
 
     fn sphere(
@@ -1536,6 +1556,7 @@ mod test {
                 min_depth: 5,
                 max_depth: 5,
                 threads,
+                ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
             let sphere_mesh = octree.walk_dual(settings);
@@ -1699,6 +1720,7 @@ mod test {
                     min_depth: 2,
                     max_depth: 2,
                     threads,
+                    ..Default::default()
                 };
                 let octree = Octree::build(&shape, settings);
 
@@ -1763,6 +1785,7 @@ mod test {
                 min_depth: 1,
                 max_depth: 1,
                 threads,
+                ..Default::default()
             };
             let octree = Octree::build(&tape, settings);
             assert_eq!(
@@ -1784,6 +1807,7 @@ mod test {
                 min_depth: 5,
                 max_depth: 5,
                 threads,
+                ..Default::default()
             };
             let octree = Octree::build(&tape, settings);
             let mesh = octree.walk_dual(settings);
