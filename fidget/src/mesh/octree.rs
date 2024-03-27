@@ -1905,6 +1905,7 @@ mod test {
             min_depth: 4,
             max_depth: 4,
             threads: 0,
+            ..Default::default()
         };
 
         let octree = Octree::build(&shape, settings).walk_dual(settings);
