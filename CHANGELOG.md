@@ -4,12 +4,15 @@
   with the difference that unordered results are returned as `NAN`)
 - Fix a bug in the x86 JIT evaluator's implementation of interval `abs`
 - Add generic `TransformedShape<S>`, representing a shape transformed by a 4x4
-  homogeneous matrix
-    - This replaces `RenderConfig::mat` as the way to handle rotation / scale /
-      translation / perspective transforms, e.g. for interactive visualization
-      (where you don't want to remap the underlying shape)
-    - It's a more general solution: for example, we can use the same type to
-      change bounds for meshing (by translating + scaling the underlying model).
+  homogeneous matrix.  This replaces `RenderConfig::mat` as the flexible
+  strategy for rotation / scale / translation / perspective transforms, e.g. for
+  interactive visualization (where you don't want to remap the underlying shape)
+- Introduce a new `Bounds` type, representing an X/Y/Z region of interest for
+  rendering or meshing.  This overlaps somewhat with `TransformedShape`, but
+  it's ergonomic to specify render region instead of having to do the matrix
+  math every time.
+    - Replaced `RenderConfig::mat` with a new `bounds` member.
+    - Added a new `bounds` member to `mesh::Settings`, for octree construction
 - Move `Interval` and `Grad` to `fidget::types` module, instead of
   `fidget::eval::types`.
 - Fix an edge case in meshing where nearly-planar surfaces could produce

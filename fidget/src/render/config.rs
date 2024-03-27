@@ -85,6 +85,8 @@ where
                 U1,
             >>::Buffer,
         >::from_element(-1.0);
+
+        // Build a matrix which transforms from pixel coordinates to [-1, +1]
         let mut mat =
             nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
                 .matrix()
@@ -92,7 +94,8 @@ where
                 .append_scaling(scale)
                 .append_translation(&v);
 
-        mat *= self.bounds.transform().matrix();
+        // The bounds transform matrix goes from [-1, +1] to model coordinates
+        mat = self.bounds.transform().matrix() * mat;
 
         (
             AlignedRenderConfig {

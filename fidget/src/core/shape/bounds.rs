@@ -40,10 +40,10 @@ where
     /// rendering operations) will be remapped to the original bounds.
     pub fn transform(&self) -> Transform<f32, nalgebra::TGeneral, N> {
         let mut t = nalgebra::Translation::<f32, N>::identity();
-        t.vector = -self.center;
+        t.vector = self.center / self.size;
 
         let mut out = Transform::<f32, nalgebra::TGeneral, N>::default();
-        out.matrix_mut().append_scaling_mut(1.0 / self.size);
+        out.matrix_mut().append_scaling_mut(self.size);
         out *= t;
 
         out
@@ -56,6 +56,20 @@ mod test {
     use nalgebra::{Point2, Vector2};
 
     #[test]
+    fn bounds_default() {
+        let b = Bounds::default();
+        let t = b.transform();
+        assert_eq!(
+            t.transform_point(&Point2::new(-1.0, -1.0)),
+            Point2::new(-1.0, -1.0)
+        );
+        assert_eq!(
+            t.transform_point(&Point2::new(0.5, 0.0)),
+            Point2::new(0.5, 0.0)
+        );
+    }
+
+    #[test]
     fn bounds_scale() {
         let b = Bounds {
             center: Vector2::zeros(),
@@ -63,12 +77,29 @@ mod test {
         };
         let t = b.transform();
         assert_eq!(
-            t.transform_point(&Point2::new(-0.5, -0.5)),
-            Point2::new(-1.0, -1.0)
+            t.transform_point(&Point2::new(-1.0, -1.0)),
+            Point2::new(-0.5, -0.5)
         );
         assert_eq!(
-            t.transform_point(&Point2::new(0.5, 0.0)),
-            Point2::new(1.0, 0.0)
+            t.transform_point(&Point2::new(1.0, 0.0)),
+            Point2::new(0.5, 0.0)
+        );
+    }
+
+    #[test]
+    fn bounds_translate() {
+        let b = Bounds {
+            center: Vector2::new(1.0, 2.0),
+            size: 1.0,
+        };
+        let t = b.transform();
+        assert_eq!(
+            t.transform_point(&Point2::new(-1.0, -1.0)),
+            Point2::new(0.0, 1.0)
+        );
+        assert_eq!(
+            t.transform_point(&Point2::new(1.0, 0.0)),
+            Point2::new(2.0, 2.0)
         );
     }
 
@@ -81,7 +112,11 @@ mod test {
         let t = b.transform();
         assert_eq!(
             t.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(-1.0, -1.0)
+            Point2::new(0.5, 0.5)
+        );
+        assert_eq!(
+            t.transform_point(&Point2::new(-1.0, -1.0)),
+            Point2::new(0.0, 0.0)
         );
         assert_eq!(
             t.transform_point(&Point2::new(1.0, 1.0)),
