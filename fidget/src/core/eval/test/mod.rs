@@ -231,7 +231,7 @@ pub mod canonical {
         |a, b| a.rem_euclid(b),
         |a, b| {
             let v = a / b;
-            (v.round() - v).abs() < 1e-6
+            (v.round() - v).abs() < 1e-9
         }
     );
 }
