@@ -289,9 +289,9 @@ impl Interval {
     }
 
     /// Least non-negative remainder
-    pub fn rem_euclid(&self, i: f32) -> Self {
+    pub fn rem_euclid(&self, other: Interval) -> Self {
         // TODO optimize this
-        Interval::new(0.0, i)
+        Interval::new(0.0, other.abs().upper())
     }
 }
 

@@ -167,9 +167,9 @@ impl SsaTape {
                             SsaOp::CompareImmReg,
                         ),
                         BinaryOpcode::Mod => (
-                            |_, _, _| panic!("mod(reg, reg) is invalid"),
-                            |_, _, _| panic!("mod(imm, reg) is invalid"),
+                            SsaOp::ModRegReg,
                             SsaOp::ModRegImm,
+                            SsaOp::ModImmReg,
                         ),
                     };
 
@@ -303,7 +303,8 @@ impl SsaTape {
                 | SsaOp::DivRegReg(out, lhs, rhs)
                 | SsaOp::SubRegReg(out, lhs, rhs)
                 | SsaOp::MinRegReg(out, lhs, rhs)
-                | SsaOp::MaxRegReg(out, lhs, rhs) => {
+                | SsaOp::MaxRegReg(out, lhs, rhs)
+                | SsaOp::ModRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
@@ -311,6 +312,7 @@ impl SsaTape {
                         SsaOp::SubRegReg(..) => "SUB",
                         SsaOp::MinRegReg(..) => "MIN",
                         SsaOp::MaxRegReg(..) => "MAX",
+                        SsaOp::ModRegReg(..) => "MAX",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
@@ -324,7 +326,8 @@ impl SsaTape {
                 | SsaOp::SubRegImm(out, arg, imm)
                 | SsaOp::MinRegImm(out, arg, imm)
                 | SsaOp::MaxRegImm(out, arg, imm)
-                | SsaOp::ModRegImm(out, arg, imm) => {
+                | SsaOp::ModRegImm(out, arg, imm)
+                | SsaOp::ModImmReg(out, arg, imm) => {
                     let (op, swap) = match op {
                         SsaOp::AddRegImm(..) => ("ADD", false),
                         SsaOp::MulRegImm(..) => ("MUL", false),
@@ -335,6 +338,7 @@ impl SsaTape {
                         SsaOp::MinRegImm(..) => ("MIN", false),
                         SsaOp::MaxRegImm(..) => ("MAX", false),
                         SsaOp::ModRegImm(..) => ("MOD", false),
+                        SsaOp::ModImmReg(..) => ("MOD", true),
                         _ => unreachable!(),
                     };
                     if swap {

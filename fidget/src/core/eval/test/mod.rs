@@ -190,6 +190,7 @@ pub mod canonical {
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
+    declare_canonical_binary!(Context::modulo, |a, b| a.rem_euclid(b));
     declare_canonical_binary_full!(
         Context::mul,
         |a, b| a * b,
@@ -277,5 +278,6 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, min);
         $crate::one_binary_test!($tester, max);
         $crate::one_binary_test!($tester, compare);
+        $crate::one_binary_test!($tester, modulo);
     };
 }

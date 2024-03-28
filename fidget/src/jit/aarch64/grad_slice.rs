@@ -403,6 +403,10 @@ impl Assembler for GradSliceAssembler {
         )
     }
 
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Check whether either argument is NAN

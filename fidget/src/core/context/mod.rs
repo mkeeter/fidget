@@ -536,6 +536,17 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Compare)
     }
 
+    /// Builds a node that takes the modulo (least non-negative remainder)
+    pub fn modulo<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary(a, b, BinaryOpcode::Mod)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values

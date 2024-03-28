@@ -277,6 +277,10 @@ impl Assembler for PointAssembler {
         )
     }
 
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // This is using SIMD instructions to avoid branch; dunno if it's faster
         // but it means we can use very similar code to float / grad slice

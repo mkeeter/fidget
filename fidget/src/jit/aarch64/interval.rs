@@ -482,6 +482,10 @@ impl Assembler for IntervalAssembler {
         )
     }
 
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Very similar to build_min, but without writing choices
