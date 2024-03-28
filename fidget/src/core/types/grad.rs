@@ -187,11 +187,13 @@ impl Grad {
     }
 
     /// Least non-negative remainder
-    pub fn rem_euclid(&self, i: f32) -> Self {
-        // TODO is this right, or should we have deltas at multiples of i?
+    pub fn rem_euclid(&self, rhs: Grad) -> Self {
+        let e = self.v.div_euclid(rhs.v);
         Grad {
-            v: self.v.rem_euclid(i),
-            ..*self
+            v: self.v.rem_euclid(rhs.v),
+            dx: self.dx - rhs.dx * e,
+            dy: self.dy - rhs.dy * e,
+            dz: self.dz - rhs.dz * e,
         }
     }
 

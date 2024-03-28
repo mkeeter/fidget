@@ -1151,17 +1151,17 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::ModRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = v[lhs][i].rem_euclid(v[rhs][i].v);
+                        v[out][i] = v[lhs][i].rem_euclid(v[rhs][i]);
                     }
                 }
                 RegOp::ModRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i].rem_euclid(imm);
+                        v[out][i] = v[arg][i].rem_euclid(imm.into());
                     }
                 }
                 RegOp::ModImmReg(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = imm.rem_euclid(v[arg][i].v).into();
+                        v[out][i] = Grad::from(imm).rem_euclid(v[arg][i]);
                     }
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {

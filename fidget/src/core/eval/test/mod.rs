@@ -190,7 +190,6 @@ pub mod canonical {
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
-    declare_canonical_binary!(Context::modulo, |a, b| a.rem_euclid(b));
     declare_canonical_binary_full!(
         Context::mul,
         |a, b| a * b,
@@ -226,6 +225,14 @@ pub mod canonical {
             Some(v) => (v as i8).into(),
         },
         |a, b| a == b
+    );
+    declare_canonical_binary!(
+        Context::modulo,
+        |a, b| a.rem_euclid(b),
+        |a, b| {
+            let v = a / b;
+            (v.round() - v).abs() < 1e-6
+        }
     );
 }
 
