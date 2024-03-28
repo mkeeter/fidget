@@ -20,6 +20,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
             image_size: size,
             tile_sizes: fidget::vm::VmShape::tile_sizes_2d().to_vec(),
             threads: 8,
+            ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
             b.iter(|| {
@@ -38,6 +39,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
                 image_size: size,
                 tile_sizes: fidget::jit::JitShape::tile_sizes_2d().to_vec(),
                 threads: 8,
+                ..Default::default()
             };
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
                 b.iter(|| {
@@ -67,6 +69,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             image_size: 1024,
             tile_sizes: fidget::vm::VmShape::tile_sizes_2d().to_vec(),
             threads,
+            ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", threads), move |b| {
             b.iter(|| {
@@ -84,6 +87,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
                 image_size: 1024,
                 tile_sizes: fidget::jit::JitShape::tile_sizes_2d().to_vec(),
                 threads,
+                ..Default::default()
             };
             group.bench_function(BenchmarkId::new("jit", threads), move |b| {
                 b.iter(|| {

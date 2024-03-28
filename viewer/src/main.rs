@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
 use log::{debug, error, info};
-use nalgebra::{Transform3, Vector3};
+use nalgebra::{Vector2, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
@@ -149,23 +149,15 @@ fn render<S: fidget::eval::Shape>(
 ) {
     match mode {
         RenderMode::TwoD(camera, mode) => {
-            let mat = Transform3::from_matrix_unchecked(
-                Transform3::identity()
-                    .matrix()
-                    .append_scaling(camera.scale)
-                    .append_translation(&Vector3::new(
-                        camera.offset.x,
-                        camera.offset.y,
-                        0.0,
-                    )),
-            );
-
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
+                bounds: fidget::shape::Bounds {
+                    center: Vector2::new(camera.offset.x, camera.offset.y),
+                    size: camera.scale,
+                },
             };
-            let shape = shape.apply_transform(mat.into());
 
             match mode {
                 TwoDMode::Color => {
@@ -212,23 +204,15 @@ fn render<S: fidget::eval::Shape>(
             }
         }
         RenderMode::ThreeD(camera, mode) => {
-            let mat = Transform3::from_matrix_unchecked(
-                Transform3::identity()
-                    .matrix()
-                    .append_scaling(camera.scale)
-                    .append_translation(&Vector3::new(
-                        camera.offset.x,
-                        camera.offset.y,
-                        0.0,
-                    )),
-            );
-
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
                 threads: 8,
+                bounds: fidget::shape::Bounds {
+                    center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
+                    size: camera.scale,
+                },
             };
-            let shape = shape.apply_transform(mat.into());
             let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {
                 ThreeDMode::Color => {

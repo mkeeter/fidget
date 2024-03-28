@@ -1,4 +1,4 @@
-use crate::{eval::Shape, render::RenderMode, Error};
+use crate::{eval::Shape, render::RenderMode, shape::Bounds, Error};
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
     DimNameSum, U1,
@@ -18,6 +18,9 @@ pub struct RenderConfig<const N: usize> {
 
     /// Number of threads to use; 8 by default
     pub threads: usize,
+
+    /// Bounds of the rendered image, in shape coordinates
+    pub bounds: Bounds<N>,
 }
 
 impl<const N: usize> Default for RenderConfig<N> {
@@ -29,6 +32,7 @@ impl<const N: usize> Default for RenderConfig<N> {
                 _ => vec![128, 64, 32, 16, 8],
             },
             threads: 8,
+            bounds: Default::default(),
         }
     }
 }
@@ -81,11 +85,17 @@ where
                 U1,
             >>::Buffer,
         >::from_element(-1.0);
-        let mat = nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
-            .matrix()
-            .append_scaling(2.0 / image_size as f32)
-            .append_scaling(scale)
-            .append_translation(&v);
+
+        // Build a matrix which transforms from pixel coordinates to [-1, +1]
+        let mut mat =
+            nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
+                .matrix()
+                .append_scaling(2.0 / image_size as f32)
+                .append_scaling(scale)
+                .append_translation(&v);
+
+        // The bounds transform matrix goes from [-1, +1] to model coordinates
+        mat = self.bounds.transform().matrix() * mat;
 
         (
             AlignedRenderConfig {
@@ -218,6 +228,7 @@ mod test {
             image_size: 512,
             tile_sizes: vec![64, 32],
             threads: 8,
+            ..Default::default()
         };
         let (aligned, mat) = config.align();
         assert_eq!(aligned.image_size, config.image_size);
@@ -240,6 +251,7 @@ mod test {
             image_size: 575,
             tile_sizes: vec![64, 32],
             threads: 8,
+            ..Default::default()
         };
         let (aligned, mat) = config.align();
         assert_eq!(aligned.orig_image_size, 575);
@@ -253,6 +265,66 @@ mod test {
         assert_eq!(
             mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
             Point2::new(1.0, -1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size as f32,
+                config.image_size as f32
+            )),
+            Point2::new(1.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn test_bounded_config() {
+        // Simple alignment
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 512,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            bounds: Bounds {
+                center: nalgebra::Vector2::new(0.5, 0.5),
+                size: 0.5,
+            },
+        };
+        let (aligned, mat) = config.align();
+        assert_eq!(aligned.image_size, config.image_size);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 0.0)),
+            Point2::new(1.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 512.0)),
+            Point2::new(1.0, 1.0)
+        );
+
+        let config: RenderConfig<2> = RenderConfig {
+            image_size: 575,
+            tile_sizes: vec![64, 32],
+            threads: 8,
+            bounds: Bounds {
+                center: nalgebra::Vector2::new(0.5, 0.5),
+                size: 0.5,
+            },
+        };
+        let (aligned, mat) = config.align();
+        assert_eq!(aligned.orig_image_size, 575);
+        assert_eq!(aligned.image_size, 576);
+        assert_eq!(aligned.tile_sizes, config.tile_sizes);
+        assert_eq!(aligned.threads, config.threads);
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.0, 0.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
+            Point2::new(1.0, 0.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(

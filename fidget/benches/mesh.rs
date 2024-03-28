@@ -18,6 +18,7 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
             min_depth: 6,
             max_depth: 6,
             threads,
+            ..Default::default()
         };
         #[cfg(feature = "jit")]
         group.bench_function(BenchmarkId::new("jit", threads), move |b| {
@@ -42,6 +43,7 @@ pub fn colonnade_mesh(c: &mut Criterion) {
         min_depth: 8,
         max_depth: 8,
         threads: 8,
+        ..Default::default()
     };
     let octree = &fidget::mesh::Octree::build(shape_vm, cfg);
 
