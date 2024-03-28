@@ -293,9 +293,10 @@ impl Assembler for FloatSliceAssembler {
     }
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; fdiv v7.s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
+            ; fabs v6.s4, V(reg(rhs_reg)).s4
+            ; fdiv v7.s4, V(reg(lhs_reg)).s4, v6.s4
             ; frintm v7.s4, v7.s4 // round down
-            ; fmul v7.s4, v7.s4, V(reg(rhs_reg)).s4
+            ; fmul v7.s4, v7.s4, v6.s4
             ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v7.s4
         )
     }
