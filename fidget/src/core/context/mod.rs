@@ -798,7 +798,7 @@ impl Context {
                 BinaryOpcode::Div => out += "div",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
-                BinaryOpcode::Compare => out += "less-than",
+                BinaryOpcode::Compare => out += "compare",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
