@@ -126,7 +126,7 @@ impl Octree {
 
     /// Builds an octree to the given depth
     ///
-    /// The shape is evaluated on the region `[-1, 1]` on all axes
+    /// The shape is evaluated on the region specified by `settings.bounds`.
     pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         // Transform the shape given our bounds
         let t = settings.bounds.transform();
@@ -136,11 +136,10 @@ impl Octree {
             let shape = shape.clone().apply_transform(t.into());
             let mut out = Self::build_inner(&shape, settings);
 
-            // Apply the reverse transform to vertex coordinates
-            let ti = t.matrix().try_inverse().unwrap();
+            // Apply the transform from [-1, +1] back to model space
             for v in &mut out.verts {
                 let p: nalgebra::Point3<f32> = v.pos.into();
-                let q = ti.transform_point(&p);
+                let q = t.transform_point(&p);
                 v.pos = q.coords;
             }
             out
@@ -1922,6 +1921,27 @@ mod test {
         for v in octree.vertices.iter() {
             let n = v.norm();
             assert!(n > 0.7 && n < 0.8, "invalid vertex at {v:?}: {n}");
+        }
+    }
+
+    #[test]
+    fn test_octree_bounds() {
+        let ctx = BoundContext::new();
+        let shape = sphere(&ctx, [1.0; 3], 0.25);
+
+        let shape: VmShape = shape.convert();
+        let center = Vector3::new(1.0, 1.0, 1.0);
+        let settings = Settings {
+            min_depth: 4,
+            max_depth: 4,
+            threads: 0,
+            bounds: Bounds { size: 0.5, center },
+        };
+
+        let octree = Octree::build(&shape, settings).walk_dual(settings);
+        for v in octree.vertices.iter() {
+            let n = (v - center).norm();
+            assert!(n > 0.2 && n < 0.3, "invalid vertex at {v:?}: {n}");
         }
     }
 }
