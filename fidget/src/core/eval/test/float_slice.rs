@@ -295,7 +295,7 @@ where
         }
     }
 
-    pub fn compare_float_results(
+    pub fn compare_float_results<C: CanonicalBinaryOp>(
         lhs: &[f32],
         rhs: &[f32],
         out: &[f32],
@@ -306,7 +306,10 @@ where
             let v = g(*a, *b);
             let err = (v - o).abs();
             assert!(
-                (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
+                (o == v)
+                    || C::discontinuous_at(*a, *b)
+                    || err < 1e-6
+                    || (v.is_nan() && o.is_nan()),
                 "mismatch in '{name}' at {a} {b}: {v} != {o} ({err})"
             )
         }
@@ -345,7 +348,7 @@ where
                     .unwrap();
 
                     let rhs = if i == j { &args } else { &rgsa };
-                    Self::compare_float_results(
+                    Self::compare_float_results::<C>(
                         &args,
                         rhs,
                         out,
@@ -386,7 +389,7 @@ where
                     .unwrap();
 
                     let rhs = vec![*rhs; out.len()];
-                    Self::compare_float_results(
+                    Self::compare_float_results::<C>(
                         &args,
                         &rhs,
                         out,
@@ -427,7 +430,7 @@ where
                     .unwrap();
 
                     let lhs = vec![*lhs; out.len()];
-                    Self::compare_float_results(
+                    Self::compare_float_results::<C>(
                         &lhs,
                         &args,
                         out,

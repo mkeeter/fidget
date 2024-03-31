@@ -416,7 +416,7 @@ where
         }
     }
 
-    fn compare_point_results(
+    fn compare_point_results<C: CanonicalBinaryOp>(
         lhs: f32,
         rhs: f32,
         out: f32,
@@ -426,7 +426,10 @@ where
         let value = g(lhs, rhs);
         let err = (value - out).abs();
         assert!(
-            (out == value) || err < 1e-6 || value.is_nan() && out.is_nan(),
+            (out == value)
+                || C::discontinuous_at(lhs, rhs)
+                || err < 1e-6
+                || value.is_nan() && out.is_nan(),
             "mismatch in '{name}' at ({lhs}, {rhs}): \
                             {value} != {out} ({err})"
         )
@@ -464,7 +467,7 @@ where
                         .unwrap();
 
                         let rhs = if i == j { lhs } else { rhs };
-                        Self::compare_point_results(
+                        Self::compare_point_results::<C>(
                             lhs,
                             rhs,
                             out,
@@ -502,7 +505,7 @@ where
                     }
                     .unwrap();
 
-                    Self::compare_point_results(
+                    Self::compare_point_results::<C>(
                         lhs,
                         rhs,
                         out,
@@ -539,7 +542,7 @@ where
                     }
                     .unwrap();
 
-                    Self::compare_point_results(
+                    Self::compare_point_results::<C>(
                         lhs,
                         rhs,
                         out,

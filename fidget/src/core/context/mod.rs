@@ -536,6 +536,17 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Compare)
     }
 
+    /// Builds a node that takes the modulo (least non-negative remainder)
+    pub fn modulo<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary(a, b, BinaryOpcode::Mod)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values
@@ -672,6 +683,7 @@ impl Context {
                         .partial_cmp(&b)
                         .map(|i| i as i8 as f64)
                         .unwrap_or(f64::NAN),
+                    BinaryOpcode::Mod => a.rem_euclid(b),
                 }
             }
 
@@ -799,6 +811,7 @@ impl Context {
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
                 BinaryOpcode::Compare => out += "compare",
+                BinaryOpcode::Mod => out += "mod",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",

@@ -482,6 +482,16 @@ impl Assembler for IntervalAssembler {
         )
     }
 
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn interval_modulo(
+            lhs: Interval,
+            rhs: Interval,
+        ) -> Interval {
+            lhs.rem_euclid(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Very similar to build_min, but without writing choices
@@ -627,6 +637,81 @@ impl IntervalAssembler {
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
             ; mov s1, V(reg(arg_reg)).s[1]
+
+            ; blr x0
+
+            // Restore floating-point state
+            ; ldp d16, d17, [sp, 0x50]
+            ; ldp d18, d19, [sp, 0x60]
+            ; ldp d20, d21, [sp, 0x70]
+            ; ldp d22, d23, [sp, 0x80]
+            ; ldp d24, d25, [sp, 0x90]
+            ; ldp d26, d27, [sp, 0xa0]
+            ; ldp d28, d29, [sp, 0xb0]
+            ; ldp d30, d31, [sp, 0xc0]
+
+            // Set our output value
+            ; mov V(reg(out_reg)).s[0], v0.s[0]
+            ; mov V(reg(out_reg)).s[1], v1.s[0]
+
+            // Restore X/Y/Z values
+            ; ldp d0, d1, [sp, 0xd0]
+            ; ldr d2, [sp, 0xe0]
+
+            // Restore registers
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
+        );
+    }
+
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "C" fn(Interval, Interval) -> Interval,
+    ) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, 0xe8]
+                ; str x22, [sp, 0xf8]
+            );
+            self.0.saved_callee_regs = true;
+        }
+
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state to callee-saved registers
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
+
+            // Back up our state
+            ; stp d16, d17, [sp, 0x50]
+            ; stp d18, d19, [sp, 0x60]
+            ; stp d20, d21, [sp, 0x70]
+            ; stp d22, d23, [sp, 0x80]
+            ; stp d24, d25, [sp, 0x90]
+            ; stp d26, d27, [sp, 0xa0]
+            ; stp d28, d29, [sp, 0xb0]
+            ; stp d30, d31, [sp, 0xc0]
+            ; stp d0, d1, [sp, 0xd0]
+            ; str d2, [sp, 0xe0]
+
+            // Load the function address, awkwardly, into a caller-saved
+            // register (so we only need to do this once)
+            ; movz x0, #((addr >> 48) as u32), lsl 48
+            ; movk x0, #((addr >> 32) as u32), lsl 32
+            ; movk x0, #((addr >> 16) as u32), lsl 16
+            ; movk x0, #(addr as u32)
+
+            // Prepare to call our stuff!
+            ; mov s0, V(reg(lhs_reg)).s[0]
+            ; mov s1, V(reg(lhs_reg)).s[1]
+            ; mov s2, V(reg(rhs_reg)).s[0]
+            ; mov s3, V(reg(rhs_reg)).s[1]
 
             ; blr x0
 

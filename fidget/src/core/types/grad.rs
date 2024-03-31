@@ -186,6 +186,17 @@ impl Grad {
         }
     }
 
+    /// Least non-negative remainder
+    pub fn rem_euclid(&self, rhs: Grad) -> Self {
+        let e = self.v.div_euclid(rhs.v);
+        Grad {
+            v: self.v.rem_euclid(rhs.v),
+            dx: self.dx - rhs.dx * e,
+            dy: self.dy - rhs.dy * e,
+            dz: self.dz - rhs.dz * e,
+        }
+    }
+
     /// Checks that the two values are roughly equal, panicking otherwise
     #[cfg(test)]
     pub(crate) fn compare_eq(&self, other: Self) {

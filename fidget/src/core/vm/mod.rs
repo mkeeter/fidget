@@ -361,6 +361,15 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
+                RegOp::ModRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].rem_euclid(v[rhs]);
+                }
+                RegOp::ModRegImm(out, arg, imm) => {
+                    v[out] = v[arg].rem_euclid(imm.into());
+                }
+                RegOp::ModImmReg(out, arg, imm) => {
+                    v[out] = Interval::from(imm).rem_euclid(v[arg]);
+                }
                 RegOp::AddRegReg(out, lhs, rhs) => v[out] = v[lhs] + v[rhs],
                 RegOp::MulRegReg(out, lhs, rhs) => v[out] = v[lhs] * v[rhs],
                 RegOp::DivRegReg(out, lhs, rhs) => v[out] = v[lhs] / v[rhs],
@@ -570,6 +579,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
+                }
+                RegOp::ModRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].rem_euclid(v[rhs]);
+                }
+                RegOp::ModRegImm(out, arg, imm) => {
+                    v[out] = v[arg].rem_euclid(imm);
+                }
+                RegOp::ModImmReg(out, arg, imm) => {
+                    v[out] = imm.rem_euclid(v[arg]);
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs] + v[rhs];
@@ -857,6 +875,21 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         };
                     }
                 }
+                RegOp::ModRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].rem_euclid(v[rhs][i]);
+                    }
+                }
+                RegOp::ModRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].rem_euclid(imm);
+                    }
+                }
+                RegOp::ModImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = imm.rem_euclid(v[arg][i]);
+                    }
+                }
                 RegOp::AddRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] + v[rhs][i];
@@ -1114,6 +1147,21 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                         } else {
                             v[arg][i].max(imm)
                         };
+                    }
+                }
+                RegOp::ModRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].rem_euclid(v[rhs][i]);
+                    }
+                }
+                RegOp::ModRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].rem_euclid(imm.into());
+                    }
+                }
+                RegOp::ModImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = Grad::from(imm).rem_euclid(v[arg][i]);
                     }
                 }
                 RegOp::AddRegReg(out, lhs, rhs) => {

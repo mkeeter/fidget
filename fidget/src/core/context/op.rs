@@ -31,6 +31,7 @@ pub enum BinaryOpcode {
     Min,
     Max,
     Compare,
+    Mod,
 }
 
 /// An operation in a math expression.

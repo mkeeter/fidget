@@ -205,9 +205,12 @@ trait Assembler {
 
     /// Minimum of two values
     ///
-    /// In a tracing evaluator, this function must also write to the `choices`
+    /// In a tracing evaluator, this function muld also write to the `choices`
     /// array and may set `simplify` if one branch is always taken.
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Modulo of two values (least non-negative remainder)
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     // Special-case functions for immediates.  In some cases, you can be more
     // efficient if you know that an argument is an immediate (for example, both
@@ -734,6 +737,17 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::MaxRegImm(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_max(out, arg, reg);
+            }
+            RegOp::ModRegReg(out, lhs, rhs) => {
+                asm.build_mod(out, lhs, rhs);
+            }
+            RegOp::ModRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_mod(out, arg, reg);
+            }
+            RegOp::ModImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_mod(out, reg, arg);
             }
             RegOp::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);

@@ -297,7 +297,9 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::CompareRegImm(..)
-            | SsaOp::CompareImmReg(..) => self.op_reg_imm(op),
+            | SsaOp::CompareImmReg(..)
+            | SsaOp::ModRegImm(..)
+            | SsaOp::ModImmReg(..) => self.op_reg_imm(op),
 
             SsaOp::AddRegReg(..)
             | SsaOp::SubRegReg(..)
@@ -305,7 +307,8 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::DivRegReg(..)
             | SsaOp::MinRegReg(..)
             | SsaOp::MaxRegReg(..)
-            | SsaOp::CompareRegReg(..) => self.op_reg_reg(op),
+            | SsaOp::CompareRegReg(..)
+            | SsaOp::ModRegReg(..) => self.op_reg_reg(op),
         }
     }
 
@@ -491,6 +494,9 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::CompareRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::CompareRegReg)
             }
+            SsaOp::ModRegReg(out, lhs, rhs) => {
+                (out, lhs, rhs, RegOp::ModRegReg)
+            }
             _ => panic!("Bad opcode: {op:?}"),
         };
         let r_x = self.get_out_reg(out);
@@ -608,6 +614,12 @@ impl<const N: usize> RegisterAllocator<N> {
             }
             SsaOp::CompareImmReg(out, arg, imm) => {
                 (out, arg, imm, RegOp::CompareImmReg)
+            }
+            SsaOp::ModRegImm(out, arg, imm) => {
+                (out, arg, imm, RegOp::ModRegImm)
+            }
+            SsaOp::ModImmReg(out, arg, imm) => {
+                (out, arg, imm, RegOp::ModImmReg)
             }
             _ => panic!("Bad opcode: {op:?}"),
         };

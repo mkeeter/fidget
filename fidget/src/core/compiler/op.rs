@@ -81,6 +81,12 @@ macro_rules! opcodes {
             SubImmReg($t, $t, f32),
             #[doc = "Subtract an immediate from a register"]
             SubRegImm($t, $t, f32),
+            #[doc = "Take the module (least nonnegative remainder) of two registers"]
+            ModRegReg($t, $t, $t),
+            #[doc = "Take the module (least nonnegative remainder) of a register and an immediate"]
+            ModRegImm($t, $t, f32),
+            #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
+            ModImmReg($t, $t, f32),
             #[doc = "Compute the minimum of a register and an immediate"]
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
@@ -168,7 +174,10 @@ impl SsaOp {
             | SsaOp::MaxRegReg(out, ..)
             | SsaOp::CompareRegReg(out, ..)
             | SsaOp::CompareRegImm(out, ..)
-            | SsaOp::CompareImmReg(out, ..) => *out,
+            | SsaOp::CompareImmReg(out, ..)
+            | SsaOp::ModRegReg(out, ..)
+            | SsaOp::ModRegImm(out, ..)
+            | SsaOp::ModImmReg(out, ..) => *out,
         }
     }
     /// Returns true if the given opcode is associated with a choice
@@ -203,7 +212,10 @@ impl SsaOp {
             | SsaOp::DivImmReg(..)
             | SsaOp::CompareRegReg(..)
             | SsaOp::CompareRegImm(..)
-            | SsaOp::CompareImmReg(..) => false,
+            | SsaOp::CompareImmReg(..)
+            | SsaOp::ModRegReg(..)
+            | SsaOp::ModRegImm(..)
+            | SsaOp::ModImmReg(..) => false,
             SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::MinRegReg(..)
