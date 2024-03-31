@@ -499,6 +499,9 @@ impl Assembler for IntervalAssembler {
         );
         self.0.ops.commit_local().unwrap();
     }
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
         dynasm!(self.0.ops

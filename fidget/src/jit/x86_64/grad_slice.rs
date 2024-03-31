@@ -387,6 +387,9 @@ impl Assembler for GradSliceAssembler {
         );
         self.0.ops.commit_local().unwrap();
     }
+    fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!()
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
