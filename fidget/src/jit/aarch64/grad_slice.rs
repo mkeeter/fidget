@@ -404,7 +404,10 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        extern "C" fn grad_modulo(lhs: Grad, rhs: Grad) -> Grad {
+            lhs.rem_euclid(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_modulo);
     }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -561,6 +564,98 @@ impl GradSliceAssembler {
             ; ldp q30, q31, [sp, 0x1b0]
 
             // Copy into v4, because we're about to restore v0/1/2/3
+            ; mov V(reg(out_reg)).s[0], v0.s[0]
+            ; mov V(reg(out_reg)).s[1], v1.s[0]
+            ; mov V(reg(out_reg)).s[2], v2.s[0]
+            ; mov V(reg(out_reg)).s[3], v3.s[0]
+
+            // Restore X/Y/Z values
+            ; ldp q0, q1, [sp, 0x1d0]
+            ; ldr q2, [sp, 0x1f0]
+
+            // Restore our current state
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
+            ; mov x3, x23
+            ; mov x4, x24
+            ; mov x5, x25
+        );
+    }
+
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "C" fn(Grad, Grad) -> Grad,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
+            ; mov x23, x3
+            ; mov x24, x4
+            ; mov x25, x5
+
+            // Back up X/Y/Z values (TODO use registers here as well?)
+            ; stp q0, q1, [sp, 0x1d0]
+            ; str q2, [sp, 0x1f0]
+
+            // We use registers v8-v15 (callee saved, but only lower 64 bytes)
+            // and v16-v31 (caller saved)
+            // TODO: track which registers are actually used?
+            ; stp q8, q9, [sp, 0x50]
+            ; stp q10, q11, [sp, 0x70]
+            ; stp q12, q13, [sp, 0x90]
+            ; stp q14, q15, [sp, 0xb0]
+            ; stp q16, q17, [sp, 0xd0]
+            ; stp q18, q19, [sp, 0xf0]
+            ; stp q20, q21, [sp, 0x110]
+            ; stp q22, q23, [sp, 0x130]
+            ; stp q24, q25, [sp, 0x150]
+            ; stp q26, q27, [sp, 0x170]
+            ; stp q28, q29, [sp, 0x190]
+            ; stp q30, q31, [sp, 0x1b0]
+
+            // Load the function address, awkwardly, into a callee-saved
+            // register (so we only need to do this once)
+            ; movz x26, #((addr >> 48) as u32), lsl 48
+            ; movk x26, #((addr >> 32) as u32), lsl 32
+            ; movk x26, #((addr >> 16) as u32), lsl 16
+            ; movk x26, #(addr as u32)
+
+            // Prepare to call our stuff!
+            ; mov s0, V(reg(lhs_reg)).s[0]
+            ; mov s1, V(reg(lhs_reg)).s[1]
+            ; mov s2, V(reg(lhs_reg)).s[2]
+            ; mov s4, V(reg(rhs_reg)).s[0]
+            ; mov s5, V(reg(rhs_reg)).s[1]
+            ; mov s6, V(reg(rhs_reg)).s[2]
+            ; mov s7, V(reg(rhs_reg)).s[3]
+
+            // We do s3 last because it could be IMM_REG
+            ; mov s3, V(reg(lhs_reg)).s[3]
+
+            ; blr x26
+
+            // Restore register state (lol)
+            ; ldp q8, q9, [sp, 0x50]
+            ; ldp q10, q11, [sp, 0x70]
+            ; ldp q12, q13, [sp, 0x90]
+            ; ldp q14, q15, [sp, 0xb0]
+            ; ldp q16, q17, [sp, 0xd0]
+            ; ldp q18, q19, [sp, 0xf0]
+            ; ldp q20, q21, [sp, 0x110]
+            ; ldp q22, q23, [sp, 0x130]
+            ; ldp q24, q25, [sp, 0x150]
+            ; ldp q26, q27, [sp, 0x170]
+            ; ldp q28, q29, [sp, 0x190]
+            ; ldp q30, q31, [sp, 0x1b0]
+
+            // Copy into the out register before restoring v0 (aka q0)
             ; mov V(reg(out_reg)).s[0], v0.s[0]
             ; mov V(reg(out_reg)).s[1], v1.s[0]
             ; mov V(reg(out_reg)).s[2], v2.s[0]
