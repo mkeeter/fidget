@@ -278,7 +278,13 @@ impl Assembler for PointAssembler {
     }
 
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        dynasm!(self.0.ops
+            ; fabs s6, S(reg(rhs_reg))
+            ; fdiv s7, S(reg(lhs_reg)), s6
+            ; frintm s7, s7 // round down
+            ; fmul s7, s7, s6
+            ; fsub S(reg(out_reg)), S(reg(lhs_reg)), s7
+        )
     }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
