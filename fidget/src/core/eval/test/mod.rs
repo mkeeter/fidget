@@ -234,6 +234,12 @@ pub mod canonical {
             (v.round() - v).abs() < 1e-9
         }
     );
+    declare_canonical_binary!(Context::and, |a, b| if a == 0.0 || b == 0.0 {
+        0.0
+    } else {
+        a * b
+    });
+    declare_canonical_binary!(Context::or, |a, b| a + b);
 }
 
 #[macro_export]
@@ -286,5 +292,7 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, max);
         $crate::one_binary_test!($tester, compare);
         $crate::one_binary_test!($tester, modulo);
+        $crate::one_binary_test!($tester, and);
+        $crate::one_binary_test!($tester, or);
     };
 }

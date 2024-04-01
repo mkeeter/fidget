@@ -181,7 +181,13 @@ impl SsaTape {
                         ),
                     };
 
-                    if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
+                    if matches!(
+                        op,
+                        BinaryOpcode::Min
+                            | BinaryOpcode::Max
+                            | BinaryOpcode::And
+                            | BinaryOpcode::Or
+                    ) {
                         choice_count += 1;
                     }
 
@@ -353,8 +359,8 @@ impl SsaTape {
                         SsaOp::MaxRegImm(..) => ("MAX", false),
                         SsaOp::ModRegImm(..) => ("MOD", false),
                         SsaOp::ModImmReg(..) => ("MOD", true),
-                        SsaOp::AndRegImm(..) => ("AND", true),
-                        SsaOp::OrRegImm(..) => ("OR", true),
+                        SsaOp::AndRegImm(..) => ("AND", false),
+                        SsaOp::OrRegImm(..) => ("OR", false),
                         _ => unreachable!(),
                     };
                     if swap {

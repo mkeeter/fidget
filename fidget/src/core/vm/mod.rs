@@ -963,11 +963,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::AndRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = if v[arg][i] == 1.0 {
-                            imm
-                        } else if imm == 1.0 {
-                            v[arg][i]
-                        } else if v[arg][i] == 0.0 || imm == 0.0 {
+                        v[out][i] = if v[arg][i] == 0.0 || imm == 0.0 {
                             0.0
                         } else {
                             v[arg][i] * imm
@@ -1044,11 +1040,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
                 RegOp::AndRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i] == 1.0 {
-                            v[rhs][i]
-                        } else if v[rhs][i] == 1.0 {
-                            v[lhs][i]
-                        } else if v[rhs][i] == 0.0 || v[rhs][i] == 0.0 {
+                        v[out][i] = if v[lhs][i] == 0.0 || v[rhs][i] == 0.0 {
                             0.0
                         } else {
                             v[lhs][i] * v[rhs][i]
@@ -1298,20 +1290,23 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::AndRegReg(out, lhs, rhs) => {
                     for i in 0..size {
-                        v[out][i] = if v[lhs][i].v == 0.0 || v[rhs][i].v == 0.0
-                        {
-                            0.0.into()
+                        let g = v[lhs][i] * v[rhs][i];
+                        v[out][i] = if v[lhs][i].v == 0.0 {
+                            Grad { v: 0.0, ..g }
+                        } else if v[rhs][i].v == 0.0 {
+                            Grad { v: 0.0, ..g }
                         } else {
-                            v[lhs][i] * v[rhs][i]
+                            g
                         };
                     }
                 }
                 RegOp::AndRegImm(out, arg, imm) => {
                     for i in 0..size {
+                        let g = v[arg][i] * imm.into();
                         v[out][i] = if v[arg][i].v == 0.0 || imm == 0.0 {
-                            0.0.into()
+                            Grad { v: 0.0, ..g }
                         } else {
-                            v[arg][i] * imm.into()
+                            g
                         };
                     }
                 }

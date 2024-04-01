@@ -338,6 +338,57 @@ impl Context {
         }
     }
 
+    /// Builds an `and` node
+    ///
+    /// This node is mathematically equivalent to multiplication, but
+    /// short-circuits when given a 0.0 (which changes the behavior of
+    /// `0 × NaN`)
+    ///
+    /// In addition, the node can be simplified using a tracing evaluator.
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let op = ctx.and(x, y).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// let v = ctx.eval_xyz(op, 1.0, 1.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// ```
+    pub fn and<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary_commutative(a, b, BinaryOpcode::And)
+    }
+
+    /// Builds an `or` node
+    ///
+    /// This node is mathematically equivalent to addition, but can be
+    /// simplified using a tracing evaluator.
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let op = ctx.or(x, y).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// ```
+    pub fn or<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+        self.op_binary_commutative(a, b, BinaryOpcode::Or)
+    }
+
     /// Builds a unary negation node
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -785,6 +836,8 @@ impl Context {
                 "sub" => ctx.sub(pop()?, pop()?)?,
                 "compare" => ctx.compare(pop()?, pop()?)?,
                 "mod" => ctx.modulo(pop()?, pop()?)?,
+                "and" => ctx.and(pop()?, pop()?)?,
+                "or" => ctx.or(pop()?, pop()?)?,
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
