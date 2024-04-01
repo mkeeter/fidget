@@ -500,7 +500,13 @@ impl Assembler for IntervalAssembler {
         self.0.ops.commit_local().unwrap();
     }
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        extern "sysv64" fn interval_modulo(
+            lhs: Interval,
+            rhs: Interval,
+        ) -> Interval {
+            lhs.rem_euclid(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
@@ -629,6 +635,77 @@ impl IntervalAssembler {
 
             // copy arg to xmm0
             ; vmovq xmm0, Rx(reg(arg_reg))
+            ; mov rdx, QWORD addr as _
+            ; call rdx
+
+            // Restore float registers
+            ; vmovsd xmm4, [rsp]
+            ; vmovsd xmm5, [rsp + 0x08]
+            ; vmovsd xmm6, [rsp + 0x10]
+            ; vmovsd xmm7, [rsp + 0x18]
+            ; vmovsd xmm8, [rsp + 0x20]
+            ; vmovsd xmm9, [rsp + 0x28]
+            ; vmovsd xmm10, [rsp + 0x30]
+            ; vmovsd xmm11, [rsp + 0x38]
+            ; vmovsd xmm12, [rsp + 0x40]
+            ; vmovsd xmm13, [rsp + 0x48]
+            ; vmovsd xmm14, [rsp + 0x50]
+            ; vmovsd xmm15, [rsp + 0x58]
+
+            // Restore vars/choice/simplify pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+
+            // Unpack the interval result
+            ; vmovq Rx(reg(out_reg)), xmm0
+        );
+    }
+
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "sysv64" fn(Interval, Interval) -> Interval,
+    ) {
+        // Back up a few callee-saved registers that we're about to use
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov [rbp - 0x8], r12
+                ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
+            );
+            self.0.saved_callee_regs = true
+        }
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up vars/choice/simplify pointers to registers
+            ; mov r12, rdi
+            ; mov r13, rsi
+            ; mov r14, rdx
+
+            // Back up register values to the stack, treating them as doubles
+            // (since we want to back up all 64 bits)
+            //
+            // TODO should these be `movq` instead?
+            ; vmovsd [rsp], xmm4
+            ; vmovsd [rsp + 0x08], xmm5
+            ; vmovsd [rsp + 0x10], xmm6
+            ; vmovsd [rsp + 0x18], xmm7
+            ; vmovsd [rsp + 0x20], xmm8
+            ; vmovsd [rsp + 0x28], xmm9
+            ; vmovsd [rsp + 0x30], xmm10
+            ; vmovsd [rsp + 0x38], xmm11
+            ; vmovsd [rsp + 0x40], xmm12
+            ; vmovsd [rsp + 0x48], xmm13
+            ; vmovsd [rsp + 0x50], xmm14
+            ; vmovsd [rsp + 0x58], xmm15
+
+            // copy args (note that we overwrite xmm0 last, because it could be
+            // one of our values if we're using IMM_REG)
+            ; vmovq xmm1, Rx(reg(rhs_reg))
+            ; vmovq xmm0, Rx(reg(lhs_reg))
             ; mov rdx, QWORD addr as _
             ; call rdx
 

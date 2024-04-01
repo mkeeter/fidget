@@ -388,7 +388,10 @@ impl Assembler for GradSliceAssembler {
         self.0.ops.commit_local().unwrap();
     }
     fn build_mod(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!()
+        extern "sysv64" fn grad_modulo(lhs: Grad, rhs: Grad) -> Grad {
+            lhs.rem_euclid(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_modulo);
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -485,6 +488,74 @@ impl GradSliceAssembler {
             // call the function, packing the gradient into xmm0 + xmm1
             ; movsd xmm0, Rx(reg(arg_reg))
             ; vpshufd xmm1, Rx(reg(arg_reg)), 0b1110
+            ; mov rdx, QWORD addr as _
+            ; call rdx
+
+            // Restore gradient registers
+            ; vmovups xmm4, [rsp]
+            ; vmovups xmm5, [rsp + 0x10]
+            ; vmovups xmm6, [rsp + 0x20]
+            ; vmovups xmm7, [rsp + 0x30]
+            ; vmovups xmm8, [rsp + 0x40]
+            ; vmovups xmm9, [rsp + 0x50]
+            ; vmovups xmm10, [rsp + 0x60]
+            ; vmovups xmm11, [rsp + 0x70]
+            ; vmovups xmm12, [rsp + 0x80]
+            ; vmovups xmm13, [rsp + 0x90]
+            ; vmovups xmm14, [rsp + 0xa0]
+            ; vmovups xmm15, [rsp + 0xb0]
+
+            // Restore X/Y/Z pointers
+            ; mov rdi, [rbp - 0x8]
+            ; mov rsi, [rbp - 0x10]
+            ; mov rdx, [rbp - 0x18]
+            ; mov rcx, [rbp - 0x20]
+            ; mov r8, [rbp - 0x28]
+            ; mov r9, [rbp - 0x30]
+
+            // Collect the 4x floats into the out register
+            ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
+        );
+    }
+
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "sysv64" fn(Grad, Grad) -> Grad,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up X/Y/Z pointers to the stack
+            ; mov [rbp - 0x8], rdi
+            ; mov [rbp - 0x10], rsi
+            ; mov [rbp - 0x18], rdx
+            ; mov [rbp - 0x20], rcx
+            ; mov [rbp - 0x28], r8
+            ; mov [rbp - 0x30], r9
+
+            // Back up register values to the stack, saving all 128 bits
+            ; vmovups [rsp], xmm4
+            ; vmovups [rsp + 0x10], xmm5
+            ; vmovups [rsp + 0x20], xmm6
+            ; vmovups [rsp + 0x30], xmm7
+            ; vmovups [rsp + 0x40], xmm8
+            ; vmovups [rsp + 0x50], xmm9
+            ; vmovups [rsp + 0x60], xmm10
+            ; vmovups [rsp + 0x70], xmm11
+            ; vmovups [rsp + 0x80], xmm12
+            ; vmovups [rsp + 0x90], xmm13
+            ; vmovups [rsp + 0xa0], xmm14
+            ; vmovups [rsp + 0xb0], xmm15
+
+            // Call the function, packing the gradient into xmm0 + xmm1
+            // Note that we load xmm0 last, because it could be one of our
+            // arguments if we're using IMM_REG
+            ; vpshufd xmm1, Rx(reg(lhs_reg)), 0b1110
+            ; movsd xmm2, Rx(reg(rhs_reg))
+            ; vpshufd xmm3, Rx(reg(rhs_reg)), 0b1110
+            ; movsd xmm0, Rx(reg(lhs_reg))
             ; mov rdx, QWORD addr as _
             ; call rdx
 
