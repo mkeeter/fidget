@@ -229,6 +229,45 @@ impl Interval {
         )
     }
 
+    /// Calculates the `AND` of two intervals, treating it as multiplication
+    ///
+    /// Unlike normal multiplication, an unambiguous 0.0 is always selected (in
+    /// normal multiplication, `0.0 × NaA →  NaN`).
+    ///
+    /// Returns both the result and a [`Choice`] indicating whether one side is
+    /// always selected.  An unambiguous 0 selects itself; an unambiguous 1
+    /// selects the opposite branch.
+    pub fn and_choice(self, rhs: Self) -> (Self, Choice) {
+        if self.lower == 0.0 && self.upper == 0.0 {
+            (0.0.into(), Choice::Left)
+        } else if rhs.lower == 0.0 && rhs.upper == 0.0 {
+            (0.0.into(), Choice::Right)
+        } else if self.lower == 1.0 && self.upper == 1.0 {
+            (rhs, Choice::Right)
+        } else if rhs.lower == 1.0 && rhs.upper == 1.0 {
+            (self, Choice::Left)
+        } else {
+            (self * rhs, Choice::Both)
+        }
+    }
+
+    /// Calculates the `OR` of two intervals, treating it as addition
+    ///
+    /// Returns both the result and a [`Choice`] indicating whether one side is
+    /// always selected; specifically, an unambiguous 0 selects the opposite
+    /// branch.
+    pub fn or_choice(self, rhs: Self) -> (Self, Choice) {
+        if self.lower == 0.0 && self.upper == 0.0 {
+            (rhs, Choice::Right)
+        } else if rhs.lower == 0.0 && rhs.upper == 0.0 {
+            (self, Choice::Left)
+        } else {
+            // TODO: pick a different operation that also allows selection on
+            // 1.0, instead of just 0.0?
+            (self + rhs, Choice::Both)
+        }
+    }
+
     /// Returns the midpoint of the interval
     pub fn midpoint(self) -> f32 {
         (self.lower + self.upper) / 2.0

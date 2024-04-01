@@ -361,6 +361,30 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
+                RegOp::AndRegReg(out, lhs, rhs) => {
+                    let (value, choice) = v[lhs].and_choice(v[rhs]);
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::AndRegImm(out, arg, imm) => {
+                    let (value, choice) = v[arg].and_choice(imm.into());
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::OrRegReg(out, lhs, rhs) => {
+                    let (value, choice) = v[lhs].or_choice(v[rhs]);
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::OrRegImm(out, arg, imm) => {
+                    let (value, choice) = v[arg].or_choice(imm.into());
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
                 RegOp::ModRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs].rem_euclid(v[rhs]);
                 }
@@ -580,6 +604,36 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     *choices.next().unwrap() |= choice;
                     simplify |= choice != Choice::Both;
                 }
+                RegOp::AndRegImm(out, arg, imm) => {
+                    let a = v[arg];
+                    let (choice, value) = if a == 0.0 {
+                        (Choice::Left, a)
+                    } else if imm == 0.0 {
+                        (Choice::Right, imm)
+                    } else if a == 1.0 {
+                        (Choice::Right, imm)
+                    } else if imm == 1.0 {
+                        (Choice::Left, a)
+                    } else {
+                        (Choice::Both, a * imm)
+                    };
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::OrRegImm(out, arg, imm) => {
+                    let a = v[arg];
+                    let (choice, value) = if a == 0.0 {
+                        (Choice::Right, imm)
+                    } else if imm == 0.0 {
+                        (Choice::Left, a)
+                    } else {
+                        (Choice::Both, a + imm)
+                    };
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
                 RegOp::ModRegReg(out, lhs, rhs) => {
                     v[out] = v[lhs].rem_euclid(v[rhs]);
                 }
@@ -656,6 +710,38 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                                 b
                             },
                         )
+                    };
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::AndRegReg(out, lhs, rhs) => {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    let (choice, value) = if a == 0.0 {
+                        (Choice::Left, a)
+                    } else if b == 0.0 {
+                        (Choice::Right, b)
+                    } else if a == 1.0 {
+                        (Choice::Right, b)
+                    } else if b == 1.0 {
+                        (Choice::Left, a)
+                    } else {
+                        (Choice::Both, a * b)
+                    };
+                    v[out] = value;
+                    *choices.next().unwrap() |= choice;
+                    simplify |= choice != Choice::Both;
+                }
+                RegOp::OrRegReg(out, lhs, rhs) => {
+                    let a = v[lhs];
+                    let b = v[rhs];
+                    let (choice, value) = if a == 0.0 {
+                        (Choice::Right, b)
+                    } else if b == 0.0 {
+                        (Choice::Left, a)
+                    } else {
+                        (Choice::Both, a + b)
                     };
                     v[out] = value;
                     *choices.next().unwrap() |= choice;
@@ -875,6 +961,24 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         };
                     }
                 }
+                RegOp::AndRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = if v[arg][i] == 1.0 {
+                            imm
+                        } else if imm == 1.0 {
+                            v[arg][i]
+                        } else if v[arg][i] == 0.0 || imm == 0.0 {
+                            0.0
+                        } else {
+                            v[arg][i] * imm
+                        };
+                    }
+                }
+                RegOp::OrRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i] + imm;
+                    }
+                }
                 RegOp::ModRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i].rem_euclid(v[rhs][i]);
@@ -936,6 +1040,24 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         } else {
                             v[lhs][i].max(v[rhs][i])
                         };
+                    }
+                }
+                RegOp::AndRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = if v[lhs][i] == 1.0 {
+                            v[rhs][i]
+                        } else if v[rhs][i] == 1.0 {
+                            v[lhs][i]
+                        } else if v[rhs][i] == 0.0 || v[rhs][i] == 0.0 {
+                            0.0
+                        } else {
+                            v[lhs][i] * v[rhs][i]
+                        };
+                    }
+                }
+                RegOp::OrRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i] + v[rhs][i];
                     }
                 }
                 RegOp::CopyImm(out, imm) => {
@@ -1172,6 +1294,35 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::MulRegReg(out, lhs, rhs) => {
                     for i in 0..size {
                         v[out][i] = v[lhs][i] * v[rhs][i];
+                    }
+                }
+                RegOp::AndRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = if v[lhs][i].v == 0.0 || v[rhs][i].v == 0.0
+                        {
+                            0.0.into()
+                        } else {
+                            v[lhs][i] * v[rhs][i]
+                        };
+                    }
+                }
+                RegOp::AndRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = if v[arg][i].v == 0.0 || imm == 0.0 {
+                            0.0.into()
+                        } else {
+                            v[arg][i] * imm.into()
+                        };
+                    }
+                }
+                RegOp::OrRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i] + v[rhs][i];
+                    }
+                }
+                RegOp::OrRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i] + imm.into();
                     }
                 }
                 RegOp::DivRegReg(out, lhs, rhs) => {

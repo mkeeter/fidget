@@ -32,6 +32,8 @@ pub enum BinaryOpcode {
     Max,
     Compare,
     Mod,
+    And,
+    Or,
 }
 
 /// An operation in a math expression.

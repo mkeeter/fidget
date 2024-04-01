@@ -684,6 +684,14 @@ impl Context {
                         .map(|i| i as i8 as f64)
                         .unwrap_or(f64::NAN),
                     BinaryOpcode::Mod => a.rem_euclid(b),
+                    BinaryOpcode::And => {
+                        if a == 0.0 || b == 0.0 {
+                            0.0
+                        } else {
+                            a * b
+                        }
+                    }
+                    BinaryOpcode::Or => a + b,
                 }
             }
 
@@ -822,6 +830,8 @@ impl Context {
                 BinaryOpcode::Max => out += "max",
                 BinaryOpcode::Compare => out += "compare",
                 BinaryOpcode::Mod => out += "mod",
+                BinaryOpcode::And => out += "and",
+                BinaryOpcode::Or => out += "or",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
