@@ -234,12 +234,16 @@ pub mod canonical {
             (v.round() - v).abs() < 1e-9
         }
     );
-    declare_canonical_binary!(Context::and, |a, b| if a == 0.0 || b == 0.0 {
-        0.0
-    } else {
-        a * b
-    });
-    declare_canonical_binary!(Context::or, |a, b| a + b);
+    declare_canonical_binary!(
+        Context::and,
+        |a, b| if a == 0.0 { a } else { b },
+        |a, _b| a == 0.0 // discontinuity, because either side snaps to b
+    );
+    declare_canonical_binary!(
+        Context::or,
+        |a, b| if a != 0.0 { a } else { b },
+        |a, _b| a == 0.0 // discontinuity, because either side snaps to a
+    );
 }
 
 #[macro_export]

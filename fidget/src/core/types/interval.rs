@@ -240,14 +240,19 @@ impl Interval {
     pub fn and_choice(self, rhs: Self) -> (Self, Choice) {
         if self.lower == 0.0 && self.upper == 0.0 {
             (0.0.into(), Choice::Left)
-        } else if rhs.lower == 0.0 && rhs.upper == 0.0 {
-            (0.0.into(), Choice::Right)
-        } else if self.lower == 1.0 && self.upper == 1.0 {
+        } else if !self.contains(0.0) {
             (rhs, Choice::Right)
-        } else if rhs.lower == 1.0 && rhs.upper == 1.0 {
-            (self, Choice::Left)
         } else {
-            (self * rhs, Choice::Both)
+            // The output will either be the RHS or zero, so extend the interval
+            // to include zero in it.
+            (
+                if rhs.has_nan() {
+                    f32::NAN.into()
+                } else {
+                    Interval::new(rhs.lower.min(0.0), rhs.upper.max(0.0))
+                },
+                Choice::Both,
+            )
         }
     }
 
@@ -257,14 +262,23 @@ impl Interval {
     /// always selected; specifically, an unambiguous 0 selects the opposite
     /// branch.
     pub fn or_choice(self, rhs: Self) -> (Self, Choice) {
-        if self.lower == 0.0 && self.upper == 0.0 {
-            (rhs, Choice::Right)
-        } else if rhs.lower == 0.0 && rhs.upper == 0.0 {
+        if !self.contains(0.0) {
             (self, Choice::Left)
+        } else if self.lower == 0.0 && self.upper == 0.0 {
+            (rhs, Choice::Right)
         } else {
-            // TODO: pick a different operation that also allows selection on
-            // 1.0, instead of just 0.0?
-            (self + rhs, Choice::Both)
+            // The output could be anywhere in either interval
+            (
+                if rhs.has_nan() {
+                    f32::NAN.into()
+                } else {
+                    Interval::new(
+                        self.lower.min(rhs.lower),
+                        self.upper.max(rhs.upper),
+                    )
+                },
+                Choice::Both,
+            )
         }
     }
 
