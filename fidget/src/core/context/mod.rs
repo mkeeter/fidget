@@ -420,6 +420,14 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Or)
     }
 
+    /// Builds a logical negation node
+    ///
+    /// The output is 1 if the argument is 0, and 0 otherwise.
+    pub fn not<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Not)
+    }
+
     /// Builds a unary negation node
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -800,6 +808,7 @@ impl Context {
                     UnaryOpcode::Atan => a.atan(),
                     UnaryOpcode::Exp => a.exp(),
                     UnaryOpcode::Ln => a.ln(),
+                    UnaryOpcode::Not => (a == 0.0).into(),
                 }
             }
         };
@@ -864,6 +873,7 @@ impl Context {
                 "acos" => ctx.acos(pop()?)?,
                 "atan" => ctx.atan(pop()?)?,
                 "ln" => ctx.ln(pop()?)?,
+                "not" => ctx.not(pop()?)?,
                 "exp" => ctx.exp(pop()?)?,
                 "add" => ctx.add(pop()?, pop()?)?,
                 "mul" => ctx.mul(pop()?, pop()?)?,
@@ -937,6 +947,7 @@ impl Context {
                 UnaryOpcode::Atan => out += "atan",
                 UnaryOpcode::Exp => out += "exp",
                 UnaryOpcode::Ln => out += "ln",
+                UnaryOpcode::Not => out += "not",
             },
         };
         write!(

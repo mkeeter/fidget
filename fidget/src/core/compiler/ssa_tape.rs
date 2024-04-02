@@ -164,11 +164,17 @@ impl SsaTape {
                         BinaryOpcode::And => (
                             SsaOp::AndRegReg,
                             SsaOp::AndRegImm,
-                            SsaOp::AndRegImm,
+                            |_out, _lhs, _rhs| {
+                                panic!("AndImmReg must be collapsed")
+                            },
                         ),
-                        BinaryOpcode::Or => {
-                            (SsaOp::OrRegReg, SsaOp::OrRegImm, SsaOp::OrRegImm)
-                        }
+                        BinaryOpcode::Or => (
+                            SsaOp::OrRegReg,
+                            SsaOp::OrRegImm,
+                            |_out, _lhs, _rhs| {
+                                panic!("OrImmReg must be collapsed")
+                            },
+                        ),
                         BinaryOpcode::Compare => (
                             SsaOp::CompareRegReg,
                             SsaOp::CompareRegImm,
@@ -225,6 +231,7 @@ impl SsaTape {
                         UnaryOpcode::Atan => SsaOp::AtanReg,
                         UnaryOpcode::Exp => SsaOp::ExpReg,
                         UnaryOpcode::Ln => SsaOp::LnReg,
+                        UnaryOpcode::Not => SsaOp::NotReg,
                     };
                     op(i, lhs)
                 }
@@ -291,7 +298,8 @@ impl SsaTape {
                 | SsaOp::AcosReg(out, arg)
                 | SsaOp::AtanReg(out, arg)
                 | SsaOp::ExpReg(out, arg)
-                | SsaOp::LnReg(out, arg) => {
+                | SsaOp::LnReg(out, arg)
+                | SsaOp::NotReg(out, arg) => {
                     let op = match op {
                         SsaOp::NegReg(..) => "NEG",
                         SsaOp::AbsReg(..) => "ABS",
@@ -306,6 +314,7 @@ impl SsaTape {
                         SsaOp::AtanReg(..) => "ATAN",
                         SsaOp::ExpReg(..) => "EXP",
                         SsaOp::LnReg(..) => "LN",
+                        SsaOp::NotReg(..) => "NOT",
                         SsaOp::CopyReg(..) => "COPY",
                         _ => unreachable!(),
                     };

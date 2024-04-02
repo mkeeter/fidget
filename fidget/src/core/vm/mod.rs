@@ -329,6 +329,15 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::LnReg(out, arg) => {
                     v[out] = v[arg].ln();
                 }
+                RegOp::NotReg(out, arg) => {
+                    v[out] = if !v[arg].contains(0.0) {
+                        Interval::new(0.0, 0.0)
+                    } else if v[arg].lower() == 0.0 && v[arg].upper() == 0.0 {
+                        Interval::new(1.0, 1.0)
+                    } else {
+                        Interval::new(0.0, 1.0)
+                    };
+                }
                 RegOp::CopyReg(out, arg) => v[out] = v[arg],
                 RegOp::AddRegImm(out, arg, imm) => {
                     v[out] = v[arg] + imm.into();
@@ -543,6 +552,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 RegOp::LnReg(out, arg) => {
                     v[out] = v[arg].ln();
                 }
+                RegOp::NotReg(out, arg) => v[out] = (v[arg] == 0.0).into(),
                 RegOp::CopyReg(out, arg) => {
                     v[out] = v[arg];
                 }
@@ -876,6 +886,11 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = v[arg][i].ln();
                     }
                 }
+                RegOp::NotReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = (v[arg][i] == 0.0).into();
+                    }
+                }
                 RegOp::CopyReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i];
@@ -1170,6 +1185,11 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::LnReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].ln();
+                    }
+                }
+                RegOp::NotReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = f32::from(v[arg][i].v == 0.0).into();
                     }
                 }
                 RegOp::CopyReg(out, arg) => {

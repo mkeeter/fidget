@@ -162,7 +162,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::AcosReg(index, arg)
                 | SsaOp::AtanReg(index, arg)
                 | SsaOp::ExpReg(index, arg)
-                | SsaOp::LnReg(index, arg) => {
+                | SsaOp::LnReg(index, arg)
+                | SsaOp::NotReg(index, arg) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }

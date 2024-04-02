@@ -18,6 +18,7 @@ pub enum UnaryOpcode {
     Atan,
     Exp,
     Ln,
+    Not,
 }
 
 /// A two-argument math operation

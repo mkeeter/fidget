@@ -66,6 +66,9 @@ macro_rules! opcodes {
             #[doc = "Computes the natural log of the given register"]
             LnReg($t, $t),
 
+            #[doc = "Computes the logical negation of the given register"]
+            NotReg($t, $t),
+
             #[doc = "Copies the given register"]
             CopyReg($t, $t),
 
@@ -166,6 +169,7 @@ impl SsaOp {
             | SsaOp::AtanReg(out, ..)
             | SsaOp::ExpReg(out, ..)
             | SsaOp::LnReg(out, ..)
+            | SsaOp::NotReg(out, ..)
             | SsaOp::AddRegImm(out, ..)
             | SsaOp::MulRegImm(out, ..)
             | SsaOp::DivRegImm(out, ..)
@@ -212,6 +216,7 @@ impl SsaOp {
             | SsaOp::AtanReg(..)
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
+            | SsaOp::NotReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::SubRegImm(..)
