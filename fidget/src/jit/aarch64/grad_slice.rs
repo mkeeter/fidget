@@ -411,7 +411,11 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(arg_reg)), 0.0
+            ; fmov S(reg(out_reg)), 1.0
+            ; and V(reg(out_reg)).b16, V(reg(out_reg)).b16, v6.b16
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!();

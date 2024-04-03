@@ -493,7 +493,29 @@ impl Assembler for IntervalAssembler {
     }
 
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            // v7 = !arg.contains(0.0)
+            ; fcmgt s6, S(reg(arg_reg)), 0.0 // s6 = lower > 0.0
+            ; mov s5, V(reg(arg_reg)).s[1]   // s5 = upper
+            ; fcmlt s7, s5, 0.0              // s7 = upper < 0.0
+            ; orr v7.b8, v6.b8, v7.b8 // (lower > 0) || (upper < 0)
+
+            // v6 = (lower == 0) && (upper == 0)
+            ; fcmeq s6, S(reg(arg_reg)), 0.0
+            ; fcmeq s5, s5, 0.0
+            ; and v6.b8, v6.b8, v5.b8 // (lower == 0) && (upper == 0)
+
+            // lower_out = (lower == 0.0 && upper == 0.0)
+            // upper_out = !!arg.contains(0.0)
+            //
+            // Combine our values into a mask in v6.b16
+            ; mvn v7.b8, v7.b8 // invert !args.contains(0.0)
+            ; mov v6.s[1], v7.s[0]
+
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; and V(reg(out_reg)).b16, v6.b16, V(reg(out_reg)).b16
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!();
