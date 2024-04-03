@@ -281,6 +281,16 @@ impl Assembler for FloatSliceAssembler {
             ; vsubps Ry(reg(out_reg)), Ry(reg(lhs_reg)), ymm2
         );
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        unimplemented!();
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN

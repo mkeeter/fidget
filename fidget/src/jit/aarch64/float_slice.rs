@@ -300,6 +300,15 @@ impl Assembler for FloatSliceAssembler {
             ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v7.s4
         )
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        unimplemented!();
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops

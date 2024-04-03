@@ -508,6 +508,15 @@ impl Assembler for IntervalAssembler {
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        unimplemented!();
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
         dynasm!(self.0.ops

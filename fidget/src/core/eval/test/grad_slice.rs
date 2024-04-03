@@ -9,6 +9,9 @@ use crate::{
     types::Grad,
 };
 
+/// Epsilon for gradient estimates
+const EPSILON: f64 = 1e-8;
+
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestGradSlice<S>(std::marker::PhantomData<*const S>);
 
@@ -461,15 +464,24 @@ where
                     C::NAME,
                 );
 
+                if C::discontinuous_at(*a) {
+                    continue;
+                }
+
                 let grad = o.d(i);
                 if !v.is_nan() && grad < 1e9 && !grad.is_infinite() {
-                    let d = C::eval_f64(*a as f64 + 1e-8);
-                    let estimated_gradient = (d - v) / 1e-8;
-                    let err = (estimated_gradient as f32 - grad).abs();
+                    let a = *a as f64;
+                    let d = C::eval_f64(a + EPSILON);
+                    let est_grad = (d - v) / EPSILON;
+                    let mut err = (est_grad as f32 - grad).abs();
+
+                    let d = C::eval_f64(a - EPSILON);
+                    let est_grad = (v - d) / EPSILON;
+                    err = err.min((est_grad as f32 - grad).abs());
                     assert!(
                         err.min(err / grad.abs()) < 1e-3,
                         "gradient estimate mismatch in '{}' at {a}:
-                        {estimated_gradient} != {grad} ({err})",
+                        {est_grad} != {grad} ({err})",
                         C::NAME,
                     );
                 }
@@ -506,7 +518,6 @@ where
                 continue;
             }
 
-            const EPSILON: f64 = 1e-8;
             let a = *a as f64;
             let b = *b as f64;
             if i == j {

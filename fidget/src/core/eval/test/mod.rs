@@ -60,6 +60,14 @@ pub trait CanonicalUnaryOp {
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
     fn eval_f64(arg: f64) -> f64;
+
+    /// Returns true if there is a bidirectional discontinuity at a position
+    ///
+    /// This means that we should skip gradient checking, because we can't
+    /// accurately estimate the gradient on either side.
+    fn discontinuous_at(_lhs: f32) -> bool {
+        false
+    }
 }
 
 /// Trait for canonical evaluation testing of binary operations
@@ -83,7 +91,7 @@ pub trait CanonicalBinaryOp {
 }
 
 macro_rules! declare_canonical_unary {
-    (Context::$i:ident, |$a:ident| $t:expr) => {
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
         pub struct $i;
         impl CanonicalUnaryOp for $i {
             const NAME: &'static str = stringify!($i);
@@ -96,7 +104,13 @@ macro_rules! declare_canonical_unary {
             fn eval_f64($a: f64) -> f64 {
                 $t
             }
+            fn discontinuous_at($b: f32) -> bool {
+                $u
+            }
         }
+    };
+    (Context::$i:ident, |$lhs:ident| $t:expr) => {
+        declare_canonical_unary!(Context::$i, |$lhs| $t, |_a| false);
     };
 }
 
@@ -187,7 +201,7 @@ pub mod canonical {
     declare_canonical_unary!(Context::ln, |a| a.ln());
     declare_canonical_unary!(Context::square, |a| a * a);
     declare_canonical_unary!(Context::sqrt, |a| a.sqrt());
-    declare_canonical_unary!(Context::not, |a| (a == 0.0).into());
+    declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);

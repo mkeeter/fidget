@@ -393,6 +393,15 @@ impl Assembler for GradSliceAssembler {
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_modulo);
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        unimplemented!();
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        unimplemented!();
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
