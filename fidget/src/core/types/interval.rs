@@ -229,14 +229,11 @@ impl Interval {
         )
     }
 
-    /// Calculates the `AND` of two intervals, treating it as multiplication
-    ///
-    /// Unlike normal multiplication, an unambiguous 0.0 is always selected (in
-    /// normal multiplication, `0.0 × NaA →  NaN`).
+    /// Calculates the short-circuiting `AND` of two intervals
     ///
     /// Returns both the result and a [`Choice`] indicating whether one side is
-    /// always selected.  An unambiguous 0 selects itself; an unambiguous 1
-    /// selects the opposite branch.
+    /// always selected.  An unambiguous 0 in `self` selects itself; an
+    /// unambiguous 1 selects the opposite branch.
     pub fn and_choice(self, rhs: Self) -> (Self, Choice) {
         if self.lower == 0.0 && self.upper == 0.0 {
             (0.0.into(), Choice::Left)
@@ -256,11 +253,11 @@ impl Interval {
         }
     }
 
-    /// Calculates the `OR` of two intervals, treating it as addition
+    /// Calculates the short-circuiting `OR` of two intervals
     ///
     /// Returns both the result and a [`Choice`] indicating whether one side is
-    /// always selected; specifically, an unambiguous 0 selects the opposite
-    /// branch.
+    /// always selected.  An unambiguous 0 in `self` selects the opposite
+    /// branch; an unambiguous 1 selects itself.
     pub fn or_choice(self, rhs: Self) -> (Self, Choice) {
         if !self.contains(0.0) {
             (self, Choice::Left)
