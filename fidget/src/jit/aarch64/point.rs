@@ -295,10 +295,56 @@ impl Assembler for PointAssembler {
         );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; fmov w10, s6 // s6 = w10 = (lhs == 0)
+            ; mov w9, CHOICE_LEFT.into()
+            ; and w9, w9, w10 // w9 = (lhs == 0) ? CHOICE_LEFT : 0
+
+            ; mvn w10, w10
+            ; mov w11, CHOICE_RIGHT.into()
+            ; and w11, w11, w10 // w11 = (lhs != 0) ? CHOICE_RIGHT : 0
+            ; orr w11, w11, w9  // w11 = choice to write
+
+            ; ldrb w14, [x1]
+            ; orr w14, w14, w11
+            ; strb w14, [x1], 1 // post-increment
+
+            ; strb w14, [x2, 0] // store any non-zero value to `simplify`
+
+            // Accumulate our output value
+            ; and v5.b8, v6.b8, V(reg(lhs_reg)).b8
+            ; mvn v6.b8, v6.b8
+            ; and v6.b8, v6.b8, V(reg(rhs_reg)).b8
+            ; orr V(reg(out_reg)).b8, v5.b8, v6.b8
+        );
     }
     fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; mvn v6.b8, v6.b8
+
+            ; fmov w10, s6 // s6 = w10 = (lhs != 0)
+            ; mov w9, CHOICE_LEFT.into()
+            ; and w9, w9, w10 // w9 = (lhs != 0) ? CHOICE_LEFT : 0
+
+            ; mvn w10, w10
+            ; mov w11, CHOICE_RIGHT.into()
+            ; and w11, w11, w10 // w11 = (lhs == 0) ? CHOICE_RIGHT : 0
+            ; orr w11, w11, w9  // w11 = choice to write
+
+            ; ldrb w14, [x1]
+            ; orr w14, w14, w11
+            ; strb w14, [x1], 1 // post-increment
+
+            ; strb w14, [x2, 0] // store any non-zero value to `simplify`
+
+            // Accumulate our output value
+            ; and v5.b8, v6.b8, V(reg(lhs_reg)).b8
+            ; mvn v6.b8, v6.b8
+            ; and v6.b8, v6.b8, V(reg(rhs_reg)).b8
+            ; orr V(reg(out_reg)).b8, v5.b8, v6.b8
+        );
     }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
