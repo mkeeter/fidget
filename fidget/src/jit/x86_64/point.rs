@@ -300,7 +300,13 @@ impl Assembler for PointAssembler {
         );
     }
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; vxorps   xmm1, xmm1, xmm1
+            ; vcmpeqss xmm1, xmm1, Rx(reg(arg_reg))
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; vandpd Rx(reg(out_reg)), Rx(reg(out_reg)), xmm1
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         unimplemented!();
