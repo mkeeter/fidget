@@ -18,6 +18,7 @@ pub enum UnaryOpcode {
     Atan,
     Exp,
     Ln,
+    Not,
 }
 
 /// A two-argument math operation
@@ -32,6 +33,8 @@ pub enum BinaryOpcode {
     Max,
     Compare,
     Mod,
+    And,
+    Or,
 }
 
 /// An operation in a math expression.

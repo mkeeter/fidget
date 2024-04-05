@@ -300,6 +300,32 @@ impl Assembler for FloatSliceAssembler {
             ; fsub V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, v7.s4
         )
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            ; cmeq v6.s4, V(reg(arg_reg)).s4, 0
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s4, V(reg(out_reg)).s[0]
+            ; and V(reg(out_reg)).b16, V(reg(out_reg)).b16, v6.b16
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; cmeq v6.s4, V(reg(lhs_reg)).s4, 0
+            ; mvn v7.b16, v6.b16
+            ; and v6.b16, v6.b16, V(reg(lhs_reg)).b16
+            ; and v7.b16, v7.b16, V(reg(rhs_reg)).b16
+            ; orr V(reg(out_reg)).b16, v6.b16, v7.b16
+        );
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; cmeq v6.s4, V(reg(lhs_reg)).s4, 0
+            ; mvn v7.b16, v6.b16
+            ; and v7.b16, v7.b16, V(reg(lhs_reg)).b16
+            ; and v6.b16, v6.b16, V(reg(rhs_reg)).b16
+            ; orr V(reg(out_reg)).b16, v6.b16, v7.b16
+        );
+    }
 
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops

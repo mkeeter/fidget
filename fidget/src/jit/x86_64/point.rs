@@ -299,6 +299,58 @@ impl Assembler for PointAssembler {
             ; vsubss Rx(reg(out_reg)), Rx(reg(lhs_reg)), xmm2
         );
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            ; vxorps   xmm1, xmm1, xmm1
+            ; vcmpeqss xmm1, xmm1, Rx(reg(arg_reg))
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; vandpd Rx(reg(out_reg)), Rx(reg(out_reg)), xmm1
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Based on Godbolt, so perhaps less readable than usual
+            ; vmovaps xmm1, Rx(reg(rhs_reg))
+            ; vxorps xmm2, xmm2, xmm2
+            ; vucomiss xmm2, Rx(reg(lhs_reg))
+            ; setnp cl
+            ; sete al
+            ; jne >E
+            ; jp >E
+            ; vmovaps xmm1, Rx(reg(lhs_reg))
+
+            ; E:
+            ; and al, cl
+            ; mov cl, 2
+            ; sub cl, al
+            ; or [rsi], cl // write the choice flag, based on condition flags
+            ; or [rdx], 1 // write the simplify bit
+            ; movaps Rx(reg(out_reg)), xmm1
+        );
+        self.0.ops.commit_local().unwrap()
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Based on Godbolt, so perhaps less readable than usual
+            ; vmovaps xmm1, Rx(reg(lhs_reg))
+            ; vxorps xmm2, xmm2, xmm2
+            ; vucomiss xmm2, Rx(reg(lhs_reg))
+            ; setnp cl
+            ; sete al
+            ; jne >E
+            ; jp >E
+            ; vmovaps xmm1, Rx(reg(rhs_reg))
+
+            ; E:
+            ; and al, cl
+            ; inc al
+            ; or [rsi], al // write the choice flag, based on condition flags
+            ; or [rdx], 1 // write the simplify bit
+            ; movaps Rx(reg(out_reg)), xmm1
+        );
+        self.0.ops.commit_local().unwrap()
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))

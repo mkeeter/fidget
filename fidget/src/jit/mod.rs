@@ -185,6 +185,15 @@ trait Assembler {
         self.build_mul(out_reg, lhs_reg, lhs_reg)
     }
 
+    /// Logical not
+    fn build_not(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Logical and (short-circuiting)
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Logical or (short-circuiting)
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
     /// Addition
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
@@ -692,6 +701,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
             }
+            RegOp::NotReg(out, arg) => {
+                asm.build_not(out, arg);
+            }
             RegOp::AddRegReg(out, lhs, rhs) => {
                 asm.build_add(out, lhs, rhs);
             }
@@ -748,6 +760,20 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::ModImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_mod(out, reg, arg);
+            }
+            RegOp::AndRegReg(out, lhs, rhs) => {
+                asm.build_and(out, lhs, rhs);
+            }
+            RegOp::AndRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_and(out, arg, reg);
+            }
+            RegOp::OrRegReg(out, lhs, rhs) => {
+                asm.build_or(out, lhs, rhs);
+            }
+            RegOp::OrRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_or(out, arg, reg);
             }
             RegOp::CopyImm(out, imm) => {
                 let reg = asm.load_imm(imm);

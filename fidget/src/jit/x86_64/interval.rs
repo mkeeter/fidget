@@ -508,6 +508,169 @@ impl Assembler for IntervalAssembler {
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            // xmm0 = 0.0
+            // xmm1 = arg.upper
+            ; vpxor xmm0, xmm0, xmm0
+            ; vpshufd xmm1, Rx(reg(arg_reg)), 0b11111101u8 as i8 // lhs.upper
+
+            // xmm2 = !arg.contains(0.0)
+            ; vcmpgtss xmm3, Rx(reg(arg_reg)), xmm0 // lower > 0.0
+            ; vcmpltss xmm2, xmm1, xmm0 // upper < 0.0
+            ; vorps xmm2, xmm2, xmm3 // (lower > 0) || (upper < 0)
+
+            // xmm2 = !!arg.contains(0.0)
+            ; vpcmpeqd xmm3, xmm3, xmm3 // all 1s
+            ; vxorpd xmm2, xmm2, xmm3
+
+            // xmm3 = (lower == 0) && (upper == 0)
+            ; vcmpeqss xmm3, Rx(reg(arg_reg)), xmm0
+            ; vcmpeqss xmm1, xmm1, xmm0
+            ; vandps xmm3, xmm1, xmm3
+
+            // xmm0 = 1.0
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd xmm0, eax
+
+            // lower_out (xmm3) = (lower == 0) && (upper == 0)
+            ; vandps xmm3, xmm3, xmm0
+
+            // upper_out = !!arg.contains(0.0)
+            ; vandps xmm2, xmm0, xmm2
+
+            // splice them together
+            ; vunpcklps Rx(reg(out_reg)), xmm3, xmm2
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        assert_ne!(reg(lhs_reg), IMM_REG);
+        dynasm!(self.0.ops
+            ; mov ax, [rsi] // load the choice flag
+            ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
+
+            // xmm2 = !arg.contains(0.0)
+            ; vcmpgtss xmm3, Rx(reg(lhs_reg)), xmm1 // lower > 0.0
+            ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vcmpltss xmm2, xmm2, xmm1 // upper < 0.0
+            ; vorps xmm2, xmm2, xmm3 // (lower > 0) || (upper < 0)
+            ; vcomiss xmm1, xmm2 // compare against 0.0
+            ; jnp >A // skip this branch (jnp because xmm2 will be NAN, all 1s)
+
+            // !lhs.contains(0.0) -> RHS
+            ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_RIGHT as i16
+            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], cx
+            ; jmp >E
+
+            // xmm3 = (lower == 0) && (upper == 0)
+            ; A:
+            ; vcmpeqss xmm3, Rx(reg(lhs_reg)), xmm1
+            ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vcmpeqss xmm2, xmm2, xmm1
+            ; vandps xmm3, xmm2, xmm3
+            ; vcomiss xmm1, xmm3
+            ; jnp >B // skip this branch
+
+            // (lhs.lower == 0) && (lhs.upper == 0) -> LHS
+            ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; or ax, CHOICE_LEFT as i16
+            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], cx
+            ; jmp >E
+
+            // We have to combine the outputs
+            ; B:
+            ; or ax, CHOICE_BOTH as i16
+
+            // check for NANs in RHS
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jnp >C
+
+            // Load NAN into out_reg (TODO is this the easiest way?)
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+            ; jmp >E
+
+            // Normal case!
+            ; C:
+            ; vpshufd xmm2, Rx(reg(rhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vmaxss xmm2, xmm2, xmm1 // xmm1 = max(rhs.upper, 0.0)
+            ; vminss xmm1, Rx(reg(rhs_reg)), xmm1 // xmm1 = min(rhs.lower, 0.0)
+            ; vunpcklps Rx(reg(out_reg)), xmm1, xmm2
+
+            ; E: // exit
+            ; mov [rsi], ax
+            ; add rsi, 1
+        );
+        self.0.ops.commit_local().unwrap();
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        assert_ne!(reg(lhs_reg), IMM_REG);
+        dynasm!(self.0.ops
+            ; mov ax, [rsi] // load the choice flag
+            ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
+
+            // xmm2 = !arg.contains(0.0)
+            ; vcmpgtss xmm3, Rx(reg(lhs_reg)), xmm1 // lower > 0.0
+            ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vcmpltss xmm2, xmm2, xmm1 // upper < 0.0
+            ; vorps xmm2, xmm2, xmm3 // (lower > 0) || (upper < 0)
+            ; vcomiss xmm1, xmm2 // compare against 0.0
+            ; jnp >A // skip this branch (jnp because xmm2 will be NAN, all 1s)
+
+            // !lhs.contains(0.0) -> LHS
+            ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
+            ; or ax, CHOICE_LEFT as i16
+            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], cx
+            ; jmp >E
+
+            // xmm3 = (lower == 0) && (upper == 0)
+            ; A:
+            ; vcmpeqss xmm3, Rx(reg(lhs_reg)), xmm1
+            ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vcmpeqss xmm2, xmm2, xmm1
+            ; vandps xmm3, xmm2, xmm3
+            ; vcomiss xmm1, xmm3
+            ; jnp >B // skip this branch
+
+            // (lhs.lower == 0) && (lhs.upper == 0) -> RHS
+            ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
+            ; or ax, CHOICE_RIGHT as i16
+            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], cx
+            ; jmp >E
+
+            // We have to combine the outputs
+            ; B:
+            ; or ax, CHOICE_BOTH as i16
+
+            // check for NANs in RHS
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jnp >C
+
+            // Load NAN into out_reg (TODO is this the easiest way?)
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+            ; jmp >E
+
+            // Normal case!
+            ; C:
+            ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
+            ; vpshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8 // rhs.upper
+            ; vmaxss xmm1, xmm1, xmm2 // xmm1 = max(lhs.upper, rhs.upper)
+            ; vminss xmm2, Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
+            ; vunpcklps Rx(reg(out_reg)), xmm2, xmm1
+
+            ; E: // exit
+            ; mov [rsi], ax
+            ; add rsi, 1
+        );
+    }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         // TODO: Godbolt uses unpcklps ?
         dynasm!(self.0.ops

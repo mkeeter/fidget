@@ -161,6 +161,20 @@ impl SsaTape {
                             SsaOp::MaxRegImm,
                             SsaOp::MaxRegImm,
                         ),
+                        BinaryOpcode::And => (
+                            SsaOp::AndRegReg,
+                            SsaOp::AndRegImm,
+                            |_out, _lhs, _rhs| {
+                                panic!("AndImmReg must be collapsed")
+                            },
+                        ),
+                        BinaryOpcode::Or => (
+                            SsaOp::OrRegReg,
+                            SsaOp::OrRegImm,
+                            |_out, _lhs, _rhs| {
+                                panic!("OrImmReg must be collapsed")
+                            },
+                        ),
                         BinaryOpcode::Compare => (
                             SsaOp::CompareRegReg,
                             SsaOp::CompareRegImm,
@@ -173,7 +187,13 @@ impl SsaTape {
                         ),
                     };
 
-                    if matches!(op, BinaryOpcode::Min | BinaryOpcode::Max) {
+                    if matches!(
+                        op,
+                        BinaryOpcode::Min
+                            | BinaryOpcode::Max
+                            | BinaryOpcode::And
+                            | BinaryOpcode::Or
+                    ) {
                         choice_count += 1;
                     }
 
@@ -211,6 +231,7 @@ impl SsaTape {
                         UnaryOpcode::Atan => SsaOp::AtanReg,
                         UnaryOpcode::Exp => SsaOp::ExpReg,
                         UnaryOpcode::Ln => SsaOp::LnReg,
+                        UnaryOpcode::Not => SsaOp::NotReg,
                     };
                     op(i, lhs)
                 }
@@ -277,7 +298,8 @@ impl SsaTape {
                 | SsaOp::AcosReg(out, arg)
                 | SsaOp::AtanReg(out, arg)
                 | SsaOp::ExpReg(out, arg)
-                | SsaOp::LnReg(out, arg) => {
+                | SsaOp::LnReg(out, arg)
+                | SsaOp::NotReg(out, arg) => {
                     let op = match op {
                         SsaOp::NegReg(..) => "NEG",
                         SsaOp::AbsReg(..) => "ABS",
@@ -292,6 +314,7 @@ impl SsaTape {
                         SsaOp::AtanReg(..) => "ATAN",
                         SsaOp::ExpReg(..) => "EXP",
                         SsaOp::LnReg(..) => "LN",
+                        SsaOp::NotReg(..) => "NOT",
                         SsaOp::CopyReg(..) => "COPY",
                         _ => unreachable!(),
                     };
@@ -304,7 +327,9 @@ impl SsaTape {
                 | SsaOp::SubRegReg(out, lhs, rhs)
                 | SsaOp::MinRegReg(out, lhs, rhs)
                 | SsaOp::MaxRegReg(out, lhs, rhs)
-                | SsaOp::ModRegReg(out, lhs, rhs) => {
+                | SsaOp::ModRegReg(out, lhs, rhs)
+                | SsaOp::AndRegReg(out, lhs, rhs)
+                | SsaOp::OrRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
@@ -313,6 +338,8 @@ impl SsaTape {
                         SsaOp::MinRegReg(..) => "MIN",
                         SsaOp::MaxRegReg(..) => "MAX",
                         SsaOp::ModRegReg(..) => "MAX",
+                        SsaOp::AndRegReg(..) => "AND",
+                        SsaOp::OrRegReg(..) => "OR",
                         _ => unreachable!(),
                     };
                     println!("${out} = {op} ${lhs} ${rhs}");
@@ -327,7 +354,9 @@ impl SsaTape {
                 | SsaOp::MinRegImm(out, arg, imm)
                 | SsaOp::MaxRegImm(out, arg, imm)
                 | SsaOp::ModRegImm(out, arg, imm)
-                | SsaOp::ModImmReg(out, arg, imm) => {
+                | SsaOp::ModImmReg(out, arg, imm)
+                | SsaOp::AndRegImm(out, arg, imm)
+                | SsaOp::OrRegImm(out, arg, imm) => {
                     let (op, swap) = match op {
                         SsaOp::AddRegImm(..) => ("ADD", false),
                         SsaOp::MulRegImm(..) => ("MUL", false),
@@ -339,6 +368,8 @@ impl SsaTape {
                         SsaOp::MaxRegImm(..) => ("MAX", false),
                         SsaOp::ModRegImm(..) => ("MOD", false),
                         SsaOp::ModImmReg(..) => ("MOD", true),
+                        SsaOp::AndRegImm(..) => ("AND", false),
+                        SsaOp::OrRegImm(..) => ("OR", false),
                         _ => unreachable!(),
                     };
                     if swap {

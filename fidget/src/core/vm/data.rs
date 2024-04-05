@@ -162,7 +162,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::AcosReg(index, arg)
                 | SsaOp::AtanReg(index, arg)
                 | SsaOp::ExpReg(index, arg)
-                | SsaOp::LnReg(index, arg) => {
+                | SsaOp::LnReg(index, arg)
+                | SsaOp::NotReg(index, arg) => {
                     *index = new_index;
                     *arg = workspace.get_or_insert_active(*arg);
                 }
@@ -184,7 +185,9 @@ impl<const N: usize> VmData<N> {
                     }
                 }
                 SsaOp::MinRegImm(index, arg, imm)
-                | SsaOp::MaxRegImm(index, arg, imm) => {
+                | SsaOp::MaxRegImm(index, arg, imm)
+                | SsaOp::AndRegImm(index, arg, imm)
+                | SsaOp::OrRegImm(index, arg, imm) => {
                     match choice_iter.next().unwrap() {
                         Choice::Left => match workspace.active(*arg) {
                             Some(new_arg) => {
@@ -207,7 +210,9 @@ impl<const N: usize> VmData<N> {
                     }
                 }
                 SsaOp::MinRegReg(index, lhs, rhs)
-                | SsaOp::MaxRegReg(index, lhs, rhs) => {
+                | SsaOp::MaxRegReg(index, lhs, rhs)
+                | SsaOp::AndRegReg(index, lhs, rhs)
+                | SsaOp::OrRegReg(index, lhs, rhs) => {
                     match choice_iter.next().unwrap() {
                         Choice::Left => match workspace.active(*lhs) {
                             Some(new_lhs) => {

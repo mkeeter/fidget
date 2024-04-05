@@ -410,6 +410,34 @@ impl Assembler for GradSliceAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_modulo);
     }
 
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(arg_reg)), 0.0
+            ; fmov S(reg(out_reg)), 1.0
+            ; and V(reg(out_reg)).b16, V(reg(out_reg)).b16, v6.b16
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; dup v6.s4, v6.s[0]
+            ; mvn v7.b16, v6.b16
+            ; and v6.b16, v6.b16, V(reg(lhs_reg)).b16
+            ; and v7.b16, v7.b16, V(reg(rhs_reg)).b16
+            ; orr V(reg(out_reg)).b16, v6.b16, v7.b16
+        );
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; dup v6.s4, v6.s[0]
+            ; mvn v7.b16, v6.b16
+            ; and v7.b16, v7.b16, V(reg(lhs_reg)).b16
+            ; and v6.b16, v6.b16, V(reg(rhs_reg)).b16
+            ; orr V(reg(out_reg)).b16, v6.b16, v7.b16
+        );
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Check whether either argument is NAN

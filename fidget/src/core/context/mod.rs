@@ -338,6 +338,96 @@ impl Context {
         }
     }
 
+    /// Builds an `and` node
+    ///
+    /// If both arguments are non-zero, returns the right-hand argument.
+    /// Otherwise, returns zero.
+    ///
+    /// This node can be simplified using a tracing evaluator:
+    /// - If the left-hand argument is zero, simplify to just that argument
+    /// - If the left-hand argument is non-zero, simplify to the other argument
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let op = ctx.and(x, y).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// let v = ctx.eval_xyz(op, 1.0, 1.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 1.0, 2.0, 0.0).unwrap();
+    /// assert_eq!(v, 2.0);
+    /// ```
+    pub fn and<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+
+        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
+        if let Op::Const(v) = op_a {
+            if v.0 == 0.0 {
+                Ok(a)
+            } else {
+                Ok(b)
+            }
+        } else {
+            self.op_binary(a, b, BinaryOpcode::And)
+        }
+    }
+
+    /// Builds an `or` node
+    ///
+    /// If the left-hand argument is non-zero, it is returned.  Otherwise, the
+    /// right-hand argument is returned.
+    ///
+    /// This node can be simplified using a tracing evaluator.
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let op = ctx.or(x, y).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 0.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 0.0);
+    /// let v = ctx.eval_xyz(op, 0.0, 3.0, 0.0).unwrap();
+    /// assert_eq!(v, 3.0);
+    /// ```
+    pub fn or<A: IntoNode, B: IntoNode>(
+        &mut self,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+
+        let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
+        let op_b = *self.get_op(b).ok_or(Error::BadNode)?;
+        if let Op::Const(v) = op_a {
+            if v.0 != 0.0 {
+                return Ok(a);
+            } else {
+                return Ok(b);
+            }
+        } else if let Op::Const(v) = op_b {
+            if v.0 == 0.0 {
+                return Ok(a);
+            }
+        }
+        self.op_binary(a, b, BinaryOpcode::Or)
+    }
+
+    /// Builds a logical negation node
+    ///
+    /// The output is 1 if the argument is 0, and 0 otherwise.
+    pub fn not<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Not)
+    }
+
     /// Builds a unary negation node
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -684,6 +774,20 @@ impl Context {
                         .map(|i| i as i8 as f64)
                         .unwrap_or(f64::NAN),
                     BinaryOpcode::Mod => a.rem_euclid(b),
+                    BinaryOpcode::And => {
+                        if a == 0.0 {
+                            a
+                        } else {
+                            b
+                        }
+                    }
+                    BinaryOpcode::Or => {
+                        if a != 0.0 {
+                            a
+                        } else {
+                            b
+                        }
+                    }
                 }
             }
 
@@ -704,6 +808,7 @@ impl Context {
                     UnaryOpcode::Atan => a.atan(),
                     UnaryOpcode::Exp => a.exp(),
                     UnaryOpcode::Ln => a.ln(),
+                    UnaryOpcode::Not => (a == 0.0).into(),
                 }
             }
         };
@@ -768,6 +873,7 @@ impl Context {
                 "acos" => ctx.acos(pop()?)?,
                 "atan" => ctx.atan(pop()?)?,
                 "ln" => ctx.ln(pop()?)?,
+                "not" => ctx.not(pop()?)?,
                 "exp" => ctx.exp(pop()?)?,
                 "add" => ctx.add(pop()?, pop()?)?,
                 "mul" => ctx.mul(pop()?, pop()?)?,
@@ -777,6 +883,8 @@ impl Context {
                 "sub" => ctx.sub(pop()?, pop()?)?,
                 "compare" => ctx.compare(pop()?, pop()?)?,
                 "mod" => ctx.modulo(pop()?, pop()?)?,
+                "and" => ctx.and(pop()?, pop()?)?,
+                "or" => ctx.or(pop()?, pop()?)?,
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
@@ -822,6 +930,8 @@ impl Context {
                 BinaryOpcode::Max => out += "max",
                 BinaryOpcode::Compare => out += "compare",
                 BinaryOpcode::Mod => out += "mod",
+                BinaryOpcode::And => out += "and",
+                BinaryOpcode::Or => out += "or",
             },
             Op::Unary(op, ..) => match op {
                 UnaryOpcode::Neg => out += "neg",
@@ -837,6 +947,7 @@ impl Context {
                 UnaryOpcode::Atan => out += "atan",
                 UnaryOpcode::Exp => out += "exp",
                 UnaryOpcode::Ln => out += "ln",
+                UnaryOpcode::Not => out += "not",
             },
         };
         write!(

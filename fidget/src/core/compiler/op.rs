@@ -66,6 +66,9 @@ macro_rules! opcodes {
             #[doc = "Computes the natural log of the given register"]
             LnReg($t, $t),
 
+            #[doc = "Computes the logical negation of the given register"]
+            NotReg($t, $t),
+
             #[doc = "Copies the given register"]
             CopyReg($t, $t),
 
@@ -91,6 +94,10 @@ macro_rules! opcodes {
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
             MaxRegImm($t, $t, f32),
+            #[doc = "Multiplies the two values, short-circuiting if either is 0"]
+            AndRegImm($t, $t, f32),
+            #[doc = "Add two values, short-circuiting if either is 0"]
+            OrRegImm($t, $t, f32),
             #[doc = "Compares a register with an immediate"]
             CompareRegImm($t, $t, f32),
             #[doc = "Compares an immediate with a register"]
@@ -108,6 +115,10 @@ macro_rules! opcodes {
             MinRegReg($t, $t, $t),
             #[doc = "Take the maximum of two registers"]
             MaxRegReg($t, $t, $t),
+            #[doc = "Multiply two values, short-circuiting if either is 0"]
+            AndRegReg($t, $t, $t),
+            #[doc = "Add two values, short-circuiting if either is 0"]
+            OrRegReg($t, $t, $t),
             #[doc = "Compares two registers"]
             CompareRegReg($t, $t, $t),
 
@@ -158,6 +169,7 @@ impl SsaOp {
             | SsaOp::AtanReg(out, ..)
             | SsaOp::ExpReg(out, ..)
             | SsaOp::LnReg(out, ..)
+            | SsaOp::NotReg(out, ..)
             | SsaOp::AddRegImm(out, ..)
             | SsaOp::MulRegImm(out, ..)
             | SsaOp::DivRegImm(out, ..)
@@ -177,7 +189,11 @@ impl SsaOp {
             | SsaOp::CompareImmReg(out, ..)
             | SsaOp::ModRegReg(out, ..)
             | SsaOp::ModRegImm(out, ..)
-            | SsaOp::ModImmReg(out, ..) => *out,
+            | SsaOp::ModImmReg(out, ..)
+            | SsaOp::AndRegImm(out, ..)
+            | SsaOp::AndRegReg(out, ..)
+            | SsaOp::OrRegImm(out, ..)
+            | SsaOp::OrRegReg(out, ..) => *out,
         }
     }
     /// Returns true if the given opcode is associated with a choice
@@ -200,6 +216,7 @@ impl SsaOp {
             | SsaOp::AtanReg(..)
             | SsaOp::ExpReg(..)
             | SsaOp::LnReg(..)
+            | SsaOp::NotReg(..)
             | SsaOp::AddRegImm(..)
             | SsaOp::MulRegImm(..)
             | SsaOp::SubRegImm(..)
@@ -219,7 +236,11 @@ impl SsaOp {
             SsaOp::MinRegImm(..)
             | SsaOp::MaxRegImm(..)
             | SsaOp::MinRegReg(..)
-            | SsaOp::MaxRegReg(..) => true,
+            | SsaOp::MaxRegReg(..)
+            | SsaOp::AndRegImm(..)
+            | SsaOp::AndRegReg(..)
+            | SsaOp::OrRegImm(..)
+            | SsaOp::OrRegReg(..) => true,
         }
     }
 }

@@ -60,6 +60,14 @@ pub trait CanonicalUnaryOp {
     fn build(ctx: &mut Context, arg: Node) -> Node;
     fn eval_f32(arg: f32) -> f32;
     fn eval_f64(arg: f64) -> f64;
+
+    /// Returns true if there is a bidirectional discontinuity at a position
+    ///
+    /// This means that we should skip gradient checking, because we can't
+    /// accurately estimate the gradient on either side.
+    fn discontinuous_at(_lhs: f32) -> bool {
+        false
+    }
 }
 
 /// Trait for canonical evaluation testing of binary operations
@@ -83,7 +91,7 @@ pub trait CanonicalBinaryOp {
 }
 
 macro_rules! declare_canonical_unary {
-    (Context::$i:ident, |$a:ident| $t:expr) => {
+    (Context::$i:ident, |$a:ident| $t:expr, |$b:ident| $u:expr) => {
         pub struct $i;
         impl CanonicalUnaryOp for $i {
             const NAME: &'static str = stringify!($i);
@@ -96,7 +104,13 @@ macro_rules! declare_canonical_unary {
             fn eval_f64($a: f64) -> f64 {
                 $t
             }
+            fn discontinuous_at($b: f32) -> bool {
+                $u
+            }
         }
+    };
+    (Context::$i:ident, |$lhs:ident| $t:expr) => {
+        declare_canonical_unary!(Context::$i, |$lhs| $t, |_a| false);
     };
 }
 
@@ -187,6 +201,7 @@ pub mod canonical {
     declare_canonical_unary!(Context::ln, |a| a.ln());
     declare_canonical_unary!(Context::square, |a| a * a);
     declare_canonical_unary!(Context::sqrt, |a| a.sqrt());
+    declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
     declare_canonical_binary!(Context::sub, |a, b| a - b);
@@ -234,6 +249,16 @@ pub mod canonical {
             (v.round() - v).abs() < 1e-9
         }
     );
+    declare_canonical_binary!(
+        Context::and,
+        |a, b| if a == 0.0 { a } else { b },
+        |a, _b| a == 0.0 // discontinuity, because either side snaps to b
+    );
+    declare_canonical_binary!(
+        Context::or,
+        |a, b| if a != 0.0 { a } else { b },
+        |a, _b| a == 0.0 // discontinuity, because either side snaps to a
+    );
 }
 
 #[macro_export]
@@ -270,6 +295,7 @@ macro_rules! all_unary_tests {
         $crate::one_unary_test!($tester, atan);
         $crate::one_unary_test!($tester, exp);
         $crate::one_unary_test!($tester, ln);
+        $crate::one_unary_test!($tester, not);
         $crate::one_unary_test!($tester, square);
         $crate::one_unary_test!($tester, sqrt);
     };
@@ -286,5 +312,7 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, max);
         $crate::one_binary_test!($tester, compare);
         $crate::one_binary_test!($tester, modulo);
+        $crate::one_binary_test!($tester, and);
+        $crate::one_binary_test!($tester, or);
     };
 }

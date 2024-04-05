@@ -281,6 +281,43 @@ impl Assembler for FloatSliceAssembler {
             ; vsubps Ry(reg(out_reg)), Ry(reg(lhs_reg)), ymm2
         );
     }
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            ; vxorps ymm1, ymm1, ymm1
+            ; vcmpeqps ymm1, ymm1, Ry(reg(arg_reg))
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd Rx(reg(out_reg)), eax
+            ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
+            ; vandpd Ry(reg(out_reg)), Ry(reg(out_reg)), ymm1
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Build the (lhs == 0) mask in ymm1 and the opposite in ymm2
+            ; vxorps ymm1, ymm1, ymm1
+            ; vcmpeqps ymm1, ymm1, Ry(reg(lhs_reg))
+            ; vpcmpeqd ymm2, ymm2, ymm2 // All 1s
+            ; vxorpd ymm2, ymm1, ymm2 // 1 ^ b = !b, so this inverts ymm1
+
+            ; vandpd ymm1, ymm1, Ry(reg(lhs_reg))
+            ; vandpd ymm2, ymm2, Ry(reg(rhs_reg))
+            ; vorpd Ry(reg(out_reg)), ymm1, ymm2
+        );
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Build the (lhs == 0) mask in ymm1 and the opposite in ymm2
+            ; vxorps ymm1, ymm1, ymm1
+            ; vcmpeqps ymm1, ymm1, Ry(reg(lhs_reg))
+            ; vpcmpeqd ymm2, ymm2, ymm2 // All 1s
+            ; vxorpd ymm2, ymm1, ymm2 // 1 ^ b = !b, so this inverts ymm1
+
+            ; vandpd ymm1, ymm1, Ry(reg(rhs_reg))
+            ; vandpd ymm2, ymm2, Ry(reg(lhs_reg))
+            ; vorpd Ry(reg(out_reg)), ymm1, ymm2
+        );
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN

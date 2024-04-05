@@ -128,6 +128,80 @@ where
         assert!(trace.is_none());
     }
 
+    pub fn test_p_and()
+    where
+        <S as Shape>::Trace: AsRef<[Choice]>,
+    {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let v = ctx.and(x, y).unwrap();
+
+        let shape = S::new(&ctx, v).unwrap();
+        let tape = shape.ez_point_tape();
+        let mut eval = S::new_point_eval();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 1.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0, &[]).unwrap();
+        assert_eq!(r, 1.2);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+    }
+
+    pub fn test_p_or()
+    where
+        <S as Shape>::Trace: AsRef<[Choice]>,
+    {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let v = ctx.or(x, y).unwrap();
+
+        let shape = S::new(&ctx, v).unwrap();
+        let tape = shape.ez_point_tape();
+        let mut eval = S::new_point_eval();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 1.0);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        assert!(r.is_nan());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.1);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0, &[]).unwrap();
+        assert_eq!(r, 0.1);
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0, &[]).unwrap();
+        assert!(r.is_nan());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+    }
+
     pub fn test_p_sin()
     where
         <S as Shape>::Trace: AsRef<[Choice]>,
@@ -580,6 +654,8 @@ macro_rules! point_tests {
         $crate::point_test!(test_p_max, $t);
         $crate::point_test!(test_p_min, $t);
         $crate::point_test!(test_p_sin, $t);
+        $crate::point_test!(test_p_and, $t);
+        $crate::point_test!(test_p_or, $t);
         $crate::point_test!(basic_interpreter, $t);
         $crate::point_test!(test_push, $t);
         $crate::point_test!(test_var, $t);

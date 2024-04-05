@@ -193,6 +193,17 @@ where
         assert!(v.upper().is_nan());
     }
 
+    pub fn test_i_not() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let not_x = ctx.not(x).unwrap();
+
+        let shape = S::new(&ctx, not_x).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        assert_eq!(eval.eval_x(&tape, [-5.0, 0.0]), [0.0, 1.0].into());
+    }
+
     pub fn test_i_mul() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -505,6 +516,80 @@ where
             .unwrap();
         assert_eq!(r, [2.0, 3.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left, Choice::Left]);
+    }
+
+    pub fn test_i_and()
+    where
+        <S as Shape>::Trace: AsRef<[Choice]>,
+    {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let v = ctx.and(x, y).unwrap();
+
+        let shape = S::new(&ctx, v).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        let (r, trace) = eval
+            .eval(&tape, [0.0, 0.0], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [0.0, 0.0].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval
+            .eval(&tape, [-1.0, -0.2], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval
+            .eval(&tape, [0.2, 1.3], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval
+            .eval(&tape, [-0.2, 1.3], [1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [0.0, 3.0].into());
+        assert!(trace.is_none()); // can't simplify
+    }
+
+    pub fn test_i_or()
+    where
+        <S as Shape>::Trace: AsRef<[Choice]>,
+    {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let v = ctx.or(x, y).unwrap();
+
+        let shape = S::new(&ctx, v).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        let (r, trace) = eval
+            .eval(&tape, [0.0, 0.0], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
+
+        let (r, trace) = eval
+            .eval(&tape, [-1.0, -0.2], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [-1.0, -0.2].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval
+            .eval(&tape, [0.2, 1.3], [-1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [0.2, 1.3].into());
+        assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
+
+        let (r, trace) = eval
+            .eval(&tape, [-0.2, 1.3], [1.0, 3.0], [0.0, 0.0], &[])
+            .unwrap();
+        assert_eq!(r, [-0.2, 3.0].into());
+        assert!(trace.is_none());
     }
 
     pub fn test_i_simplify() {
@@ -964,6 +1049,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_square, $t);
         $crate::interval_test!(test_i_sin, $t);
         $crate::interval_test!(test_i_neg, $t);
+        $crate::interval_test!(test_i_not, $t);
         $crate::interval_test!(test_i_mul, $t);
         $crate::interval_test!(test_i_mul_imm, $t);
         $crate::interval_test!(test_i_sub, $t);
@@ -974,6 +1060,8 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_min_imm, $t);
         $crate::interval_test!(test_i_max, $t);
         $crate::interval_test!(test_i_max_imm, $t);
+        $crate::interval_test!(test_i_and, $t);
+        $crate::interval_test!(test_i_or, $t);
         $crate::interval_test!(test_i_compare, $t);
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_var, $t);

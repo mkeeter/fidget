@@ -492,6 +492,147 @@ impl Assembler for IntervalAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
 
+    fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
+        dynasm!(self.0.ops
+            // v7 = !arg.contains(0.0)
+            ; fcmgt s6, S(reg(arg_reg)), 0.0 // s6 = lower > 0.0
+            ; mov s5, V(reg(arg_reg)).s[1]   // s5 = upper
+            ; fcmlt s7, s5, 0.0              // s7 = upper < 0.0
+            ; orr v7.b8, v6.b8, v7.b8 // (lower > 0) || (upper < 0)
+
+            // v6 = (lower == 0) && (upper == 0)
+            ; fcmeq s6, S(reg(arg_reg)), 0.0
+            ; fcmeq s5, s5, 0.0
+            ; and v6.b8, v6.b8, v5.b8 // (lower == 0) && (upper == 0)
+
+            // lower_out = (lower == 0.0 && upper == 0.0)
+            // upper_out = !!arg.contains(0.0)
+            //
+            // Combine our values into a mask in v6.b16
+            ; mvn v7.b8, v7.b8 // invert !args.contains(0.0)
+            ; mov v6.s[1], v7.s[0]
+
+            ; fmov S(reg(out_reg)), 1.0
+            ; dup V(reg(out_reg)).s2, V(reg(out_reg)).s[0]
+            ; and V(reg(out_reg)).b16, v6.b16, V(reg(out_reg)).b16
+        );
+    }
+    fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Load the choice bit
+            ; ldrb w14, [x1]
+
+            // v7 = !arg.contains(0.0)
+            ; fcmgt s6, S(reg(lhs_reg)), 0.0 // s6 = lower > 0.0
+            ; mov s5, V(reg(lhs_reg)).s[1]   // s5 = upper
+            ; fcmlt s7, s5, 0.0              // s7 = upper < 0.0
+            ; orr v7.b8, v6.b8, v7.b8 // (lower > 0) || (upper < 0)
+            ; fmov w9, s7
+            ; cmp w9, 0
+            ; b.eq 20 // skip the !arg.contains(0.0) branch
+
+            // !lhs.contains(0.0) -> RHS
+            ; fmov D(reg(out_reg)), D(reg(rhs_reg))
+            ; orr w14, w14, CHOICE_RIGHT
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 96 // -> exit
+
+            // v6 = (lower == 0) && (upper == 0)
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; fcmeq s5, s5, 0.0
+            ; and v6.b8, v6.b8, v5.b8 // (lower == 0) && (upper == 0)
+            ; fmov w9, s6
+            ; cmp w9, 0
+            ; b.eq 20 // skip the (lower == 0) && (upper == 0) branch
+
+            // (lhs.lower == 0) && (lhs.upper == 0) -> LHS
+            ; movi V(reg(out_reg)).s2, 0
+            ; orr w14, w14, CHOICE_LEFT
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 56 // -> exit
+
+            // Check whether RHS has a NAN
+            ; orr w14, w14, CHOICE_BOTH
+            ; fcmeq v5.s2, V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; fmov x15, d5
+            ; cmp x15, 0
+            ; b.ne 16 // -> skip over NAN handling into main logic
+
+            // NAN handling
+            ; mov w15, f32::NAN.to_bits().into()
+            ; dup V(reg(out_reg)).s2, w15
+            ; b 24 // -> exit
+
+            // s5 = min(rhs.lower, 0.0)
+            // s6 = max(rhs.upper, 0.0)
+            ; movi v6.s2, 0
+            ; fmin s5, S(reg(rhs_reg)), s6
+            ; mov s7, V(reg(rhs_reg)).s[1]
+            ; fmax s6, s7, s6
+            ; zip1 V(reg(out_reg)).s2, v5.s2, v6.s2
+
+            // exit
+            ; strb w14, [x1], 1 // post-increment
+        )
+    }
+    fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        dynasm!(self.0.ops
+            // Load the choice bit
+            ; ldrb w14, [x1]
+
+            // v7 = !arg.contains(0.0)
+            ; fcmgt s6, S(reg(lhs_reg)), 0.0 // s6 = lower > 0.0
+            ; mov s5, V(reg(lhs_reg)).s[1]   // s5 = upper
+            ; fcmlt s7, s5, 0.0              // s7 = upper < 0.0
+            ; orr v7.b8, v6.b8, v7.b8 // (lower > 0) || (upper < 0)
+            ; fmov w9, s7
+            ; cmp w9, 0
+            ; b.eq 20 // skip the !arg.contains(0.0) branch
+
+            // !lhs.contains(0.0) -> LHS
+            ; fmov D(reg(out_reg)), D(reg(lhs_reg))
+            ; orr w14, w14, CHOICE_LEFT
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 92 // -> exit
+
+            // v6 = (lower == 0) && (upper == 0)
+            ; fcmeq s6, S(reg(lhs_reg)), 0.0
+            ; fcmeq s5, s5, 0.0
+            ; and v6.b8, v6.b8, v5.b8 // (lower == 0) && (upper == 0)
+            ; fmov w9, s6
+            ; cmp w9, 0
+            ; b.eq 20 // skip the (lower == 0) && (upper == 0) branch
+
+            // (lhs.lower == 0) && (lhs.upper == 0) -> RHS
+            ; fmov D(reg(out_reg)), D(reg(rhs_reg))
+            ; orr w14, w14, CHOICE_RIGHT
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; b 52 // -> exit
+
+            // Check whether RHS has a NAN
+            ; orr w14, w14, CHOICE_BOTH
+            ; fcmeq v5.s2, V(reg(rhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; fmov x15, d5
+            ; cmp x15, 0
+            ; b.ne 16 // -> skip over NAN handling into main logic
+
+            // NAN handling
+            ; mov w15, f32::NAN.to_bits().into()
+            ; dup V(reg(out_reg)).s2, w15
+            ; b 20 // -> exit
+
+            // s5 = min(lhs.lower, rhs.lower)
+            // s6 = min(lhs.upper, rhs.upper)
+            ; fmin s5, S(reg(lhs_reg)), S(reg(rhs_reg))
+            ; fmax v6.s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
+            ; mov s6, v6.s[1]
+            ; zip1 V(reg(out_reg)).s2, v5.s2, v6.s2
+
+            // exit
+            ; strb w14, [x1], 1 // post-increment
+        )
+    }
+
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Very similar to build_min, but without writing choices
