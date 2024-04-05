@@ -127,14 +127,14 @@ impl Assembler for IntervalAssembler {
         assert!((dst_reg as usize) < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(src_mem) + STACK_SIZE;
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; ldr D(reg(dst_reg)), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; ldr D(reg(dst_reg)), [sp, sp_offset])
     }
     /// Writes from `src_reg` to `dst_mem`
     fn build_store(&mut self, dst_mem: u32, src_reg: u8) {
         assert!((src_reg as usize) < REGISTER_LIMIT);
         let sp_offset = self.0.stack_pos(dst_mem) + STACK_SIZE;
         assert!(sp_offset <= 32768);
-        dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, #(sp_offset)])
+        dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, sp_offset])
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
@@ -143,7 +143,7 @@ impl Assembler for IntervalAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr w15, [x0, #(src_arg * 4)]
+            ; ldr w15, [x0, src_arg * 4]
             ; dup V(reg(out_reg)).s2, w15
         );
     }
@@ -414,19 +414,19 @@ impl Assembler for IntervalAssembler {
 
             // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, CHOICE_RIGHT
             ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 28 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, CHOICE_LEFT
             ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 12 // -> end
 
             // <- both
             ; fmax V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w14, w14, #CHOICE_BOTH
+            ; orr w14, w14, CHOICE_BOTH
 
             // <- end
             ; strb w14, [x1], 1 // post-increment
@@ -463,19 +463,19 @@ impl Assembler for IntervalAssembler {
 
             // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
-            ; orr w14, w14, #CHOICE_LEFT
+            ; orr w14, w14, CHOICE_LEFT
             ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 28 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
-            ; orr w14, w14, #CHOICE_RIGHT
+            ; orr w14, w14, CHOICE_RIGHT
             ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 12
 
             // <- both
             ; fmin V(reg(out_reg)).s2, V(reg(lhs_reg)).s2, V(reg(rhs_reg)).s2
-            ; orr w14, w14, #CHOICE_BOTH
+            ; orr w14, w14, CHOICE_BOTH
 
             // <- end
             ; strb w14, [x1], 1 // post-increment
@@ -552,8 +552,8 @@ impl Assembler for IntervalAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
-            ; movz w15, #(imm_u32 >> 16), lsl 16
-            ; movk w15, #(imm_u32)
+            ; movz w15, imm_u32 >> 16, lsl 16
+            ; movk w15, imm_u32
             ; dup V(IMM_REG as u32).s2, w15
         );
         IMM_REG.wrapping_sub(OFFSET)
@@ -583,7 +583,7 @@ impl Assembler for IntervalAssembler {
             ; ldp   d14, d15, [sp, 0x40]
 
             // Fix up the stack
-            ; add sp, sp, #(self.0.mem_offset as u32)
+            ; add sp, sp, self.0.mem_offset as u32
 
             ; ret
         );
@@ -629,10 +629,10 @@ impl IntervalAssembler {
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
-            ; movz x0, #((addr >> 48) as u32), lsl 48
-            ; movk x0, #((addr >> 32) as u32), lsl 32
-            ; movk x0, #((addr >> 16) as u32), lsl 16
-            ; movk x0, #(addr as u32)
+            ; movz x0, ((addr >> 48) as u32), lsl 48
+            ; movk x0, ((addr >> 32) as u32), lsl 32
+            ; movk x0, ((addr >> 16) as u32), lsl 16
+            ; movk x0, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
@@ -702,10 +702,10 @@ impl IntervalAssembler {
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
-            ; movz x0, #((addr >> 48) as u32), lsl 48
-            ; movk x0, #((addr >> 32) as u32), lsl 32
-            ; movk x0, #((addr >> 16) as u32), lsl 16
-            ; movk x0, #(addr as u32)
+            ; movz x0, ((addr >> 48) as u32), lsl 48
+            ; movk x0, ((addr >> 32) as u32), lsl 32
+            ; movk x0, ((addr >> 16) as u32), lsl 16
+            ; movk x0, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(lhs_reg)).s[0]

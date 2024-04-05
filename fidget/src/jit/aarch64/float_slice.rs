@@ -165,7 +165,7 @@ impl Assembler for FloatSliceAssembler {
         let sp_offset = self.0.stack_pos(src_mem) + STACK_SIZE;
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
-            ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
+            ; ldr Q(reg(dst_reg)), [sp, sp_offset]
         )
     }
 
@@ -175,7 +175,7 @@ impl Assembler for FloatSliceAssembler {
         let sp_offset = self.0.stack_pos(dst_mem) + STACK_SIZE;
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
-            ; str Q(reg(src_reg)), [sp, #(sp_offset)]
+            ; str Q(reg(src_reg)), [sp, sp_offset]
         )
     }
     /// Copies the given input to `out_reg`
@@ -185,7 +185,7 @@ impl Assembler for FloatSliceAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr w15, [x3, #(src_arg * 4)]
+            ; ldr w15, [x3, src_arg * 4]
             ; dup V(reg(out_reg)).s4, w15
         );
     }
@@ -341,8 +341,8 @@ impl Assembler for FloatSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
-            ; movz w9, #(imm_u32 >> 16), lsl 16
-            ; movk w9, #(imm_u32)
+            ; movz w9, imm_u32 >> 16, lsl 16
+            ; movk w9, imm_u32
             ; dup V(IMM_REG as u32).s4, w9
         );
         IMM_REG.wrapping_sub(OFFSET)
@@ -382,7 +382,7 @@ impl Assembler for FloatSliceAssembler {
             ; ldr x26, [sp, 0x230]
 
             // Fix up the stack
-            ; add sp, sp, #(self.0.mem_offset as u32)
+            ; add sp, sp, self.0.mem_offset as u32
             ; ret
         );
 
@@ -429,10 +429,10 @@ impl FloatSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x26, #((addr >> 48) as u32), lsl 48
-            ; movk x26, #((addr >> 32) as u32), lsl 32
-            ; movk x26, #((addr >> 16) as u32), lsl 16
-            ; movk x26, #(addr as u32)
+            ; movz x26, ((addr >> 48) as u32), lsl 48
+            ; movk x26, ((addr >> 32) as u32), lsl 32
+            ; movk x26, ((addr >> 16) as u32), lsl 16
+            ; movk x26, addr as u32
 
             // We're going to back up our argument into d8/d9 (since the callee
             // only saves the bottom 64 bits).  Note that d8/d9 may be our input

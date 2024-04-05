@@ -303,7 +303,7 @@ impl<T> AssemblerData<T> {
     fn push_stack(&mut self) {
         assert!(self.mem_offset < 4096);
         dynasm!(self.ops
-            ; sub sp, sp, #(self.mem_offset as u32)
+            ; sub sp, sp, self.mem_offset as u32
         );
     }
 
