@@ -193,6 +193,17 @@ where
         assert!(v.upper().is_nan());
     }
 
+    pub fn test_i_not() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let not_x = ctx.not(x).unwrap();
+
+        let shape = S::new(&ctx, not_x).unwrap();
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        assert_eq!(eval.eval_x(&tape, [-5.0, 0.0]), [0.0, 1.0].into());
+    }
+
     pub fn test_i_mul() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -1038,6 +1049,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_square, $t);
         $crate::interval_test!(test_i_sin, $t);
         $crate::interval_test!(test_i_neg, $t);
+        $crate::interval_test!(test_i_not, $t);
         $crate::interval_test!(test_i_mul, $t);
         $crate::interval_test!(test_i_mul_imm, $t);
         $crate::interval_test!(test_i_sub, $t);

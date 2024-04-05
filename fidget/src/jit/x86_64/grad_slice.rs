@@ -394,13 +394,38 @@ impl Assembler for GradSliceAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_modulo);
     }
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
-        unimplemented!();
+        let i = self.load_imm(1.0);
+        dynasm!(self.0.ops
+            ; vpxor xmm1, xmm1, xmm1
+            ; vcmpeqss xmm1, Rx(reg(arg_reg)), xmm1
+            ; vandps Rx(reg(out_reg)), xmm1, Rx(reg(i))
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; vpxor xmm1, xmm1, xmm1
+            ; vcmpeqss xmm1, Rx(reg(lhs_reg)), xmm1
+            ; vbroadcastss xmm1, xmm1
+            ; vpcmpeqd xmm2, xmm2, xmm2
+            ; vxorpd xmm2, xmm1, xmm2 // 1 ^ b = !b, so this inverts xmm1
+
+            ; vandpd xmm1, xmm1, Rx(reg(lhs_reg))
+            ; vandpd xmm2, xmm2, Rx(reg(rhs_reg))
+            ; vorpd Rx(reg(out_reg)), xmm1, xmm2
+        );
     }
     fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            ; vpxor xmm1, xmm1, xmm1
+            ; vcmpeqss xmm1, Rx(reg(lhs_reg)), xmm1
+            ; vbroadcastss xmm1, xmm1
+            ; vpcmpeqd xmm2, xmm2, xmm2
+            ; vxorpd xmm2, xmm1, xmm2 // 1 ^ b = !b, so this inverts xmm1
+
+            ; vandpd xmm1, xmm1, Rx(reg(rhs_reg))
+            ; vandpd xmm2, xmm2, Rx(reg(lhs_reg))
+            ; vorpd Rx(reg(out_reg)), xmm1, xmm2
+        );
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops

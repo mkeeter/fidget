@@ -509,12 +509,46 @@ impl Assembler for IntervalAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
-        unimplemented!();
+        dynasm!(self.0.ops
+            // xmm0 = 0.0
+            // xmm1 = arg.upper
+            ; vpxor xmm0, xmm0, xmm0
+            ; vpshufd xmm1, Rx(reg(arg_reg)), 0b11111101u8 as i8 // lhs.upper
+
+            // xmm2 = !arg.contains(0.0)
+            ; vcmpgtss xmm3, Rx(reg(arg_reg)), xmm0 // lower > 0.0
+            ; vcmpltss xmm2, xmm1, xmm0 // upper < 0.0
+            ; vandps xmm2, xmm2, xmm3 // (lower > 0) || (upper < 0)
+
+            // xmm2 = !!arg.contains(0.0)
+            ; vpcmpeqd xmm3, xmm3, xmm3 // all 1s
+            ; vxorpd xmm2, xmm2, xmm3
+
+            // xmm3 = (lower == 0) && (upper == 0)
+            ; vcmpeqss xmm3, Rx(reg(arg_reg)), xmm0
+            ; vcmpeqss xmm1, xmm1, xmm0
+            ; vandps xmm3, xmm1, xmm3
+
+            // xmm0 = 1.0
+            ; mov eax, 1f32.to_bits() as i32
+            ; vmovd xmm0, eax
+
+            // lower_out (xmm3) = (lower == 0) && (upper == 0)
+            ; vandps xmm3, xmm3, xmm0
+
+            // upper_out = !!arg.contains(0.0)
+            ; vandps xmm2, xmm0, xmm2
+
+            // splice them together
+            ; vunpcklps Rx(reg(out_reg)), xmm3, xmm2
+        );
     }
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        assert_ne!(reg(lhs_reg), IMM_REG);
         unimplemented!();
     }
     fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        assert_ne!(reg(lhs_reg), IMM_REG);
         unimplemented!();
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

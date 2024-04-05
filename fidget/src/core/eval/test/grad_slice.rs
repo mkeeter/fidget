@@ -270,6 +270,20 @@ where
         );
     }
 
+    pub fn test_g_not() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let m = ctx.not(x).unwrap();
+        let shape = S::new(&ctx, m).unwrap();
+
+        let mut eval = S::new_grad_slice_eval();
+        let tape = shape.ez_grad_slice_tape();
+        assert_eq!(
+            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            Grad::new(1.0, 0.0, 0.0, 0.0)
+        );
+    }
+
     pub fn test_g_circle() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -480,7 +494,7 @@ where
                     err = err.min((est_grad as f32 - grad).abs());
                     assert!(
                         err.min(err / grad.abs()) < 1e-3,
-                        "gradient estimate mismatch in '{}' at {a}:
+                        "gradient estimate mismatch in '{}' at {a} => {o:?}:
                         {est_grad} != {grad} ({err})",
                         C::NAME,
                     );
@@ -507,7 +521,8 @@ where
                     || err < 1e-6
                     || err_frac < 1e-6
                     || (v.is_nan() && o.v.is_nan()),
-                "value mismatch in '{name}' at ({a}, {b}): {v} != {o} ({err})"
+                "value mismatch in '{name}' at ({a}, {b}) => {o:?}: \
+                 {v} != {o} ({err})"
             );
 
             if v.is_nan() {
@@ -533,7 +548,7 @@ where
                     assert!(
                         err.min(err / grad.abs()) < 1e-3,
                         "gradient estimate mismatch in '{name}' at \
-                         ({a} + epsilon, {b}): \
+                         ({a} + epsilon, {b}) => {o:?}: \
                          {est_grad} != {grad} ({err})"
                     );
                 }
@@ -553,7 +568,7 @@ where
                         assert!(
                             err.min(err / grad.abs()) < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
-                             ({a} + epsilon, {b}): \
+                             ({a} + epsilon, {b}) => {o:?}: \
                              {est_grad} != {grad} ({err})"
                         );
                     }
@@ -571,7 +586,7 @@ where
                         assert!(
                             err.min(err / grad.abs()) < 1e-3,
                             "gradient estimate mismatch in '{name}' at \
-                             ({a}, {b} + epsilon): \
+                             ({a}, {b} + epsilon) => {o:?}: \
                              {est_grad} != {grad} ({err})"
                         );
                     }
@@ -745,6 +760,7 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_min, $t);
         $crate::grad_test!(test_g_max, $t);
         $crate::grad_test!(test_g_min_max, $t);
+        $crate::grad_test!(test_g_not, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);
         $crate::grad_test!(test_g_var, $t);
