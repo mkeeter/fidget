@@ -564,7 +564,7 @@ impl Assembler for IntervalAssembler {
             ; b 24 // -> exit
 
             // s5 = min(rhs.lower, 0.0)
-            // s6 = min(rhs.lower, 0.0)
+            // s6 = max(rhs.upper, 0.0)
             ; movi v6.s2, 0
             ; fmin s5, S(reg(rhs_reg)), s6
             ; mov s7, V(reg(rhs_reg)).s[1]
