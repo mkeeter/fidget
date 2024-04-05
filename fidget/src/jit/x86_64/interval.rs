@@ -378,7 +378,7 @@ impl Assembler for IntervalAssembler {
             ; vmaxss xmm2, xmm2, xmm1 // xmm2[0] is highest value
 
             // Splice the two together
-            ; unpcklps Rx(reg(out_reg)), xmm2
+            ; vunpcklps Rx(reg(out_reg)), Rx(reg(out_reg)), xmm2
 
             ; E:
         );
