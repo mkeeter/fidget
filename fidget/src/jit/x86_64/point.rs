@@ -328,6 +328,7 @@ impl Assembler for PointAssembler {
 
             ; O:
         );
+        self.0.ops.commit_local().unwrap()
     }
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
