@@ -18,6 +18,8 @@
 - Fix an edge case in meshing where nearly-planar surfaces could produce
   vertexes far from the desired position.
 - Add the `modulo` (Euclidean remainder) operation
+- Add logical operations (`and`, `or`, `not`), which can be used to build
+  pseudo-conditionals which are simplified by the `TracingEvaluator`.
 
 # 0.2.2
 - Added many transcendental functions: `sin`, `cos`, `tan`, `asin`, `acos`,
