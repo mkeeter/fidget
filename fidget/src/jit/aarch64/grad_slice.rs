@@ -172,7 +172,7 @@ impl Assembler for GradSliceAssembler {
         let sp_offset = self.0.stack_pos(src_mem) + STACK_SIZE;
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
-            ; ldr Q(reg(dst_reg)), [sp, #(sp_offset)]
+            ; ldr Q(reg(dst_reg)), [sp, sp_offset]
         )
     }
     /// Writes from `src_reg` to `dst_mem`
@@ -181,7 +181,7 @@ impl Assembler for GradSliceAssembler {
         let sp_offset = self.0.stack_pos(dst_mem) + STACK_SIZE;
         assert!(sp_offset < 65536);
         dynasm!(self.0.ops
-            ; str Q(reg(src_reg)), [sp, #(sp_offset)]
+            ; str Q(reg(src_reg)), [sp, sp_offset]
         )
     }
     /// Copies the given input to `out_reg`
@@ -191,7 +191,7 @@ impl Assembler for GradSliceAssembler {
     fn build_var(&mut self, out_reg: u8, src_arg: u32) {
         assert!(src_arg * 4 < 16384);
         dynasm!(self.0.ops
-            ; ldr S(reg(out_reg)), [x3, #(src_arg * 4)]
+            ; ldr S(reg(out_reg)), [x3, src_arg * 4]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -449,8 +449,8 @@ impl Assembler for GradSliceAssembler {
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
         dynasm!(self.0.ops
-            ; movz w9, #(imm_u32 >> 16), lsl 16
-            ; movk w9, #(imm_u32)
+            ; movz w9, imm_u32 >> 16, lsl 16
+            ; movk w9, imm_u32
             ; fmov S(IMM_REG as u32), w9
         );
         IMM_REG.wrapping_sub(OFFSET)
@@ -488,7 +488,7 @@ impl Assembler for GradSliceAssembler {
             ; ldr x26, [sp, 0x230]
 
             // Fix up the stack
-            ; add sp, sp, #(self.0.mem_offset as u32)
+            ; add sp, sp, self.0.mem_offset as u32
             ; ret
 
         );
@@ -536,10 +536,10 @@ impl GradSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x26, #((addr >> 48) as u32), lsl 48
-            ; movk x26, #((addr >> 32) as u32), lsl 32
-            ; movk x26, #((addr >> 16) as u32), lsl 16
-            ; movk x26, #(addr as u32)
+            ; movz x26, ((addr >> 48) as u32), lsl 48
+            ; movk x26, ((addr >> 32) as u32), lsl 32
+            ; movk x26, ((addr >> 16) as u32), lsl 16
+            ; movk x26, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
@@ -622,10 +622,10 @@ impl GradSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x26, #((addr >> 48) as u32), lsl 48
-            ; movk x26, #((addr >> 32) as u32), lsl 32
-            ; movk x26, #((addr >> 16) as u32), lsl 16
-            ; movk x26, #(addr as u32)
+            ; movz x26, ((addr >> 48) as u32), lsl 48
+            ; movk x26, ((addr >> 32) as u32), lsl 32
+            ; movk x26, ((addr >> 16) as u32), lsl 16
+            ; movk x26, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(lhs_reg)).s[0]
