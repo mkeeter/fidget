@@ -65,8 +65,8 @@ they're demo applications and not complete end-user tools.
 At the moment, the JIT supports three platforms:
 
 - `aarch64-apple-darwin`
-- `aarch64-unknown-linux-*`
 - `x86_64-unknown-linux-*`
+- `aarch64-unknown-linux-*` (not tested in CI)
 
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be

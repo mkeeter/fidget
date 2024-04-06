@@ -1,3 +1,5 @@
+# 0.2.4 (unreleased)
+
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
 - Add `compare` operator (equivalent to `<=>` in C++ or `partial_cmp` in Rust,
