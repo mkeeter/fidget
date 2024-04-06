@@ -25,7 +25,10 @@ The library contains a variety of data structures and algorithms, e.g.
     - SIMD evaluation (`f32 x 4` on ARM, `f32 x 8` on x86)
     - Gradient evaluation (partial derivatives with respect to x, y, and z)
 - Bitmap rendering of implicit surfaces in 2D (with a variety of rendering
-  modes) and 3D (producing heightmaps and normals).
+  modes) and 3D (producing heightmaps and normals)
+- Meshing (using our own implementation of the
+  [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf)
+  algorithm)
 
 If this all sounds oddly familiar, it's because you've read
 [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces](https://www.mattkeeter.com/research/mpr/).
