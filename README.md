@@ -90,6 +90,7 @@ Fidget overlaps with various projects in the implicit modeling space:
 - [Curv: a language for making art using mathematics](https://github.com/curv3d/curv)
 - [sdf: Simple SDF mesh generation in Python](https://github.com/fogleman/sdf)
 - [Forged Thoughts: A Modeling & Rendering Language in Rust](https://forgedthoughts.com/)
+- [Raumkuenstler: Node-based modeling with an LLVM-powered JIT compiler](https://github.com/elisabeth96/Raumkuenstler)
 - Probably more; PRs welcome!
 
 *written by the same author
