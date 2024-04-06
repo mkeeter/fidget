@@ -61,6 +61,9 @@ two demo applications:
 These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
+The repository also includes `libfive-import`, a simple tool to import
+the supported subset of [`libfive`](https://libfive.com)'s binary format.
+
 ## Platforms
 At the moment, the JIT supports three platforms:
 

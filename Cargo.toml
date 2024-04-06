@@ -4,6 +4,7 @@ members = [
     "fidget",
     "demo",
     "viewer",
+    "libfive-import",
     "workspace-hack",
 ]
 
