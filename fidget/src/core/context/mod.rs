@@ -1,12 +1,26 @@
-//! Infrastructure for representing math expressions as graphs
+//! Infrastructure for representing math expressions as trees and graphs
+//!
+//! There are two families of representations in this module:
+//!
+//! - A [`Tree`] is a free-floating math expression, which can be cloned
+//!   and has overloaded operators for ease of use.  It is **not** deduplicated;
+//!   two calls to [`Tree::x`] will produce two different [`TreeOp`] objects.
+//!   `Tree` objects are typically used when building up expressions; they
+//!   should be converted to `Node` objects (in a particular `Context`) after
+//!   they have been constructed.
+//! - A [`Context`] is an arena for unique (deduplicated) math expressions,
+//!   which are represented as [`Node`] handles.  Each `Node` is specific to a
+//!   particular context.  Only `Node` objects can be converted into `Shape`
+//!   objects for evaluation.
+//!
+//! In other words, the typical workflow is `Tree → (Context, Node) → Shape`.
 mod indexed;
 mod op;
-
-#[cfg(test)]
-pub(crate) mod bound;
+mod tree;
 
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
+pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
@@ -996,6 +1010,11 @@ impl Context {
     /// Looks up an operation by `Node` handle
     pub fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
+    }
+
+    /// Imports the given tree, deduplicating and returning the root
+    pub fn import(&mut self, tree: Tree) -> Node {
+        todo!()
     }
 }
 

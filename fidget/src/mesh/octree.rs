@@ -1363,7 +1363,7 @@ impl LeafHermiteData {
 mod test {
     use super::*;
     use crate::{
-        context::bound::{self, BoundContext, BoundNode},
+        context::Tree,
         eval::{EzShape, MathShape},
         mesh::types::{Edge, X, Y, Z},
         shape::Bounds,
@@ -1391,12 +1391,8 @@ mod test {
         },
     };
 
-    fn sphere(
-        ctx: &BoundContext,
-        center: [f32; 3],
-        radius: f32,
-    ) -> bound::BoundNode {
-        let (x, y, z) = ctx.axes();
+    fn sphere(center: [f32; 3], radius: f32) -> Tree {
+        let (x, y, z) = Tree::axes();
         ((x - center[0]).square()
             + (y - center[1]).square()
             + (z - center[2]).square())
@@ -1404,13 +1400,8 @@ mod test {
             - radius
     }
 
-    fn cube(
-        ctx: &BoundContext,
-        bx: [f32; 2],
-        by: [f32; 2],
-        bz: [f32; 2],
-    ) -> BoundNode {
-        let (x, y, z) = ctx.axes();
+    fn cube(bx: [f32; 2], by: [f32; 2], bz: [f32; 2]) -> Tree {
+        let (x, y, z) = Tree::axes();
         let x_bounds = (bx[0] - x.clone()).max(x - bx[1]);
         let y_bounds = (by[0] - y.clone()).max(y - by[1]);
         let z_bounds = (bz[0] - z.clone()).max(z - bz[1]);
@@ -1420,9 +1411,8 @@ mod test {
     #[test]
     fn test_cube_edge() {
         const EPSILON: f32 = 1e-3;
-        let ctx = BoundContext::new();
         let f = 2.0;
-        let cube = cube(&ctx, [-f, f], [-f, 0.3], [-f, 0.6]);
+        let cube = cube([-f, f], [-f, 0.3], [-f, 0.6]);
         // This should be a cube with a single edge running through the root
         // node of the octree, with an edge vertex at [0, 0.3, 0.6]
         let shape: VmShape = cube.convert();
@@ -1437,19 +1427,18 @@ mod test {
     }
 
     fn cone(
-        ctx: &BoundContext,
         corner: nalgebra::Vector3<f32>,
         tip: nalgebra::Vector3<f32>,
         radius: f32,
-    ) -> BoundNode {
+    ) -> Tree {
         let dir = tip - corner;
         let length = dir.norm();
         let dir = dir.normalize();
 
-        let corner = corner.map(|v| ctx.constant(v as f64));
-        let dir = dir.map(|v| ctx.constant(v as f64));
+        let corner = corner.map(|v| Tree::constant(v as f64));
+        let dir = dir.map(|v| Tree::constant(v as f64));
 
-        let (x, y, z) = ctx.axes();
+        let (x, y, z) = Tree::axes();
         let point = nalgebra::Vector3::new(x, y, z);
         let offset = point.clone() - corner.clone();
 
@@ -1473,8 +1462,7 @@ mod test {
 
     #[test]
     fn test_mesh_basic() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.2);
+        let shape = sphere([0.0; 3], 0.2);
         let shape: VmShape = shape.convert();
 
         // If we only build a depth-0 octree, then it's a leaf without any
@@ -1518,8 +1506,7 @@ mod test {
 
     #[test]
     fn test_sphere_verts() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.2);
+        let shape = sphere([0.0; 3], 0.2);
 
         let shape: VmShape = shape.convert();
         let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
@@ -1556,8 +1543,7 @@ mod test {
 
     #[test]
     fn test_sphere_manifold() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.85);
+        let shape = sphere([0.0; 3], 0.85);
         let shape: VmShape = shape.convert();
 
         for threads in [0, 8] {
@@ -1587,8 +1573,7 @@ mod test {
 
     #[test]
     fn test_cube_verts() {
-        let ctx = BoundContext::new();
-        let shape = cube(&ctx, [-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
+        let shape = cube([-0.1, 0.6], [-0.2, 0.75], [-0.3, 0.4]);
 
         let shape: VmShape = shape.convert();
         let octree = Octree::build(&shape, DEPTH1_SINGLE_THREAD);
@@ -1634,11 +1619,10 @@ mod test {
     #[test]
     fn test_plane_center() {
         const EPSILON: f32 = 1e-3;
-        let ctx = BoundContext::new();
         for dx in [0.0, 0.25, -0.25, 2.0, -2.0] {
             for dy in [0.0, 0.25, -0.25, 2.0, -2.0] {
                 for offset in [0.0, -0.2, 0.2] {
-                    let (x, y, z) = ctx.axes();
+                    let (x, y, z) = Tree::axes();
                     let f = x * dx + y * dy + z + offset;
                     let shape: VmShape = f.convert();
                     let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);
@@ -1675,9 +1659,8 @@ mod test {
             nalgebra::Vector3::new(0.2, 0.3, 0.4),
             nalgebra::Vector3::new(1.2, 1.3, 1.4),
         ] {
-            let ctx = BoundContext::new();
             let corner = nalgebra::Vector3::new(-1.0, -1.0, -1.0);
-            let shape = cone(&ctx, corner, tip, 0.1);
+            let shape = cone(corner, tip, 0.1);
             let shape: VmShape = shape.convert();
 
             let mut eval = VmShape::new_point_eval();
@@ -1704,12 +1687,10 @@ mod test {
     fn test_mesh_manifold() {
         for threads in [0, 8] {
             for i in 0..256 {
-                let ctx = BoundContext::new();
                 let mut shape = vec![];
                 for j in Corner::iter() {
                     if i & (1 << j.index()) != 0 {
                         shape.push(sphere(
-                            &ctx,
                             [
                                 if j & X { 0.5 } else { 0.0 },
                                 if j & Y { 0.5 } else { 0.0 },
@@ -1751,12 +1732,7 @@ mod test {
 
     #[test]
     fn test_collapsible() {
-        let ctx = BoundContext::new();
-
-        fn builder(
-            shape: BoundNode,
-            settings: Settings,
-        ) -> OctreeBuilder<VmShape> {
+        fn builder(shape: Tree, settings: Settings) -> OctreeBuilder<VmShape> {
             let shape: VmShape = shape.convert();
             let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
@@ -1764,20 +1740,20 @@ mod test {
             out
         }
 
-        let shape = sphere(&ctx, [0.0; 3], 0.1);
+        let shape = sphere([0.0; 3], 0.1);
         let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
-        let shape = sphere(&ctx, [-1.0; 3], 0.1);
+        let shape = sphere([-1.0; 3], 0.1);
         let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(octree.collapsible(8));
 
-        let shape = sphere(&ctx, [-1.0, 0.0, 1.0], 0.1);
+        let shape = sphere([-1.0, 0.0, 1.0], 0.1);
         let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
 
-        let a = sphere(&ctx, [-1.0; 3], 0.1);
-        let b = sphere(&ctx, [1.0; 3], 0.1);
+        let a = sphere([-1.0; 3], 0.1);
+        let b = sphere([1.0; 3], 0.1);
         let shape = a.min(b);
         let octree = builder(shape, DEPTH1_SINGLE_THREAD);
         assert!(!octree.collapsible(8));
@@ -1786,8 +1762,7 @@ mod test {
     #[test]
     fn test_empty_collapse() {
         // Make a very smol sphere that won't be sampled
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.1; 3], 0.05);
+        let shape = sphere([0.1; 3], 0.05);
         let tape: VmShape = shape.convert();
         for threads in [0, 4] {
             let settings = Settings {
@@ -1906,8 +1881,7 @@ mod test {
 
     #[test]
     fn test_qef_near_planar() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [0.0; 3], 0.75);
+        let shape = sphere([0.0; 3], 0.75);
 
         let shape: VmShape = shape.convert();
         let settings = Settings {
@@ -1926,8 +1900,7 @@ mod test {
 
     #[test]
     fn test_octree_bounds() {
-        let ctx = BoundContext::new();
-        let shape = sphere(&ctx, [1.0; 3], 0.25);
+        let shape = sphere([1.0; 3], 0.25);
 
         let shape: VmShape = shape.convert();
         let center = Vector3::new(1.0, 1.0, 1.0);
