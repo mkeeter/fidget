@@ -21,7 +21,7 @@ pub enum TreeOp {
         x: Tree,
         y: Tree,
         z: Tree,
-    }
+    },
 }
 
 impl From<f64> for Tree {
@@ -94,10 +94,6 @@ impl Tree {
     /// Takes the maximum of two trees
     pub fn min<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Min)
-    }
-
-    pub fn convert<S: crate::eval::Shape>(&self) -> S {
-        unimplemented!()
     }
 }
 
