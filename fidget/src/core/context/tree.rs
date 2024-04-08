@@ -51,10 +51,13 @@ impl std::ops::Deref for Tree {
     }
 }
 
-// XXX `PartialEq` is required for `nalgebra`, so we'll do pointer equality
 impl PartialEq for Tree {
+    /// Shallow (pointer) comparison
+    ///
+    /// This is implemented because `PartialEq` is required for
+    /// [`nalgebra::Scalar`]; it's unlikely to be meaningful in user code.
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0.as_ref() as *const _, other.0.as_ref() as *const _)
+        std::ptr::eq(self.as_ptr(), other.as_ptr())
     }
 }
 impl Eq for Tree {}
