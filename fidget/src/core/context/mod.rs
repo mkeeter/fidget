@@ -918,9 +918,6 @@ impl Context {
                 "mod" => ctx.modulo(pop()?, pop()?)?,
                 "and" => ctx.and(pop()?, pop()?)?,
                 "or" => ctx.or(pop()?, pop()?)?,
-                "if-nonzero-else" => {
-                    ctx.if_nonzero_else(pop()?, pop()?, pop()?)?
-                }
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
