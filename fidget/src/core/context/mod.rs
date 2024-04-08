@@ -637,6 +637,39 @@ impl Context {
         self.op_binary(a, b, BinaryOpcode::Mod)
     }
 
+    /// Builds a node that returns the first node if the condition is not
+    /// equal to zero, else returns the other node
+    ///
+    /// The result is `a` if `condition != 0`, else the result is `b`.
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let z = ctx.z();
+    ///
+    /// let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
+    ///
+    /// assert_eq!(ctx.eval_xyz(if_else, 0.0, 2.0, 3.0).unwrap(), 3.0);
+    /// assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, 3.0).unwrap(), 2.0);
+    /// assert_eq!(ctx.eval_xyz(if_else, 0.0, f64::NAN, 3.0).unwrap(), 3.0);
+    /// assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, f64::NAN).unwrap(), 2.0);
+    /// ```
+    pub fn if_nonzero_else<Condition: IntoNode, A: IntoNode, B: IntoNode>(
+        &mut self,
+        condition: Condition,
+        a: A,
+        b: B,
+    ) -> Result<Node, Error> {
+        let condition = condition.into_node(self)?;
+        let a = a.into_node(self)?;
+        let b = b.into_node(self)?;
+
+        let lhs = self.and(condition, a)?;
+        let n_condition = self.not(condition)?;
+        let rhs = self.and(n_condition, b)?;
+        self.or(lhs, rhs)
+    }
+
     ////////////////////////////////////////////////////////////////////////////
 
     /// Remaps the X, Y, Z nodes to the given values
@@ -885,6 +918,7 @@ impl Context {
                 "mod" => ctx.modulo(pop()?, pop()?)?,
                 "and" => ctx.and(pop()?, pop()?)?,
                 "or" => ctx.or(pop()?, pop()?)?,
+                "if_nonzero_else" => ctx.if_nonzero_else(pop()?, pop()?, pop()?)?,
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
@@ -1059,6 +1093,22 @@ mod test {
         let a1 = ctx.var("a").unwrap();
         let a2 = ctx.var("a").unwrap();
         assert_eq!(a1, a2);
+    }
+
+    #[test]
+    fn test_if_nonzero_else() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+
+        let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
+
+        assert_eq!(ctx.eval_xyz(if_else, 0.0, 2.0, 3.0).unwrap(), 3.0);
+        assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, 3.0).unwrap(), 2.0);
+        assert_eq!(ctx.eval_xyz(if_else, 0.0, f64::NAN, 3.0).unwrap(), 3.0);
+        assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, f64::NAN).unwrap(), 2.0);
+        assert_eq!(ctx.eval_xyz(if_else, 0.0, 0.0, 3.0).unwrap(), 3.0);
     }
 
     #[test]
