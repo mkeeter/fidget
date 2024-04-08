@@ -55,6 +55,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
+use rhai::{CustomType, TypeBuilder};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -81,6 +82,9 @@ impl Engine {
         engine.register_type_with_name::<Tree>("Tree");
         engine.register_fn("__var_x", var_x);
         engine.register_fn("__var_y", var_y);
+
+        engine.register_type::<Axes>();
+        engine.register_fn("axes", axes);
         engine.register_fn("draw", draw);
         engine.register_fn("draw_rgb", draw_rgb);
 
@@ -220,6 +224,21 @@ fn var_y(_ctx: rhai::NativeCallContext) -> Tree {
     Tree::y()
 }
 
+#[derive(Clone, CustomType)]
+struct Axes {
+    #[rhai_type(readonly)]
+    x: Tree,
+    #[rhai_type(readonly)]
+    y: Tree,
+    #[rhai_type(readonly)]
+    z: Tree,
+}
+
+fn axes(_ctx: rhai::NativeCallContext) -> Axes {
+    let (x, y, z) = Tree::axes();
+    Axes { x, y, z }
+}
+
 fn draw(ctx: rhai::NativeCallContext, tree: Tree) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
@@ -347,6 +366,23 @@ mod test {
         let mut ctx = Context::new();
         let sum = ctx.import(&t);
         assert_eq!(ctx.eval_xyz(sum, 1.0, 2.0, 0.0).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_simple_script() {
+        let mut engine = Engine::new();
+        let out = engine
+            .run(
+                "
+                s = circle(0, 0, 2);
+                draw(move_xy(s, 1, 3));
+                ",
+            )
+            .unwrap();
+        assert_eq!(out.shapes.len(), 1);
+        let mut ctx = Context::new();
+        let sum = ctx.import(&out.shapes[0].tree);
+        assert_eq!(ctx.eval_xyz(sum, 1.0, 3.0, 0.0).unwrap(), -2.0);
     }
 }
 

@@ -1,6 +1,7 @@
 fn circle(cx, cy, r) {
-    sqrt((x - cx) * (x - cx) +
-         (y - cy) * (y - cy)) - r
+    let ax = axes();
+    sqrt((ax.x - cx) * (ax.x - cx) +
+         (ax.y - cy) * (ax.y - cy)) - r
 }
 
 fn sphere(cx, cy, cz, r) {
