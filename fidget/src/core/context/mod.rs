@@ -24,7 +24,7 @@ pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
@@ -1014,6 +1014,67 @@ impl Context {
 
     /// Imports the given tree, deduplicating and returning the root
     pub fn import(&mut self, tree: Tree) -> Node {
+        enum Action {
+            Down(Tree),
+            Up(Tree),
+            Remap,
+            Pop,
+        }
+        struct Axes {
+            x: Node,
+            y: Node,
+            z: Node,
+        }
+        let mut axes = vec![Axes {
+            x: self.x(),
+            y: self.y(),
+            z: self.z(),
+        }];
+        let mut actions = vec![Action::Down(tree.clone())];
+        let mut ret: Option<Node> = None;
+        let mut map: HashMap<*const TreeOp, Node> = HashMap::new();
+        let mut pending_x = None;
+        let mut pending_y = None;
+        while let Some(a) = actions.pop() {
+            match a {
+                Action::Down(t) => {
+                    assert!(ret.is_none());
+                    if map.contains_key(&t.as_ptr()) {
+                        continue;
+                    }
+                    match &*t {
+                        TreeOp::Input(s) => {
+                            let node = match *s {
+                                "X" => axes.last().unwrap().x,
+                                "Y" => axes.last().unwrap().y,
+                                "Z" => axes.last().unwrap().z,
+                                s => panic!("invalid input {s:?}"),
+                            };
+                            map.insert(t.as_ptr(), node);
+                        }
+                        TreeOp::Const(v) => {
+                            let node = self.constant(*v);
+                            map.insert(t.as_ptr(), node);
+                        }
+                        TreeOp::Unary(op, t) => {}
+                    }
+                }
+                Action::Remap => {
+                    let t = ret.take().unwrap();
+                    if pending_x.is_none() {
+                        pending_x = Some(map[&t.as_ptr()]);
+                    } else if pending_y.is_none() {
+                        pending_y = Some(map[&t.as_ptr()]);
+                    } else {
+                        axes.push(Axes {
+                            x: pending_x.take().unwrap(),
+                            y: pending_y.take().unwrap(),
+                            z: map[&t.as_ptr()],
+                        });
+                    }
+                }
+            }
+        }
         todo!()
     }
 }

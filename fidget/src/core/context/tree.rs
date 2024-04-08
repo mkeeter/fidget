@@ -2,7 +2,7 @@
 //!
 //! The [`Tree`] and [`TreeOp`]
 use super::op::{BinaryOpcode, UnaryOpcode};
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 /// Opcode type for trees
 ///
@@ -11,8 +11,7 @@ use std::{borrow::Cow, sync::Arc};
 #[derive(Debug)]
 #[allow(missing_docs)]
 pub enum TreeOp {
-    Input(Cow<'static, str>),
-    Var(Cow<'static, str>),
+    Input(&'static str),
     Const(f64),
     Binary(BinaryOpcode, Tree, Tree),
     Unary(UnaryOpcode, Tree),
@@ -40,6 +39,13 @@ impl From<f32> for Tree {
 #[derive(Clone, Debug)]
 pub struct Tree(Arc<TreeOp>);
 
+impl std::ops::Deref for Tree {
+    type Target = TreeOp;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // XXX `PartialEq` is required for `nalgebra`, so we'll do pointer equality
 impl PartialEq for Tree {
     fn eq(&self, other: &Self) -> bool {
@@ -51,15 +57,15 @@ impl Eq for Tree {}
 impl Tree {
     /// Builds a tree that evaluates the `x` coordinate
     pub fn x() -> Self {
-        Tree(Arc::new(TreeOp::Input(Cow::Borrowed("x"))))
+        Tree(Arc::new(TreeOp::Input("X")))
     }
     /// Builds a tree that evaluates the `y` coordinate
     pub fn y() -> Self {
-        Tree(Arc::new(TreeOp::Input(Cow::Borrowed("y"))))
+        Tree(Arc::new(TreeOp::Input("Y")))
     }
     /// Builds a tree that evaluates the `z` coordinate
     pub fn z() -> Self {
-        Tree(Arc::new(TreeOp::Input(Cow::Borrowed("z"))))
+        Tree(Arc::new(TreeOp::Input("Z")))
     }
     /// Returns an `(x, y, z)` tuple
     pub fn axes() -> (Self, Self, Self) {
@@ -94,6 +100,13 @@ impl Tree {
     /// Takes the maximum of two trees
     pub fn min<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Min)
+    }
+
+    /// Returns a pointer to the inner [`TreeOp`]
+    ///
+    /// This can be used as a strong (but not unique) identity.
+    pub fn as_ptr(&self) -> *const TreeOp {
+        Arc::as_ptr(&self.0)
     }
 }
 
