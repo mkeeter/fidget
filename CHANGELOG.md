@@ -1,6 +1,11 @@
 # 0.2.4 (unreleased)
 - Add helper function `Context::if_nonzero_else` to build conditionals (using
   the logical operators added in version 0.2.3)
+- Add `fidget::context::{Tree, TreeOp}`.  These types allow construction of math
+  trees without a parent `Context` (and therefore without deduplication); the
+  resulting trees can be loaded into a `Context` using `Context::import`.  This
+  replaces the `BoundNode` and `BoundContext` types (previously only available
+  for unit tests).
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
