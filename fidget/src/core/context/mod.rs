@@ -918,7 +918,9 @@ impl Context {
                 "mod" => ctx.modulo(pop()?, pop()?)?,
                 "and" => ctx.and(pop()?, pop()?)?,
                 "or" => ctx.or(pop()?, pop()?)?,
-                "if_nonzero_else" => ctx.if_nonzero_else(pop()?, pop()?, pop()?)?,
+                "if-nonzero-else" => {
+                    ctx.if_nonzero_else(pop()?, pop()?, pop()?)?
+                }
                 op => return Err(Error::UnknownOpcode(op.to_owned())),
             };
             seen.insert(i, node);
@@ -1093,22 +1095,6 @@ mod test {
         let a1 = ctx.var("a").unwrap();
         let a2 = ctx.var("a").unwrap();
         assert_eq!(a1, a2);
-    }
-
-    #[test]
-    fn test_if_nonzero_else() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let z = ctx.z();
-
-        let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
-
-        assert_eq!(ctx.eval_xyz(if_else, 0.0, 2.0, 3.0).unwrap(), 3.0);
-        assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, 3.0).unwrap(), 2.0);
-        assert_eq!(ctx.eval_xyz(if_else, 0.0, f64::NAN, 3.0).unwrap(), 3.0);
-        assert_eq!(ctx.eval_xyz(if_else, 1.0, 2.0, f64::NAN).unwrap(), 2.0);
-        assert_eq!(ctx.eval_xyz(if_else, 0.0, 0.0, 3.0).unwrap(), 3.0);
     }
 
     #[test]

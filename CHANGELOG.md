@@ -1,4 +1,6 @@
 # 0.2.4 (unreleased)
+- Add helper function `Context::if_nonzero_else` to build conditionals (using
+  the logical operators added in version 0.2.3)
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
