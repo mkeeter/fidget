@@ -11,10 +11,15 @@ use std::sync::Arc;
 #[derive(Debug)]
 #[allow(missing_docs)]
 pub enum TreeOp {
+    /// Input (at the moment, limited to "X", "Y", "Z")
     Input(&'static str),
     Const(f64),
     Binary(BinaryOpcode, Tree, Tree),
     Unary(UnaryOpcode, Tree),
+    /// Lazy remapping of trees
+    ///
+    /// When imported into a `Context`, all `x/y/z` clauses within `target` will
+    /// be replaced with the provided `x/y/z` trees.
     RemapAxes {
         target: Tree,
         x: Tree,
