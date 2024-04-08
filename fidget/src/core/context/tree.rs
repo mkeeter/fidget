@@ -108,6 +108,19 @@ impl Tree {
     pub fn as_ptr(&self) -> *const TreeOp {
         Arc::as_ptr(&self.0)
     }
+
+    /// Remaps the axes of the given tree
+    ///
+    /// The remapping is lazy; it is not evaluated until the tree is imported
+    /// into a `Context`.
+    pub fn remap_xyz(&self, x: Tree, y: Tree, z: Tree) -> Tree {
+        Self(Arc::new(TreeOp::RemapAxes {
+            target: self.clone(),
+            x,
+            y,
+            z,
+        }))
+    }
 }
 
 macro_rules! impl_binary {
@@ -160,5 +173,20 @@ mod test {
         let x1 = ctx.import(x1);
         let x2 = ctx.import(x2);
         assert_eq!(x1, x2);
+    }
+
+    #[test]
+    fn test_remap_xyz() {
+        let s = Tree::x() + 1.0;
+
+        let v = s.remap_xyz(Tree::y(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        let one = Tree::constant(3.0);
+        let v = s.remap_xyz(one, Tree::y(), Tree::z());
+        let v_ = ctx.import(v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }
