@@ -55,7 +55,6 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
-use rhai::{CustomType, TypeBuilder};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -79,11 +78,15 @@ impl Engine {
     /// which is effectively our standard library.
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
-        engine.register_type_with_name::<Tree>("Tree");
+        engine.register_type::<Tree>();
         engine.register_fn("__var_x", var_x);
         engine.register_fn("__var_y", var_y);
 
-        engine.register_type::<Axes>();
+        engine
+            .register_type::<Axes>()
+            .register_get("x", |a: &mut Axes| a.x.clone())
+            .register_get("y", |a: &mut Axes| a.y.clone())
+            .register_get("z", |a: &mut Axes| a.z.clone());
         engine.register_fn("axes", axes);
         engine.register_fn("draw", draw);
         engine.register_fn("draw_rgb", draw_rgb);
@@ -224,13 +227,10 @@ fn var_y(_ctx: rhai::NativeCallContext) -> Tree {
     Tree::y()
 }
 
-#[derive(Clone, CustomType)]
+#[derive(Clone)]
 struct Axes {
-    #[rhai_type(readonly)]
     x: Tree,
-    #[rhai_type(readonly)]
     y: Tree,
-    #[rhai_type(readonly)]
     z: Tree,
 }
 
@@ -374,7 +374,7 @@ mod test {
         let out = engine
             .run(
                 "
-                s = circle(0, 0, 2);
+                let s = circle(0, 0, 2);
                 draw(move_xy(s, 1, 3));
                 ",
             )

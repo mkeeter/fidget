@@ -11,7 +11,8 @@ fn sphere(cx, cy, cz, r) {
 }
 
 fn move(shape, dx, dy) {
-    shape.remap_xyz(x - dx, y - dy, z)
+    let ax = axes();
+    shape.remap_xyz(ax.x - dx, ax.y - dy, ax.z)
 }
 
 fn union(a, b) {
@@ -31,9 +32,11 @@ fn difference(a, b) {
 }
 
 fn scale_xy(shape, sx, sy) {
-    a.remap_xyz(x / sx, y / sy)
+    let ax = axes();
+    shape.remap_xyz(ax.x / sx, ax.y / sy, ax.z)
 }
 
 fn move_xy(shape, dx, dy) {
-    a.remap_xyz(x - dx, y - dy)
+    let ax = axes();
+    shape.remap_xyz(ax.x - dx, ax.y - dy, ax.z)
 }
