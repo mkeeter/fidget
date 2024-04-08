@@ -1,40 +1,28 @@
 fn circle(cx, cy, r) {
-    |x, y| {
-        sqrt((x - cx) * (x - cx) +
-             (y - cy) * (y - cy)) - r
-    }
+    sqrt((x - cx) * (x - cx) +
+         (y - cy) * (y - cy)) - r
 }
 
 fn sphere(cx, cy, cz, r) {
-    |x, y, z| {
-        sqrt((x - cx) * (x - cx) +
-             (y - cy) * (y - cy) +
-             (z - cz) * (z - cz)) - r
-    }
+    sqrt((x - cx) * (x - cx) +
+         (y - cy) * (y - cy) +
+         (z - cz) * (z - cz)) - r
 }
 
 fn move(shape, dx, dy) {
-    |x, y| {
-        shape.call(x - dx, y - dy)
-    }
+    shape.remap_xyz(x - dx, y - dy, z)
 }
 
 fn union(a, b) {
-    |x, y| {
-        min(a.call(x, y), b.call(x, y))
-    }
+    a.min(b)
 }
 
 fn intersection(a, b) {
-    |x, y| {
-        max(a.call(x, y), b.call(x, y))
-    }
+    a.max(b)
 }
 
 fn inverse(a) {
-    |x, y| {
-        -a.call(x, y)
-    }
+    a.neg()
 }
 
 fn difference(a, b) {
@@ -42,13 +30,9 @@ fn difference(a, b) {
 }
 
 fn scale_xy(shape, sx, sy) {
-    |x, y| {
-        shape.call(x / sx, y / sy)
-    }
+    a.remap_xyz(x / sx, y / sy)
 }
 
 fn move_xy(shape, dx, dy) {
-    |x, y| {
-        shape.call(x - dx, y - dy)
-    }
+    a.remap_xyz(x - dx, y - dy)
 }
