@@ -24,7 +24,7 @@ pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
@@ -1014,68 +1014,43 @@ impl Context {
 
     /// Imports the given tree, deduplicating and returning the root
     pub fn import(&mut self, tree: Tree) -> Node {
-        enum Action {
-            Down(Tree),
-            Up(Tree),
-            Remap,
-            Pop,
-        }
-        struct Axes {
-            x: Node,
-            y: Node,
-            z: Node,
-        }
-        let mut axes = vec![Axes {
-            x: self.x(),
-            y: self.y(),
-            z: self.z(),
-        }];
-        let mut actions = vec![Action::Down(tree.clone())];
-        let mut ret: Option<Node> = None;
-        let mut map: HashMap<*const TreeOp, Node> = HashMap::new();
-        let mut pending_x = None;
-        let mut pending_y = None;
-        while let Some(a) = actions.pop() {
-            match a {
-                Action::Down(t) => {
-                    assert!(ret.is_none());
-                    if map.contains_key(&t.as_ptr()) {
-                        continue;
-                    }
-                    match &*t {
-                        TreeOp::Input(s) => {
-                            let node = match *s {
-                                "X" => axes.last().unwrap().x,
-                                "Y" => axes.last().unwrap().y,
-                                "Z" => axes.last().unwrap().z,
-                                s => panic!("invalid input {s:?}"),
-                            };
-                            map.insert(t.as_ptr(), node);
-                        }
-                        TreeOp::Const(v) => {
-                            let node = self.constant(*v);
-                            map.insert(t.as_ptr(), node);
-                        }
-                        TreeOp::Unary(op, t) => {}
-                    }
-                }
-                Action::Remap => {
-                    let t = ret.take().unwrap();
-                    if pending_x.is_none() {
-                        pending_x = Some(map[&t.as_ptr()]);
-                    } else if pending_y.is_none() {
-                        pending_y = Some(map[&t.as_ptr()]);
-                    } else {
-                        axes.push(Axes {
-                            x: pending_x.take().unwrap(),
-                            y: pending_y.take().unwrap(),
-                            z: map[&t.as_ptr()],
-                        });
-                    }
-                }
+        // TODO make this non-recursive to avoid blowing up the stack
+        let x = self.x();
+        let y = self.y();
+        let z = self.z();
+        self.import_inner(tree, x, y, z)
+    }
+
+    fn import_inner(&mut self, tree: Tree, x: Node, y: Node, z: Node) -> Node {
+        match &*tree {
+            TreeOp::Input(s) => match *s {
+                "X" => x,
+                "Y" => y,
+                "Z" => z,
+                s => panic!("invalid tree input string {s:?}"),
+            },
+            TreeOp::Const(c) => self.constant(*c),
+            TreeOp::Unary(op, t) => {
+                let t = self.import_inner(t.clone(), x, y, z);
+                self.op_unary(t, *op).unwrap()
+            }
+            TreeOp::Binary(op, a, b) => {
+                let a = self.import_inner(a.clone(), x, y, z);
+                let b = self.import_inner(b.clone(), x, y, z);
+                self.op_binary(a, b, *op).unwrap()
+            }
+            TreeOp::RemapAxes {
+                target,
+                x: tx,
+                y: ty,
+                z: tz,
+            } => {
+                let x_ = self.import_inner(tx.clone(), x, y, z);
+                let y_ = self.import_inner(ty.clone(), x, y, z);
+                let z_ = self.import_inner(tz.clone(), x, y, z);
+                self.import_inner(target.clone(), x_, y_, z_)
             }
         }
-        todo!()
     }
 }
 
