@@ -7,6 +7,10 @@
   replaces the `BoundNode` and `BoundContext` types (previously only available
   for unit tests).
 - Remove `Context::remap_xyz` in favor of lazy remapping with `Tree::remap_xyz`.
+- Use `Tree` in Rhai scripts, removing the per-script `Context`.  This is an API
+  change: previously, shapes in Rhai were thunks evaluated during calls to
+  `draw(..)`; now, shapes in Rhai are `Tree` objects, and there's much less
+  function wrangling required.
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images

@@ -36,9 +36,15 @@ use std::collections::HashMap;
 ///
 /// We can peek at the internals and see this register-allocated tape:
 /// ```
-/// use fidget::{compiler::RegOp, eval::MathShape, vm::{VmShape, VmData}};
+/// use fidget::{
+///     compiler::RegOp,
+///     context::{Context, Tree},
+///     vm::VmData,
+/// };
 ///
-/// let (sum, ctx) = fidget::rhai::eval("x + y")?;
+/// let tree = Tree::x() + Tree::y();
+/// let mut ctx = Context::new();
+/// let sum = ctx.import(&tree);
 /// let data = VmData::<255>::new(&ctx, sum)?;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///
@@ -49,6 +55,9 @@ use std::collections::HashMap;
 /// # Ok::<(), fidget::Error>(())
 /// ```
 ///
+/// Despite this peek at its internals, users are unlikely to touch `VmData`
+/// directly; a [`VmShape`](crate::vm::VmShape) wraps the `VmData` and
+/// implements our common traits.
 #[derive(Default)]
 pub struct VmData<const N: usize = { u8::MAX as usize }> {
     ssa: SsaTape,

@@ -119,7 +119,7 @@ where
             };
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape = S::new(&out.context, s.shape).unwrap();
+                let tape = S::from_tree(&s.tree);
                 render(
                     &render_config.mode,
                     tape,

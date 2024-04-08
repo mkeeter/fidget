@@ -24,8 +24,8 @@
 //!     vm::VmShape
 //! };
 //!
-//! let (node, ctx) = fidget::rhai::eval("sphere(0, 0, 0, 0.6).call(x, y, z)")?;
-//! let shape = VmShape::new(&ctx, node)?;
+//! let tree = fidget::rhai::eval("sphere(0, 0, 0, 0.6)")?;
+//! let shape = VmShape::from_tree(&tree);
 //! let settings = Settings {
 //!     threads: 8,
 //!     min_depth: 4,

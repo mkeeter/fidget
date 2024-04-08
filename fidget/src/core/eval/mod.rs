@@ -264,7 +264,7 @@ pub trait MathShape {
         Self: Sized;
 
     /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
-    fn from_tree(t: crate::context::Tree) -> Self
+    fn from_tree(t: &crate::context::Tree) -> Self
     where
         Self: Sized,
     {

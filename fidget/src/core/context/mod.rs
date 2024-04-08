@@ -954,7 +954,7 @@ impl Context {
     }
 
     /// Imports the given tree, deduplicating and returning the root
-    pub fn import(&mut self, tree: Tree) -> Node {
+    pub fn import(&mut self, tree: &Tree) -> Node {
         // TODO make this non-recursive to avoid blowing up the stack
         let x = self.x();
         let y = self.y();
@@ -962,8 +962,8 @@ impl Context {
         self.import_inner(tree, x, y, z)
     }
 
-    fn import_inner(&mut self, tree: Tree, x: Node, y: Node, z: Node) -> Node {
-        match &*tree {
+    fn import_inner(&mut self, tree: &Tree, x: Node, y: Node, z: Node) -> Node {
+        match &**tree {
             TreeOp::Input(s) => match *s {
                 "X" => x,
                 "Y" => y,
@@ -972,12 +972,12 @@ impl Context {
             },
             TreeOp::Const(c) => self.constant(*c),
             TreeOp::Unary(op, t) => {
-                let t = self.import_inner(t.clone(), x, y, z);
+                let t = self.import_inner(t, x, y, z);
                 self.op_unary(t, *op).unwrap()
             }
             TreeOp::Binary(op, a, b) => {
-                let a = self.import_inner(a.clone(), x, y, z);
-                let b = self.import_inner(b.clone(), x, y, z);
+                let a = self.import_inner(a, x, y, z);
+                let b = self.import_inner(b, x, y, z);
                 self.op_binary(a, b, *op).unwrap()
             }
             TreeOp::RemapAxes {
@@ -986,10 +986,10 @@ impl Context {
                 y: ty,
                 z: tz,
             } => {
-                let x_ = self.import_inner(tx.clone(), x, y, z);
-                let y_ = self.import_inner(ty.clone(), x, y, z);
-                let z_ = self.import_inner(tz.clone(), x, y, z);
-                self.import_inner(target.clone(), x_, y_, z_)
+                let x_ = self.import_inner(tx, x, y, z);
+                let y_ = self.import_inner(ty, x, y, z);
+                let z_ = self.import_inner(tz, x, y, z);
+                self.import_inner(target, x_, y_, z_)
             }
         }
     }

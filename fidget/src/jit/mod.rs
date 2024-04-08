@@ -5,12 +5,13 @@
 //!
 //! ```
 //! use fidget::{
+//!     context::Tree,
 //!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
 //!     jit::JitShape
 //! };
 //!
-//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
-//! let shape = JitShape::new(&ctx, sum)?;
+//! let tree = Tree::x() + Tree::y();
+//! let shape = JitShape::from_tree(&tree);
 //!
 //! // Generate machine code to execute the tape
 //! let tape = shape.ez_point_tape();
