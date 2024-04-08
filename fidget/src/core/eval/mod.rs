@@ -262,6 +262,16 @@ pub trait MathShape {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
+    fn from_tree(t: crate::context::Tree) -> Self
+    where
+        Self: Sized,
+    {
+        let mut ctx = Context::new();
+        let node = ctx.import(t);
+        Self::new(&ctx, node).unwrap()
+    }
 }
 
 /// A tape represents something that can be evaluated by an evaluator

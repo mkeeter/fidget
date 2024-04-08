@@ -1,16 +1,30 @@
-//! Infrastructure for representing math expressions as graphs
+//! Infrastructure for representing math expressions as trees and graphs
+//!
+//! There are two families of representations in this module:
+//!
+//! - A [`Tree`] is a free-floating math expression, which can be cloned
+//!   and has overloaded operators for ease of use.  It is **not** deduplicated;
+//!   two calls to [`Tree::x`] will produce two different [`TreeOp`] objects.
+//!   `Tree` objects are typically used when building up expressions; they
+//!   should be converted to `Node` objects (in a particular `Context`) after
+//!   they have been constructed.
+//! - A [`Context`] is an arena for unique (deduplicated) math expressions,
+//!   which are represented as [`Node`] handles.  Each `Node` is specific to a
+//!   particular context.  Only `Node` objects can be converted into `Shape`
+//!   objects for evaluation.
+//!
+//! In other words, the typical workflow is `Tree → (Context, Node) → Shape`.
 mod indexed;
 mod op;
-
-#[cfg(test)]
-pub(crate) mod bound;
+mod tree;
 
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
+pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
@@ -671,65 +685,6 @@ impl Context {
     }
 
     ////////////////////////////////////////////////////////////////////////////
-
-    /// Remaps the X, Y, Z nodes to the given values
-    pub fn remap_xyz(
-        &mut self,
-        root: Node,
-        xyz: [Node; 3],
-    ) -> Result<Node, Error> {
-        self.check_node(root)?;
-        xyz.iter().try_for_each(|x| self.check_node(*x))?;
-
-        let mut done = [self.x(), self.y(), self.z()]
-            .into_iter()
-            .zip(xyz)
-            .collect::<BTreeMap<_, _>>();
-
-        // Depth-first recursion on the heap, to protect against stack overflows
-        enum Action {
-            Down,
-            Up,
-        }
-
-        let mut todo = vec![(Action::Down, root)];
-        let mut seen = BTreeSet::new();
-        while let Some((action, node)) = todo.pop() {
-            match action {
-                Action::Down => {
-                    if !seen.insert(node) {
-                        continue;
-                    }
-                    todo.push((Action::Up, node));
-                    todo.extend(
-                        self.get_op(node)
-                            .unwrap()
-                            .iter_children()
-                            .map(|c| (Action::Down, c)),
-                    );
-                }
-                Action::Up => {
-                    let r = match self.get_op(node).unwrap() {
-                        Op::Binary(op, lhs, rhs) => {
-                            let a = done.get(lhs).unwrap();
-                            let b = done.get(rhs).unwrap();
-                            self.op_binary(*a, *b, *op).unwrap()
-                        }
-                        Op::Unary(op, arg) => {
-                            let a = done.get(arg).unwrap();
-                            self.op_unary(*a, *op).unwrap()
-                        }
-                        Op::Var(..) | Op::Const(..) => node,
-                        Op::Input(..) => *done.get(&node).unwrap_or(&node),
-                    };
-                    done.insert(node, r);
-                }
-            }
-        }
-        Ok(*done.get(&root).unwrap())
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
     /// This is extremely inefficient; consider converting the node into a
@@ -997,6 +952,47 @@ impl Context {
     pub fn get_op(&self, node: Node) -> Option<&Op> {
         self.ops.get_by_index(node)
     }
+
+    /// Imports the given tree, deduplicating and returning the root
+    pub fn import(&mut self, tree: Tree) -> Node {
+        // TODO make this non-recursive to avoid blowing up the stack
+        let x = self.x();
+        let y = self.y();
+        let z = self.z();
+        self.import_inner(tree, x, y, z)
+    }
+
+    fn import_inner(&mut self, tree: Tree, x: Node, y: Node, z: Node) -> Node {
+        match &*tree {
+            TreeOp::Input(s) => match *s {
+                "X" => x,
+                "Y" => y,
+                "Z" => z,
+                s => panic!("invalid tree input string {s:?}"),
+            },
+            TreeOp::Const(c) => self.constant(*c),
+            TreeOp::Unary(op, t) => {
+                let t = self.import_inner(t.clone(), x, y, z);
+                self.op_unary(t, *op).unwrap()
+            }
+            TreeOp::Binary(op, a, b) => {
+                let a = self.import_inner(a.clone(), x, y, z);
+                let b = self.import_inner(b.clone(), x, y, z);
+                self.op_binary(a, b, *op).unwrap()
+            }
+            TreeOp::RemapAxes {
+                target,
+                x: tx,
+                y: ty,
+                z: tz,
+            } => {
+                let x_ = self.import_inner(tx.clone(), x, y, z);
+                let y_ = self.import_inner(ty.clone(), x, y, z);
+                let z_ = self.import_inner(tz.clone(), x, y, z);
+                self.import_inner(target.clone(), x_, y_, z_)
+            }
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1092,22 +1088,5 @@ mod test {
         let a1 = ctx.var("a").unwrap();
         let a2 = ctx.var("a").unwrap();
         assert_eq!(a1, a2);
-    }
-
-    #[test]
-    fn test_remap_xyz() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let z = ctx.z();
-
-        let s = ctx.add(x, 1.0).unwrap();
-
-        let v = ctx.remap_xyz(s, [y, y, z]).unwrap();
-        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 2.0);
-
-        let one = ctx.constant(3.0);
-        let v = ctx.remap_xyz(s, [one, y, z]).unwrap();
-        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }
