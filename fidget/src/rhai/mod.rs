@@ -44,17 +44,14 @@
 //! [`ScriptContext::shapes`], which is returned after script evaluation is
 //! complete.
 //!
-//! Both `draw` and `draw_rgb` expect to take a two-argument lambda function
-//! `|x, y| { ... }`.  They trace evaluation of that function by calling it with
-//! X and Y objects which build a math tree in a [`fidget::Context`](Context).
-//! This means that the lambda function must be a **pure function** that only
-//! uses [Fidget-friendly math operations](crate::context::Op).
-//!
 //! Scripts are evaluated in a Rhai context that includes [`core.rhai`](core),
-//! which defines a few simple shapes and transforms.
+//! which defines a few simple shapes and transforms.  `x`, `y`, and `z` are
+//! defined in the root scope, and `axes()` returns an object with `x`/`y`/`z`
+//! members.
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
+use rhai::{CustomType, TypeBuilder};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -78,15 +75,11 @@ impl Engine {
     /// which is effectively our standard library.
     pub fn new() -> Self {
         let mut engine = rhai::Engine::new();
-        engine.register_type::<Tree>();
-        engine.register_fn("__var_x", var_x);
-        engine.register_fn("__var_y", var_y);
-
         engine
-            .register_type::<Axes>()
-            .register_get("x", |a: &mut Axes| a.x.clone())
-            .register_get("y", |a: &mut Axes| a.y.clone())
-            .register_get("z", |a: &mut Axes| a.z.clone());
+            .register_type::<Tree>()
+            .register_fn("remap_xyz", remap_xyz);
+
+        engine.build_type::<Axes>();
         engine.register_fn("axes", axes);
         engine.register_fn("draw", draw);
         engine.register_fn("draw_rgb", draw_rgb);
@@ -193,8 +186,8 @@ pub struct DrawShape {
 
 /// Context for shape evaluation
 ///
-/// This object includes a [`Context`] and a set of shapes (written with `draw`
-/// or `draw_rgb`).
+/// This object stores a set of shapes, which is populated by calls to `draw` or
+/// `draw_rgb` during script evaluation.
 pub struct ScriptContext {
     /// List of shapes populated since the last call to [`clear`](Self::clear)
     pub shapes: Vec<DrawShape>,
@@ -220,23 +213,23 @@ impl ScriptContext {
 ////////////////////////////////////////////////////////////////////////////////
 // Functions injected into the Rhai context
 
-fn var_x(_ctx: rhai::NativeCallContext) -> Tree {
-    Tree::x()
-}
-fn var_y(_ctx: rhai::NativeCallContext) -> Tree {
-    Tree::y()
-}
-
-#[derive(Clone)]
+#[derive(Clone, CustomType)]
 struct Axes {
+    #[rhai_type(readonly)]
     x: Tree,
+    #[rhai_type(readonly)]
     y: Tree,
+    #[rhai_type(readonly)]
     z: Tree,
 }
 
 fn axes(_ctx: rhai::NativeCallContext) -> Axes {
     let (x, y, z) = Tree::axes();
     Axes { x, y, z }
+}
+
+fn remap_xyz(shape: Tree, x: Tree, y: Tree, z: Tree) -> Tree {
+    shape.remap_xyz(x, y, z)
 }
 
 fn draw(ctx: rhai::NativeCallContext, tree: Tree) {

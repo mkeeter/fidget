@@ -60,6 +60,33 @@ impl PartialEq for Tree {
 }
 impl Eq for Tree {}
 
+impl Tree {
+    /// Returns an `(x, y, z)` tuple
+    pub fn axes() -> (Self, Self, Self) {
+        (Self::x(), Self::y(), Self::z())
+    }
+
+    /// Returns a pointer to the inner [`TreeOp`]
+    ///
+    /// This can be used as a strong (but not unique) identity.
+    pub fn as_ptr(&self) -> *const TreeOp {
+        Arc::as_ptr(&self.0)
+    }
+
+    /// Remaps the axes of the given tree
+    ///
+    /// The remapping is lazy; it is not evaluated until the tree is imported
+    /// into a `Context`.
+    pub fn remap_xyz(&self, x: Tree, y: Tree, z: Tree) -> Tree {
+        Self(Arc::new(TreeOp::RemapAxes {
+            target: self.clone(),
+            x,
+            y,
+            z,
+        }))
+    }
+}
+
 /// See [`Context`](crate::Context) for documentation of these functions
 #[allow(missing_docs)]
 impl Tree {
@@ -71,10 +98,6 @@ impl Tree {
     }
     pub fn z() -> Self {
         Tree(Arc::new(TreeOp::Input("Z")))
-    }
-    /// Returns an `(x, y, z)` tuple
-    pub fn axes() -> (Self, Self, Self) {
-        (Self::x(), Self::y(), Self::z())
     }
     pub fn constant(f: f64) -> Self {
         Tree(Arc::new(TreeOp::Const(f)))
@@ -123,26 +146,6 @@ impl Tree {
     }
     pub fn ln(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Ln)
-    }
-
-    /// Returns a pointer to the inner [`TreeOp`]
-    ///
-    /// This can be used as a strong (but not unique) identity.
-    pub fn as_ptr(&self) -> *const TreeOp {
-        Arc::as_ptr(&self.0)
-    }
-
-    /// Remaps the axes of the given tree
-    ///
-    /// The remapping is lazy; it is not evaluated until the tree is imported
-    /// into a `Context`.
-    pub fn remap_xyz(&self, x: Tree, y: Tree, z: Tree) -> Tree {
-        Self(Arc::new(TreeOp::RemapAxes {
-            target: self.clone(),
-            x,
-            y,
-            z,
-        }))
     }
 }
 
