@@ -641,6 +641,57 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
     }
 
+    pub fn test_i_simplify_conditional() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+
+        let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
+        let shape = S::new(&ctx, if_else).unwrap();
+
+        let tape = shape.ez_interval_tape();
+        let mut eval = S::new_interval_eval();
+        let (out, data) = eval
+            .eval(&tape, [-1.0, 2.0], [1.0, 2.0], [3.0, 4.0], &[])
+            .unwrap();
+
+        // Alas, we lose the information that the conditional is correlated, so
+        // the interval naively must include 0
+        assert_eq!(out, [0.0, 4.0].into());
+        assert!(data.is_none());
+
+        // Confirm that simplification of the right side works
+        let (out, data) = eval
+            .eval(&tape, [0.0, 0.0], [1.0, 2.0], [3.0, 4.0], &[])
+            .unwrap();
+        assert_eq!(out, [3.0, 4.0].into());
+        let s_z = shape.ez_simplify(data.expect("must have trace")).unwrap();
+        let t_z = s_z.ez_interval_tape();
+        let (out, data) = eval
+            .eval(&t_z, [-1.0, 1.0], [1.0, 2.0], [5.0, 6.0], &[])
+            .unwrap();
+        assert!(s_z.size() < shape.size());
+        assert_eq!(out, [5.0, 6.0].into());
+        assert!(data.is_none());
+
+        let (out, data) = eval
+            .eval(&tape, [1.0, 3.0], [1.0, 2.0], [3.0, 4.0], &[])
+            .unwrap();
+        assert_eq!(out, [1.0, 2.0].into());
+        assert!(data.is_some());
+        let s_y = shape.ez_simplify(data.expect("must have trace")).unwrap();
+        let t_y = s_y.ez_interval_tape();
+        let (out, data) = eval
+            .eval(&t_y, [-1.0, 1.0], [1.0, 4.0], [5.0, 6.0], &[])
+            .unwrap();
+        assert!(s_y.size() < shape.size());
+        assert_eq!(out, [1.0, 4.0].into());
+        assert!(data.is_none());
+
+        assert_eq!(s_y.size(), s_z.size())
+    }
+
     pub fn test_i_max_imm() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -1064,6 +1115,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_or, $t);
         $crate::interval_test!(test_i_compare, $t);
         $crate::interval_test!(test_i_simplify, $t);
+        $crate::interval_test!(test_i_simplify_conditional, $t);
         $crate::interval_test!(test_i_var, $t);
         $crate::interval_test!(test_i_stress, $t);
 
