@@ -24,7 +24,7 @@ pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
 
@@ -685,65 +685,6 @@ impl Context {
     }
 
     ////////////////////////////////////////////////////////////////////////////
-
-    /// Remaps the X, Y, Z nodes to the given values
-    pub fn remap_xyz(
-        &mut self,
-        root: Node,
-        xyz: [Node; 3],
-    ) -> Result<Node, Error> {
-        self.check_node(root)?;
-        xyz.iter().try_for_each(|x| self.check_node(*x))?;
-
-        let mut done = [self.x(), self.y(), self.z()]
-            .into_iter()
-            .zip(xyz)
-            .collect::<BTreeMap<_, _>>();
-
-        // Depth-first recursion on the heap, to protect against stack overflows
-        enum Action {
-            Down,
-            Up,
-        }
-
-        let mut todo = vec![(Action::Down, root)];
-        let mut seen = BTreeSet::new();
-        while let Some((action, node)) = todo.pop() {
-            match action {
-                Action::Down => {
-                    if !seen.insert(node) {
-                        continue;
-                    }
-                    todo.push((Action::Up, node));
-                    todo.extend(
-                        self.get_op(node)
-                            .unwrap()
-                            .iter_children()
-                            .map(|c| (Action::Down, c)),
-                    );
-                }
-                Action::Up => {
-                    let r = match self.get_op(node).unwrap() {
-                        Op::Binary(op, lhs, rhs) => {
-                            let a = done.get(lhs).unwrap();
-                            let b = done.get(rhs).unwrap();
-                            self.op_binary(*a, *b, *op).unwrap()
-                        }
-                        Op::Unary(op, arg) => {
-                            let a = done.get(arg).unwrap();
-                            self.op_unary(*a, *op).unwrap()
-                        }
-                        Op::Var(..) | Op::Const(..) => node,
-                        Op::Input(..) => *done.get(&node).unwrap_or(&node),
-                    };
-                    done.insert(node, r);
-                }
-            }
-        }
-        Ok(*done.get(&root).unwrap())
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
     /// Evaluates the given node with the provided values for X, Y, and Z.
     ///
     /// This is extremely inefficient; consider converting the node into a
@@ -1147,22 +1088,5 @@ mod test {
         let a1 = ctx.var("a").unwrap();
         let a2 = ctx.var("a").unwrap();
         assert_eq!(a1, a2);
-    }
-
-    #[test]
-    fn test_remap_xyz() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let z = ctx.z();
-
-        let s = ctx.add(x, 1.0).unwrap();
-
-        let v = ctx.remap_xyz(s, [y, y, z]).unwrap();
-        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 2.0);
-
-        let one = ctx.constant(3.0);
-        let v = ctx.remap_xyz(s, [one, y, z]).unwrap();
-        assert_eq!(ctx.eval_xyz(v, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }

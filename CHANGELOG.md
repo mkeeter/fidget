@@ -6,6 +6,7 @@
   resulting trees can be loaded into a `Context` using `Context::import`.  This
   replaces the `BoundNode` and `BoundContext` types (previously only available
   for unit tests).
+- Remove `Context::remap_xyz` in favor of lazy remapping with `Tree::remap_xyz`.
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
