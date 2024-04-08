@@ -5,9 +5,10 @@ fn circle(cx, cy, r) {
 }
 
 fn sphere(cx, cy, cz, r) {
-    sqrt((x - cx) * (x - cx) +
-         (y - cy) * (y - cy) +
-         (z - cz) * (z - cz)) - r
+    let ax = axes();
+    sqrt((ax.x - cx) * (ax.x - cx) +
+         (ax.y - cy) * (ax.y - cy) +
+         (ax.z - cz) * (ax.z - cz)) - r
 }
 
 fn move(shape, dx, dy) {

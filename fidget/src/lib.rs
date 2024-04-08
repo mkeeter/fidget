@@ -37,13 +37,28 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
-//! As an alternative, Fidget includes bindings to [Rhai](https://rhai.rs), a
-//! simple Rust-native scripting language, in the [`fidget::rhai`
-//! namespace](crate::rhai).  These bindings offer a terser way to construct
-//! a shape from a script:
+//! This is efficient, but is awkward to write.  It's also possible to construct
+//! shapes without a [`Context`] using the [`Tree`](crate::context::Tree) type,
+//! then import the tree into a context:
+//! ```
+//! use fidget::context::{Context, Tree};
+//!
+//! let t = Tree::x() + Tree::y();
+//! let mut ctx = Context::new();
+//! let sum = ctx.import(&t);
+//! ```
+//!
+//! As a third alternative, Fidget includes bindings to [Rhai](https://rhai.rs),
+//! a simple Rust-native scripting language, in the [`fidget::rhai`
+//! namespace](crate::rhai).  These bindings allow shapes to be constructed from
+//! a script, adding flexibility:
 //!
 //! ```
-//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
+//! # use fidget::context::Context;
+//!
+//! let t = fidget::rhai::eval("x + y")?;
+//! let mut ctx = Context::new();
+//! let sum = ctx.import(&t);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -92,12 +107,13 @@
 //! Here's a simple example of interval evaluation:
 //! ```
 //! use fidget::{
+//!     context::Tree,
 //!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
 //!     vm::VmShape
 //! };
 //!
-//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
-//! let shape = VmShape::new(&ctx, sum)?;
+//! let tree = Tree::x() + Tree::y();
+//! let shape = VmShape::from_tree(&tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, _trace) = interval_eval.eval(
@@ -121,12 +137,13 @@
 //! `y = [2, 3]`:
 //! ```
 //! use fidget::{
+//!     context::Tree,
 //!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
 //!     vm::VmShape
 //! };
 //!
-//! let (sum, ctx) = fidget::rhai::eval("min(x, y)")?;
-//! let shape = VmShape::new(&ctx, sum)?;
+//! let tree = Tree::x().min(Tree::y());
+//! let shape = VmShape::from_tree(&tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, trace) = interval_eval.eval(
@@ -150,11 +167,12 @@
 //!
 //! ```
 //! # use fidget::{
+//!     context::Tree,
 //!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
 //!     vm::VmShape
 //! };
-//! # let (sum, ctx) = fidget::rhai::eval("min(x, y)")?;
-//! # let shape = VmShape::new(&ctx, sum)?;
+//! # let tree = Tree::x().min(Tree::y());
+//! # let shape = VmShape::from_tree(&tree);
 //! # let mut interval_eval = VmShape::new_interval_eval();
 //! # let tape = shape.ez_interval_tape();
 //! # let (out, trace) = interval_eval.eval(
@@ -182,18 +200,20 @@
 //! Here's a quick example:
 //! ```
 //! use fidget::{
-//!     context::Context,
+//!     context::{Tree, Context},
 //!     eval::MathShape,
 //!     render::{BitRenderMode, RenderConfig},
 //!     vm::VmShape,
 //! };
 //!
-//! let (shape, ctx) = fidget::rhai::eval("sqrt(x*x + y*y) - 1")?;
+//! let x = Tree::x();
+//! let y = Tree::y();
+//! let tree = (x.square() + y.square()).sqrt() - 1.0;
 //! let cfg = RenderConfig::<2> {
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let shape = VmShape::new(&ctx, shape)?;
+//! let shape = VmShape::from_tree(&tree);
 //! let out = cfg.run(shape, &BitRenderMode)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
