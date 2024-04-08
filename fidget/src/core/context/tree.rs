@@ -1,6 +1,4 @@
 //! Context-free math trees
-//!
-//! The [`Tree`] and [`TreeOp`]
 use super::op::{BinaryOpcode, UnaryOpcode};
 use std::sync::Arc;
 
