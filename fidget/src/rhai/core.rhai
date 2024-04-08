@@ -1,11 +1,3 @@
-fn draw(shape) {
-    __draw(shape.call(__var_x(), __var_y()))
-}
-
-fn draw_rgb(shape, r, g, b) {
-    __draw_rgb(shape.call(__var_x(), __var_y()), r, g, b)
-}
-
 fn circle(cx, cy, r) {
     |x, y| {
         sqrt((x - cx) * (x - cx) +

@@ -60,16 +60,15 @@ impl PartialEq for Tree {
 }
 impl Eq for Tree {}
 
+/// See [`Context`](crate::Context) for documentation of these functions
+#[allow(missing_docs)]
 impl Tree {
-    /// Builds a tree that evaluates the `x` coordinate
     pub fn x() -> Self {
         Tree(Arc::new(TreeOp::Input("X")))
     }
-    /// Builds a tree that evaluates the `y` coordinate
     pub fn y() -> Self {
         Tree(Arc::new(TreeOp::Input("Y")))
     }
-    /// Builds a tree that evaluates the `z` coordinate
     pub fn z() -> Self {
         Tree(Arc::new(TreeOp::Input("Z")))
     }
@@ -77,7 +76,6 @@ impl Tree {
     pub fn axes() -> (Self, Self, Self) {
         (Self::x(), Self::y(), Self::z())
     }
-    /// Builds a tree from the given constant
     pub fn constant(f: f64) -> Self {
         Tree(Arc::new(TreeOp::Const(f)))
     }
@@ -87,25 +85,44 @@ impl Tree {
     fn op_binary(a: Tree, b: Tree, op: BinaryOpcode) -> Self {
         Tree(Arc::new(TreeOp::Binary(op, a, b)))
     }
-
-    /// Returns the square of this tree
     pub fn square(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Square)
     }
-
-    /// Returns the square of this tree
     pub fn sqrt(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Sqrt)
     }
-
-    /// Takes the maximum of two trees
     pub fn max<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Max)
     }
-
-    /// Takes the maximum of two trees
     pub fn min<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Min)
+    }
+    pub fn neg(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Neg)
+    }
+    pub fn sin(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Sin)
+    }
+    pub fn cos(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Cos)
+    }
+    pub fn tan(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Tan)
+    }
+    pub fn asin(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Asin)
+    }
+    pub fn acos(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Acos)
+    }
+    pub fn atan(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Atan)
+    }
+    pub fn exp(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Exp)
+    }
+    pub fn ln(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Ln)
     }
 
     /// Returns a pointer to the inner [`TreeOp`]
@@ -176,8 +193,8 @@ mod test {
         assert_ne!(x1, x2);
 
         let mut ctx = Context::new();
-        let x1 = ctx.import(x1);
-        let x2 = ctx.import(x2);
+        let x1 = ctx.import(&x1);
+        let x2 = ctx.import(&x2);
         assert_eq!(x1, x2);
     }
 
@@ -187,12 +204,12 @@ mod test {
 
         let v = s.remap_xyz(Tree::y(), Tree::y(), Tree::z());
         let mut ctx = Context::new();
-        let v_ = ctx.import(v);
+        let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
 
         let one = Tree::constant(3.0);
         let v = s.remap_xyz(one, Tree::y(), Tree::z());
-        let v_ = ctx.import(v);
+        let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 4.0);
     }
 }

@@ -9,8 +9,8 @@
 //!     jit::JitShape
 //! };
 //!
-//! let (sum, ctx) = fidget::rhai::eval("x + y")?;
-//! let shape = JitShape::new(&ctx, sum)?;
+//! let tree = fidget::rhai::eval("x + y")?;
+//! let shape = JitShape::from_tree(tree)?;
 //!
 //! // Generate machine code to execute the tape
 //! let tape = shape.ez_point_tape();
