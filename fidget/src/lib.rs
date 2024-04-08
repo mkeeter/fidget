@@ -159,7 +159,7 @@
 //!
 //! In the evaluation region `x = [0, 1]; y = [2, 3]`, `x` is **strictly less
 //! than** `y` in the `min(x, y)` clause.  This means that we can simplify the
-//! tape from `f(x, y, z) = min(x, y) → f(x, y, z) = x`.
+//! tape from `min(x, y) →  x`.
 //!
 //! Interval evaluation is a kind of
 //! [tracing evaluation](crate::eval::TracingEvaluator), which returns a tuple
@@ -167,10 +167,10 @@
 //!
 //! ```
 //! # use fidget::{
-//!     context::Tree,
-//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
-//!     vm::VmShape
-//! };
+//! #     context::Tree,
+//! #     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//! #     vm::VmShape
+//! # };
 //! # let tree = Tree::x().min(Tree::y());
 //! # let shape = VmShape::from_tree(&tree);
 //! # let mut interval_eval = VmShape::new_interval_eval();
