@@ -11,6 +11,10 @@
   change: previously, shapes in Rhai were thunks evaluated during calls to
   `draw(..)`; now, shapes in Rhai are `Tree` objects, and there's much less
   function wrangling required.
+- Remove the distinction between variables and inputs (by removing all
+  `Var`-related functions and opcodes).  This was over-engineered; the plan
+  going forward will be to support functions with _N_ inputs (currently fixed to
+  3, `x`/`y`/`z`).
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
