@@ -5,10 +5,7 @@ use crate::{
     Context, Error,
 };
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
 /// Instruction tape, storing [opcodes in SSA form](crate::compiler::SsaOp)
 ///
@@ -27,13 +24,6 @@ pub struct SsaTape {
 
     /// Number of choice operations in the tape
     pub choice_count: usize,
-
-    /// Mapping from variable names (in the original [`Context`]) to indexes in
-    /// the variable array used during evaluation.
-    ///
-    /// This is an `Arc` so it can be trivially shared by all of the tape's
-    /// descendents, since the variable array order does not change.
-    pub vars: Arc<HashMap<String, u32>>,
 }
 
 impl SsaTape {
@@ -44,7 +34,6 @@ impl SsaTape {
     pub fn new(ctx: &Context, root: Node) -> Result<Self, Error> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
-        let mut var_names = HashMap::new();
         let mut slot_count = 0;
 
         // Get either a node or constant index
@@ -69,13 +58,6 @@ impl SsaTape {
                 _ => {
                     let i = slot_count;
                     slot_count += 1;
-                    if matches!(op, Op::Var(..)) {
-                        let next_var = var_names.len().try_into().unwrap();
-                        var_names.insert(
-                            ctx.var_name(node).unwrap().unwrap().to_string(),
-                            next_var,
-                        );
-                    }
                     mapping.insert(node, Slot::Reg(i))
                 }
             };
@@ -115,11 +97,6 @@ impl SsaTape {
                         i => panic!("Unexpected input index: {i}"),
                     };
                     SsaOp::Input(i, arg)
-                }
-                Op::Var(..) => {
-                    let v = ctx.var_name(node).unwrap().unwrap();
-                    let arg = var_names[v];
-                    SsaOp::Var(i, arg)
                 }
                 Op::Const(..) => {
                     unreachable!("skipped above")
@@ -246,11 +223,7 @@ impl SsaTape {
             tape.push(SsaOp::CopyImm(0, c));
         }
 
-        Ok(SsaTape {
-            tape,
-            choice_count,
-            vars: Arc::new(var_names),
-        })
+        Ok(SsaTape { tape, choice_count })
     }
 
     /// Checks whether the tape is empty
@@ -281,9 +254,6 @@ impl SsaTape {
             match op {
                 SsaOp::Input(out, i) => {
                     println!("${out} = INPUT {i}");
-                }
-                SsaOp::Var(out, i) => {
-                    println!("${out} = VAR {i}");
                 }
                 SsaOp::NegReg(out, arg)
                 | SsaOp::AbsReg(out, arg)

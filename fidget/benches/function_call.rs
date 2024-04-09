@@ -24,7 +24,7 @@ pub fn run_bench<S: Shape + MathShape>(
         let t = &tape;
         group.bench_function(BenchmarkId::new(name, n), |b| {
             b.iter(|| {
-                black_box(eval.eval(t, &data, &data, &data, &[]).unwrap());
+                black_box(eval.eval(t, &data, &data, &data).unwrap());
             })
         });
     }

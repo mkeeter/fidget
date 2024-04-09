@@ -39,25 +39,11 @@ pub trait TracingEvaluator: Default {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {
         Self::default()
-    }
-
-    /// Helper function to check input arguments
-    fn check_arguments(
-        &self,
-        vars: &[f32],
-        var_count: usize,
-    ) -> Result<(), Error> {
-        if vars.len() != var_count {
-            Err(Error::BadVarSlice(vars.len(), var_count))
-        } else {
-            Ok(())
-        }
     }
 
     #[cfg(test)]
@@ -66,15 +52,9 @@ pub trait TracingEvaluator: Default {
         tape: &Self::Tape,
         x: J,
     ) -> Self::Data {
-        self.eval(
-            tape,
-            x.into(),
-            Self::Data::from(0.0),
-            Self::Data::from(0.0),
-            &[],
-        )
-        .unwrap()
-        .0
+        self.eval(tape, x.into(), Self::Data::from(0.0), Self::Data::from(0.0))
+            .unwrap()
+            .0
     }
     #[cfg(test)]
     fn eval_xy<J: Into<Self::Data>>(
@@ -83,7 +63,7 @@ pub trait TracingEvaluator: Default {
         x: J,
         y: J,
     ) -> Self::Data {
-        self.eval(tape, x.into(), y.into(), Self::Data::from(0.0), &[])
+        self.eval(tape, x.into(), y.into(), Self::Data::from(0.0))
             .unwrap()
             .0
     }

@@ -194,7 +194,7 @@ fn run2d<S: fidget::eval::Shape>(
                 }
             }
             let zs = vec![0.0; xs.len()];
-            let values = eval.eval(&tape, &xs, &ys, &zs, &[]).unwrap();
+            let values = eval.eval(&tape, &xs, &ys, &zs).unwrap();
             out = values.iter().map(|v| *v <= 0.0).collect();
         }
         // Convert from Vec<bool> to an image

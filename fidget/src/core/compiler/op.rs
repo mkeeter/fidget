@@ -24,9 +24,6 @@ macro_rules! opcodes {
             #[doc = "Read one of the inputs (X, Y, Z)"]
             Input($t, $t),
 
-            #[doc = "Reads one of the variables"]
-            Var($t, u32),
-
             #[doc = "Negate the given register"]
             NegReg($t, $t),
 
@@ -153,7 +150,6 @@ impl SsaOp {
     pub fn output(&self) -> u32 {
         match self {
             SsaOp::Input(out, ..)
-            | SsaOp::Var(out, ..)
             | SsaOp::CopyImm(out, ..)
             | SsaOp::NegReg(out, ..)
             | SsaOp::AbsReg(out, ..)
@@ -200,7 +196,6 @@ impl SsaOp {
     pub fn has_choice(&self) -> bool {
         match self {
             SsaOp::Input(..)
-            | SsaOp::Var(..)
             | SsaOp::CopyImm(..)
             | SsaOp::NegReg(..)
             | SsaOp::AbsReg(..)

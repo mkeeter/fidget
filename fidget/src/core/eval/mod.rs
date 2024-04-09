@@ -16,7 +16,7 @@
 //! // Let's build a single point evaluator:
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
-//! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0, &[])?;
+//! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0)?;
 //! assert_eq!(value, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -25,7 +25,6 @@ use crate::{
     types::{Grad, Interval},
     Context, Error,
 };
-use std::collections::HashMap;
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod test;
@@ -34,13 +33,10 @@ mod bulk;
 mod tracing;
 mod transform;
 
-mod vars;
-
 // Re-export a few things
 pub use bulk::BulkEvaluator;
 pub use tracing::TracingEvaluator;
 pub use transform::TransformedShape;
-pub use vars::Vars;
 
 /// A shape represents an implicit surface
 ///
@@ -248,12 +244,6 @@ impl<S: Shape> EzShape for S {
         let mut workspace = Default::default();
         self.simplify(trace, Default::default(), &mut workspace)
     }
-}
-
-/// A [`Shape`] which contains named variables
-pub trait ShapeVars {
-    /// Returns the variable map for ease of binding
-    fn vars(&self) -> &HashMap<String, u32>;
 }
 
 /// A [`Shape`] which can be built from a math expression

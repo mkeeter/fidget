@@ -48,7 +48,6 @@ pub trait BulkEvaluator: Default {
         x: &[f32],
         y: &[f32],
         z: &[f32],
-        vars: &[f32],
     ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator
@@ -62,13 +61,9 @@ pub trait BulkEvaluator: Default {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
-        tape_var_count: usize, // TODO: maybe a trait instead?
     ) -> Result<(), Error> {
         if xs.len() != ys.len() || ys.len() != zs.len() {
             Err(Error::MismatchedSlices)
-        } else if vars.len() != tape_var_count {
-            Err(Error::BadVarSlice(vars.len(), tape_var_count))
         } else {
             Ok(())
         }

@@ -5,7 +5,7 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{EzShape, MathShape, Shape, ShapeVars, TracingEvaluator, Vars},
+    eval::{EzShape, MathShape, Shape, TracingEvaluator},
     vm::Choice,
 };
 
@@ -13,7 +13,7 @@ use crate::{
 pub struct TestPoint<S>(std::marker::PhantomData<*const S>);
 impl<S> TestPoint<S>
 where
-    S: Shape + MathShape + ShapeVars,
+    S: Shape + MathShape,
     <S as Shape>::Trace: AsRef<[Choice]>,
     <S as Shape>::Trace: From<Vec<Choice>>,
 {
@@ -23,7 +23,7 @@ where
         let shape = S::new(&ctx, p).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0).unwrap().0, 1.5);
     }
 
     pub fn test_constant_push() {
@@ -34,15 +34,15 @@ where
         let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 1.5);
 
         let next = shape.ez_simplify(trace.unwrap()).unwrap();
         assert_eq!(next.size(), 1);
 
         let tape = next.ez_point_tape();
-        assert_eq!(eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
-        assert_eq!(eval.eval(&tape, 1.0, 0.0, 0.0, &[]).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&tape, 2.0, 0.0, 0.0).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&tape, 1.0, 0.0, 0.0).unwrap().0, 1.5);
     }
 
     pub fn test_circle() {
@@ -57,8 +57,8 @@ where
         let shape = S::new(&ctx, circle).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap().0, -1.0);
-        assert_eq!(eval.eval(&tape, 1.0, 0.0, 0.0, &[]).unwrap().0, 0.0);
+        assert_eq!(eval.eval(&tape, 0.0, 0.0, 0.0).unwrap().0, -1.0);
+        assert_eq!(eval.eval(&tape, 1.0, 0.0, 0.0).unwrap().0, 0.0);
     }
 
     pub fn test_p_min()
@@ -73,23 +73,23 @@ where
         let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert!(trace.is_none());
 
-        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
 
-        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
     }
@@ -107,23 +107,23 @@ where
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
 
-        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert!(trace.is_none());
 
-        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0).unwrap();
         assert_eq!(r, 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 2.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 2.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 0.0, 0.0).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
 
-        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0).unwrap();
         assert!(r.is_nan());
         assert!(trace.is_none());
     }
@@ -140,27 +140,27 @@ where
         let shape = S::new(&ctx, v).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0).unwrap();
         assert_eq!(r, 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0).unwrap();
         assert_eq!(r, 1.2);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
     }
@@ -177,27 +177,27 @@ where
         let shape = S::new(&ctx, v).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, 1.0, 0.0).unwrap();
         assert_eq!(r, 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.0, f32::NAN, 0.0).unwrap();
         assert!(r.is_nan());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
-        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.1, 1.0, 0.0).unwrap();
         assert_eq!(r, 0.1);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, 0.1, 0.0, 0.0).unwrap();
         assert_eq!(r, 0.1);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
-        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0, &[]).unwrap();
+        let (r, trace) = eval.eval(&tape, f32::NAN, 1.2, 0.0).unwrap();
         assert!(r.is_nan());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
     }
@@ -215,15 +215,15 @@ where
         let mut eval = S::new_point_eval();
 
         for x in [0.0, 1.0, 2.0] {
-            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0).unwrap();
             assert_eq!(r, x.sin());
             assert!(trace.is_none());
 
-            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0).unwrap();
             assert_eq!(r, x.sin());
             assert!(trace.is_none());
 
-            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0, &[]).unwrap();
+            let (r, trace) = eval.eval(&tape, x, 0.0, 0.0).unwrap();
             assert_eq!(r, x.sin());
             assert!(trace.is_none());
         }
@@ -234,7 +234,7 @@ where
         let tape = shape.ez_point_tape();
 
         for (x, y) in [(0.0, 1.0), (1.0, 3.0), (2.0, 8.0)] {
-            let (r, trace) = eval.eval(&tape, x, y, 0.0, &[]).unwrap();
+            let (r, trace) = eval.eval(&tape, x, y, 0.0).unwrap();
             assert_eq!(r, x.sin() + y);
             assert!(trace.is_none());
         }
@@ -249,9 +249,9 @@ where
         let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, 1.0, 3.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, 3.0, 3.5, 0.0, &[]).unwrap().0, 3.5);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 1.0, 3.0, 0.0).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 3.0, 3.5, 0.0).unwrap().0, 3.5);
     }
 
     pub fn test_push()
@@ -266,35 +266,35 @@ where
         let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0).unwrap().0, 2.0);
 
         let next = shape.ez_simplify(&vec![Choice::Left].into()).unwrap();
         let tape = next.ez_point_tape();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0).unwrap().0, 3.0);
 
         let next = shape.ez_simplify(&vec![Choice::Right].into()).unwrap();
         let tape = next.ez_point_tape();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 3.0, 2.0, 0.0).unwrap().0, 2.0);
 
         let min = ctx.min(x, 1.0).unwrap();
         let shape = S::new(&ctx, min).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0).unwrap().0, 1.0);
 
         let next = shape.ez_simplify(&vec![Choice::Left].into()).unwrap();
         let tape = next.ez_point_tape();
-        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0).unwrap().0, 3.0);
 
         let next = shape.ez_simplify(&vec![Choice::Right].into()).unwrap();
         let tape = next.ez_point_tape();
-        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0, &[]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 0.5, 0.0, 0.0).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 3.0, 0.0, 0.0).unwrap().0, 1.0);
     }
 
     pub fn test_basic() {
@@ -305,14 +305,14 @@ where
         let shape = S::new(&ctx, x).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, 3.0, 4.0, 0.0, &[]).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, 3.0, 4.0, 0.0).unwrap().0, 3.0);
 
         let shape = S::new(&ctx, y).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, 3.0, 4.0, 0.0, &[]).unwrap().0, 4.0);
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, 3.0, 4.0, 0.0).unwrap().0, 4.0);
 
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
@@ -320,85 +320,7 @@ where
         let shape = S::new(&ctx, sum).unwrap();
         let tape = shape.ez_point_tape();
         let mut eval = S::new_point_eval();
-        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[]).unwrap().0, 6.0);
-    }
-
-    pub fn test_var() {
-        let mut ctx = Context::new();
-        let a = ctx.var("a").unwrap();
-        let shape = S::new(&ctx, a).unwrap();
-        let tape = shape.ez_point_tape();
-        let mut vars = Vars::new(shape.vars());
-        let mut eval = S::new_point_eval();
-        assert_eq!(
-            eval.eval(
-                &tape,
-                0.0,
-                0.0,
-                0.0,
-                vars.bind([("a", 5.0)].into_iter())
-            )
-            .unwrap()
-            .0,
-            5.0
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                0.0,
-                0.0,
-                0.0,
-                vars.bind([("a", 1.0)].into_iter())
-            )
-            .unwrap()
-            .0,
-            1.0
-        );
-
-        let b = ctx.var("b").unwrap();
-        let sum = ctx.add(a, 1.0).unwrap();
-        let min = ctx.div(sum, b).unwrap();
-        let shape = S::new(&ctx, min).unwrap();
-        let tape = shape.ez_point_tape();
-        let mut vars = Vars::new(shape.vars());
-        let mut eval = S::new_point_eval();
-
-        assert_eq!(
-            eval.eval(
-                &tape,
-                0.0,
-                0.0,
-                0.0,
-                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
-            )
-            .unwrap()
-            .0,
-            2.0
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                0.0,
-                0.0,
-                0.0,
-                vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()
-            .0,
-            2.0
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                0.0,
-                0.0,
-                0.0,
-                vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()
-            .0,
-            0.5
-        );
+        assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 6.0);
     }
 
     pub fn test_p_stress_n(depth: usize) {
@@ -416,7 +338,7 @@ where
 
         let mut out = vec![];
         for i in 0..args.len() {
-            out.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+            out.push(eval.eval(&tape, x[i], y[i], z[i]).unwrap().0);
         }
 
         for (i, v) in out.iter().cloned().enumerate() {
@@ -444,7 +366,7 @@ where
 
         let mut cmp = vec![];
         for i in 0..args.len() {
-            cmp.push(eval.eval(&tape, x[i], y[i], z[i], &[]).unwrap().0);
+            cmp.push(eval.eval(&tape, x[i], y[i], z[i]).unwrap().0);
         }
 
         for (a, b) in out.iter().zip(cmp.iter()) {
@@ -472,9 +394,9 @@ where
 
             for &a in args.iter() {
                 let (o, trace) = match i {
-                    0 => eval.eval(&tape, a, 0.0, 0.0, &[]),
-                    1 => eval.eval(&tape, 0.0, a, 0.0, &[]),
-                    2 => eval.eval(&tape, 0.0, 0.0, a, &[]),
+                    0 => eval.eval(&tape, a, 0.0, 0.0),
+                    1 => eval.eval(&tape, 0.0, a, 0.0),
+                    2 => eval.eval(&tape, 0.0, 0.0, a),
                     _ => unreachable!(),
                 }
                 .unwrap();
@@ -527,15 +449,15 @@ where
                         let tape = shape.ez_point_tape();
 
                         let (out, _trace) = match (i, j) {
-                            (0, 0) => eval.eval(&tape, lhs, 0.0, 0.0, &[]),
-                            (0, 1) => eval.eval(&tape, lhs, rhs, 0.0, &[]),
-                            (0, 2) => eval.eval(&tape, lhs, 0.0, rhs, &[]),
-                            (1, 0) => eval.eval(&tape, rhs, lhs, 0.0, &[]),
-                            (1, 1) => eval.eval(&tape, 0.0, lhs, 0.0, &[]),
-                            (1, 2) => eval.eval(&tape, 0.0, lhs, rhs, &[]),
-                            (2, 0) => eval.eval(&tape, rhs, 0.0, lhs, &[]),
-                            (2, 1) => eval.eval(&tape, 0.0, rhs, lhs, &[]),
-                            (2, 2) => eval.eval(&tape, 0.0, 0.0, lhs, &[]),
+                            (0, 0) => eval.eval(&tape, lhs, 0.0, 0.0),
+                            (0, 1) => eval.eval(&tape, lhs, rhs, 0.0),
+                            (0, 2) => eval.eval(&tape, lhs, 0.0, rhs),
+                            (1, 0) => eval.eval(&tape, rhs, lhs, 0.0),
+                            (1, 1) => eval.eval(&tape, 0.0, lhs, 0.0),
+                            (1, 2) => eval.eval(&tape, 0.0, lhs, rhs),
+                            (2, 0) => eval.eval(&tape, rhs, 0.0, lhs),
+                            (2, 1) => eval.eval(&tape, 0.0, rhs, lhs),
+                            (2, 2) => eval.eval(&tape, 0.0, 0.0, lhs),
                             _ => unreachable!(),
                         }
                         .unwrap();
@@ -572,9 +494,9 @@ where
                     let tape = shape.ez_point_tape();
 
                     let (out, _trace) = match i {
-                        0 => eval.eval(&tape, lhs, 0.0, 0.0, &[]),
-                        1 => eval.eval(&tape, 0.0, lhs, 0.0, &[]),
-                        2 => eval.eval(&tape, 0.0, 0.0, lhs, &[]),
+                        0 => eval.eval(&tape, lhs, 0.0, 0.0),
+                        1 => eval.eval(&tape, 0.0, lhs, 0.0),
+                        2 => eval.eval(&tape, 0.0, 0.0, lhs),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -609,9 +531,9 @@ where
                     let tape = shape.ez_point_tape();
 
                     let (out, _trace) = match i {
-                        0 => eval.eval(&tape, rhs, 0.0, 0.0, &[]),
-                        1 => eval.eval(&tape, 0.0, rhs, 0.0, &[]),
-                        2 => eval.eval(&tape, 0.0, 0.0, rhs, &[]),
+                        0 => eval.eval(&tape, rhs, 0.0, 0.0),
+                        1 => eval.eval(&tape, 0.0, rhs, 0.0),
+                        2 => eval.eval(&tape, 0.0, 0.0, rhs),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -658,7 +580,6 @@ macro_rules! point_tests {
         $crate::point_test!(test_p_or, $t);
         $crate::point_test!(basic_interpreter, $t);
         $crate::point_test!(test_push, $t);
-        $crate::point_test!(test_var, $t);
         $crate::point_test!(test_basic, $t);
         $crate::point_test!(test_p_stress, $t);
 

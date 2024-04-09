@@ -104,13 +104,6 @@ impl Assembler for IntervalAssembler {
             ; vmovq Rx(reg(out_reg)), [rbp - pos]
         );
     }
-    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        dynasm!(self.0.ops
-            ; vmovss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
-            // Somewhat overkill, since we only need two values, but oh well
-            ; vbroadcastss Rx(reg(out_reg)), Rx(reg(out_reg))
-        );
-    }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn interval_sin(v: Interval) -> Interval {
             v.sin()

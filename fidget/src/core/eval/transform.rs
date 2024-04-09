@@ -105,13 +105,12 @@ where
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
         let (x, y, z) = Transformable::transform(x, y, z, tape.mat);
-        self.eval.eval(&tape.tape, x, y, z, vars)
+        self.eval.eval(&tape.tape, x, y, z)
     }
 }
 
@@ -134,7 +133,6 @@ impl<T: BulkEvaluator> BulkEvaluator for TransformedBulkEval<T> {
         x: &[f32],
         y: &[f32],
         z: &[f32],
-        vars: &[f32],
     ) -> Result<&[Self::Data], Error> {
         if x.len() != y.len() || x.len() != z.len() {
             return Err(Error::MismatchedSlices);
@@ -149,8 +147,7 @@ impl<T: BulkEvaluator> BulkEvaluator for TransformedBulkEval<T> {
             self.ys[i] = p.y;
             self.zs[i] = p.z;
         }
-        self.eval
-            .eval(&tape.tape, &self.xs, &self.ys, &self.zs, vars)
+        self.eval.eval(&tape.tape, &self.xs, &self.ys, &self.zs)
     }
 }
 

@@ -126,12 +126,6 @@ impl Assembler for FloatSliceAssembler {
             ; vmovups Ry(reg(out_reg)), [rbp - pos]
         );
     }
-    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        dynasm!(self.0.ops
-            ; vmovss Rx(reg(out_reg)), [rcx + 4 * (src_arg as i32)]
-            ; vbroadcastss Ry(reg(out_reg)), Rx(reg(out_reg))
-        );
-    }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn float_sin(f: f32) -> f32 {
             f.sin()

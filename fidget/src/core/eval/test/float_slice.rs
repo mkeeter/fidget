@@ -6,7 +6,7 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
+    eval::{BulkEvaluator, EzShape, MathShape, Shape},
 };
 
 /// Helper struct to put constrains on our `Shape` object
@@ -14,7 +14,7 @@ pub struct TestFloatSlice<S>(std::marker::PhantomData<*const S>);
 
 impl<S> TestFloatSlice<S>
 where
-    S: Shape + MathShape + ShapeVars,
+    S: Shape + MathShape,
 {
     pub fn test_give_take() {
         let mut ctx = Context::new();
@@ -34,7 +34,6 @@ where
                     &[0.0, 1.0, 2.0, 3.0],
                     &[3.0, 2.0, 1.0, 0.0],
                     &[0.0, 0.0, 0.0, 100.0],
-                    &[],
                 )
                 .unwrap();
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
@@ -48,7 +47,6 @@ where
                     &[0.0, 1.0, 2.0, 3.0],
                     &[3.0, 2.0, 1.0, 0.0],
                     &[0.0, 0.0, 0.0, 100.0],
-                    &[],
                 )
                 .unwrap();
             assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
@@ -69,7 +67,6 @@ where
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
-                &[],
             )
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
@@ -80,7 +77,6 @@ where
                 &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
                 &[3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0],
                 &[0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0],
-                &[],
             )
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
@@ -91,7 +87,6 @@ where
                 &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
                 &[3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0, 200.0],
-                &[],
             )
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
@@ -105,19 +100,12 @@ where
                 &[0.0, 1.0, 2.0, 3.0],
                 &[3.0, 2.0, 1.0, 0.0],
                 &[0.0, 0.0, 0.0, 100.0],
-                &[],
             )
             .unwrap();
         assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
 
         let out = eval
-            .eval(
-                &tape,
-                &[0.0, 1.0, 2.0],
-                &[1.0, 4.0, 8.0],
-                &[0.0, 0.0, 0.0],
-                &[],
-            )
+            .eval(&tape, &[0.0, 1.0, 2.0], &[1.0, 4.0, 8.0], &[0.0, 0.0, 0.0])
             .unwrap();
         assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
 
@@ -127,57 +115,9 @@ where
                 &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
                 &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
                 &[0.0; 7],
-                &[],
             )
             .unwrap();
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
-    }
-
-    pub fn test_f_var() {
-        let mut ctx = Context::new();
-        let a = ctx.var("a").unwrap();
-        let b = ctx.var("b").unwrap();
-        let sum = ctx.add(a, 1.0).unwrap();
-        let min = ctx.div(sum, b).unwrap();
-
-        let shape = S::new(&ctx, min).unwrap();
-        let mut eval = S::new_float_slice_eval();
-        let tape = shape.ez_float_slice_tape();
-        let mut vars = Vars::new(shape.vars());
-
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
-            )
-            .unwrap()[0],
-            2.0
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()[0],
-            2.0
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()[0],
-            0.5,
-        );
     }
 
     pub fn test_f_sin() {
@@ -188,18 +128,10 @@ where
         let shape = S::new(&ctx, b).unwrap();
         let mut eval = S::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
-        let mut vars = Vars::new(shape.vars());
 
         let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
         assert_eq!(
-            eval.eval(
-                &tape,
-                &args,
-                &[0.0; 4],
-                &[0.0; 4],
-                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
-            )
-            .unwrap(),
+            eval.eval(&tape, &args, &[0.0; 4], &[0.0; 4],).unwrap(),
             args.map(f32::sin),
         );
     }
@@ -219,7 +151,7 @@ where
         let mut eval = S::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
-        let out = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        let out = eval.eval(&tape, &x, &y, &z).unwrap();
 
         for (i, v) in out.iter().cloned().enumerate() {
             let q = ctx
@@ -244,7 +176,7 @@ where
         let mut eval = VmShape::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
-        let cmp = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        let cmp = eval.eval(&tape, &x, &y, &z).unwrap();
         for (i, (a, b)) in out.iter().zip(cmp.iter()).enumerate() {
             let err = (a - b).abs();
             assert!(
@@ -277,9 +209,9 @@ where
             let tape = shape.ez_float_slice_tape();
 
             let out = match i {
-                0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                0 => eval.eval(&tape, &args, &zero, &zero),
+                1 => eval.eval(&tape, &zero, &args, &zero),
+                2 => eval.eval(&tape, &zero, &zero, &args),
                 _ => unreachable!(),
             }
             .unwrap();
@@ -334,15 +266,15 @@ where
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match (i, j) {
-                        (0, 0) => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        (0, 1) => eval.eval(&tape, &args, &rgsa, &zero, &[]),
-                        (0, 2) => eval.eval(&tape, &args, &zero, &rgsa, &[]),
-                        (1, 0) => eval.eval(&tape, &rgsa, &args, &zero, &[]),
-                        (1, 1) => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        (1, 2) => eval.eval(&tape, &zero, &args, &rgsa, &[]),
-                        (2, 0) => eval.eval(&tape, &rgsa, &zero, &args, &[]),
-                        (2, 1) => eval.eval(&tape, &zero, &rgsa, &args, &[]),
-                        (2, 2) => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        (0, 0) => eval.eval(&tape, &args, &zero, &zero),
+                        (0, 1) => eval.eval(&tape, &args, &rgsa, &zero),
+                        (0, 2) => eval.eval(&tape, &args, &zero, &rgsa),
+                        (1, 0) => eval.eval(&tape, &rgsa, &args, &zero),
+                        (1, 1) => eval.eval(&tape, &zero, &args, &zero),
+                        (1, 2) => eval.eval(&tape, &zero, &args, &rgsa),
+                        (2, 0) => eval.eval(&tape, &rgsa, &zero, &args),
+                        (2, 1) => eval.eval(&tape, &zero, &rgsa, &args),
+                        (2, 2) => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -381,9 +313,9 @@ where
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        0 => eval.eval(&tape, &args, &zero, &zero),
+                        1 => eval.eval(&tape, &zero, &args, &zero),
+                        2 => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -422,9 +354,9 @@ where
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        0 => eval.eval(&tape, &args, &zero, &zero),
+                        1 => eval.eval(&tape, &zero, &args, &zero),
+                        2 => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -464,7 +396,6 @@ macro_rules! float_slice_tests {
     ($t:ty) => {
         $crate::float_slice_test!(test_give_take, $t);
         $crate::float_slice_test!(test_vectorized, $t);
-        $crate::float_slice_test!(test_f_var, $t);
         $crate::float_slice_test!(test_f_sin, $t);
         $crate::float_slice_test!(test_f_stress, $t);
 

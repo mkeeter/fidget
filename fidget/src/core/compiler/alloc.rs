@@ -270,7 +270,6 @@ impl<const N: usize> RegisterAllocator<N> {
     #[inline(always)]
     pub fn op(&mut self, op: SsaOp) {
         match op {
-            SsaOp::Var(out, i) => self.op_var(out, i),
             SsaOp::Input(out, i) => self.op_input(out, i.try_into().unwrap()),
             SsaOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
 
@@ -658,11 +657,5 @@ impl<const N: usize> RegisterAllocator<N> {
     #[inline(always)]
     fn op_input(&mut self, out: u32, i: u8) {
         self.op_out_only(out, |out| RegOp::Input(out, i));
-    }
-
-    /// Pushes an [`Var`](crate::compiler::RegOp::Var) operation to the tape
-    #[inline(always)]
-    fn op_var(&mut self, out: u32, i: u32) {
-        self.op_out_only(out, |out| RegOp::Var(out, i));
     }
 }

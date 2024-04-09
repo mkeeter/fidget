@@ -104,11 +104,6 @@ impl Assembler for PointAssembler {
             ; vmovss Rx(reg(out_reg)), [rbp - pos]
         );
     }
-    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        dynasm!(self.0.ops
-            ; vmovss Rx(reg(out_reg)), [rdi + 4 * (src_arg as i32)]
-        );
-    }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))

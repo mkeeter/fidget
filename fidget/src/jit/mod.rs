@@ -18,7 +18,7 @@
 //! let mut eval = JitShape::new_point_eval();
 //!
 //! // This calls directly into that machine code!
-//! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0, &[])?;
+//! let (r, _trace) = eval.eval(&tape, 0.1, 0.3, 0.0)?;
 //! assert_eq!(r, 0.1 + 0.3);
 //! # Ok::<(), fidget::Error>(())
 //! ```
@@ -27,7 +27,7 @@ use crate::{
     compiler::RegOp,
     context::{Context, Node},
     eval::{
-        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, TracingEvaluator,
+        BulkEvaluator, MathShape, Shape, Tape, TracingEvaluator,
         TransformedShape,
     },
     jit::mmap::Mmap,
@@ -40,7 +40,6 @@ use dynasmrt::{
     DynasmError, DynasmLabelApi, TargetKind,
 };
 use nalgebra::Matrix4;
-use std::collections::HashMap;
 
 mod mmap;
 
@@ -131,9 +130,6 @@ trait Assembler {
 
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8);
-
-    /// Copies a variable (provided in an input array) to `out_reg`
-    fn build_var(&mut self, out_reg: u8, src_arg: u32);
 
     /// Copies a register
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
@@ -657,9 +653,6 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::Input(out, i) => {
                 asm.build_input(out, i);
             }
-            RegOp::Var(out, i) => {
-                asm.build_var(out, i);
-            }
             RegOp::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
             }
@@ -811,7 +804,6 @@ impl JitShape {
         let ptr = f.as_ptr();
         JitTracingFn {
             mmap: f,
-            var_count: self.0.var_count(),
             choice_count: self.0.choice_count(),
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
@@ -821,7 +813,6 @@ impl JitShape {
         let ptr = f.as_ptr();
         JitBulkFn {
             mmap: f,
-            var_count: self.0.var_count(),
             fn_bulk: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -933,16 +924,14 @@ struct JitTracingEval {
 pub struct JitTracingFn<T> {
     #[allow(unused)]
     mmap: Mmap,
-    var_count: usize,
     choice_count: usize,
     fn_trace: jit_fn!(
         unsafe fn(
-            T,          // X
-            T,          // Y
-            T,          // Z
-            *const f32, // vars
-            *mut u8,    // choices
-            *mut u8,    // simplify (single boolean)
+            T,       // X
+            T,       // Y
+            T,       // Z
+            *mut u8, // choices
+            *mut u8, // simplify (single boolean)
         ) -> T
     ),
 }
@@ -967,7 +956,6 @@ impl JitTracingEval {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> (T, Option<&VmTrace>) {
         let x = x.into();
         let y = y.into();
@@ -980,7 +968,6 @@ impl JitTracingEval {
                 x,
                 y,
                 z,
-                vars.as_ptr(),
                 self.choices.as_mut_ptr() as *mut u8,
                 &mut simplify,
             )
@@ -1011,10 +998,8 @@ impl TracingEvaluator for JitIntervalEval {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        self.check_arguments(vars, tape.var_count)?;
-        Ok(self.0.eval(tape, x, y, z, vars))
+        Ok(self.0.eval(tape, x, y, z))
     }
 }
 
@@ -1033,10 +1018,8 @@ impl TracingEvaluator for JitPointEval {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        self.check_arguments(vars, tape.var_count)?;
-        Ok(self.0.eval(tape, x, y, z, vars))
+        Ok(self.0.eval(tape, x, y, z))
     }
 }
 
@@ -1046,13 +1029,11 @@ impl TracingEvaluator for JitPointEval {
 pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
-    var_count: usize,
     fn_bulk: jit_fn!(
         unsafe fn(
             *const f32, // X
             *const f32, // Y
             *const f32, // Z
-            *const f32, // vars
             *mut T,     // out
             u64,        // size
         ) -> T
@@ -1091,7 +1072,6 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
     ) -> &[T] {
         let n = xs.len();
         self.out.resize(n, f32::NAN.into());
@@ -1122,7 +1102,6 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
                     x.as_ptr(),
                     y.as_ptr(),
                     z.as_ptr(),
-                    vars.as_ptr(),
                     tmp.as_mut_ptr(),
                     T::SIMD_SIZE as u64,
                 );
@@ -1138,7 +1117,6 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
                     xs.as_ptr(),
                     ys.as_ptr(),
                     zs.as_ptr(),
-                    vars.as_ptr(),
                     self.out.as_mut_ptr(),
                     m as u64,
                 );
@@ -1152,7 +1130,6 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
                         xs.as_ptr().add(n - T::SIMD_SIZE),
                         ys.as_ptr().add(n - T::SIMD_SIZE),
                         zs.as_ptr().add(n - T::SIMD_SIZE),
-                        vars.as_ptr(),
                         self.out.as_mut_ptr().add(n - T::SIMD_SIZE),
                         T::SIMD_SIZE as u64,
                     );
@@ -1177,10 +1154,9 @@ impl BulkEvaluator for JitFloatSliceEval {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
-        Ok(self.0.eval(tape, xs, ys, zs, vars))
+        self.check_arguments(xs, ys, zs)?;
+        Ok(self.0.eval(tape, xs, ys, zs))
     }
 }
 
@@ -1198,22 +1174,15 @@ impl BulkEvaluator for JitGradSliceEval {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(xs, ys, zs, vars, tape.var_count)?;
-        Ok(self.0.eval(tape, xs, ys, zs, vars))
+        self.check_arguments(xs, ys, zs)?;
+        Ok(self.0.eval(tape, xs, ys, zs))
     }
 }
 
 impl MathShape for JitShape {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
         GenericVmShape::new(ctx, node).map(JitShape)
-    }
-}
-
-impl ShapeVars for JitShape {
-    fn vars(&self) -> &HashMap<String, u32> {
-        self.0.vars()
     }
 }
 

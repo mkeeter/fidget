@@ -17,9 +17,8 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | X          | `s0`     | `f32`                 |
 /// | Y          | `s1`     | `f32`                 |
 /// | Z          | `s2`     | `f32`                 |
-/// | `vars`     | `x0`     | `*const f32` (array)  |
-/// | `out`      | `x1`     | `*mut u8` (array)     |
-/// | `count`    | `x2`     | `*mut u8` (single)    |
+/// | `choices`  | `x0`     | `*mut u8` (array)     |
+/// | `simplify` | `x1`     | `*mut u8` (single)    |
 ///
 /// During evaluation, registers are identical.  In addition, we use the
 /// following registers during evaluation:
@@ -35,14 +34,13 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `w14`    | Choice byte (limited scope)                          |
 /// | `x20`    | Backup for `x0` during function calls (callee-saved) |
 /// | `x21`    | Backup for `x1` during function calls (callee-saved) |
-/// | `x22`    | Backup for `x2` during function calls (callee-saved) |
 ///
 /// The stack is configured as follows
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|--------------|---------------------------------------------|
-/// | 0xb0     | `x22`        | During functions calls, we use these        |
+/// |          |              | During functions calls, we use these        |
 /// | 0xa8     | `x21`        | as temporary storage so must preserve their |
 /// | 0xa0     | `x20`        | previous values on the stack                |
 /// |----------|--------------|---------------------------------------------|
@@ -81,7 +79,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0xb8;
+const STACK_SIZE: u32 = 0xb0;
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -124,12 +122,6 @@ impl Assembler for PointAssembler {
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(src_arg as u32));
-    }
-    fn build_var(&mut self, out_reg: u8, src_arg: u32) {
-        assert!(src_arg * 4 < 16384);
-        dynasm!(self.0.ops
-            ; ldr S(reg(out_reg)), [x0, src_arg * 4]
-        );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops ; fmov S(reg(out_reg)), S(reg(lhs_reg)))
@@ -222,7 +214,7 @@ impl Assembler for PointAssembler {
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w14, [x1]
+            ; ldrb w14, [x0]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi 20 // -> RHS
             ; b.gt 32 // -> LHS
@@ -235,22 +227,22 @@ impl Assembler for PointAssembler {
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; strb w14, [x1, 0] // write a non-zero value to simplify
             ; b 16
 
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; strb w14, [x1, 0] // write a non-zero value to simplify
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], 1 // post-increment
+            ; strb w14, [x0], 1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; ldrb w14, [x1]
+            ; ldrb w14, [x0]
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))
             ; b.mi 20
             ; b.gt 32
@@ -263,17 +255,17 @@ impl Assembler for PointAssembler {
             // LHS
             ; fmov S(reg(out_reg)), S(reg(lhs_reg))
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x2, 0] // write a non-zero value to simplify
+            ; strb w14, [x1, 0] // write a non-zero value to simplify
             ; b 16
 
             // RHS
             ; fmov S(reg(out_reg)), S(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x2, 0]
+            ; strb w14, [x1, 0]
             // fall-through to end
 
             // <- end
-            ; strb w14, [x1], 1 // post-increment
+            ; strb w14, [x0], 1 // post-increment
         )
     }
 
@@ -306,11 +298,11 @@ impl Assembler for PointAssembler {
             ; and w11, w11, w10 // w11 = (lhs != 0) ? CHOICE_RIGHT : 0
             ; orr w11, w11, w9  // w11 = choice to write
 
-            ; ldrb w14, [x1]
+            ; ldrb w14, [x0]
             ; orr w14, w14, w11
-            ; strb w14, [x1], 1 // post-increment
+            ; strb w14, [x0], 1 // post-increment
 
-            ; strb w14, [x2, 0] // store any non-zero value to `simplify`
+            ; strb w14, [x1, 0] // store any non-zero value to `simplify`
 
             // Accumulate our output value
             ; and v5.b8, v6.b8, V(reg(lhs_reg)).b8
@@ -333,11 +325,11 @@ impl Assembler for PointAssembler {
             ; and w11, w11, w10 // w11 = (lhs == 0) ? CHOICE_RIGHT : 0
             ; orr w11, w11, w9  // w11 = choice to write
 
-            ; ldrb w14, [x1]
+            ; ldrb w14, [x0]
             ; orr w14, w14, w11
-            ; strb w14, [x1], 1 // post-increment
+            ; strb w14, [x0], 1 // post-increment
 
-            ; strb w14, [x2, 0] // store any non-zero value to `simplify`
+            ; strb w14, [x1, 0] // store any non-zero value to `simplify`
 
             // Accumulate our output value
             ; and v5.b8, v6.b8, V(reg(lhs_reg)).b8
@@ -397,7 +389,6 @@ impl Assembler for PointAssembler {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
                 ; ldp x20, x21, [sp, 0xa0]
-                ; ldr x22, [sp, 0xb0]
             )
         }
         dynasm!(self.0.ops
@@ -434,7 +425,6 @@ impl PointAssembler {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
                 ; stp x20, x21, [sp, 0xa0]
-                ; str x22, [sp, 0xb0]
             );
             self.0.saved_callee_regs = true;
         }
@@ -444,7 +434,6 @@ impl PointAssembler {
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
-            ; mov x22, x2
 
             // Back up our state
             ; stp s16, s17, [sp, 0x50]
@@ -488,7 +477,6 @@ impl PointAssembler {
             // Restore registers
             ; mov x0, x20
             ; mov x1, x21
-            ; mov x2, x22
         );
     }
 }
