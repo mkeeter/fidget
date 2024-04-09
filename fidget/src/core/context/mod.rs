@@ -121,12 +121,10 @@ impl Context {
     /// Looks up the variable name associated with the given node.
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
-    /// not a `Op::Var` or `Op::Input`, returns `Ok(None)`.
+    /// not an `Op::Input`, returns `Ok(None)`.
     pub fn var_name(&self, n: Node) -> Result<Option<&str>, Error> {
         match self.get_op(n) {
-            Some(Op::Var(c) | Op::Input(c)) => {
-                self.get_var_by_index(*c).map(Some)
-            }
+            Some(Op::Input(c)) => self.get_var_by_index(*c).map(Some),
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
         }
@@ -165,22 +163,6 @@ impl Context {
     pub fn z(&mut self) -> Node {
         let v = self.vars.insert(String::from("Z"));
         self.ops.insert(Op::Input(v))
-    }
-
-    /// Returns a variable with the provided name.
-    ///
-    /// If a variable already exists with this name, then it is returned.
-    pub fn var(&mut self, name: &str) -> Result<Node, Error> {
-        let name = self.check_var_name(name)?;
-        let v = self.vars.insert(name);
-        Ok(self.ops.insert(Op::Var(v)))
-    }
-
-    fn check_var_name(&self, name: &str) -> Result<String, Error> {
-        if matches!(name, "X" | "Y" | "Z") {
-            return Err(Error::ReservedName);
-        }
-        Ok(String::from(name))
     }
 
     /// Returns a node representing the given constant value.
@@ -741,7 +723,7 @@ impl Context {
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
         let v = match self.get_op(node).ok_or(Error::BadNode)? {
-            Op::Var(v) | Op::Input(v) => {
+            Op::Input(v) => {
                 let var_name = self.vars.get_by_index(*v).unwrap();
                 *vars.get(var_name).unwrap()
             }
@@ -905,7 +887,7 @@ impl Context {
         let op = self.get_op(i).unwrap();
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
-            Op::Var(v) | Op::Input(v) => {
+            Op::Input(v) => {
                 let v = self.vars.get_by_index(*v).unwrap();
                 out += v;
             }
@@ -1078,15 +1060,5 @@ mod test {
 
         let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
-    }
-
-    #[test]
-    fn test_var_errors() {
-        let mut ctx = Context::new();
-        assert!(ctx.var("X").is_err());
-
-        let a1 = ctx.var("a").unwrap();
-        let a2 = ctx.var("a").unwrap();
-        assert_eq!(a1, a2);
     }
 }

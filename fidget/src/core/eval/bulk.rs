@@ -39,16 +39,12 @@ pub trait BulkEvaluator: Default {
     /// This function may assume that the `x`, `y`, `z`, and `out` slices are of
     /// equal length and panic otherwise; higher-level calls should maintain
     /// that invariant.
-    ///
-    /// This function may also assume that `vars` is correctly sized for the
-    /// number of variables in the tape.
     fn eval(
         &mut self,
         tape: &Self::Tape,
         x: &[f32],
         y: &[f32],
         z: &[f32],
-        vars: &[f32],
     ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator
@@ -62,13 +58,9 @@ pub trait BulkEvaluator: Default {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
-        tape_var_count: usize, // TODO: maybe a trait instead?
     ) -> Result<(), Error> {
         if xs.len() != ys.len() || ys.len() != zs.len() {
             Err(Error::MismatchedSlices)
-        } else if vars.len() != tape_var_count {
-            Err(Error::BadVarSlice(vars.len(), tape_var_count))
         } else {
             Ok(())
         }

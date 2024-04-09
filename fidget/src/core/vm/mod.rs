@@ -3,14 +3,14 @@ use crate::{
     compiler::RegOp,
     context::Node,
     eval::{
-        BulkEvaluator, MathShape, Shape, ShapeVars, Tape, Trace,
-        TracingEvaluator, TransformedShape,
+        BulkEvaluator, MathShape, Shape, Tape, Trace, TracingEvaluator,
+        TransformedShape,
     },
     types::{Grad, Interval},
     Context, Error,
 };
 use nalgebra::Matrix4;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 mod choice;
 mod data;
@@ -119,11 +119,6 @@ impl<const N: usize> GenericVmShape<N> {
         self.0.as_ref()
     }
 
-    /// Returns the number of variables in the tape
-    pub fn var_count(&self) -> usize {
-        self.0.var_count()
-    }
-
     /// Returns the number of choices (i.e. `min` and `max` nodes) in the tape
     pub fn choice_count(&self) -> usize {
         self.0.choice_count()
@@ -188,12 +183,6 @@ impl<const N: usize> MathShape for GenericVmShape<N> {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
         let d = VmData::new(ctx, node)?;
         Ok(Self(Arc::new(d)))
-    }
-}
-
-impl<const N: usize> ShapeVars for GenericVmShape<N> {
-    fn vars(&self) -> &HashMap<String, u32> {
-        self.0.vars()
     }
 }
 
@@ -264,15 +253,12 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(Interval, Option<&VmTrace>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
-        assert_eq!(vars.len(), tape.var_count());
 
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
@@ -286,9 +272,6 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                         2 => z,
                         _ => panic!("Invalid input: {}", i),
                     }
-                }
-                RegOp::Var(out, i) => {
-                    v[out] = vars[i as usize].into();
                 }
                 RegOp::NegReg(out, arg) => {
                     v[out] = -v[arg];
@@ -489,13 +472,11 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         x: F,
         y: F,
         z: F,
-        vars: &[f32],
     ) -> Result<(f32, Option<&VmTrace>), Error> {
         let x = x.into();
         let y = y.into();
         let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
@@ -511,7 +492,6 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                         _ => panic!("Invalid input: {}", i),
                     }
                 }
-                RegOp::Var(out, i) => v[out] = vars[i as usize],
                 RegOp::NegReg(out, arg) => {
                     v[out] = -v[arg];
                 }
@@ -797,14 +777,12 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
+        self.check_arguments(xs, ys, zs)?;
         self.0.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
-        assert_eq!(vars.len(), tape.var_count());
 
         let size = xs.len();
 
@@ -819,7 +797,6 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         _ => panic!("Invalid input: {}", i),
                     })
                 }
-                RegOp::Var(out, i) => v[out][0..size].fill(vars[i as usize]),
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = -v[arg][i];
@@ -1088,14 +1065,12 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
-        vars: &[f32],
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(xs, ys, zs, vars, tape.var_count())?;
+        self.check_arguments(xs, ys, zs)?;
         self.0.resize_slots(tape, xs.len());
         assert_eq!(xs.len(), ys.len());
         assert_eq!(ys.len(), zs.len());
-        assert_eq!(vars.len(), tape.var_count());
 
         let size = xs.len();
         let mut v = SlotArray(&mut self.0.slots);
@@ -1110,15 +1085,6 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                             _ => panic!("Invalid input: {}", i),
                         }
                     }
-                }
-                RegOp::Var(out, j) => {
-                    // TODO: error handling?
-                    v[out][0..size].fill(Grad::new(
-                        vars[j as usize],
-                        0.0,
-                        0.0,
-                        0.0,
-                    ));
                 }
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {

@@ -15,7 +15,7 @@
 //! let shape = VmShape::from_tree(&tree);
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
-//! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0, &[])?.0, 3.0);
+//! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0)?.0, 3.0);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -36,7 +36,7 @@
 //! let shape = VmShape::from_tree(&out.shapes[0].tree);
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
-//! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0, &[])?.0, 1.5);
+//! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0)?.0, 1.5);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

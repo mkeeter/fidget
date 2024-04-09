@@ -207,7 +207,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
         let (i, simplify) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
             .unwrap();
 
         let fill = mode.interval(i, depth);
@@ -274,7 +274,6 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
-                &[],
             )
             .unwrap();
 

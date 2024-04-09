@@ -5,7 +5,7 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{BulkEvaluator, EzShape, MathShape, Shape, ShapeVars, Vars},
+    eval::{BulkEvaluator, EzShape, MathShape, Shape},
     types::Grad,
 };
 
@@ -17,7 +17,7 @@ pub struct TestGradSlice<S>(std::marker::PhantomData<*const S>);
 
 impl<S> TestGradSlice<S>
 where
-    S: Shape + MathShape + ShapeVars,
+    S: Shape + MathShape,
 {
     pub fn test_g_x() {
         let mut ctx = Context::new();
@@ -27,7 +27,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[4.0]).unwrap()[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
         );
     }
@@ -40,7 +40,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[4.0]).unwrap()[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
         );
     }
@@ -53,7 +53,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[4.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[4.0]).unwrap()[0],
             Grad::new(4.0, 0.0, 0.0, 1.0)
         );
     }
@@ -67,19 +67,19 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[0.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(0.0, 0.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(1.0, 2.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(4.0, 4.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[3.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[3.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(9.0, 6.0, 0.0, 0.0)
         );
     }
@@ -93,11 +93,11 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[-2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[-2.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(2.0, -1.0, 0.0, 0.0)
         );
     }
@@ -111,11 +111,11 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(1.0, 0.5, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(2.0, 0.25, 0.0, 0.0)
         );
     }
@@ -129,7 +129,7 @@ where
 
         let mut eval = S::new_grad_slice_eval();
         let v = eval
-            .eval(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3], &[])
+            .eval(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3])
             .unwrap();
         v[0].compare_eq(Grad::new(1f32.sin(), 1f32.cos(), 0.0, 0.0));
         v[1].compare_eq(Grad::new(2f32.sin(), 2f32.cos(), 0.0, 0.0));
@@ -141,7 +141,7 @@ where
         let shape = S::new(&ctx, s).unwrap();
         let tape = shape.ez_grad_slice_tape();
         let v = eval
-            .eval(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3], &[])
+            .eval(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3])
             .unwrap();
         v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
         v[1].compare_eq(Grad::new(4f32.sin(), 0.0, 2.0 * 4f32.cos(), 0.0));
@@ -158,19 +158,19 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(0.0, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[0.0], &[1.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[0.0], &[1.0], &[0.0]).unwrap()[0],
             Grad::new(0.0, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[1.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[1.0], &[0.0]).unwrap()[0],
             Grad::new(4.0, 1.0, 4.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[2.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[2.0], &[0.0]).unwrap()[0],
             Grad::new(8.0, 2.0, 4.0, 0.0)
         );
     }
@@ -184,7 +184,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(0.5, 0.5, 0.0, 0.0)
         );
     }
@@ -198,11 +198,11 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(1.0, -1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(0.5, -0.25, 0.0, 0.0)
         );
     }
@@ -217,11 +217,11 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
         );
     }
@@ -238,15 +238,15 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[3.0], &[5.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[3.0], &[5.0]).unwrap()[0],
             Grad::new(5.0, 0.0, 0.0, 1.0)
         );
     }
@@ -261,11 +261,11 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[4.0], &[3.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[4.0], &[3.0], &[0.0]).unwrap()[0],
             Grad::new(4.0, 1.0, 0.0, 0.0)
         );
     }
@@ -279,7 +279,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[0.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(1.0, 0.0, 0.0, 0.0)
         );
     }
@@ -299,97 +299,20 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
-            eval.eval(&tape, &[1.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[1.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(0.5, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[0.0], &[1.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[0.0], &[1.0], &[0.0]).unwrap()[0],
             Grad::new(0.5, 0.0, 1.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[2.0], &[0.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[2.0], &[0.0], &[0.0]).unwrap()[0],
             Grad::new(1.5, 1.0, 0.0, 0.0)
         );
         assert_eq!(
-            eval.eval(&tape, &[0.0], &[2.0], &[0.0], &[]).unwrap()[0],
+            eval.eval(&tape, &[0.0], &[2.0], &[0.0]).unwrap()[0],
             Grad::new(1.5, 0.0, 1.0, 0.0)
-        );
-    }
-
-    pub fn test_g_var() {
-        let mut ctx = Context::new();
-        let a = ctx.var("a").unwrap();
-        let shape = S::new(&ctx, a).unwrap();
-        let mut eval = S::new_grad_slice_eval();
-        let tape = shape.ez_grad_slice_tape();
-        assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
-            1.0.into()
-        );
-        assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[2.0]).unwrap()[0],
-            2.0.into()
-        );
-
-        let mut ctx = Context::new();
-        let a = ctx.var("a").unwrap();
-        let sum = ctx.add(a, 1.0).unwrap();
-        let div = ctx.div(sum, 2.0).unwrap();
-        let shape = S::new(&ctx, div).unwrap();
-
-        let mut eval = S::new_grad_slice_eval();
-        let tape = shape.ez_grad_slice_tape();
-        assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[1.0]).unwrap()[0],
-            1.0.into()
-        );
-        assert_eq!(
-            eval.eval(&tape, &[0.0], &[0.0], &[0.0], &[2.0]).unwrap()[0],
-            1.5.into()
-        );
-
-        let mut ctx = Context::new();
-        let a = ctx.var("a").unwrap();
-        let b = ctx.var("b").unwrap();
-        let sum = ctx.add(a, 1.0).unwrap();
-        let min = ctx.div(sum, b).unwrap();
-        let shape = S::new(&ctx, min).unwrap();
-        let mut vars = Vars::new(shape.vars());
-        let mut eval = S::new_grad_slice_eval();
-        let tape = shape.ez_grad_slice_tape();
-
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 5.0), ("b", 3.0)].into_iter())
-            )
-            .unwrap()[0],
-            2.0.into()
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 3.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()[0],
-            2.0.into()
-        );
-        assert_eq!(
-            eval.eval(
-                &tape,
-                &[0.0],
-                &[0.0],
-                &[0.0],
-                vars.bind([("a", 0.0), ("b", 2.0)].into_iter())
-            )
-            .unwrap()[0],
-            0.5.into(),
         );
     }
 
@@ -408,7 +331,7 @@ where
         let mut eval = S::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
 
-        let out = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        let out = eval.eval(&tape, &x, &y, &z).unwrap();
 
         // Compare values (the `.v` term) with the context's evaluator
         for (i, v) in out.iter().cloned().enumerate() {
@@ -434,7 +357,7 @@ where
         let mut eval = VmShape::new_grad_slice_eval();
         let tape = shape.ez_grad_slice_tape();
 
-        let cmp = eval.eval(&tape, &x, &y, &z, &[]).unwrap();
+        let cmp = eval.eval(&tape, &x, &y, &z).unwrap();
         for (a, b) in out.iter().zip(cmp.iter()) {
             a.compare_eq(*b)
         }
@@ -459,9 +382,9 @@ where
             let tape = shape.ez_grad_slice_tape();
 
             let out = match i {
-                0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                0 => eval.eval(&tape, &args, &zero, &zero),
+                1 => eval.eval(&tape, &zero, &args, &zero),
+                2 => eval.eval(&tape, &zero, &zero, &args),
                 _ => unreachable!(),
             }
             .unwrap();
@@ -614,15 +537,15 @@ where
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match (i, j) {
-                        (0, 0) => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        (0, 1) => eval.eval(&tape, &args, &rgsa, &zero, &[]),
-                        (0, 2) => eval.eval(&tape, &args, &zero, &rgsa, &[]),
-                        (1, 0) => eval.eval(&tape, &rgsa, &args, &zero, &[]),
-                        (1, 1) => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        (1, 2) => eval.eval(&tape, &zero, &args, &rgsa, &[]),
-                        (2, 0) => eval.eval(&tape, &rgsa, &zero, &args, &[]),
-                        (2, 1) => eval.eval(&tape, &zero, &rgsa, &args, &[]),
-                        (2, 2) => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        (0, 0) => eval.eval(&tape, &args, &zero, &zero),
+                        (0, 1) => eval.eval(&tape, &args, &rgsa, &zero),
+                        (0, 2) => eval.eval(&tape, &args, &zero, &rgsa),
+                        (1, 0) => eval.eval(&tape, &rgsa, &args, &zero),
+                        (1, 1) => eval.eval(&tape, &zero, &args, &zero),
+                        (1, 2) => eval.eval(&tape, &zero, &args, &rgsa),
+                        (2, 0) => eval.eval(&tape, &rgsa, &zero, &args),
+                        (2, 1) => eval.eval(&tape, &zero, &rgsa, &args),
+                        (2, 2) => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -663,9 +586,9 @@ where
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        0 => eval.eval(&tape, &args, &zero, &zero),
+                        1 => eval.eval(&tape, &zero, &args, &zero),
+                        2 => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -706,9 +629,9 @@ where
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero, &[]),
-                        1 => eval.eval(&tape, &zero, &args, &zero, &[]),
-                        2 => eval.eval(&tape, &zero, &zero, &args, &[]),
+                        0 => eval.eval(&tape, &args, &zero, &zero),
+                        1 => eval.eval(&tape, &zero, &args, &zero),
+                        2 => eval.eval(&tape, &zero, &zero, &args),
                         _ => unreachable!(),
                     }
                     .unwrap();
@@ -763,7 +686,6 @@ macro_rules! grad_slice_tests {
         $crate::grad_test!(test_g_not, $t);
         $crate::grad_test!(test_g_div, $t);
         $crate::grad_test!(test_g_recip, $t);
-        $crate::grad_test!(test_g_var, $t);
         $crate::grad_test!(test_g_stress, $t);
 
         mod g_unary {

@@ -18,10 +18,10 @@
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
 //!
-//! let (v, _trace) = eval.eval(&tape, 0.0, 0.0, 0.0, &[])?;
+//! let (v, _trace) = eval.eval(&tape, 0.0, 0.0, 0.0)?;
 //! assert_eq!(v, -1.0);
 //!
-//! let (v, _trace) = eval.eval(&tape, 1.0, 0.0, 0.0, &[])?;
+//! let (v, _trace) = eval.eval(&tape, 1.0, 0.0, 0.0)?;
 //! assert_eq!(v, 0.0);
 //!
 //! const N: usize = 15;
@@ -29,7 +29,7 @@
 //!     for j in 0..N {
 //!         let x = (i as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
 //!         let y = (j as f32 + 0.5) / (N as f32 / 2.0) - 1.0;
-//!         let (v, _trace) = eval.eval(&tape, x, y, 0.0, &[])?;
+//!         let (v, _trace) = eval.eval(&tape, x, y, 0.0)?;
 //!         print!("{}", if v < 0.0 { "XX" } else { "  " });
 //!     }
 //!     println!();

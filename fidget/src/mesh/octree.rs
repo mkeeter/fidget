@@ -532,7 +532,6 @@ impl<S: Shape> OctreeBuilder<S> {
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
-                &[],
             )
             .unwrap();
         if i.upper() < 0.0 {
@@ -656,13 +655,7 @@ impl<S: Shape> OctreeBuilder<S> {
 
         let out = self
             .eval_float_slice
-            .eval(
-                eval.float_slice_tape(&mut self.tape_storage),
-                &xs,
-                &ys,
-                &zs,
-                &[],
-            )
+            .eval(eval.float_slice_tape(&mut self.tape_storage), &xs, &ys, &zs)
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -763,13 +756,7 @@ impl<S: Shape> OctreeBuilder<S> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval(
-                    eval.float_slice_tape(&mut self.tape_storage),
-                    xs,
-                    ys,
-                    zs,
-                    &[],
-                )
+                .eval(eval.float_slice_tape(&mut self.tape_storage), xs, ys, zs)
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -828,13 +815,7 @@ impl<S: Shape> OctreeBuilder<S> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval(
-                eval.grad_slice_tape(&mut self.tape_storage),
-                xs,
-                ys,
-                zs,
-                &[],
-            )
+            .eval(eval.grad_slice_tape(&mut self.tape_storage), xs, ys, zs)
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
@@ -1639,8 +1620,7 @@ mod test {
                     let tape = shape.ez_point_tape();
                     for v in &octree.verts {
                         let v = v.pos;
-                        let (r, _) =
-                            eval.eval(&tape, v.x, v.y, v.z, &[]).unwrap();
+                        let (r, _) = eval.eval(&tape, v.x, v.y, v.z).unwrap();
                         assert!(r.abs() < EPSILON, "bad value at {v:?}: {r}");
                     }
                 }
@@ -1660,10 +1640,10 @@ mod test {
 
             let mut eval = VmShape::new_point_eval();
             let tape = shape.ez_point_tape();
-            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z, &[]).unwrap();
+            let (v, _) = eval.eval(&tape, tip.x, tip.y, tip.z).unwrap();
             assert!(v.abs() < 1e-6, "bad tip value: {v}");
             let (v, _) =
-                eval.eval(&tape, corner.x, corner.y, corner.z, &[]).unwrap();
+                eval.eval(&tape, corner.x, corner.y, corner.z).unwrap();
             assert!(v < 0.0, "bad corner value: {v}");
 
             let octree = Octree::build(&shape, DEPTH0_SINGLE_THREAD);

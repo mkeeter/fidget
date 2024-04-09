@@ -79,7 +79,7 @@ impl<S: Shape> Worker<'_, S> {
 
         let (i, trace) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z, &[])
+            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -186,7 +186,6 @@ impl<S: Shape> Worker<'_, S> {
                 &self.scratch.x[..index],
                 &self.scratch.y[..index],
                 &self.scratch.z[..index],
-                &[],
             )
             .unwrap();
 
@@ -242,7 +241,6 @@ impl<S: Shape> Worker<'_, S> {
                     &self.scratch.x[..grad],
                     &self.scratch.y[..grad],
                     &self.scratch.z[..grad],
-                    &[],
                 )
                 .unwrap();
 

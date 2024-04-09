@@ -5,7 +5,6 @@ use crate::{
     vm::Choice,
     Error,
 };
-use std::collections::HashMap;
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
@@ -72,11 +71,6 @@ impl<const N: usize> VmData<N> {
         Ok(Self { ssa, asm })
     }
 
-    /// Returns this tape's mapping of variable names to indexes
-    pub fn vars(&self) -> &HashMap<String, u32> {
-        &self.ssa.vars
-    }
-
     /// Returns the length of the internal VM tape
     pub fn len(&self) -> usize {
         self.asm.len()
@@ -98,11 +92,6 @@ impl<const N: usize> VmData<N> {
     /// Returns the number of slots used by the inner VM tape
     pub fn slot_count(&self) -> usize {
         self.asm.slot_count()
-    }
-
-    /// Returns the number of variables used in this tape
-    pub fn var_count(&self) -> usize {
-        self.ssa.vars.len()
     }
 
     /// Simplifies both inner tapes, using the provided choice array
@@ -154,9 +143,7 @@ impl<const N: usize> VmData<N> {
             let new_index = workspace.active(index).unwrap();
 
             match &mut op {
-                SsaOp::Input(index, ..)
-                | SsaOp::Var(index, ..)
-                | SsaOp::CopyImm(index, ..) => {
+                SsaOp::Input(index, ..) | SsaOp::CopyImm(index, ..) => {
                     *index = new_index;
                 }
                 SsaOp::NegReg(index, arg)
@@ -285,7 +272,6 @@ impl<const N: usize> VmData<N> {
             ssa: SsaTape {
                 tape: ops_out,
                 choice_count,
-                vars: self.ssa.vars.clone(),
             },
             asm: asm_tape,
         })

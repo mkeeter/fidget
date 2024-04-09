@@ -50,7 +50,6 @@ pub enum BinaryOpcode {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Op {
     Input(VarNode),
-    Var(VarNode),
     Const(OrderedFloat<f64>),
     Binary(BinaryOpcode, Node, Node),
     Unary(UnaryOpcode, Node),
@@ -71,7 +70,7 @@ impl Op {
     pub fn dot_node_color(&self) -> &str {
         match self {
             Op::Const(..) => "green",
-            Op::Var(..) | Op::Input(..) => "red",
+            Op::Input(..) => "red",
             Op::Binary(BinaryOpcode::Min | BinaryOpcode::Max, ..) => {
                 "dodgerblue"
             }
@@ -83,7 +82,7 @@ impl Op {
     pub fn dot_node_shape(&self) -> &str {
         match self {
             Op::Const(..) => "oval",
-            Op::Var(..) | Op::Input(..) => "circle",
+            Op::Input(..) => "circle",
             Op::Binary(..) | Op::Unary(..) => "box",
         }
     }
@@ -93,7 +92,7 @@ impl Op {
         let out = match self {
             Op::Binary(_, a, b) => [Some(*a), Some(*b)],
             Op::Unary(_, a) => [Some(*a), None],
-            Op::Var(..) | Op::Input(..) | Op::Const(..) => [None, None],
+            Op::Input(..) | Op::Const(..) => [None, None],
         };
         out.into_iter().flatten()
     }
