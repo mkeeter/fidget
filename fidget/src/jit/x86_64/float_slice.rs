@@ -15,9 +15,8 @@ pub const SIMD_WIDTH: usize = 8;
 /// | X        | `rdi`    | `*const [f32; 8]`   |
 /// | Y        | `rsi`    | `*const [f32; 8]`   |
 /// | Z        | `rdx`    | `*const [f32; 8]`   |
-/// | vars     | `rcx`    | `*const f32`        |
-/// | out      | `r8`     | `*mut [f32; 8]`     |
-/// | size     | `r9`     | `u64`               |
+/// | out      | `rcx`    | `*mut [f32; 8]`     |
+/// | size     | `r8`     | `u64`               |
 ///
 /// The arrays (other than `vars`) must be an even multiple of 8 floats, since
 /// we're using AVX2 and 256-bit wide operations for everything.  The `vars`
@@ -39,8 +38,8 @@ pub const SIMD_WIDTH: usize = 8;
 /// | -0x18    | `rdx`        | previous values on the stack                |
 /// | -0x20    | `rcx`        |                                             |
 /// | -0x28    | `r8`         |                                             |
-/// | -0x30    | `r9`         |                                             |
-/// | -0x38    | `r15`        |                                             |
+/// | -0x30    | `r15`        |                                             |
+/// | -0x38    | padding      |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | -0x40    | Z            | Inputs (as 8x floats)                       |
 /// | -0x60    | Y            |                                             |
@@ -82,7 +81,7 @@ impl Assembler for FloatSliceAssembler {
             // The loop returns here, and we check whether to keep looping
             ; ->L:
 
-            ; test r9, r9
+            ; test r8, r8
             ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
             // Copy from the input pointers into the stack
@@ -355,9 +354,9 @@ impl Assembler for FloatSliceAssembler {
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [r8], Ry(reg(out_reg))
-            ; add r8, 32
-            ; sub r9, 8
+            ; vmovups [rcx], Ry(reg(out_reg))
+            ; add rcx, 32
+            ; sub r8, 8
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
@@ -388,8 +387,7 @@ impl FloatSliceAssembler {
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
             ; mov [rbp - 0x28], r8
-            ; mov [rbp - 0x30], r9
-            ; mov [rbp - 0x38], r15
+            ; mov [rbp - 0x30], r15
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], ymm4
@@ -457,8 +455,7 @@ impl FloatSliceAssembler {
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
             ; mov r8, [rbp - 0x28]
-            ; mov r9, [rbp - 0x30]
-            ; mov r15, [rbp - 0x38]
+            ; mov r15, [rbp - 0x30]
         );
     }
 }

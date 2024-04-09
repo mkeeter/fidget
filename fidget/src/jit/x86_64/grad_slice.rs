@@ -17,9 +17,8 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | X          | `rdi`    | `*const f32`       |
 /// | Y          | `rsi`    | `*const f32`       |
 /// | Z          | `rdx`    | `*const f32`       |
-/// | `vars`     | `rcx`    | `*const f32`       |
-/// | `out`      | `r8`     | `*const [f32; 4]`  |
-/// | `count`    | `r9`     | `u64`              |
+/// | `out`      | `rcx`    | `*const [f32; 4]`  |
+/// | `count`    | `r8`     | `u64`              |
 ///
 /// During evaluation, X, Y, and Z values are stored on the stack to keep
 /// registers unoccupied.
@@ -36,11 +35,10 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | -0x18    | `rdx`        | previous values on the stack                |
 /// | -0x20    | `rcx`        |                                             |
 /// | -0x28    | `r8`         |                                             |
-/// | -0x30    | `r9`         |                                             |
 /// |----------|--------------|---------------------------------------------|
-/// | -0x40    | Z            | Inputs (as 4x floats)                       |
-/// | -0x50    | Y            |                                             |
-/// | -0x60    | X            |                                             |
+/// | -0x30    | Z            | Inputs (as 4x floats)                       |
+/// | -0x40    | Y            |                                             |
+/// | -0x50    | X            |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -57,7 +55,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x10     | xmm5         |                                             |
 /// | 0x00     | xmm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x60; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x50; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0xc0; // Positions relative to `rsp`
 
 impl Assembler for GradSliceAssembler {
@@ -89,7 +87,7 @@ impl Assembler for GradSliceAssembler {
             // The loop returns here, and we check whether to keep looping
             ; ->L:
 
-            ; test r9, r9
+            ; test r8, r8
             ; jz ->X // jump to the exit if we're done, otherwise fallthrough
 
             // Copy from the input pointers into the stack right below rbp
@@ -465,9 +463,9 @@ impl Assembler for GradSliceAssembler {
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [r8], Rx(reg(out_reg))
-            ; add r8, 16 // 4x float
-            ; sub r9, 1
+            ; vmovups [rcx], Rx(reg(out_reg))
+            ; add rcx, 16 // 4x float
+            ; sub r8, 1
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
@@ -497,7 +495,6 @@ impl GradSliceAssembler {
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
             ; mov [rbp - 0x28], r8
-            ; mov [rbp - 0x30], r9
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], xmm4
@@ -539,7 +536,6 @@ impl GradSliceAssembler {
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
             ; mov r8, [rbp - 0x28]
-            ; mov r9, [rbp - 0x30]
 
             // Collect the 4x floats into the out register
             ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
