@@ -35,10 +35,11 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | -0x18    | `rdx`        | previous values on the stack                |
 /// | -0x20    | `rcx`        |                                             |
 /// | -0x28    | `r8`         |                                             |
+/// | -0x30    | padding      |                                             |
 /// |----------|--------------|---------------------------------------------|
-/// | -0x30    | Z            | Inputs (as 4x floats)                       |
-/// | -0x40    | Y            |                                             |
-/// | -0x50    | X            |                                             |
+/// | -0x40    | Z            | Inputs (as 4x floats)                       |
+/// | -0x50    | Y            |                                             |
+/// | -0x60    | X            |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -55,7 +56,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x10     | xmm5         |                                             |
 /// | 0x00     | xmm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x50; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x60; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0xc0; // Positions relative to `rsp`
 
 impl Assembler for GradSliceAssembler {
@@ -557,7 +558,6 @@ impl GradSliceAssembler {
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
             ; mov [rbp - 0x28], r8
-            ; mov [rbp - 0x30], r9
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], xmm4
@@ -603,7 +603,6 @@ impl GradSliceAssembler {
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
             ; mov r8, [rbp - 0x28]
-            ; mov r9, [rbp - 0x30]
 
             // Collect the 4x floats into the out register
             ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
