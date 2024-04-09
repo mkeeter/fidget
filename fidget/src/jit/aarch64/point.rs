@@ -447,8 +447,8 @@ impl PointAssembler {
             ; stp s0, s1, [sp, 0x90]
             ; str s2, [sp, 0x98]
 
-            // Load the function address, awkwardly, into x0
-            // (since it doesn't matter if it gets trashed)
+            // Load the function address, awkwardly, into x0 (it doesn't matter
+            // that it's about to be overwritten, because we only call it once)
             ; movz x0, ((addr >> 48) as u32), lsl 48
             ; movk x0, ((addr >> 32) as u32), lsl 32
             ; movk x0, ((addr >> 16) as u32), lsl 16

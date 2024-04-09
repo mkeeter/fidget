@@ -36,7 +36,6 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `w9`     | Staging for loading immediates                       |
 /// | `w15`    | Staging to load variables                            |
 /// | `x20-25` | Backups for `x0-5` during function calls             |
-/// | `x26`    | Function call address                                |
 ///
 /// The stack is configured as follows
 ///
@@ -547,12 +546,13 @@ impl GradSliceAssembler {
             ; stp q28, q29, [sp, 0x190]
             ; stp q30, q31, [sp, 0x1b0]
 
-            // Load the function address, awkwardly, into a callee-saved
-            // register (so we only need to do this once)
-            ; movz x26, ((addr >> 48) as u32), lsl 48
-            ; movk x26, ((addr >> 32) as u32), lsl 32
-            ; movk x26, ((addr >> 16) as u32), lsl 16
-            ; movk x26, addr as u32
+            // Load the function address, awkwardly, into x0 (it doesn't matter
+            // that it can be overwritten, because we're only ever calling it
+            // once)
+            ; movz x0, ((addr >> 48) as u32), lsl 48
+            ; movk x0, ((addr >> 32) as u32), lsl 32
+            ; movk x0, ((addr >> 16) as u32), lsl 16
+            ; movk x0, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
@@ -560,7 +560,7 @@ impl GradSliceAssembler {
             ; mov s2, V(reg(arg_reg)).s[2]
             ; mov s3, V(reg(arg_reg)).s[3]
 
-            ; blr x26
+            ; blr x0
 
             // Restore register state (lol)
             ; ldp q8, q9, [sp, 0x50]

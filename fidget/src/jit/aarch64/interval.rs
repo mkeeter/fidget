@@ -757,8 +757,8 @@ impl IntervalAssembler {
             ; stp d0, d1, [sp, 0xd0]
             ; str d2, [sp, 0xe0]
 
-            // Load the function address, awkwardly, into a caller-saved
-            // register (so we only need to do this once)
+            // Load the function address, awkwardly, into x0 (it doesn't matter
+            // that it's about to be overwritten, because we only call it once)
             ; movz x0, ((addr >> 48) as u32), lsl 48
             ; movk x0, ((addr >> 32) as u32), lsl 32
             ; movk x0, ((addr >> 16) as u32), lsl 16
