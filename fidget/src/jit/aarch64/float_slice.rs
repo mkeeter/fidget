@@ -16,10 +16,8 @@ pub const SIMD_WIDTH: usize = 4;
 /// | out      | `x3`     | `*mut [f32; 4]`     |
 /// | size     | `x4`     | `u64`               |
 ///
-/// The arrays (other than `vars`) must be an even multiple of 4 floats, since
-/// we're using NEON and 128-bit wide operations for everything.  The `vars`
-/// array contains single `f32` values, which are broadcast into SIMD registers
-/// when they are used.
+/// The arrays must be an even multiple of 4 floats, since we're using NEON and
+/// 128-bit wide operations for everything.
 ///
 /// During evaluation, the following registers are used:
 ///

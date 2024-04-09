@@ -39,9 +39,6 @@ pub trait BulkEvaluator: Default {
     /// This function may assume that the `x`, `y`, `z`, and `out` slices are of
     /// equal length and panic otherwise; higher-level calls should maintain
     /// that invariant.
-    ///
-    /// This function may also assume that `vars` is correctly sized for the
-    /// number of variables in the tape.
     fn eval(
         &mut self,
         tape: &Self::Tape,

@@ -68,9 +68,9 @@ impl Assembler for IntervalAssembler {
             ; vzeroupper
 
             // Put X/Y/Z on the stack so we can use those registers
-            ; vmovsd [rbp - 0x30], xmm0
-            ; vmovsd [rbp - 0x28], xmm1
-            ; vmovsd [rbp - 0x20], xmm2
+            ; vmovsd [rbp - 0x20], xmm0
+            ; vmovsd [rbp - 0x18], xmm1
+            ; vmovsd [rbp - 0x10], xmm2
         );
         Self(out)
     }
@@ -764,7 +764,7 @@ impl IntervalAssembler {
         }
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up vars/choice/simplify pointers to registers
+            // Back up choice/simplify pointers to registers
             ; mov r12, rdi
             ; mov r13, rsi
 
@@ -804,7 +804,7 @@ impl IntervalAssembler {
             ; vmovsd xmm14, [rsp + 0x50]
             ; vmovsd xmm15, [rsp + 0x58]
 
-            // Restore vars/choice/simplify pointers
+            // Restore choice/simplify pointers
             ; mov rdi, r12
             ; mov rsi, r13
 
@@ -830,7 +830,7 @@ impl IntervalAssembler {
         }
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up vars/choice/simplify pointers to registers
+            // Back up choice/simplify pointers to registers
             ; mov r12, rdi
             ; mov r13, rsi
 
@@ -872,7 +872,7 @@ impl IntervalAssembler {
             ; vmovsd xmm14, [rsp + 0x50]
             ; vmovsd xmm15, [rsp + 0x58]
 
-            // Restore vars/choice/simplify pointers
+            // Restore choice/simplify pointers
             ; mov rdi, r12
             ; mov rsi, r13
 
