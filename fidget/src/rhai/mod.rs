@@ -51,7 +51,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
-use rhai::{CustomType, TypeBuilder};
+use rhai::{CustomType, NativeCallContext, TypeBuilder};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -86,11 +86,8 @@ impl Engine {
 
         macro_rules! register_binary_fns {
             ($op:literal, $name:ident, $engine:ident) => {
-                $engine.register_fn($op, $name::node_node);
-                $engine.register_fn($op, $name::node_float);
-                $engine.register_fn($op, $name::float_node);
-                $engine.register_fn($op, $name::node_int);
-                $engine.register_fn($op, $name::int_node);
+                $engine.register_fn($op, $name::node_dyn);
+                $engine.register_fn($op, $name::dyn_node);
             };
         }
         macro_rules! register_unary_fns {
@@ -103,8 +100,13 @@ impl Engine {
         register_binary_fns!("-", sub, engine);
         register_binary_fns!("*", mul, engine);
         register_binary_fns!("/", div, engine);
+        register_binary_fns!("%", modulo, engine);
         register_binary_fns!("min", min, engine);
         register_binary_fns!("max", max, engine);
+        register_binary_fns!("compare", compare, engine);
+        register_binary_fns!("and", and, engine);
+        register_binary_fns!("or", or, engine);
+        register_unary_fns!("abs", abs, engine);
         register_unary_fns!("sqrt", sqrt, engine);
         register_unary_fns!("square", square, engine);
         register_unary_fns!("sin", sin, engine);
@@ -115,7 +117,14 @@ impl Engine {
         register_unary_fns!("atan", atan, engine);
         register_unary_fns!("exp", exp, engine);
         register_unary_fns!("ln", ln, engine);
+        register_unary_fns!("not", not, engine);
         register_unary_fns!("-", neg, engine);
+
+        // Ban comparison operators
+        for op in ["==", "!=", "<", ">", "<=", ">="] {
+            engine.register_fn(op, bad_cmp_node_dyn);
+            engine.register_fn(op, bad_cmp_dyn_node);
+        }
 
         engine.set_fast_operators(false);
 
@@ -223,7 +232,7 @@ struct Axes {
     z: Tree,
 }
 
-fn axes(_ctx: rhai::NativeCallContext) -> Axes {
+fn axes(_ctx: NativeCallContext) -> Axes {
     let (x, y, z) = Tree::axes();
     Axes { x, y, z }
 }
@@ -232,7 +241,7 @@ fn remap_xyz(shape: Tree, x: Tree, y: Tree, z: Tree) -> Tree {
     shape.remap_xyz(x, y, z)
 }
 
-fn draw(ctx: rhai::NativeCallContext, tree: Tree) {
+fn draw(ctx: NativeCallContext, tree: Tree) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
         tree,
@@ -240,7 +249,7 @@ fn draw(ctx: rhai::NativeCallContext, tree: Tree) {
     });
 }
 
-fn draw_rgb(ctx: rhai::NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
+fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     let f = |a| {
         if a < 0.0 {
@@ -261,40 +270,51 @@ macro_rules! define_binary_fns {
     ($name:ident $(, $op:ident)?) => {
         mod $name {
             use super::*;
-            use rhai::NativeCallContext;
+            use NativeCallContext;
             $(
             use std::ops::$op;
             )?
-            pub fn node_node(
+            pub fn node_dyn(
                 _ctx: NativeCallContext,
                 a: Tree,
-                b: Tree,
-            ) -> Tree {
-                a.$name(b)
+                b: rhai::Dynamic,
+            ) -> Result<Tree, Box<rhai::EvalAltResult>> {
+                let b = if let Some(v) = b.clone().try_cast::<f64>() {
+                    Tree::constant(v)
+                } else if let Some(v) = b.clone().try_cast::<i64>() {
+                    Tree::constant(v as f64)
+                } else if let Some(t) = b.clone().try_cast::<Tree>() {
+                    t
+                } else {
+                    let e = format!(
+                        "invalid type for {}(Tree, rhs): {}",
+                        stringify!($name),
+                        b.type_name()
+                    );
+                    return Err(e.into());
+                };
+                Ok(a.$name(b))
             }
-            pub fn node_float(
+            pub fn dyn_node(
                 _ctx: NativeCallContext,
-                a: Tree,
-                b: f64,
-            ) -> Tree {
-                let b = Tree::constant(b);
-                a.$name(b)
-            }
-            pub fn float_node(
-                _ctx: NativeCallContext,
-                a: f64,
+                a: rhai::Dynamic,
                 b: Tree,
-            ) -> Tree {
-                let a = Tree::constant(a);
-                a.$name(b)
-            }
-            pub fn node_int(_ctx: NativeCallContext, a: Tree, b: i64) -> Tree {
-                let b = Tree::constant(b as f64);
-                a.$name(b)
-            }
-            pub fn int_node(_ctx: NativeCallContext, a: i64, b: Tree) -> Tree {
-                let a = Tree::constant(a as f64);
-                a.$name(b)
+            ) -> Result<Tree, Box<rhai::EvalAltResult>> {
+                let a = if let Some(v) = a.clone().try_cast::<f64>() {
+                    Tree::constant(v)
+                } else if let Some(v) = a.clone().try_cast::<i64>() {
+                    Tree::constant(v as f64)
+                } else if let Some(t) = a.clone().try_cast::<Tree>() {
+                    t
+                } else {
+                    let e = format!(
+                        "invalid type for {}(lhs, Tree): {}",
+                        stringify!($name),
+                        a.type_name()
+                    );
+                    return Err(e.into());
+                };
+                Ok(a.$name(b))
             }
         }
     };
@@ -304,12 +324,29 @@ macro_rules! define_unary_fns {
     ($name:ident) => {
         mod $name {
             use super::*;
-            use rhai::NativeCallContext;
             pub fn node(_ctx: NativeCallContext, a: Tree) -> Tree {
                 a.$name()
             }
         }
     };
+}
+
+fn bad_cmp_node_dyn(
+    _ctx: NativeCallContext,
+    _a: Tree,
+    _b: rhai::Dynamic,
+) -> Result<Tree, Box<rhai::EvalAltResult>> {
+    let e = "cannot compare Tree types during function tracing";
+    Err(e.into())
+}
+
+fn bad_cmp_dyn_node(
+    _ctx: NativeCallContext,
+    _a: rhai::Dynamic,
+    _b: Tree,
+) -> Result<Tree, Box<rhai::EvalAltResult>> {
+    let e = "cannot compare Tree types during function tracing";
+    Err(e.into())
 }
 
 define_binary_fns!(add, Add);
@@ -318,6 +355,10 @@ define_binary_fns!(mul, Mul);
 define_binary_fns!(div, Div);
 define_binary_fns!(min);
 define_binary_fns!(max);
+define_binary_fns!(compare);
+define_binary_fns!(modulo);
+define_binary_fns!(and);
+define_binary_fns!(or);
 define_unary_fns!(sqrt);
 define_unary_fns!(square);
 define_unary_fns!(neg);
@@ -329,6 +370,8 @@ define_unary_fns!(acos);
 define_unary_fns!(atan);
 define_unary_fns!(exp);
 define_unary_fns!(ln);
+define_unary_fns!(not);
+define_unary_fns!(abs);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -376,6 +419,13 @@ mod test {
         let mut ctx = Context::new();
         let sum = ctx.import(&out.shapes[0].tree);
         assert_eq!(ctx.eval_xyz(sum, 1.0, 3.0, 0.0).unwrap(), -2.0);
+    }
+
+    #[test]
+    fn test_no_comparison() {
+        let mut engine = Engine::new();
+        let out = engine.run("x < 0");
+        assert!(out.is_err());
     }
 }
 
