@@ -100,7 +100,7 @@ impl Assembler for FloatSliceAssembler {
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         let pos = 8 * (src_arg as i32);
         dynasm!(self.0.ops
-            ; movq r8, [rdi + pos]  // read the *const float from the array
+            ; mov r8, [rdi + pos]   // read the *const float from the array
             ; add r8, rcx           // offset it by array position
             ; vmovups Ry(reg(out_reg)), [r8]
         );
