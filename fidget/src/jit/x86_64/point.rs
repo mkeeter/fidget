@@ -18,9 +18,6 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
 ///
-/// X, Y, and Z are stored on the stack during code execution, to free up those
-/// registers as scratch values.
-///
 /// The stack is configured as follows
 ///
 /// ```text

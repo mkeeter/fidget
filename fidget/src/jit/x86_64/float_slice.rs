@@ -10,19 +10,16 @@ pub const SIMD_WIDTH: usize = 8;
 ///
 /// Arguments are passed as follows:
 ///
-/// | Argument | Register | Type                |
-/// | ---------|----------|---------------------|
-/// | X        | `rdi`    | `*const [f32; 8]`   |
-/// | Y        | `rsi`    | `*const [f32; 8]`   |
-/// | Z        | `rdx`    | `*const [f32; 8]`   |
-/// | out      | `rcx`    | `*mut [f32; 8]`     |
-/// | size     | `r8`     | `u64`               |
+/// | Argument | Register | Type                       |
+/// | ---------|----------|----------------------------|
+/// | vars     | `rdi`    | `*const *const [f32; 8]`   |
+/// | out      | `rsi`    | `*mut [f32; 8]`            |
+/// | size     | `rdx`    | `u64`                      |
 ///
 /// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
 /// 256-bit wide operations for everything.
 ///
-/// During evaluation, X, Y, and Z values are stored on the stack to keep
-/// registers unoccupied.
+/// During evaluation, `rcx` is used to track offset within `vars`.
 ///
 /// The stack is configured as follows
 ///
@@ -35,13 +32,7 @@ pub const SIMD_WIDTH: usize = 8;
 /// | -0x10    | `rsi`        | as temporary storage so must preserve their |
 /// | -0x18    | `rdx`        | previous values on the stack                |
 /// | -0x20    | `rcx`        |                                             |
-/// | -0x28    | `r8`         |                                             |
-/// | -0x30    | `r15`        |                                             |
-/// | -0x38    | padding      |                                             |
-/// |----------|--------------|---------------------------------------------|
-/// | -0x40    | Z            | Inputs (as 8x floats)                       |
-/// | -0x60    | Y            |                                             |
-/// | -0x80    | X            |                                             |
+/// | -0x28    | `r15`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -60,7 +51,7 @@ pub const SIMD_WIDTH: usize = 8;
 /// | 0x20     | ymm5         |                                             |
 /// | 0x00     | ymm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x80; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x28; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x200; // Positions relative to `rsp`
 
 impl Assembler for FloatSliceAssembler {
@@ -76,24 +67,13 @@ impl Assembler for FloatSliceAssembler {
         dynasm!(out.ops
             // TODO should there be a `vzeroupper` in here?
 
+            ; xor rcx, rcx // set the array offset (rcx) to 0
+
             // The loop returns here, and we check whether to keep looping
             ; ->L:
 
-            ; test r8, r8
+            ; test rdx, rdx
             ; jz ->X // jump to the exit if we're done, otherwise fallthrough
-
-            // Copy from the input pointers into the stack
-            ; vmovups ymm0, [rdi]
-            ; vmovups [rbp - (STACK_SIZE_UPPER as i32)], ymm0
-            ; add rdi, 32
-
-            ; vmovups ymm0, [rsi]
-            ; vmovups [rbp - (STACK_SIZE_UPPER as i32 - 32)], ymm0
-            ; add rsi, 32
-
-            ; vmovups ymm0, [rdx]
-            ; vmovups [rbp - (STACK_SIZE_UPPER as i32 - 32 * 2)], ymm0
-            ; add rdx, 32
         );
         Self(out)
     }
@@ -118,9 +98,11 @@ impl Assembler for FloatSliceAssembler {
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        let pos = STACK_SIZE_UPPER as i32 - 32 * (src_arg as i32);
+        let pos = 8 * (src_arg as i32);
         dynasm!(self.0.ops
-            ; vmovups Ry(reg(out_reg)), [rbp - pos]
+            ; movq r8, [rdi + pos]  // read the *const float from the array
+            ; add r8, rcx           // offset it by array position
+            ; vmovups Ry(reg(out_reg)), [r8]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -352,9 +334,10 @@ impl Assembler for FloatSliceAssembler {
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [rcx], Ry(reg(out_reg))
-            ; add rcx, 32
-            ; sub r8, 8
+            ; vmovups [rsi], Ry(reg(out_reg))
+            ; add rsi, 32
+            ; sub rdx, 8
+            ; add rcx, 64
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
@@ -379,13 +362,12 @@ impl FloatSliceAssembler {
     ) {
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to the stack
+            // Back up all of our pointers to the stack
             ; mov [rbp - 0x8], rdi
             ; mov [rbp - 0x10], rsi
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
-            ; mov [rbp - 0x28], r8
-            ; mov [rbp - 0x30], r15
+            ; mov [rbp - 0x28], r15
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], ymm4
@@ -447,13 +429,12 @@ impl FloatSliceAssembler {
             // Get the output value from the stack
             ; vmovups Ry(reg(out_reg)), [rsp + 0x180]
 
-            // Restore X/Y/Z pointers
+            // Restore pointers
             ; mov rdi, [rbp - 0x8]
             ; mov rsi, [rbp - 0x10]
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
-            ; mov r8, [rbp - 0x28]
-            ; mov r15, [rbp - 0x30]
+            ; mov r15, [rbp - 0x28]
         );
     }
 }
