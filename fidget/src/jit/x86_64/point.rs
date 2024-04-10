@@ -93,8 +93,8 @@ impl Assembler for PointAssembler {
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
         let pos = 4 * (src_arg as i32);
         dynasm!(self.0.ops
-            // Pull X/Y/Z from the stack, where they've been placed by init()
-            ; vmovss Rx(reg(out_reg)), [rdi - pos]
+            // Pull the input from the rdi array
+            ; vmovss Rx(reg(out_reg)), [rdi + pos]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
