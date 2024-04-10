@@ -128,10 +128,7 @@ impl Assembler for GradSliceAssembler {
             ; cmp x2, 0
             ; b.eq ->E // function exit
 
-            // Loop body:
-            ; sub x2, x2, 1 // We handle 1 item at a time
-
-            // Math begins below!
+            // Loop body: math begins below
         );
 
         Self(out)
@@ -468,8 +465,11 @@ impl Assembler for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
+            // update our "items remaining" counter
+            ; sub x2, x2, 1 // We handle 1 item at a time
+
             // Adjust the array offset pointer
-            ; add x3, x3, 4
+            ; add x3, x3, 4 // 1 item = 4 bytes
 
             // Prepare our return value, writing to the pointer in x1
             ; str Q(reg(out_reg)), [x1], 16

@@ -126,9 +126,7 @@ impl Assembler for FloatSliceAssembler {
             ; cmp x2, 0
             ; b.eq ->E // function exit
 
-            // Loop body:
-            //
-            ; sub x2, x2, 4 // We handle 4 items at a time
+            // Loop body: math begins below
         );
 
         Self(out)
@@ -353,6 +351,9 @@ impl Assembler for FloatSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
+            // update our "items remaining" counter
+            ; sub x2, x2, 4 // We handle 4 items at a time
+
             // Adjust the array offset pointer
             ; add x3, x3, 16
 
