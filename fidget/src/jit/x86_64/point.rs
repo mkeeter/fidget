@@ -383,6 +383,7 @@ impl Assembler for PointAssembler {
             dynasm!(self.0.ops
                 ; mov r12, [rbp - 0x8]
                 ; mov r13, [rbp - 0x10]
+                ; mov r14, [rbp - 0x18]
             );
         }
         dynasm!(self.0.ops
@@ -409,6 +410,7 @@ impl PointAssembler {
             dynasm!(self.0.ops
                 ; mov [rbp - 0x8], r12
                 ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
             );
             self.0.saved_callee_regs = true
         }
