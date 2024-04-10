@@ -337,7 +337,7 @@ impl Assembler for FloatSliceAssembler {
             ; vmovups [rsi], Ry(reg(out_reg))
             ; add rsi, 32
             ; sub rdx, 8
-            ; add rcx, 64
+            ; add rcx, 32
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
