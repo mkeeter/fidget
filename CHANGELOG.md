@@ -18,6 +18,8 @@
 - Improved robustness of `viewer` application when editors move files instead of
   writing to them directly.
 - Add Rhai bindings for all new opcodes
+- Tweak JIT calling convention to take an array of inputs instead of X, Y, Z
+  arguments.
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images

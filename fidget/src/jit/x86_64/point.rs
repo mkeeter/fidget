@@ -14,14 +14,9 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// | Variable   | Register | Type                  |
 /// |------------|----------|-----------------------|
-/// | X          | `xmm0`   | `f32`                 |
-/// | Y          | `xmm1`   | `f32`                 |
-/// | Z          | `xmm2`   | `f32`                 |
-/// | `choices`  | `rdi`    | `*mut u8` (array)     |
-/// | `simplify` | `rsi`    | `*mut u8` (single)    |
-///
-/// X, Y, and Z are stored on the stack during code execution, to free up those
-/// registers as scratch values.
+/// | `vars`     | `rdi`    | `*const f32`          |
+/// | `choices`  | `rsi`    | `*mut u8` (array)     |
+/// | `simplify` | `rdx`    | `*mut u8` (single)    |
 ///
 /// The stack is configured as follows
 ///
@@ -32,11 +27,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// |----------|--------------|---------------------------------------------|
 /// | -0x08    | `r12`        | During functions calls, we use these        |
 /// | -0x10    | `r13`        | as temporary storage so must preserve their |
-/// |          |              | previous values on the stack                |
-/// |----------|--------------|---------------------------------------------|
-/// | -0x18    | Z            | Inputs                                      |
-/// | -0x1c    | Y            |                                             |
-/// | -0x20    | X            |                                             |
+/// | -0x18    | `r14`        | previous values on the stack                |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -53,7 +44,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x04     | xmm5         |                                             |
 /// | 0x00     | xmm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x18; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x30; // Positions relative to `rsp`
 
 impl Assembler for PointAssembler {
@@ -68,10 +59,6 @@ impl Assembler for PointAssembler {
         out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
         dynasm!(out.ops
             ; vzeroupper
-            // Put X/Y/Z on the stack to free up those registers
-            ; vmovss [rbp - 0x18], xmm2
-            ; vmovss [rbp - 0x1c], xmm1
-            ; vmovss [rbp - 0x20], xmm0
         );
         Self(out)
     }
@@ -97,10 +84,10 @@ impl Assembler for PointAssembler {
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        let pos = STACK_SIZE_UPPER as i32 - 4 * (src_arg as i32);
+        let pos = 4 * (src_arg as i32);
         dynasm!(self.0.ops
-            // Pull X/Y/Z from the stack, where they've been placed by init()
-            ; vmovss Rx(reg(out_reg)), [rbp - pos]
+            // Pull the input from the rdi array
+            ; vmovss Rx(reg(out_reg)), [rdi + pos]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -218,28 +205,28 @@ impl Assembler for PointAssembler {
             ; jb >R
 
             // Fallthrough for equal, so just copy to the output register
-            ; or [rdi], CHOICE_BOTH as i8
+            ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             // Fallthrough for NaN, which are !=; do a float addition to
             // propagate it to the output register.
             ; N:
-            ; or [rdi], CHOICE_BOTH as i8
+            ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or [rdi], CHOICE_LEFT as i8
-            ; or [rsi], 1
+            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rdx], 1
             ; jmp >O
 
             ; R:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or [rdi], CHOICE_RIGHT as i8
-            ; or [rsi], 1
+            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rdx], 1
             // fallthrough to out
 
             ; O:
@@ -254,26 +241,26 @@ impl Assembler for PointAssembler {
             ; jb >L
 
             // Fallthrough for equal, so just copy to the output register
-            ; or [rdi], CHOICE_BOTH as i8
+            ; or [rsi], CHOICE_BOTH as i8
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; jmp >O
 
             ; N:
-            ; or [rdi], CHOICE_BOTH as i8
+            ; or [rsi], CHOICE_BOTH as i8
             // TODO: this can't be the best way to make a NAN
             ; vaddss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
             ; jmp >O
 
             ; L:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(lhs_reg))
-            ; or [rdi], CHOICE_LEFT as i8
-            ; or [rsi], 1
+            ; or [rsi], CHOICE_LEFT as i8
+            ; or [rdx], 1
             ; jmp >O
 
             ; R:
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(rhs_reg))
-            ; or [rdi], CHOICE_RIGHT as i8
-            ; or [rsi], 1
+            ; or [rsi], CHOICE_RIGHT as i8
+            ; or [rdx], 1
             // fallthrough to out
 
             ; O:
@@ -318,8 +305,8 @@ impl Assembler for PointAssembler {
             ; and al, cl
             ; mov cl, 2
             ; sub cl, al
-            ; or [rdi], cl // write the choice flag, based on condition flags
-            ; or [rsi], 1 // write the simplify bit
+            ; or [rsi], cl // write the choice flag, based on condition flags
+            ; or [rdx], 1 // write the simplify bit
             ; movaps Rx(reg(out_reg)), xmm1
         );
         self.0.ops.commit_local().unwrap()
@@ -339,8 +326,8 @@ impl Assembler for PointAssembler {
             ; E:
             ; and al, cl
             ; inc al
-            ; or [rdi], al // write the choice flag, based on condition flags
-            ; or [rsi], 1 // write the simplify bit
+            ; or [rsi], al // write the choice flag, based on condition flags
+            ; or [rdx], 1 // write the simplify bit
             ; movaps Rx(reg(out_reg)), xmm1
         );
         self.0.ops.commit_local().unwrap()
@@ -389,6 +376,7 @@ impl Assembler for PointAssembler {
             dynasm!(self.0.ops
                 ; mov r12, [rbp - 0x8]
                 ; mov r13, [rbp - 0x10]
+                ; mov r14, [rbp - 0x18]
             );
         }
         dynasm!(self.0.ops
@@ -415,14 +403,16 @@ impl PointAssembler {
             dynasm!(self.0.ops
                 ; mov [rbp - 0x8], r12
                 ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
             );
             self.0.saved_callee_regs = true
         }
         let addr = f as usize;
         dynasm!(self.0.ops
-            // Back up X/Y/Z pointers to caller-saved registers
+            // Back up pointers to caller-saved registers
             ; mov r12, rdi
             ; mov r13, rsi
+            ; mov r14, rdx
 
             // Back up all register values to the stack
             ; movss [rsp], xmm4
@@ -457,9 +447,10 @@ impl PointAssembler {
             ; movss xmm14, [rsp + 0x28]
             ; movss xmm15, [rsp + 0x2c]
 
-            // Restore X/Y/Z pointers
+            // Restore pointers
             ; mov rdi, r12
             ; mov rsi, r13
+            ; mov rdx, r14
 
             ; movss Rx(reg(out_reg)), xmm0
         );

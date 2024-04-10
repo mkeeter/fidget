@@ -8,13 +8,11 @@ pub const SIMD_WIDTH: usize = 4;
 
 /// Assembler for SIMD point-wise evaluation on `aarch64`
 ///
-/// | Argument | Register | Type                |
-/// | ---------|----------|---------------------|
-/// | X        | `x0`     | `*const [f32; 4]`   |
-/// | Y        | `x1`     | `*const [f32; 4]`   |
-/// | Z        | `x2`     | `*const [f32; 4]`   |
-/// | out      | `x3`     | `*mut [f32; 4]`     |
-/// | size     | `x4`     | `u64`               |
+/// | Argument | Register | Type                     |
+/// | ---------|----------|--------------------------|
+/// | `vars`   | `x0`     | `*mut *const [f32; 4]`   |
+/// | out      | `x1`     | `*mut [f32; 4]`          |
+/// | size     | `x2`     | `u64`                    |
 ///
 /// The arrays must be an even multiple of 4 floats, since we're using NEON and
 /// 128-bit wide operations for everything.
@@ -23,33 +21,27 @@ pub const SIMD_WIDTH: usize = 4;
 ///
 /// | Register | Description                                          |
 /// |----------|------------------------------------------------------|
-/// | `v0.s4`  | X                                                    |
-/// | `v1.s4`  | Y                                                    |
-/// | `v2.s4`  | Z                                                    |
+/// | `x3`     | Byte offset within input arrays                      |
+/// | `x4`     | Staging for loading SIMD values                      |
 /// | `v3.s4`  | Immediate value (`IMM_REG`)                          |
 /// | `v7.s4`  | Immediate value for recip (1.0)                      |
 /// | `w9`     | Staging for loading immediates                       |
 /// | `w15`    | Staging to load variables                            |
-/// | `x20-24` | Backups for `x0-5` during function calls             |
-/// | `x25`    | Function call address                                |
+/// | `x20-23` | Backups for `x0-3` during function calls             |
+/// | `x24`    | Function call address                                |
 ///
 /// The stack is configured as follows
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x230    | ...          | Register spills live up here                |
+/// | 0x228    | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x228    | `x25`        | Backup for callee-saved register            |
-/// | 0x220    | `x24`        |                                             |
+/// | 0x220    | `x24`        | Backup for callee-saved register            |
 /// | 0x218    | `x23`        |                                             |
 /// | 0x210    | `x22`        |                                             |
 /// | 0x208    | `x21`        |                                             |
 /// | 0x200    | `x20`        |                                             |
-/// |----------|--------------|---------------------------------------------|
-/// | 0x1f0    | `q2`         | During functions calls, X/Y/Z are saved on  |
-/// | 0x1e0    | `q1`         | the stack                                   |
-/// | 0x1d0    | `q0`         |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | 0x1c0    | `q31`        | During functions calls, caller-saved tape   |
 /// | 0x1b0    | `q30`        | registers are saved on the stack            |
@@ -88,7 +80,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0x230;
+const STACK_SIZE: u32 = 0x228;
 
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
@@ -117,33 +109,24 @@ impl Assembler for FloatSliceAssembler {
             ; str x22, [sp, 0x210]
             ; str x23, [sp, 0x218]
             ; str x24, [sp, 0x220]
-            ; str x25, [sp, 0x228]
+
+            ; mov x3, 0
 
             // The loop returns here, and we check whether we need to loop
             ; ->L:
             // Remember, at this point we have
-            //  x0: x input array pointer
-            //  x1: y input array pointer
-            //  x2: z input array pointer
-            //  x3: output array pointer
-            //  x4: number of points to evaluate
+            //  x0: vars input pointer
+            //  x1: output array pointer
+            //  x2: number of points to evaluate
+            //  x3: offset within SIMD arrays
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x4 by 4);
-            // x3 is advanced in finalize().
+            // We'll be decrementing x2 by 4 here; x1 and x3 are modified in
+            // finalize().
 
-            ; cmp x4, 0
+            ; cmp x2, 0
             ; b.eq ->E // function exit
 
-            // Loop body:
-            //
-            // Load V0/1/2.S4 with X/Y/Z values, post-increment
-            //
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
-            ; ldr q0, [x0], 16
-            ; ldr q1, [x1], 16
-            ; ldr q2, [x2], 16
-            ; sub x4, x4, 4 // We handle 4 items at a time
+            // Loop body: math begins below
         );
 
         Self(out)
@@ -174,7 +157,12 @@ impl Assembler for FloatSliceAssembler {
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
+        assert!(src_arg as u32 * 8 < 16384);
+        dynasm!(self.0.ops
+            ; ldr x4, [x0, src_arg as u32 * 8]
+            ; add x4, x4, x3 // apply array offset
+            ; ldr Q(reg(out_reg)), [x4]
+        );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn float_sin(f: f32) -> f32 {
@@ -363,11 +351,17 @@ impl Assembler for FloatSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x3
+            // update our "items remaining" counter
+            ; sub x2, x2, 4 // We handle 4 items at a time
+
+            // Adjust the array offset pointer
+            ; add x3, x3, 16
+
+            // Prepare our return value, writing to the pointer in x1
             // It's fine to overwrite X at this point in V0, since we're not
             // using it anymore.
             ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x3], 16
+            ; stp D(reg(out_reg)), d0, [x1], 16
             ; b ->L
 
             ; ->E:
@@ -391,7 +385,6 @@ impl Assembler for FloatSliceAssembler {
             ; ldr x22, [sp, 0x210]
             ; ldr x23, [sp, 0x218]
             ; ldr x24, [sp, 0x220]
-            ; ldr x25, [sp, 0x228]
 
             // Fix up the stack
             ; add sp, sp, self.0.mem_offset as u32
@@ -416,11 +409,6 @@ impl FloatSliceAssembler {
             ; mov x21, x1
             ; mov x22, x2
             ; mov x23, x3
-            ; mov x24, x4
-
-            // Back up X/Y/Z values
-            ; stp q0, q1, [sp, 0x1d0]
-            ; str q2, [sp, 0x1f0]
 
             // We use registers v8-v15 (callee saved, but only lower 64 bytes)
             // and v16-v31 (caller saved)
@@ -440,10 +428,10 @@ impl FloatSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x25, ((addr >> 48) as u32), lsl 48
-            ; movk x25, ((addr >> 32) as u32), lsl 32
-            ; movk x25, ((addr >> 16) as u32), lsl 16
-            ; movk x25, addr as u32
+            ; movz x24, ((addr >> 48) as u32), lsl 48
+            ; movk x24, ((addr >> 32) as u32), lsl 32
+            ; movk x24, ((addr >> 16) as u32), lsl 16
+            ; movk x24, addr as u32
 
             // We're going to back up our argument into d8/d9 (since the callee
             // only saves the bottom 64 bits).  Note that d8/d9 may be our input
@@ -453,19 +441,19 @@ impl FloatSliceAssembler {
             ; mov d9, v0.d[1]
 
             ; mov s0, v8.s[0]
-            ; blr x25
+            ; blr x24
             ; mov v8.s[0], v0.s[0]
 
             ; mov s0, v8.s[1]
-            ; blr x25
+            ; blr x24
             ; mov v8.s[1], v0.s[0]
 
             ; mov s0, v9.s[0]
-            ; blr x25
+            ; blr x24
             ; mov v9.s[0], v0.s[0]
 
             ; mov s0, v9.s[1]
-            ; blr x25
+            ; blr x24
             ; mov v9.s[1], v0.s[0]
 
             // Copy into v0, because we're about to restore v8
@@ -489,16 +477,11 @@ impl FloatSliceAssembler {
             // Set our output value
             ; mov V(reg(out_reg)).b16, v0.b16
 
-            // Restore X/Y/Z values
-            ; ldp q0, q1, [sp, 0x1d0]
-            ; ldr q2, [sp, 0x1f0]
-
             // Restore our current state
             ; mov x0, x20
             ; mov x1, x21
             ; mov x2, x22
             ; mov x3, x23
-            ; mov x4, x24
         );
     }
 }

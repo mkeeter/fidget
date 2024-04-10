@@ -46,6 +46,15 @@ pub trait TracingEvaluator: Default {
         Self::default()
     }
 
+    /// Helper function to return an error if the inputs are invalid
+    fn check_arguments(&self, var_count: usize) -> Result<(), Error> {
+        if var_count > 3 {
+            Err(Error::BadVarSlice(3, var_count))
+        } else {
+            Ok(())
+        }
+    }
+
     #[cfg(test)]
     fn eval_x<J: Into<Self::Data>>(
         &mut self,

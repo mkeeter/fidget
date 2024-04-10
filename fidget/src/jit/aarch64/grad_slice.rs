@@ -15,10 +15,8 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | Variable   | Register | Type               |
 /// |------------|----------|--------------------|
 /// | X          | `x0`     | `*const f32`       |
-/// | Y          | `x1`     | `*const f32`       |
-/// | Z          | `x2`     | `*const f32`       |
-/// | `out`      | `x3`     | `*const [f32; 4]`  |
-/// | `count`    | `x4`     | `u64`              |
+/// | `out`      | `x1`     | `*const [f32; 4]`  |
+/// | `count`    | `x2`     | `u64`              |
 ///
 /// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
 /// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
@@ -28,31 +26,25 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// | Register | Description                                          |
 /// |----------|------------------------------------------------------|
-/// | `v0.s4`  | X                                                    |
-/// | `v1.s4`  | Y                                                    |
-/// | `v2.s4`  | Z                                                    |
+/// | `x3`     | byte offset within input arrays                      |
+/// | `x4`     | Staging for loading SIMD values                      |
 /// | `v3.s4`  | Immediate value (`IMM_REG`)                          |
 /// | `v7.s4`  | Immediate value for recip (1.0)                      |
 /// | `w9`     | Staging for loading immediates                       |
 /// | `w15`    | Staging to load variables                            |
-/// | `x20-25` | Backups for `x0-5` during function calls             |
+/// | `x20-23` | Backups for `x0-3` during function calls             |
 ///
 /// The stack is configured as follows
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x228    | ...          | Register spills live up here                |
+/// | 0x220    | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x220    | `x24`        |                                             |
-/// | 0x218    | `x23`        |                                             |
+/// | 0x218    | `x23`        | Backup for callee-saved register            |
 /// | 0x210    | `x22`        |                                             |
 /// | 0x208    | `x21`        |                                             |
 /// | 0x200    | `x20`        |                                             |
-/// |----------|--------------|---------------------------------------------|
-/// | 0x1f0    | `q2`         | During functions calls, X/Y/Z are saved on  |
-/// | 0x1e0    | `q1`         | the stack                                   |
-/// | 0x1d0    | `q0`         |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | 0x1c0    | `q31`        | During functions calls, caller-saved tape   |
 /// | 0x1b0    | `q30`        | registers are saved on the stack            |
@@ -91,7 +83,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0x228;
+const STACK_SIZE: u32 = 0x220;
 
 impl Assembler for GradSliceAssembler {
     type Data = Grad;
@@ -119,37 +111,24 @@ impl Assembler for GradSliceAssembler {
             ; str x21, [sp, 0x208]
             ; str x22, [sp, 0x210]
             ; str x23, [sp, 0x218]
-            ; str x24, [sp, 0x220]
+
+            ; mov x3, 0
 
             // The loop returns here, and we check whether we need to loop
             ; ->L:
             // Remember, at this point we have
-            //  x0: x input array pointer
-            //  x1: y input array pointer
-            //  x2: z input array pointer
-            //  x3: output array pointer
-            //  x4: number of points to evaluate
+            //  x0: vars input pointer
+            //  x1: output array pointer
+            //  x2: number of points to evaluate
+            //  x3: offset within SIMD arrays
             //
-            // We'll be advancing x0, x1, x2 here (and decrementing x4 by 1);
-            // x3 is advanced in finalize().
+            // We'll be decrementing x2 by 1 here; x1 and x3 are modified in
+            // finalize().
 
-            ; cmp x4, 0
+            ; cmp x2, 0
             ; b.eq ->E // function exit
 
-            // Load V0/1/2.S4 with X/Y/Z values, post-increment
-            //
-            // We're actually loading two f32s, but we can pretend they're
-            // doubles in order to move 64 bits at a time
-            ; fmov s6, 1.0
-            ; ldr s0, [x0], 4
-            ; mov v0.S[1], v6.S[0]
-            ; ldr s1, [x1], 4
-            ; mov v1.S[2], v6.S[0]
-            ; ldr s2, [x2], 4
-            ; mov v2.S[3], v6.S[0]
-            ; sub x4, x4, 1 // We handle 1 item at a time
-
-            // Math begins below!
+            // Loop body: math begins below
         );
 
         Self(out)
@@ -179,7 +158,21 @@ impl Assembler for GradSliceAssembler {
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; mov V(reg(out_reg)).b16, V(src_arg as u32).b16);
+        assert!(src_arg as u32 * 8 < 16384);
+        dynasm!(self.0.ops
+            ; ldr x4, [x0, src_arg as u32 * 8]
+            ; add x4, x4, x3 // apply array offset
+            ; eor V(reg(out_reg)).b16, V(reg(out_reg)).b16, V(reg(out_reg)).b16
+            ; ldr S(reg(out_reg)), [x4]
+            ; fmov s6, 1.0
+        );
+        // Load the gradient, which is a 1.0
+        match src_arg % 3 {
+            0 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[1], v6.S[0]),
+            1 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[2], v6.S[0]),
+            2 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[3], v6.S[0]),
+            _ => unreachable!(),
+        }
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn grad_sin(v: Grad) -> Grad {
@@ -473,8 +466,14 @@ impl Assembler for GradSliceAssembler {
 
     fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
-            // Prepare our return value, writing to the pointer in x4
-            ; str Q(reg(out_reg)), [x3], 16
+            // update our "items remaining" counter
+            ; sub x2, x2, 1 // We handle 1 item at a time
+
+            // Adjust the array offset pointer
+            ; add x3, x3, 4 // 1 item = 4 bytes
+
+            // Prepare our return value, writing to the pointer in x1
+            ; str Q(reg(out_reg)), [x1], 16
             ; b ->L // Jump back to the loop start
 
             ; ->E:
@@ -498,7 +497,6 @@ impl Assembler for GradSliceAssembler {
             ; ldr x21, [sp, 0x208]
             ; ldr x22, [sp, 0x210]
             ; ldr x23, [sp, 0x218]
-            ; ldr x24, [sp, 0x220]
 
             // Fix up the stack
             ; add sp, sp, self.0.mem_offset as u32
@@ -524,11 +522,6 @@ impl GradSliceAssembler {
             ; mov x21, x1
             ; mov x22, x2
             ; mov x23, x3
-            ; mov x24, x4
-
-            // Back up X/Y/Z values (TODO use registers here as well?)
-            ; stp q0, q1, [sp, 0x1d0]
-            ; str q2, [sp, 0x1f0]
 
             // We use registers v8-v15 (callee saved, but only lower 64 bytes)
             // and v16-v31 (caller saved)
@@ -576,22 +569,16 @@ impl GradSliceAssembler {
             ; ldp q28, q29, [sp, 0x190]
             ; ldp q30, q31, [sp, 0x1b0]
 
-            // Copy into v4, because we're about to restore v0/1/2/3
             ; mov V(reg(out_reg)).s[0], v0.s[0]
             ; mov V(reg(out_reg)).s[1], v1.s[0]
             ; mov V(reg(out_reg)).s[2], v2.s[0]
             ; mov V(reg(out_reg)).s[3], v3.s[0]
-
-            // Restore X/Y/Z values
-            ; ldp q0, q1, [sp, 0x1d0]
-            ; ldr q2, [sp, 0x1f0]
 
             // Restore our current state
             ; mov x0, x20
             ; mov x1, x21
             ; mov x2, x22
             ; mov x3, x23
-            ; mov x4, x24
         );
     }
 
@@ -609,7 +596,6 @@ impl GradSliceAssembler {
             ; mov x21, x1
             ; mov x22, x2
             ; mov x23, x3
-            ; mov x24, x4
 
             // Back up X/Y/Z values (TODO use registers here as well?)
             ; stp q0, q1, [sp, 0x1d0]
@@ -631,12 +617,13 @@ impl GradSliceAssembler {
             ; stp q28, q29, [sp, 0x190]
             ; stp q30, q31, [sp, 0x1b0]
 
-            // Load the function address, awkwardly, into a callee-saved
-            // register (so we only need to do this once)
-            ; movz x26, ((addr >> 48) as u32), lsl 48
-            ; movk x26, ((addr >> 32) as u32), lsl 32
-            ; movk x26, ((addr >> 16) as u32), lsl 16
-            ; movk x26, addr as u32
+            // Load the function address, awkwardly, into x0 (it doesn't matter
+            // that it could be thrashed by the call, since we're only calling
+            // it once).
+            ; movz x0, ((addr >> 48) as u32), lsl 48
+            ; movk x0, ((addr >> 32) as u32), lsl 32
+            ; movk x0, ((addr >> 16) as u32), lsl 16
+            ; movk x0, addr as u32
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(lhs_reg)).s[0]
@@ -650,7 +637,7 @@ impl GradSliceAssembler {
             // We do s3 last because it could be IMM_REG
             ; mov s3, V(reg(lhs_reg)).s[3]
 
-            ; blr x26
+            ; blr x0
 
             // Restore register state (lol)
             ; ldp q8, q9, [sp, 0x50]
@@ -681,7 +668,6 @@ impl GradSliceAssembler {
             ; mov x1, x21
             ; mov x2, x22
             ; mov x3, x23
-            ; mov x4, x24
         );
     }
 }
