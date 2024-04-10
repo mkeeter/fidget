@@ -120,6 +120,18 @@ impl Tree {
     pub fn min<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Min)
     }
+    pub fn compare<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::Compare)
+    }
+    pub fn modulo<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::Mod)
+    }
+    pub fn and<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::And)
+    }
+    pub fn or<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::Or)
+    }
     pub fn neg(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Neg)
     }
@@ -146,6 +158,12 @@ impl Tree {
     }
     pub fn ln(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Ln)
+    }
+    pub fn not(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Not)
+    }
+    pub fn abs(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Abs)
     }
 }
 
