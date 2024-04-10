@@ -366,7 +366,7 @@ impl Assembler for IntervalAssembler {
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
-            ; mov ax, [rdi]
+            ; mov ax, [rsi]
 
             // xmm1 = lhs.upper
             ; vpshufd xmm1, Rx(reg(lhs_reg)), 0b11111101u8 as i8
@@ -410,8 +410,8 @@ impl Assembler for IntervalAssembler {
             // Fallthrough
 
             ; E:
-            ; mov [rdi], ax
-            ; add rdi, 1
+            ; mov [rsi], ax
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap();
     }
@@ -428,7 +428,7 @@ impl Assembler for IntervalAssembler {
             //      *choices++ |= CHOICE_BOTH
             //      out = fmin(lhs, rhs)
 
-            ; mov ax, [rdi]
+            ; mov ax, [rsi]
 
             // TODO: use cmpltss to do both comparisons?
 
@@ -474,8 +474,8 @@ impl Assembler for IntervalAssembler {
             // Fallthrough
 
             ; E:
-            ; mov [rdi], ax
-            ; add rdi, 1
+            ; mov [rsi], ax
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap();
     }
