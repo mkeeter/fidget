@@ -62,20 +62,6 @@ impl Assembler for GradSliceAssembler {
         out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
         let input_pos = STACK_SIZE_UPPER as i32;
         dynasm!(out.ops
-            // Preload unchanging gradient values
-            ; mov eax, 1.0f32.to_bits() as i32
-            ; mov [rbp - (input_pos - 0x4)], eax  // d/dx(x) = 1
-            ; mov [rbp - (input_pos - 0x18)], eax // d/dy(y) = 1
-            ; mov [rbp - (input_pos - 0x2c)], eax // d/dz(z) = 1
-
-            ; xor eax, eax // set eax to 0u32, which is also 0f32
-            ; mov [rbp - (input_pos - 0x8)], eax // d/dy(x) = 0
-            ; mov [rbp - (input_pos - 0xc)], eax // d/dz(x) = 0
-            ; mov [rbp - (input_pos - 0x14)], eax // d/dx(y) = 0
-            ; mov [rbp - (input_pos - 0x1c)], eax // d/dz(y) = 0
-            ; mov [rbp - (input_pos - 0x24)], eax // d/dz(x) = 0
-            ; mov [rbp - (input_pos - 0x28)], eax // d/dz(y) = 0
-
             ; xor rcx, rcx // set the array offset (rcx) to 0
 
             // The loop returns here, and we check whether to keep looping
