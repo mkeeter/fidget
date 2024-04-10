@@ -526,7 +526,7 @@ impl Assembler for IntervalAssembler {
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         assert_ne!(reg(lhs_reg), IMM_REG);
         dynasm!(self.0.ops
-            ; mov ax, [rdi] // load the choice flag
+            ; mov ax, [rsi] // load the choice flag
             ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
 
             // xmm2 = !arg.contains(0.0)
@@ -582,15 +582,15 @@ impl Assembler for IntervalAssembler {
             ; vunpcklps Rx(reg(out_reg)), xmm1, xmm2
 
             ; E: // exit
-            ; mov [rdi], ax
-            ; add rdi, 1
+            ; mov [rsi], ax
+            ; add rsi, 1
         );
         self.0.ops.commit_local().unwrap();
     }
     fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         assert_ne!(reg(lhs_reg), IMM_REG);
         dynasm!(self.0.ops
-            ; mov ax, [rdi] // load the choice flag
+            ; mov ax, [rsi] // load the choice flag
             ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
 
             // xmm2 = !arg.contains(0.0)
@@ -647,8 +647,8 @@ impl Assembler for IntervalAssembler {
             ; vunpcklps Rx(reg(out_reg)), xmm2, xmm1
 
             ; E: // exit
-            ; mov [rdi], ax
-            ; add rdi, 1
+            ; mov [rsi], ax
+            ; add rsi, 1
         );
     }
     fn build_compare(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
