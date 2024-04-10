@@ -62,10 +62,6 @@ impl Assembler for PointAssembler {
         out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
         dynasm!(out.ops
             ; vzeroupper
-            // Put X/Y/Z on the stack to free up those registers
-            ; vmovss [rbp - 0x18], xmm2
-            ; vmovss [rbp - 0x1c], xmm1
-            ; vmovss [rbp - 0x20], xmm0
         );
         Self(out)
     }
