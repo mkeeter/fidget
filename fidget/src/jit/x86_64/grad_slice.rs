@@ -81,7 +81,7 @@ impl Assembler for GradSliceAssembler {
             // The loop returns here, and we check whether to keep looping
             ; ->L:
 
-            ; test r8, r8
+            ; test rdx, rdx
             ; jz ->X // jump to the exit if we're done, otherwise fallthrough
         );
         Self(out)
@@ -459,8 +459,8 @@ impl Assembler for GradSliceAssembler {
             // Copy data from out_reg into the out array, then adjust it
             ; vmovups [rsi], Rx(reg(out_reg))
             ; add rsi, 16 // 4x float
-            ; sub rdx, 1
-            ; add rcx, 4
+            ; sub rdx, 1 // we process one element at a time
+            ; add rcx, 4 // input is array is single floats
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
@@ -489,7 +489,6 @@ impl GradSliceAssembler {
             ; mov [rbp - 0x10], rsi
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
-            ; mov [rbp - 0x28], r8
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], xmm4
@@ -530,7 +529,6 @@ impl GradSliceAssembler {
             ; mov rsi, [rbp - 0x10]
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
-            ; mov r8, [rbp - 0x28]
 
             // Collect the 4x floats into the out register
             ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
