@@ -51,7 +51,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{context::Tree, Error};
-use rhai::{CustomType, TypeBuilder};
+use rhai::{CustomType, NativeCallContext, TypeBuilder};
 
 /// Engine for evaluating a Rhai script with Fidget-specific bindings
 pub struct Engine {
@@ -119,6 +119,12 @@ impl Engine {
         register_unary_fns!("ln", ln, engine);
         register_unary_fns!("not", not, engine);
         register_unary_fns!("-", neg, engine);
+
+        // Ban comparison operators
+        for op in ["==", "!=", "<", ">", "<=", ">="] {
+            engine.register_fn(op, bad_cmp_node_dyn);
+            engine.register_fn(op, bad_cmp_dyn_node);
+        }
 
         engine.set_fast_operators(false);
 
@@ -226,7 +232,7 @@ struct Axes {
     z: Tree,
 }
 
-fn axes(_ctx: rhai::NativeCallContext) -> Axes {
+fn axes(_ctx: NativeCallContext) -> Axes {
     let (x, y, z) = Tree::axes();
     Axes { x, y, z }
 }
@@ -235,7 +241,7 @@ fn remap_xyz(shape: Tree, x: Tree, y: Tree, z: Tree) -> Tree {
     shape.remap_xyz(x, y, z)
 }
 
-fn draw(ctx: rhai::NativeCallContext, tree: Tree) {
+fn draw(ctx: NativeCallContext, tree: Tree) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     ctx.lock().unwrap().shapes.push(DrawShape {
         tree,
@@ -243,7 +249,7 @@ fn draw(ctx: rhai::NativeCallContext, tree: Tree) {
     });
 }
 
-fn draw_rgb(ctx: rhai::NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
+fn draw_rgb(ctx: NativeCallContext, tree: Tree, r: f64, g: f64, b: f64) {
     let ctx = ctx.tag().unwrap().clone_cast::<Arc<Mutex<ScriptContext>>>();
     let f = |a| {
         if a < 0.0 {
@@ -264,7 +270,7 @@ macro_rules! define_binary_fns {
     ($name:ident $(, $op:ident)?) => {
         mod $name {
             use super::*;
-            use rhai::NativeCallContext;
+            use NativeCallContext;
             $(
             use std::ops::$op;
             )?
@@ -318,12 +324,29 @@ macro_rules! define_unary_fns {
     ($name:ident) => {
         mod $name {
             use super::*;
-            use rhai::NativeCallContext;
             pub fn node(_ctx: NativeCallContext, a: Tree) -> Tree {
                 a.$name()
             }
         }
     };
+}
+
+fn bad_cmp_node_dyn(
+    _ctx: NativeCallContext,
+    _a: Tree,
+    _b: rhai::Dynamic,
+) -> Result<Tree, Box<rhai::EvalAltResult>> {
+    let e = "cannot compare Tree types during function tracing";
+    Err(e.into())
+}
+
+fn bad_cmp_dyn_node(
+    _ctx: NativeCallContext,
+    _a: rhai::Dynamic,
+    _b: Tree,
+) -> Result<Tree, Box<rhai::EvalAltResult>> {
+    let e = "cannot compare Tree types during function tracing";
+    Err(e.into())
 }
 
 define_binary_fns!(add, Add);
@@ -396,6 +419,13 @@ mod test {
         let mut ctx = Context::new();
         let sum = ctx.import(&out.shapes[0].tree);
         assert_eq!(ctx.eval_xyz(sum, 1.0, 3.0, 0.0).unwrap(), -2.0);
+    }
+
+    #[test]
+    fn test_no_comparison() {
+        let mut engine = Engine::new();
+        let out = engine.run("x < 0");
+        assert!(out.is_err());
     }
 }
 

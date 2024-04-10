@@ -17,6 +17,7 @@
   3, `x`/`y`/`z`).
 - Improved robustness of `viewer` application when editors move files instead of
   writing to them directly.
+- Add Rhai bindings for all new opcodes
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
