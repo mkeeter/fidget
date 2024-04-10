@@ -15,24 +15,19 @@ use dynasmrt::{dynasm, DynasmApi};
 ///
 /// | Variable   | Register   | Type                    |
 /// |------------|------------|-------------------------|
-/// | X          | `(s0, s1)` | `(f32, f32)`            |
-/// | Y          | `(s2, s3)` | `(f32, f32)`            |
-/// | Z          | `(s4, s5)` | `(f32, f32)`            |
-/// | `choices`  | `x0`       | `*mut u8` (array)       |
-/// | `simplify` | `x1`       | `*mut u8` (single)      |
+/// | `vars`     | `x0`       | `*const (f32, f32)`     |
+/// | `choices`  | `x1`       | `*mut u8` (array)       |
+/// | `simplify` | `x2`       | `*mut u8` (single)      |
 ///
-/// During evaluation, `x0` and `x1` maintain their meaning, while X, Y, and Z
-/// are stored in `V0-2.S2`.  Intervals are stored in the lower two float of a
-/// SIMD register `Vx` `s[0]` is the lower bound of the interval and `s[1]` is
-/// the upper bound; for example, `V0.S0` represents the lower bound for X.
+/// During evaluation, `x0-2` maintain their meaning.  Intervals are stored in
+/// the lower two float of a SIMD register `Vx` `s[0]` is the lower bound of the
+/// interval and `s[1]` is the upper bound; for example, `V0.S0` represents the
+/// lower bound for X.
 ///
 /// Here is the full table of registers used during evaluation:
 ///
 /// | Register | Description                                          |
 /// |----------|------------------------------------------------------|
-/// | `v0.s2`  | X interval                                           |
-/// | `v1.s2`  | Y interval                                           |
-/// | `v2.s2`  | Z interval                                           |
 /// | `v3.s2`  | Immediate value (`IMM_REG`)                          |
 /// | `v4.s2`  | Scratch register                                     |
 /// | `v5.s2`  | Scratch register                                     |
@@ -49,15 +44,11 @@ use dynasmrt::{dynasm, DynasmApi};
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|------------------------------------------------------------|
-/// | 0xf8     | ...          | Register spills live up here                |
+/// | 0xf0     | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// |          |              | During functions calls, we use these        |
-/// | 0xf0     | `x21`        | as temporary storage so must preserve their |
-/// | 0xe8     | `x20`        | previous values on the stack                |
-/// |----------|------------------------------------------------------------|
-/// | 0xe0     | `d2`         | During functions calls, X/Y/Z are saved on  |
-/// | 0xd8     | `d1`         | the stack                                   |
-/// | 0xd0     | `d0`         |                                             |
+/// | 0xe8     | `x22`        | During functions calls, we use these        |
+/// | 0xe0     | `x21`        | as temporary storage so must preserve their |
+/// | 0xd8     | `x20`        | previous values on the stack                |
 /// |----------|--------------|---------------------------------------------|
 /// | 0xc8     | `d31`        | During functions calls, caller-saved tape   |
 /// | 0xc0     | `d30`        | registers are saved on the stack            |
@@ -88,7 +79,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0x100;
+const STACK_SIZE: u32 = 0xf0;
 
 impl Assembler for IntervalAssembler {
     type Data = Interval;
@@ -106,13 +97,6 @@ impl Assembler for IntervalAssembler {
             ; stp   d10, d11, [sp, 0x20]
             ; stp   d12, d13, [sp, 0x30]
             ; stp   d14, d15, [sp, 0x40]
-
-            // Arguments are passed in S0-5; collect them into V0-1
-            ; mov v0.s[1], v1.s[0]
-            ; mov v1.s[0], v2.s[0]
-            ; mov v1.s[1], v3.s[0]
-            ; mov v2.s[0], v4.s[0]
-            ; mov v2.s[1], v5.s[0]
         );
         Self(out)
     }
@@ -137,7 +121,10 @@ impl Assembler for IntervalAssembler {
     }
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        dynasm!(self.0.ops ; fmov D(reg(out_reg)), D(src_arg as u32));
+        assert!(src_arg as u32 * 8 < 16384);
+        dynasm!(self.0.ops
+            ; ldr D(reg(out_reg)), [x0, src_arg as u32 * 8]
+        );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn interval_sin(v: Interval) -> Interval {
@@ -396,7 +383,7 @@ impl Assembler for IntervalAssembler {
             ; zip1 v5.s2, V(reg(rhs_reg)).s2, V(reg(lhs_reg)).s2
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             ; tst x15, 0x1_0000_0000
             ; b.ne 28 // -> lhs
@@ -407,13 +394,13 @@ impl Assembler for IntervalAssembler {
             // LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 28 // -> end
 
             // <- lhs (when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 12 // -> end
 
             // <- both
@@ -421,7 +408,7 @@ impl Assembler for IntervalAssembler {
             ; orr w14, w14, CHOICE_BOTH
 
             // <- end
-            ; strb w14, [x0], 1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
@@ -445,7 +432,7 @@ impl Assembler for IntervalAssembler {
             // v5 = [rhs.lower > lhs.upper, lhs.lower > rhs.upper]
             ; fcmgt v5.s2, v5.s2, v4.s2
             ; fmov x15, d5
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             ; tst x15, 0x1_0000_0000
             ; b.ne 28 // -> rhs
@@ -456,13 +443,13 @@ impl Assembler for IntervalAssembler {
             // Fallthrough: LHS < RHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 28 // -> end
 
             // <- rhs (for when RHS < LHS)
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 12
 
             // <- both
@@ -470,7 +457,7 @@ impl Assembler for IntervalAssembler {
             ; orr w14, w14, CHOICE_BOTH
 
             // <- end
-            ; strb w14, [x0], 1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
 
@@ -512,7 +499,7 @@ impl Assembler for IntervalAssembler {
     fn build_and(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Load the choice bit
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             // v7 = !arg.contains(0.0)
             ; fcmgt s6, S(reg(lhs_reg)), 0.0 // s6 = lower > 0.0
@@ -526,7 +513,7 @@ impl Assembler for IntervalAssembler {
             // !lhs.contains(0.0) -> RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 96 // -> exit
 
             // v6 = (lower == 0) && (upper == 0)
@@ -540,7 +527,7 @@ impl Assembler for IntervalAssembler {
             // (lhs.lower == 0) && (lhs.upper == 0) -> LHS
             ; movi V(reg(out_reg)).s2, 0
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 56 // -> exit
 
             // Check whether RHS has a NAN
@@ -564,13 +551,13 @@ impl Assembler for IntervalAssembler {
             ; zip1 V(reg(out_reg)).s2, v5.s2, v6.s2
 
             // exit
-            ; strb w14, [x0], 1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
     fn build_or(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Load the choice bit
-            ; ldrb w14, [x0]
+            ; ldrb w14, [x1]
 
             // v7 = !arg.contains(0.0)
             ; fcmgt s6, S(reg(lhs_reg)), 0.0 // s6 = lower > 0.0
@@ -584,7 +571,7 @@ impl Assembler for IntervalAssembler {
             // !lhs.contains(0.0) -> LHS
             ; fmov D(reg(out_reg)), D(reg(lhs_reg))
             ; orr w14, w14, CHOICE_LEFT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 92 // -> exit
 
             // v6 = (lower == 0) && (upper == 0)
@@ -598,7 +585,7 @@ impl Assembler for IntervalAssembler {
             // (lhs.lower == 0) && (lhs.upper == 0) -> RHS
             ; fmov D(reg(out_reg)), D(reg(rhs_reg))
             ; orr w14, w14, CHOICE_RIGHT
-            ; strb w14, [x1, 0] // write a non-zero value to simplify
+            ; strb w14, [x2, 0] // write a non-zero value to simplify
             ; b 52 // -> exit
 
             // Check whether RHS has a NAN
@@ -621,7 +608,7 @@ impl Assembler for IntervalAssembler {
             ; zip1 V(reg(out_reg)).s2, v5.s2, v6.s2
 
             // exit
-            ; strb w14, [x0], 1 // post-increment
+            ; strb w14, [x1], 1 // post-increment
         )
     }
 
@@ -697,7 +684,8 @@ impl Assembler for IntervalAssembler {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
-                ; ldp x20, x21, [sp, 0xe8]
+                ; ldp x20, x21, [sp, 0xd8]
+                ; ldr x22, [sp, 0xe8]
             )
         }
         dynasm!(self.0.ops
@@ -734,7 +722,8 @@ impl IntervalAssembler {
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0xe8]
+                ; stp x20, x21, [sp, 0xd8]
+                ; str x22, [sp, 0xe8]
             );
             self.0.saved_callee_regs = true;
         }
@@ -744,6 +733,7 @@ impl IntervalAssembler {
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
+            ; mov x22, x2
 
             // Back up our state
             ; stp d16, d17, [sp, 0x50]
@@ -784,13 +774,10 @@ impl IntervalAssembler {
             ; mov V(reg(out_reg)).s[0], v0.s[0]
             ; mov V(reg(out_reg)).s[1], v1.s[0]
 
-            // Restore X/Y/Z values
-            ; ldp d0, d1, [sp, 0xd0]
-            ; ldr d2, [sp, 0xe0]
-
             // Restore registers
             ; mov x0, x20
             ; mov x1, x21
+            ; mov x2, x22
         );
     }
 
@@ -804,7 +791,8 @@ impl IntervalAssembler {
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0xe8]
+                ; stp x20, x21, [sp, 0xd8]
+                ; str x22, [sp, 0xe8]
             );
             self.0.saved_callee_regs = true;
         }
@@ -814,6 +802,7 @@ impl IntervalAssembler {
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
+            ; mov x22, x2
 
             // Back up our state
             ; stp d16, d17, [sp, 0x50]
@@ -856,13 +845,10 @@ impl IntervalAssembler {
             ; mov V(reg(out_reg)).s[0], v0.s[0]
             ; mov V(reg(out_reg)).s[1], v1.s[0]
 
-            // Restore X/Y/Z values
-            ; ldp d0, d1, [sp, 0xd0]
-            ; ldr d2, [sp, 0xe0]
-
             // Restore registers
             ; mov x0, x20
             ; mov x1, x21
+            ; mov x2, x22
         );
     }
 }

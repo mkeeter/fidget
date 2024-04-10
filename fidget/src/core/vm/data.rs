@@ -94,6 +94,11 @@ impl<const N: usize> VmData<N> {
         self.asm.slot_count()
     }
 
+    /// Returns the number of variables (inputs) in the inner VM tape
+    pub fn var_count(&self) -> usize {
+        self.asm.var_count()
+    }
+
     /// Simplifies both inner tapes, using the provided choice array
     ///
     /// To minimize allocations, this function takes a [`VmWorkspace`] and
