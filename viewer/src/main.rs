@@ -4,7 +4,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use nalgebra::{Vector2, Vector3};
 use notify::Watcher;
 
@@ -23,14 +23,25 @@ fn file_watcher_thread(
     rx: Receiver<()>,
     tx: Sender<String>,
 ) -> Result<()> {
-    let read_file = || String::from_utf8(std::fs::read(path).unwrap()).unwrap();
-    let mut contents = read_file();
+    let read_file = || -> Result<String> {
+        let out = String::from_utf8(std::fs::read(path)?).unwrap();
+        Ok(out)
+    };
+    let mut contents = read_file()?;
     tx.send(contents.clone())?;
 
     loop {
         // Wait for a file change notification
         rx.recv()?;
-        let new_contents = read_file();
+        let new_contents = loop {
+            match read_file() {
+                Ok(c) => break c,
+                Err(e) => {
+                    warn!("file read error: {e:?}");
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+        };
         if contents != new_contents {
             contents = new_contents;
             debug!("file contents changed!");
