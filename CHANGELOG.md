@@ -15,6 +15,8 @@
   `Var`-related functions and opcodes).  This was over-engineered; the plan
   going forward will be to support functions with _N_ inputs (currently fixed to
   3, `x`/`y`/`z`).
+- Improved robustness of `viewer` application when editors move files instead of
+  writing to them directly.
 
 # 0.2.3
 - Fix a possible panic during multithreaded 3D rendering of very small images
