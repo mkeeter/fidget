@@ -162,6 +162,7 @@ impl Assembler for GradSliceAssembler {
         dynasm!(self.0.ops
             ; ldr x4, [x0, src_arg as u32 * 8]
             ; add x4, x4, x3 // apply array offset
+            ; eor V(reg(out_reg)).b16, V(reg(out_reg)).b16, V(reg(out_reg)).b16
             ; ldr S(reg(out_reg)), [x4]
             ; fmov s6, 1.0
         );
