@@ -1,4 +1,44 @@
-# 0.2.4 (unreleased)
+# 0.2.4
+The highlight of this release is a refactoring of how shapes are handled in Rhai
+scripts: instead of being built from thunks (unevaluated closures) and evaluated
+in `draw(..)` and `draw_rgb(..)`, they are built directly using a new `Tree`
+object.  This makes writing scripts more ergonomic:
+
+```rust
+// Before
+fn circle(cx, cy, r) {
+   |x, y| {
+       sqrt((x - cx) * (x - cx) +
+            (y - cy) * (y - cy)) - r
+   }
+}
+
+// After
+fn circle(cx, cy, r) {
+    let ax = axes();
+    sqrt((ax.x - cx) * (ax.x - cx) +
+         (ax.y - cy) * (ax.y - cy)) - r
+}
+```
+
+The change is even more noticeable on higher-level functions (functions which
+operate on shapes):
+
+```rust
+// Before
+fn intersection(a, b) {
+    |x, y| {
+        max(a.call(x, y), b.call(x, y))
+    }
+}
+
+// After
+fn intersection(a, b) {
+    a.max(b)
+}
+```
+
+## Detailed changelog
 - Add helper function `Context::if_nonzero_else` to build conditionals (using
   the logical operators added in version 0.2.3)
 - Add `fidget::context::{Tree, TreeOp}`.  These types allow construction of math
