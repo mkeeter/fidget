@@ -1,3 +1,5 @@
+# 0.2.5 (unreleased)
+
 # 0.2.4
 The highlight of this release is a refactoring of how shapes are handled in Rhai
 scripts: instead of being built from thunks (unevaluated closures) and evaluated
