@@ -118,9 +118,9 @@ pub struct OctreeWorker<S: Shape> {
 
 impl<S: Shape> OctreeWorker<S> {
     pub fn scheduler(eval: Arc<EvalGroup<S>>, settings: Settings) -> Octree {
-        let task_queues = QueuePool::new(settings.threads as usize);
+        let task_queues = QueuePool::new(settings.threads());
         let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)
-            .take(settings.threads as usize)
+            .take(settings.threads())
             .collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
@@ -156,7 +156,7 @@ impl<S: Shape> OctreeWorker<S> {
             workers[0].octree.record(0, c.into());
             workers.into_iter().next().unwrap().octree.into()
         } else {
-            let pool = &ThreadPool::new(settings.threads as usize);
+            let pool = &ThreadPool::new(settings.threads());
             let out: Vec<Octree> = std::thread::scope(|s| {
                 let mut handles = vec![];
                 for w in workers {

@@ -52,7 +52,7 @@ pub struct DcWorker<'a> {
 }
 
 impl<'a> DcWorker<'a> {
-    pub fn scheduler(octree: &Octree, threads: u8) -> Mesh {
+    pub fn scheduler(octree: &Octree, threads: usize) -> Mesh {
         let queues = QueuePool::new(threads as usize);
 
         let map = octree

@@ -16,11 +16,12 @@ pub struct RenderConfig<const N: usize> {
     /// [`Shape::tile_sizes_3d`] to select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
 
-    /// Number of threads to use; 8 by default
-    pub threads: usize,
-
     /// Bounds of the rendered image, in shape coordinates
     pub bounds: Bounds<N>,
+
+    /// Number of threads to use; 8 by default
+    #[cfg(not(target_arch = "wasm32"))]
+    pub threads: std::num::NonZeroUsize,
 }
 
 impl<const N: usize> Default for RenderConfig<N> {
@@ -31,8 +32,10 @@ impl<const N: usize> Default for RenderConfig<N> {
                 2 => vec![128, 32, 8],
                 _ => vec![128, 64, 32, 16, 8],
             },
-            threads: 8,
             bounds: Default::default(),
+
+            #[cfg(not(target_arch = "wasm32"))]
+            threads: std::num::NonZeroUsize::new(8).unwrap(),
         }
     }
 }
@@ -102,6 +105,8 @@ where
                 image_size,
                 orig_image_size: self.image_size,
                 tile_sizes,
+
+                #[cfg(not(target_arch = "wasm32"))]
                 threads: self.threads,
             },
             mat,
@@ -122,7 +127,9 @@ where
     pub orig_image_size: usize,
 
     pub tile_sizes: Vec<usize>,
-    pub threads: usize,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub threads: std::num::NonZeroUsize,
 }
 
 /// Type for a static `f32` matrix of size `N + 1`
@@ -157,6 +164,16 @@ where
             corner,
             offset: x + y * self.tile_sizes[0],
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn threads(&self) -> usize {
+        1
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn threads(&self) -> usize {
+        self.threads.get()
     }
 }
 
@@ -227,7 +244,6 @@ mod test {
         let config: RenderConfig<2> = RenderConfig {
             image_size: 512,
             tile_sizes: vec![64, 32],
-            threads: 8,
             ..Default::default()
         };
         let (aligned, mat) = config.align();
@@ -250,7 +266,6 @@ mod test {
         let config: RenderConfig<2> = RenderConfig {
             image_size: 575,
             tile_sizes: vec![64, 32],
-            threads: 8,
             ..Default::default()
         };
         let (aligned, mat) = config.align();
@@ -281,11 +296,11 @@ mod test {
         let config: RenderConfig<2> = RenderConfig {
             image_size: 512,
             tile_sizes: vec![64, 32],
-            threads: 8,
             bounds: Bounds {
                 center: nalgebra::Vector2::new(0.5, 0.5),
                 size: 0.5,
             },
+            ..RenderConfig::default()
         };
         let (aligned, mat) = config.align();
         assert_eq!(aligned.image_size, config.image_size);
@@ -307,11 +322,11 @@ mod test {
         let config: RenderConfig<2> = RenderConfig {
             image_size: 575,
             tile_sizes: vec![64, 32],
-            threads: 8,
             bounds: Bounds {
                 center: nalgebra::Vector2::new(0.5, 0.5),
                 size: 0.5,
             },
+            ..RenderConfig::default()
         };
         let (aligned, mat) = config.align();
         assert_eq!(aligned.orig_image_size, 575);

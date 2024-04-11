@@ -50,10 +50,12 @@ mod dc;
 mod fixup;
 mod frame;
 mod gen;
-mod mt;
 mod octree;
 mod output;
 mod qef;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod mt;
 
 #[doc(hidden)]
 pub mod types;
@@ -82,12 +84,6 @@ impl Mesh {
 /// Settings when building an octree and mesh
 #[derive(Copy, Clone, Debug)]
 pub struct Settings {
-    /// Number of threads to use
-    ///
-    /// 0 indicates to use the single-threaded evaluator; other values will
-    /// spin up _N_ threads to perform octree construction in parallel.
-    pub threads: u8,
-
     /// Minimum depth to recurse in the octree
     pub min_depth: u8,
 
@@ -102,15 +98,36 @@ pub struct Settings {
 
     /// Bounds for meshing
     pub bounds: Bounds<3>,
+
+    /// Number of threads to use
+    ///
+    /// 1 indicates to use the single-threaded evaluator; other values will
+    /// spin up _N_ threads to perform octree construction in parallel.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub threads: std::num::NonZeroUsize,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            threads: 4,
             min_depth: 3,
             max_depth: 3,
             bounds: Default::default(),
+
+            #[cfg(not(target_arch = "wasm32"))]
+            threads: std::num::NonZeroUsize::new(4).unwrap(),
         }
+    }
+}
+
+impl Settings {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn threads(&self) -> usize {
+        self.threads.get()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn threads(&self) -> usize {
+        1
     }
 }
