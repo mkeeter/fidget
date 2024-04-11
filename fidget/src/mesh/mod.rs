@@ -27,7 +27,6 @@
 //! let tree = fidget::rhai::eval("sphere(0, 0, 0, 0.6)")?;
 //! let shape = VmShape::from_tree(&tree);
 //! let settings = Settings {
-//!     threads: 8,
 //!     min_depth: 4,
 //!     max_depth: 4,
 //!     ..Default::default()
@@ -115,7 +114,7 @@ impl Default for Settings {
             bounds: Default::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
-            threads: std::num::NonZeroUsize::new(4).unwrap(),
+            threads: std::num::NonZeroUsize::new(8).unwrap(),
         }
     }
 }
