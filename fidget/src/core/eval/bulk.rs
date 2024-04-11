@@ -35,10 +35,8 @@ pub trait BulkEvaluator: Default {
 
     /// Evaluates many points using the given instruction tape
     ///
-    /// # Panics
-    /// This function may assume that the `x`, `y`, `z`, and `out` slices are of
-    /// equal length and panic otherwise; higher-level calls should maintain
-    /// that invariant.
+    /// Returns an error if the `x`, `y`, `z`, and `out` slices are of different
+    /// lengths.
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -53,11 +51,11 @@ pub trait BulkEvaluator: Default {
     }
 
     /// Helper function to return an error if the inputs are invalid
-    fn check_arguments(
+    fn check_arguments<T>(
         &self,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        xs: &[T],
+        ys: &[T],
+        zs: &[T],
         var_count: usize,
     ) -> Result<(), Error> {
         if xs.len() != ys.len() || ys.len() != zs.len() {
