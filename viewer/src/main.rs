@@ -163,7 +163,7 @@ fn render<S: fidget::eval::Shape>(
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
-                threads: 8,
+                threads: 8.try_into().unwrap(),
                 bounds: fidget::shape::Bounds {
                     center: Vector2::new(camera.offset.x, camera.offset.y),
                     size: camera.scale,
@@ -218,7 +218,7 @@ fn render<S: fidget::eval::Shape>(
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
-                threads: 8,
+                threads: 8.try_into().unwrap(),
                 bounds: fidget::shape::Bounds {
                     center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
                     size: camera.scale,
