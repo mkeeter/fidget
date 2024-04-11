@@ -13,11 +13,11 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
-    for threads in [0, 4, 8] {
+    for threads in [1, 4, 8] {
         let cfg = &fidget::mesh::Settings {
             min_depth: 6,
             max_depth: 6,
-            threads,
+            threads: threads.try_into().unwrap(),
             ..Default::default()
         };
         #[cfg(feature = "jit")]
@@ -42,15 +42,17 @@ pub fn colonnade_mesh(c: &mut Criterion) {
     let cfg = fidget::mesh::Settings {
         min_depth: 8,
         max_depth: 8,
-        threads: 8,
         ..Default::default()
     };
     let octree = &fidget::mesh::Octree::build(shape_vm, cfg);
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, meshing) (depth 8)");
-    for threads in [0, 4, 8] {
-        let cfg = &fidget::mesh::Settings { threads, ..cfg };
+    for threads in [1, 4, 8] {
+        let cfg = &fidget::mesh::Settings {
+            threads: threads.try_into().unwrap(),
+            ..cfg
+        };
         group.bench_function(
             BenchmarkId::new("walk_dual", threads),
             move |b| {

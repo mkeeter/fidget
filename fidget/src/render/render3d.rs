@@ -449,7 +449,7 @@ mod test {
 
         let cfg = RenderConfig::<3> {
             image_size: 128, // very small!
-            threads: 8,
+            threads: 8.try_into().unwrap(),
             ..RenderConfig::default()
         };
         let out = cfg.run(shape);

@@ -1378,7 +1378,7 @@ mod test {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
         },
-        threads: 1.try_into().unwrap(),
+        threads: unsafe { std::num::NonZeroUsize::new_unchecked(1) },
     };
     const DEPTH1_SINGLE_THREAD: Settings = Settings {
         min_depth: 1,
@@ -1387,7 +1387,7 @@ mod test {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
         },
-        threads: 1.try_into().unwrap(),
+        threads: unsafe { std::num::NonZeroUsize::new_unchecked(1) },
     };
 
     fn sphere(center: [f32; 3], radius: f32) -> Tree {
