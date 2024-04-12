@@ -53,7 +53,7 @@ pub struct DcWorker<'a> {
 
 impl<'a> DcWorker<'a> {
     pub fn scheduler(octree: &Octree, threads: usize) -> Mesh {
-        let queues = QueuePool::new(threads as usize);
+        let queues = QueuePool::new(threads);
 
         let map = octree
             .verts
@@ -75,7 +75,7 @@ impl<'a> DcWorker<'a> {
             .collect::<Vec<_>>();
         workers[0].queue.push(Task::Cell(CellIndex::default()));
 
-        let pool = &ThreadPool::new(threads as usize);
+        let pool = &ThreadPool::new(threads);
         let out: Vec<_> = std::thread::scope(|s| {
             let mut handles = vec![];
             for w in workers {
