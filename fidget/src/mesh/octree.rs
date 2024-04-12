@@ -4,11 +4,10 @@ use super::{
     builder::MeshBuilder,
     cell::{Cell, CellData, CellIndex, CellVertex, Leaf},
     dc::DcBuilder,
-    fixup::DcFixup,
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
-    types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
+    types::{Axis, Corner, Edge},
     Mesh, Settings,
 };
 use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
@@ -110,7 +109,7 @@ impl Octree {
     fn build_inner<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
-        let mut octree = if settings.threads() == 1 {
+        if settings.threads() == 1 {
             let mut out = OctreeBuilder::new();
             out.recurse(&eval, CellIndex::default(), settings);
             out.into()
@@ -120,60 +119,7 @@ impl Octree {
 
             #[cfg(not(target_arch = "wasm32"))]
             OctreeWorker::scheduler(eval.clone(), settings)
-        };
-
-        // If we can't refine any further, then return right away
-        if settings.min_depth == settings.max_depth {
-            return octree;
         }
-
-        loop {
-            let mut fixup = DcFixup::new(octree.cells.len(), &settings);
-            fixup.cell(&octree, CellIndex::default());
-            let num_fix = fixup.needs_fixing.iter().filter(|i| **i).count();
-            if num_fix == 0 {
-                break;
-            }
-            // Translate from an Octree back to an OctreeBuilder; specifically,
-            // the index field in a Cell::Leaf points into the `leafs` array,
-            // rather than the `verts` array.
-            let mut cells = vec![];
-            let mut leafs = vec![];
-            for c in octree.cells {
-                cells.push(if let Cell::Leaf(Leaf { mask, index }) = c.into() {
-                    let leaf_index = leafs.len();
-                    leafs.push(LeafData {
-                        vert_index: index,
-                        hermite_index: None,
-                    });
-                    Cell::Leaf(Leaf {
-                        mask,
-                        index: leaf_index,
-                    })
-                    .into()
-                } else {
-                    c
-                })
-            }
-            let mut b = OctreeBuilder {
-                o: Octree {
-                    cells,
-                    verts: octree.verts,
-                },
-                leafs,
-                hermite: vec![LeafHermiteData::default()],
-                hermite_slots: vec![],
-                eval_float_slice: S::new_float_slice_eval(),
-                eval_grad_slice: S::new_grad_slice_eval(),
-                eval_interval: S::new_interval_eval(),
-                tape_storage: vec![],
-                shape_storage: vec![],
-                workspace: Default::default(),
-            };
-            b.refine(&eval, CellIndex::default(), &fixup.needs_fixing);
-            octree = b.into();
-        }
-        octree
     }
 
     /// Recursively walks the dual of the octree, building a mesh
@@ -213,118 +159,6 @@ impl Octree {
         match self[cell].into() {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
             Cell::Branch { index, .. } => cell.child(index, child),
-            Cell::Invalid => panic!(),
-        }
-    }
-
-    pub(crate) fn edge_mask(
-        &self,
-        cell: CellIndex,
-        edge: Edge,
-    ) -> Option<EdgeMask> {
-        let (a, b) = edge.corners();
-        match self[cell].into() {
-            Cell::Empty => Some(EdgeMask::new(0b00)),
-            Cell::Full => Some(EdgeMask::new(0b11)),
-            Cell::Leaf(Leaf { mask, .. }) => {
-                let lo = mask & (1 << a.index()) != 0;
-                let hi = mask & (1 << b.index()) != 0;
-                Some(EdgeMask::new(lo as u8 + ((hi as u8) << 1)))
-            }
-            Cell::Branch { index, .. } => {
-                let Some(lo) = self.edge_mask(cell.child(index, a), edge)
-                else {
-                    return None;
-                };
-                let Some(hi) = self.edge_mask(cell.child(index, b), edge)
-                else {
-                    return None;
-                };
-                let center = lo.0 & (0b10) != 0;
-                if center == (lo.0 & 0b01 != 0)
-                    || center == (hi.0 & (0b10) != 0)
-                {
-                    Some(EdgeMask::new((lo.0 & 0b01) | (hi.0 & 0b10)))
-                } else {
-                    None
-                }
-            }
-            Cell::Invalid => panic!(),
-        }
-    }
-
-    pub(crate) fn face_mask(
-        &self,
-        cell: CellIndex,
-        face: Face,
-    ) -> Option<FaceMask> {
-        let t = face.axis();
-        let u = t.next();
-        let v = u.next();
-        let f = if face.sign() {
-            t.into()
-        } else {
-            Corner::new(0)
-        };
-        let corners = [f, f | u, f | v, f | u | v];
-        match self[cell].into() {
-            Cell::Empty => Some(FaceMask::new(0b0000)),
-            Cell::Full => Some(FaceMask::new(0b1111)),
-            Cell::Leaf(Leaf { mask, .. }) => {
-                let mut out = 0;
-                for (i, c) in corners.iter().enumerate() {
-                    if mask & (1 << c.index()) != 0 {
-                        out |= 1 << i;
-                    }
-                }
-                Some(FaceMask::new(out))
-            }
-            Cell::Branch { index, .. } => {
-                let masks =
-                    corners.map(|c| self.face_mask(cell.child(index, c), face));
-                if masks.iter().any(Option::is_none) {
-                    return None;
-                }
-                let masks = masks.map(Option::unwrap);
-
-                let center = masks[0].0 & (1 << 3) != 0;
-                let corners = [
-                    masks[0].0 & (1 << 0) != 0,
-                    masks[1].0 & (1 << 1) != 0,
-                    masks[2].0 & (1 << 2) != 0,
-                    masks[3].0 & (1 << 3) != 0,
-                ];
-                // The center must match at least one of the corners; otherwise,
-                // this is non-manifold.
-                if corners.iter().all(|corner| center != *corner) {
-                    return None;
-                }
-                // Each edge's center value must match at least one of the
-                // connected corners; otherwise, this is non-manifold
-                let u_edge_lo = masks[0].0 & (1 << 1) != 0;
-                if u_edge_lo != corners[0] && u_edge_lo != corners[1] {
-                    return None;
-                }
-                let u_edge_hi = masks[3].0 & (1 << 2) != 0;
-                if u_edge_hi != corners[2] && u_edge_hi != corners[3] {
-                    return None;
-                }
-                let v_edge_lo = masks[0].0 & (1 << 2) != 0;
-                if v_edge_lo != corners[0] && v_edge_lo != corners[2] {
-                    return None;
-                }
-                let v_edge_hi = masks[3].0 & (1 << 1) != 0;
-                if v_edge_hi != corners[1] && v_edge_hi != corners[3] {
-                    return None;
-                }
-
-                Some(FaceMask::new(
-                    corners[0] as u8
-                        | (corners[1] as u8) << 1
-                        | (corners[2] as u8) << 2
-                        | (corners[3] as u8) << 3,
-                ))
-            }
             Cell::Invalid => panic!(),
         }
     }
@@ -528,7 +362,7 @@ impl<S: Shape> OctreeBuilder<S> {
             } else {
                 None
             };
-            if cell.depth == settings.min_depth as usize {
+            if cell.depth == settings.depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
                 let out = CellResult::Done(self.leaf(&eval, cell));
                 if let Ok(t) = Arc::try_unwrap(eval) {
@@ -1041,54 +875,6 @@ impl<S: Shape> OctreeBuilder<S> {
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
     }
 
-    /// Recurse down the octree, splitting the given leaf cells
-    fn refine(
-        &mut self,
-        eval: &Arc<EvalGroup<S>>,
-        cell: CellIndex,
-        needs_fixing: &[bool],
-    ) {
-        match self.o[cell].into() {
-            Cell::Empty | Cell::Full | Cell::Leaf(..)
-                if needs_fixing[cell.index] =>
-            {
-                // We're going to split this cell and refine it
-                let index = self.o.cells.len();
-                self.o[cell] = Cell::Branch { index, thread: 0 }.into();
-
-                // Evaluate all 8 leafs
-                for i in Corner::iter() {
-                    let subcell = cell.child(index, i);
-                    let leaf = self.leaf(eval, subcell);
-                    match leaf {
-                        Cell::Leaf(Leaf { index, .. }) => {
-                            // Discard hermite data immediately, because we
-                            // aren't collapsing leaves here.
-                            let hermite_index =
-                                self.leafs[index].hermite_index.take().unwrap();
-                            self.pop_hermite(hermite_index.get());
-                        }
-                        Cell::Empty | Cell::Full => (),
-                        Cell::Branch { .. } | Cell::Invalid => panic!(),
-                    }
-                    // We aren't going to collapse the leafs, so just record
-                    // them right away.
-                    self.o.cells.push(leaf.into());
-                }
-            }
-            Cell::Empty | Cell::Full | Cell::Leaf(..) => {
-                assert!(!needs_fixing[cell.index])
-            }
-            Cell::Branch { index, .. } => {
-                assert!(!needs_fixing[cell.index]);
-                for i in Corner::iter() {
-                    self.refine(eval, cell.child(index, i), needs_fixing)
-                }
-            }
-            Cell::Invalid => panic!(),
-        }
-    }
-
     pub(crate) fn reclaim(&mut self, mut e: EvalGroup<S>) {
         if let Some(s) = e.shape.recycle() {
             self.shape_storage.push(s);
@@ -1372,8 +1158,7 @@ mod test {
     use std::collections::BTreeMap;
 
     const DEPTH0_SINGLE_THREAD: Settings = Settings {
-        min_depth: 0,
-        max_depth: 0,
+        depth: 0,
         bounds: Bounds {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
@@ -1381,8 +1166,7 @@ mod test {
         threads: unsafe { std::num::NonZeroUsize::new_unchecked(1) },
     };
     const DEPTH1_SINGLE_THREAD: Settings = Settings {
-        min_depth: 1,
-        max_depth: 1,
+        depth: 1,
         bounds: Bounds {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
@@ -1543,8 +1327,7 @@ mod test {
 
         for threads in [1, 8] {
             let settings = Settings {
-                min_depth: 5,
-                max_depth: 5,
+                depth: 5,
                 threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
@@ -1700,8 +1483,7 @@ mod test {
                 // corners of the cell spanning [0, 0.25]
                 let shape = VmShape::from_tree(&shape);
                 let settings = Settings {
-                    min_depth: 2,
-                    max_depth: 2,
+                    depth: 2,
                     threads: threads.try_into().unwrap(),
                     ..Default::default()
                 };
@@ -1758,8 +1540,7 @@ mod test {
         let shape = VmShape::from_tree(&sphere([0.1; 3], 0.05));
         for threads in [1, 4] {
             let settings = Settings {
-                min_depth: 1,
-                max_depth: 1,
+                depth: 1,
                 threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
@@ -1780,8 +1561,7 @@ mod test {
         let tape = VmShape::new(&ctx, root).unwrap();
         for threads in [1, 8] {
             let settings = Settings {
-                min_depth: 5,
-                max_depth: 5,
+                depth: 5,
                 threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
@@ -1876,8 +1656,7 @@ mod test {
         let shape = VmShape::from_tree(&sphere([0.0; 3], 0.75));
 
         let settings = Settings {
-            min_depth: 4,
-            max_depth: 4,
+            depth: 4,
             threads: 1.try_into().unwrap(),
             ..Default::default()
         };
@@ -1895,8 +1674,7 @@ mod test {
 
         let center = Vector3::new(1.0, 1.0, 1.0);
         let settings = Settings {
-            min_depth: 4,
-            max_depth: 4,
+            depth: 4,
             threads: 1.try_into().unwrap(),
             bounds: Bounds { size: 0.5, center },
         };

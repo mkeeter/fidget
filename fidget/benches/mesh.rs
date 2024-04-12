@@ -15,8 +15,7 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
     for threads in [1, 4, 8] {
         let cfg = &fidget::mesh::Settings {
-            min_depth: 6,
-            max_depth: 6,
+            depth: 6,
             threads: threads.try_into().unwrap(),
             ..Default::default()
         };
@@ -40,8 +39,7 @@ pub fn colonnade_mesh(c: &mut Criterion) {
     let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
     let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
     let cfg = fidget::mesh::Settings {
-        min_depth: 8,
-        max_depth: 8,
+        depth: 8,
         ..Default::default()
     };
     let octree = &fidget::mesh::Octree::build(shape_vm, cfg);

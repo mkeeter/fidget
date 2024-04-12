@@ -90,13 +90,9 @@ struct ImageSettings {
 
 #[derive(Parser)]
 struct MeshSettings {
-    /// Minimum octree depth
+    /// Octree depth
     #[clap(short, long)]
     depth: u8,
-
-    /// Maximum octree depth
-    #[clap(long)]
-    max_depth: Option<u8>,
 
     /// Name of a `.stl` file to write
     #[clap(short, long)]
@@ -251,8 +247,7 @@ fn run_mesh<S: fidget::eval::Shape>(
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
             threads: settings.threads,
-            min_depth: settings.depth,
-            max_depth: settings.max_depth.unwrap_or(settings.depth),
+            depth: settings.depth,
             ..Default::default()
         };
         let octree = fidget::mesh::Octree::build(&shape, settings);
