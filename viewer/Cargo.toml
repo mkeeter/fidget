@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0"
 clap = { version = "4.1.6", features = ["derive"] }
 crossbeam-channel = "0.5"
-eframe = { version = "0.21", default-features = false, features = [
+eframe = { version = "0.27", default-features = false, features = [
     #"accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".

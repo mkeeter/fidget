@@ -120,14 +120,10 @@ where
 
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
             debug!("Rendering...");
-            let mut image = egui::ImageData::Color(egui::ColorImage::new(
+            let mut image = egui::ColorImage::new(
                 [render_config.image_size; 2],
                 egui::Color32::BLACK,
-            ));
-            let pixels = match &mut image {
-                egui::ImageData::Color(c) => &mut c.pixels,
-                _ => panic!(),
-            };
+            );
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
                 let tape = S::from_tree(&s.tree);
@@ -136,10 +132,11 @@ where
                     tape,
                     render_config.image_size,
                     s.color_rgb,
-                    pixels,
+                    &mut image.pixels,
                 );
             }
             let dt = render_start.elapsed();
+            let image = egui::ImageData::Color(std::sync::Arc::new(image));
             tx.send(Ok(RenderResult {
                 image,
                 dt,
@@ -614,10 +611,10 @@ impl ViewerApp {
                     min: text_corner - 2.0 * PADDING,
                     max: rect.max,
                 },
-                egui::Rounding::none(),
+                egui::Rounding::default(),
                 egui::Color32::from_black_alpha(128),
             );
-            painter.galley(text_corner - PADDING, layout);
+            painter.galley(text_corner - PADDING, layout, egui::Color32::BLACK);
         }
 
         if let Some(err) = &self.err {
@@ -634,10 +631,10 @@ impl ViewerApp {
                     min: rect.min,
                     max: text_corner + 2.0 * PADDING,
                 },
-                egui::Rounding::none(),
+                egui::Rounding::default(),
                 egui::Color32::from_black_alpha(128),
             );
-            painter.galley(rect.min + PADDING, layout);
+            painter.galley(rect.min + PADDING, layout, egui::Color32::BLACK);
         }
 
         // Return events from the canvas in the inner response
@@ -702,7 +699,7 @@ impl eframe::App for ViewerApp {
                 }
 
                 if r.hovered() {
-                    let scroll = ctx.input(|i| i.scroll_delta.y);
+                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     if scroll != 0.0 {
                         let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
                         let pos_before =
