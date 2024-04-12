@@ -2879,6 +2879,7 @@ dependencies = [
  "crossbeam-utils",
  "libc",
  "log",
+ "memchr",
  "once_cell",
  "proc-macro2",
  "quote",
