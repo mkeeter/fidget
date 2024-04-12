@@ -22,5 +22,6 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Install target
       run: rustup target add ${{ matrix.target }}
-    - run: cargo check --target=${{ matrix.target }} --all-targets --verbose
+    - name: Check
+      run: cargo check --target=${{ matrix.target }} --all-targets --verbose
 
