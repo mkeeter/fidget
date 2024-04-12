@@ -1459,49 +1459,58 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_mesh_manifold() {
-        for threads in [1, 8] {
-            for i in 0..256 {
-                let mut shape = vec![];
-                for j in Corner::iter() {
-                    if i & (1 << j.index()) != 0 {
-                        shape.push(sphere(
-                            [
-                                if j & X { 0.5 } else { 0.0 },
-                                if j & Y { 0.5 } else { 0.0 },
-                                if j & Z { 0.5 } else { 0.0 },
-                            ],
-                            0.1,
-                        ));
-                    }
-                }
-                let Some(start) = shape.pop() else { continue };
-                let shape = shape.into_iter().fold(start, |acc, s| acc.min(s));
-
-                // Now, we have our shape, which is 0-8 spheres placed at the
-                // corners of the cell spanning [0, 0.25]
-                let shape = VmShape::from_tree(&shape);
-                let settings = Settings {
-                    depth: 2,
-                    threads: threads.try_into().unwrap(),
-                    ..Default::default()
-                };
-                let octree = Octree::build(&shape, settings);
-
-                let mesh = octree.walk_dual(settings);
-                if i != 0 && i != 255 {
-                    assert!(!mesh.vertices.is_empty());
-                    assert!(!mesh.triangles.is_empty());
-                }
-
-                if let Err(e) = check_for_vertex_dupes(&mesh) {
-                    panic!("mask {i:08b} has {e}");
-                }
-                if let Err(e) = check_for_edge_matching(&mesh) {
-                    panic!("mask {i:08b} has {e}");
-                }
+    fn test_mesh_manifold_inner(threads: usize, mask: u8) {
+        let mut shape = vec![];
+        for j in Corner::iter() {
+            if mask & (1 << j.index()) != 0 {
+                shape.push(sphere(
+                    [
+                        if j & X { 0.5 } else { 0.0 },
+                        if j & Y { 0.5 } else { 0.0 },
+                        if j & Z { 0.5 } else { 0.0 },
+                    ],
+                    0.1,
+                ));
             }
+        }
+        let Some(start) = shape.pop() else { return };
+        let shape = shape.into_iter().fold(start, |acc, s| acc.min(s));
+
+        // Now, we have our shape, which is 0-8 spheres placed at the
+        // corners of the cell spanning [0, 0.25]
+        let shape = VmShape::from_tree(&shape);
+        let settings = Settings {
+            depth: 2,
+            threads: threads.try_into().unwrap(),
+            ..Default::default()
+        };
+        let octree = Octree::build(&shape, settings);
+
+        let mesh = octree.walk_dual(settings);
+        if mask != 0 && mask != 255 {
+            assert!(!mesh.vertices.is_empty());
+            assert!(!mesh.triangles.is_empty());
+        }
+
+        if let Err(e) = check_for_vertex_dupes(&mesh) {
+            panic!("mask {mask:08b} has {e}");
+        }
+        if let Err(e) = check_for_edge_matching(&mesh) {
+            panic!("mask {mask:08b} has {e}");
+        }
+    }
+
+    #[test]
+    fn test_mesh_manifold_single_thread() {
+        for mask in 0..=255 {
+            test_mesh_manifold_inner(1, mask)
+        }
+    }
+
+    #[test]
+    fn test_mesh_manifold_multi_thread() {
+        for mask in 0..=255 {
+            test_mesh_manifold_inner(8, mask)
         }
     }
 
