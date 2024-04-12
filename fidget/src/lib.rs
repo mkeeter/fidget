@@ -267,7 +267,7 @@ pub mod render;
 #[cfg(feature = "rhai")]
 pub mod rhai;
 
-#[cfg(feature = "jit")]
+#[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
 
 #[cfg(feature = "mesh")]

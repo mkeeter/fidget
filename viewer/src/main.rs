@@ -163,11 +163,11 @@ fn render<S: fidget::eval::Shape>(
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
-                threads: 8,
                 bounds: fidget::shape::Bounds {
                     center: Vector2::new(camera.offset.x, camera.offset.y),
                     size: camera.scale,
                 },
+                ..RenderConfig::default()
             };
 
             match mode {
@@ -218,11 +218,11 @@ fn render<S: fidget::eval::Shape>(
             let config = RenderConfig {
                 image_size,
                 tile_sizes: S::tile_sizes_2d().to_vec(),
-                threads: 8,
                 bounds: fidget::shape::Bounds {
                     center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
                     size: camera.scale,
                 },
+                ..RenderConfig::default()
             };
             let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {

@@ -1,4 +1,7 @@
-# 0.2.5 (unreleased)
+# 0.2.5
+- Removed `threads` parameter from various `Settings` objects when targeting
+  `wasm32`, so that it's harder to accidentally spawn threads (which would
+  panic).
 
 # 0.2.4
 The highlight of this release is a refactoring of how shapes are handled in Rhai

@@ -370,30 +370,37 @@ pub fn render_inner<S: Shape>(
             }
         }
     }
-    let tiles_per_thread = (tiles.len() / config.threads).max(1);
+
+    let threads = config.threads();
+
+    let tiles_per_thread = (tiles.len() / threads).max(1);
     let mut tile_queues = vec![];
     for ts in tiles.chunks(tiles_per_thread) {
         tile_queues.push(Queue::new(ts.to_vec()));
     }
-    tile_queues.resize_with(config.threads, || Queue::new(vec![]));
+    tile_queues.resize_with(threads, || Queue::new(vec![]));
 
     let i_tape = Arc::new(shape.interval_tape(Default::default()));
 
     // Special-case for single-threaded operation, to give simpler backtraces
-    let out = if config.threads == 1 {
+    let out: Vec<_> = if threads == 1 {
         let shape = RenderHandle::new(shape, i_tape);
         worker::<S>(shape, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
     } else {
-        let config_ref = &config;
+        #[cfg(target_arch = "wasm32")]
+        unreachable!("multithreaded rendering is not supported on wasm32");
+
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::scope(|s| {
+            let config = &config;
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
-            for i in 0..config.threads {
+            for i in 0..threads {
                 let handle = RenderHandle::new(shape.clone(), i_tape.clone());
                 handles.push(
-                    s.spawn(move || worker::<S>(handle, queues, i, config_ref)),
+                    s.spawn(move || worker::<S>(handle, queues, i, config)),
                 );
             }
             let mut out = vec![];
@@ -442,7 +449,6 @@ mod test {
 
         let cfg = RenderConfig::<3> {
             image_size: 128, // very small!
-            threads: 8,
             ..RenderConfig::default()
         };
         let out = cfg.run(shape);

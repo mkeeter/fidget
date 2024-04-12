@@ -7,13 +7,15 @@ use super::{
     fixup::DcFixup,
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
-    mt::{DcWorker, OctreeWorker},
     qef::QuadraticErrorSolver,
     types::{Axis, Corner, Edge, EdgeMask, Face, FaceMask},
     Mesh, Settings,
 };
 use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
+
+#[cfg(not(target_arch = "wasm32"))]
+use super::mt::{DcWorker, OctreeWorker};
 
 /// Helper struct to contain a set of matched evaluators
 ///
@@ -83,47 +85,6 @@ pub struct Octree {
 }
 
 impl Octree {
-    /// Merges a set of octrees constructed across multiple workers
-    ///
-    /// # Panics
-    /// All cross-octree references must be valid
-    pub(crate) fn merge(os: &[Octree]) -> Octree {
-        // Calculate offsets within the global merged Octree
-        let mut cell_offsets = vec![0];
-        let mut vert_offsets = vec![0];
-        for o in os {
-            let i = cell_offsets.last().unwrap();
-            cell_offsets.push(i + o.cells.len());
-
-            let i = vert_offsets.last().unwrap();
-            vert_offsets.push(i + o.verts.len());
-        }
-
-        let mut out = Octree {
-            cells: Vec::with_capacity(*cell_offsets.last().unwrap()),
-            verts: Vec::with_capacity(*vert_offsets.last().unwrap()),
-        };
-
-        for (t, o) in os.iter().enumerate() {
-            for c in &o.cells {
-                let c: Cell = match (*c).into() {
-                    c @ (Cell::Empty | Cell::Full | Cell::Invalid) => c,
-                    Cell::Branch { index, thread } => Cell::Branch {
-                        index: cell_offsets[thread as usize] + index,
-                        thread: 0,
-                    },
-                    Cell::Leaf(Leaf { mask, index }) => Cell::Leaf(Leaf {
-                        index: vert_offsets[t] + index,
-                        mask,
-                    }),
-                };
-                out.cells.push(c.into());
-            }
-            out.verts.extend(o.verts.iter().cloned());
-        }
-        out
-    }
-
     /// Builds an octree to the given depth
     ///
     /// The shape is evaluated on the region specified by `settings.bounds`.
@@ -149,11 +110,15 @@ impl Octree {
     fn build_inner<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
-        let mut octree = if settings.threads == 0 {
+        let mut octree = if settings.threads() == 1 {
             let mut out = OctreeBuilder::new();
             out.recurse(&eval, CellIndex::default(), settings);
             out.into()
         } else {
+            #[cfg(target_arch = "wasm32")]
+            unreachable!("cannot use multithreaded evaluator on wasm32");
+
+            #[cfg(not(target_arch = "wasm32"))]
             OctreeWorker::scheduler(eval.clone(), settings)
         };
 
@@ -215,11 +180,15 @@ impl Octree {
     pub fn walk_dual(&self, settings: Settings) -> Mesh {
         let mut mesh = MeshBuilder::default();
 
-        if settings.threads == 0 {
+        if settings.threads() == 1 {
             mesh.cell(self, CellIndex::default());
             mesh.take()
         } else {
-            DcWorker::scheduler(self, settings.threads)
+            #[cfg(target_arch = "wasm32")]
+            unreachable!("cannot use multithreaded evaluator on wasm32");
+
+            #[cfg(not(target_arch = "wasm32"))]
+            DcWorker::scheduler(self, settings.threads())
         }
     }
 
@@ -361,6 +330,51 @@ impl Octree {
     }
 }
 
+/// `Octree` functions which are only used during multithreaded rendering
+#[cfg(not(target_arch = "wasm32"))]
+impl Octree {
+    /// Merges a set of octrees constructed across multiple workers
+    ///
+    /// # Panics
+    /// All cross-octree references must be valid
+    pub(crate) fn merge(os: &[Octree]) -> Octree {
+        // Calculate offsets within the global merged Octree
+        let mut cell_offsets = vec![0];
+        let mut vert_offsets = vec![0];
+        for o in os {
+            let i = cell_offsets.last().unwrap();
+            cell_offsets.push(i + o.cells.len());
+
+            let i = vert_offsets.last().unwrap();
+            vert_offsets.push(i + o.verts.len());
+        }
+
+        let mut out = Octree {
+            cells: Vec::with_capacity(*cell_offsets.last().unwrap()),
+            verts: Vec::with_capacity(*vert_offsets.last().unwrap()),
+        };
+
+        for (t, o) in os.iter().enumerate() {
+            for c in &o.cells {
+                let c: Cell = match (*c).into() {
+                    c @ (Cell::Empty | Cell::Full | Cell::Invalid) => c,
+                    Cell::Branch { index, thread } => Cell::Branch {
+                        index: cell_offsets[thread as usize] + index,
+                        thread: 0,
+                    },
+                    Cell::Leaf(Leaf { mask, index }) => Cell::Leaf(Leaf {
+                        index: vert_offsets[t] + index,
+                        mask,
+                    }),
+                };
+                out.cells.push(c.into());
+            }
+            out.verts.extend(o.verts.iter().cloned());
+        }
+        out
+    }
+}
+
 impl std::ops::Index<CellIndex> for Octree {
     type Output = CellData;
 
@@ -462,29 +476,6 @@ impl<S: Shape> OctreeBuilder<S> {
         }
     }
 
-    /// Builds a new empty octree
-    ///
-    /// This still allocates data to reserve the lowest slot in `hermite`
-    pub(crate) fn empty() -> Self {
-        Self {
-            o: Octree {
-                cells: vec![],
-                verts: vec![],
-            },
-            leafs: vec![],
-            hermite: vec![LeafHermiteData::default()],
-            hermite_slots: vec![],
-
-            eval_float_slice: S::new_float_slice_eval(),
-            eval_grad_slice: S::new_grad_slice_eval(),
-            eval_interval: S::new_interval_eval(),
-
-            tape_storage: vec![],
-            shape_storage: vec![],
-            workspace: Default::default(),
-        }
-    }
-
     /// Stores hermite data in the local array
     fn push_hermite(&mut self, d: LeafHermiteData) -> usize {
         if let Some(s) = self.hermite_slots.pop() {
@@ -500,18 +491,6 @@ impl<S: Shape> OctreeBuilder<S> {
     /// Releases hermite data from the local array
     fn pop_hermite(&mut self, i: usize) {
         self.hermite_slots.push(i);
-    }
-
-    /// Records the given cell into the provided index
-    ///
-    /// The index must be valid already; this does not modify the cells vector.
-    ///
-    /// # Panics
-    /// If the index exceeds the bounds of the cell vector, or the cell is
-    /// already populated.
-    pub(crate) fn record(&mut self, index: usize, cell: CellData) {
-        debug_assert_eq!(self.o.cells[index], Cell::Invalid.into());
-        self.o.cells[index] = cell;
     }
 
     /// Evaluates a single cell in the octree
@@ -1126,6 +1105,45 @@ impl<S: Shape> OctreeBuilder<S> {
     }
 }
 
+/// `OctreeBuilder` functions which are only used during multithreaded rendering
+#[cfg(not(target_arch = "wasm32"))]
+impl<S: Shape> OctreeBuilder<S> {
+    /// Builds a new empty octree
+    ///
+    /// This still allocates data to reserve the lowest slot in `hermite`
+    pub(crate) fn empty() -> Self {
+        Self {
+            o: Octree {
+                cells: vec![],
+                verts: vec![],
+            },
+            leafs: vec![],
+            hermite: vec![LeafHermiteData::default()],
+            hermite_slots: vec![],
+
+            eval_float_slice: S::new_float_slice_eval(),
+            eval_grad_slice: S::new_grad_slice_eval(),
+            eval_interval: S::new_interval_eval(),
+
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
+        }
+    }
+
+    /// Records the given cell into the provided index
+    ///
+    /// The index must be valid already; this does not modify the cells vector.
+    ///
+    /// # Panics
+    /// If the index exceeds the bounds of the cell vector, or the cell is
+    /// already populated.
+    pub(crate) fn record(&mut self, index: usize, cell: CellData) {
+        debug_assert_eq!(self.o.cells[index], Cell::Invalid.into());
+        self.o.cells[index] = cell;
+    }
+}
+
 /// Result of a single cell evaluation
 pub enum CellResult<S: Shape> {
     Done(Cell),
@@ -1356,20 +1374,20 @@ mod test {
     const DEPTH0_SINGLE_THREAD: Settings = Settings {
         min_depth: 0,
         max_depth: 0,
-        threads: 0,
         bounds: Bounds {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
         },
+        threads: unsafe { std::num::NonZeroUsize::new_unchecked(1) },
     };
     const DEPTH1_SINGLE_THREAD: Settings = Settings {
         min_depth: 1,
         max_depth: 1,
-        threads: 0,
         bounds: Bounds {
             center: Vector3::new(0.0, 0.0, 0.0),
             size: 1.0,
         },
+        threads: unsafe { std::num::NonZeroUsize::new_unchecked(1) },
     };
 
     fn sphere(center: [f32; 3], radius: f32) -> Tree {
@@ -1523,11 +1541,11 @@ mod test {
     fn test_sphere_manifold() {
         let shape = VmShape::from_tree(&sphere([0.0; 3], 0.85));
 
-        for threads in [0, 8] {
+        for threads in [1, 8] {
             let settings = Settings {
                 min_depth: 5,
                 max_depth: 5,
-                threads,
+                threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
@@ -1660,7 +1678,7 @@ mod test {
 
     #[test]
     fn test_mesh_manifold() {
-        for threads in [0, 8] {
+        for threads in [1, 8] {
             for i in 0..256 {
                 let mut shape = vec![];
                 for j in Corner::iter() {
@@ -1684,7 +1702,7 @@ mod test {
                 let settings = Settings {
                     min_depth: 2,
                     max_depth: 2,
-                    threads,
+                    threads: threads.try_into().unwrap(),
                     ..Default::default()
                 };
                 let octree = Octree::build(&shape, settings);
@@ -1738,11 +1756,11 @@ mod test {
     fn test_empty_collapse() {
         // Make a very smol sphere that won't be sampled
         let shape = VmShape::from_tree(&sphere([0.1; 3], 0.05));
-        for threads in [0, 4] {
+        for threads in [1, 4] {
             let settings = Settings {
                 min_depth: 1,
                 max_depth: 1,
-                threads,
+                threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
@@ -1760,11 +1778,11 @@ mod test {
         let (ctx, root) =
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
-        for threads in [0, 8] {
+        for threads in [1, 8] {
             let settings = Settings {
                 min_depth: 5,
                 max_depth: 5,
-                threads,
+                threads: threads.try_into().unwrap(),
                 ..Default::default()
             };
             let octree = Octree::build(&tape, settings);
@@ -1860,7 +1878,7 @@ mod test {
         let settings = Settings {
             min_depth: 4,
             max_depth: 4,
-            threads: 0,
+            threads: 1.try_into().unwrap(),
             ..Default::default()
         };
 
@@ -1879,7 +1897,7 @@ mod test {
         let settings = Settings {
             min_depth: 4,
             max_depth: 4,
-            threads: 0,
+            threads: 1.try_into().unwrap(),
             bounds: Bounds { size: 0.5, center },
         };
 

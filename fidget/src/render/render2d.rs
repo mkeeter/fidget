@@ -365,19 +365,33 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
 
     let i_tape = Arc::new(shape.interval_tape(Default::default()));
     let queue = Queue::new(tiles);
-    let out = std::thread::scope(|s| {
-        let mut handles = vec![];
-        for _ in 0..config.threads {
-            let shape = RenderHandle::new(shape.clone(), i_tape.clone());
-            handles
-                .push(s.spawn(|| worker::<S, M>(shape, &queue, &config, mode)));
-        }
-        let mut out = vec![];
-        for h in handles {
-            out.extend(h.join().unwrap().into_iter());
-        }
-        out
-    });
+    let threads = config.threads();
+
+    let out: Vec<_> = if threads == 1 {
+        let shape = RenderHandle::new(shape, i_tape);
+        worker::<S, M>(shape, &queue, &config, mode)
+            .into_iter()
+            .collect()
+    } else {
+        #[cfg(target_arch = "wasm32")]
+        unreachable!("multithreaded rendering is not supported on wasm32");
+
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::scope(|s| {
+            let mut handles = vec![];
+            for _ in 0..threads {
+                let shape = RenderHandle::new(shape.clone(), i_tape.clone());
+                handles.push(
+                    s.spawn(|| worker::<S, M>(shape, &queue, &config, mode)),
+                );
+            }
+            let mut out = vec![];
+            for h in handles {
+                out.extend(h.join().unwrap().into_iter());
+            }
+            out
+        })
+    };
 
     let mut image = vec![M::Output::default(); config.orig_image_size.pow(2)];
     for (tile, data) in out.iter() {

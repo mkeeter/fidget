@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -75,8 +76,8 @@ struct ImageSettings {
     eval: EvalMode,
 
     /// Number of threads to use
-    #[clap(short, long, default_value_t = 8)]
-    threads: usize,
+    #[clap(short, long, default_value_t = NonZeroUsize::new(8).unwrap())]
+    threads: NonZeroUsize,
 
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
@@ -106,8 +107,8 @@ struct MeshSettings {
     eval: EvalMode,
 
     /// Number of threads to use
-    #[clap(short, long, default_value_t = 8)]
-    threads: u8,
+    #[clap(short, long, default_value_t = NonZeroUsize::new(8).unwrap())]
+    threads: NonZeroUsize,
 
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
