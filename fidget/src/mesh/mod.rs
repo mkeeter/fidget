@@ -27,8 +27,7 @@
 //! let tree = fidget::rhai::eval("sphere(0, 0, 0, 0.6)")?;
 //! let shape = VmShape::from_tree(&tree);
 //! let settings = Settings {
-//!     min_depth: 4,
-//!     max_depth: 4,
+//!     depth: 4,
 //!     ..Default::default()
 //! };
 //! let o = Octree::build(&shape, settings);
@@ -46,7 +45,6 @@ use crate::shape::Bounds;
 mod builder;
 mod cell;
 mod dc;
-mod fixup;
 mod frame;
 mod gen;
 mod octree;
@@ -83,17 +81,8 @@ impl Mesh {
 /// Settings when building an octree and mesh
 #[derive(Copy, Clone, Debug)]
 pub struct Settings {
-    /// Minimum depth to recurse in the octree
-    pub min_depth: u8,
-
-    /// Maximum depth to recurse in the octree
-    ///
-    /// If this is `> min_depth`, then after the octree is initially built
-    /// (recursing to `min_depth`), cells with escaped vertices are subdivided
-    /// recursively up to a limit of `max_depth`.
-    ///
-    /// This is **much slower**.
-    pub max_depth: u8,
+    /// Depth to recurse in the octree
+    pub depth: u8,
 
     /// Bounds for meshing
     pub bounds: Bounds<3>,
@@ -109,8 +98,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            min_depth: 3,
-            max_depth: 3,
+            depth: 3,
             bounds: Default::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
