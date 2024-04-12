@@ -2,6 +2,10 @@
 - Removed `threads` parameter from various `Settings` objects when targeting
   `wasm32`, so that it's harder to accidentally spawn threads (which would
   panic).
+- Removed `min_depth` / `max_depth` distinction in meshing; this doesn't
+  actually guarantee manifold models
+  (see [this scale-invariant adversarial model](https://www.mattkeeter.com/blog/2023-04-23-adversarial/)),
+  so the extra complexity isn't worth it.
 
 # 0.2.4
 The highlight of this release is a refactoring of how shapes are handled in Rhai
