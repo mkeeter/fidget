@@ -1,0 +1,25 @@
+name: Check wasm build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        target: [
+          "wasm32-unknown-unknown",
+        ]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install wasm target
+      run: rustup target add ${{ matrix.target }}
+    - name: Check
+      run: cargo check --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai,render,mesh"
