@@ -62,11 +62,13 @@ These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
 ## Platforms
-At the moment, the JIT supports three platforms:
+At the moment, the JIT supports a limited number of platforms:
 
 - `aarch64-apple-darwin`
-- `x86_64-unknown-linux-*`
-- `aarch64-unknown-linux-*` (not tested in CI)
+- `x86_64-unknown-linux-gnu`
+- `x86_64-pc-windows-msvc`
+- `aarch64-unknown-linux-gnu` (checked but not tested in CI)
+- `aarch64-pc-windows-msvc` (checked but not tested in CI)
 
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be
@@ -74,10 +76,6 @@ widespread.
 
 Disabling the `jit` feature allows for cross-platform rendering, using an
 interpreter rather than JIT compilation.
-
-`x86_64-pc-windows-*` and `aarch64-pc-windows-*` _may_ be close to working (with
-only minor tweaks required); the author does not have a Windows machine on which
-to test.
 
 ## Similar projects
 Fidget overlaps with various projects in the implicit modeling space:

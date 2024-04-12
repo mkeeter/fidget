@@ -49,9 +49,13 @@ mod grad_slice;
 mod interval;
 mod point;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "windows"
+)))]
 compile_error!(
-    "The `jit` module only builds on Linux and macOS; \
+    "The `jit` module only builds on Linux, macOS, and Windows; \
     please disable the `jit` feature"
 );
 

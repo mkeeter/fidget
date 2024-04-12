@@ -15,6 +15,7 @@ jobs:
       matrix:
         target: [
           "x86_64-unknown-linux-gnu",
+          "x86_64-pc-windows-msvc",
         ]
     runs-on: ubuntu-latest
     steps:
@@ -24,4 +25,3 @@ jobs:
       run: rustup target add ${{ matrix.target }}
     - name: Check
       run: cargo check --target=${{ matrix.target }} --all-targets --verbose
-
