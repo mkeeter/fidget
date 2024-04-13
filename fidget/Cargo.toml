@@ -63,11 +63,6 @@ mesh = ["dep:crossbeam-deque"]
 ## evaluator type, e.g. `float_slice_tests!(...)`.
 eval-tests = []
 
-## On Linux, this feature uses `mprotect` to prevent JIT buffers from being both
-## writable and executable at the same time.  This is best practice from a
-## security perspective, but incurs a 25% slowdown.
-write-xor-execute = []
-
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

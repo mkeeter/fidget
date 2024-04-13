@@ -635,7 +635,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
     mut s: Mmap,
 ) -> Mmap {
     // This guard may be a unit value on some systems
-    #[allow(clippy::let_unit_value)]
+    #[cfg(target_os = "macos")]
     let _guard = Mmap::thread_mode_write();
 
     let size_estimate = t.len() * A::bytes_per_clause();
@@ -643,7 +643,6 @@ fn build_asm_fn_with_storage<A: Assembler>(
         s = Mmap::new(size_estimate).expect("failed to build mmap")
     }
 
-    s.make_write();
     let mut asm = A::init(s, t.slot_count());
 
     for op in t.iter_asm() {
