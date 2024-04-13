@@ -6,6 +6,7 @@
   actually guarantee manifold models
   (see [this scale-invariant adversarial model](https://www.mattkeeter.com/blog/2023-04-23-adversarial/)),
   so the extra complexity isn't worth it.
+- Added Windows support (including JIT)
 
 # 0.2.4
 The highlight of this release is a refactoring of how shapes are handled in Rhai
