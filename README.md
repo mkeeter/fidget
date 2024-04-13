@@ -62,20 +62,24 @@ These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
 ## Platforms
-At the moment, the JIT supports a limited number of platforms:
+At the moment, Fidget supports a limited number of platforms:
 
-- `aarch64-apple-darwin`
-- `x86_64-unknown-linux-gnu`
-- `x86_64-pc-windows-msvc`
-- `aarch64-unknown-linux-gnu` (checked but not tested in CI)
-- `aarch64-pc-windows-msvc` (checked but not tested in CI)
+| Platform                    | JIT support | CI         |
+|-----------------------------|-------------|------------|
+| `aarch64-apple-darwin`      | Yes         | ✅ Tested  |
+| `x86_64-unknown-linux-gnu`  | Yes         | ✅ Tested  |
+| `x86_64-pc-windows-msvc`    | Yes         | ✅ Tested  |
+| `aarch64-unknown-linux-gnu` | Yes         | ⚠️  Checked |
+| `aarch64-pc-windows-msvc`   | Yes         | ⚠️  Checked |
+| `wasm32-unknown-unknown`    | No          | ⚠️  Checked |
 
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be
 widespread.
 
 Disabling the `jit` feature allows for cross-platform rendering, using an
-interpreter rather than JIT compilation.
+interpreter rather than JIT compilation.  This is mandatory for the
+`wasm32-unknown-unknown` target, which cannot generate "native" code.
 
 ## Similar projects
 Fidget overlaps with various projects in the implicit modeling space:
