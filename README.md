@@ -61,18 +61,31 @@ two demo applications:
 These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
-## Platforms
+## Support matrix
 At the moment, Fidget supports a limited number of platforms:
 
-| Platform                    | JIT support | CI         |
-|-----------------------------|-------------|------------|
-| `aarch64-apple-darwin`      | Yes         | ✅ Tested  |
-| `x86_64-unknown-linux-gnu`  | Yes         | ✅ Tested  |
-| `x86_64-pc-windows-msvc`    | Yes         | ✅ Tested  |
-| `aarch64-unknown-linux-gnu` | Yes         | ⚠️  Checked |
-| `aarch64-pc-windows-msvc`   | Yes         | ⚠️  Checked |
-| `wasm32-unknown-unknown`    | No          | ⚠️  Checked |
+| Platform                    | JIT support | CI         | Support |
+|-----------------------------|-------------|------------|---------|
+| `aarch64-apple-darwin`      | Yes         | ✅ Tested  | Tier 0  |
+| `x86_64-unknown-linux-gnu`  | Yes         | ✅ Tested  | Tier 1  |
+| `x86_64-pc-windows-msvc`    | Yes         | ✅ Tested  | Tier 2  |
+| `aarch64-unknown-linux-gnu` | Yes         | ⚠️  Checked | Tier 1  |
+| `aarch64-pc-windows-msvc`   | Yes         | ⚠️  Checked | Tier 3  |
+| `wasm32-unknown-unknown`    | No          | ⚠️  Checked | Tier 1  |
 
+### Explanation of keys
+The "CI" column indicates whether `cargo test` or `cargo check` must pass for
+the given target.  The "Support" column reflects how easy it would be to debug a
+platform-specific bug:
+
+- Tier 0: a maintainer uses this platform as their daily driver
+- Tier 1: a maintainer has access to a system running this platform
+- Tier 2: a maintainer **does not** have access to a system running this
+  platform, but it is tested in CI
+- Tier 3: a maintainer **does not** have access to a system running this
+  platform, and it is only checked (not tested) in CI.
+
+### CPU requirements
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be
 widespread.
