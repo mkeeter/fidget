@@ -315,4 +315,48 @@ mod test {
         });
         assert_eq!(done.load(Ordering::Acquire), N);
     }
+
+    #[test]
+    fn queue_and_thread_pool() {
+        const N: usize = 8;
+        let mut queues = QueuePool::new(N);
+        let pool = &ThreadPool::new(N);
+        let mut counters = [0i32; N];
+        const DEPTH: usize = 16;
+        queues[0].push(DEPTH);
+
+        // Confirm that stealing leads to shared work between two threads
+        std::thread::scope(|s| {
+            for (i, (q, c)) in
+                queues.iter_mut().zip(counters.iter_mut()).enumerate()
+            {
+                s.spawn(move || {
+                    let mut ctx = pool.start(i);
+                    loop {
+                        if let Some(v) = q.pop() {
+                            *c += 1;
+                            if v != 0 {
+                                q.push(v - 1);
+                                q.push(v - 1);
+                            }
+                            if q.changed() {
+                                ctx.wake();
+                            }
+                            continue;
+                        }
+                        if !ctx.sleep() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+
+        const EXPECTED_COUNT: usize = (1 << (DEPTH + 1)) - 1;
+        assert_eq!(
+            counters.iter().sum::<i32>(),
+            EXPECTED_COUNT as i32,
+            "threads did not complete all work"
+        );
+    }
 }
