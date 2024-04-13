@@ -86,6 +86,11 @@ At the moment, Fidget supports a limited number of platforms:
 | 🥈 Tier 2 | A maintainer does not have access to this platform, but it is tested in CI     |
 | 🥉 Tier 3 | A maintainer does not have access to this platform, and it is not tested in CI |
 
+Support tiers represent whether maintainers will be able to help with
+platform-specific bugs; for example, if you discover an
+`aarch64-pc-windows-msvc`-specific issue, expect to do most of the heavy lifting
+yourself.
+
 ### CPU requirements
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be
