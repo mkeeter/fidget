@@ -35,27 +35,37 @@ impl ThreadPool {
         assert_ne!(my_thread.id(), w[index].id());
 
         w[index] = my_thread;
-        self.counter.fetch_add(1, Ordering::Release);
-
-        // Wake all of the other workers; if everyone has registered themselves,
-        // then the counter will be at thread_count and everyone will continue.
-        for (i, t) in w.iter().enumerate() {
-            if i != index {
-                t.unpark();
-            }
-        }
+        let n = self.counter.fetch_add(1, Ordering::Release) + 1;
         drop(w);
 
-        // Wait until every thread has installed itself into the array
-        while self.counter.load(Ordering::Acquire) < thread_count {
-            std::thread::park();
-        }
-
-        let threads = self.threads.read().unwrap();
-        ThreadContext {
-            threads,
-            counter: &self.counter,
-            index,
+        // If every thread has installed itself into the array, then wake all of
+        // the other threads and return a new context.
+        if n & 0xFF == thread_count {
+            let threads = self.threads.read().unwrap();
+            for (i, t) in threads.iter().enumerate() {
+                if i != index {
+                    t.unpark();
+                }
+            }
+            ThreadContext {
+                threads,
+                counter: &self.counter,
+                index,
+            }
+        } else {
+            // Wait until every thread has installed itself into the array
+            loop {
+                std::thread::park();
+                let v = self.counter.load(Ordering::Acquire);
+                if v & 0xFF == thread_count {
+                    let threads = self.threads.read().unwrap();
+                    break ThreadContext {
+                        threads,
+                        counter: &self.counter,
+                        index,
+                    };
+                }
+            }
         }
     }
 }
