@@ -31,6 +31,9 @@ rhai = { version = "1.17", optional = true, features = ["sync"] }
 # Meshing
 crossbeam-deque = { version = "0.8", optional = true }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.54.0", features = ["Win32_Foundation", "Win32_System_Memory"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 

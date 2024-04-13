@@ -61,23 +61,44 @@ two demo applications:
 These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
 
-## Platforms
-At the moment, the JIT supports three platforms:
+## Support matrix
+At the moment, Fidget supports a limited number of platforms:
 
-- `aarch64-apple-darwin`
-- `x86_64-unknown-linux-*`
-- `aarch64-unknown-linux-*` (not tested in CI)
+| Platform                    | JIT support | CI         | Support   |
+|-----------------------------|-------------|------------|-----------|
+| `aarch64-apple-darwin`      | Yes         | ✅ Tested  | ⭐️ Tier 0 |
+| `x86_64-unknown-linux-gnu`  | Yes         | ✅ Tested  | 🥇 Tier 1 |
+| `x86_64-pc-windows-msvc`    | Yes         | ✅ Tested  | 🥈 Tier 2 |
+| `aarch64-unknown-linux-gnu` | Yes         | ⚠️  Checked | 🥇 Tier 1 |
+| `aarch64-pc-windows-msvc`   | Yes         | ⚠️  Checked | 🥉 Tier 3 |
+| `wasm32-unknown-unknown`    | No          | ⚠️  Checked | 🥇 Tier 1 |
 
+### Explanation of keys
+| CI         | Description                               |
+|------------|-------------------------------------------|
+| ✅ Tested  | `cargo test` is run for the given target  |
+| ⚠️  Checked | `cargo check` is run for the given target |
+
+| Tier      | Description                                                                    |
+|-----------|--------------------------------------------------------------------------------|
+| ⭐️ Tier 0 | A maintainer uses this platform as their daily driver                          |
+| 🥇 Tier 1 | A maintainer has access to this platform                                       |
+| 🥈 Tier 2 | A maintainer does not have access to this platform, but it is tested in CI     |
+| 🥉 Tier 3 | A maintainer does not have access to this platform, and it is not tested in CI |
+
+Support tiers represent whether maintainers will be able to help with
+platform-specific bugs; for example, if you discover an
+`aarch64-pc-windows-msvc`-specific issue, expect to do most of the heavy lifting
+yourself.
+
+### CPU requirements
 `aarch64` platforms require NEON instructions and `x86_64` platforms require
 AVX2 support; both of these extensions are nearly a decade old and should be
 widespread.
 
 Disabling the `jit` feature allows for cross-platform rendering, using an
-interpreter rather than JIT compilation.
-
-`x86_64-pc-windows-*` and `aarch64-pc-windows-*` _may_ be close to working (with
-only minor tweaks required); the author does not have a Windows machine on which
-to test.
+interpreter rather than JIT compilation.  This is mandatory for the
+`wasm32-unknown-unknown` target, which cannot generate "native" code.
 
 ## Similar projects
 Fidget overlaps with various projects in the implicit modeling space:
