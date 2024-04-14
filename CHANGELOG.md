@@ -1,4 +1,10 @@
 # 0.2.5
+The highlight of this release is native Windows support (including JIT
+compilation).  Everything should work out of the box; please open an issue if
+things are misbehaving.
+
+There are a handful of API and feature changes as well:
+
 - Removed `threads` parameter from various `Settings` objects when targeting
   `wasm32`, so that it's harder to accidentally spawn threads (which would
   panic).
