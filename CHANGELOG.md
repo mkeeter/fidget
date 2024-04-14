@@ -1,3 +1,5 @@
+# 0.2.6 (unreleased)
+
 # 0.2.5
 The highlight of this release is native Windows support (including JIT
 compilation).  Everything should work out of the box; please open an issue if
