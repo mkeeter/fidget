@@ -7,6 +7,8 @@
   (see [this scale-invariant adversarial model](https://www.mattkeeter.com/blog/2023-04-23-adversarial/)),
   so the extra complexity isn't worth it.
 - Added Windows support (including JIT)
+- Removed `write-xor-execute` feature, which was extra cognitive load that no
+  one had actually asked for; if you care about it, let me know!
 
 # 0.2.4
 The highlight of this release is a refactoring of how shapes are handled in Rhai
