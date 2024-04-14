@@ -103,6 +103,7 @@ interpreter rather than JIT compilation.  This is mandatory for the
 ## Similar projects
 Fidget overlaps with various projects in the implicit modeling space:
 
+- [kokopelli: script-based CAD/CAM in Python](https://mattkeeter.com/projects/kokopelli)*
 - [Antimony: CAD from a parallel universe](https://mattkeeter.com/projects/antimony)*
 - [`libfive`: Infrastructure for solid modeling](https://libfive.com)*
 - [Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces (MPR)](https://github.com/mkeeter/mpr)*
