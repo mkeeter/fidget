@@ -900,6 +900,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fidget-wasm-demo"
+version = "0.1.0"
+dependencies = [
+ "fidget",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -4,7 +4,7 @@ members = [
     "fidget",
     "demo",
     "viewer",
-    "workspace-hack",
+    "workspace-hack", "fidget-wasm-demo",
 ]
 
 [profile.release]
