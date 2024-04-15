@@ -23,4 +23,6 @@ jobs:
     - name: Install wasm target
       run: rustup target add ${{ matrix.target }}
     - name: Check
-      run: cargo check --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai,render,mesh"
+      # cargo check doesn't find MIR diagnostics, so we use cargo build instead
+      # (https://github.com/rust-lang/rust/issues/49292)
+      run: cargo build --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai,render,mesh"
