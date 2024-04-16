@@ -10,11 +10,15 @@ async function run() {
 
     function setScript(text) {
         try {
-            let v = fidget.eval_script(text);
-            console.log(v);
+            console.log("evaluating script", text);
+            fidget.eval_script(text);
+            var v = "Ok(..)";
         } catch (error) {
-            console.log(error);
+            var v = error.toString();
         }
+        console.log(output.state.doc.length);
+        output.dispatch(
+            {changes: {from: 0, to: output.state.doc.length, insert: v}});
     }
 
     var timeout = null;
