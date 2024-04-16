@@ -1,5 +1,7 @@
 import {basicSetup} from "codemirror"
-import {EditorView, ViewPlugin, keymap} from "@codemirror/view"
+import {EditorView, ViewPlugin, keymap, lineNumbers} from "@codemirror/view"
+import {foldGutter} from "@codemirror/language"
+import {EditorState} from "@codemirror/state"
 import {defaultKeymap} from "@codemirror/commands"
 
 async function run() {
@@ -31,8 +33,21 @@ async function run() {
                 }
             })
         ],
-        parent: document.getElementById("editor"),
+        parent: document.getElementById("editor-outer"),
     })
+    document.getElementById("editor-outer").children[0].id = "editor" 
+
+    let output = new EditorView({
+        doc: "",
+        extensions: [
+            // Match basicSetup, but without any line numbers
+            lineNumbers({"formatNumber": () => ""}),
+            foldGutter(),
+            EditorView.editable.of(false)
+        ],
+        parent: document.getElementById("output-outer"),
+    })
+    document.getElementById("output-outer").children[0].id = "output"
     console.log("booted");
 }
 run();
