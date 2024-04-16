@@ -4,19 +4,22 @@ import {foldGutter} from "@codemirror/language"
 import {EditorState} from "@codemirror/state"
 import {defaultKeymap} from "@codemirror/commands"
 
-async function run() {
+async function setup() {
     const fidget = await import('./pkg')
       .catch(console.error);
 
     function setScript(text) {
         try {
-            console.log("evaluating script", text);
-            fidget.eval_script(text);
+            let shape = fidget.eval_script(text);
             var v = "Ok(..)";
+            console.log(fidget.render(shape));
         } catch (error) {
             var v = error.toString();
+            // Do some string formatting to make errors cleaner
+            v = v.replace("Rhai error: ", "Rhai error:\n")
+                .replace(" (line ", "\n(line ")
+                .replace(" (expecting ", "\n(expecting ");
         }
-        console.log(output.state.doc.length);
         output.dispatch(
             {changes: {from: 0, to: output.state.doc.length, insert: v}});
     }
@@ -54,4 +57,5 @@ async function run() {
     document.getElementById("output-outer").children[0].id = "output"
     console.log("booted");
 }
-run();
+
+setup();
