@@ -3,21 +3,43 @@
     <style>
 div#editor {
     height: 400px;
-    width: 50%;
+    width: 100%;
     display: block;
     outline: 1px solid #bbb;
 }
 div#output-outer {
-    width: 50%;
+    width: 100%;
     display: block;
     margin-top: 10px;
     outline: 1px solid #bbb;
+}
+div#canvascol {
+  width: 100%;
+}
+canvas#glcanvas {
+  margin-left: 10px;
+  aspect-ratio: 1;
+  max-height: 400px;
+  width: calc(min(100%, 400px));
+}
+.row {
+  display: flex;
+}
+.column {
+  flex: 50%;
 }
     </style>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
   </head>
   <body>
-    <div id="editor-outer"></div>
-    <div id="output-outer"></div>
+    <div class="row">
+    <div class="column">
+      <div id="editor-outer"></div>
+      <div id="output-outer"></div>
+    </div>
+    <div class="column" id="canvascol">
+      <canvas id="glcanvas"></canvas>
+    </div>
+    </div>
   </body>
 </html>
