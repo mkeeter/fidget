@@ -19,5 +19,9 @@ module.exports = {
     mode: 'development',
     experiments: {
         asyncWebAssembly: true
-   }
+    },
+    devServer: {
+        watchFiles: ["./index.html"],
+        hot: true,
+    }
 };
