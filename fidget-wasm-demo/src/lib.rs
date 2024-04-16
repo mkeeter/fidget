@@ -34,5 +34,11 @@ fn render_inner(t: Tree) -> Result<Vec<u8>, Error> {
 
     let shape = VmShape::new(&ctx, root)?;
     let out = cfg.run(shape, &BitRenderMode)?;
-    Ok(out.into_iter().map(|b| b as u8).collect())
+    Ok(out
+        .into_iter()
+        .flat_map(|b| {
+            let b = b as u8 * u8::MAX;
+            [b, b, b, 255]
+        })
+        .collect())
 }

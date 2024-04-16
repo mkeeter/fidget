@@ -8,20 +8,27 @@ async function setup() {
     const fidget = await import('./pkg')
       .catch(console.error);
 
+    let draw = glInit();
+
     function setScript(text) {
         try {
             let shape = fidget.eval_script(text);
             var v = "Ok(..)";
-            console.log(fidget.render(shape));
+            var out = fidget.render(shape);
         } catch (error) {
             var v = error.toString();
             // Do some string formatting to make errors cleaner
             v = v.replace("Rhai error: ", "Rhai error:\n")
                 .replace(" (line ", "\n(line ")
                 .replace(" (expecting ", "\n(expecting ");
+            var out = null;
         }
         output.dispatch(
             {changes: {from: 0, to: output.state.doc.length, insert: v}});
+
+        if (out) {
+          draw(out);
+        }
     }
 
     var timeout = null;
@@ -57,6 +64,8 @@ async function setup() {
     document.getElementById("output-outer").children[0].id = "output"
     console.log("booted");
 }
+
+// WebGL wrangling is based on https://github.com/mdn/dom-examples (CC0)
 
 function initBuffers(gl) {
     const positionBuffer = initPositionBuffer(gl);
@@ -106,14 +115,18 @@ function glInit() {
   // Vertex shader program
   const vsSource = `
     attribute vec4 aVertexPosition;
+    varying highp vec2 vTextureCoord;
     void main() {
       gl_Position = aVertexPosition;
+      vTextureCoord = (aVertexPosition.xy + 1.0) / 2.0;
     }
 `;
 
   const fsSource = `
+    varying highp vec2 vTextureCoord;
+    uniform sampler2D uSampler;
     void main() {
-      gl_FragColor = vec4(gl_FragCoord.x / 100.0, gl_FragCoord.y / 100.0, 1.0, 1.0);
+      gl_FragColor = texture2D(uSampler, vTextureCoord);
     }
   `;
 
@@ -129,21 +142,24 @@ function glInit() {
     attribLocations: {
       vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
     },
+    uniformLocations: {
+      uSampler: gl.getUniformLocation(shaderProgram, "uSampler"),
+    }
   };
 
   // Here's where we call the routine that builds all the
   // objects we'll be drawing.
   const buffers = initBuffers(gl);
 
-  // Draw the scene
-  drawScene(gl, programInfo, buffers);
+  return (data) => {
+    let texture = loadTexture(gl, data);
+    drawScene(gl, programInfo, buffers, texture);
+  };
 }
 
-function drawScene(gl, programInfo, buffers) {
+// We're just drawing a single textured quad, as dumb as possible
+function drawScene(gl, programInfo, buffers, texture) {
   gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
-  gl.clearDepth(1.0); // Clear everything
-  gl.enable(gl.DEPTH_TEST); // Enable depth testing
-  gl.depthFunc(gl.LEQUAL); // Near things obscure far things
 
   // Clear the canvas before we start drawing on it.
 
@@ -155,6 +171,12 @@ function drawScene(gl, programInfo, buffers) {
 
   // Tell WebGL to use our program when drawing
   gl.useProgram(programInfo.program);
+
+  // Tell WebGL we want to affect texture unit 0
+  gl.activeTexture(gl.TEXTURE0);
+
+  // Bind the texture to texture unit 0
+  gl.bindTexture(gl.TEXTURE_2D, texture);
 
   {
     const offset = 0;
@@ -239,6 +261,43 @@ function loadShader(gl, type, source) {
 
   return shader;
 }
+
+function loadTexture(gl, data) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  // Because images have to be downloaded over the internet
+  // they might take a moment until they are ready.
+  // Until then put a single pixel in the texture so we can
+  // use it immediately. When the image has finished downloading
+  // we'll update the texture with the contents of the image.
+  const level = 0;
+  const internalFormat = gl.RGBA;
+  const width = 256;
+  const height = 256;
+  const border = 0;
+  const srcFormat = gl.RGBA;
+  const srcType = gl.UNSIGNED_BYTE;
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    level,
+    internalFormat,
+    width,
+    height,
+    border,
+    srcFormat,
+    srcType,
+    data
+  );
+
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+  return texture;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 setup();
 glInit();
