@@ -1,7 +1,8 @@
 {
   "scripts": {
     "build": "webpack --mode production",
-    "serve": "webpack serve"
+    "serve": "webpack serve",
+    "format": "prettier . --write"
   },
   "dependencies": {
     "codemirror": "6.0.1"

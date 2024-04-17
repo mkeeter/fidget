@@ -1,102 +1,103 @@
-import {basicSetup} from "codemirror"
-import {EditorView, ViewPlugin, keymap, lineNumbers} from "@codemirror/view"
-import {foldGutter} from "@codemirror/language"
-import {EditorState} from "@codemirror/state"
-import {defaultKeymap} from "@codemirror/commands"
+import { basicSetup } from "codemirror";
+import { EditorView, ViewPlugin, keymap, lineNumbers } from "@codemirror/view";
+import { foldGutter } from "@codemirror/language";
+import { EditorState } from "@codemirror/state";
+import { defaultKeymap } from "@codemirror/commands";
 
 const RENDER_SIZE = 512;
 async function setup() {
-    const fidget = await import('./pkg')
-      .catch(console.error);
+  const fidget = await import("./pkg").catch(console.error);
 
-    let draw = glInit();
+  let draw = glInit();
 
-    function setScript(text) {
-        try {
-            let shape = fidget.eval_script(text);
-            var v = "Ok(..)";
-            var startTime = performance.now()
-            var out = fidget.render(shape, RENDER_SIZE);
-            console.log(out);
-            var endTime = performance.now()
-            console.log(`render took ${endTime - startTime} milliseconds`)
-        } catch (error) {
-            var v = error.toString();
-            // Do some string formatting to make errors cleaner
-            v = v.replace("Rhai error: ", "Rhai error:\n")
-                .replace(" (line ", "\n(line ")
-                .replace(" (expecting ", "\n(expecting ");
-            var out = null;
-        }
-        output.dispatch(
-            {changes: {from: 0, to: output.state.doc.length, insert: v}});
-
-        if (out) {
-          draw(out);
-        }
+  function setScript(text) {
+    try {
+      let shape = fidget.eval_script(text);
+      var v = "Ok(..)";
+      var startTime = performance.now();
+      var out = fidget.render(shape, RENDER_SIZE);
+      console.log(out);
+      var endTime = performance.now();
+      console.log(`render took ${endTime - startTime} milliseconds`);
+    } catch (error) {
+      var v = error.toString();
+      // Do some string formatting to make errors cleaner
+      v = v
+        .replace("Rhai error: ", "Rhai error:\n")
+        .replace(" (line ", "\n(line ")
+        .replace(" (expecting ", "\n(expecting ");
+      var out = null;
     }
+    output.dispatch({
+      changes: { from: 0, to: output.state.doc.length, insert: v },
+    });
 
-    var timeout = null;
-    let myView = new EditorView({
-        doc: "hello",
-        extensions: [
-            basicSetup,
-            keymap.of(defaultKeymap),
-            EditorView.updateListener.of(v => {
-                if (v.docChanged) {
-                    if (timeout) {
-                        clearTimeout(timeout);
-                    }
-                    let text = v.state.doc.toString();
-                    timeout = setTimeout(() => setScript(text), 500);
-                }
-            })
-        ],
-        parent: document.getElementById("editor-outer"),
-    })
-    document.getElementById("editor-outer").children[0].id = "editor" 
+    if (out) {
+      draw(out);
+    }
+  }
 
-    let output = new EditorView({
-        doc: "",
-        extensions: [
-            // Match basicSetup, but without any line numbers
-            lineNumbers({"formatNumber": () => ""}),
-            foldGutter(),
-            EditorView.editable.of(false)
-        ],
-        parent: document.getElementById("output-outer"),
-    })
-    document.getElementById("output-outer").children[0].id = "output"
-    console.log("booted");
+  var timeout = null;
+  let myView = new EditorView({
+    doc: "hello",
+    extensions: [
+      basicSetup,
+      keymap.of(defaultKeymap),
+      EditorView.updateListener.of((v) => {
+        if (v.docChanged) {
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+          let text = v.state.doc.toString();
+          timeout = setTimeout(() => setScript(text), 500);
+        }
+      }),
+    ],
+    parent: document.getElementById("editor-outer"),
+  });
+  document.getElementById("editor-outer").children[0].id = "editor";
+
+  let output = new EditorView({
+    doc: "",
+    extensions: [
+      // Match basicSetup, but without any line numbers
+      lineNumbers({ formatNumber: () => "" }),
+      foldGutter(),
+      EditorView.editable.of(false),
+    ],
+    parent: document.getElementById("output-outer"),
+  });
+  document.getElementById("output-outer").children[0].id = "output";
+  console.log("booted");
 }
 
 // WebGL wrangling is based on https://github.com/mdn/dom-examples (CC0)
 
 function initBuffers(gl) {
-    const positionBuffer = initPositionBuffer(gl);
+  const positionBuffer = initPositionBuffer(gl);
 
-    return {
-        position: positionBuffer,
-    };
+  return {
+    position: positionBuffer,
+  };
 }
 
 function initPositionBuffer(gl) {
-    // Create a buffer for the square's positions.
-    const positionBuffer = gl.createBuffer();
+  // Create a buffer for the square's positions.
+  const positionBuffer = gl.createBuffer();
 
-    // Select the positionBuffer as the one to apply buffer
-    // operations to from here out.
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  // Select the positionBuffer as the one to apply buffer
+  // operations to from here out.
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 
-    // Now create an array of positions for the square.
-    const positions = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0];
+  // Now create an array of positions for the square.
+  const positions = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0];
 
-    // Now pass the list of positions into WebGL to build the
-    // shape. We do this by creating a Float32Array from the
-    // JavaScript array, then use it to fill the current buffer.
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+  // Now pass the list of positions into WebGL to build the
+  // shape. We do this by creating a Float32Array from the
+  // JavaScript array, then use it to fill the current buffer.
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
-    return positionBuffer;
+  return positionBuffer;
 }
 
 function glInit() {
@@ -107,7 +108,7 @@ function glInit() {
   // Only continue if WebGL is available and working
   if (gl === null) {
     alert(
-      "Unable to initialize WebGL. Your browser or machine may not support it."
+      "Unable to initialize WebGL. Your browser or machine may not support it.",
     );
     return;
   }
@@ -149,7 +150,7 @@ function glInit() {
     },
     uniformLocations: {
       uSampler: gl.getUniformLocation(shaderProgram, "uSampler"),
-    }
+    },
   };
 
   // Here's where we call the routine that builds all the
@@ -206,7 +207,7 @@ function setPositionAttribute(gl, buffers, programInfo) {
     type,
     normalize,
     stride,
-    offset
+    offset,
   );
   gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 }
@@ -230,8 +231,8 @@ function initShaderProgram(gl, vsSource, fsSource) {
   if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
     alert(
       `Unable to initialize the shader program: ${gl.getProgramInfoLog(
-        shaderProgram
-      )}`
+        shaderProgram,
+      )}`,
     );
     return null;
   }
@@ -258,7 +259,7 @@ function loadShader(gl, type, source) {
 
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     alert(
-      `An error occurred compiling the shaders: ${gl.getShaderInfoLog(shader)}`
+      `An error occurred compiling the shaders: ${gl.getShaderInfoLog(shader)}`,
     );
     gl.deleteShader(shader);
     return null;
@@ -287,7 +288,7 @@ function loadTexture(gl, data) {
     border,
     srcFormat,
     srcType,
-    data
+    data,
   );
 
   gl.generateMipmap(gl.TEXTURE_2D);
