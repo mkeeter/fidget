@@ -20,6 +20,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Install wasm target
       run: rustup target add wasm32-unknown-unknown
+    - name: Install wasm-pack
+      run: cargo install wasm-pack
     - name: Install npm dependencies
       run: npm install
     - name: Check Prettier
