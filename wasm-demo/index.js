@@ -1,4 +1,4 @@
-import { basicSetup } from "codemirror";
+  import { basicSetup } from "codemirror";
 import { EditorView, ViewPlugin, keymap, lineNumbers } from "@codemirror/view";
 import { foldGutter } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
@@ -24,7 +24,7 @@ async function setup() {
       var v = error.toString();
       // Do some string formatting to make errors cleaner
       v = v
-        .replace("Rhai error: ", "Rhai error:\n")
+          .replace("Rhai error: ", "Rhai error:\n")
         .replace(" (line ", "\n(line ")
         .replace(" (expecting ", "\n(expecting ");
       var out = null;
