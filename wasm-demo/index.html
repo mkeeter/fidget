@@ -15,12 +15,21 @@
       }
       div#canvascol {
         width: 100%;
+        padding-right: 10px;
       }
       canvas#glcanvas {
+        display: block;
         margin-left: 10px;
         aspect-ratio: 1;
         max-height: 512px;
         width: calc(min(100%, 512px));
+        outline: 1px solid #bbb;
+      }
+      span#status {
+        display: block;
+        margin-left: 10px;
+        margin-top: 15px;
+        font-family: monospace;
       }
       .row {
         display: flex;
@@ -39,6 +48,7 @@
       </div>
       <div class="column" id="canvascol">
         <canvas id="glcanvas" width="512" height="512"></canvas>
+        <span id="status">Loading...</span>
       </div>
     </div>
   </body>

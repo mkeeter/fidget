@@ -4,8 +4,9 @@ members = [
     "fidget",
     "demo",
     "viewer",
-    "workspace-hack", "fidget-wasm-demo",
+    "workspace-hack",
 ]
+exclude = ["wasm-demo"]
 
 [profile.release]
 debug = true

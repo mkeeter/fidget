@@ -18,7 +18,8 @@ async function setup() {
       var out = fidget.render(shape, RENDER_SIZE);
       console.log(out);
       var endTime = performance.now();
-      console.log(`render took ${endTime - startTime} milliseconds`);
+      document.getElementById("status").textContent =
+        `Rendered in ${endTime - startTime} ms`;
     } catch (error) {
       var v = error.toString();
       // Do some string formatting to make errors cleaner
@@ -68,6 +69,10 @@ async function setup() {
     parent: document.getElementById("output-outer"),
   });
   document.getElementById("output-outer").children[0].id = "output";
+
+  myView.dispatch({
+    changes: { from: 0, to: myView.state.doc.length, insert: "y + x*x" },
+  });
   console.log("booted");
 }
 
