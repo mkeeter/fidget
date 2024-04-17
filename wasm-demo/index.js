@@ -8,38 +8,37 @@ const RENDER_SIZE = 512;
 async function setup() {
   const fidget = await import("./pkg").catch(console.error);
 
-  let draw = glInit();
-
+  const draw = glInit();
   function setScript(text) {
+    let shape = null;
+    let result = null;
     try {
-      let shape = fidget.eval_script(text);
-      var v = "Ok(..)";
-      var startTime = performance.now();
-      var out = fidget.render(shape, RENDER_SIZE);
-      console.log(out);
-      var endTime = performance.now();
+      shape = fidget.eval_script(text);
+      result = "Ok(..)";
+      const startTime = performance.now();
+      shape = fidget.render(shape, RENDER_SIZE);
+      const endTime = performance.now();
       document.getElementById("status").textContent =
         `Rendered in ${endTime - startTime} ms`;
     } catch (error) {
-      var v = error.toString();
       // Do some string formatting to make errors cleaner
-      v = v
+      result = error
+        .toString()
         .replace("Rhai error: ", "Rhai error:\n")
         .replace(" (line ", "\n(line ")
         .replace(" (expecting ", "\n(expecting ");
-      var out = null;
     }
     output.dispatch({
-      changes: { from: 0, to: output.state.doc.length, insert: v },
+      changes: { from: 0, to: output.state.doc.length, insert: result },
     });
 
-    if (out) {
-      draw(out);
+    if (shape) {
+      draw(shape);
     }
   }
 
   var timeout = null;
-  let myView = new EditorView({
+  const script = new EditorView({
     doc: "hello",
     extensions: [
       basicSetup,
@@ -49,7 +48,7 @@ async function setup() {
           if (timeout) {
             clearTimeout(timeout);
           }
-          let text = v.state.doc.toString();
+          const text = v.state.doc.toString();
           timeout = setTimeout(() => setScript(text), 500);
         }
       }),
@@ -58,7 +57,7 @@ async function setup() {
   });
   document.getElementById("editor-outer").children[0].id = "editor";
 
-  let output = new EditorView({
+  const output = new EditorView({
     doc: "",
     extensions: [
       // Match basicSetup, but without any line numbers
@@ -70,9 +69,12 @@ async function setup() {
   });
   document.getElementById("output-outer").children[0].id = "output";
 
-  myView.dispatch({
-    changes: { from: 0, to: myView.state.doc.length, insert: "y + x*x" },
+  const INITIAL_SCRIPT = "y + x*x";
+  script.dispatch({
+    changes: { from: 0, to: script.state.doc.length, insert: INITIAL_SCRIPT },
   });
+  setScript(INITIAL_SCRIPT);
+
   console.log("booted");
 }
 
@@ -163,7 +165,7 @@ function glInit() {
   const buffers = initBuffers(gl);
 
   return (data) => {
-    let texture = loadTexture(gl, data);
+    const texture = loadTexture(gl, data);
     drawScene(gl, programInfo, buffers, texture);
   };
 }
