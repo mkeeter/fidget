@@ -55,11 +55,25 @@ so adjust your expectations accordingly.
 In the [repository on Github](https://github.com/mkeeter/fidget), there are
 two demo applications:
 
-- `demo` does bitmap rendering from the command line
+- `demo` does bitmap rendering and meshing from the command line
 - `viewer` is a minimal GUI for interactive exploration
 
 These are deliberately not published to [https://crates.io](crates.io), because
 they're demo applications and not complete end-user tools.
+
+## WebAssembly demo
+The `wasm-demo` subfolder embeds Fidget into a web application.
+
+In that folder, run it with
+```
+npm install
+npm run serve
+```
+
+Or bundle files for distribution with
+```
+npm run build
+```
 
 ## Support matrix
 At the moment, Fidget supports a limited number of platforms:

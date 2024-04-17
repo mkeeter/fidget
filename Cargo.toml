@@ -6,6 +6,7 @@ members = [
     "viewer",
     "workspace-hack",
 ]
+exclude = ["wasm-demo"]
 
 [profile.release]
 debug = true

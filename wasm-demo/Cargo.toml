@@ -1,0 +1,14 @@
+[package]
+name = "fidget-wasm-demo"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fidget = {path = "../fidget", default-features = false, features = ["rhai", "mesh", "render"]}
+wasm-bindgen = "0.2.92"
+
+# Take advantage of feature unification to turn on wasm-bindgen here
+rhai = { version = "*", features = ["wasm-bindgen"] }
