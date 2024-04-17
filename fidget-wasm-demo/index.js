@@ -4,6 +4,7 @@ import {foldGutter} from "@codemirror/language"
 import {EditorState} from "@codemirror/state"
 import {defaultKeymap} from "@codemirror/commands"
 
+const RENDER_SIZE = 512;
 async function setup() {
     const fidget = await import('./pkg')
       .catch(console.error);
@@ -14,7 +15,11 @@ async function setup() {
         try {
             let shape = fidget.eval_script(text);
             var v = "Ok(..)";
-            var out = fidget.render(shape);
+            var startTime = performance.now()
+            var out = fidget.render(shape, RENDER_SIZE);
+            console.log(out);
+            var endTime = performance.now()
+            console.log(`render took ${endTime - startTime} milliseconds`)
         } catch (error) {
             var v = error.toString();
             // Do some string formatting to make errors cleaner
@@ -266,15 +271,10 @@ function loadTexture(gl, data) {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
 
-  // Because images have to be downloaded over the internet
-  // they might take a moment until they are ready.
-  // Until then put a single pixel in the texture so we can
-  // use it immediately. When the image has finished downloading
-  // we'll update the texture with the contents of the image.
   const level = 0;
   const internalFormat = gl.RGBA;
-  const width = 256;
-  const height = 256;
+  const width = RENDER_SIZE;
+  const height = RENDER_SIZE;
   const border = 0;
   const srcFormat = gl.RGBA;
   const srcType = gl.UNSIGNED_BYTE;
@@ -290,9 +290,7 @@ function loadTexture(gl, data) {
     data
   );
 
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.generateMipmap(gl.TEXTURE_2D);
 
   return texture;
 }

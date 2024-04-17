@@ -2,7 +2,7 @@
   <head>
     <style>
 div#editor {
-    height: 400px;
+    height: 512;
     width: 100%;
     display: block;
     outline: 1px solid #bbb;
@@ -19,8 +19,8 @@ div#canvascol {
 canvas#glcanvas {
   margin-left: 10px;
   aspect-ratio: 1;
-  max-height: 400px;
-  width: calc(min(100%, 400px));
+  max-height: 512px;
+  width: calc(min(100%, 512px));
 }
 .row {
   display: flex;
@@ -38,7 +38,7 @@ canvas#glcanvas {
       <div id="output-outer"></div>
     </div>
     <div class="column" id="canvascol">
-      <canvas id="glcanvas"></canvas>
+      <canvas id="glcanvas" width="512" height = "512"></canvas>
     </div>
     </div>
   </body>

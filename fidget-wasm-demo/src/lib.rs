@@ -19,16 +19,16 @@ pub fn eval_script(s: &str) -> Result<JsTree, String> {
 }
 
 #[wasm_bindgen]
-pub fn render(t: JsTree) -> Result<Vec<u8>, String> {
-    render_inner(t.0).map_err(|e| format!("{e}"))
+pub fn render(t: JsTree, image_size: usize) -> Result<Vec<u8>, String> {
+    render_inner(t.0, image_size).map_err(|e| format!("{e}"))
 }
 
-fn render_inner(t: Tree) -> Result<Vec<u8>, Error> {
+fn render_inner(t: Tree, image_size: usize) -> Result<Vec<u8>, Error> {
     let mut ctx = Context::new();
     let root = ctx.import(&t);
 
     let cfg = RenderConfig::<2> {
-        image_size: 256,
+        image_size,
         ..RenderConfig::default()
     };
 

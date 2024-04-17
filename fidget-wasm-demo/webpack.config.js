@@ -23,5 +23,5 @@ module.exports = {
     devServer: {
         watchFiles: ["./index.html"],
         hot: true,
-    }
+    },
 };
