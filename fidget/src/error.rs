@@ -55,11 +55,23 @@ pub enum Error {
 
     #[cfg(feature = "rhai")]
     /// Rhai error; see inner code for details
-    #[error("Rhai error: {0}")]
-    RhaiError(#[from] rhai::EvalAltResult),
+    #[error("Rhai evaluation error: {0}")]
+    RhaiParseError(#[from] rhai::ParseError),
+
+    #[cfg(feature = "rhai")]
+    /// Rhai error; see inner code for details
+    #[error("Rhai evaluation error: {0}")]
+    RhaiEvalError(#[from] rhai::EvalAltResult),
 
     #[cfg(feature = "jit")]
     /// Dynasm error; see inner code for details
     #[error("dynasm error: {0}")]
     DynasmError(#[from] dynasmrt::DynasmError),
+}
+
+#[cfg(feature = "rhai")]
+impl From<Box<rhai::EvalAltResult>> for Error {
+    fn from(e: Box<rhai::EvalAltResult>) -> Self {
+        Error::RhaiEvalError(*e)
+    }
 }

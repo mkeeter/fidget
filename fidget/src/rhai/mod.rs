@@ -19,7 +19,7 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
-//! `eval` only evaluates a single expression.  To evaluate a full script,
+//! `eval` returns a single value.  To evaluate a script with multiple outputs,
 //! construct an [`Engine`] then call [`Engine::run`]:
 //!
 //! ```
@@ -149,9 +149,7 @@ impl Engine {
         scope.push("x", Tree::x());
         scope.push("y", Tree::y());
         scope.push("z", Tree::z());
-        self.engine
-            .run_with_scope(&mut scope, script)
-            .map_err(|e| *e)?;
+        self.engine.run_with_scope(&mut scope, script)?;
 
         // Steal the ScriptContext's contents
         let mut lock = self.context.lock().unwrap();
@@ -160,6 +158,7 @@ impl Engine {
 
     /// Evaluates a single expression, in terms of `x`, `y`, and `z`
     pub fn eval(&mut self, script: &str) -> Result<Tree, Error> {
+        let ast = self.engine.compile(script)?;
         let mut scope = {
             let mut ctx = self.context.lock().unwrap();
             ctx.clear();
@@ -172,10 +171,7 @@ impl Engine {
             scope
         };
 
-        let out = self
-            .engine
-            .eval_expression_with_scope::<Tree>(&mut scope, script)
-            .map_err(|e| *e)?;
+        let out = self.engine.eval_ast_with_scope::<Tree>(&mut scope, &ast)?;
 
         Ok(out)
     }
@@ -399,6 +395,15 @@ mod test {
     fn test_eval() {
         let mut engine = Engine::new();
         let t = engine.eval("x + y").unwrap();
+        let mut ctx = Context::new();
+        let sum = ctx.import(&t);
+        assert_eq!(ctx.eval_xyz(sum, 1.0, 2.0, 0.0).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_eval_multiline() {
+        let mut engine = Engine::new();
+        let t = engine.eval("let foo = x; foo + y").unwrap();
         let mut ctx = Context::new();
         let sum = ctx.import(&t);
         assert_eq!(ctx.eval_xyz(sum, 1.0, 2.0, 0.0).unwrap(), 3.0);
