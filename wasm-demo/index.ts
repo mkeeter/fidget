@@ -6,10 +6,10 @@ import { defaultKeymap } from "@codemirror/commands";
 
 const RENDER_SIZE = 512;
 async function setup() {
-  const fidget = await import("./pkg").catch(console.error);
+  const fidget: any = await import("./pkg").catch(console.error);
 
   const draw = glInit();
-  function setScript(text) {
+  function setScript(text: string) {
     let shape = null;
     let result = null;
     try {
@@ -37,7 +37,7 @@ async function setup() {
     }
   }
 
-  var timeout = null;
+  var timeout: any = null;
   const script = new EditorView({
     doc: "hello",
     extensions: [
@@ -79,16 +79,27 @@ async function setup() {
 }
 
 // WebGL wrangling is based on https://github.com/mdn/dom-examples (CC0)
+class Buffers {
+  pos: WebGLBuffer;
 
-function initBuffers(gl) {
-  const positionBuffer = initPositionBuffer(gl);
-
-  return {
-    position: positionBuffer,
-  };
+  constructor(pos: WebGLBuffer) {
+    this.pos = pos;
+  }
 }
 
-function initPositionBuffer(gl) {
+class ProgramInfo {
+  program: WebGLProgram;
+  vertexPositionAttrib: number;
+  uSampler: WebGLUniformLocation;
+}
+
+function initBuffers(gl: WebGLRenderingContext): Buffers {
+  const positionBuffer = initPositionBuffer(gl);
+
+  return new Buffers(positionBuffer);
+}
+
+function initPositionBuffer(gl: WebGLRenderingContext): WebGLBuffer {
   // Create a buffer for the square's positions.
   const positionBuffer = gl.createBuffer();
 
@@ -108,9 +119,9 @@ function initPositionBuffer(gl) {
 }
 
 function glInit() {
-  const canvas = document.querySelector("#glcanvas");
+  const canvas = <HTMLCanvasElement>document.querySelector("#glcanvas");
   // Initialize the GL context
-  const gl = canvas.getContext("webgl");
+  const gl = <WebGLRenderingContext>canvas.getContext("webgl");
 
   // Only continue if WebGL is available and working
   if (gl === null) {
@@ -150,28 +161,32 @@ function glInit() {
   // Collect all the info needed to use the shader program.
   // Look up which attribute our shader program is using
   // for aVertexPosition and look up uniform locations.
-  const programInfo = {
+  const programInfo: ProgramInfo = {
     program: shaderProgram,
-    attribLocations: {
-      vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
-    },
-    uniformLocations: {
-      uSampler: gl.getUniformLocation(shaderProgram, "uSampler"),
-    },
+    vertexPositionAttrib: gl.getAttribLocation(
+      shaderProgram,
+      "aVertexPosition",
+    ),
+    uSampler: gl.getUniformLocation(shaderProgram, "uSampler"), // TODO unused?
   };
 
   // Here's where we call the routine that builds all the
   // objects we'll be drawing.
   const buffers = initBuffers(gl);
 
-  return (data) => {
+  return (data: Uint8Array) => {
     const texture = loadTexture(gl, data);
     drawScene(gl, programInfo, buffers, texture);
   };
 }
 
 // We're just drawing a single textured quad, as dumb as possible
-function drawScene(gl, programInfo, buffers, texture) {
+function drawScene(
+  gl: WebGLRenderingContext,
+  programInfo: ProgramInfo,
+  buffers: Buffers,
+  texture: WebGLTexture,
+) {
   gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
 
   // Clear the canvas before we start drawing on it.
@@ -200,29 +215,37 @@ function drawScene(gl, programInfo, buffers, texture) {
 
 // Tell WebGL how to pull out the positions from the position
 // buffer into the vertexPosition attribute.
-function setPositionAttribute(gl, buffers, programInfo) {
+function setPositionAttribute(
+  gl: WebGLRenderingContext,
+  buffers: Buffers,
+  programInfo: ProgramInfo,
+) {
   const numComponents = 2; // pull out 2 values per iteration
   const type = gl.FLOAT; // the data in the buffer is 32bit floats
   const normalize = false; // don't normalize
   const stride = 0; // how many bytes to get from one set of values to the next
   // 0 = use type and numComponents above
   const offset = 0; // how many bytes inside the buffer to start from
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.pos);
   gl.vertexAttribPointer(
-    programInfo.attribLocations.vertexPosition,
+    programInfo.vertexPositionAttrib,
     numComponents,
     type,
     normalize,
     stride,
     offset,
   );
-  gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+  gl.enableVertexAttribArray(programInfo.vertexPositionAttrib);
 }
 
 //
 // Initialize a shader program, so WebGL knows how to draw our data
 //
-function initShaderProgram(gl, vsSource, fsSource) {
+function initShaderProgram(
+  gl: WebGLRenderingContext,
+  vsSource: string,
+  fsSource: string,
+) {
   const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
   const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
@@ -251,7 +274,7 @@ function initShaderProgram(gl, vsSource, fsSource) {
 // creates a shader of the given type, uploads the source and
 // compiles it.
 //
-function loadShader(gl, type, source) {
+function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type);
 
   // Send the source to the shader object
@@ -275,7 +298,10 @@ function loadShader(gl, type, source) {
   return shader;
 }
 
-function loadTexture(gl, data) {
+function loadTexture(
+  gl: WebGLRenderingContext,
+  data: Uint8Array,
+): WebGLTexture {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
 
