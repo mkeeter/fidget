@@ -11,6 +11,8 @@
     "@wasm-tool/wasm-pack-plugin": "1.5.0",
     "html-webpack-plugin": "^5.3.2",
     "prettier": "3.2.5",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
     "webpack": "^5.49.0",
     "webpack-cli": "^4.7.2",
     "webpack-dev-server": "^4.15.1"
