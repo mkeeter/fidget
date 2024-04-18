@@ -6,17 +6,19 @@ import { defaultKeymap } from "@codemirror/commands";
 
 const RENDER_SIZE = 512;
 async function setup() {
-  const fidget: any = await import("./pkg").catch(console.error);
+  const fidget = (await import("./pkg").catch(
+    console.error,
+  )) as typeof import("./pkg");
 
   const draw = glInit();
   function setScript(text: string) {
     let shape = null;
     let result = null;
     try {
-      shape = fidget.eval_script(text);
+      const shapeTree = fidget.eval_script(text);
       result = "Ok(..)";
       const startTime = performance.now();
-      shape = fidget.render(shape, RENDER_SIZE);
+      shape = fidget.render(shapeTree, RENDER_SIZE);
       const endTime = performance.now();
       document.getElementById("status").textContent =
         `Rendered in ${endTime - startTime} ms`;
