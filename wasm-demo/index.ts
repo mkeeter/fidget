@@ -6,9 +6,7 @@ import { defaultKeymap } from "@codemirror/commands";
 
 const RENDER_SIZE = 512;
 async function setup() {
-  const fidget = (await import("./pkg").catch(
-    console.error,
-  )) as typeof import("./pkg");
+  const fidget = await import("./pkg")!;
 
   const draw = glInit();
   function setScript(text: string) {
@@ -26,7 +24,7 @@ async function setup() {
       // Do some string formatting to make errors cleaner
       result = error
         .toString()
-        .replace("Rhai error: ", "Rhai error:\n")
+        .replace("Rhai evaluation error: ", "Rhai evaluation error:\n")
         .replace(" (line ", "\n(line ")
         .replace(" (expecting ", "\n(expecting ");
     }
@@ -39,7 +37,7 @@ async function setup() {
     }
   }
 
-  var timeout: any = null;
+  var timeout: number | null = null;
   const script = new EditorView({
     doc: "hello",
     extensions: [
@@ -48,10 +46,10 @@ async function setup() {
       EditorView.updateListener.of((v) => {
         if (v.docChanged) {
           if (timeout) {
-            clearTimeout(timeout);
+            window.clearTimeout(timeout);
           }
           const text = v.state.doc.toString();
-          timeout = setTimeout(() => setScript(text), 500);
+          timeout = window.setTimeout(() => setScript(text), 500);
         }
       }),
     ],
@@ -121,9 +119,9 @@ function initPositionBuffer(gl: WebGLRenderingContext): WebGLBuffer {
 }
 
 function glInit() {
-  const canvas = <HTMLCanvasElement>document.querySelector("#glcanvas");
+  const canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
   // Initialize the GL context
-  const gl = <WebGLRenderingContext>canvas.getContext("webgl");
+  const gl = canvas.getContext("webgl");
 
   // Only continue if WebGL is available and working
   if (gl === null) {
