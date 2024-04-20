@@ -94,6 +94,12 @@ impl AsRef<[Choice]> for VmTrace {
 #[derive(Clone)]
 pub struct GenericVmShape<const N: usize>(Arc<VmData<N>>);
 
+impl<const N: usize> From<VmData<N>> for GenericVmShape<N> {
+    fn from(d: VmData<N>) -> Self {
+        Self(d.into())
+    }
+}
+
 impl<const N: usize> GenericVmShape<N> {
     pub(crate) fn simplify_inner(
         &self,

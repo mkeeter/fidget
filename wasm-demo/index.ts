@@ -6,7 +6,7 @@ import { defaultKeymap } from "@codemirror/commands";
 
 import {
   ResponseKind,
-  ScriptRequest,
+  ShapeRequest,
   StartRequest,
   WorkerResponse,
   WorkerRequest,
@@ -58,12 +58,13 @@ class App {
     let result = null;
     try {
       const shapeTree = fidget.eval_script(text);
+      const tape = fidget.serialize_into_tape(shapeTree);
       result = "Ok(..)";
 
       this.start_time = performance.now();
       this.workers_done = 0;
       this.workers.forEach((w) => {
-        w.postMessage(new ScriptRequest(text));
+        w.postMessage(new ShapeRequest(tape));
       });
     } catch (error) {
       // Do some string formatting to make errors cleaner

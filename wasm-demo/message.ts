@@ -1,6 +1,6 @@
 export enum RequestKind {
   Start,
-  Script,
+  Shape,
 }
 
 export class StartRequest {
@@ -13,17 +13,17 @@ export class StartRequest {
   }
 }
 
-export class ScriptRequest {
-  kind: RequestKind.Script;
-  script: string;
+export class ShapeRequest {
+  kind: RequestKind.Shape;
+  tape: Uint8Array;
 
-  constructor(s: string) {
-    this.script = s;
-    this.kind = RequestKind.Script;
+  constructor(tape: Uint8Array) {
+    this.tape = tape;
+    this.kind = RequestKind.Shape;
   }
 }
 
-export type WorkerRequest = ScriptRequest | StartRequest;
+export type WorkerRequest = ShapeRequest | StartRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 

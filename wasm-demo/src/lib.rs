@@ -3,7 +3,7 @@ use fidget::{
     eval::MathShape,
     render::{BitRenderMode, RenderConfig},
     shape::Bounds,
-    vm::VmShape,
+    vm::{VmData, VmShape},
     Error,
 };
 use wasm_bindgen::prelude::*;
@@ -12,6 +12,10 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub struct JsTree(Tree);
 
+#[derive(Clone)]
+#[wasm_bindgen]
+pub struct JsVmShape(VmShape);
+
 #[wasm_bindgen]
 pub fn eval_script(s: &str) -> Result<JsTree, String> {
     let mut engine = fidget::rhai::Engine::new();
@@ -19,28 +23,21 @@ pub fn eval_script(s: &str) -> Result<JsTree, String> {
     out.map(JsTree).map_err(|e| format!("{e}"))
 }
 
+/// Serializes a `JsTree` into a `bincode`-packed `VmData`
 #[wasm_bindgen]
-pub fn render(t: JsTree, image_size: usize) -> Result<Vec<u8>, String> {
-    fn inner(t: Tree, image_size: usize) -> Result<Vec<u8>, Error> {
-        let mut ctx = Context::new();
-        let root = ctx.import(&t);
+pub fn serialize_into_tape(t: JsTree) -> Result<Vec<u8>, String> {
+    let mut ctx = Context::new();
+    let root = ctx.import(&t.0);
+    let shape = VmShape::new(&ctx, root).map_err(|e| format!("{e}"))?;
+    bincode::serialize(shape.data()).map_err(|e| format!("{e}"))
+}
 
-        let cfg = RenderConfig::<2> {
-            image_size,
-            ..RenderConfig::default()
-        };
-
-        let shape = VmShape::new(&ctx, root)?;
-        let out = cfg.run(shape, &BitRenderMode)?;
-        Ok(out
-            .into_iter()
-            .flat_map(|b| {
-                let b = b as u8 * u8::MAX;
-                [b, b, b, 255]
-            })
-            .collect())
-    }
-    inner(t.0, image_size).map_err(|e| format!("{e}"))
+/// Deserialize a `bincode`-packed `VmData` into a `VmShape`
+#[wasm_bindgen]
+pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
+    let d: VmData<255> =
+        bincode::deserialize(&data).map_err(|e| format!("{e}"))?;
+    Ok(JsVmShape(VmShape::from(d)))
 }
 
 /// Renders a subregion of an image, for webworker-based multithreading
@@ -49,7 +46,7 @@ pub fn render(t: JsTree, image_size: usize) -> Result<Vec<u8>, String> {
 /// into `0 <= pos < workers_per_side^2` tiles.
 #[wasm_bindgen]
 pub fn render_region(
-    t: JsTree,
+    shape: JsVmShape,
     image_size: usize,
     index: usize,
     workers_per_side: usize,
@@ -63,14 +60,11 @@ pub fn render_region(
         );
     }
     fn inner(
-        t: Tree,
+        shape: VmShape,
         image_size: usize,
         index: usize,
         workers_per_side: usize,
     ) -> Result<Vec<u8>, Error> {
-        let mut ctx = Context::new();
-        let root = ctx.import(&t);
-
         // Corner position in [0, workers_per_side] coordinates
         let mut corner = nalgebra::Vector2::new(
             index / workers_per_side,
@@ -95,7 +89,6 @@ pub fn render_region(
             ..RenderConfig::default()
         };
 
-        let shape = VmShape::new(&ctx, root)?;
         let out = cfg.run(shape, &BitRenderMode)?;
         Ok(out
             .into_iter()
@@ -105,5 +98,6 @@ pub fn render_region(
             })
             .collect())
     }
-    inner(t.0, image_size, index, workers_per_side).map_err(|e| format!("{e}"))
+    inner(shape.0, image_size, index, workers_per_side)
+        .map_err(|e| format!("{e}"))
 }

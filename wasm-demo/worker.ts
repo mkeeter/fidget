@@ -1,7 +1,7 @@
 import {
   ImageResponse,
   RequestKind,
-  ScriptRequest,
+  ShapeRequest,
   StartRequest,
   StartedResponse,
   WorkerRequest,
@@ -19,10 +19,13 @@ class Worker {
     this.index = req.index;
   }
 
-  render(s: ScriptRequest) {
-    const tree = fidget.eval_script(s.script);
+  render(s: ShapeRequest) {
+    let start = performance.now();
+    const shape = fidget.deserialize_tape(s.tape);
+    let end = performance.now();
+    console.log(`deserialized in ${end - start} ms`);
     const out = fidget.render_region(
-      tree,
+      shape,
       RENDER_SIZE,
       this.index,
       WORKERS_PER_SIDE,
@@ -42,8 +45,8 @@ async function run() {
         worker = new Worker(req as StartRequest);
         break;
       }
-      case RequestKind.Script: {
-        worker!.render(req as ScriptRequest);
+      case RequestKind.Shape: {
+        worker!.render(req as ShapeRequest);
         break;
       }
       default:

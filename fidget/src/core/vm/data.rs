@@ -57,7 +57,7 @@ use crate::{
 /// Despite this peek at its internals, users are unlikely to touch `VmData`
 /// directly; a [`VmShape`](crate::vm::VmShape) wraps the `VmData` and
 /// implements our common traits.
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct VmData<const N: usize = { u8::MAX as usize }> {
     ssa: SsaTape,
     asm: RegTape,

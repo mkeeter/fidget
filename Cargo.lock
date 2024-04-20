@@ -893,6 +893,7 @@ dependencies = [
  "num-traits",
  "ordered-float",
  "rhai",
+ "serde",
  "static_assertions",
  "thiserror",
  "windows",
