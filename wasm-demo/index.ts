@@ -5,12 +5,34 @@ import { EditorState } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 
 const RENDER_SIZE = 512;
+var fidget: any = null;
+
 async function setup() {
-  const fidget = await import("./pkg")!;
+  fidget = await import("./pkg")!;
   const worker = new Worker(new URL("./worker.ts", import.meta.url));
 
-  const draw = glInit();
-  function setScript(text: string) {
+  const app = new App("y + x*x");
+
+  console.log("booted");
+}
+
+class App {
+  editor: Editor;
+  output: Output;
+  scene: Scene;
+
+  constructor(initial_script: string) {
+    this.scene = new Scene();
+    this.editor = new Editor(
+      initial_script,
+      document.getElementById("editor-outer"),
+      this.onScriptChanged,
+    );
+    this.output = new Output(document.getElementById("output-outer"));
+    this.onScriptChanged(initial_script);
+  }
+
+  onScriptChanged(text: string) {
     let shape = null;
     let result = null;
     try {
@@ -29,62 +51,86 @@ async function setup() {
         .replace(" (line ", "\n(line ")
         .replace(" (expecting ", "\n(expecting ");
     }
-    output.dispatch({
-      changes: { from: 0, to: output.state.doc.length, insert: result },
-    });
-
+    this.output.setText(result);
     if (shape) {
-      draw(shape);
+      this.scene.setTexture(shape);
+      this.scene.draw();
     }
   }
+}
 
-  var timeout: number | null = null;
-  const script = new EditorView({
-    doc: "hello",
-    extensions: [
-      basicSetup,
-      keymap.of(defaultKeymap),
-      EditorView.updateListener.of((v) => {
-        if (v.docChanged) {
-          if (timeout) {
-            window.clearTimeout(timeout);
+class Editor {
+  view: EditorView;
+  timeout: number | null;
+
+  constructor(
+    initial_script: string,
+    div: Element,
+    cb: (text: string) => void,
+  ) {
+    this.timeout = null;
+    this.view = new EditorView({
+      doc: initial_script,
+      extensions: [
+        basicSetup,
+        keymap.of(defaultKeymap),
+        EditorView.updateListener.of((v) => {
+          console.log("HI THERE");
+          if (v.docChanged) {
+            if (this.timeout) {
+              window.clearTimeout(this.timeout);
+            }
+            const text = v.state.doc.toString();
+            this.timeout = window.setTimeout(() => cb(text), 500);
           }
-          const text = v.state.doc.toString();
-          timeout = window.setTimeout(() => setScript(text), 500);
-        }
-      }),
-    ],
-    parent: document.getElementById("editor-outer"),
-  });
-  document.getElementById("editor-outer").children[0].id = "editor";
+        }),
+      ],
+      parent: div,
+    });
+    div.children[0].id = "editor";
+  }
+}
 
-  const output = new EditorView({
-    doc: "",
-    extensions: [
-      // Match basicSetup, but without any line numbers
-      lineNumbers({ formatNumber: () => "" }),
-      foldGutter(),
-      EditorView.editable.of(false),
-    ],
-    parent: document.getElementById("output-outer"),
-  });
-  document.getElementById("output-outer").children[0].id = "output";
-
-  const INITIAL_SCRIPT = "y + x*x";
-  script.dispatch({
-    changes: { from: 0, to: script.state.doc.length, insert: INITIAL_SCRIPT },
-  });
-  setScript(INITIAL_SCRIPT);
-
-  console.log("booted");
+class Output {
+  view: EditorView;
+  constructor(div: Element) {
+    this.view = new EditorView({
+      doc: "",
+      extensions: [
+        // Match basicSetup, but without any line numbers
+        lineNumbers({ formatNumber: () => "" }),
+        foldGutter(),
+        EditorView.editable.of(false),
+      ],
+      parent: div,
+    });
+    div.children[0].id = "output";
+  }
+  setText(t: string) {
+    this.view.dispatch({
+      changes: { from: 0, to: this.view.state.doc.length, insert: t },
+    });
+  }
 }
 
 // WebGL wrangling is based on https://github.com/mdn/dom-examples (CC0)
 class Buffers {
   pos: WebGLBuffer;
+  constructor(gl: WebGLRenderingContext) {
+    // Create a buffer for the square's positions.
+    this.pos = gl.createBuffer();
 
-  constructor(pos: WebGLBuffer) {
-    this.pos = pos;
+    // Select the positionBuffer as the one to apply buffer
+    // operations to from here out.
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.pos);
+
+    // Now create an array of positions for the square.
+    const positions = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0];
+
+    // Now pass the list of positions into WebGL to build the
+    // shape. We do this by creating a Float32Array from the
+    // JavaScript array, then use it to fill the current buffer.
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
   }
 }
 
@@ -92,156 +138,123 @@ class ProgramInfo {
   program: WebGLProgram;
   vertexPositionAttrib: number;
   uSampler: WebGLUniformLocation;
-}
 
-function initBuffers(gl: WebGLRenderingContext): Buffers {
-  const positionBuffer = initPositionBuffer(gl);
+  constructor(gl: WebGLRenderingContext) {
+    // Vertex shader program
+    const vsSource = `
+      attribute vec4 aVertexPosition;
+      varying highp vec2 vTextureCoord;
+      void main() {
+        gl_Position = aVertexPosition;
+        vTextureCoord = (aVertexPosition.xy + 1.0) / 2.0;
+      }
+    `;
 
-  return new Buffers(positionBuffer);
-}
+    const fsSource = `
+      varying highp vec2 vTextureCoord;
+      uniform sampler2D uSampler;
+      void main() {
+        gl_FragColor = texture2D(uSampler, vTextureCoord);
+      }
+    `;
 
-function initPositionBuffer(gl: WebGLRenderingContext): WebGLBuffer {
-  // Create a buffer for the square's positions.
-  const positionBuffer = gl.createBuffer();
-
-  // Select the positionBuffer as the one to apply buffer
-  // operations to from here out.
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-  // Now create an array of positions for the square.
-  const positions = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0];
-
-  // Now pass the list of positions into WebGL to build the
-  // shape. We do this by creating a Float32Array from the
-  // JavaScript array, then use it to fill the current buffer.
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-  return positionBuffer;
-}
-
-function glInit() {
-  const canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-  // Initialize the GL context
-  const gl = canvas.getContext("webgl");
-
-  // Only continue if WebGL is available and working
-  if (gl === null) {
-    alert(
-      "Unable to initialize WebGL. Your browser or machine may not support it.",
+    // Initialize a shader program; this is where all the lighting
+    // for the vertices and so forth is established.
+    this.program = initShaderProgram(gl, vsSource, fsSource);
+    this.vertexPositionAttrib = gl.getAttribLocation(
+      this.program,
+      "aVertexPosition",
     );
-    return;
+    this.uSampler = gl.getUniformLocation(this.program, "uSampler");
+  }
+}
+
+class Scene {
+  gl: WebGLRenderingContext;
+  programInfo: ProgramInfo;
+  buffers: Buffers;
+  texture: WebGLTexture;
+
+  constructor() {
+    const canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
+    this.gl = canvas.getContext("webgl");
+    if (this.gl === null) {
+      alert(
+        "Unable to initialize WebGL. Your browser or machine may not support it.",
+      );
+      return;
+    }
+    this.buffers = new Buffers(this.gl);
+    this.programInfo = new ProgramInfo(this.gl);
+    this.texture = this.gl.createTexture();
   }
 
-  // Set clear color to black, fully opaque
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
-  // Clear the color buffer with specified clear color
-  gl.clear(gl.COLOR_BUFFER_BIT);
+  setTexture(data: Uint8Array) {
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
 
-  // Vertex shader program
-  const vsSource = `
-    attribute vec4 aVertexPosition;
-    varying highp vec2 vTextureCoord;
-    void main() {
-      gl_Position = aVertexPosition;
-      vTextureCoord = (aVertexPosition.xy + 1.0) / 2.0;
-    }
-`;
+    const level = 0;
+    const internalFormat = this.gl.RGBA;
+    const width = RENDER_SIZE;
+    const height = RENDER_SIZE;
+    const border = 0;
+    const srcFormat = this.gl.RGBA;
+    const srcType = this.gl.UNSIGNED_BYTE;
+    this.gl.texImage2D(
+      this.gl.TEXTURE_2D,
+      level,
+      internalFormat,
+      width,
+      height,
+      border,
+      srcFormat,
+      srcType,
+      data,
+    );
 
-  const fsSource = `
-    varying highp vec2 vTextureCoord;
-    uniform sampler2D uSampler;
-    void main() {
-      gl_FragColor = texture2D(uSampler, vTextureCoord);
-    }
-  `;
+    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+  }
 
-  // Initialize a shader program; this is where all the lighting
-  // for the vertices and so forth is established.
-  const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+  draw() {
+    this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+    this.setPositionAttribute();
 
-  // Collect all the info needed to use the shader program.
-  // Look up which attribute our shader program is using
-  // for aVertexPosition and look up uniform locations.
-  const programInfo: ProgramInfo = {
-    program: shaderProgram,
-    vertexPositionAttrib: gl.getAttribLocation(
-      shaderProgram,
-      "aVertexPosition",
-    ),
-    uSampler: gl.getUniformLocation(shaderProgram, "uSampler"), // TODO unused?
-  };
+    // Tell WebGL to use our program when drawing
+    this.gl.useProgram(this.programInfo.program);
 
-  // Here's where we call the routine that builds all the
-  // objects we'll be drawing.
-  const buffers = initBuffers(gl);
+    // Tell WebGL we want to affect texture unit 0
+    this.gl.activeTexture(this.gl.TEXTURE0);
 
-  return (data: Uint8Array) => {
-    const texture = loadTexture(gl, data);
-    drawScene(gl, programInfo, buffers, texture);
-  };
-}
+    // Bind the texture to texture unit 0
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+    this.gl.uniform1i(this.programInfo.uSampler, 0);
 
-// We're just drawing a single textured quad, as dumb as possible
-function drawScene(
-  gl: WebGLRenderingContext,
-  programInfo: ProgramInfo,
-  buffers: Buffers,
-  texture: WebGLTexture,
-) {
-  gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
-
-  // Clear the canvas before we start drawing on it.
-
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  // Tell WebGL how to pull out the positions from the position
-  // buffer into the vertexPosition attribute.
-  setPositionAttribute(gl, buffers, programInfo);
-
-  // Tell WebGL to use our program when drawing
-  gl.useProgram(programInfo.program);
-
-  // Tell WebGL we want to affect texture unit 0
-  gl.activeTexture(gl.TEXTURE0);
-
-  // Bind the texture to texture unit 0
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-
-  {
     const offset = 0;
     const vertexCount = 4;
-    gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+    this.gl.drawArrays(this.gl.TRIANGLE_STRIP, offset, vertexCount);
+  }
+
+  setPositionAttribute() {
+    const numComponents = 2; // pull out 2 values per iteration
+    const type = this.gl.FLOAT; // the data in the buffer is 32bit floats
+    const normalize = false; // don't normalize
+    const stride = 0; // how many bytes to get from one set of values to the next
+    // 0 = use type and numComponents above
+    const offset = 0; // how many bytes inside the buffer to start from
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.pos);
+    this.gl.vertexAttribPointer(
+      this.programInfo.vertexPositionAttrib,
+      numComponents,
+      type,
+      normalize,
+      stride,
+      offset,
+    );
+    this.gl.enableVertexAttribArray(this.programInfo.vertexPositionAttrib);
   }
 }
 
-// Tell WebGL how to pull out the positions from the position
-// buffer into the vertexPosition attribute.
-function setPositionAttribute(
-  gl: WebGLRenderingContext,
-  buffers: Buffers,
-  programInfo: ProgramInfo,
-) {
-  const numComponents = 2; // pull out 2 values per iteration
-  const type = gl.FLOAT; // the data in the buffer is 32bit floats
-  const normalize = false; // don't normalize
-  const stride = 0; // how many bytes to get from one set of values to the next
-  // 0 = use type and numComponents above
-  const offset = 0; // how many bytes inside the buffer to start from
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.pos);
-  gl.vertexAttribPointer(
-    programInfo.vertexPositionAttrib,
-    numComponents,
-    type,
-    normalize,
-    stride,
-    offset,
-  );
-  gl.enableVertexAttribArray(programInfo.vertexPositionAttrib);
-}
-
-//
 // Initialize a shader program, so WebGL knows how to draw our data
-//
 function initShaderProgram(
   gl: WebGLRenderingContext,
   vsSource: string,
@@ -251,14 +264,12 @@ function initShaderProgram(
   const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
   // Create the shader program
-
   const shaderProgram = gl.createProgram();
   gl.attachShader(shaderProgram, vertexShader);
   gl.attachShader(shaderProgram, fragmentShader);
   gl.linkProgram(shaderProgram);
 
   // If creating the shader program failed, alert
-
   if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
     alert(
       `Unable to initialize the shader program: ${gl.getProgramInfoLog(
@@ -279,15 +290,12 @@ function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type);
 
   // Send the source to the shader object
-
   gl.shaderSource(shader, source);
 
   // Compile the shader program
-
   gl.compileShader(shader);
 
   // See if it compiled successfully
-
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     alert(
       `An error occurred compiling the shaders: ${gl.getShaderInfoLog(shader)}`,
@@ -299,38 +307,6 @@ function loadShader(gl: WebGLRenderingContext, type: number, source: string) {
   return shader;
 }
 
-function loadTexture(
-  gl: WebGLRenderingContext,
-  data: Uint8Array,
-): WebGLTexture {
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-
-  const level = 0;
-  const internalFormat = gl.RGBA;
-  const width = RENDER_SIZE;
-  const height = RENDER_SIZE;
-  const border = 0;
-  const srcFormat = gl.RGBA;
-  const srcType = gl.UNSIGNED_BYTE;
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    level,
-    internalFormat,
-    width,
-    height,
-    border,
-    srcFormat,
-    srcType,
-    data,
-  );
-
-  gl.generateMipmap(gl.TEXTURE_2D);
-
-  return texture;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 setup();
-glInit();
