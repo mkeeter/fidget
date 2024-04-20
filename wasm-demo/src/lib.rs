@@ -102,14 +102,6 @@ pub fn render_region(
             .flat_map(|b| {
                 let b = b as u8 * u8::MAX;
                 [b, b, b, 255]
-                /*
-                [
-                    if index % 2 == 0 { 255 } else { 0 },
-                    if (index / 2) % 2 == 0 { 255 } else { 0 },
-                    if (index / 4) % 2 == 0 { 255 } else { 0 },
-                    255,
-                ]
-                */
             })
             .collect())
     }
