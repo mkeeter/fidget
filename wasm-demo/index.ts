@@ -22,7 +22,6 @@ class App {
 
   constructor(initial_script: string) {
     this.worker = new Worker(new URL("./worker.ts", import.meta.url));
-    this.worker.postMessage({'fidget': fidget});
     this.scene = new Scene();
     this.editor = new Editor(
       initial_script,
