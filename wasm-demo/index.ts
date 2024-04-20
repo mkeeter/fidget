@@ -4,47 +4,64 @@ import { foldGutter } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 
-import { ScriptRequest, WorkerRequest } from "./message"
+import {
+  ResponseKind,
+  ScriptRequest,
+  StartRequest,
+  WorkerResponse,
+  WorkerRequest,
+} from "./message";
 
 const RENDER_SIZE = 512;
+const WORKERS_PER_SIDE = 4;
+const WORKER_COUNT = WORKERS_PER_SIDE * WORKERS_PER_SIDE;
+const INITIAL_SCRIPT = "y + x*x";
+
 var fidget: any = null;
 
 async function setup() {
   fidget = await import("./pkg")!;
-  const app = new App("y + x*x");
-
-  console.log("booted");
+  const app = new App();
 }
 
 class App {
   editor: Editor;
   output: Output;
   scene: Scene;
-  worker: Worker;
+  workers: Array<Worker>;
+  workers_started: number;
 
-  constructor(initial_script: string) {
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+  constructor() {
     this.scene = new Scene();
     this.editor = new Editor(
-      initial_script,
+      INITIAL_SCRIPT,
       document.getElementById("editor-outer"),
       this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
-    this.onScriptChanged(initial_script);
-    this.worker.onmessage = this.onWorkerMessage.bind(this);
+    this.workers = [];
+    this.workers_started = 0;
+
+    for (let i = 0; i < WORKER_COUNT; ++i) {
+      const worker = new Worker(new URL("./worker.ts", import.meta.url));
+      worker.onmessage = (m) => {
+        this.onWorkerMessage(i, m.data as WorkerResponse);
+      };
+      this.workers.push(worker);
+    }
   }
 
   onScriptChanged(text: string) {
-    console.log(this.worker);
     let shape = null;
     let result = null;
     try {
       const shapeTree = fidget.eval_script(text);
       result = "Ok(..)";
-      const startTime = performance.now();
 
-      this.worker.postMessage(new ScriptRequest(text));
+      const startTime = performance.now();
+      this.workers.forEach((w) => {
+        w.postMessage(new ScriptRequest(text));
+      });
       shape = fidget.render(shapeTree, RENDER_SIZE);
       const endTime = performance.now();
       document.getElementById("status").textContent =
@@ -64,8 +81,24 @@ class App {
     }
   }
 
-  onWorkerMessage(msg: any) {
-    console.log(msg);
+  onWorkerMessage(i: number, req: WorkerResponse) {
+    switch (req.kind) {
+      case ResponseKind.Image: {
+        console.log("GOT IMAGE");
+        break;
+      }
+      case ResponseKind.Started: {
+        this.workers[i].postMessage(new StartRequest(i, WORKERS_PER_SIDE));
+        this.workers_started += 1;
+        if (this.workers_started == WORKER_COUNT) {
+          this.onScriptChanged(INITIAL_SCRIPT);
+        }
+        break;
+      }
+      default: {
+        console.error(`unknown worker req ${req}`);
+      }
+    }
   }
 }
 
@@ -85,7 +118,6 @@ class Editor {
         basicSetup,
         keymap.of(defaultKeymap),
         EditorView.updateListener.of((v) => {
-          console.log("HI THERE");
           if (v.docChanged) {
             if (this.timeout) {
               window.clearTimeout(this.timeout);
@@ -197,6 +229,7 @@ class Scene {
     this.buffers = new Buffers(this.gl);
     this.programInfo = new ProgramInfo(this.gl);
     this.texture = this.gl.createTexture();
+    this.setTexture(new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4));
   }
 
   setTexture(data: Uint8Array) {

@@ -1,18 +1,53 @@
-import { WorkerRequest, RequestKind } from "./message"
+import {
+  ImageResponse,
+  RequestKind,
+  ScriptRequest,
+  StartRequest,
+  StartedResponse,
+  WorkerRequest,
+} from "./message";
+
+var fidget: any = null;
+
+class Worker {
+  /// Index of this worker, between 0 and workers_per_side
+  index: number;
+
+  /// Total number of workers per image side
+  workers_per_side: number;
+
+  constructor(req: StartRequest) {
+    this.index = req.index;
+    this.workers_per_side = req.workers_per_side;
+  }
+
+  render(s: ScriptRequest) {
+    const tree = fidget.eval_script(s.script);
+    const out = fidget.render_region(tree, 512, 0, 4);
+    postMessage(new ImageResponse(out));
+  }
+}
 
 async function run() {
-  const fidget = await import("./pkg")!;
+  fidget = await import("./pkg")!;
+  let worker: null | Worker = null;
   onmessage = function (e: any) {
-    console.log("onmessage");
     let req = e.data as WorkerRequest;
-    console.log(req);
     switch (req.kind) {
-        case RequestKind.Script:
-          console.log("got script", req.script);
+      case RequestKind.Start: {
+        console.log("STARTING");
+        let r = req as StartRequest;
+        worker = new Worker(req as StartRequest);
+        break;
+      }
+      case RequestKind.Script: {
+        worker!.render(req as ScriptRequest);
+        break;
+      }
+      default:
+        console.error(`unknown worker request ${req}`);
     }
-    const foo = fidget.eval_script("x + y");
-    const out = fidget.render_region(foo, 512, 0, 4);
-    console.log(out.length);
   };
+  postMessage(new StartedResponse());
 }
 run();
