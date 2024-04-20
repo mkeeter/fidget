@@ -4,6 +4,8 @@ import { foldGutter } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 
+import { ScriptRequest, WorkerRequest } from "./message"
+
 const RENDER_SIZE = 512;
 var fidget: any = null;
 
@@ -41,7 +43,8 @@ class App {
       const shapeTree = fidget.eval_script(text);
       result = "Ok(..)";
       const startTime = performance.now();
-      this.worker.postMessage({'tree': shapeTree});
+
+      this.worker.postMessage(new ScriptRequest(text));
       shape = fidget.render(shapeTree, RENDER_SIZE);
       const endTime = performance.now();
       document.getElementById("status").textContent =
