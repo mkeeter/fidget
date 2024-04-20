@@ -1,9 +1,10 @@
 //! Tape used for evaluation
 use crate::compiler::{RegOp, RegisterAllocator, SsaTape};
+use serde::{Deserialize, Serialize};
 
 /// Low-level tape for use with the Fidget virtual machine (or to be lowered
 /// further into machine instructions).
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct RegTape {
     tape: Vec<RegOp>,
 

@@ -893,6 +893,7 @@ dependencies = [
  "num-traits",
  "ordered-float",
  "rhai",
+ "serde",
  "static_assertions",
  "thiserror",
  "windows",
@@ -2915,6 +2916,7 @@ dependencies = [
  "quote",
  "regex",
  "regex-automata",
+ "serde",
  "syn 1.0.109",
  "syn 2.0.48",
 ]

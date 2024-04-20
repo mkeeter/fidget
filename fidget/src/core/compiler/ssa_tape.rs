@@ -4,6 +4,7 @@ use crate::{
     context::{BinaryOpcode, Node, Op, UnaryOpcode},
     Context, Error,
 };
+use serde::{Deserialize, Serialize};
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 /// - 4-byte RHS register (or immediate `f32`)
 ///
 /// All register addressing is absolute.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SsaTape {
     /// The tape is stored in reverse order, such that the root of the tree is
     /// the first item in the tape.

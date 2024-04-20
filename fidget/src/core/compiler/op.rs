@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// Macro to generate a set of opcodes, using the given type for registers
 macro_rules! opcodes {
     (
@@ -139,7 +141,7 @@ opcodes!(
     /// - RHS register (or immediate for `*Imm`)
     ///
     /// Each "register" represents an SSA slot, which is never reused.
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
     pub enum SsaOp<u32> {
         // default variants
     }
@@ -250,7 +252,7 @@ opcodes!(
     ///
     /// We have a maximum of 256 registers, though some tapes (e.g. ones
     /// targeting physical hardware) may choose to use fewer.
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
     pub enum RegOp<u8> {
         // default variants
         /// Read from a memory slot to a register
