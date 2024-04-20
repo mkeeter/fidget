@@ -7,11 +7,7 @@ import {
   WorkerRequest,
 } from "./message";
 
-import {
-RENDER_SIZE,
-WORKERS_PER_SIDE,
-WORKER_COUNT,
-} from "./constants";
+import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
 
 var fidget: any = null;
 
