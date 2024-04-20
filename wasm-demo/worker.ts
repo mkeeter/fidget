@@ -20,10 +20,7 @@ class Worker {
   }
 
   render(s: ShapeRequest) {
-    let start = performance.now();
     const shape = fidget.deserialize_tape(s.tape);
-    let end = performance.now();
-    console.log(`deserialized in ${end - start} ms`);
     const out = fidget.render_region(
       shape,
       RENDER_SIZE,
