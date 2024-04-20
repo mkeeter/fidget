@@ -55,17 +55,9 @@ class App {
 
   onScriptChanged(text: string) {
     let shape = null;
-    let result = null;
+    let result = "Ok(..)";
     try {
-      const shapeTree = fidget.eval_script(text);
-      const tape = fidget.serialize_into_tape(shapeTree);
-      result = "Ok(..)";
-
-      this.start_time = performance.now();
-      this.workers_done = 0;
-      this.workers.forEach((w) => {
-        w.postMessage(new ShapeRequest(tape));
-      });
+      shape = fidget.eval_script(text);
     } catch (error) {
       // Do some string formatting to make errors cleaner
       result = error
@@ -75,6 +67,15 @@ class App {
         .replace(" (expecting ", "\n(expecting ");
     }
     this.output.setText(result);
+
+    if (shape) {
+      const tape = fidget.serialize_into_tape(shape);
+      this.start_time = performance.now();
+      this.workers_done = 0;
+      this.workers.forEach((w) => {
+        w.postMessage(new ShapeRequest(tape));
+      });
+    }
   }
 
   onWorkerMessage(i: number, req: WorkerResponse) {
