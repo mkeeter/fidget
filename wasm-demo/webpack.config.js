@@ -33,7 +33,7 @@ module.exports = {
     asyncWebAssembly: true,
   },
   devServer: {
-    watchFiles: ["./index.html"],
+    watchFiles: ["./index.html", "./worker.ts"],
     hot: true,
   },
 };

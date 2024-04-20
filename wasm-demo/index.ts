@@ -7,6 +7,7 @@ import { defaultKeymap } from "@codemirror/commands";
 const RENDER_SIZE = 512;
 async function setup() {
   const fidget = await import("./pkg")!;
+  const worker = new Worker(new URL("./worker.ts", import.meta.url));
 
   const draw = glInit();
   function setScript(text: string) {
