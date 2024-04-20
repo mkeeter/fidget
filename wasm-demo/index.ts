@@ -26,7 +26,7 @@ class App {
     this.editor = new Editor(
       initial_script,
       document.getElementById("editor-outer"),
-      this.onScriptChanged,
+      this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
     this.onScriptChanged(initial_script);
