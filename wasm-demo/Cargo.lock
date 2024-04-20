@@ -270,6 +270,7 @@ name = "fidget-wasm-demo"
 version = "0.1.0"
 dependencies = [
  "fidget",
+ "nalgebra",
  "rhai",
  "wasm-bindgen",
 ]

@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 fidget = {path = "../fidget", default-features = false, features = ["rhai", "mesh", "render"]}
 wasm-bindgen = "0.2.92"
+nalgebra = "0.31"
 
 # Take advantage of feature unification to turn on wasm-bindgen here
 rhai = { version = "*", features = ["wasm-bindgen"] }
