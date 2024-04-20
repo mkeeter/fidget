@@ -22,6 +22,7 @@ crossbeam-utils = { version = "0.8" }
 once_cell = { version = "1" }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
+serde = { version = "1", features = ["alloc", "derive"] }
 
 [build-dependencies]
 once_cell = { version = "1" }
