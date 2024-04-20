@@ -7,23 +7,30 @@ import {
   WorkerRequest,
 } from "./message";
 
+import {
+RENDER_SIZE,
+WORKERS_PER_SIDE,
+WORKER_COUNT,
+} from "./constants";
+
 var fidget: any = null;
 
 class Worker {
   /// Index of this worker, between 0 and workers_per_side
   index: number;
 
-  /// Total number of workers per image side
-  workers_per_side: number;
-
   constructor(req: StartRequest) {
     this.index = req.index;
-    this.workers_per_side = req.workers_per_side;
   }
 
   render(s: ScriptRequest) {
     const tree = fidget.eval_script(s.script);
-    const out = fidget.render_region(tree, 512, 0, 4);
+    const out = fidget.render_region(
+      tree,
+      RENDER_SIZE,
+      this.index,
+      WORKERS_PER_SIDE,
+    );
     postMessage(new ImageResponse(out));
   }
 }
@@ -35,7 +42,6 @@ async function run() {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
       case RequestKind.Start: {
-        console.log("STARTING");
         let r = req as StartRequest;
         worker = new Worker(req as StartRequest);
         break;

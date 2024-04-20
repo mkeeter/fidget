@@ -12,9 +12,12 @@ import {
   WorkerRequest,
 } from "./message";
 
-const RENDER_SIZE = 512;
-const WORKERS_PER_SIDE = 4;
-const WORKER_COUNT = WORKERS_PER_SIDE * WORKERS_PER_SIDE;
+import {
+RENDER_SIZE,
+WORKERS_PER_SIDE,
+WORKER_COUNT,
+} from "./constants";
+
 const INITIAL_SCRIPT = "y + x*x";
 
 var fidget: any = null;
@@ -30,6 +33,8 @@ class App {
   scene: Scene;
   workers: Array<Worker>;
   workers_started: number;
+  workers_done: number;
+  start_time: number;
 
   constructor() {
     this.scene = new Scene();
@@ -41,6 +46,7 @@ class App {
     this.output = new Output(document.getElementById("output-outer"));
     this.workers = [];
     this.workers_started = 0;
+    this.workers_done = 0;
 
     for (let i = 0; i < WORKER_COUNT; ++i) {
       const worker = new Worker(new URL("./worker.ts", import.meta.url));
@@ -58,14 +64,11 @@ class App {
       const shapeTree = fidget.eval_script(text);
       result = "Ok(..)";
 
-      const startTime = performance.now();
+      this.start_time = performance.now();
+      this.workers_done = 0;
       this.workers.forEach((w) => {
         w.postMessage(new ScriptRequest(text));
       });
-      shape = fidget.render(shapeTree, RENDER_SIZE);
-      const endTime = performance.now();
-      document.getElementById("status").textContent =
-        `Rendered in ${endTime - startTime} ms`;
     } catch (error) {
       // Do some string formatting to make errors cleaner
       result = error
@@ -75,20 +78,27 @@ class App {
         .replace(" (expecting ", "\n(expecting ");
     }
     this.output.setText(result);
-    if (shape) {
-      this.scene.setTexture(shape);
-      this.scene.draw();
-    }
   }
 
   onWorkerMessage(i: number, req: WorkerResponse) {
     switch (req.kind) {
       case ResponseKind.Image: {
-        console.log("GOT IMAGE");
+        const region_size = RENDER_SIZE / WORKERS_PER_SIDE;
+        const x = Math.trunc(i / WORKERS_PER_SIDE) * region_size;
+        const y = (WORKERS_PER_SIDE - (i % WORKERS_PER_SIDE) - 1) * region_size;
+        this.scene.setTextureRegion(x, y, region_size, req.data);
+        this.scene.draw();
+
+        this.workers_done += 1;
+        if (this.workers_done == WORKER_COUNT) {
+          const endTime = performance.now();
+          document.getElementById("status").textContent =
+            `Rendered in ${endTime - this.start_time} ms`;
+        }
         break;
       }
       case ResponseKind.Started: {
-        this.workers[i].postMessage(new StartRequest(i, WORKERS_PER_SIDE));
+        this.workers[i].postMessage(new StartRequest(i));
         this.workers_started += 1;
         if (this.workers_started == WORKER_COUNT) {
           this.onScriptChanged(INITIAL_SCRIPT);
@@ -229,32 +239,36 @@ class Scene {
     this.buffers = new Buffers(this.gl);
     this.programInfo = new ProgramInfo(this.gl);
     this.texture = this.gl.createTexture();
-    this.setTexture(new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4));
-  }
 
-  setTexture(data: Uint8Array) {
+    // Bind an initial texture of the correct size
     this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-
-    const level = 0;
-    const internalFormat = this.gl.RGBA;
-    const width = RENDER_SIZE;
-    const height = RENDER_SIZE;
-    const border = 0;
-    const srcFormat = this.gl.RGBA;
-    const srcType = this.gl.UNSIGNED_BYTE;
     this.gl.texImage2D(
       this.gl.TEXTURE_2D,
-      level,
-      internalFormat,
-      width,
-      height,
-      border,
-      srcFormat,
-      srcType,
+      0,
+      this.gl.RGBA,
+      RENDER_SIZE,
+      RENDER_SIZE,
+      0, // border
+      this.gl.RGBA,
+      this.gl.UNSIGNED_BYTE,
+      new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
+    );
+    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+  }
+
+  setTextureRegion(x: number, y: number, size: number, data: Uint8Array) {
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+    this.gl.texSubImage2D(
+      this.gl.TEXTURE_2D,
+      0,
+      x,
+      y,
+      size,
+      size,
+      this.gl.RGBA,
+      this.gl.UNSIGNED_BYTE,
       data,
     );
-
-    this.gl.generateMipmap(this.gl.TEXTURE_2D);
   }
 
   draw() {

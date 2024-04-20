@@ -1,21 +1,19 @@
-enum RequestKind {
+export enum RequestKind {
   Start,
   Script,
 }
 
-class StartRequest {
+export class StartRequest {
   kind: RequestKind.Start;
   index: number;
-  workers_per_side: number;
 
-  constructor(index: number, workers_per_side: number) {
+  constructor(index: number) {
     this.index = index;
-    this.workers_per_side = workers_per_side;
     this.kind = RequestKind.Start;
   }
 }
 
-class ScriptRequest {
+export class ScriptRequest {
   kind: RequestKind.Script;
   script: string;
 
@@ -25,16 +23,16 @@ class ScriptRequest {
   }
 }
 
-type WorkerRequest = ScriptRequest | StartRequest;
+export type WorkerRequest = ScriptRequest | StartRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-enum ResponseKind {
+export enum ResponseKind {
   Started,
   Image,
 }
 
-class StartedResponse {
+export class StartedResponse {
   kind: ResponseKind.Started;
 
   constructor() {
@@ -42,7 +40,7 @@ class StartedResponse {
   }
 }
 
-class ImageResponse {
+export class ImageResponse {
   kind: ResponseKind.Image;
   data: Uint8Array;
 
@@ -52,15 +50,4 @@ class ImageResponse {
   }
 }
 
-type WorkerResponse = StartedResponse | ImageResponse;
-
-export {
-  ImageResponse,
-  RequestKind,
-  ResponseKind,
-  ScriptRequest,
-  StartRequest,
-  StartedResponse,
-  WorkerRequest,
-  WorkerResponse,
-};
+export type WorkerResponse = StartedResponse | ImageResponse;

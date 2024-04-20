@@ -71,14 +71,14 @@ pub fn render_region(
         let mut ctx = Context::new();
         let root = ctx.import(&t);
 
-        // Corner position in [0, 1] coordinates
+        // Corner position in [0, workers_per_side] coordinates
         let mut corner = nalgebra::Vector2::new(
             index / workers_per_side,
             index % workers_per_side,
         )
         .cast::<f32>();
         // Corner position in [-1, 1] coordinates
-        corner = (corner * 2.0).add_scalar(-1.0);
+        corner = (corner * 2.0 / workers_per_side as f32).add_scalar(-1.0);
 
         // Scale of each tile
         let scale = 2.0 / workers_per_side as f32;
@@ -90,7 +90,7 @@ pub fn render_region(
             image_size: image_size / workers_per_side,
             bounds: Bounds {
                 center,
-                size: scale,
+                size: scale / 2.0,
             },
             ..RenderConfig::default()
         };
@@ -102,6 +102,14 @@ pub fn render_region(
             .flat_map(|b| {
                 let b = b as u8 * u8::MAX;
                 [b, b, b, 255]
+                /*
+                [
+                    if index % 2 == 0 { 255 } else { 0 },
+                    if (index / 2) % 2 == 0 { 255 } else { 0 },
+                    if (index / 4) % 2 == 0 { 255 } else { 0 },
+                    255,
+                ]
+                */
             })
             .collect())
     }
