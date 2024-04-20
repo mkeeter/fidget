@@ -1,7 +1,12 @@
 async function run() {
-  const fidget = await import("./pkg")!;
-  onmessage = function (e) {
-    postMessage(e);
+  var fidget: any = null;
+  onmessage = function (e: any) {
+    if (e.data.fidget) {
+      fidget = e.data.fidget;
+    } else {
+      const out = fidget.render_region(e.data.tree, 512, 0, 4);
+      console.log(out);
+    }
   };
 }
 run();

@@ -9,8 +9,6 @@ var fidget: any = null;
 
 async function setup() {
   fidget = await import("./pkg")!;
-  const worker = new Worker(new URL("./worker.ts", import.meta.url));
-
   const app = new App("y + x*x");
 
   console.log("booted");
@@ -20,8 +18,11 @@ class App {
   editor: Editor;
   output: Output;
   scene: Scene;
+  worker: Worker;
 
   constructor(initial_script: string) {
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.postMessage({'fidget': fidget});
     this.scene = new Scene();
     this.editor = new Editor(
       initial_script,
@@ -30,15 +31,18 @@ class App {
     );
     this.output = new Output(document.getElementById("output-outer"));
     this.onScriptChanged(initial_script);
+    this.worker.onmessage = this.onWorkerMessage.bind(this);
   }
 
   onScriptChanged(text: string) {
+    console.log(this.worker);
     let shape = null;
     let result = null;
     try {
       const shapeTree = fidget.eval_script(text);
       result = "Ok(..)";
       const startTime = performance.now();
+      this.worker.postMessage({'tree': shapeTree});
       shape = fidget.render(shapeTree, RENDER_SIZE);
       const endTime = performance.now();
       document.getElementById("status").textContent =
@@ -56,6 +60,10 @@ class App {
       this.scene.setTexture(shape);
       this.scene.draw();
     }
+  }
+
+  onWorkerMessage(msg: any) {
+    console.log(msg);
   }
 }
 
