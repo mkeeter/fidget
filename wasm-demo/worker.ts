@@ -1,6 +1,8 @@
 import {
   ImageResponse,
   RequestKind,
+  ScriptRequest,
+  ScriptResponse,
   ShapeRequest,
   StartRequest,
   StartedResponse,
@@ -29,6 +31,27 @@ class Worker {
     );
     postMessage(new ImageResponse(out));
   }
+
+  run(s: ScriptRequest) {
+    let shape = null;
+    let result = "Ok(..)";
+    try {
+      shape = fidget.eval_script(s.script);
+    } catch (error) {
+      // Do some string formatting to make errors cleaner
+      result = error
+        .toString()
+        .replace("Rhai evaluation error: ", "Rhai evaluation error:\n")
+        .replace(" (line ", "\n(line ")
+        .replace(" (expecting ", "\n(expecting ");
+    }
+
+    let tape = null;
+    if (shape) {
+      tape = fidget.serialize_into_tape(shape);
+    }
+    postMessage(new ScriptResponse(result, tape));
+  }
 }
 
 async function run() {
@@ -44,6 +67,10 @@ async function run() {
       }
       case RequestKind.Shape: {
         worker!.render(req as ShapeRequest);
+        break;
+      }
+      case RequestKind.Script: {
+        worker!.run(req as ScriptRequest);
         break;
       }
       default:
