@@ -87,11 +87,13 @@ class App {
       case ResponseKind.Script: {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
-        this.start_time = performance.now();
-        this.workers_done = 0;
-        this.workers.forEach((w) => {
-          w.postMessage(new ShapeRequest(r.tape));
-        });
+        if (r.tape) {
+            this.start_time = performance.now();
+            this.workers_done = 0;
+            this.workers.forEach((w) => {
+              w.postMessage(new ShapeRequest(r.tape));
+            });
+        }
         break;
       }
 
