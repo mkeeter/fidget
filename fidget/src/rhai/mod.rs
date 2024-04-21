@@ -141,6 +141,17 @@ impl Engine {
         Self { engine, context }
     }
 
+    /// Sets the operation limit (e.g. for untrusted scripts)
+    pub fn set_limit(&mut self, limit: u64) {
+        self.engine.on_progress(move |count| {
+            if count > limit {
+                Some("script runtime exceeded".into())
+            } else {
+                None
+            }
+        });
+    }
+
     /// Executes a full script
     pub fn run(&mut self, script: &str) -> Result<ScriptContext, Error> {
         self.context.lock().unwrap().clear();
