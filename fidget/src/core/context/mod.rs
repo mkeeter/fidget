@@ -944,8 +944,14 @@ impl Context {
         self.import_inner(tree, x, y, z)
     }
 
-    fn import_inner(&mut self, tree: &Tree, x: Node, y: Node, z: Node) -> Node {
-        match &**tree {
+    fn import_inner(
+        &mut self,
+        tree: &TreeOp,
+        x: Node,
+        y: Node,
+        z: Node,
+    ) -> Node {
+        match tree {
             TreeOp::Input(s) => match *s {
                 "X" => x,
                 "Y" => y,
