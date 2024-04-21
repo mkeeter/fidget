@@ -1,4 +1,7 @@
 # 0.2.6 (unreleased)
+- Added `VmShape` serialization (using `serde`), specifically
+  - `#[derive(Serialize, Deserialize)}` on `VmData`
+  - `impl From<VmData<255>> for VmShape { .. }`
 
 # 0.2.5
 The highlight of this release is native Windows support (including JIT
