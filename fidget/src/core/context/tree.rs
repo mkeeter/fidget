@@ -278,13 +278,62 @@ mod test {
 
     #[test]
     fn test_remap_xyz() {
+        // Remapping X
         let s = Tree::x() + 1.0;
 
-        let v = s.remap_xyz(Tree::y(), Tree::y(), Tree::z());
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
         let mut ctx = Context::new();
         let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
 
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        // Remapping Y
+        let s = Tree::y() + 1.0;
+
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        // Remapping Z
+        let s = Tree::z() + 1.0;
+
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        // Test remapping to a constant
+        let s = Tree::x() + 1.0;
         let one = Tree::constant(3.0);
         let v = s.remap_xyz(one, Tree::y(), Tree::z());
         let v_ = ctx.import(&v);
