@@ -12,18 +12,74 @@ pub enum TreeOp {
     /// Input (at the moment, limited to "X", "Y", "Z")
     Input(&'static str),
     Const(f64),
-    Binary(BinaryOpcode, Tree, Tree),
-    Unary(UnaryOpcode, Tree),
+    Binary(BinaryOpcode, Arc<TreeOp>, Arc<TreeOp>),
+    Unary(UnaryOpcode, Arc<TreeOp>),
     /// Lazy remapping of trees
     ///
     /// When imported into a `Context`, all `x/y/z` clauses within `target` will
     /// be replaced with the provided `x/y/z` trees.
     RemapAxes {
-        target: Tree,
-        x: Tree,
-        y: Tree,
-        z: Tree,
+        target: Arc<TreeOp>,
+        x: Arc<TreeOp>,
+        y: Arc<TreeOp>,
+        z: Arc<TreeOp>,
     },
+}
+
+impl Drop for TreeOp {
+    fn drop(&mut self) {
+        // Early exit for TreeOps which have limited recursion
+        if self.fast_drop() {
+            return;
+        }
+
+        let mut todo = vec![std::mem::replace(self, TreeOp::Const(0.0))];
+        let empty = Arc::new(TreeOp::Const(0.0));
+        while let Some(mut t) = todo.pop() {
+            for t in t.iter_children() {
+                let arg = std::mem::replace(t, empty.clone());
+                todo.extend(Arc::into_inner(arg));
+            }
+            drop(t);
+        }
+    }
+}
+
+impl TreeOp {
+    /// Checks whether the given tree is eligible for fast dropping
+    ///
+    /// Fast dropping uses the normal `Drop` implementation, which recurses on
+    /// the stack and can overflow for deep trees.  A recursive tree is only
+    /// eligible for fast dropping if all of its children are `TreeOp::Const`.
+    fn fast_drop(&self) -> bool {
+        match self {
+            TreeOp::Const(..) | TreeOp::Input(..) => true,
+            TreeOp::Unary(_op, arg) => matches!(**arg, TreeOp::Const(..)),
+            TreeOp::Binary(_op, lhs, rhs) => {
+                matches!(**lhs, TreeOp::Const(..))
+                    && matches!(**rhs, TreeOp::Const(..))
+            }
+            TreeOp::RemapAxes { target, x, y, z } => {
+                matches!(**target, TreeOp::Const(..))
+                    && matches!(**x, TreeOp::Const(..))
+                    && matches!(**y, TreeOp::Const(..))
+                    && matches!(**z, TreeOp::Const(..))
+            }
+        }
+    }
+
+    fn iter_children(&mut self) -> impl Iterator<Item = &mut Arc<TreeOp>> {
+        match self {
+            TreeOp::Const(..) | TreeOp::Input(..) => [None, None, None, None],
+            TreeOp::Unary(_op, arg) => [Some(arg), None, None, None],
+            TreeOp::Binary(_op, lhs, rhs) => [Some(lhs), Some(rhs), None, None],
+            TreeOp::RemapAxes { target, x, y, z } => {
+                [Some(target), Some(x), Some(y), Some(z)]
+            }
+        }
+        .into_iter()
+        .flatten()
+    }
 }
 
 impl From<f64> for Tree {
@@ -79,10 +135,10 @@ impl Tree {
     /// into a `Context`.
     pub fn remap_xyz(&self, x: Tree, y: Tree, z: Tree) -> Tree {
         Self(Arc::new(TreeOp::RemapAxes {
-            target: self.clone(),
-            x,
-            y,
-            z,
+            target: self.0.clone(),
+            x: x.0,
+            y: y.0,
+            z: z.0,
         }))
     }
 }
@@ -103,10 +159,10 @@ impl Tree {
         Tree(Arc::new(TreeOp::Const(f)))
     }
     fn op_unary(a: Tree, op: UnaryOpcode) -> Self {
-        Tree(Arc::new(TreeOp::Unary(op, a)))
+        Tree(Arc::new(TreeOp::Unary(op, a.0)))
     }
     fn op_binary(a: Tree, b: Tree, op: BinaryOpcode) -> Self {
-        Tree(Arc::new(TreeOp::Binary(op, a, b)))
+        Tree(Arc::new(TreeOp::Binary(op, a.0, b.0)))
     }
     pub fn square(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Square)
@@ -179,7 +235,8 @@ macro_rules! impl_binary {
         impl<A: Into<Tree>> std::ops::$op_assign<A> for Tree {
             fn $assign_fn(&mut self, other: A) {
                 use std::ops::$op;
-                self.0 = self.clone().$base_fn(other.into()).0
+                let mut next = self.clone().$base_fn(other.into());
+                std::mem::swap(self, &mut next);
             }
         }
         impl std::ops::$op<Tree> for f32 {
@@ -221,16 +278,108 @@ mod test {
 
     #[test]
     fn test_remap_xyz() {
+        // Remapping X
         let s = Tree::x() + 1.0;
 
-        let v = s.remap_xyz(Tree::y(), Tree::y(), Tree::z());
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
         let mut ctx = Context::new();
         let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
 
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        // Remapping Y
+        let s = Tree::y() + 1.0;
+
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        // Remapping Z
+        let s = Tree::z() + 1.0;
+
+        let v = s.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 0.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::z(), Tree::x(), Tree::y());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 2.0);
+
+        let v = s.remap_xyz(Tree::x(), Tree::y(), Tree::z());
+        let mut ctx = Context::new();
+        let v_ = ctx.import(&v);
+        assert_eq!(ctx.eval_xyz(v_, 0.0, 0.0, 1.0).unwrap(), 2.0);
+
+        // Test remapping to a constant
+        let s = Tree::x() + 1.0;
         let one = Tree::constant(3.0);
         let v = s.remap_xyz(one, Tree::y(), Tree::z());
         let v_ = ctx.import(&v);
         assert_eq!(ctx.eval_xyz(v_, 0.0, 1.0, 0.0).unwrap(), 4.0);
+    }
+
+    #[test]
+    fn deep_recursion_drop() {
+        let mut x = Tree::x();
+        for _ in 0..1_000_000 {
+            x += 1.0;
+        }
+        drop(x);
+        // we should not panic here!
+    }
+
+    #[test]
+    fn deep_recursion_import() {
+        let mut x = Tree::x();
+        for _ in 0..1_000_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        ctx.import(&x);
+        // we should not panic here!
+    }
+
+    #[test]
+    fn tree_remap_multi() {
+        let mut ctx = Context::new();
+
+        let out = Tree::x() + Tree::y() + Tree::z();
+        let out =
+            out.remap_xyz(Tree::x() * 2.0, Tree::y() * 3.0, Tree::z() * 5.0);
+
+        let v_ = ctx.import(&out);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 1.0, 1.0).unwrap(), 10.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 12.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 15.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
+
+        let out = out.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let v_ = ctx.import(&out);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 1.0, 1.0).unwrap(), 10.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 15.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 17.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
     }
 }

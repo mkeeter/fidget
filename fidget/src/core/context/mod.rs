@@ -937,43 +937,79 @@ impl Context {
 
     /// Imports the given tree, deduplicating and returning the root
     pub fn import(&mut self, tree: &Tree) -> Node {
-        // TODO make this non-recursive to avoid blowing up the stack
-        let x = self.x();
-        let y = self.y();
-        let z = self.z();
-        self.import_inner(tree, x, y, z)
-    }
+        // A naive remapping implementation would use recursion.  A naive
+        // remapping implementation would blow up the stack given any
+        // significant tree size.
+        //
+        // Instead, we maintain our own pseudo-stack here in a pair of Vecs (one
+        // stack for actions, and a second stack for return values).
+        enum Action<'a> {
+            /// Pushes `Up(op)` followed by `Down(c)` for each child
+            Down(&'a TreeOp),
+            /// Consumes imported trees from the stack and pushes a new tree
+            Up(&'a TreeOp),
+            /// Pops the latest axis frame
+            Pop,
+        }
+        let mut axes = vec![(self.x(), self.y(), self.z())];
+        let mut todo = vec![Action::Down(tree)];
+        let mut stack = vec![];
 
-    fn import_inner(&mut self, tree: &Tree, x: Node, y: Node, z: Node) -> Node {
-        match &**tree {
-            TreeOp::Input(s) => match *s {
-                "X" => x,
-                "Y" => y,
-                "Z" => z,
-                s => panic!("invalid tree input string {s:?}"),
-            },
-            TreeOp::Const(c) => self.constant(*c),
-            TreeOp::Unary(op, t) => {
-                let t = self.import_inner(t, x, y, z);
-                self.op_unary(t, *op).unwrap()
-            }
-            TreeOp::Binary(op, a, b) => {
-                let a = self.import_inner(a, x, y, z);
-                let b = self.import_inner(b, x, y, z);
-                self.op_binary(a, b, *op).unwrap()
-            }
-            TreeOp::RemapAxes {
-                target,
-                x: tx,
-                y: ty,
-                z: tz,
-            } => {
-                let x_ = self.import_inner(tx, x, y, z);
-                let y_ = self.import_inner(ty, x, y, z);
-                let z_ = self.import_inner(tz, x, y, z);
-                self.import_inner(target, x_, y_, z_)
+        while let Some(t) = todo.pop() {
+            match t {
+                Action::Down(t) => {
+                    todo.push(Action::Up(t));
+                    match t {
+                        TreeOp::Const(..) | TreeOp::Input(..) => (),
+                        TreeOp::Unary(_op, arg) => todo.push(Action::Down(arg)),
+                        TreeOp::Binary(_op, lhs, rhs) => {
+                            todo.push(Action::Down(lhs));
+                            todo.push(Action::Down(rhs));
+                        }
+                        TreeOp::RemapAxes { target: _, x, y, z } => {
+                            // Action::Up(t) does the remapping and target eval
+                            todo.push(Action::Down(x));
+                            todo.push(Action::Down(y));
+                            todo.push(Action::Down(z));
+                        }
+                    }
+                }
+                Action::Up(t) => match t {
+                    TreeOp::Const(c) => stack.push(self.constant(*c)),
+                    TreeOp::Input(s) => {
+                        let axes = axes.last().unwrap();
+                        stack.push(match *s {
+                            "X" => axes.0,
+                            "Y" => axes.1,
+                            "Z" => axes.2,
+                            s => panic!("invalid tree input string {s:?}"),
+                        });
+                    }
+                    TreeOp::Unary(op, ..) => {
+                        let arg = stack.pop().unwrap();
+                        stack.push(self.op_unary(arg, *op).unwrap());
+                    }
+                    TreeOp::Binary(op, ..) => {
+                        let lhs = stack.pop().unwrap();
+                        let rhs = stack.pop().unwrap();
+                        stack.push(self.op_binary(lhs, rhs, *op).unwrap());
+                    }
+                    TreeOp::RemapAxes { target, .. } => {
+                        let x = stack.pop().unwrap();
+                        let y = stack.pop().unwrap();
+                        let z = stack.pop().unwrap();
+                        axes.push((x, y, z));
+                        todo.push(Action::Pop);
+                        todo.push(Action::Down(target));
+                    }
+                },
+                Action::Pop => {
+                    axes.pop().unwrap();
+                }
             }
         }
+        assert_eq!(stack.len(), 1);
+        stack.pop().unwrap()
     }
 }
 

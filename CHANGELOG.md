@@ -1,7 +1,10 @@
 # 0.2.6 (unreleased)
 - Added `VmShape` serialization (using `serde`), specifically
-  - `#[derive(Serialize, Deserialize)}` on `VmData`
-  - `impl From<VmData<255>> for VmShape { .. }`
+    - `#[derive(Serialize, Deserialize)}` on `VmData`
+    - `impl From<VmData<255>> for VmShape { .. }`
+- Fixed stack overflows when handling very deep `Tree` objects
+    - Added a non-recursive `Drop` implementation
+    - Rewrote `Context::import` to use the heap instead of stack
 
 # 0.2.5
 The highlight of this release is native Windows support (including JIT
