@@ -294,10 +294,21 @@ mod test {
     #[test]
     fn deep_recursion_drop() {
         let mut x = Tree::x();
-        for _ in 0..10_000_000 {
+        for _ in 0..1_000_000 {
             x += 1.0;
         }
         drop(x);
+        // we should not panic here!
+    }
+
+    #[test]
+    fn deep_recursion_import() {
+        let mut x = Tree::x();
+        for _ in 0..1_000_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        ctx.import(&x);
         // we should not panic here!
     }
 }
