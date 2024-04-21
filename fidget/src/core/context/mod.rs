@@ -937,6 +937,12 @@ impl Context {
 
     /// Imports the given tree, deduplicating and returning the root
     pub fn import(&mut self, tree: &Tree) -> Node {
+        // A naive remapping implementation would use recursion.  A naive
+        // remapping implementation would blow up the stack given any
+        // significant tree size.
+        //
+        // Instead, we maintain our own pseudo-stack here in a pair of Vecs (one
+        // stack for actions, and a second stack for return values).
         enum Action<'a> {
             /// Pushes `Up(op)` followed by `Down(c)` for each child
             Down(&'a TreeOp),
