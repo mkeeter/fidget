@@ -360,4 +360,26 @@ mod test {
         ctx.import(&x);
         // we should not panic here!
     }
+
+    #[test]
+    fn tree_remap_multi() {
+        let mut ctx = Context::new();
+
+        let out = Tree::x() + Tree::y() + Tree::z();
+        let out =
+            out.remap_xyz(Tree::x() * 2.0, Tree::y() * 3.0, Tree::z() * 5.0);
+
+        let v_ = ctx.import(&out);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 1.0, 1.0).unwrap(), 10.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 12.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 15.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
+
+        let out = out.remap_xyz(Tree::y(), Tree::z(), Tree::x());
+        let v_ = ctx.import(&out);
+        assert_eq!(ctx.eval_xyz(v_, 1.0, 1.0, 1.0).unwrap(), 10.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 15.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 17.0);
+        assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
+    }
 }
