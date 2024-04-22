@@ -957,6 +957,9 @@ impl Context {
         let mut stack = vec![];
 
         // Cache of TreeOp -> Node mapping under a particular frame (axes)
+        //
+        // This isn't required for correctness, but can be a speed optimization
+        // (because it means we don't have to walk the same tree twice).
         let mut seen = HashMap::new();
 
         while let Some(t) = todo.pop() {
@@ -1036,6 +1039,10 @@ impl Context {
                         }
                     }
                     // Update the cache with the new tree, if relevant
+                    //
+                    // The `strong_count` check is a rough heuristic to avoid
+                    // caching if there's only a single owner of the tree.  This
+                    // isn't perfect, but it doesn't need to be for correctness.
                     if matches!(
                         t.as_ref(),
                         TreeOp::Unary(..) | TreeOp::Binary(..)
