@@ -129,6 +129,11 @@ impl Tree {
         Arc::as_ptr(&self.0)
     }
 
+    /// Borrow the inner `Arc<TreeOp>`
+    pub(crate) fn arc(&self) -> &Arc<TreeOp> {
+        &self.0
+    }
+
     /// Remaps the axes of the given tree
     ///
     /// The remapping is lazy; it is not evaluated until the tree is imported
@@ -381,5 +386,57 @@ mod test {
         assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 15.0);
         assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 17.0);
         assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
+    }
+
+    #[test]
+    fn tree_import_cache() {
+        let mut x = Tree::x();
+        for _ in 0..100_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let small = start.elapsed();
+
+        // Build a new tree with 4 copies of the original
+        let x = x.clone() * x.clone() * x.clone() * x;
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let large = start.elapsed();
+
+        assert!(
+            large.as_millis() < small.as_millis() * 2,
+            "tree import cache failed: {large:?} is much larger than {small:?}"
+        );
+    }
+
+    #[test]
+    fn tree_import_nocache() {
+        let mut x = Tree::x();
+        for _ in 0..100_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let small = start.elapsed();
+
+        // Build a new tree with 4 remapped versions of the original
+        let x = x.remap_xyz(Tree::y(), Tree::z(), Tree::x())
+            * x.remap_xyz(Tree::z(), Tree::x(), Tree::y())
+            * x.remap_xyz(Tree::y(), Tree::x(), Tree::z())
+            * x;
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let large = start.elapsed();
+
+        assert!(
+            large.as_millis() > small.as_millis() * 2,
+            "tree import cache failed:
+             {large:?} is not much larger than {small:?}"
+        );
     }
 }

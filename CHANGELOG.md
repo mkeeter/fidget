@@ -5,6 +5,9 @@
 - Fixed stack overflows when handling very deep `Tree` objects
     - Added a non-recursive `Drop` implementation
     - Rewrote `Context::import` to use the heap instead of stack
+- Updated `Context::import` to cache the `TreeOp → Node` mapping, which is a
+  minor optimization (probably only relevant for unreasonably large `Tree`
+  objects)
 
 # 0.2.5
 The highlight of this release is native Windows support (including JIT
