@@ -129,6 +129,11 @@ impl Tree {
         Arc::as_ptr(&self.0)
     }
 
+    /// Borrow the inner `Arc<TreeOp>`
+    pub(crate) fn arc(&self) -> &Arc<TreeOp> {
+        &self.0
+    }
+
     /// Remaps the axes of the given tree
     ///
     /// The remapping is lazy; it is not evaluated until the tree is imported
@@ -381,5 +386,29 @@ mod test {
         assert_eq!(ctx.eval_xyz(v_, 2.0, 1.0, 1.0).unwrap(), 15.0);
         assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 1.0).unwrap(), 17.0);
         assert_eq!(ctx.eval_xyz(v_, 2.0, 2.0, 2.0).unwrap(), 20.0);
+    }
+
+    #[test]
+    fn tree_dedup() {
+        let mut x = Tree::x();
+        for _ in 0..1_000_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let small = start.elapsed();
+
+        // Build a new tree with 4 copies of the original
+        let x = x.clone() * x.clone() * x.clone() * x;
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let large = start.elapsed();
+
+        assert!(
+            large.as_millis() < small.as_millis() * 2,
+            "tree dedup failed: {large:?} is much larger than {small:?}"
+        );
     }
 }

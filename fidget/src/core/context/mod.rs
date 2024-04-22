@@ -24,9 +24,10 @@ pub use tree::{Tree, TreeOp};
 
 use crate::Error;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::io::{BufRead, BufReader, Read};
+use std::sync::Arc;
 
 use ordered_float::OrderedFloat;
 
@@ -945,64 +946,107 @@ impl Context {
         // stack for actions, and a second stack for return values).
         enum Action<'a> {
             /// Pushes `Up(op)` followed by `Down(c)` for each child
-            Down(&'a TreeOp),
+            Down(&'a Arc<TreeOp>),
             /// Consumes imported trees from the stack and pushes a new tree
-            Up(&'a TreeOp),
+            Up(&'a Arc<TreeOp>),
             /// Pops the latest axis frame
             Pop,
         }
         let mut axes = vec![(self.x(), self.y(), self.z())];
-        let mut todo = vec![Action::Down(tree)];
+        let mut todo = vec![Action::Down(tree.arc())];
         let mut stack = vec![];
+
+        // Cache of TreeOp -> Node mapping under a particular frame (axes)
+        let mut seen = HashMap::new();
 
         while let Some(t) = todo.pop() {
             match t {
                 Action::Down(t) => {
-                    todo.push(Action::Up(t));
-                    match t {
-                        TreeOp::Const(..) | TreeOp::Input(..) => (),
-                        TreeOp::Unary(_op, arg) => todo.push(Action::Down(arg)),
+                    // If we've already seen this TreeOp with these axes, then
+                    // we can return the previous Node.
+                    if matches!(
+                        t.as_ref(),
+                        TreeOp::Unary(..) | TreeOp::Binary(..)
+                    ) {
+                        if let Some(p) =
+                            seen.get(&(*axes.last().unwrap(), Arc::as_ptr(t)))
+                        {
+                            stack.push(*p);
+                            continue;
+                        }
+                    }
+                    match t.as_ref() {
+                        TreeOp::Const(c) => {
+                            stack.push(self.constant(*c));
+                        }
+                        TreeOp::Input(s) => {
+                            let axes = axes.last().unwrap();
+                            stack.push(match *s {
+                                "X" => axes.0,
+                                "Y" => axes.1,
+                                "Z" => axes.2,
+                                s => panic!("invalid tree input string {s:?}"),
+                            });
+                        }
+                        TreeOp::Unary(_op, arg) => {
+                            todo.push(Action::Up(t));
+                            todo.push(Action::Down(arg));
+                        }
                         TreeOp::Binary(_op, lhs, rhs) => {
+                            todo.push(Action::Up(t));
                             todo.push(Action::Down(lhs));
                             todo.push(Action::Down(rhs));
                         }
                         TreeOp::RemapAxes { target: _, x, y, z } => {
                             // Action::Up(t) does the remapping and target eval
+                            todo.push(Action::Up(t));
                             todo.push(Action::Down(x));
                             todo.push(Action::Down(y));
                             todo.push(Action::Down(z));
                         }
                     }
                 }
-                Action::Up(t) => match t {
-                    TreeOp::Const(c) => stack.push(self.constant(*c)),
-                    TreeOp::Input(s) => {
-                        let axes = axes.last().unwrap();
-                        stack.push(match *s {
-                            "X" => axes.0,
-                            "Y" => axes.1,
-                            "Z" => axes.2,
-                            s => panic!("invalid tree input string {s:?}"),
-                        });
+                Action::Up(t) => {
+                    match t.as_ref() {
+                        TreeOp::Const(..) | TreeOp::Input(..) => unreachable!(),
+                        TreeOp::Unary(op, ..) => {
+                            let arg = stack.pop().unwrap();
+                            let out = self.op_unary(arg, *op).unwrap();
+                            stack.push(out);
+                        }
+                        TreeOp::Binary(op, ..) => {
+                            let lhs = stack.pop().unwrap();
+                            let rhs = stack.pop().unwrap();
+                            let out = self.op_binary(lhs, rhs, *op).unwrap();
+                            if Arc::strong_count(t) > 1 {
+                                seen.insert(
+                                    (*axes.last().unwrap(), Arc::as_ptr(t)),
+                                    out,
+                                );
+                            }
+                            stack.push(out);
+                        }
+                        TreeOp::RemapAxes { target, .. } => {
+                            let x = stack.pop().unwrap();
+                            let y = stack.pop().unwrap();
+                            let z = stack.pop().unwrap();
+                            axes.push((x, y, z));
+                            todo.push(Action::Pop);
+                            todo.push(Action::Down(target));
+                        }
                     }
-                    TreeOp::Unary(op, ..) => {
-                        let arg = stack.pop().unwrap();
-                        stack.push(self.op_unary(arg, *op).unwrap());
+                    // Update the cache with the new tree, if relevant
+                    if matches!(
+                        t.as_ref(),
+                        TreeOp::Unary(..) | TreeOp::Binary(..)
+                    ) && Arc::strong_count(t) > 1
+                    {
+                        seen.insert(
+                            (*axes.last().unwrap(), Arc::as_ptr(t)),
+                            *stack.last().unwrap(),
+                        );
                     }
-                    TreeOp::Binary(op, ..) => {
-                        let lhs = stack.pop().unwrap();
-                        let rhs = stack.pop().unwrap();
-                        stack.push(self.op_binary(lhs, rhs, *op).unwrap());
-                    }
-                    TreeOp::RemapAxes { target, .. } => {
-                        let x = stack.pop().unwrap();
-                        let y = stack.pop().unwrap();
-                        let z = stack.pop().unwrap();
-                        axes.push((x, y, z));
-                        todo.push(Action::Pop);
-                        todo.push(Action::Down(target));
-                    }
-                },
+                }
                 Action::Pop => {
                     axes.pop().unwrap();
                 }
