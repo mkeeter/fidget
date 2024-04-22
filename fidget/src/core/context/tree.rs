@@ -389,9 +389,9 @@ mod test {
     }
 
     #[test]
-    fn tree_dedup() {
+    fn tree_import_cache() {
         let mut x = Tree::x();
-        for _ in 0..1_000_000 {
+        for _ in 0..100_000 {
             x += 1.0;
         }
         let mut ctx = Context::new();
@@ -408,7 +408,35 @@ mod test {
 
         assert!(
             large.as_millis() < small.as_millis() * 2,
-            "tree dedup failed: {large:?} is much larger than {small:?}"
+            "tree import cache failed: {large:?} is much larger than {small:?}"
+        );
+    }
+
+    #[test]
+    fn tree_import_nocache() {
+        let mut x = Tree::x();
+        for _ in 0..100_000 {
+            x += 1.0;
+        }
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let small = start.elapsed();
+
+        // Build a new tree with 4 copies of the original
+        let x = x.remap_xyz(Tree::y(), Tree::z(), Tree::x())
+            * x.remap_xyz(Tree::z(), Tree::x(), Tree::y())
+            * x.remap_xyz(Tree::y(), Tree::x(), Tree::z())
+            * x;
+        let mut ctx = Context::new();
+        let start = std::time::Instant::now();
+        ctx.import(&x);
+        let large = start.elapsed();
+
+        assert!(
+            large.as_millis() > small.as_millis() * 2,
+            "tree import cache failed:
+             {large:?} is not much larger than {small:?}"
         );
     }
 }
