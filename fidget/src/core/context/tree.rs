@@ -423,7 +423,7 @@ mod test {
         ctx.import(&x);
         let small = start.elapsed();
 
-        // Build a new tree with 4 copies of the original
+        // Build a new tree with 4 remapped versions of the original
         let x = x.remap_xyz(Tree::y(), Tree::z(), Tree::x())
             * x.remap_xyz(Tree::z(), Tree::x(), Tree::y())
             * x.remap_xyz(Tree::y(), Tree::x(), Tree::z())
