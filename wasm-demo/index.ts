@@ -88,11 +88,11 @@ class App {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
-            this.start_time = performance.now();
-            this.workers_done = 0;
-            this.workers.forEach((w) => {
-              w.postMessage(new ShapeRequest(r.tape));
-            });
+          this.start_time = performance.now();
+          this.workers_done = 0;
+          this.workers.forEach((w) => {
+            w.postMessage(new ShapeRequest(r.tape));
+          });
         }
         break;
       }

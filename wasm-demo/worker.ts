@@ -29,7 +29,7 @@ class Worker {
       this.index,
       WORKERS_PER_SIDE,
     );
-    postMessage(new ImageResponse(out));
+    postMessage(new ImageResponse(out), { transfer: [out.buffer] });
   }
 
   run(s: ScriptRequest) {
@@ -49,8 +49,12 @@ class Worker {
     let tape = null;
     if (shape) {
       tape = fidget.serialize_into_tape(shape);
+      postMessage(new ScriptResponse(result, tape), {
+        transfer: [tape.buffer],
+      });
+    } else {
+      postMessage(new ScriptResponse(result, tape));
     }
-    postMessage(new ScriptResponse(result, tape));
   }
 }
 
