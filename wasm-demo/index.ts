@@ -6,10 +6,12 @@ import { defaultKeymap } from "@codemirror/commands";
 
 import {
   ResponseKind,
+  ScriptRequest,
   ShapeRequest,
   StartRequest,
-  WorkerResponse,
+  ScriptResponse,
   WorkerRequest,
+  WorkerResponse,
 } from "./message";
 
 import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
@@ -54,28 +56,7 @@ class App {
   }
 
   onScriptChanged(text: string) {
-    let shape = null;
-    let result = "Ok(..)";
-    try {
-      shape = fidget.eval_script(text);
-    } catch (error) {
-      // Do some string formatting to make errors cleaner
-      result = error
-        .toString()
-        .replace("Rhai evaluation error: ", "Rhai evaluation error:\n")
-        .replace(" (line ", "\n(line ")
-        .replace(" (expecting ", "\n(expecting ");
-    }
-    this.output.setText(result);
-
-    if (shape) {
-      const tape = fidget.serialize_into_tape(shape);
-      this.start_time = performance.now();
-      this.workers_done = 0;
-      this.workers.forEach((w) => {
-        w.postMessage(new ShapeRequest(tape));
-      });
-    }
+    this.workers[0].postMessage(new ScriptRequest(text));
   }
 
   onWorkerMessage(i: number, req: WorkerResponse) {
@@ -103,6 +84,19 @@ class App {
         }
         break;
       }
+      case ResponseKind.Script: {
+        let r = req as ScriptResponse;
+        this.output.setText(r.output);
+        if (r.tape) {
+          this.start_time = performance.now();
+          this.workers_done = 0;
+          this.workers.forEach((w) => {
+            w.postMessage(new ShapeRequest(r.tape));
+          });
+        }
+        break;
+      }
+
       default: {
         console.error(`unknown worker req ${req}`);
       }
@@ -131,7 +125,7 @@ class Editor {
               window.clearTimeout(this.timeout);
             }
             const text = v.state.doc.toString();
-            this.timeout = window.setTimeout(() => cb(text), 500);
+            this.timeout = window.setTimeout(() => cb(text), 250);
           }
         }),
       ],
