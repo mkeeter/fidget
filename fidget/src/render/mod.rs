@@ -17,7 +17,8 @@ pub use render3d::render as render3d;
 
 pub use render2d::{BitRenderMode, DebugRenderMode, RenderMode, SdfRenderMode};
 
-struct RenderHandle<S: Shape> {
+#[allow(missing_docs)]
+pub struct RenderHandle<S: Shape> {
     shape: S,
 
     i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
@@ -82,7 +83,7 @@ where
         let mut trace_storage = if let Some(neighbor) = &self.next {
             if &neighbor.0 != trace {
                 let (trace, neighbor) = self.next.take().unwrap();
-                neighbor.recycle(shape_storage, tape_storage);
+                neighbor.recycle_handle(shape_storage, tape_storage);
                 Some(trace)
                 // continue with simplification
             } else {
@@ -127,14 +128,14 @@ where
         }
     }
 
-    fn recycle(
+    fn recycle_handle(
         mut self,
         shape_storage: &mut Vec<S::Storage>,
         tape_storage: &mut Vec<S::TapeStorage>,
     ) {
         // Recycle the child first, in case it borrowed from us
         if let Some((_trace, shape)) = self.next.take() {
-            shape.recycle(shape_storage, tape_storage);
+            shape.recycle_handle(shape_storage, tape_storage);
         }
 
         if let Some(i_tape) = self.i_tape.take() {
