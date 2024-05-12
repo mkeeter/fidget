@@ -1,3 +1,5 @@
+# 0.2.7 (in progress)
+
 # 0.2.6
 This is a relatively small release; there are a few features to improve the
 WebAssembly demo, bug fixes and improvements for very deep `Tree` objects, and
