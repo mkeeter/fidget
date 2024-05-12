@@ -244,16 +244,18 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
                     .eval_float_slice
                     .eval(shape.f_tape(&mut self.tape_storage), &xs, &ys, &zs)
                     .unwrap();
+                // Bilinear interpolation on a per-pixel basis
                 for y in 0..tile_size {
+                    // Y interpolation
                     let y_frac = (y as f32 - 1.0) / (tile_size as f32);
+                    let v0 = vs[0] * (1.0 - y_frac) + vs[1] * y_frac;
+                    let v1 = vs[2] * (1.0 - y_frac) + vs[3] * y_frac;
+
                     let mut i = self.config.tile_to_offset(tile, 0, y);
                     for x in 0..tile_size {
+                        // X interpolation
                         let x_frac = (x as f32 - 1.0) / (tile_size as f32);
-
-                        // Bilinear interpolation
-                        let v0 = vs[0] * (1.0 - x_frac) + vs[2] * x_frac;
-                        let v1 = vs[1] * (1.0 - x_frac) + vs[3] * x_frac;
-                        let v = v0 * (1.0 - y_frac) + v1 * y_frac;
+                        let v = v0 * (1.0 - x_frac) + v1 * x_frac;
 
                         // Write out the pixel
                         self.image[i] = mode.pixel(v);
