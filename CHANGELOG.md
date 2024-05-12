@@ -1,4 +1,8 @@
-# 0.2.6 (unreleased)
+# 0.2.6
+This is a relatively small release; there are a few features to improve the
+WebAssembly demo, bug fixes and improvements for very deep `Tree` objects, and
+one more public API.
+
 - Added `VmShape` serialization (using `serde`), specifically
     - `#[derive(Serialize, Deserialize)}` on `VmData`
     - `impl From<VmData<255>> for VmShape { .. }`
