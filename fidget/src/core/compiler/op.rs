@@ -98,11 +98,11 @@ macro_rules! opcodes {
             ModRegImm($t, $t, f32),
             #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
             ModImmReg($t, $t, f32),
-            #[doc = "atan2 of a position specified as register, register"]
+            #[doc = "atan2 of a position `(y, x)` specified as register, register"]
             AtanRegReg($t, $t, $t),
-            #[doc = "atan2 of a position specified as register, immediate"]
+            #[doc = "atan2 of a position `(y, x)` specified as register, immediate"]
             AtanRegImm($t, $t, f32),
-            #[doc = "atan2 of a position specified as immediate, register"]
+            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
             AtanImmReg($t, $t, f32),
             #[doc = "Compute the minimum of a register and an immediate"]
             MinRegImm($t, $t, f32),
