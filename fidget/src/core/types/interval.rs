@@ -362,6 +362,12 @@ impl Interval {
     pub fn round(&self) -> Self {
         Interval::new(self.lower.round(), self.upper.round())
     }
+
+    /// Four-quadrant arctangent
+    pub fn atan2(self, x: Self) -> Self {
+        // TODO optimize this further
+        Interval::new(-std::f32::consts::PI, std::f32::consts::PI)
+    }
 }
 
 impl std::fmt::Display for Interval {

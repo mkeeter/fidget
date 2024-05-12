@@ -309,11 +309,13 @@ impl SsaTape {
                 | SsaOp::MaxRegReg(out, lhs, rhs)
                 | SsaOp::ModRegReg(out, lhs, rhs)
                 | SsaOp::AndRegReg(out, lhs, rhs)
+                | SsaOp::AtanRegReg(out, lhs, rhs)
                 | SsaOp::OrRegReg(out, lhs, rhs) => {
                     let op = match op {
                         SsaOp::AddRegReg(..) => "ADD",
                         SsaOp::MulRegReg(..) => "MUL",
                         SsaOp::DivRegReg(..) => "DIV",
+                        SsaOp::AtanRegReg(..) => "ATAN",
                         SsaOp::SubRegReg(..) => "SUB",
                         SsaOp::MinRegReg(..) => "MIN",
                         SsaOp::MaxRegReg(..) => "MAX",
@@ -331,6 +333,8 @@ impl SsaTape {
                 | SsaOp::DivImmReg(out, arg, imm)
                 | SsaOp::SubImmReg(out, arg, imm)
                 | SsaOp::SubRegImm(out, arg, imm)
+                | SsaOp::AtanRegImm(out, arg, imm)
+                | SsaOp::AtanImmReg(out, arg, imm)
                 | SsaOp::MinRegImm(out, arg, imm)
                 | SsaOp::MaxRegImm(out, arg, imm)
                 | SsaOp::ModRegImm(out, arg, imm)
@@ -344,6 +348,8 @@ impl SsaTape {
                         SsaOp::DivRegImm(..) => ("DIV", false),
                         SsaOp::SubImmReg(..) => ("SUB", true),
                         SsaOp::SubRegImm(..) => ("SUB", false),
+                        SsaOp::AtanImmReg(..) => ("ATAN", true),
+                        SsaOp::AtanRegImm(..) => ("ATAN", false),
                         SsaOp::MinRegImm(..) => ("MIN", false),
                         SsaOp::MaxRegImm(..) => ("MAX", false),
                         SsaOp::ModRegImm(..) => ("MOD", false),

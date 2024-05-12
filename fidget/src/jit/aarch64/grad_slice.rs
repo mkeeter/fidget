@@ -363,6 +363,14 @@ impl Assembler for GradSliceAssembler {
             ; mov V(reg(out_reg)).s[0], v6.s[0]
         )
     }
+
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn grad_atan2(y: Grad, x: Grad) -> Grad {
+            y.atan2(x)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_atan2);
+    }
+
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fcmp S(reg(lhs_reg)), S(reg(rhs_reg))

@@ -32,6 +32,7 @@ pub enum BinaryOpcode {
     Sub,
     Mul,
     Div,
+    Atan,
     Min,
     Max,
     Compare,

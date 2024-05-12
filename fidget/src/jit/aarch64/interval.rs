@@ -492,6 +492,13 @@ impl Assembler for IntervalAssembler {
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
 
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn interval_atan2(lhs: Interval, rhs: Interval) -> Interval {
+            lhs.atan2(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_atan2);
+    }
+
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
         dynasm!(self.0.ops
             // v7 = !arg.contains(0.0)

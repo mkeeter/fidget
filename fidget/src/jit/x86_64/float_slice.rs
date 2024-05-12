@@ -232,6 +232,12 @@ impl Assembler for FloatSliceAssembler {
             ; vdivps Ry(reg(out_reg)), Ry(reg(lhs_reg)), Ry(reg(rhs_reg))
         );
     }
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "sysv64" fn float_atan2(y: f32, x: f32) -> f32 {
+            y.atan2(x)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg);
+    }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a mask of NANs; conveniently, all 1s is a NAN

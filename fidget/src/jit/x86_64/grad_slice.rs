@@ -333,6 +333,14 @@ impl Assembler for GradSliceAssembler {
             ; vmovss Rx(reg(out_reg)), Rx(reg(out_reg)), xmm2
         );
     }
+
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "sysv64" fn grad_atan2(y: Grad, x: Grad) -> Grad {
+            y.atan2(x)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, grad_atan2);
+    }
+
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vcomiss Rx(reg(lhs_reg)), Rx(reg(rhs_reg))

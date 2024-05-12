@@ -616,8 +616,7 @@ impl Context {
         }
     }
 
-    /// Builds a node which performs division. Under the hood, `a / b` is
-    /// converted into `a * (1 / b)`.
+    /// Builds a node which performs division.
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
@@ -639,6 +638,26 @@ impl Context {
             (_, Some(one)) if one == 1.0 => Ok(a),
             _ => self.op_binary(a, b, BinaryOpcode::Div),
         }
+    }
+
+    /// Builds a node which computes `atan2(y, x)`
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let y = ctx.y();
+    /// let op = ctx.atan2(y, x).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, f32::FRAC_PI_2);
+    /// ```
+    pub fn atan2<A: IntoNode, B: IntoNode>(
+        &mut self,
+        y: A,
+        x: B,
+    ) -> Result<Node, Error> {
+        let y = y.into_node(self)?;
+        let x = x.into_node(self)?;
+
+        self.op_binary(y, x, BinaryOpcode::Atan)
     }
 
     /// Builds a node that compares two values
@@ -781,6 +800,7 @@ impl Context {
                     BinaryOpcode::Sub => a - b,
                     BinaryOpcode::Mul => a * b,
                     BinaryOpcode::Div => a / b,
+                    BinaryOpcode::Atan => a.atan2(b),
                     BinaryOpcode::Min => a.min(b),
                     BinaryOpcode::Max => a.max(b),
                     BinaryOpcode::Compare => a
@@ -900,6 +920,7 @@ impl Context {
                 "min" => ctx.min(pop()?, pop()?)?,
                 "max" => ctx.max(pop()?, pop()?)?,
                 "div" => ctx.div(pop()?, pop()?)?,
+                "atan2" => ctx.atan2(pop()?, pop()?)?,
                 "sub" => ctx.sub(pop()?, pop()?)?,
                 "compare" => ctx.compare(pop()?, pop()?)?,
                 "mod" => ctx.modulo(pop()?, pop()?)?,
@@ -946,6 +967,7 @@ impl Context {
                 BinaryOpcode::Sub => out += "sub",
                 BinaryOpcode::Mul => out += "mul",
                 BinaryOpcode::Div => out += "div",
+                BinaryOpcode::Atan => out += "atan2",
                 BinaryOpcode::Min => out += "min",
                 BinaryOpcode::Max => out += "max",
                 BinaryOpcode::Compare => out += "compare",

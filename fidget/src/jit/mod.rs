@@ -216,6 +216,9 @@ trait Assembler {
     /// Division
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
+    /// Four-quadrant arctangent
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
     /// Maximum of two values
     ///
     /// In a tracing evaluator, this function must also write to the `choices`

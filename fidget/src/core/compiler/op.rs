@@ -98,6 +98,12 @@ macro_rules! opcodes {
             ModRegImm($t, $t, f32),
             #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
             ModImmReg($t, $t, f32),
+            #[doc = "atan2 of a position specified as register, register"]
+            AtanRegReg($t, $t, $t),
+            #[doc = "atan2 of a position specified as register, immediate"]
+            AtanRegImm($t, $t, f32),
+            #[doc = "atan2 of a position specified as immediate, register"]
+            AtanImmReg($t, $t, f32),
             #[doc = "Compute the minimum of a register and an immediate"]
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
@@ -190,6 +196,9 @@ impl SsaOp {
             | SsaOp::MulRegReg(out, ..)
             | SsaOp::DivRegReg(out, ..)
             | SsaOp::SubRegReg(out, ..)
+            | SsaOp::AtanRegReg(out, ..)
+            | SsaOp::AtanRegImm(out, ..)
+            | SsaOp::AtanImmReg(out, ..)
             | SsaOp::MinRegImm(out, ..)
             | SsaOp::MaxRegImm(out, ..)
             | SsaOp::MinRegReg(out, ..)
@@ -239,6 +248,9 @@ impl SsaOp {
             | SsaOp::DivRegReg(..)
             | SsaOp::DivRegImm(..)
             | SsaOp::DivImmReg(..)
+            | SsaOp::AtanRegReg(..)
+            | SsaOp::AtanRegImm(..)
+            | SsaOp::AtanImmReg(..)
             | SsaOp::CompareRegReg(..)
             | SsaOp::CompareRegImm(..)
             | SsaOp::CompareImmReg(..)
