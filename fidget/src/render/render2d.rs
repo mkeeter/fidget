@@ -6,7 +6,6 @@ use crate::{
     types::Interval,
 };
 use nalgebra::Point2;
-use std::sync::Arc;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -363,13 +362,14 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
         }
     }
 
-    let i_tape = Arc::new(shape.interval_tape(Default::default()));
     let queue = Queue::new(tiles);
     let threads = config.threads();
 
+    let mut rh = RenderHandle::new(shape);
+    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
+
     let out: Vec<_> = if threads == 1 {
-        let shape = RenderHandle::new(shape, i_tape);
-        worker::<S, M>(shape, &queue, &config, mode)
+        worker::<S, M>(rh, &queue, &config, mode)
             .into_iter()
             .collect()
     } else {
@@ -380,9 +380,9 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
         std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..threads {
-                let shape = RenderHandle::new(shape.clone(), i_tape.clone());
+                let rh = rh.clone();
                 handles.push(
-                    s.spawn(|| worker::<S, M>(shape, &queue, &config, mode)),
+                    s.spawn(|| worker::<S, M>(rh, &queue, &config, mode)),
                 );
             }
             let mut out = vec![];

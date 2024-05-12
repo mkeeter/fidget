@@ -7,7 +7,7 @@ use crate::{
 };
 
 use nalgebra::Point3;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -380,12 +380,12 @@ pub fn render_inner<S: Shape>(
     }
     tile_queues.resize_with(threads, || Queue::new(vec![]));
 
-    let i_tape = Arc::new(shape.interval_tape(Default::default()));
+    let mut rh = RenderHandle::new(shape);
+    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = if threads == 1 {
-        let shape = RenderHandle::new(shape, i_tape);
-        worker::<S>(shape, tile_queues.as_slice(), 0, &config)
+        worker::<S>(rh, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
     } else {
@@ -398,10 +398,9 @@ pub fn render_inner<S: Shape>(
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
             for i in 0..threads {
-                let handle = RenderHandle::new(shape.clone(), i_tape.clone());
-                handles.push(
-                    s.spawn(move || worker::<S>(handle, queues, i, config)),
-                );
+                let rh = rh.clone();
+                handles
+                    .push(s.spawn(move || worker::<S>(rh, queues, i, config)));
             }
             let mut out = vec![];
             for h in handles {
