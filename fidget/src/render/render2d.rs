@@ -122,17 +122,17 @@ impl RenderMode for BitRenderMode {
     }
 }
 
-/// Rendering mode which mimicks many SDF demos on ShaderToy
-pub struct SdfRenderMode;
+/// Pixel-perfect render mode which mimicks many SDF demos on ShaderToy
+///
+/// This mode recurses down to individual pixels, so it doesn't take advantage
+/// of skipping empty / full regions; use [`SdfRenderMode`] for a
+/// faster-but-approximate visualization.
+pub struct SdfPixelRenderMode;
 
-impl RenderMode for SdfRenderMode {
+impl RenderMode for SdfPixelRenderMode {
     type Output = [u8; 3];
-    fn interval(i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
-        if i.upper() < 0.0 || i.lower() > 0.0 {
-            IntervalAction::Interpolate
-        } else {
-            IntervalAction::Recurse
-        }
+    fn interval(_i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
+        IntervalAction::Recurse
     }
     fn pixel(f: f32) -> [u8; 3] {
         let r = 1.0 - 0.1f32.copysign(f);
@@ -156,6 +156,26 @@ impl RenderMode for SdfRenderMode {
         };
 
         [run(r), run(g), run(b)]
+    }
+}
+
+/// Fast rendering mode which mimicks many SDF demos on ShaderToy
+///
+/// Unlike [`SdfPixelRenderMode`], this mode uses linear interpolation when
+/// evaluating empty or full regions, which is significantly faster.
+pub struct SdfRenderMode;
+
+impl RenderMode for SdfRenderMode {
+    type Output = [u8; 3];
+    fn interval(i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
+        if i.upper() < 0.0 || i.lower() > 0.0 {
+            IntervalAction::Interpolate
+        } else {
+            IntervalAction::Recurse
+        }
+    }
+    fn pixel(f: f32) -> [u8; 3] {
+        SdfPixelRenderMode::pixel(f)
     }
 }
 
