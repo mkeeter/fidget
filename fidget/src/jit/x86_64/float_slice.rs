@@ -35,7 +35,7 @@ pub const SIMD_WIDTH: usize = 8;
 /// | -0x28    | `r15`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
-/// | 0x220    |              |
+/// | 0x220    | ...          |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | 0x200    | function in  | Stashed arguments for function calls        |
 /// | 0x180    | function i/o | Inputs and outputs for function calls       |
@@ -238,7 +238,7 @@ impl Assembler for FloatSliceAssembler {
         extern "sysv64" fn float_atan2(y: f32, x: f32) -> f32 {
             y.atan2(x)
         }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg);
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_atan2);
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
