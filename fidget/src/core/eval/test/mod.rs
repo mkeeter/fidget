@@ -262,6 +262,7 @@ pub mod canonical {
         |a, b| if a != 0.0 { a } else { b },
         |a, _b| a == 0.0 // discontinuity, because either side snaps to a
     );
+    declare_canonical_binary!(Context::atan2, |y, x| y.atan2(x));
 }
 
 #[macro_export]
@@ -314,6 +315,7 @@ macro_rules! all_binary_tests {
         $crate::one_binary_test!($tester, sub);
         $crate::one_binary_test!($tester, mul);
         $crate::one_binary_test!($tester, div);
+        $crate::one_binary_test!($tester, atan2);
         $crate::one_binary_test!($tester, min);
         $crate::one_binary_test!($tester, max);
         $crate::one_binary_test!($tester, compare);

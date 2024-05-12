@@ -235,7 +235,7 @@ impl Assembler for PointAssembler {
         extern "C" fn float_atan2(y: f32, x: f32) -> f32 {
             y.atan2(x)
         }
-        self.call_fn_binary(out_reg, lhs_reg, rhs_reg);
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_atan2);
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -481,6 +481,74 @@ impl PointAssembler {
             ; movk x0, addr as u32
 
             ; fmov s0, S(reg(arg_reg))
+            ; blr x0
+
+            // Restore floating-point state
+            ; ldp s16, s17, [sp, 0x50]
+            ; ldp s18, s19, [sp, 0x58]
+            ; ldp s20, s21, [sp, 0x60]
+            ; ldp s22, s23, [sp, 0x68]
+            ; ldp s24, s25, [sp, 0x70]
+            ; ldp s26, s27, [sp, 0x78]
+            ; ldp s28, s29, [sp, 0x80]
+            ; ldp s30, s31, [sp, 0x88]
+
+            // Set our output value
+            ; fmov S(reg(out_reg)), s0
+
+            // Restore X/Y/Z values
+            ; ldp s0, s1, [sp, 0x90]
+            ; ldr s2, [sp, 0x98]
+
+            // Restore registers
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
+        );
+    }
+
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "C" fn(f32, f32) -> f32,
+    ) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, 0x90]
+                ; str x22, [sp, 0xa0]
+            );
+            self.0.saved_callee_regs = true;
+        }
+
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state to callee-saved registers
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
+
+            // Back up our state
+            ; stp s16, s17, [sp, 0x50]
+            ; stp s18, s19, [sp, 0x58]
+            ; stp s20, s21, [sp, 0x60]
+            ; stp s22, s23, [sp, 0x68]
+            ; stp s24, s25, [sp, 0x70]
+            ; stp s26, s27, [sp, 0x78]
+            ; stp s28, s29, [sp, 0x80]
+            ; stp s30, s31, [sp, 0x88]
+
+            // Load the function address, awkwardly, into x0 (it doesn't matter
+            // that it's about to be overwritten, because we only call it once)
+            ; movz x0, ((addr >> 48) as u32), lsl 48
+            ; movk x0, ((addr >> 32) as u32), lsl 32
+            ; movk x0, ((addr >> 16) as u32), lsl 16
+            ; movk x0, addr as u32
+
+            ; fmov s0, S(reg(lhs_reg))
+            ; fmov s1, S(reg(rhs_reg))
             ; blr x0
 
             // Restore floating-point state

@@ -356,6 +356,16 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     let imm: Interval = imm.into();
                     v[out] = imm / v[arg];
                 }
+                RegOp::AtanRegImm(out, arg, imm) => {
+                    v[out] = v[arg].atan2(imm.into());
+                }
+                RegOp::AtanImmReg(out, arg, imm) => {
+                    let imm: Interval = imm.into();
+                    v[out] = imm.atan2(v[arg]);
+                }
+                RegOp::AtanRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].atan2(v[rhs]);
+                }
                 RegOp::SubImmReg(out, arg, imm) => {
                     v[out] = Interval::from(imm) - v[arg];
                 }
@@ -578,6 +588,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 }
                 RegOp::DivImmReg(out, arg, imm) => {
                     v[out] = imm / v[arg];
+                }
+                RegOp::AtanRegImm(out, arg, imm) => {
+                    v[out] = v[arg].atan2(imm.into());
+                }
+                RegOp::AtanImmReg(out, arg, imm) => {
+                    v[out] = imm.atan2(v[arg]);
+                }
+                RegOp::AtanRegReg(out, lhs, rhs) => {
+                    v[out] = v[lhs].atan2(v[rhs]);
                 }
                 RegOp::SubImmReg(out, arg, imm) => {
                     v[out] = imm - v[arg];
@@ -939,6 +958,21 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = imm / v[arg][i];
                     }
                 }
+                RegOp::AtanRegImm(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].atan2(imm);
+                    }
+                }
+                RegOp::AtanImmReg(out, arg, imm) => {
+                    for i in 0..size {
+                        v[out][i] = imm.atan2(v[arg][i]);
+                    }
+                }
+                RegOp::AtanRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].atan2(v[rhs][i]);
+                    }
+                }
                 RegOp::SubImmReg(out, arg, imm) => {
                     for i in 0..size {
                         v[out][i] = imm - v[arg][i];
@@ -1240,9 +1274,26 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     }
                 }
                 RegOp::DivImmReg(out, arg, imm) => {
-                    let imm: Grad = imm.into();
+                    let imm = Grad::from(imm);
                     for i in 0..size {
                         v[out][i] = imm / v[arg][i];
+                    }
+                }
+                RegOp::AtanRegImm(out, arg, imm) => {
+                    let imm = Grad::from(imm);
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].atan2(imm);
+                    }
+                }
+                RegOp::AtanImmReg(out, arg, imm) => {
+                    let imm = Grad::from(imm);
+                    for i in 0..size {
+                        v[out][i] = imm.atan2(v[arg][i]);
+                    }
+                }
+                RegOp::AtanRegReg(out, lhs, rhs) => {
+                    for i in 0..size {
+                        v[out][i] = v[lhs][i].atan2(v[rhs][i]);
                     }
                 }
                 RegOp::SubImmReg(out, arg, imm) => {

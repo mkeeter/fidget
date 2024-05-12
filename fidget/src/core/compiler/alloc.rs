@@ -499,6 +499,9 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::DivRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::DivRegReg)
             }
+            SsaOp::AtanRegReg(out, lhs, rhs) => {
+                (out, lhs, rhs, RegOp::AtanRegReg)
+            }
             SsaOp::MinRegReg(out, lhs, rhs) => {
                 (out, lhs, rhs, RegOp::MinRegReg)
             }

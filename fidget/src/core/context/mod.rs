@@ -646,8 +646,8 @@ impl Context {
     /// let x = ctx.x();
     /// let y = ctx.y();
     /// let op = ctx.atan2(y, x).unwrap();
-    /// let v = ctx.eval_xyz(op, 1.0, 0.0, 0.0).unwrap();
-    /// assert_eq!(v, f32::FRAC_PI_2);
+    /// let v = ctx.eval_xyz(op, 0.0, 1.0, 0.0).unwrap();
+    /// assert_eq!(v, std::f64::consts::FRAC_PI_2);
     /// ```
     pub fn atan2<A: IntoNode, B: IntoNode>(
         &mut self,

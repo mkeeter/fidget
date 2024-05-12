@@ -365,8 +365,12 @@ impl Interval {
 
     /// Four-quadrant arctangent
     pub fn atan2(self, x: Self) -> Self {
-        // TODO optimize this further
-        Interval::new(-std::f32::consts::PI, std::f32::consts::PI)
+        if self.has_nan() || x.has_nan() {
+            f32::NAN.into()
+        } else {
+            // TODO optimize this further
+            Interval::new(-std::f32::consts::PI, std::f32::consts::PI)
+        }
     }
 }
 

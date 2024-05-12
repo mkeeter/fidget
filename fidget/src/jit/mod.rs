@@ -731,6 +731,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::DivRegReg(out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
             }
+            RegOp::AtanRegReg(out, lhs, rhs) => {
+                asm.build_atan2(out, lhs, rhs);
+            }
             RegOp::SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
             }
@@ -753,6 +756,14 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::DivImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
+            }
+            RegOp::AtanRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_atan2(out, arg, reg);
+            }
+            RegOp::AtanImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_atan2(out, reg, arg);
             }
             RegOp::SubImmReg(out, arg, imm) => {
                 asm.build_sub_imm_reg(out, arg, imm);

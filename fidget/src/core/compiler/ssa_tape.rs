@@ -129,6 +129,11 @@ impl SsaTape {
                             SsaOp::DivRegImm,
                             SsaOp::DivImmReg,
                         ),
+                        BinaryOpcode::Atan => (
+                            SsaOp::AtanRegReg,
+                            SsaOp::AtanRegImm,
+                            SsaOp::AtanImmReg,
+                        ),
                         BinaryOpcode::Min => (
                             SsaOp::MinRegReg,
                             SsaOp::MinRegImm,
