@@ -210,7 +210,7 @@
 //!     ..RenderConfig::default()
 //! };
 //! let shape = VmShape::from_tree(&tree);
-//! let out = cfg.run(shape, &BitRenderMode)?;
+//! let out = cfg.run::<_, BitRenderMode>(shape)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {
 //!     for x in 0..cfg.image_size {
