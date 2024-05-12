@@ -202,6 +202,9 @@ impl Tree {
     pub fn or<T: Into<Tree>>(&self, other: T) -> Self {
         Self::op_binary(self.clone(), other.into(), BinaryOpcode::Or)
     }
+    pub fn atan2<T: Into<Tree>>(&self, other: T) -> Self {
+        Self::op_binary(self.clone(), other.into(), BinaryOpcode::Atan)
+    }
     pub fn neg(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Neg)
     }
