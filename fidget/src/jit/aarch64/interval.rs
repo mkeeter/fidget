@@ -321,10 +321,18 @@ impl Assembler for IntervalAssembler {
         );
     }
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "C" fn interval_round(v: Interval) -> Interval {
-            v.round()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_round);
+        dynasm!(self.0.ops
+            // Build a NAN mask
+            ; fcmeq v6.s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
+            ; mvn v6.b8, v6.b8
+
+            // Round, then convert back to f32
+            ; fcvtas V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
+            ; scvtf V(reg(out_reg)).s2, V(reg(out_reg)).s2
+
+            // Apply the NAN mask
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
+        );
     }
 
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

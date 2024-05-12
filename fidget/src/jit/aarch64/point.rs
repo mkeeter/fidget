@@ -219,12 +219,19 @@ impl Assembler for PointAssembler {
             ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
         );
     }
-    // TODO optimize this function
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "C" fn float_round(f: f32) -> f32 {
-            f.round()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, float_round);
+        dynasm!(self.0.ops
+            // Build a NAN mask
+            ; fcmeq s6, S(reg(lhs_reg)), S(reg(lhs_reg))
+            ; mvn v6.b8, v6.b8
+
+            // Round, then convert back to f32
+            ; fcvtas S(reg(out_reg)), S(reg(lhs_reg))
+            ; scvtf S(reg(out_reg)), S(reg(out_reg))
+
+            // Apply the NAN mask
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
+        );
     }
 
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

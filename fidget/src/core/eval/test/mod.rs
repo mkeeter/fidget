@@ -41,6 +41,8 @@ fn test_args_n(n: i64) -> Vec<f32> {
         .collect::<Vec<_>>();
     args.push(1.0);
     args.push(5.0);
+    args.push(0.5);
+    args.push(1.5);
     args.push(10.0);
     args.push(std::f32::consts::PI);
     args.push(std::f32::consts::FRAC_PI_2);
