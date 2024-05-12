@@ -17,33 +17,52 @@ pub use render3d::render as render3d;
 
 pub use render2d::{BitRenderMode, DebugRenderMode, RenderMode, SdfRenderMode};
 
-struct RenderHandle<S: Shape> {
+/// A `RenderHandle` contains lazily-populated tapes for rendering
+///
+/// The tapes are stored as `Arc<..>`, so it can be cheaply cloned.
+///
+/// The most recent simplification is cached for reuse (if the trace matches).
+pub struct RenderHandle<S: Shape> {
     shape: S,
 
     i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
-    f_tape: Option<<S::FloatSliceEval as BulkEvaluator>::Tape>,
-    g_tape: Option<<S::GradSliceEval as BulkEvaluator>::Tape>,
+    f_tape: Option<Arc<<S::FloatSliceEval as BulkEvaluator>::Tape>>,
+    g_tape: Option<Arc<<S::GradSliceEval as BulkEvaluator>::Tape>>,
 
     next: Option<(S::Trace, Box<Self>)>,
+}
+
+impl<S: Shape> Clone for RenderHandle<S> {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            i_tape: self.i_tape.clone(),
+            f_tape: self.f_tape.clone(),
+            g_tape: self.g_tape.clone(),
+            next: None,
+        }
+    }
 }
 
 impl<S> RenderHandle<S>
 where
     S: Shape,
 {
-    fn new(
-        shape: S,
-        i_tape: Arc<<S::IntervalEval as TracingEvaluator>::Tape>,
-    ) -> Self {
+    /// Build a new [`RenderHandle`] for the given shape
+    ///
+    /// None of the tapes are populated here.
+    pub fn new(shape: S) -> Self {
         Self {
             shape,
-            i_tape: Some(i_tape),
+            i_tape: None,
             f_tape: None,
             g_tape: None,
             next: None,
         }
     }
-    fn i_tape(
+
+    /// Returns a tape for tracing interval evaluation
+    pub fn i_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
@@ -53,25 +72,38 @@ where
             )
         })
     }
-    fn f_tape(
+
+    /// Returns a tape for bulk float evaluation
+    pub fn f_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
         self.f_tape.get_or_insert_with(|| {
-            self.shape
-                .float_slice_tape(storage.pop().unwrap_or_default())
+            Arc::new(
+                self.shape
+                    .float_slice_tape(storage.pop().unwrap_or_default()),
+            )
         })
     }
-    fn g_tape(
+
+    /// Returns a tape for bulk gradient evaluation
+    pub fn g_tape(
         &mut self,
         storage: &mut Vec<S::TapeStorage>,
     ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
         self.g_tape.get_or_insert_with(|| {
-            self.shape
-                .grad_slice_tape(storage.pop().unwrap_or_default())
+            Arc::new(
+                self.shape
+                    .grad_slice_tape(storage.pop().unwrap_or_default()),
+            )
         })
     }
-    fn simplify(
+
+    /// Simplifies the shape with the given trace
+    ///
+    /// As an internal optimization, this may reuse a previous simplification if
+    /// the trace matches.
+    pub fn simplify(
         &mut self,
         trace: &S::Trace,
         workspace: &mut S::Workspace,
@@ -127,7 +159,8 @@ where
         }
     }
 
-    fn recycle(
+    /// Recycles the entire handle into the given storage vectors
+    pub fn recycle(
         mut self,
         shape_storage: &mut Vec<S::Storage>,
         tape_storage: &mut Vec<S::TapeStorage>,
@@ -142,8 +175,16 @@ where
                 tape_storage.push(i_tape.recycle());
             }
         }
-        tape_storage.extend(self.g_tape.map(Tape::recycle));
-        tape_storage.extend(self.f_tape.map(Tape::recycle));
+        if let Some(g_tape) = self.g_tape.take() {
+            if let Ok(g_tape) = Arc::try_unwrap(g_tape) {
+                tape_storage.push(g_tape.recycle());
+            }
+        }
+        if let Some(f_tape) = self.f_tape.take() {
+            if let Ok(f_tape) = Arc::try_unwrap(f_tape) {
+                tape_storage.push(f_tape.recycle());
+            }
+        }
 
         // Do this step last because the evaluators may borrow the shape
         shape_storage.extend(self.shape.recycle());

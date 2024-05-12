@@ -47,6 +47,10 @@ pub use transform::TransformedShape;
 /// most cases, they're a thin wrapper around an `Arc<..>`.
 pub trait Shape: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
+    ///
+    /// This type must implement [`Eq`] so that traces can be compared; calling
+    /// [`Shape::simplify`] with traces that compare equal should produce an
+    /// identical result and may be cached.
     type Trace: Clone + Eq + Send + Trace;
 
     /// Associated type for storage used by the shape itself
