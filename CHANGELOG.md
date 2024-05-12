@@ -1,4 +1,4 @@
-# 0.2.6 (unreleased)
+# 0.2.6
 - Added `VmShape` serialization (using `serde`), specifically
     - `#[derive(Serialize, Deserialize)}` on `VmData`
     - `impl From<VmData<255>> for VmShape { .. }`
