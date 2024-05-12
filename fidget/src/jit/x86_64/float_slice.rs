@@ -35,7 +35,9 @@ pub const SIMD_WIDTH: usize = 8;
 /// | -0x28    | `r15`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
+/// | 0x220    |              |
 /// |----------|--------------|---------------------------------------------|
+/// | 0x200    | function in  | Stashed arguments for function calls        |
 /// | 0x180    | function i/o | Inputs and outputs for function calls       |
 /// |----------|--------------|---------------------------------------------|
 /// | 0x160    | ymm15        | Caller-saved registers during functions     |
@@ -52,7 +54,7 @@ pub const SIMD_WIDTH: usize = 8;
 /// | 0x00     | ymm4         |                                             |
 /// ```
 const STACK_SIZE_UPPER: usize = 0x28; // Positions relative to `rbp`
-const STACK_SIZE_LOWER: usize = 0x200; // Positions relative to `rsp`
+const STACK_SIZE_LOWER: usize = 0x220; // Positions relative to `rsp`
 
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
@@ -436,6 +438,101 @@ impl FloatSliceAssembler {
             ; call r15
             ; movd [rsp + 0x198], xmm0
             ; movd xmm0, [rsp + 0x19c]
+            ; call r15
+            ; movd [rsp + 0x19c], xmm0
+
+            // Restore float registers
+            ; vmovups ymm4, [rsp]
+            ; vmovups ymm5, [rsp + 0x20]
+            ; vmovups ymm6, [rsp + 0x40]
+            ; vmovups ymm7, [rsp + 0x60]
+            ; vmovups ymm8, [rsp + 0x80]
+            ; vmovups ymm9, [rsp + 0xa0]
+            ; vmovups ymm10, [rsp + 0xc0]
+            ; vmovups ymm11, [rsp + 0xe0]
+            ; vmovups ymm12, [rsp + 0x100]
+            ; vmovups ymm13, [rsp + 0x120]
+            ; vmovups ymm14, [rsp + 0x140]
+            ; vmovups ymm15, [rsp + 0x160]
+
+            // Get the output value from the stack
+            ; vmovups Ry(reg(out_reg)), [rsp + 0x180]
+
+            // Restore pointers
+            ; mov rdi, [rbp - 0x8]
+            ; mov rsi, [rbp - 0x10]
+            ; mov rdx, [rbp - 0x18]
+            ; mov rcx, [rbp - 0x20]
+            ; mov r15, [rbp - 0x28]
+        );
+    }
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "sysv64" fn(f32, f32) -> f32,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up all of our pointers to the stack
+            ; mov [rbp - 0x8], rdi
+            ; mov [rbp - 0x10], rsi
+            ; mov [rbp - 0x18], rdx
+            ; mov [rbp - 0x20], rcx
+            ; mov [rbp - 0x28], r15
+
+            // Back up register values to the stack, saving all 128 bits
+            ; vmovups [rsp], ymm4
+            ; vmovups [rsp + 0x20], ymm5
+            ; vmovups [rsp + 0x40], ymm6
+            ; vmovups [rsp + 0x60], ymm7
+            ; vmovups [rsp + 0x80], ymm8
+            ; vmovups [rsp + 0xa0], ymm9
+            ; vmovups [rsp + 0xc0], ymm10
+            ; vmovups [rsp + 0xe0], ymm11
+            ; vmovups [rsp + 0x100], ymm12
+            ; vmovups [rsp + 0x120], ymm13
+            ; vmovups [rsp + 0x140], ymm14
+            ; vmovups [rsp + 0x160], ymm15
+
+            // Put the function pointer into a caller-saved register
+            ; mov r15, QWORD addr as _
+
+            // Copy our input arguments to the stack for safe-keeping
+            ; vmovups [rsp + 0x180], Ry(reg(lhs_reg))
+            ; vmovups [rsp + 0x200], Ry(reg(rhs_reg))
+
+            ; movd xmm0, [rsp + 0x180]
+            ; movd xmm1, [rsp + 0x200]
+            ; call r15
+            ; movd [rsp + 0x180], xmm0
+            ; movd xmm0, [rsp + 0x184]
+            ; movd xmm1, [rsp + 0x204]
+            ; call r15
+            ; movd [rsp + 0x184], xmm0
+            ; movd xmm0, [rsp + 0x188]
+            ; movd xmm1, [rsp + 0x208]
+            ; call r15
+            ; movd [rsp + 0x188], xmm0
+            ; movd xmm0, [rsp + 0x18c]
+            ; movd xmm1, [rsp + 0x20c]
+            ; call r15
+            ; movd [rsp + 0x18c], xmm0
+            ; movd xmm0, [rsp + 0x190]
+            ; movd xmm1, [rsp + 0x210]
+            ; call r15
+            ; movd [rsp + 0x190], xmm0
+            ; movd xmm0, [rsp + 0x194]
+            ; movd xmm1, [rsp + 0x214]
+            ; call r15
+            ; movd [rsp + 0x194], xmm0
+            ; movd xmm0, [rsp + 0x198]
+            ; movd xmm1, [rsp + 0x218]
+            ; call r15
+            ; movd [rsp + 0x198], xmm0
+            ; movd xmm0, [rsp + 0x19c]
+            ; movd xmm1, [rsp + 0x21c]
             ; call r15
             ; movd [rsp + 0x19c], xmm0
 

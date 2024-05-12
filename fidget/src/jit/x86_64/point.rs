@@ -482,4 +482,69 @@ impl PointAssembler {
             ; movss Rx(reg(out_reg)), xmm0
         );
     }
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "sysv64" fn(f32, f32) -> f32,
+    ) {
+        // Back up a few callee-saved registers that we're about to use
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                ; mov [rbp - 0x8], r12
+                ; mov [rbp - 0x10], r13
+                ; mov [rbp - 0x18], r14
+            );
+            self.0.saved_callee_regs = true
+        }
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up pointers to caller-saved registers
+            ; mov r12, rdi
+            ; mov r13, rsi
+            ; mov r14, rdx
+
+            // Back up all register values to the stack
+            ; movss [rsp], xmm4
+            ; movss [rsp + 0x4], xmm5
+            ; movss [rsp + 0x8], xmm6
+            ; movss [rsp + 0xc], xmm7
+            ; movss [rsp + 0x10], xmm8
+            ; movss [rsp + 0x14], xmm9
+            ; movss [rsp + 0x18], xmm10
+            ; movss [rsp + 0x1c], xmm11
+            ; movss [rsp + 0x20], xmm12
+            ; movss [rsp + 0x24], xmm13
+            ; movss [rsp + 0x28], xmm14
+            ; movss [rsp + 0x2c], xmm15
+
+            // call the function
+            ; movss xmm0, Rx(reg(lhs_reg))
+            ; movss xmm1, Rx(reg(rhs_reg))
+            ; mov rsi, QWORD addr as _
+            ; call rsi
+
+            // Restore float registers
+            ; movss xmm4, [rsp]
+            ; movss xmm5, [rsp + 0x4]
+            ; movss xmm6, [rsp + 0x8]
+            ; movss xmm7, [rsp + 0xc]
+            ; movss xmm8, [rsp + 0x10]
+            ; movss xmm9, [rsp + 0x14]
+            ; movss xmm10, [rsp + 0x18]
+            ; movss xmm11, [rsp + 0x1c]
+            ; movss xmm12, [rsp + 0x20]
+            ; movss xmm13, [rsp + 0x24]
+            ; movss xmm14, [rsp + 0x28]
+            ; movss xmm15, [rsp + 0x2c]
+
+            // Restore pointers
+            ; mov rdi, r12
+            ; mov rsi, r13
+            ; mov rdx, r14
+
+            ; movss Rx(reg(out_reg)), xmm0
+        );
+    }
 }
