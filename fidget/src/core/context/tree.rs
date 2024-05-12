@@ -172,6 +172,15 @@ impl Tree {
     pub fn square(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Square)
     }
+    pub fn floor(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Floor)
+    }
+    pub fn ceil(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Ceil)
+    }
+    pub fn round(&self) -> Self {
+        Self::op_unary(self.clone(), UnaryOpcode::Round)
+    }
     pub fn sqrt(&self) -> Self {
         Self::op_unary(self.clone(), UnaryOpcode::Sqrt)
     }

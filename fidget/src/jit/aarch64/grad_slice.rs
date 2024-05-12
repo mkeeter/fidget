@@ -279,6 +279,27 @@ impl Assembler for GradSliceAssembler {
             // out is [v*v, 2*v*dx, 2*v*dy, 2*v*dz]
         )
     }
+
+    // TODO hand-write these functions
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn grad_floor(v: Grad) -> Grad {
+            v.floor()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_floor);
+    }
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn grad_ceil(v: Grad) -> Grad {
+            v.ceil()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_ceil);
+    }
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn grad_round(v: Grad) -> Grad {
+            v.round()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_round);
+    }
+
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4

@@ -201,6 +201,9 @@ impl SsaTape {
                         UnaryOpcode::Recip => SsaOp::RecipReg,
                         UnaryOpcode::Sqrt => SsaOp::SqrtReg,
                         UnaryOpcode::Square => SsaOp::SquareReg,
+                        UnaryOpcode::Floor => SsaOp::FloorReg,
+                        UnaryOpcode::Ceil => SsaOp::CeilReg,
+                        UnaryOpcode::Round => SsaOp::RoundReg,
                         UnaryOpcode::Sin => SsaOp::SinReg,
                         UnaryOpcode::Cos => SsaOp::CosReg,
                         UnaryOpcode::Tan => SsaOp::TanReg,
@@ -262,6 +265,9 @@ impl SsaTape {
                 | SsaOp::SqrtReg(out, arg)
                 | SsaOp::CopyReg(out, arg)
                 | SsaOp::SquareReg(out, arg)
+                | SsaOp::FloorReg(out, arg)
+                | SsaOp::CeilReg(out, arg)
+                | SsaOp::RoundReg(out, arg)
                 | SsaOp::SinReg(out, arg)
                 | SsaOp::CosReg(out, arg)
                 | SsaOp::TanReg(out, arg)
@@ -277,6 +283,9 @@ impl SsaTape {
                         SsaOp::RecipReg(..) => "RECIP",
                         SsaOp::SqrtReg(..) => "SQRT",
                         SsaOp::SquareReg(..) => "SQUARE",
+                        SsaOp::FloorReg(..) => "FLOOR",
+                        SsaOp::CeilReg(..) => "CEIL",
+                        SsaOp::RoundReg(..) => "ROUND",
                         SsaOp::SinReg(..) => "SIN",
                         SsaOp::CosReg(..) => "COS",
                         SsaOp::TanReg(..) => "TAN",

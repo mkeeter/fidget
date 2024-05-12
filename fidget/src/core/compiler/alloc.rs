@@ -251,6 +251,9 @@ impl<const N: usize> RegisterAllocator<N> {
             SsaOp::RecipReg(out, arg) => (out, arg, RegOp::RecipReg),
             SsaOp::SqrtReg(out, arg) => (out, arg, RegOp::SqrtReg),
             SsaOp::SquareReg(out, arg) => (out, arg, RegOp::SquareReg),
+            SsaOp::FloorReg(out, arg) => (out, arg, RegOp::FloorReg),
+            SsaOp::CeilReg(out, arg) => (out, arg, RegOp::CeilReg),
+            SsaOp::RoundReg(out, arg) => (out, arg, RegOp::RoundReg),
             SsaOp::SinReg(out, arg) => (out, arg, RegOp::SinReg),
             SsaOp::CosReg(out, arg) => (out, arg, RegOp::CosReg),
             SsaOp::TanReg(out, arg) => (out, arg, RegOp::TanReg),
@@ -278,6 +281,9 @@ impl<const N: usize> RegisterAllocator<N> {
             | SsaOp::RecipReg(..)
             | SsaOp::SqrtReg(..)
             | SsaOp::SquareReg(..)
+            | SsaOp::FloorReg(..)
+            | SsaOp::CeilReg(..)
+            | SsaOp::RoundReg(..)
             | SsaOp::CopyReg(..)
             | SsaOp::SinReg(..)
             | SsaOp::CosReg(..)

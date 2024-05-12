@@ -41,6 +41,15 @@ macro_rules! opcodes {
             #[doc = "Square the given register"]
             SquareReg($t, $t),
 
+            #[doc = "Returns the largest integer less than or equal to `self`"]
+            FloorReg($t, $t),
+
+            #[doc = "Returns the smallest integer greater than or equal to `self`"]
+            CeilReg($t, $t),
+
+            #[doc = "Returns the nearest integer to `self`. If a value is half-way between two integers, round away from `0.0`."]
+            RoundReg($t, $t),
+
             #[doc = "Computes the sine of the given register (in radians)"]
             SinReg($t, $t),
 
@@ -158,6 +167,9 @@ impl SsaOp {
             | SsaOp::RecipReg(out, ..)
             | SsaOp::SqrtReg(out, ..)
             | SsaOp::SquareReg(out, ..)
+            | SsaOp::FloorReg(out, ..)
+            | SsaOp::CeilReg(out, ..)
+            | SsaOp::RoundReg(out, ..)
             | SsaOp::CopyReg(out, ..)
             | SsaOp::SinReg(out, ..)
             | SsaOp::CosReg(out, ..)
@@ -204,6 +216,9 @@ impl SsaOp {
             | SsaOp::RecipReg(..)
             | SsaOp::SqrtReg(..)
             | SsaOp::SquareReg(..)
+            | SsaOp::FloorReg(..)
+            | SsaOp::CeilReg(..)
+            | SsaOp::RoundReg(..)
             | SsaOp::CopyReg(..)
             | SsaOp::SinReg(..)
             | SsaOp::CosReg(..)

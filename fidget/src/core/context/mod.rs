@@ -549,6 +549,49 @@ impl Context {
         self.op_unary(a, UnaryOpcode::Square)
     }
 
+    /// Builds a node which takes the floor of its input
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.floor(x).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// ```
+    pub fn floor<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Floor)
+    }
+
+    /// Builds a node which takes the ceiling of its input
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.ceil(x).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 2.0);
+    /// ```
+    pub fn ceil<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Ceil)
+    }
+
+    /// Builds a node which rounds its input to the nearest integer
+    /// ```
+    /// # let mut ctx = fidget::context::Context::new();
+    /// let x = ctx.x();
+    /// let op = ctx.round(x).unwrap();
+    /// let v = ctx.eval_xyz(op, 1.2, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 1.0);
+    /// let v = ctx.eval_xyz(op, 1.6, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 2.0);
+    /// let v = ctx.eval_xyz(op, 1.5, 0.0, 0.0).unwrap();
+    /// assert_eq!(v, 2.0); // rounds away from 0.0 if ambiguous
+    /// ```
+    pub fn round<A: IntoNode>(&mut self, a: A) -> Result<Node, Error> {
+        let a = a.into_node(self)?;
+        self.op_unary(a, UnaryOpcode::Round)
+    }
+
     /// Builds a node which performs subtraction.
     /// ```
     /// # let mut ctx = fidget::context::Context::new();
@@ -771,6 +814,9 @@ impl Context {
                     UnaryOpcode::Recip => 1.0 / a,
                     UnaryOpcode::Sqrt => a.sqrt(),
                     UnaryOpcode::Square => a * a,
+                    UnaryOpcode::Floor => a.floor(),
+                    UnaryOpcode::Ceil => a.ceil(),
+                    UnaryOpcode::Round => a.round(),
                     UnaryOpcode::Sin => a.sin(),
                     UnaryOpcode::Cos => a.cos(),
                     UnaryOpcode::Tan => a.tan(),
@@ -837,6 +883,9 @@ impl Context {
                 "neg" => ctx.neg(pop()?)?,
                 "sqrt" => ctx.sqrt(pop()?)?,
                 "square" => ctx.square(pop()?)?,
+                "floor" => ctx.floor(pop()?)?,
+                "ceil" => ctx.ceil(pop()?)?,
+                "round" => ctx.round(pop()?)?,
                 "sin" => ctx.sin(pop()?)?,
                 "cos" => ctx.cos(pop()?)?,
                 "tan" => ctx.tan(pop()?)?,
@@ -910,6 +959,9 @@ impl Context {
                 UnaryOpcode::Recip => out += "recip",
                 UnaryOpcode::Sqrt => out += "sqrt",
                 UnaryOpcode::Square => out += "square",
+                UnaryOpcode::Floor => out += "floor",
+                UnaryOpcode::Ceil => out += "ceil",
+                UnaryOpcode::Round => out += "round",
                 UnaryOpcode::Sin => out += "sin",
                 UnaryOpcode::Cos => out += "cos",
                 UnaryOpcode::Tan => out += "tan",

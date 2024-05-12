@@ -347,6 +347,21 @@ impl Interval {
             Interval::new(0.0, other.abs().upper())
         }
     }
+
+    /// Largest value that is less-than-or-equal to this value
+    pub fn floor(&self) -> Self {
+        Interval::new(self.lower.floor(), self.upper.floor())
+    }
+
+    /// Smallest value that is greater-than-or-equal to this value
+    pub fn ceil(&self) -> Self {
+        Interval::new(self.lower.ceil(), self.upper.ceil())
+    }
+
+    /// Rounded value
+    pub fn round(&self) -> Self {
+        Interval::new(self.lower.round(), self.upper.round())
+    }
 }
 
 impl std::fmt::Display for Interval {

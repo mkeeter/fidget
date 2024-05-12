@@ -201,6 +201,9 @@ pub mod canonical {
     declare_canonical_unary!(Context::ln, |a| a.ln());
     declare_canonical_unary!(Context::square, |a| a * a);
     declare_canonical_unary!(Context::sqrt, |a| a.sqrt());
+    declare_canonical_unary!(Context::floor, |a| a.floor());
+    declare_canonical_unary!(Context::ceil, |a| a.ceil());
+    declare_canonical_unary!(Context::round, |a| a.round());
     declare_canonical_unary!(Context::not, |a| (a == 0.0).into(), |a| a == 0.0);
 
     declare_canonical_binary!(Context::add, |a, b| a + b);
@@ -297,6 +300,9 @@ macro_rules! all_unary_tests {
         $crate::one_unary_test!($tester, ln);
         $crate::one_unary_test!($tester, not);
         $crate::one_unary_test!($tester, square);
+        $crate::one_unary_test!($tester, floor);
+        $crate::one_unary_test!($tester, ceil);
+        $crate::one_unary_test!($tester, round);
         $crate::one_unary_test!($tester, sqrt);
     };
 }

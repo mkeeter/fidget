@@ -261,6 +261,27 @@ impl Assembler for GradSliceAssembler {
             ; vmulps Rx(reg(out_reg)), xmm0, Rx(reg(lhs_reg))
         );
     }
+
+    // TODO hand-write these functions
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn grad_floor(v: Grad) -> Grad {
+            v.floor()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_floor);
+    }
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn grad_ceil(v: Grad) -> Grad {
+            v.ceil()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_ceil);
+    }
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn grad_round(v: Grad) -> Grad {
+            v.round()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, grad_round);
+    }
+
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))

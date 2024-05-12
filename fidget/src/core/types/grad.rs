@@ -197,6 +197,36 @@ impl Grad {
         }
     }
 
+    /// Snap to the largest less-than-or-equal value
+    pub fn floor(&self) -> Self {
+        Grad {
+            v: self.v.floor(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
+    /// Snap to the smallest greater-than-or-equal value
+    pub fn ceil(&self) -> Self {
+        Grad {
+            v: self.v.ceil(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
+    /// Rounds to the nearest integer
+    pub fn round(&self) -> Self {
+        Grad {
+            v: self.v.round(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
     /// Checks that the two values are roughly equal, panicking otherwise
     #[cfg(test)]
     pub(crate) fn compare_eq(&self, other: Self) {

@@ -300,6 +300,15 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                 RegOp::SquareReg(out, arg) => {
                     v[out] = v[arg].square();
                 }
+                RegOp::FloorReg(out, arg) => {
+                    v[out] = v[arg].floor();
+                }
+                RegOp::CeilReg(out, arg) => {
+                    v[out] = v[arg].ceil();
+                }
+                RegOp::RoundReg(out, arg) => {
+                    v[out] = v[arg].round();
+                }
                 RegOp::SinReg(out, arg) => {
                     v[out] = v[arg].sin();
                 }
@@ -520,6 +529,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                 RegOp::SquareReg(out, arg) => {
                     let s = v[arg];
                     v[out] = s * s;
+                }
+                RegOp::FloorReg(out, arg) => {
+                    v[out] = v[arg].floor();
+                }
+                RegOp::CeilReg(out, arg) => {
+                    v[out] = v[arg].ceil();
+                }
+                RegOp::RoundReg(out, arg) => {
+                    v[out] = v[arg].round();
                 }
                 RegOp::SinReg(out, arg) => {
                     v[out] = v[arg].sin();
@@ -836,6 +854,21 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                         v[out][i] = s * s;
                     }
                 }
+                RegOp::FloorReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].floor();
+                    }
+                }
+                RegOp::CeilReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].ceil();
+                    }
+                }
+                RegOp::RoundReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].round();
+                    }
+                }
                 RegOp::SinReg(out, arg) => {
                     for i in 0..size {
                         v[out][i] = v[arg][i].sin();
@@ -1124,6 +1157,21 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                     for i in 0..size {
                         let s = v[arg][i];
                         v[out][i] = s * s;
+                    }
+                }
+                RegOp::FloorReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].floor();
+                    }
+                }
+                RegOp::CeilReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].ceil();
+                    }
+                }
+                RegOp::RoundReg(out, arg) => {
+                    for i in 0..size {
+                        v[out][i] = v[arg][i].round();
                     }
                 }
                 RegOp::SinReg(out, arg) => {

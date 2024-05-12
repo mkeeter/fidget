@@ -186,6 +186,15 @@ trait Assembler {
         self.build_mul(out_reg, lhs_reg, lhs_reg)
     }
 
+    /// Arithmetic floor
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Arithmetic ceiling
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Rounding
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8);
+
     /// Logical not
     fn build_not(&mut self, out_reg: u8, lhs_reg: u8);
 
@@ -697,6 +706,15 @@ fn build_asm_fn_with_storage<A: Assembler>(
             }
             RegOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
+            }
+            RegOp::FloorReg(out, arg) => {
+                asm.build_floor(out, arg);
+            }
+            RegOp::CeilReg(out, arg) => {
+                asm.build_ceil(out, arg);
+            }
+            RegOp::RoundReg(out, arg) => {
+                asm.build_round(out, arg);
             }
             RegOp::NotReg(out, arg) => {
                 asm.build_not(out, arg);
