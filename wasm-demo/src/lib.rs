@@ -90,7 +90,7 @@ pub fn render_region(
             ..RenderConfig::default()
         };
 
-        let out = cfg.run(shape, &BitRenderMode)?;
+        let out = cfg.run::<_, BitRenderMode>(shape)?;
         Ok(out
             .into_iter()
             .flat_map(|b| {

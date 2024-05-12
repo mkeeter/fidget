@@ -1,4 +1,13 @@
 # 0.2.7 (in progress)
+- Changed to 2D rendering API to support render modes which use linear
+  interpolation to process full / empty regions
+    - Specifically, `RenderMode::interval` now returns an `IntervalAction`,
+      which can be `Fill(..)`, `Recurse`, or `Interpolate`.
+    - Modify `SdfRenderMode` use this interpolation; the previous pixel-perfect
+      behavior is renamed to `SdfPixelRenderModel`
+    - Make `RenderMode` trait methods static, because they weren't using `&self`
+    - Change signature of `fidget::render::render2d` to pass the mode only as a
+      generic parameter, instead of an argument
 
 # 0.2.6
 This is a relatively small release; there are a few features to improve the

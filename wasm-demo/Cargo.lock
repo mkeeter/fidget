@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "arrayvec",
  "bimap",

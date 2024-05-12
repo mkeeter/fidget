@@ -209,11 +209,10 @@ fn run2d<S: fidget::eval::Shape>(
         if sdf {
             let mut image = vec![];
             for _ in 0..settings.n {
-                image = fidget::render::render2d(
-                    shape.clone(),
-                    &cfg,
-                    &fidget::render::SdfRenderMode,
-                );
+                image = fidget::render::render2d::<
+                    _,
+                    fidget::render::SdfRenderMode,
+                >(shape.clone(), &cfg);
             }
             image
                 .into_iter()
@@ -222,11 +221,10 @@ fn run2d<S: fidget::eval::Shape>(
         } else {
             let mut image = vec![];
             for _ in 0..settings.n {
-                image = fidget::render::render2d(
-                    shape.clone(),
-                    &cfg,
-                    &fidget::render::DebugRenderMode,
-                );
+                image = fidget::render::render2d::<
+                    _,
+                    fidget::render::DebugRenderMode,
+                >(shape.clone(), &cfg);
             }
             image
                 .into_iter()
