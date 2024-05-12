@@ -290,24 +290,30 @@ impl Assembler for IntervalAssembler {
         );
         self.0.ops.commit_local().unwrap();
     }
-    // TODO hand-write these functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn interval_floor(v: Interval) -> Interval {
-            v.floor()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_floor);
+        dynasm!(self.0.ops
+            ; vroundps Rx(reg(out_reg)), Rx(reg(lhs_reg)), 1
+        );
     }
     fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn interval_ceil(v: Interval) -> Interval {
-            v.ceil()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_ceil);
+        dynasm!(self.0.ops
+            ; vroundps Rx(reg(out_reg)), Rx(reg(lhs_reg)), 2
+        );
     }
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn interval_round(v: Interval) -> Interval {
-            v.round()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_round);
+        // Shenanigans figured through Godbolt
+        dynasm!(self.0.ops
+            ; mov eax, 0x80000000u32 as i32
+            ; vmovd xmm1, eax
+            ; vbroadcastss xmm1, xmm1
+            ; vandps  xmm1, xmm1, Rx(reg(lhs_reg))
+            ; mov eax, 0x3effffffu32 as i32
+            ; vmovd xmm2, eax
+            ; vbroadcastss xmm2, xmm2
+            ; vorps  xmm1, xmm1, xmm2
+            ; vaddps Rx(reg(out_reg)), xmm1, Rx(reg(lhs_reg))
+            ; vroundps Rx(reg(out_reg)), Rx(reg(out_reg)), 3
+        );
     }
 
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {

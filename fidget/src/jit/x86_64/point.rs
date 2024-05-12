@@ -178,7 +178,6 @@ impl Assembler for PointAssembler {
         );
     }
 
-    // TODO optimize these three functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; vroundss Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(lhs_reg)), 1

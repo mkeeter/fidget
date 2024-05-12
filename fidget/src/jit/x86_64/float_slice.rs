@@ -194,7 +194,6 @@ impl Assembler for FloatSliceAssembler {
         );
     }
 
-    // TODO optimize these three functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             ; vroundps Ry(reg(out_reg)), Ry(reg(lhs_reg)), 1
