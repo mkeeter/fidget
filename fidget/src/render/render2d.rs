@@ -22,14 +22,10 @@ pub trait RenderMode {
     type Output: Default + Copy + Clone + Send;
 
     /// Decide whether to subdivide or fill an interval
-    fn interval(
-        &self,
-        i: Interval,
-        depth: usize,
-    ) -> IntervalAction<Self::Output>;
+    fn interval(i: Interval, depth: usize) -> IntervalAction<Self::Output>;
 
     /// Per-pixel drawing
-    fn pixel(&self, f: f32) -> Self::Output;
+    fn pixel(f: f32) -> Self::Output;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -39,11 +35,7 @@ pub struct DebugRenderMode;
 
 impl RenderMode for DebugRenderMode {
     type Output = DebugPixel;
-    fn interval(
-        &self,
-        i: Interval,
-        depth: usize,
-    ) -> IntervalAction<DebugPixel> {
+    fn interval(i: Interval, depth: usize) -> IntervalAction<DebugPixel> {
         if i.upper() < 0.0 {
             if depth > 1 {
                 IntervalAction::Fill(DebugPixel::FilledSubtile)
@@ -60,7 +52,7 @@ impl RenderMode for DebugRenderMode {
             IntervalAction::Recurse
         }
     }
-    fn pixel(&self, f: f32) -> DebugPixel {
+    fn pixel(f: f32) -> DebugPixel {
         if f < 0.0 {
             DebugPixel::Filled
         } else {
@@ -116,7 +108,7 @@ pub struct BitRenderMode;
 
 impl RenderMode for BitRenderMode {
     type Output = bool;
-    fn interval(&self, i: Interval, _depth: usize) -> IntervalAction<bool> {
+    fn interval(i: Interval, _depth: usize) -> IntervalAction<bool> {
         if i.upper() < 0.0 {
             IntervalAction::Fill(true)
         } else if i.lower() > 0.0 {
@@ -125,7 +117,7 @@ impl RenderMode for BitRenderMode {
             IntervalAction::Recurse
         }
     }
-    fn pixel(&self, f: f32) -> bool {
+    fn pixel(f: f32) -> bool {
         f < 0.0
     }
 }
@@ -135,14 +127,14 @@ pub struct SdfRenderMode;
 
 impl RenderMode for SdfRenderMode {
     type Output = [u8; 3];
-    fn interval(&self, i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
+    fn interval(i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
         if i.upper() < 0.0 || i.lower() > 0.0 {
             IntervalAction::Interpolate
         } else {
             IntervalAction::Recurse
         }
     }
-    fn pixel(&self, f: f32) -> [u8; 3] {
+    fn pixel(f: f32) -> [u8; 3] {
         let r = 1.0 - 0.1f32.copysign(f);
         let g = 1.0 - 0.4f32.copysign(f);
         let b = 1.0 - 0.7f32.copysign(f);
@@ -213,7 +205,6 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         shape: &mut RenderHandle<S>,
         depth: usize,
         tile: Tile<2>,
-        mode: &M,
     ) {
         let tile_size = self.config.tile_sizes[depth];
 
@@ -228,7 +219,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
             .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
             .unwrap();
 
-        match mode.interval(i, depth) {
+        match M::interval(i, depth) {
             IntervalAction::Fill(fill) => {
                 for y in 0..tile_size {
                     let start = self.config.tile_to_offset(tile, 0, y);
@@ -258,7 +249,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
                         let v = v0 * (1.0 - x_frac) + v1 * x_frac;
 
                         // Write out the pixel
-                        self.image[i] = mode.pixel(v);
+                        self.image[i] = M::pixel(v);
                         i += 1;
                     }
                 }
@@ -289,12 +280,11 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
                             tile.corner[0] + i * next_tile_size,
                             tile.corner[1] + j * next_tile_size,
                         ]),
-                        mode,
                     );
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile, mode);
+            self.render_tile_pixels(sub_tape, tile_size, tile);
         }
     }
 
@@ -303,7 +293,6 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         shape: &mut RenderHandle<S>,
         tile_size: usize,
         tile: Tile<2>,
-        mode: &M,
     ) {
         let mut index = 0;
         for j in 0..tile_size {
@@ -328,7 +317,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
         for j in 0..tile_size {
             let o = self.config.tile_to_offset(tile, 0, j);
             for i in 0..tile_size {
-                self.image[o + i] = mode.pixel(out[index]);
+                self.image[o + i] = M::pixel(out[index]);
                 index += 1;
             }
         }
@@ -341,7 +330,6 @@ fn worker<S: Shape, M: RenderMode>(
     mut shape: RenderHandle<S>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
-    mode: &M,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
@@ -358,7 +346,7 @@ fn worker<S: Shape, M: RenderMode>(
     };
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut shape, 0, tile, mode);
+        w.render_tile_recurse(&mut shape, 0, tile);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -379,7 +367,6 @@ fn worker<S: Shape, M: RenderMode>(
 pub fn render<S: Shape, M: RenderMode + Sync>(
     shape: S,
     config: &RenderConfig<2>,
-    mode: &M,
 ) -> Vec<M::Output> {
     let (config, mat) = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
@@ -392,13 +379,12 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    render_inner(shape, config, mode)
+    render_inner::<_, M>(shape, config)
 }
 
 fn render_inner<S: Shape, M: RenderMode + Sync>(
     shape: S,
     config: AlignedRenderConfig<2>,
-    mode: &M,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
     for i in 0..config.image_size / config.tile_sizes[0] {
@@ -417,9 +403,7 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = if threads == 1 {
-        worker::<S, M>(rh, &queue, &config, mode)
-            .into_iter()
-            .collect()
+        worker::<S, M>(rh, &queue, &config).into_iter().collect()
     } else {
         #[cfg(target_arch = "wasm32")]
         unreachable!("multithreaded rendering is not supported on wasm32");
@@ -429,9 +413,7 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
             let mut handles = vec![];
             for _ in 0..threads {
                 let rh = rh.clone();
-                handles.push(
-                    s.spawn(|| worker::<S, M>(rh, &queue, &config, mode)),
-                );
+                handles.push(s.spawn(|| worker::<S, M>(rh, &queue, &config)));
             }
             let mut out = vec![];
             for h in handles {
@@ -488,7 +470,7 @@ mod test {
             bounds,
             ..RenderConfig::default()
         };
-        let out = cfg.run(shape, &BitRenderMode).unwrap();
+        let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
         let mut img_str = String::new();
         for (i, b) in out.iter().enumerate() {
             if i % 32 == 0 {

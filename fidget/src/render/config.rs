@@ -210,9 +210,8 @@ impl RenderConfig<2> {
     pub fn run<S: Shape, M: RenderMode + Sync>(
         &self,
         shape: S,
-        mode: &M,
     ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        Ok(crate::render::render2d::<S, M>(shape, self, mode))
+        Ok(crate::render::render2d::<S, M>(shape, self))
     }
 }
 

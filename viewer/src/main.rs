@@ -169,11 +169,10 @@ fn render<S: fidget::eval::Shape>(
 
             match mode {
                 TwoDMode::Color => {
-                    let image = fidget::render::render2d(
-                        shape,
-                        &config,
-                        &fidget::render::BitRenderMode,
-                    );
+                    let image = fidget::render::render2d::<
+                        _,
+                        fidget::render::BitRenderMode,
+                    >(shape, &config);
                     let c = egui::Color32::from_rgba_unmultiplied(
                         color[0],
                         color[1],
@@ -188,22 +187,20 @@ fn render<S: fidget::eval::Shape>(
                 }
 
                 TwoDMode::Sdf => {
-                    let image = fidget::render::render2d(
-                        shape,
-                        &config,
-                        &fidget::render::SdfRenderMode,
-                    );
+                    let image = fidget::render::render2d::<
+                        _,
+                        fidget::render::SdfRenderMode,
+                    >(shape, &config);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
                 TwoDMode::Debug => {
-                    let image = fidget::render::render2d(
-                        shape,
-                        &config,
-                        &fidget::render::DebugRenderMode,
-                    );
+                    let image = fidget::render::render2d::<
+                        _,
+                        fidget::render::DebugRenderMode,
+                    >(shape, &config);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         let c = i.as_debug_color();
                         *p = egui::Color32::from_rgb(c[0], c[1], c[2]);

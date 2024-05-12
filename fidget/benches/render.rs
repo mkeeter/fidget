@@ -24,11 +24,10 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
-                black_box(fidget::render::render2d(
-                    tape,
-                    cfg,
-                    &fidget::render::BitRenderMode,
-                ))
+                black_box(fidget::render::render2d::<
+                    _,
+                    fidget::render::BitRenderMode,
+                >(tape, cfg))
             })
         });
 
@@ -42,11 +41,10 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
-                    black_box(fidget::render::render2d(
-                        tape,
-                        cfg,
-                        &fidget::render::BitRenderMode,
-                    ))
+                    black_box(fidget::render::render2d::<
+                        _,
+                        fidget::render::BitRenderMode,
+                    >(tape, cfg))
                 })
             });
         }
@@ -72,11 +70,10 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("vm", threads), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
-                black_box(fidget::render::render2d(
-                    tape,
-                    cfg,
-                    &fidget::render::BitRenderMode,
-                ))
+                black_box(fidget::render::render2d::<
+                    _,
+                    fidget::render::BitRenderMode,
+                >(tape, cfg))
             })
         });
         #[cfg(feature = "jit")]
@@ -90,11 +87,10 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("jit", threads), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
-                    black_box(fidget::render::render2d(
-                        tape,
-                        cfg,
-                        &fidget::render::BitRenderMode,
-                    ))
+                    black_box(fidget::render::render2d::<
+                        _,
+                        fidget::render::BitRenderMode,
+                    >(tape, cfg))
                 })
             });
         }
