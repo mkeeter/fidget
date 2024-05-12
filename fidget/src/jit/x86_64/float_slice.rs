@@ -196,22 +196,29 @@ impl Assembler for FloatSliceAssembler {
 
     // TODO optimize these three functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn float_floor(f: f32) -> f32 {
-            f.floor()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, float_floor);
+        dynasm!(self.0.ops
+            ; vroundps Ry(reg(out_reg)), Ry(reg(lhs_reg)), 1
+        );
     }
     fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn float_ceil(f: f32) -> f32 {
-            f.ceil()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, float_ceil);
+        dynasm!(self.0.ops
+            ; vroundps Ry(reg(out_reg)), Ry(reg(lhs_reg)), 2
+        );
     }
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "sysv64" fn float_round(f: f32) -> f32 {
-            f.round()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, float_round);
+        // Shenanigans figured through Godbolt
+        dynasm!(self.0.ops
+            ; mov eax, 0x80000000u32 as i32
+            ; vmovd xmm1, eax
+            ; vbroadcastss ymm1, xmm1
+            ; vandps  ymm1, ymm1, Ry(reg(lhs_reg))
+            ; mov eax, 0x3effffffu32 as i32
+            ; vmovd xmm2, eax
+            ; vbroadcastss ymm2, xmm2
+            ; vorps  ymm1, ymm1, ymm2
+            ; vaddps Ry(reg(out_reg)), ymm1, Ry(reg(lhs_reg))
+            ; vroundps Ry(reg(out_reg)), Ry(reg(out_reg)), 3
+        );
     }
 
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
