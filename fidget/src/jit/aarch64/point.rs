@@ -191,7 +191,6 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops ; fmul S(reg(out_reg)), S(reg(lhs_reg)), S(reg(lhs_reg)))
     }
 
-    // TODO optimize these three functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
         dynasm!(self.0.ops
             // Build a NAN mask
@@ -220,6 +219,7 @@ impl Assembler for PointAssembler {
             ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
         );
     }
+    // TODO optimize this function
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn float_round(f: f32) -> f32 {
             f.round()
