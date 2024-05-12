@@ -17,7 +17,11 @@ pub use render3d::render as render3d;
 
 pub use render2d::{BitRenderMode, DebugRenderMode, RenderMode, SdfRenderMode};
 
-/// A `RenderHandle` contains lazily-populated tapes for a shape
+/// A `RenderHandle` contains lazily-populated tapes for rendering
+///
+/// The tapes are stored as `Arc<..>`, so it can be cheaply cloned.
+///
+/// The most recent simplification is cached for reuse (if the trace matches).
 pub struct RenderHandle<S: Shape> {
     shape: S,
 
@@ -81,6 +85,7 @@ where
             )
         })
     }
+
     /// Returns a tape for bulk gradient evaluation
     pub fn g_tape(
         &mut self,
