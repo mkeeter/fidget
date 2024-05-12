@@ -519,9 +519,11 @@ impl PointAssembler {
             ; movss [rsp + 0x28], xmm14
             ; movss [rsp + 0x2c], xmm15
 
-            // call the function
-            ; movss xmm0, Rx(reg(lhs_reg))
+            // call the function.  Note the ordering here: xmm0 could be LHS /
+            // RHS if we're doing a call with an immediate, so we overwrite it
+            // last.
             ; movss xmm1, Rx(reg(rhs_reg))
+            ; movss xmm0, Rx(reg(lhs_reg))
             ; mov rsi, QWORD addr as _
             ; call rsi
 
