@@ -9,13 +9,24 @@ use nalgebra::Point2;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Response type for [`RenderMode::interval`]
+pub enum IntervalAction<T> {
+    Fill(T),
+    Interpolate,
+    Recurse,
+}
+
 /// Configuration trait for rendering
 pub trait RenderMode {
     /// Type of output pixel
     type Output: Default + Copy + Clone + Send;
 
     /// Decide whether to subdivide or fill an interval
-    fn interval(&self, i: Interval, depth: usize) -> Option<Self::Output>;
+    fn interval(
+        &self,
+        i: Interval,
+        depth: usize,
+    ) -> IntervalAction<Self::Output>;
 
     /// Per-pixel drawing
     fn pixel(&self, f: f32) -> Self::Output;
@@ -28,21 +39,25 @@ pub struct DebugRenderMode;
 
 impl RenderMode for DebugRenderMode {
     type Output = DebugPixel;
-    fn interval(&self, i: Interval, depth: usize) -> Option<DebugPixel> {
+    fn interval(
+        &self,
+        i: Interval,
+        depth: usize,
+    ) -> IntervalAction<DebugPixel> {
         if i.upper() < 0.0 {
             if depth > 1 {
-                Some(DebugPixel::FilledSubtile)
+                IntervalAction::Fill(DebugPixel::FilledSubtile)
             } else {
-                Some(DebugPixel::FilledTile)
+                IntervalAction::Fill(DebugPixel::FilledTile)
             }
         } else if i.lower() > 0.0 {
             if depth > 1 {
-                Some(DebugPixel::EmptySubtile)
+                IntervalAction::Fill(DebugPixel::EmptySubtile)
             } else {
-                Some(DebugPixel::EmptyTile)
+                IntervalAction::Fill(DebugPixel::EmptyTile)
             }
         } else {
-            None
+            IntervalAction::Recurse
         }
     }
     fn pixel(&self, f: f32) -> DebugPixel {
@@ -101,13 +116,13 @@ pub struct BitRenderMode;
 
 impl RenderMode for BitRenderMode {
     type Output = bool;
-    fn interval(&self, i: Interval, _depth: usize) -> Option<bool> {
+    fn interval(&self, i: Interval, _depth: usize) -> IntervalAction<bool> {
         if i.upper() < 0.0 {
-            Some(true)
+            IntervalAction::Fill(true)
         } else if i.lower() > 0.0 {
-            Some(false)
+            IntervalAction::Fill(false)
         } else {
-            None
+            IntervalAction::Recurse
         }
     }
     fn pixel(&self, f: f32) -> bool {
@@ -120,8 +135,14 @@ pub struct SdfRenderMode;
 
 impl RenderMode for SdfRenderMode {
     type Output = [u8; 3];
-    fn interval(&self, _i: Interval, _depth: usize) -> Option<[u8; 3]> {
-        None // always recurse
+    fn interval(&self, i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
+        if i.upper() < 0.0 {
+            IntervalAction::Interpolate
+        } else if i.lower() > 0.0 {
+            IntervalAction::Interpolate
+        } else {
+            IntervalAction::Recurse
+        }
     }
     fn pixel(&self, f: f32) -> [u8; 3] {
         let r = 1.0 - 0.1f32.copysign(f);
@@ -209,14 +230,32 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
             .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
             .unwrap();
 
-        let fill = mode.interval(i, depth);
-
-        if let Some(fill) = fill {
-            for y in 0..tile_size {
-                let start = self.config.tile_to_offset(tile, 0, y);
-                self.image[start..][..tile_size].fill(fill);
+        match mode.interval(i, depth) {
+            IntervalAction::Fill(fill) => {
+                for y in 0..tile_size {
+                    let start = self.config.tile_to_offset(tile, 0, y);
+                    self.image[start..][..tile_size].fill(fill);
+                }
+                return;
             }
-            return;
+            IntervalAction::Interpolate => {
+                let xs = [x.lower(), x.lower(), x.upper(), x.upper()];
+                let ys = [y.lower(), y.upper(), y.lower(), x.upper()];
+                let zs = [0.0; 4];
+                let out = self
+                    .eval_float_slice
+                    .eval(shape.f_tape(&mut self.tape_storage), &xs, &ys, &zs)
+                    .unwrap();
+                for y in 0..tile_size {
+                    for x in 0..tile_size {
+                        let i = self.config.tile_to_offset(tile, x, y);
+                        let x_frac = (x as f32 - 1.0) / (tile_size as f32);
+                        let y_frac = (y as f32 - 1.0) / (tile_size as f32);
+                        self.image[i] = todo!();
+                    }
+                }
+            }
+            IntervalAction::Recurse => (), // keep going
         }
 
         let sub_tape = if let Some(trace) = simplify.as_ref() {
