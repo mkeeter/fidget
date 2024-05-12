@@ -136,9 +136,7 @@ pub struct SdfRenderMode;
 impl RenderMode for SdfRenderMode {
     type Output = [u8; 3];
     fn interval(&self, i: Interval, _depth: usize) -> IntervalAction<[u8; 3]> {
-        if i.upper() < 0.0 {
-            IntervalAction::Interpolate
-        } else if i.lower() > 0.0 {
+        if i.upper() < 0.0 || i.lower() > 0.0 {
             IntervalAction::Interpolate
         } else {
             IntervalAction::Recurse
@@ -240,20 +238,29 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
             }
             IntervalAction::Interpolate => {
                 let xs = [x.lower(), x.lower(), x.upper(), x.upper()];
-                let ys = [y.lower(), y.upper(), y.lower(), x.upper()];
+                let ys = [y.lower(), y.upper(), y.lower(), y.upper()];
                 let zs = [0.0; 4];
-                let out = self
+                let vs = self
                     .eval_float_slice
                     .eval(shape.f_tape(&mut self.tape_storage), &xs, &ys, &zs)
                     .unwrap();
                 for y in 0..tile_size {
+                    let y_frac = (y as f32 - 1.0) / (tile_size as f32);
+                    let mut i = self.config.tile_to_offset(tile, 0, y);
                     for x in 0..tile_size {
-                        let i = self.config.tile_to_offset(tile, x, y);
                         let x_frac = (x as f32 - 1.0) / (tile_size as f32);
-                        let y_frac = (y as f32 - 1.0) / (tile_size as f32);
-                        self.image[i] = todo!();
+
+                        // Bilinear interpolation
+                        let v0 = vs[0] * (1.0 - x_frac) + vs[2] * x_frac;
+                        let v1 = vs[1] * (1.0 - x_frac) + vs[3] * x_frac;
+                        let v = v0 * (1.0 - y_frac) + v1 * y_frac;
+
+                        // Write out the pixel
+                        self.image[i] = mode.pixel(v);
+                        i += 1;
                     }
                 }
+                return;
             }
             IntervalAction::Recurse => (), // keep going
         }
