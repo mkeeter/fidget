@@ -197,6 +197,49 @@ impl Grad {
         }
     }
 
+    /// Snap to the largest less-than-or-equal value
+    pub fn floor(&self) -> Self {
+        Grad {
+            v: self.v.floor(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
+    /// Snap to the smallest greater-than-or-equal value
+    pub fn ceil(&self) -> Self {
+        Grad {
+            v: self.v.ceil(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
+    /// Rounds to the nearest integer
+    pub fn round(&self) -> Self {
+        Grad {
+            v: self.v.round(),
+            dx: 0.0,
+            dy: 0.0,
+            dz: 0.0,
+        }
+    }
+
+    /// Four-quadrant arctangent
+    pub fn atan2(self, x: Self) -> Self {
+        let y = self;
+
+        let d = x.v.powi(2) + y.v.powi(2);
+        Grad {
+            v: y.v.atan2(x.v),
+            dx: (x.v * y.dx - y.v * x.dx) / d,
+            dy: (x.v * y.dy - y.v * x.dy) / d,
+            dz: (x.v * y.dz - y.v * x.dz) / d,
+        }
+    }
+
     /// Checks that the two values are roughly equal, panicking otherwise
     #[cfg(test)]
     pub(crate) fn compare_eq(&self, other: Self) {

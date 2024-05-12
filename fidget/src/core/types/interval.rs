@@ -347,6 +347,31 @@ impl Interval {
             Interval::new(0.0, other.abs().upper())
         }
     }
+
+    /// Largest value that is less-than-or-equal to this value
+    pub fn floor(&self) -> Self {
+        Interval::new(self.lower.floor(), self.upper.floor())
+    }
+
+    /// Smallest value that is greater-than-or-equal to this value
+    pub fn ceil(&self) -> Self {
+        Interval::new(self.lower.ceil(), self.upper.ceil())
+    }
+
+    /// Rounded value
+    pub fn round(&self) -> Self {
+        Interval::new(self.lower.round(), self.upper.round())
+    }
+
+    /// Four-quadrant arctangent
+    pub fn atan2(self, x: Self) -> Self {
+        if self.has_nan() || x.has_nan() {
+            f32::NAN.into()
+        } else {
+            // TODO optimize this further
+            Interval::new(-std::f32::consts::PI, std::f32::consts::PI)
+        }
+    }
 }
 
 impl std::fmt::Display for Interval {

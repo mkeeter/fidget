@@ -157,6 +157,9 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::RecipReg(index, arg)
                 | SsaOp::SqrtReg(index, arg)
                 | SsaOp::SquareReg(index, arg)
+                | SsaOp::FloorReg(index, arg)
+                | SsaOp::CeilReg(index, arg)
+                | SsaOp::RoundReg(index, arg)
                 | SsaOp::SinReg(index, arg)
                 | SsaOp::CosReg(index, arg)
                 | SsaOp::TanReg(index, arg)
@@ -247,6 +250,7 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::MulRegReg(index, lhs, rhs)
                 | SsaOp::SubRegReg(index, lhs, rhs)
                 | SsaOp::DivRegReg(index, lhs, rhs)
+                | SsaOp::AtanRegReg(index, lhs, rhs)
                 | SsaOp::CompareRegReg(index, lhs, rhs)
                 | SsaOp::ModRegReg(index, lhs, rhs) => {
                     *index = new_index;
@@ -259,6 +263,8 @@ impl<const N: usize> VmData<N> {
                 | SsaOp::SubImmReg(index, arg, _imm)
                 | SsaOp::DivRegImm(index, arg, _imm)
                 | SsaOp::DivImmReg(index, arg, _imm)
+                | SsaOp::AtanImmReg(index, arg, _imm)
+                | SsaOp::AtanRegImm(index, arg, _imm)
                 | SsaOp::CompareRegImm(index, arg, _imm)
                 | SsaOp::CompareImmReg(index, arg, _imm)
                 | SsaOp::ModRegImm(index, arg, _imm)

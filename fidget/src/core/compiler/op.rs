@@ -41,6 +41,15 @@ macro_rules! opcodes {
             #[doc = "Square the given register"]
             SquareReg($t, $t),
 
+            #[doc = "Returns the largest integer less than or equal to `self`"]
+            FloorReg($t, $t),
+
+            #[doc = "Returns the smallest integer greater than or equal to `self`"]
+            CeilReg($t, $t),
+
+            #[doc = "Returns the nearest integer to `self`. If a value is half-way between two integers, round away from `0.0`."]
+            RoundReg($t, $t),
+
             #[doc = "Computes the sine of the given register (in radians)"]
             SinReg($t, $t),
 
@@ -89,6 +98,12 @@ macro_rules! opcodes {
             ModRegImm($t, $t, f32),
             #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
             ModImmReg($t, $t, f32),
+            #[doc = "atan2 of a position `(y, x)` specified as register, register"]
+            AtanRegReg($t, $t, $t),
+            #[doc = "atan2 of a position `(y, x)` specified as register, immediate"]
+            AtanRegImm($t, $t, f32),
+            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
+            AtanImmReg($t, $t, f32),
             #[doc = "Compute the minimum of a register and an immediate"]
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
@@ -158,6 +173,9 @@ impl SsaOp {
             | SsaOp::RecipReg(out, ..)
             | SsaOp::SqrtReg(out, ..)
             | SsaOp::SquareReg(out, ..)
+            | SsaOp::FloorReg(out, ..)
+            | SsaOp::CeilReg(out, ..)
+            | SsaOp::RoundReg(out, ..)
             | SsaOp::CopyReg(out, ..)
             | SsaOp::SinReg(out, ..)
             | SsaOp::CosReg(out, ..)
@@ -178,6 +196,9 @@ impl SsaOp {
             | SsaOp::MulRegReg(out, ..)
             | SsaOp::DivRegReg(out, ..)
             | SsaOp::SubRegReg(out, ..)
+            | SsaOp::AtanRegReg(out, ..)
+            | SsaOp::AtanRegImm(out, ..)
+            | SsaOp::AtanImmReg(out, ..)
             | SsaOp::MinRegImm(out, ..)
             | SsaOp::MaxRegImm(out, ..)
             | SsaOp::MinRegReg(out, ..)
@@ -204,6 +225,9 @@ impl SsaOp {
             | SsaOp::RecipReg(..)
             | SsaOp::SqrtReg(..)
             | SsaOp::SquareReg(..)
+            | SsaOp::FloorReg(..)
+            | SsaOp::CeilReg(..)
+            | SsaOp::RoundReg(..)
             | SsaOp::CopyReg(..)
             | SsaOp::SinReg(..)
             | SsaOp::CosReg(..)
@@ -224,6 +248,9 @@ impl SsaOp {
             | SsaOp::DivRegReg(..)
             | SsaOp::DivRegImm(..)
             | SsaOp::DivImmReg(..)
+            | SsaOp::AtanRegReg(..)
+            | SsaOp::AtanRegImm(..)
+            | SsaOp::AtanImmReg(..)
             | SsaOp::CompareRegReg(..)
             | SsaOp::CompareRegImm(..)
             | SsaOp::CompareImmReg(..)

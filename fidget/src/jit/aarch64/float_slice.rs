@@ -236,6 +236,27 @@ impl Assembler for FloatSliceAssembler {
             ; fmul V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(lhs_reg)).s4
         )
     }
+
+    // TODO optimize these three functions
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_floor(f: f32) -> f32 {
+            f.floor()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_floor);
+    }
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_ceil(f: f32) -> f32 {
+            f.ceil()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_ceil);
+    }
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "C" fn float_round(f: f32) -> f32 {
+            f.round()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, float_round);
+    }
+
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; fadd V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
@@ -255,6 +276,12 @@ impl Assembler for FloatSliceAssembler {
         dynasm!(self.0.ops
             ; fdiv V(reg(out_reg)).s4, V(reg(lhs_reg)).s4, V(reg(rhs_reg)).s4
         )
+    }
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "C" fn float_atan2(y: f32, x: f32) -> f32 {
+            y.atan2(x)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, float_atan2);
     }
     fn build_max(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
@@ -453,6 +480,102 @@ impl FloatSliceAssembler {
             ; mov v9.s[0], v0.s[0]
 
             ; mov s0, v9.s[1]
+            ; blr x24
+            ; mov v9.s[1], v0.s[0]
+
+            // Copy into v0, because we're about to restore v8
+            ; mov v0.d[0], v8.d[0]
+            ; mov v0.d[1], v9.d[0]
+
+            // Restore register state
+            ; ldp q8, q9, [sp, 0x50]
+            ; ldp q10, q11, [sp, 0x70]
+            ; ldp q12, q13, [sp, 0x90]
+            ; ldp q14, q15, [sp, 0xb0]
+            ; ldp q16, q17, [sp, 0xd0]
+            ; ldp q18, q19, [sp, 0xf0]
+            ; ldp q20, q21, [sp, 0x110]
+            ; ldp q22, q23, [sp, 0x130]
+            ; ldp q24, q25, [sp, 0x150]
+            ; ldp q26, q27, [sp, 0x170]
+            ; ldp q28, q29, [sp, 0x190]
+            ; ldp q30, q31, [sp, 0x1b0]
+
+            // Set our output value
+            ; mov V(reg(out_reg)).b16, v0.b16
+
+            // Restore our current state
+            ; mov x0, x20
+            ; mov x1, x21
+            ; mov x2, x22
+            ; mov x3, x23
+        );
+    }
+    fn call_fn_binary(
+        &mut self,
+        out_reg: u8,
+        lhs_reg: u8,
+        rhs_reg: u8,
+        f: extern "C" fn(f32, f32) -> f32,
+    ) {
+        let addr = f as usize;
+        dynasm!(self.0.ops
+            // Back up our current state
+            ; mov x20, x0
+            ; mov x21, x1
+            ; mov x22, x2
+            ; mov x23, x3
+
+            // We use registers v8-v15 (callee saved, but only lower 64 bytes)
+            // and v16-v31 (caller saved)
+            // TODO: track which registers are actually used?
+            ; stp q8, q9, [sp, 0x50]
+            ; stp q10, q11, [sp, 0x70]
+            ; stp q12, q13, [sp, 0x90]
+            ; stp q14, q15, [sp, 0xb0]
+            ; stp q16, q17, [sp, 0xd0]
+            ; stp q18, q19, [sp, 0xf0]
+            ; stp q20, q21, [sp, 0x110]
+            ; stp q22, q23, [sp, 0x130]
+            ; stp q24, q25, [sp, 0x150]
+            ; stp q26, q27, [sp, 0x170]
+            ; stp q28, q29, [sp, 0x190]
+            ; stp q30, q31, [sp, 0x1b0]
+
+            // Load the function address, awkwardly, into a callee-saved
+            // register (so we only need to do this once)
+            ; movz x24, ((addr >> 48) as u32), lsl 48
+            ; movk x24, ((addr >> 32) as u32), lsl 32
+            ; movk x24, ((addr >> 16) as u32), lsl 16
+            ; movk x24, addr as u32
+
+            // We're going to back up our argument into d8/d9/d10/d11 (since the
+            // callee only saves the bottom 64 bits).  Note that d8/d9/d10/d11
+            // may be our input argument, so we'll move it to v0/v1 first.
+            ; mov v0.b16, V(reg(lhs_reg)).b16
+            ; mov v1.b16, V(reg(rhs_reg)).b16
+            ; mov d8, v0.d[0]
+            ; mov d9, v0.d[1]
+            ; mov d10, v1.d[0]
+            ; mov d11, v1.d[1]
+
+            ; mov s0, v8.s[0]
+            ; mov s1, v10.s[0]
+            ; blr x24
+            ; mov v8.s[0], v0.s[0]
+
+            ; mov s0, v8.s[1]
+            ; mov s1, v10.s[1]
+            ; blr x24
+            ; mov v8.s[1], v0.s[0]
+
+            ; mov s0, v9.s[0]
+            ; mov s1, v11.s[0]
+            ; blr x24
+            ; mov v9.s[0], v0.s[0]
+
+            ; mov s0, v9.s[1]
+            ; mov s1, v11.s[1]
             ; blr x24
             ; mov v9.s[1], v0.s[0]
 

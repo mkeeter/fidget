@@ -290,6 +290,26 @@ impl Assembler for IntervalAssembler {
         );
         self.0.ops.commit_local().unwrap();
     }
+    // TODO hand-write these functions
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn interval_floor(v: Interval) -> Interval {
+            v.floor()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_floor);
+    }
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn interval_ceil(v: Interval) -> Interval {
+            v.ceil()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_ceil);
+    }
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
+        extern "sysv64" fn interval_round(v: Interval) -> Interval {
+            v.round()
+        }
+        self.call_fn_unary(out_reg, lhs_reg, interval_round);
+    }
+
     fn build_add(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
         dynasm!(self.0.ops
             ; vaddps Rx(reg(out_reg)), Rx(reg(lhs_reg)), Rx(reg(rhs_reg))
@@ -488,6 +508,17 @@ impl Assembler for IntervalAssembler {
         }
         self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_modulo);
     }
+
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8) {
+        extern "sysv64" fn interval_atan2(
+            lhs: Interval,
+            rhs: Interval,
+        ) -> Interval {
+            lhs.atan2(rhs)
+        }
+        self.call_fn_binary(out_reg, lhs_reg, rhs_reg, interval_atan2);
+    }
+
     fn build_not(&mut self, out_reg: u8, arg_reg: u8) {
         dynasm!(self.0.ops
             // xmm0 = 0.0

@@ -106,6 +106,7 @@ impl Engine {
         register_binary_fns!("compare", compare, engine);
         register_binary_fns!("and", and, engine);
         register_binary_fns!("or", or, engine);
+        register_binary_fns!("atan2", atan2, engine);
         register_unary_fns!("abs", abs, engine);
         register_unary_fns!("sqrt", sqrt, engine);
         register_unary_fns!("square", square, engine);
@@ -118,6 +119,9 @@ impl Engine {
         register_unary_fns!("exp", exp, engine);
         register_unary_fns!("ln", ln, engine);
         register_unary_fns!("not", not, engine);
+        register_unary_fns!("ceil", ceil, engine);
+        register_unary_fns!("floor", floor, engine);
+        register_unary_fns!("round", round, engine);
         register_unary_fns!("-", neg, engine);
 
         // Ban comparison operators
@@ -366,6 +370,7 @@ define_binary_fns!(compare);
 define_binary_fns!(modulo);
 define_binary_fns!(and);
 define_binary_fns!(or);
+define_binary_fns!(atan2);
 define_unary_fns!(sqrt);
 define_unary_fns!(square);
 define_unary_fns!(neg);
@@ -379,6 +384,9 @@ define_unary_fns!(exp);
 define_unary_fns!(ln);
 define_unary_fns!(not);
 define_unary_fns!(abs);
+define_unary_fns!(floor);
+define_unary_fns!(ceil);
+define_unary_fns!(round);
 
 ////////////////////////////////////////////////////////////////////////////////
 

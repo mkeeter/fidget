@@ -186,6 +186,15 @@ trait Assembler {
         self.build_mul(out_reg, lhs_reg, lhs_reg)
     }
 
+    /// Arithmetic floor
+    fn build_floor(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Arithmetic ceiling
+    fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8);
+
+    /// Rounding
+    fn build_round(&mut self, out_reg: u8, lhs_reg: u8);
+
     /// Logical not
     fn build_not(&mut self, out_reg: u8, lhs_reg: u8);
 
@@ -206,6 +215,9 @@ trait Assembler {
 
     /// Division
     fn build_div(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
+
+    /// Four-quadrant arctangent
+    fn build_atan2(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
     /// Maximum of two values
     ///
@@ -698,6 +710,15 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::SquareReg(out, arg) => {
                 asm.build_square(out, arg);
             }
+            RegOp::FloorReg(out, arg) => {
+                asm.build_floor(out, arg);
+            }
+            RegOp::CeilReg(out, arg) => {
+                asm.build_ceil(out, arg);
+            }
+            RegOp::RoundReg(out, arg) => {
+                asm.build_round(out, arg);
+            }
             RegOp::NotReg(out, arg) => {
                 asm.build_not(out, arg);
             }
@@ -709,6 +730,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             }
             RegOp::DivRegReg(out, lhs, rhs) => {
                 asm.build_div(out, lhs, rhs);
+            }
+            RegOp::AtanRegReg(out, lhs, rhs) => {
+                asm.build_atan2(out, lhs, rhs);
             }
             RegOp::SubRegReg(out, lhs, rhs) => {
                 asm.build_sub(out, lhs, rhs);
@@ -732,6 +756,14 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::DivImmReg(out, arg, imm) => {
                 let reg = asm.load_imm(imm);
                 asm.build_div(out, reg, arg);
+            }
+            RegOp::AtanRegImm(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_atan2(out, arg, reg);
+            }
+            RegOp::AtanImmReg(out, arg, imm) => {
+                let reg = asm.load_imm(imm);
+                asm.build_atan2(out, reg, arg);
             }
             RegOp::SubImmReg(out, arg, imm) => {
                 asm.build_sub_imm_reg(out, arg, imm);

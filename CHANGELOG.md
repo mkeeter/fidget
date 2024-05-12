@@ -8,6 +8,7 @@
     - Make `RenderMode` trait methods static, because they weren't using `&self`
     - Change signature of `fidget::render::render2d` to pass the mode only as a
       generic parameter, instead of an argument
+- Add new operations: `floor`, `ceil`, `round`, `atan2`
 
 # 0.2.6
 This is a relatively small release; there are a few features to improve the
