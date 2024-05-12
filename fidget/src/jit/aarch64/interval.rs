@@ -293,16 +293,32 @@ impl Assembler for IntervalAssembler {
 
     // TODO hand-write these functions
     fn build_floor(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "C" fn interval_floor(v: Interval) -> Interval {
-            v.floor()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_floor);
+        dynasm!(self.0.ops
+            // Build a NAN mask
+            ; fcmeq v6.s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
+            ; mvn v6.b8, v6.b8
+
+            // Round, then convert back to f32
+            ; fcvtms V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
+            ; scvtf V(reg(out_reg)).s2, V(reg(out_reg)).s2
+
+            // Apply the NAN mask
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
+        );
     }
     fn build_ceil(&mut self, out_reg: u8, lhs_reg: u8) {
-        extern "C" fn interval_ceil(v: Interval) -> Interval {
-            v.ceil()
-        }
-        self.call_fn_unary(out_reg, lhs_reg, interval_ceil);
+        dynasm!(self.0.ops
+            // Build a NAN mask
+            ; fcmeq v6.s2, V(reg(lhs_reg)).s2, V(reg(lhs_reg)).s2
+            ; mvn v6.b8, v6.b8
+
+            // Round, then convert back to f32
+            ; fcvtps V(reg(out_reg)).s2, V(reg(lhs_reg)).s2
+            ; scvtf V(reg(out_reg)).s2, V(reg(out_reg)).s2
+
+            // Apply the NAN mask
+            ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v6.b8
+        );
     }
     fn build_round(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn interval_round(v: Interval) -> Interval {
