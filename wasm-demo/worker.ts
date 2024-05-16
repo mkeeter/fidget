@@ -1,5 +1,6 @@
 import {
   ImageResponse,
+  RenderMode,
   RequestKind,
   ScriptRequest,
   ScriptResponse,
@@ -22,14 +23,37 @@ class Worker {
   }
 
   render(s: ShapeRequest) {
-    console.log(s.mode);
     const shape = fidget.deserialize_tape(s.tape);
-    const out = fidget.render_region_2d(
-      shape,
-      RENDER_SIZE,
-      this.index,
-      WORKERS_PER_SIDE,
-    );
+    let out: Uint8Array;
+    switch (s.mode) {
+      case RenderMode.Bitmap: {
+        out = fidget.render_region_2d(
+          shape,
+          RENDER_SIZE,
+          this.index,
+          WORKERS_PER_SIDE,
+        );
+        break;
+      }
+      case RenderMode.Heightmap: {
+        out = fidget.render_region_heightmap(
+          shape,
+          RENDER_SIZE,
+          this.index,
+          WORKERS_PER_SIDE,
+        );
+        break;
+      }
+      case RenderMode.Normals: {
+        out = fidget.render_region_normals(
+          shape,
+          RENDER_SIZE,
+          this.index,
+          WORKERS_PER_SIDE,
+        );
+        break;
+      }
+    }
     postMessage(new ImageResponse(out), { transfer: [out.buffer] });
   }
 
