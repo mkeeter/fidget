@@ -1,44 +1,44 @@
 <html>
   <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <title>Fidget Demo</title>
     <style>
       div#editor {
         height: 512;
         width: 100%;
         display: block;
         outline: 1px solid #bbb;
+        margin-bottom: 10px;
       }
       div#output-outer {
         width: 100%;
         display: block;
-        margin-top: 10px;
         outline: 1px solid #bbb;
       }
       div#canvascol {
-        width: 100%;
         padding-right: 10px;
+        padding-left: 10px;
       }
       canvas#glcanvas {
         display: block;
-        margin-left: 10px;
         aspect-ratio: 1;
         max-height: 512px;
-        width: calc(min(100%, 512px));
         outline: 1px solid #bbb;
+        margin-bottom: 12px;
       }
       span#status {
         display: block;
-        margin-left: 10px;
-        margin-top: 15px;
         font-family: monospace;
+        float: right;
       }
       .row {
         display: flex;
       }
       .column {
         flex: 50%;
+        max-width: calc(min(100%, 512px));
       }
     </style>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
   </head>
   <body>
     <div class="row">
@@ -49,6 +49,11 @@
       <div class="column" id="canvascol">
         <canvas id="glcanvas" width="512" height="512"></canvas>
         <span id="status">Loading...</span>
+        <select name="mode" id="mode">
+          <option value="two-bit">2D (bitmap)</option>
+          <option value="three-norm">3D (shaded)</option>
+          <option value="three-height">3D (heightmap)</option>
+        </select>
       </div>
     </div>
   </body>
