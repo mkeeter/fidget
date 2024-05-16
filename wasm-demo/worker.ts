@@ -22,8 +22,9 @@ class Worker {
   }
 
   render(s: ShapeRequest) {
+    console.log(s.mode);
     const shape = fidget.deserialize_tape(s.tape);
-    const out = fidget.render_region(
+    const out = fidget.render_region_2d(
       shape,
       RENDER_SIZE,
       this.index,

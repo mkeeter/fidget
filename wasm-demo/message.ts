@@ -24,13 +24,21 @@ export class StartRequest {
   }
 }
 
+export enum RenderMode {
+  Bitmap,
+  Heightmap,
+  Normals,
+}
+
 export class ShapeRequest {
   kind: RequestKind.Shape;
   tape: Uint8Array;
+  mode: RenderMode;
 
-  constructor(tape: Uint8Array) {
+  constructor(tape: Uint8Array, mode: RenderMode) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
+    this.mode = mode;
   }
 }
 

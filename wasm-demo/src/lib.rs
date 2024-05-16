@@ -46,7 +46,7 @@ pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
 /// The image has a total size of `image_size` (on each side) and is divided
 /// into `0 <= pos < workers_per_side^2` tiles.
 #[wasm_bindgen]
-pub fn render_region(
+pub fn render_region_2d(
     shape: JsVmShape,
     image_size: usize,
     index: usize,

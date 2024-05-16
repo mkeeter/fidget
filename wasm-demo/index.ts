@@ -5,11 +5,12 @@ import { EditorState } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
 
 import {
+  RenderMode,
   ResponseKind,
   ScriptRequest,
+  ScriptResponse,
   ShapeRequest,
   StartRequest,
-  ScriptResponse,
   WorkerRequest,
   WorkerResponse,
 } from "./message";
@@ -53,10 +54,37 @@ class App {
       };
       this.workers.push(worker);
     }
+
+    // Also re-render if the mode changes
+    const select = document.getElementById('mode');
+    select.addEventListener('change', this.onModeChanged.bind(this), false);
+  }
+
+  onModeChanged() {
+    const text = this.editor.view.state.doc.toString();
+    this.onScriptChanged(text);
   }
 
   onScriptChanged(text: string) {
     this.workers[0].postMessage(new ScriptRequest(text));
+  }
+
+  getMode() {
+    const e = document.getElementById("mode") as HTMLSelectElement;
+    switch (e.value) {
+      case "bitmap": {
+        return RenderMode.Bitmap;
+      }
+      case "normals": {
+        return RenderMode.Normals;
+      }
+      case "heightmap": {
+        return RenderMode.Heightmap;
+      }
+      default: {
+        return null;
+      }
+    }
   }
 
   onWorkerMessage(i: number, req: WorkerResponse) {
@@ -90,8 +118,9 @@ class App {
         if (r.tape) {
           this.start_time = performance.now();
           this.workers_done = 0;
+          const mode = this.getMode();
           this.workers.forEach((w) => {
-            w.postMessage(new ShapeRequest(r.tape));
+            w.postMessage(new ShapeRequest(r.tape, mode));
           });
         }
         break;
