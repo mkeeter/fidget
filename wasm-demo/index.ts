@@ -56,8 +56,8 @@ class App {
     }
 
     // Also re-render if the mode changes
-    const select = document.getElementById('mode');
-    select.addEventListener('change', this.onModeChanged.bind(this), false);
+    const select = document.getElementById("mode");
+    select.addEventListener("change", this.onModeChanged.bind(this), false);
   }
 
   onModeChanged() {
