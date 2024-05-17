@@ -12,11 +12,11 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// Registers as pased in as follows:
 ///
-/// | Variable   | Register | Type                   |
-/// |------------|----------|------------------------|
-/// | `vars`     | `rdi`    | `*mut *const [f32; 4]` |
-/// | `out`      | `rsi`    | `*mut [f32; 4]`        |
-/// | `count`    | `rdx`    | `u64`                  |
+/// | Variable   | Register | Type                     |
+/// |------------|----------|--------------------------|
+/// | `vars`     | `rdi`    | `*const *const [f32; 4]` |
+/// | `out`      | `rsi`    | `*mut [f32; 4]`          |
+/// | `count`    | `rdx`    | `u64`                    |
 ///
 /// During evaluation, `rcx` is used to track offset within `vars`.
 ///

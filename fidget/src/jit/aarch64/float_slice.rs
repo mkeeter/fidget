@@ -8,11 +8,11 @@ pub const SIMD_WIDTH: usize = 4;
 
 /// Assembler for SIMD point-wise evaluation on `aarch64`
 ///
-/// | Argument | Register | Type                     |
-/// | ---------|----------|--------------------------|
-/// | `vars`   | `x0`     | `*mut *const [f32; 4]`   |
-/// | out      | `x1`     | `*mut [f32; 4]`          |
-/// | size     | `x2`     | `u64`                    |
+/// | Argument | Register | Type                       |
+/// | ---------|----------|----------------------------|
+/// | `vars`   | `x0`     | `*const *const [f32; 4]`   |
+/// | `out`    | `x1`     | `*mut [f32; 4]`            |
+/// | `count`  | `x2`     | `u64`                      |
 ///
 /// The arrays must be an even multiple of 4 floats, since we're using NEON and
 /// 128-bit wide operations for everything.
