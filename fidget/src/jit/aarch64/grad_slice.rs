@@ -12,11 +12,11 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// Registers as pased in as follows:
 ///
-/// | Variable   | Register | Type               |
-/// |------------|----------|--------------------|
-/// | `vars`     | `x0`     | `*const [f32; 4]`  |
-/// | `out`      | `x1`     | `*const [f32; 4]`  |
-/// | `count`    | `x2`     | `u64`              |
+/// | Variable   | Register | Type                    |
+/// |------------|----------|-------------------------|
+/// | `vars`     | `x0`     | `*mut *const [f32; 4]`  |
+/// | `out`      | `x1`     | `*mut [f32; 4]`         |
+/// | `count`    | `x2`     | `u64`                   |
 ///
 /// During evaluation, variables are loaded into SIMD registers in the order
 /// `[value, dx, dy, dz]`, e.g. if we load `vars[0]` into `V0`, its value would

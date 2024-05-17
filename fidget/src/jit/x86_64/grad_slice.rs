@@ -12,11 +12,11 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// Registers as pased in as follows:
 ///
-/// | Variable   | Register | Type               |
-/// |------------|----------|--------------------|
-/// | vars       | `rdi`    | `*const f32`       |
-/// | `out`      | `rsi`    | `*const [f32; 4]`  |
-/// | `count`    | `rdx`    | `u64`              |
+/// | Variable   | Register | Type                   |
+/// |------------|----------|------------------------|
+/// | `vars`     | `rdi`    | `*mut *const [f32; 4]` |
+/// | `out`      | `rsi`    | `*mut [f32; 4]`        |
+/// | `count`    | `rdx`    | `u64`                  |
 ///
 /// During evaluation, `rcx` is used to track offset within `vars`.
 ///
@@ -87,27 +87,17 @@ impl Assembler for GradSliceAssembler {
             + STACK_SIZE_LOWER as u32)
             .try_into()
             .unwrap();
+        // XXX could we use vmovaps here instead?
         dynasm!(self.0.ops
             ; vmovups [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
     fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        // upper 2 bits are insert position (COUNT_D), lower 4 are ZMASK
-        let imm = match src_arg % 3 {
-            0 => 0b01_1100,
-            1 => 0b10_1010,
-            2 => 0b11_0110,
-            _ => unreachable!(),
-        };
         let pos = 8 * (src_arg as i32); // offset within the pointer array
         dynasm!(self.0.ops
             ; mov r8, [rdi + pos]   // read the *const float from the array
             ; add r8, rcx           // offset it by array position
-            ; vmovss Rx(reg(out_reg)), [r8]
-
-            ; mov eax, 1.0f32.to_bits() as i32
-            ; movd xmm1, eax
-            ; vinsertps Rx(reg(out_reg)), Rx(reg(out_reg)), xmm1, imm
+            ; vmovaps Rx(reg(out_reg)), [r8]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -482,7 +472,7 @@ impl Assembler for GradSliceAssembler {
             ; vmovups [rsi], Rx(reg(out_reg))
             ; add rsi, 16 // 4x float
             ; sub rdx, 1 // we process one element at a time
-            ; add rcx, 4 // input is array is single floats
+            ; add rcx, 16 // input is array is Grad (f32 x 4)
             ; jmp ->L
 
             // Finalization code, which happens after all evaluation is complete
