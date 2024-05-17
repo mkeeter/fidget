@@ -9,6 +9,10 @@
     - Change signature of `fidget::render::render2d` to pass the mode only as a
       generic parameter, instead of an argument
 - Add new operations: `floor`, `ceil`, `round`, `atan2`
+- Changed `BulkEvaluator::eval` signature to take x, y, z arguments as `&[T]`
+  instead of `&[f32]`.  This is more flexible for gradient evaluation, because
+  it allows the caller to specify up to three gradients, without pinning them to
+  specific argument.
 
 # 0.2.6
 This is a relatively small release; there are a few features to improve the
