@@ -130,7 +130,7 @@ pub fn render_region_heightmap(
     Ok(depth
         .into_iter()
         .flat_map(|v| {
-            let d = (v >> 24) as u8;
+            let d = (v as usize * 255 / image_size) as u8;
             [d, d, d, 255]
         })
         .collect())
@@ -202,7 +202,13 @@ fn render_3d_inner(
             ..RenderConfig::default()
         };
 
-        let (depth, norm) = cfg.run(shape.clone())?;
+        // Special case for the first tile, which can be copied over
+        let (mut depth, norm) = cfg.run(shape.clone())?;
+        for d in &mut depth {
+            if *d > 0 {
+                *d += (z * image_size / workers_per_side) as u32;
+            }
+        }
         if current_depth.is_empty() {
             current_depth = depth;
             current_norm = norm;
