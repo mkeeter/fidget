@@ -14,12 +14,13 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// | Variable   | Register | Type               |
 /// |------------|----------|--------------------|
-/// | X          | `x0`     | `*const f32`       |
+/// | `vars`     | `x0`     | `*const [f32; 4]`  |
 /// | `out`      | `x1`     | `*const [f32; 4]`  |
 /// | `count`    | `x2`     | `u64`              |
 ///
-/// During evaluation, X, Y, and Z are stored in `V0-3.S4`.  Each SIMD register
-/// is in the order `[value, dx, dy, dz]`, e.g. the value for X is in `V0.S0`.
+/// During evaluation, variables are loaded into SIMD registers in the order
+/// `[value, dx, dy, dz]`, e.g. if we load `vars[0]` into `V0`, its value would
+/// be in `V0.S0` (and the three partial derivatives would be in `V0.S{1,2,3}`).
 ///
 /// In addition to the registers above (`x0-5`), the following extra registers
 /// are used during evaluation:
@@ -41,7 +42,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// |----------|--------------|---------------------------------------------|
 /// | 0x220    | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x218    | `x23`        | Backup for callee-saved register            |
+/// | 0x218    | `x23`        | Backup for callee-saved registers           |
 /// | 0x210    | `x22`        |                                             |
 /// | 0x208    | `x21`        |                                             |
 /// | 0x200    | `x20`        |                                             |
@@ -163,16 +164,8 @@ impl Assembler for GradSliceAssembler {
             ; ldr x4, [x0, src_arg as u32 * 8]
             ; add x4, x4, x3 // apply array offset
             ; eor V(reg(out_reg)).b16, V(reg(out_reg)).b16, V(reg(out_reg)).b16
-            ; ldr S(reg(out_reg)), [x4]
-            ; fmov s6, 1.0
+            ; ldr Q(reg(out_reg)), [x4]
         );
-        // Load the gradient, which is a 1.0
-        match src_arg % 3 {
-            0 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[1], v6.S[0]),
-            1 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[2], v6.S[0]),
-            2 => dynasm!(self.0.ops ; mov V(reg(out_reg)).S[3], v6.S[0]),
-            _ => unreachable!(),
-        }
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn grad_sin(v: Grad) -> Grad {
@@ -499,7 +492,7 @@ impl Assembler for GradSliceAssembler {
             ; sub x2, x2, 1 // We handle 1 item at a time
 
             // Adjust the array offset pointer
-            ; add x3, x3, 4 // 1 item = 4 bytes
+            ; add x3, x3, 16 // 1 item = 16 bytes
 
             // Prepare our return value, writing to the pointer in x1
             ; str Q(reg(out_reg)), [x1], 16
