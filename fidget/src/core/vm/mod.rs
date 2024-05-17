@@ -1142,9 +1142,9 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        xs: &[Grad],
+        ys: &[Grad],
+        zs: &[Grad],
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(xs, ys, zs, tape.var_count())?;
@@ -1159,9 +1159,9 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 RegOp::Input(out, j) => {
                     for i in 0..size {
                         v[out][i] = match j {
-                            0 => Grad::new(xs[i], 1.0, 0.0, 0.0),
-                            1 => Grad::new(ys[i], 0.0, 1.0, 0.0),
-                            2 => Grad::new(zs[i], 0.0, 0.0, 1.0),
+                            0 => xs[i],
+                            1 => ys[i],
+                            2 => zs[i],
                             _ => panic!("Invalid input: {}", i),
                         }
                     }
