@@ -40,9 +40,9 @@ pub trait BulkEvaluator: Default {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: &[f32],
-        y: &[f32],
-        z: &[f32],
+        x: &[Self::Data],
+        y: &[Self::Data],
+        z: &[Self::Data],
     ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator

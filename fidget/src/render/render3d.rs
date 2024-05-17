@@ -3,7 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::{BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
-    types::Interval,
+    types::{Grad, Interval},
 };
 
 use nalgebra::Point3;
@@ -15,6 +15,10 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
+
+    xg: Vec<Grad>,
+    yg: Vec<Grad>,
+    zg: Vec<Grad>,
 
     /// Depth of each column
     columns: Vec<usize>,
@@ -28,6 +32,10 @@ impl Scratch {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
             z: vec![0.0; size3],
+
+            xg: vec![Grad::from(0.0); size2],
+            yg: vec![Grad::from(0.0); size2],
+            zg: vec![Grad::from(0.0); size2],
 
             columns: vec![0; size2],
         }
@@ -222,9 +230,12 @@ impl<S: Shape> Worker<'_, S> {
             // We step one voxel above the surface to reduce
             // glitchiness on edges and corners, where rendering
             // inside the surface could pick the wrong normal.
-            self.scratch.x[grad] = (tile.corner[0] + i) as f32;
-            self.scratch.y[grad] = (tile.corner[1] + j) as f32;
-            self.scratch.z[grad] = (tile.corner[2] + k) as f32;
+            self.scratch.xg[grad] =
+                Grad::new((tile.corner[0] + i) as f32, 1.0, 0.0, 0.0);
+            self.scratch.yg[grad] =
+                Grad::new((tile.corner[1] + j) as f32, 0.0, 1.0, 0.0);
+            self.scratch.zg[grad] =
+                Grad::new((tile.corner[2] + k) as f32, 0.0, 0.0, 1.0);
 
             // This can only be called once per iteration, so we'll
             // never overwrite parts of columns that are still used
@@ -238,9 +249,9 @@ impl<S: Shape> Worker<'_, S> {
                 .eval_grad_slice
                 .eval(
                     shape.g_tape(&mut self.tape_storage),
-                    &self.scratch.x[..grad],
-                    &self.scratch.y[..grad],
-                    &self.scratch.z[..grad],
+                    &self.scratch.xg[..grad],
+                    &self.scratch.yg[..grad],
+                    &self.scratch.zg[..grad],
                 )
                 .unwrap();
 

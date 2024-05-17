@@ -295,6 +295,18 @@ impl std::ops::Mul<Grad> for Grad {
     }
 }
 
+impl std::ops::Mul<f32> for Grad {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            v: self.v * rhs,
+            dx: self.dx * rhs,
+            dy: self.dy * rhs,
+            dz: self.dz * rhs,
+        }
+    }
+}
+
 impl std::ops::Div<Grad> for Grad {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {

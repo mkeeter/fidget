@@ -1,5 +1,5 @@
 use crate::{
-    eval::{BulkEvaluator, Interval, Shape, Tape, TracingEvaluator},
+    eval::{BulkEvaluator, Grad, Interval, Shape, Tape, TracingEvaluator},
     Error,
 };
 use nalgebra::{Matrix4, Point3, Vector3};
@@ -91,6 +91,22 @@ impl Transformable for Interval {
     }
 }
 
+impl Transformable for Grad {
+    fn transform(
+        x: Grad,
+        y: Grad,
+        z: Grad,
+        mat: Matrix4<f32>,
+    ) -> (Grad, Grad, Grad) {
+        let out = [0, 1, 2, 3].map(|i| {
+            let row = mat.row(i);
+            x * row[0] + y * row[1] + z * row[2] + Grad::from(row[3])
+        });
+
+        (out[0] / out[3], out[1] / out[3], out[2] / out[3])
+    }
+}
+
 impl<T: TracingEvaluator> TracingEvaluator for TransformedTracingEval<T>
 where
     <T as TracingEvaluator>::Data: Transformable,
@@ -115,37 +131,51 @@ where
 }
 
 /// A generic [`BulkEvaluator`] which applies a transform matrix
-#[derive(Default)]
-pub struct TransformedBulkEval<E> {
+pub struct TransformedBulkEval<E: BulkEvaluator> {
     eval: E,
-    xs: Vec<f32>,
-    ys: Vec<f32>,
-    zs: Vec<f32>,
+    xs: Vec<E::Data>,
+    ys: Vec<E::Data>,
+    zs: Vec<E::Data>,
 }
 
-impl<T: BulkEvaluator> BulkEvaluator for TransformedBulkEval<T> {
-    type Data = <T as BulkEvaluator>::Data;
-    type Tape = TransformedTape<<T as BulkEvaluator>::Tape>;
-    type TapeStorage = <T as BulkEvaluator>::TapeStorage;
+impl<E: BulkEvaluator> Default for TransformedBulkEval<E> {
+    fn default() -> Self {
+        Self {
+            eval: E::default(),
+            xs: vec![],
+            ys: vec![],
+            zs: vec![],
+        }
+    }
+}
+
+impl<E: BulkEvaluator> BulkEvaluator for TransformedBulkEval<E>
+where
+    <E as BulkEvaluator>::Data: Transformable,
+{
+    type Data = <E as BulkEvaluator>::Data;
+    type Tape = TransformedTape<<E as BulkEvaluator>::Tape>;
+    type TapeStorage = <E as BulkEvaluator>::TapeStorage;
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: &[f32],
-        y: &[f32],
-        z: &[f32],
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
     ) -> Result<&[Self::Data], Error> {
         if x.len() != y.len() || x.len() != z.len() {
             return Err(Error::MismatchedSlices);
         }
         let n = x.len();
-        self.xs.resize(n, 0.0);
-        self.ys.resize(n, 0.0);
-        self.zs.resize(n, 0.0);
+        self.xs.resize(n, E::Data::from(0.0));
+        self.ys.resize(n, E::Data::from(0.0));
+        self.zs.resize(n, E::Data::from(0.0));
         for i in 0..x.len() {
-            let p = tape.mat.transform_point(&Point3::new(x[i], y[i], z[i]));
-            self.xs[i] = p.x;
-            self.ys[i] = p.y;
-            self.zs[i] = p.z;
+            let (x, y, z) =
+                Transformable::transform(x[i], y[i], z[i], tape.mat);
+            self.xs[i] = x;
+            self.ys[i] = y;
+            self.zs[i] = z;
         }
         self.eval.eval(&tape.tape, &self.xs, &self.ys, &self.zs)
     }

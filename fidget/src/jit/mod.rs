@@ -1068,9 +1068,9 @@ pub struct JitBulkFn<T> {
     var_count: usize,
     fn_bulk: jit_fn!(
         unsafe fn(
-            *const *const f32, // vars
-            *mut T,            // out
-            u64,               // size
+            *const *const T, // vars
+            *mut T,          // out
+            u64,             // size
         ) -> T
     ),
 }
@@ -1104,9 +1104,9 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     fn eval(
         &mut self,
         tape: &JitBulkFn<T>,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        xs: &[T],
+        ys: &[T],
+        zs: &[T],
     ) -> &[T] {
         assert!(tape.var_count <= 3);
         let n = xs.len();
@@ -1122,9 +1122,9 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
             // that should be optimized out; we can't use a constant assertion
             // here due to the same compiler limitations.
             const MAX_SIMD_WIDTH: usize = 8;
-            let mut x = [0.0; MAX_SIMD_WIDTH];
-            let mut y = [0.0; MAX_SIMD_WIDTH];
-            let mut z = [0.0; MAX_SIMD_WIDTH];
+            let mut x = [T::from(0.0); MAX_SIMD_WIDTH];
+            let mut y = [T::from(0.0); MAX_SIMD_WIDTH];
+            let mut z = [T::from(0.0); MAX_SIMD_WIDTH];
             assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
             x[0..n].copy_from_slice(xs);
@@ -1203,9 +1203,9 @@ impl BulkEvaluator for JitGradSliceEval {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        xs: &[Self::Data],
+        ys: &[Self::Data],
+        zs: &[Self::Data],
     ) -> Result<&[Self::Data], Error> {
         self.check_arguments(xs, ys, zs, tape.var_count)?;
         Ok(self.0.eval(tape, xs, ys, zs))

@@ -10,7 +10,10 @@ use super::{
     types::{Axis, Corner, Edge},
     Mesh, Settings,
 };
-use crate::eval::{BulkEvaluator, Shape, Tape, TracingEvaluator};
+use crate::{
+    eval::{BulkEvaluator, Shape, Tape, TracingEvaluator},
+    types::Grad,
+};
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -538,11 +541,11 @@ impl<S: Shape> OctreeBuilder<S> {
         const EDGE_SEARCH_SIZE: usize = 16;
         const EDGE_SEARCH_DEPTH: usize = 4;
         let xs =
-            &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
+            &mut [0.0; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
         let ys =
-            &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
+            &mut [0.0; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
         let zs =
-            &mut [0f32; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
+            &mut [0.0; 12 * EDGE_SEARCH_SIZE][..edge_count * EDGE_SEARCH_SIZE];
 
         // This part looks hairy, but it's just doing an N-ary search along each
         // edge to find the intersection point.
@@ -618,11 +621,18 @@ impl<S: Shape> OctreeBuilder<S> {
                 })
                 .collect();
 
+        let xs = &mut [Grad::from(0.0); 12 * EDGE_SEARCH_SIZE]
+            [..intersections.len()];
+        let ys = &mut [Grad::from(0.0); 12 * EDGE_SEARCH_SIZE]
+            [..intersections.len()];
+        let zs = &mut [Grad::from(0.0); 12 * EDGE_SEARCH_SIZE]
+            [..intersections.len()];
+
         for (i, xyz) in intersections.iter().enumerate() {
             let pos = cell.pos(*xyz);
-            xs[i] = pos.x;
-            ys[i] = pos.y;
-            zs[i] = pos.z;
+            xs[i] = Grad::new(pos.x, 1.0, 0.0, 0.0);
+            ys[i] = Grad::new(pos.y, 0.0, 1.0, 0.0);
+            zs[i] = Grad::new(pos.z, 0.0, 0.0, 1.0);
         }
 
         // TODO: special case for cells with multiple gradients ("features")
@@ -638,7 +648,7 @@ impl<S: Shape> OctreeBuilder<S> {
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
-                let pos = nalgebra::Vector3::new(xs[i], ys[i], zs[i]);
+                let pos = nalgebra::Vector3::new(xs[i].v, ys[i].v, zs[i].v);
                 let grad: nalgebra::Vector4<f32> = grads[i].into();
 
                 qef.add_intersection(pos, grad);
