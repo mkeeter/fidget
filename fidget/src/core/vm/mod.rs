@@ -1265,7 +1265,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
                 RegOp::MulRegImm(out, arg, imm) => {
                     for i in 0..size {
-                        v[out][i] = v[arg][i] * imm.into();
+                        v[out][i] = v[arg][i] * imm;
                     }
                 }
                 RegOp::DivRegImm(out, arg, imm) => {

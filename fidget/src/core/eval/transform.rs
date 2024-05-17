@@ -98,7 +98,12 @@ impl Transformable for Grad {
         z: Grad,
         mat: Matrix4<f32>,
     ) -> (Grad, Grad, Grad) {
-        todo!()
+        let out = [0, 1, 2, 3].map(|i| {
+            let row = mat.row(i);
+            x * row[0] + y * row[1] + z * row[2] + Grad::from(row[3])
+        });
+
+        (out[0] / out[3], out[1] / out[3], out[2] / out[3])
     }
 }
 
