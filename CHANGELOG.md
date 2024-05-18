@@ -1,4 +1,8 @@
-# 0.2.7 (in progress)
+# 0.2.7
+This release brings us to opcode parity with `libfive`'s operators, adding
+`atan2` and various rounding operations.  In addition, there are a few new APIs
+and rearrangements in preparation for larger refactoring to come.
+
 - Changed to 2D rendering API to support render modes which use linear
   interpolation to process full / empty regions
     - Specifically, `RenderMode::interval` now returns an `IntervalAction`,
