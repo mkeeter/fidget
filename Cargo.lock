@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "arrayvec",
  "bimap",

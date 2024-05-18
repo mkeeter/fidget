@@ -1,3 +1,5 @@
+# 0.2.8 (unreleased)
+
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding
 `atan2` and various rounding operations.  In addition, there are a few new APIs
