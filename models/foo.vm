@@ -1,0 +1,8 @@
+X var-x
+Y var-y
+X2 square X
+Y2 square Y
+out add X2 Y2
+s sqrt out
+one const 0.1
+foo sub s one

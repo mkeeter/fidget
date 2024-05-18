@@ -112,7 +112,7 @@ struct MeshSettings {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<S: fidget::eval::Shape>(
+fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &ImageSettings,
     isometric: bool,
@@ -168,7 +168,7 @@ fn run3d<S: fidget::eval::Shape>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<S: fidget::eval::Shape>(
+fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &ImageSettings,
     brute: bool,
@@ -236,10 +236,13 @@ fn run2d<S: fidget::eval::Shape>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run_mesh<S: fidget::eval::Shape>(
+fn run_mesh<S: fidget::eval::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &MeshSettings,
-) -> fidget::mesh::Mesh {
+) -> fidget::mesh::Mesh
+where
+    <S as fidget::eval::Shape>::TransformedShape: fidget::shape::RenderHints,
+{
     let mut mesh = fidget::mesh::Mesh::new();
 
     for _ in 0..settings.n {

@@ -31,6 +31,7 @@ use crate::{
         TransformedShape,
     },
     jit::mmap::Mmap,
+    shape::RenderHints,
     types::{Grad, Interval},
     vm::{Choice, GenericVmShape, VmData, VmTrace, VmWorkspace},
     Error,
@@ -898,6 +899,17 @@ impl Shape for JitShape {
         self.0.recycle()
     }
 
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    type TransformedShape = TransformedShape<Self>;
+    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
+        TransformedShape::new(self, mat)
+    }
+}
+
+impl RenderHints for JitShape {
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
     }
@@ -909,15 +921,6 @@ impl Shape for JitShape {
     fn simplify_tree_during_meshing(d: usize) -> bool {
         // Unscientifically selected, but similar to tile_sizes_3d
         d % 8 == 4
-    }
-
-    fn size(&self) -> usize {
-        self.0.size()
-    }
-
-    type TransformedShape = TransformedShape<Self>;
-    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
-        TransformedShape::new(self, mat)
     }
 }
 

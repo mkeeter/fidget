@@ -6,6 +6,7 @@ use crate::{
         BulkEvaluator, MathShape, Shape, Tape, Trace, TracingEvaluator,
         TransformedShape,
     },
+    shape::RenderHints,
     types::{Grad, Interval},
     Context, Error,
 };
@@ -176,17 +177,19 @@ impl<const N: usize> Shape for GenericVmShape<N> {
         GenericVmShape::size(self)
     }
 
+    type TransformedShape = TransformedShape<Self>;
+    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
+        TransformedShape::new(self, mat)
+    }
+}
+
+impl<const N: usize> RenderHints for GenericVmShape<N> {
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
     }
 
     fn tile_sizes_2d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
-    }
-
-    type TransformedShape = TransformedShape<Self>;
-    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
-        TransformedShape::new(self, mat)
     }
 }
 
