@@ -19,5 +19,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
     - name: Run tests
-      run: cargo test --verbose --package fidget
+      run: cargo nextest run --verbose --package fidget
+    - name: Run doctests
+      run: cargo test --verbose --package fidget --doc
