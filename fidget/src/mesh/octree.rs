@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     eval::{BulkEvaluator, Shape, Tape, TracingEvaluator},
+    shape::RenderHints,
     types::Grad,
 };
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
@@ -90,7 +91,13 @@ impl Octree {
     /// Builds an octree to the given depth
     ///
     /// The shape is evaluated on the region specified by `settings.bounds`.
-    pub fn build<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
+    pub fn build<S: Shape + RenderHints + Clone>(
+        shape: &S,
+        settings: Settings,
+    ) -> Self
+    where
+        <S as Shape>::TransformedShape: RenderHints,
+    {
         // Transform the shape given our bounds
         let t = settings.bounds.transform();
         if t == nalgebra::Transform::identity() {
@@ -109,7 +116,10 @@ impl Octree {
         }
     }
 
-    fn build_inner<S: Shape + Clone>(shape: &S, settings: Settings) -> Self {
+    fn build_inner<S: Shape + RenderHints + Clone>(
+        shape: &S,
+        settings: Settings,
+    ) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
         if settings.threads() == 1 {
@@ -228,7 +238,7 @@ impl std::ops::IndexMut<CellIndex> for Octree {
 
 /// Data structure for an under-construction octree
 #[derive(Debug)]
-pub(crate) struct OctreeBuilder<S: Shape> {
+pub(crate) struct OctreeBuilder<S: Shape + RenderHints> {
     /// Internal octree
     ///
     /// Note that in this internal octree, the `index` field of leaf nodes
@@ -261,13 +271,13 @@ pub(crate) struct OctreeBuilder<S: Shape> {
     workspace: S::Workspace,
 }
 
-impl<S: Shape> Default for OctreeBuilder<S> {
+impl<S: Shape + RenderHints> Default for OctreeBuilder<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<S: Shape> From<OctreeBuilder<S>> for Octree {
+impl<S: Shape + RenderHints> From<OctreeBuilder<S>> for Octree {
     fn from(o: OctreeBuilder<S>) -> Self {
         // Convert from "leaf index into self.leafs" (in the builder) to
         // "leaf index into self.verts" (in the resulting Octree)
@@ -293,7 +303,7 @@ impl<S: Shape> From<OctreeBuilder<S>> for Octree {
     }
 }
 
-impl<S: Shape> OctreeBuilder<S> {
+impl<S: Shape + RenderHints> OctreeBuilder<S> {
     /// Builds a new octree, which allocates data for 8 root cells
     pub(crate) fn new() -> Self {
         Self {
@@ -903,7 +913,7 @@ impl<S: Shape> OctreeBuilder<S> {
 
 /// `OctreeBuilder` functions which are only used during multithreaded rendering
 #[cfg(not(target_arch = "wasm32"))]
-impl<S: Shape> OctreeBuilder<S> {
+impl<S: Shape + RenderHints> OctreeBuilder<S> {
     /// Builds a new empty octree
     ///
     /// This still allocates data to reserve the lowest slot in `hermite`

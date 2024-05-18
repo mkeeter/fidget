@@ -13,6 +13,9 @@
   instead of `&[f32]`.  This is more flexible for gradient evaluation, because
   it allows the caller to specify up to three gradients, without pinning them to
   specific argument.
+- Moved `tile_sizes_2d`, `tile_sizes_3d`, and `simplify_tree_during_meshing`
+  into a new `fidget::shape::RenderHits` trait.  This is a building block for
+  generic (_n_-variable) function evaluation.
 
 # 0.2.6
 This is a relatively small release; there are a few features to improve the

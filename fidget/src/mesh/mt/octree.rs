@@ -8,6 +8,7 @@ use crate::{
         types::Corner,
         Octree, Settings,
     },
+    shape::RenderHints,
 };
 use std::sync::{mpsc::TryRecvError, Arc};
 
@@ -88,7 +89,7 @@ struct Done<S: Shape> {
     completed_by: usize,
 }
 
-pub struct OctreeWorker<S: Shape> {
+pub struct OctreeWorker<S: Shape + RenderHints> {
     /// Global index of this worker thread
     ///
     /// For example, this is the thread's own index in `friend_queue` and
@@ -116,7 +117,7 @@ pub struct OctreeWorker<S: Shape> {
     friend_done: Vec<std::sync::mpsc::Sender<Done<S>>>,
 }
 
-impl<S: Shape> OctreeWorker<S> {
+impl<S: Shape + RenderHints> OctreeWorker<S> {
     pub fn scheduler(eval: Arc<EvalGroup<S>>, settings: Settings) -> Octree {
         let task_queues = QueuePool::new(settings.threads());
         let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)

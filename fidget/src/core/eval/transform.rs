@@ -1,5 +1,6 @@
 use crate::{
     eval::{BulkEvaluator, Grad, Interval, Shape, Tape, TracingEvaluator},
+    shape::RenderHints,
     Error,
 };
 use nalgebra::{Matrix4, Point3, Vector3};
@@ -190,12 +191,6 @@ impl<S: Shape> Shape for TransformedShape<S> {
     type IntervalEval = TransformedTracingEval<<S as Shape>::IntervalEval>;
     type FloatSliceEval = TransformedBulkEval<<S as Shape>::FloatSliceEval>;
     type GradSliceEval = TransformedBulkEval<<S as Shape>::GradSliceEval>;
-    fn tile_sizes_2d() -> &'static [usize] {
-        S::tile_sizes_2d()
-    }
-    fn tile_sizes_3d() -> &'static [usize] {
-        S::tile_sizes_3d()
-    }
     fn size(&self) -> usize {
         self.shape.size()
     }
@@ -259,5 +254,14 @@ impl<S: Shape> Shape for TransformedShape<S> {
     fn apply_transform(mut self, mat: Matrix4<f32>) -> Self::TransformedShape {
         self.mat *= mat;
         self
+    }
+}
+
+impl<S: RenderHints> RenderHints for TransformedShape<S> {
+    fn tile_sizes_2d() -> &'static [usize] {
+        S::tile_sizes_2d()
+    }
+    fn tile_sizes_3d() -> &'static [usize] {
+        S::tile_sizes_3d()
     }
 }
