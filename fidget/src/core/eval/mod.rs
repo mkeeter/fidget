@@ -1,7 +1,18 @@
 //! Traits and data structures for function evaluation
+use crate::{
+    types::{Grad, Interval},
+    Error,
+};
 
 #[cfg(any(test, feature = "eval-tests"))]
 pub mod test;
+
+mod bulk;
+mod tracing;
+
+// Reexport a few types
+pub use bulk::BulkEvaluator;
+pub use tracing::TracingEvaluator;
 
 /// A tape represents something that can be evaluated by an evaluator
 ///
@@ -33,4 +44,124 @@ impl<T: Copy + Clone + Default> Trace for Vec<T> {
         self.resize(other.len(), T::default());
         self.copy_from_slice(other);
     }
+}
+
+/// A function represents something that can be evaluated
+///
+/// It is mostly agnostic to _how_ that something is represented; we simply
+/// require that it can generate evaluators of various kinds.
+///
+/// Functions are shared between threads, so they should be cheap to clone.  In
+/// most cases, they're a thin wrapper around an `Arc<..>`.
+pub trait Function: Send + Sync + Clone {
+    /// Associated type traces collected during tracing evaluation
+    ///
+    /// This type must implement [`Eq`] so that traces can be compared; calling
+    /// [`Function::simplify`] with traces that compare equal should produce an
+    /// identical result and may be cached.
+    type Trace: Clone + Eq + Send + Trace;
+
+    /// Associated type for storage used by the shape itself
+    type Storage: Default + Send;
+
+    /// Associated type for workspace used during shape simplification
+    type Workspace: Default + Send;
+
+    /// Associated type for storage used by tapes
+    ///
+    /// For simplicity, we require that every tape use the same type for storage.
+    /// This could change in the future!
+    type TapeStorage: Default + Send;
+
+    /// Associated type for single-point tracing evaluation
+    type PointEval: TracingEvaluator<
+            Data = f32,
+            Trace = Self::Trace,
+            TapeStorage = Self::TapeStorage,
+        > + Send
+        + Sync;
+
+    /// Builds a new point evaluator
+    fn new_point_eval() -> Self::PointEval {
+        Self::PointEval::new()
+    }
+
+    /// Associated type for single interval tracing evaluation
+    type IntervalEval: TracingEvaluator<
+            Data = Interval,
+            Trace = Self::Trace,
+            TapeStorage = Self::TapeStorage,
+        > + Send
+        + Sync;
+
+    /// Builds a new interval evaluator
+    fn new_interval_eval() -> Self::IntervalEval {
+        Self::IntervalEval::new()
+    }
+
+    /// Associated type for evaluating many points in one call
+    type FloatSliceEval: BulkEvaluator<Data = f32, TapeStorage = Self::TapeStorage>
+        + Send
+        + Sync;
+
+    /// Builds a new float slice evaluator
+    fn new_float_slice_eval() -> Self::FloatSliceEval {
+        Self::FloatSliceEval::new()
+    }
+
+    /// Associated type for evaluating many gradients in one call
+    type GradSliceEval: BulkEvaluator<Data = Grad, TapeStorage = Self::TapeStorage>
+        + Send
+        + Sync;
+
+    /// Builds a new gradient slice evaluator
+    fn new_grad_slice_eval() -> Self::GradSliceEval {
+        Self::GradSliceEval::new()
+    }
+
+    /// Returns an evaluation tape for a point evaluator
+    fn point_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::PointEval as TracingEvaluator>::Tape;
+
+    /// Returns an evaluation tape for an interval evaluator
+    fn interval_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn float_slice_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
+
+    /// Returns an evaluation tape for a float slice evaluator
+    fn grad_slice_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
+
+    /// Computes a simplified tape using the given trace, and reusing storage
+    fn simplify(
+        &self,
+        trace: &Self::Trace,
+        storage: Self::Storage,
+        workspace: &mut Self::Workspace,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Attempt to reclaim storage from this shape
+    ///
+    /// This may fail, because shapes are `Clone` and are often implemented
+    /// using an `Arc` around a heavier data structure.
+    fn recycle(self) -> Option<Self::Storage>;
+
+    /// Returns a size associated with this shape
+    ///
+    /// This is underspecified and only used for unit testing; for tape-based
+    /// shapes, it's typically the length of the tape,
+    fn size(&self) -> usize;
 }
