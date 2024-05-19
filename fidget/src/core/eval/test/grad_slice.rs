@@ -41,7 +41,7 @@ where
     pub fn test_g_x() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = S::new(&ctx, x).unwrap();
+        let shape = S::new(&mut ctx, x).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -53,7 +53,7 @@ where
     pub fn test_g_y() {
         let mut ctx = Context::new();
         let y = ctx.y();
-        let shape = S::new(&ctx, y).unwrap();
+        let shape = S::new(&mut ctx, y).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -65,7 +65,7 @@ where
     pub fn test_g_z() {
         let mut ctx = Context::new();
         let z = ctx.z();
-        let shape = S::new(&ctx, z).unwrap();
+        let shape = S::new(&mut ctx, z).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -78,7 +78,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -103,7 +103,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.abs(x).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -120,7 +120,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -137,7 +137,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
         let tape = shape.ez_grad_slice_tape();
 
         let v = Self::eval_xyz(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3]);
@@ -148,7 +148,7 @@ where
         let y = ctx.y();
         let y = ctx.mul(y, 2.0).unwrap();
         let s = ctx.sin(y).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
         let tape = shape.ez_grad_slice_tape();
         let v = Self::eval_xyz(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3]);
         v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
@@ -161,7 +161,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -186,7 +186,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -199,7 +199,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let shape = S::new(&ctx, s).unwrap();
+        let shape = S::new(&mut ctx, s).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -217,7 +217,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.min(x, y).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
+        let shape = S::new(&mut ctx, m).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -237,7 +237,7 @@ where
         let z = ctx.z();
         let min = ctx.min(x, y).unwrap();
         let max = ctx.max(min, z).unwrap();
-        let shape = S::new(&ctx, max).unwrap();
+        let shape = S::new(&mut ctx, max).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -259,7 +259,7 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.max(x, y).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
+        let shape = S::new(&mut ctx, m).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -276,7 +276,7 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let m = ctx.not(x).unwrap();
-        let shape = S::new(&ctx, m).unwrap();
+        let shape = S::new(&mut ctx, m).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -295,7 +295,7 @@ where
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
         let sub = ctx.sub(sqrt, 0.5).unwrap();
-        let shape = S::new(&ctx, sub).unwrap();
+        let shape = S::new(&mut ctx, sub).unwrap();
 
         let tape = shape.ez_grad_slice_tape();
         assert_eq!(
@@ -317,7 +317,7 @@ where
     }
 
     pub fn test_g_stress_n(depth: usize) {
-        let (ctx, node) = build_stress_fn(depth);
+        let (mut ctx, node) = build_stress_fn(depth);
 
         // Pick an input slice that's guaranteed to be > 1 SIMD registers
         let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
@@ -327,7 +327,7 @@ where
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = S::new(&ctx, node).unwrap();
+        let shape = S::new(&mut ctx, node).unwrap();
         let tape = shape.ez_grad_slice_tape();
 
         let out = Self::eval_xyz(&tape, &x, &y, &z);
@@ -352,7 +352,7 @@ where
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
         use crate::vm::VmShape;
-        let shape = VmShape::new(&ctx, node).unwrap();
+        let shape = VmShape::new(&mut ctx, node).unwrap();
         let tape = shape.ez_grad_slice_tape();
 
         let cmp = TestGradSlice::<VmShape>::eval_xyz(&tape, &x, &y, &z);
@@ -375,7 +375,7 @@ where
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
             let node = C::build(&mut ctx, v);
 
-            let shape = S::new(&ctx, node).unwrap();
+            let shape = S::new(&mut ctx, node).unwrap();
             let tape = shape.ez_grad_slice_tape();
 
             let out = match i {
@@ -528,7 +528,7 @@ where
                 for (j, &u) in inputs.iter().enumerate() {
                     let node = C::build(&mut ctx, v, u);
 
-                    let shape = S::new(&ctx, node).unwrap();
+                    let shape = S::new(&mut ctx, node).unwrap();
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match (i, j) {
@@ -575,7 +575,7 @@ where
                     let c = ctx.constant(*rhs as f64);
                     let node = C::build(&mut ctx, v, c);
 
-                    let shape = S::new(&ctx, node).unwrap();
+                    let shape = S::new(&mut ctx, node).unwrap();
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match i {
@@ -616,7 +616,7 @@ where
                     let c = ctx.constant(*lhs as f64);
                     let node = C::build(&mut ctx, c, v);
 
-                    let shape = S::new(&ctx, node).unwrap();
+                    let shape = S::new(&mut ctx, node).unwrap();
                     let tape = shape.ez_grad_slice_tape();
 
                     let out = match i {

@@ -166,6 +166,11 @@ impl Context {
         self.ops.insert(Op::Input(v))
     }
 
+    /// Returns a 3-element array of `X`, `Y`, `Z` nodes
+    pub fn axes(&mut self) -> [Node; 3] {
+        [self.x(), self.y(), self.z()]
+    }
+
     /// Returns a node representing the given constant value.
     /// ```
     /// # let mut ctx = fidget::context::Context::new();

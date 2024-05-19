@@ -1585,9 +1585,9 @@ mod test {
     #[test]
     fn test_colonnade_manifold() {
         const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
-        let (ctx, root) =
+        let (mut ctx, root) =
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
-        let tape = VmShape::new(&ctx, root).unwrap();
+        let tape = VmShape::new(&mut ctx, root).unwrap();
         for threads in [1, 8] {
             let settings = Settings {
                 depth: 5,

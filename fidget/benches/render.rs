@@ -7,8 +7,9 @@ const PROSPERO: &str = include_str!("../../models/prospero.vm");
 use fidget::shape::{MathShape, RenderHints};
 
 pub fn prospero_size_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
     let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
@@ -52,8 +53,9 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 }
 
 pub fn prospero_thread_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
     let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();

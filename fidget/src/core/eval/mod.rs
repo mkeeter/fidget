@@ -1,5 +1,6 @@
 //! Traits and data structures for function evaluation
 use crate::{
+    context::{Context, Node, Tree},
     types::{Grad, Interval},
     Error,
 };
@@ -164,4 +165,22 @@ pub trait Function: Send + Sync + Clone {
     /// This is underspecified and only used for unit testing; for tape-based
     /// shapes, it's typically the length of the tape,
     fn size(&self) -> usize;
+}
+
+/// A [`Function`] which can be built from a math expression
+pub trait MathFunction {
+    /// Builds a new shape from the given context and node
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
+    fn from_tree(t: &Tree) -> Self
+    where
+        Self: Sized,
+    {
+        let mut ctx = Context::new();
+        let node = ctx.import(t);
+        Self::new(&ctx, node).unwrap()
+    }
 }

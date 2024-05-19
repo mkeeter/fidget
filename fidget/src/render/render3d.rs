@@ -455,7 +455,7 @@ mod test {
     fn test_tile_queues() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = VmShape::new(&ctx, x).unwrap();
+        let shape = VmShape::new(&mut ctx, x).unwrap();
 
         let cfg = RenderConfig::<3> {
             image_size: 128, // very small!

@@ -8,12 +8,12 @@ use fidget::{
 
 pub fn run_bench<S: Shape + MathShape>(
     c: &mut Criterion,
-    ctx: Context,
+    mut ctx: Context,
     node: Node,
     test_name: &'static str,
     name: &'static str,
 ) {
-    let shape_vm = &S::new(&ctx, node).unwrap();
+    let shape_vm = &S::new(&mut ctx, node).unwrap();
 
     let mut eval = S::new_float_slice_eval();
     let tape = shape_vm.ez_float_slice_tape();

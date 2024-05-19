@@ -28,10 +28,10 @@
 //! ambiguity.
 
 use crate::{
-    context::Node,
+    context::{Context, Node},
     eval::{self, Trace},
     types::{Grad, Interval},
-    Context, Error,
+    Error,
 };
 
 mod bounds;
@@ -241,24 +241,6 @@ impl<S: Shape> EzShape for S {
     }
 }
 
-/// A [`Shape`] which can be built from a math expression
-pub trait MathShape {
-    /// Builds a new shape from the given context and node
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
-    fn from_tree(t: &crate::context::Tree) -> Self
-    where
-        Self: Sized,
-    {
-        let mut ctx = Context::new();
-        let node = ctx.import(t);
-        Self::new(&ctx, node).unwrap()
-    }
-}
-
 /// Hints for how to render this particular type
 pub trait RenderHints {
     /// Recommended tile sizes for 3D rendering
@@ -275,6 +257,39 @@ pub trait RenderHints {
     /// certain depths.
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
+    }
+}
+
+/// A [`Shape`] which can be built from a math expression
+pub trait MathShape {
+    /// Builds a new shape from the given node with default (X, Y, Z) axes
+    fn new(ctx: &mut Context, node: Node) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let axes = ctx.axes();
+        Self::new_with_axes(ctx, node, axes)
+    }
+
+    /// Builds a new shape from the given context, node, and axes
+    fn new_with_axes(
+        ctx: &Context,
+        node: Node,
+        axes: [Node; 3],
+    ) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
+    ///
+    /// This function uses the default (X, Y, Z) axes
+    fn from_tree(t: &crate::context::Tree) -> Self
+    where
+        Self: Sized,
+    {
+        let mut ctx = Context::new();
+        let node = ctx.import(t);
+        Self::new(&mut ctx, node).unwrap()
     }
 }
 
@@ -366,6 +381,31 @@ impl<F: eval::Function + Clone> Shape for FunctionShape<F> {
     // todo
 }
 
+impl<F: eval::MathFunction> MathShape for FunctionShape<F> {
+    fn new_with_axes(
+        ctx: &Context,
+        node: Node,
+        axes: [Node; 3],
+    ) -> Result<Self, Error> {
+        let f = F::new(ctx, node)?; // TODO get a varmap here
+        Ok(Self { f, axes: [0, 1, 2] })
+    }
+}
+
+impl<F: RenderHints> RenderHints for FunctionShape<F> {
+    fn tile_sizes_3d() -> &'static [usize] {
+        F::tile_sizes_3d()
+    }
+
+    fn tile_sizes_2d() -> &'static [usize] {
+        F::tile_sizes_2d()
+    }
+
+    fn simplify_tree_during_meshing(d: usize) -> bool {
+        F::simplify_tree_during_meshing(d)
+    }
+}
+
 /// Wrapper struct to convert from [`eval::TracingEvaluator`] to
 /// [`shape::TracingEvaluator`](TracingEvaluator)
 #[derive(Default)]
@@ -392,13 +432,13 @@ impl<E: eval::TracingEvaluator> TracingEvaluator
         z: F,
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
         let mut vars = [None, None, None];
-        vars[self.axes[0]] = Some(x);
-        vars[self.axes[1]] = Some(y);
-        vars[self.axes[2]] = Some(z);
+        vars[self.axes[0]] = Some(x.into());
+        vars[self.axes[1]] = Some(y.into());
+        vars[self.axes[2]] = Some(z.into());
 
         // TODO make this error?  Where do we maintain the `axes` invariants?
         let vars = vars.map(Option::unwrap);
-        self.eval.eval(tape, &vars)
+        self.eval.eval(tape, vars.as_slice())
     }
     // todo
 }

@@ -264,7 +264,7 @@ fn main() -> Result<()> {
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(&args.input)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
+    let (mut ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
     match args.cmd {
@@ -277,12 +277,12 @@ fn main() -> Result<()> {
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }

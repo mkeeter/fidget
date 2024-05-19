@@ -467,8 +467,8 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
 mod test {
     use super::*;
     use crate::{
-        shape::{Bounds, MathShape, Shape},
-        vm::{GenericVmShape, VmShape},
+        shape::{Bounds, FunctionShape, MathShape, Shape},
+        vm::{GenericVmFunction, VmShape},
         Context,
     };
 
@@ -513,8 +513,8 @@ mod test {
     }
 
     fn check_hi<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = S::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             .................X..............
             .................X..............
@@ -552,8 +552,8 @@ mod test {
     }
 
     fn check_hi_transformed<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = S::new(&mut ctx, root).unwrap();
         let mut mat = nalgebra::Matrix4::<f32>::identity();
         mat.prepend_translation_mut(&nalgebra::Vector3::new(0.5, 0.5, 0.0));
         mat.prepend_scaling_mut(0.5);
@@ -595,8 +595,8 @@ mod test {
     }
 
     fn check_hi_bounded<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = S::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             .XXX............................
             .XXX............................
@@ -641,8 +641,8 @@ mod test {
     }
 
     fn check_quarter<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+        let (mut ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
+        let shape = S::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             ................................
             ................................
@@ -686,7 +686,7 @@ mod test {
 
     #[test]
     fn render_hi_vm3() {
-        check_hi::<GenericVmShape<3>>();
+        check_hi::<FunctionShape<GenericVmFunction<3>>>();
     }
 
     #[cfg(feature = "jit")]
@@ -702,7 +702,7 @@ mod test {
 
     #[test]
     fn render_hi_transformed_vm3() {
-        check_hi_transformed::<GenericVmShape<3>>();
+        check_hi_transformed::<FunctionShape<GenericVmFunction<3>>>();
     }
 
     #[cfg(feature = "jit")]
@@ -718,7 +718,7 @@ mod test {
 
     #[test]
     fn render_hi_bounded_vm3() {
-        check_hi_bounded::<GenericVmShape<3>>();
+        check_hi_bounded::<FunctionShape<GenericVmFunction<3>>>();
     }
 
     #[cfg(feature = "jit")]
@@ -734,7 +734,7 @@ mod test {
 
     #[test]
     fn render_quarter_vm3() {
-        check_quarter::<GenericVmShape<3>>();
+        check_quarter::<FunctionShape<GenericVmFunction<3>>>();
     }
 
     #[cfg(feature = "jit")]

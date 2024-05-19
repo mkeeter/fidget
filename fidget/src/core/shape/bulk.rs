@@ -44,21 +44,4 @@ pub trait BulkEvaluator: Default {
     fn new() -> Self {
         Self::default()
     }
-
-    /// Helper function to return an error if the inputs are invalid
-    fn check_arguments<T>(
-        &self,
-        xs: &[T],
-        ys: &[T],
-        zs: &[T],
-        var_count: usize,
-    ) -> Result<(), Error> {
-        if xs.len() != ys.len() || ys.len() != zs.len() {
-            Err(Error::MismatchedSlices)
-        } else if var_count > 3 {
-            Err(Error::BadVarSlice(3, var_count))
-        } else {
-            Ok(())
-        }
-    }
 }

@@ -33,10 +33,10 @@ pub trait TracingEvaluator: Default {
     type Trace;
 
     /// Evaluates the given tape at a particular position
-    fn eval<F: Into<Self::Data>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        vars: &[F],
+        vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error>;
 
     /// Build a new empty evaluator

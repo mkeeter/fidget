@@ -26,14 +26,12 @@
 use crate::{
     compiler::RegOp,
     context::{Context, Node},
-    eval::Tape,
+    eval::{MathFunction, Tape},
     jit::mmap::Mmap,
     shape::RenderHints,
-    shape::{
-        BulkEvaluator, MathShape, Shape, TracingEvaluator, TransformedShape,
-    },
+    shape::{BulkEvaluator, Shape, TracingEvaluator, TransformedShape},
     types::{Grad, Interval},
-    vm::{Choice, GenericVmShape, VmData, VmTrace, VmWorkspace},
+    vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
     Error,
 };
 use dynasmrt::{
@@ -829,7 +827,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
 
 /// Shape for use with a JIT evaluator
 #[derive(Clone)]
-pub struct JitShape(GenericVmShape<REGISTER_LIMIT>);
+pub struct JitShape(GenericVmFunction<REGISTER_LIMIT>);
 
 impl JitShape {
     fn tracing_tape<A: Assembler>(
@@ -989,16 +987,13 @@ unsafe impl<T> Sync for JitTracingFn<T> {}
 
 impl JitTracingEval {
     /// Evaluates a single point, capturing an evaluation trace
-    fn eval<T: From<f32>, F: Into<T>>(
+    fn eval<T>(
         &mut self,
         tape: &JitTracingFn<T>,
-        x: F,
-        y: F,
-        z: F,
+        x: T,
+        y: T,
+        z: T,
     ) -> (T, Option<&VmTrace>) {
-        let x = x.into();
-        let y = y.into();
-        let z = z.into();
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         assert!(tape.var_count <= 3);
@@ -1031,12 +1026,12 @@ impl TracingEvaluator for JitIntervalEval {
     type Trace = VmTrace;
     type TapeStorage = Mmap;
 
-    fn eval<F: Into<Self::Data>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: F,
-        y: F,
-        z: F,
+        x: Self::Data,
+        y: Self::Data,
+        z: Self::Data,
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
         Ok(self.0.eval(tape, x, y, z))
     }
@@ -1051,12 +1046,12 @@ impl TracingEvaluator for JitPointEval {
     type Trace = VmTrace;
     type TapeStorage = Mmap;
 
-    fn eval<F: Into<Self::Data>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: F,
-        y: F,
-        z: F,
+        x: Self::Data,
+        y: Self::Data,
+        z: Self::Data,
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
         Ok(self.0.eval(tape, x, y, z))
     }
@@ -1190,7 +1185,6 @@ impl BulkEvaluator for JitFloatSliceEval {
         ys: &[f32],
         zs: &[f32],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(xs, ys, zs, tape.var_count)?;
         Ok(self.0.eval(tape, xs, ys, zs))
     }
 }
@@ -1210,14 +1204,13 @@ impl BulkEvaluator for JitGradSliceEval {
         ys: &[Self::Data],
         zs: &[Self::Data],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(xs, ys, zs, tape.var_count)?;
         Ok(self.0.eval(tape, xs, ys, zs))
     }
 }
 
-impl MathShape for JitShape {
+impl MathFunction for JitShape {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        GenericVmShape::new(ctx, node).map(JitShape)
+        GenericVmFunction::new(ctx, node).map(JitShape)
     }
 }
 
