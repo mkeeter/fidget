@@ -6,7 +6,7 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     shape::{TracingEvaluator, Shape, MathShape, EzShape},
 //!     jit::JitShape
 //! };
 //!
@@ -26,12 +26,12 @@
 use crate::{
     compiler::RegOp,
     context::{Context, Node},
-    eval::{
-        BulkEvaluator, MathShape, Shape, Tape, TracingEvaluator,
-        TransformedShape,
-    },
+    eval::Tape,
     jit::mmap::Mmap,
     shape::RenderHints,
+    shape::{
+        BulkEvaluator, MathShape, Shape, TracingEvaluator, TransformedShape,
+    },
     types::{Grad, Interval},
     vm::{Choice, GenericVmShape, VmData, VmTrace, VmWorkspace},
     Error,

@@ -1,7 +1,6 @@
 //! Multithreaded octree construction
 use super::pool::{QueuePool, ThreadContext, ThreadPool};
 use crate::{
-    eval::Shape,
     mesh::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
@@ -9,6 +8,7 @@ use crate::{
         Octree, Settings,
     },
     shape::RenderHints,
+    shape::Shape,
 };
 use std::sync::{mpsc::TryRecvError, Arc};
 

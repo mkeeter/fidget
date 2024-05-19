@@ -4,7 +4,10 @@
 //! [`RenderConfig::run`](RenderConfig::run); you can also use the lower-level
 //! functions ([`render2d`](render2d()) and [`render3d`](render3d())) for manual
 //! control over the input tape.
-use crate::eval::{BulkEvaluator, Shape, Tape, Trace, TracingEvaluator};
+use crate::{
+    eval::{Tape, Trace},
+    shape::{BulkEvaluator, Shape, TracingEvaluator},
+};
 use std::sync::Arc;
 
 mod config;

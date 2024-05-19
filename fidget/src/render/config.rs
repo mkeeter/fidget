@@ -1,4 +1,8 @@
-use crate::{eval::Shape, render::RenderMode, shape::Bounds, Error};
+use crate::{
+    render::RenderMode,
+    shape::{Bounds, Shape},
+    Error,
+};
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
     DimNameSum, U1,

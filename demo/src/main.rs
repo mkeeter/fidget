@@ -9,7 +9,7 @@ use log::info;
 
 use fidget::{
     context::Context,
-    eval::{BulkEvaluator, MathShape},
+    shape::{BulkEvaluator, MathShape},
 };
 
 /// Simple test program
@@ -112,7 +112,7 @@ struct MeshSettings {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
+fn run3d<S: fidget::shape::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &ImageSettings,
     isometric: bool,
@@ -168,7 +168,7 @@ fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
+fn run2d<S: fidget::shape::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &ImageSettings,
     brute: bool,
@@ -236,12 +236,12 @@ fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run_mesh<S: fidget::eval::Shape + fidget::shape::RenderHints>(
+fn run_mesh<S: fidget::shape::Shape + fidget::shape::RenderHints>(
     shape: S,
     settings: &MeshSettings,
 ) -> fidget::mesh::Mesh
 where
-    <S as fidget::eval::Shape>::TransformedShape: fidget::shape::RenderHints,
+    <S as fidget::shape::Shape>::TransformedShape: fidget::shape::RenderHints,
 {
     let mut mesh = fidget::mesh::Mesh::new();
 

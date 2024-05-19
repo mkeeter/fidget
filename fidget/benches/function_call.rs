@@ -3,7 +3,7 @@ use criterion::{
 };
 use fidget::{
     context::{Context, Node},
-    eval::{BulkEvaluator, EzShape, MathShape, Shape},
+    shape::{BulkEvaluator, EzShape, MathShape, Shape},
 };
 
 pub fn run_bench<S: Shape + MathShape>(

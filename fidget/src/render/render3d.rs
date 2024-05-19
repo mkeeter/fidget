@@ -1,8 +1,8 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    eval::{BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    shape::{BulkEvaluator, Shape, TracingEvaluator},
     types::{Grad, Interval},
 };
 
@@ -448,7 +448,7 @@ pub fn render_inner<S: Shape>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{eval::MathShape, vm::VmShape, Context};
+    use crate::{shape::MathShape, vm::VmShape, Context};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]

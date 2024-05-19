@@ -1,8 +1,8 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    eval::{BulkEvaluator, Shape, TracingEvaluator},
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    shape::{BulkEvaluator, Shape, TracingEvaluator},
     types::Interval,
 };
 use nalgebra::Point2;
@@ -467,8 +467,7 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
 mod test {
     use super::*;
     use crate::{
-        eval::{MathShape, Shape},
-        shape::Bounds,
+        shape::{Bounds, MathShape, Shape},
         vm::{GenericVmShape, VmShape},
         Context,
     };

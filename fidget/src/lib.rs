@@ -68,7 +68,7 @@
 //!
 //! Evaluation is deliberately agnostic to the specific details of how we go
 //! from position to results.  This abstraction is represented by the
-//! [`Shape` trait](crate::eval::Shape), which defines how to make both
+//! [`Shape` trait](crate::shape::Shape), which defines how to make both
 //! **evaluators** and **tapes**.
 //!
 //! An **evaluator** is an object which performs evaluation of some kind (point,
@@ -85,7 +85,7 @@
 //! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
 //!   by compiling shapes down to native code.
 //!
-//! The [`eval::Shape`](crate::eval::Shape) trait requires four different kinds
+//! The [`Shape`](crate::shape::Shape) trait requires four different kinds
 //! of evaluation:
 //!
 //! - Single-point evaluation
@@ -107,7 +107,7 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::{Shape, MathShape, EzShape, TracingEvaluator},
 //!     vm::VmShape
 //! };
 //!
@@ -136,7 +136,7 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     shape::{TracingEvaluator, Shape, MathShape, EzShape},
 //!     vm::VmShape
 //! };
 //!
@@ -159,13 +159,13 @@
 //! tape from `min(x, y) →  x`.
 //!
 //! Interval evaluation is a kind of
-//! [tracing evaluation](crate::eval::TracingEvaluator), which returns a tuple
+//! [tracing evaluation](crate::shape::TracingEvaluator), which returns a tuple
 //! of `(value, trace)`.  The trace can be used to simplify the original shape:
 //!
 //! ```
 //! # use fidget::{
 //! #     context::Tree,
-//! #     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//! #     shape::{TracingEvaluator, Shape, MathShape, EzShape},
 //! #     vm::VmShape
 //! # };
 //! # let tree = Tree::x().min(Tree::y());

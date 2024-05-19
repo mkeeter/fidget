@@ -5,7 +5,7 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{EzShape, MathShape, Shape, TracingEvaluator},
+    shape::{EzShape, MathShape, Shape, TracingEvaluator},
     vm::Choice,
 };
 

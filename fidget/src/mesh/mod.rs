@@ -3,7 +3,7 @@
 //! This module implements
 //! [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf),
 //! to generate a triangle mesh from an implicit surface (or anything
-//! implementing [`Shape`](crate::eval::Shape)).
+//! implementing [`Shape`](crate::shape::Shape)).
 //!
 //! The resulting meshes should be
 //! - Manifold

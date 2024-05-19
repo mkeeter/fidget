@@ -2,11 +2,11 @@
 use crate::{
     compiler::RegOp,
     context::Node,
-    eval::{
-        BulkEvaluator, MathShape, Shape, Tape, Trace, TracingEvaluator,
-        TransformedShape,
-    },
+    eval::{Tape, Trace},
     shape::RenderHints,
+    shape::{
+        BulkEvaluator, MathShape, Shape, TracingEvaluator, TransformedShape,
+    },
     types::{Grad, Interval},
     Context, Error,
 };

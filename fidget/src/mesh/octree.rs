@@ -11,8 +11,8 @@ use super::{
     Mesh, Settings,
 };
 use crate::{
-    eval::{BulkEvaluator, Shape, Tape, TracingEvaluator},
-    shape::RenderHints,
+    eval::Tape,
+    shape::{BulkEvaluator, RenderHints, Shape, TracingEvaluator},
     types::Grad,
 };
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
@@ -1169,9 +1169,9 @@ mod test {
     use super::*;
     use crate::{
         context::Tree,
-        eval::{EzShape, MathShape},
         mesh::types::{Edge, X, Y, Z},
         shape::Bounds,
+        shape::{EzShape, MathShape},
         vm::VmShape,
     };
     use nalgebra::Vector3;

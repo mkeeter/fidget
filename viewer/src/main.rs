@@ -82,8 +82,8 @@ fn render_thread<S>(
     wake: Sender<()>,
 ) -> Result<()>
 where
-    S: fidget::eval::Shape
-        + fidget::eval::MathShape
+    S: fidget::shape::Shape
+        + fidget::shape::MathShape
         + fidget::shape::RenderHints,
 {
     let mut config = None;
@@ -150,7 +150,7 @@ where
     }
 }
 
-fn render<S: fidget::eval::Shape + fidget::shape::RenderHints>(
+fn render<S: fidget::shape::Shape + fidget::shape::RenderHints>(
     mode: &RenderMode,
     shape: S,
     image_size: usize,
