@@ -29,7 +29,7 @@
 
 use crate::{
     context::Node,
-    eval::Trace,
+    eval::{self, Trace},
     types::{Grad, Interval},
     Context, Error,
 };
@@ -275,5 +275,167 @@ pub trait RenderHints {
     /// certain depths.
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Wrapper to convert a [`Function`](fidget::eval::Function) into a [`Shape`]
+/// for evaluation.
+#[derive(Clone)]
+pub struct FunctionShape<F> {
+    /// Wrapped function
+    f: F,
+
+    /// Index of x, y, z axes within the function's variable list
+    axes: [usize; 3],
+}
+
+impl<F: eval::Function + Clone> Shape for FunctionShape<F> {
+    type Trace = <F as eval::Function>::Trace;
+    type Storage = <F as eval::Function>::Storage;
+    type Workspace = <F as eval::Function>::Workspace;
+    type TapeStorage = <F as eval::Function>::TapeStorage;
+
+    type PointEval = FunctionShapeTracingEval<<F as eval::Function>::PointEval>;
+    type IntervalEval =
+        FunctionShapeTracingEval<<F as eval::Function>::IntervalEval>;
+    type FloatSliceEval =
+        FunctionShapeBulkEval<<F as eval::Function>::FloatSliceEval>;
+    type GradSliceEval =
+        FunctionShapeBulkEval<<F as eval::Function>::GradSliceEval>;
+
+    fn point_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::PointEval as TracingEvaluator>::Tape {
+        self.f.point_tape(storage)
+    }
+
+    fn interval_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
+        self.f.interval_tape(storage)
+    }
+
+    fn float_slice_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
+        self.f.float_slice_tape(storage)
+    }
+
+    fn grad_slice_tape(
+        &self,
+        storage: Self::TapeStorage,
+    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
+        self.f.grad_slice_tape(storage)
+    }
+
+    fn simplify(
+        &self,
+        trace: &Self::Trace,
+        storage: Self::Storage,
+        workspace: &mut Self::Workspace,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let f = self.f.simplify(trace, storage, workspace)?;
+        Ok(Self { f, axes: self.axes })
+    }
+
+    fn recycle(self) -> Option<Self::Storage> {
+        self.f.recycle()
+    }
+
+    fn size(&self) -> usize {
+        self.f.size()
+    }
+
+    type TransformedShape = TransformedShape<Self>;
+
+    fn apply_transform(
+        self,
+        mat: nalgebra::Matrix4<f32>,
+    ) -> <Self as Shape>::TransformedShape {
+        TransformedShape::new(self, mat)
+    }
+
+    // todo
+}
+
+/// Wrapper struct to convert from [`eval::TracingEvaluator`] to
+/// [`shape::TracingEvaluator`](TracingEvaluator)
+#[derive(Default)]
+pub struct FunctionShapeTracingEval<E> {
+    eval: E,
+
+    /// Index of x, y, z axes within the function's variable list
+    axes: [usize; 3],
+}
+
+impl<E: eval::TracingEvaluator> TracingEvaluator
+    for FunctionShapeTracingEval<E>
+{
+    type Data = E::Data;
+    type Tape = E::Tape;
+    type TapeStorage = E::TapeStorage;
+    type Trace = E::Trace;
+
+    fn eval<F: Into<Self::Data>>(
+        &mut self,
+        tape: &Self::Tape,
+        x: F,
+        y: F,
+        z: F,
+    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+        let mut vars = [None, None, None];
+        vars[self.axes[0]] = Some(x);
+        vars[self.axes[1]] = Some(y);
+        vars[self.axes[2]] = Some(z);
+
+        // TODO make this error?  Where do we maintain the `axes` invariants?
+        let vars = vars.map(Option::unwrap);
+        self.eval.eval(tape, &vars)
+    }
+    // todo
+}
+
+/// Wrapper struct to convert from [`eval::BulkEvaluator`] to
+/// [`shape::TracingEvaluator`](BulkEvaluator)
+#[derive(Default)]
+pub struct FunctionShapeBulkEval<E> {
+    eval: E,
+
+    /// Index of x, y, z axes within the function's variable list
+    axes: [usize; 3],
+}
+
+impl<E: eval::BulkEvaluator> BulkEvaluator for FunctionShapeBulkEval<E> {
+    type Data = E::Data;
+    type Tape = E::Tape;
+    type TapeStorage = E::TapeStorage;
+
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn eval(
+        &mut self,
+        tape: &Self::Tape,
+        x: &[Self::Data],
+        y: &[Self::Data],
+        z: &[Self::Data],
+    ) -> Result<&[Self::Data], Error> {
+        let mut vars = [None, None, None];
+        vars[self.axes[0]] = Some(x);
+        vars[self.axes[1]] = Some(y);
+        vars[self.axes[2]] = Some(z);
+
+        // TODO make this error?  Where do we maintain the `axes` invariants?
+        let vars = vars.map(Option::unwrap);
+        self.eval.eval(tape, &vars)
     }
 }
