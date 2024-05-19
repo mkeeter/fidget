@@ -322,6 +322,24 @@ impl<T> AssemblerData<T> {
         self.push_stack();
     }
 
+    #[cfg(all(target_arch = "aarch64", test))]
+    fn input_register_shenanigans(&mut self) {
+        dynasm!(self.ops
+            ; mov x3, 0xABCD
+            ; lsl x4, x3, 16
+            ; orr x3, x3, x4
+        );
+    }
+
+    #[cfg(all(target_arch = "x86_64", test))]
+    fn input_register_shenanigans(&mut self) {
+        dynasm!(self.ops
+            ; mov rcx, 0xABCDABCDu32 as i32
+            ; mov r8, 0xABCDABCDu32 as i32
+            ; mov r9, 0xABCDABCDu32 as i32
+        );
+    }
+
     #[cfg(target_arch = "aarch64")]
     fn push_stack(&mut self) {
         assert!(self.mem_offset < 4096);

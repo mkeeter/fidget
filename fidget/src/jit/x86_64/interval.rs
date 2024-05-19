@@ -58,6 +58,10 @@ impl Assembler for IntervalAssembler {
             ; mov rbp, rsp
         );
         out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
+
+        #[cfg(test)]
+        out.input_register_shenanigans();
+
         dynasm!(out.ops
             ; vzeroupper
         );

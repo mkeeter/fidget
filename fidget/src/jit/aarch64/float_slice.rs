@@ -88,6 +88,10 @@ impl Assembler for FloatSliceAssembler {
     fn init(mmap: Mmap, slot_count: usize) -> Self {
         let mut out = AssemblerData::new(mmap);
         out.prepare_stack(slot_count, STACK_SIZE as usize);
+
+        #[cfg(test)]
+        out.input_register_shenanigans();
+
         dynasm!(out.ops
             // Preserve frame and link register, and set up the frame pointer
             ; stp   x29, x30, [sp, 0x0]

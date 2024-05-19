@@ -60,6 +60,10 @@ impl Assembler for GradSliceAssembler {
             ; mov rbp, rsp
         );
         out.prepare_stack(slot_count, STACK_SIZE_UPPER + STACK_SIZE_LOWER);
+
+        #[cfg(test)]
+        out.input_register_shenanigans();
+
         dynasm!(out.ops
             ; xor rcx, rcx // set the array offset (rcx) to 0
 
