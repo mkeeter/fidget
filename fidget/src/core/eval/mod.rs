@@ -1,6 +1,6 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    context::{Context, Node, Tree},
+    context::{Context, Node, Tree, Var},
     types::{Grad, Interval},
     Error,
 };
@@ -166,6 +166,9 @@ pub trait Function: Send + Sync + Clone {
     /// shapes, it's typically the length of the tape,
     fn size(&self) -> usize;
 }
+
+/// Map from variable (from a particular [`Context`]) to index
+pub type VarMap = std::collections::HashMap<Var, usize>;
 
 /// A [`Function`] which can be built from a math expression
 pub trait MathFunction {

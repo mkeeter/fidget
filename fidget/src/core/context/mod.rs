@@ -42,7 +42,39 @@ define_index!(VarNode, "An index in the `Context::vars` map");
 #[derive(Debug, Default)]
 pub struct Context {
     ops: IndexMap<Op, Node>,
-    vars: IndexMap<String, VarNode>,
+    vars: IndexMap<Var, VarNode>,
+}
+
+/// A `Var` represents a value which can vary during evaluation
+///
+/// We pre-define common variables (e.g. X, Y, Z) but also allow for fully
+/// customized values.
+#[allow(missing_docs)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Var {
+    X,
+    Y,
+    Z,
+    W,
+    T,
+    Static(&'static str),
+    Named(String),
+    Value(u64),
+}
+
+impl std::fmt::Display for Var {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Var::X => write!(f, "X"),
+            Var::Y => write!(f, "Y"),
+            Var::Z => write!(f, "Z"),
+            Var::W => write!(f, "W"),
+            Var::T => write!(f, "T"),
+            Var::Static(s) => write!(f, "{s}"),
+            Var::Named(s) => write!(f, "{s}"),
+            Var::Value(v) => write!(f, "v_{v}"),
+        }
+    }
 }
 
 impl Context {
@@ -119,11 +151,11 @@ impl Context {
         }
     }
 
-    /// Looks up the variable name associated with the given node.
+    /// Looks up the [`Var`] associated with the given node.
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not an `Op::Input`, returns `Ok(None)`.
-    pub fn var_name(&self, n: Node) -> Result<Option<&str>, Error> {
+    pub fn var_name(&self, n: Node) -> Result<Option<&Var>, Error> {
         match self.get_op(n) {
             Some(Op::Input(c)) => self.get_var_by_index(*c).map(Some),
             Some(_) => Ok(None),
@@ -131,8 +163,8 @@ impl Context {
         }
     }
 
-    /// Looks up the variable name associated with the given `VarNode`
-    pub fn get_var_by_index(&self, n: VarNode) -> Result<&str, Error> {
+    /// Looks up the [`Var`] associated with the given [`VarNode`]
+    pub fn get_var_by_index(&self, n: VarNode) -> Result<&Var, Error> {
         match self.vars.get_by_index(n) {
             Some(c) => Ok(c),
             None => Err(Error::BadVar),
@@ -150,19 +182,19 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn x(&mut self) -> Node {
-        let v = self.vars.insert(String::from("X"));
+        let v = self.vars.insert(Var::X);
         self.ops.insert(Op::Input(v))
     }
 
     /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
-        let v = self.vars.insert(String::from("Y"));
+        let v = self.vars.insert(Var::Y);
         self.ops.insert(Op::Input(v))
     }
 
     /// Constructs or finds a variable node named "Z"
     pub fn z(&mut self) -> Node {
-        let v = self.vars.insert(String::from("Z"));
+        let v = self.vars.insert(Var::Z);
         self.ops.insert(Op::Input(v))
     }
 
@@ -757,9 +789,8 @@ impl Context {
         y: f64,
         z: f64,
     ) -> Result<f64, Error> {
-        let vars = [("X", x), ("Y", y), ("Z", z)]
+        let vars = [(Var::X, x), (Var::Y, y), (Var::Z, z)]
             .into_iter()
-            .map(|(a, b)| (a.to_string(), b))
             .collect();
         self.eval(root, &vars)
     }
@@ -771,7 +802,7 @@ impl Context {
     pub fn eval(
         &self,
         root: Node,
-        vars: &BTreeMap<String, f64>,
+        vars: &BTreeMap<Var, f64>,
     ) -> Result<f64, Error> {
         let mut cache = vec![None; self.ops.len()].into();
         self.eval_inner(root, vars, &mut cache)
@@ -780,7 +811,7 @@ impl Context {
     fn eval_inner(
         &self,
         node: Node,
-        vars: &BTreeMap<String, f64>,
+        vars: &BTreeMap<Var, f64>,
         cache: &mut IndexVec<Option<f64>, Node>,
     ) -> Result<f64, Error> {
         if node.0 >= cache.len() {
@@ -965,7 +996,7 @@ impl Context {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
             Op::Input(v) => {
                 let v = self.vars.get_by_index(*v).unwrap();
-                out += v;
+                out += &v.to_string();
             }
             Op::Binary(op, ..) => match op {
                 BinaryOpcode::Add => out += "add",

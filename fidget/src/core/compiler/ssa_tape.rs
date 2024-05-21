@@ -1,7 +1,7 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     compiler::SsaOp,
-    context::{BinaryOpcode, Node, Op, UnaryOpcode},
+    context::{BinaryOpcode, Node, Op, UnaryOpcode, Var},
     Context, Error,
 };
 use serde::{Deserialize, Serialize};
@@ -92,10 +92,11 @@ impl SsaTape {
             let op = match op {
                 Op::Input(..) => {
                     let arg = match ctx.var_name(node).unwrap().unwrap() {
-                        "X" => 0,
-                        "Y" => 1,
-                        "Z" => 2,
+                        Var::X => 0,
+                        Var::Y => 1,
+                        Var::Z => 2,
                         i => panic!("Unexpected input index: {i}"),
+                        // TODO make this work for _n_ vars
                     };
                     SsaOp::Input(i, arg)
                 }
