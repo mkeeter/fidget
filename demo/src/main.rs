@@ -314,12 +314,12 @@ fn main() -> Result<()> {
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
@@ -348,12 +348,12 @@ fn main() -> Result<()> {
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run_mesh(shape, &settings)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run_mesh(shape, &settings)
                 }

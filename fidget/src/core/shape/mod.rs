@@ -11,7 +11,7 @@
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let shape = VmShape::new(&ctx, x)?;
+//! let shape = VmShape::new(&mut ctx, x)?;
 //!
 //! // Let's build a single point evaluator:
 //! let mut eval = VmShape::new_point_eval();
@@ -82,7 +82,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Builds a new point evaluator
     fn new_point_eval() -> Self::PointEval {
-        Self::PointEval::new()
+        Self::PointEval::default()
     }
 
     /// Associated type for single interval tracing evaluation
@@ -95,7 +95,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Builds a new interval evaluator
     fn new_interval_eval() -> Self::IntervalEval {
-        Self::IntervalEval::new()
+        Self::IntervalEval::default()
     }
 
     /// Associated type for evaluating many points in one call
@@ -105,7 +105,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Builds a new float slice evaluator
     fn new_float_slice_eval() -> Self::FloatSliceEval {
-        Self::FloatSliceEval::new()
+        Self::FloatSliceEval::default()
     }
 
     /// Associated type for evaluating many gradients in one call
@@ -115,7 +115,7 @@ pub trait Shape: Send + Sync + Clone {
 
     /// Builds a new gradient slice evaluator
     fn new_grad_slice_eval() -> Self::GradSliceEval {
-        Self::GradSliceEval::new()
+        Self::GradSliceEval::default()
     }
 
     /// Returns an evaluation tape for a point evaluator
@@ -302,8 +302,8 @@ pub struct FunctionShape<F> {
     /// Wrapped function
     f: F,
 
-    /// Index of x, y, z axes within the function's variable list
-    axes: [usize; 3],
+    /// Index of x, y, z axes within the function's variable list (if present)
+    axes: [Option<usize>; 3],
 }
 
 impl<F: eval::Function + Clone> Shape for FunctionShape<F> {
@@ -324,28 +324,40 @@ impl<F: eval::Function + Clone> Shape for FunctionShape<F> {
         &self,
         storage: Self::TapeStorage,
     ) -> <Self::PointEval as TracingEvaluator>::Tape {
-        self.f.point_tape(storage)
+        FunctionShapeTape {
+            tape: self.f.point_tape(storage),
+            axes: self.axes,
+        }
     }
 
     fn interval_tape(
         &self,
         storage: Self::TapeStorage,
     ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
-        self.f.interval_tape(storage)
+        FunctionShapeTape {
+            tape: self.f.interval_tape(storage),
+            axes: self.axes,
+        }
     }
 
     fn float_slice_tape(
         &self,
         storage: Self::TapeStorage,
     ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
-        self.f.float_slice_tape(storage)
+        FunctionShapeTape {
+            tape: self.f.float_slice_tape(storage),
+            axes: self.axes,
+        }
     }
 
     fn grad_slice_tape(
         &self,
         storage: Self::TapeStorage,
     ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
-        self.f.grad_slice_tape(storage)
+        FunctionShapeTape {
+            tape: self.f.grad_slice_tape(storage),
+            axes: self.axes,
+        }
     }
 
     fn simplify(
@@ -387,8 +399,31 @@ impl<F: eval::MathFunction> MathShape for FunctionShape<F> {
         node: Node,
         axes: [Node; 3],
     ) -> Result<Self, Error> {
-        let f = F::new(ctx, node)?; // TODO get a varmap here
-        Ok(Self { f, axes: [0, 1, 2] })
+        let (f, vs) = F::new(ctx, node)?;
+        let x = ctx.var_name(axes[0])?.ok_or(Error::NotAVar)?;
+        let y = ctx.var_name(axes[1])?.ok_or(Error::NotAVar)?;
+        let z = ctx.var_name(axes[2])?.ok_or(Error::NotAVar)?;
+        Ok(Self {
+            f,
+            axes: [x, y, z].map(|v| vs.get(v).cloned()),
+        })
+    }
+}
+
+impl<F: RenderHints> FunctionShape<F> {
+    /// Borrows the inner [`Function`](eval::Function) object
+    pub fn inner(&self) -> &F {
+        &self.f
+    }
+
+    /// Borrows the inner axis mapping
+    pub fn axes(&self) -> &[Option<usize>; 3] {
+        &self.axes
+    }
+
+    /// Raw constructor
+    pub fn new_raw(f: F, axes: [Option<usize>; 3]) -> Self {
+        Self { f, axes }
     }
 }
 
@@ -406,21 +441,33 @@ impl<F: RenderHints> RenderHints for FunctionShape<F> {
     }
 }
 
+/// Wrapper struct to bind a generic tape to particular X, Y, Z axes
+pub struct FunctionShapeTape<T> {
+    tape: T,
+
+    /// Index of the X, Y, Z axes in the variables array
+    axes: [Option<usize>; 3],
+}
+
+impl<T: eval::Tape> eval::Tape for FunctionShapeTape<T> {
+    type Storage = <T as eval::Tape>::Storage;
+    fn recycle(self) -> Self::Storage {
+        self.tape.recycle()
+    }
+}
+
 /// Wrapper struct to convert from [`eval::TracingEvaluator`] to
 /// [`shape::TracingEvaluator`](TracingEvaluator)
 #[derive(Default)]
 pub struct FunctionShapeTracingEval<E> {
     eval: E,
-
-    /// Index of x, y, z axes within the function's variable list
-    axes: [usize; 3],
 }
 
 impl<E: eval::TracingEvaluator> TracingEvaluator
     for FunctionShapeTracingEval<E>
 {
     type Data = E::Data;
-    type Tape = E::Tape;
+    type Tape = FunctionShapeTape<E::Tape>;
     type TapeStorage = E::TapeStorage;
     type Trace = E::Trace;
 
@@ -432,13 +479,18 @@ impl<E: eval::TracingEvaluator> TracingEvaluator
         z: F,
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
         let mut vars = [None, None, None];
-        vars[self.axes[0]] = Some(x.into());
-        vars[self.axes[1]] = Some(y.into());
-        vars[self.axes[2]] = Some(z.into());
-
-        // TODO make this error?  Where do we maintain the `axes` invariants?
-        let vars = vars.map(Option::unwrap);
-        self.eval.eval(tape, vars.as_slice())
+        if let Some(a) = tape.axes[0] {
+            vars[a] = Some(x.into());
+        }
+        if let Some(b) = tape.axes[1] {
+            vars[b] = Some(y.into());
+        }
+        if let Some(c) = tape.axes[2] {
+            vars[c] = Some(z.into());
+        }
+        let n = vars.iter().position(|v| Option::is_none(v)).unwrap_or(3);
+        let vars = vars.map(|v| v.unwrap_or(0f32.into()));
+        self.eval.eval(&tape.tape, &vars[..n])
     }
     // todo
 }
@@ -448,19 +500,12 @@ impl<E: eval::TracingEvaluator> TracingEvaluator
 #[derive(Default)]
 pub struct FunctionShapeBulkEval<E> {
     eval: E,
-
-    /// Index of x, y, z axes within the function's variable list
-    axes: [usize; 3],
 }
 
 impl<E: eval::BulkEvaluator> BulkEvaluator for FunctionShapeBulkEval<E> {
     type Data = E::Data;
-    type Tape = E::Tape;
+    type Tape = FunctionShapeTape<E::Tape>;
     type TapeStorage = E::TapeStorage;
-
-    fn new() -> Self {
-        Self::default()
-    }
 
     fn eval(
         &mut self,
@@ -470,12 +515,24 @@ impl<E: eval::BulkEvaluator> BulkEvaluator for FunctionShapeBulkEval<E> {
         z: &[Self::Data],
     ) -> Result<&[Self::Data], Error> {
         let mut vars = [None, None, None];
-        vars[self.axes[0]] = Some(x);
-        vars[self.axes[1]] = Some(y);
-        vars[self.axes[2]] = Some(z);
+        if let Some(a) = tape.axes[0] {
+            vars[a] = Some(x);
+        }
+        if let Some(b) = tape.axes[1] {
+            vars[b] = Some(y);
+        }
+        if let Some(c) = tape.axes[2] {
+            vars[c] = Some(z);
+        }
+        let n = vars.iter().position(|v| v.is_none()).unwrap_or(3);
+        let vars = if vars.iter().all(Option::is_some) {
+            vars.map(Option::unwrap)
+        } else if let Some(q) = vars.iter().find(|v| v.is_some()) {
+            vars.map(|v| if v.is_some() { v.unwrap() } else { q.unwrap() })
+        } else {
+            [[].as_slice(); 3]
+        };
 
-        // TODO make this error?  Where do we maintain the `axes` invariants?
-        let vars = vars.map(Option::unwrap);
-        self.eval.eval(tape, &vars)
+        self.eval.eval(&tape.tape, &vars[..n])
     }
 }

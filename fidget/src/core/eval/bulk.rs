@@ -49,7 +49,9 @@ pub trait BulkEvaluator: Default {
         vars: &[&[Self::Data]],
         var_count: usize,
     ) -> Result<(), Error> {
-        if var_count != vars.len() {
+        // It's fine if the caller has given us extra variables (e.g. due to
+        // tape simplification), but it must have given us enough.
+        if vars.len() < var_count {
             Err(Error::BadVarSlice(vars.len(), var_count))
         } else {
             let Some(n) = vars.first().map(|v| v.len()) else {

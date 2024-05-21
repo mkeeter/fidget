@@ -39,9 +39,4 @@ pub trait BulkEvaluator: Default {
         y: &[Self::Data],
         z: &[Self::Data],
     ) -> Result<&[Self::Data], Error>;
-
-    /// Build a new empty evaluator
-    fn new() -> Self {
-        Self::default()
-    }
 }

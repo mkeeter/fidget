@@ -2,8 +2,10 @@
 use crate::{
     compiler::RegOp,
     context::Node,
-    eval::{BulkEvaluator, Function, MathFunction, TracingEvaluator},
-    eval::{Tape, Trace},
+    eval::{
+        BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
+        VarMap,
+    },
     shape::{FunctionShape, RenderHints},
     types::{Grad, Interval},
     Context, Error,
@@ -185,9 +187,9 @@ impl<const N: usize> RenderHints for GenericVmFunction<N> {
 }
 
 impl<const N: usize> MathFunction for GenericVmFunction<N> {
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        let d = VmData::new(ctx, node)?;
-        Ok(Self(Arc::new(d)))
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+        let (d, vs) = VmData::new(ctx, node)?;
+        Ok((Self(Arc::new(d)), vs))
     }
 }
 
@@ -802,6 +804,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(vars, tape.var_count())?;
+
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
         self.0.resize_slots(tape, size);
 

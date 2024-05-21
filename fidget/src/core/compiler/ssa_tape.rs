@@ -1,7 +1,8 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     compiler::SsaOp,
-    context::{BinaryOpcode, Node, Op, UnaryOpcode, Var},
+    context::{BinaryOpcode, Node, Op, UnaryOpcode},
+    eval::VarMap,
     Context, Error,
 };
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,7 @@ impl SsaTape {
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn new(ctx: &Context, root: Node) -> Result<Self, Error> {
+    pub fn new(ctx: &Context, root: Node) -> Result<(Self, VarMap), Error> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
         let mut slot_count = 0;
@@ -46,6 +47,7 @@ impl SsaTape {
 
         // Accumulate parent counts and declare all nodes
         let mut seen = HashSet::new();
+        let mut vars = HashMap::new();
         let mut todo = vec![root];
         while let Some(node) = todo.pop() {
             if !seen.insert(node) {
@@ -57,6 +59,11 @@ impl SsaTape {
                     mapping.insert(node, Slot::Immediate(c.0 as f32))
                 }
                 _ => {
+                    if let Op::Input(v) = op {
+                        let next = vars.len();
+                        let v = ctx.get_var_by_index(*v).unwrap().clone();
+                        vars.entry(v).or_insert(next);
+                    }
                     let i = slot_count;
                     slot_count += 1;
                     mapping.insert(node, Slot::Reg(i))
@@ -91,14 +98,8 @@ impl SsaTape {
             };
             let op = match op {
                 Op::Input(..) => {
-                    let arg = match ctx.var_name(node).unwrap().unwrap() {
-                        Var::X => 0,
-                        Var::Y => 1,
-                        Var::Z => 2,
-                        i => panic!("Unexpected input index: {i}"),
-                        // TODO make this work for _n_ vars
-                    };
-                    SsaOp::Input(i, arg)
+                    let arg = vars[ctx.var_name(node).unwrap().unwrap()];
+                    SsaOp::Input(i, arg.try_into().unwrap())
                 }
                 Op::Const(..) => {
                     unreachable!("skipped above")
@@ -233,7 +234,7 @@ impl SsaTape {
             tape.push(SsaOp::CopyImm(0, c));
         }
 
-        Ok(SsaTape { tape, choice_count })
+        Ok((SsaTape { tape, choice_count }, vars))
     }
 
     /// Checks whether the tape is empty
@@ -405,8 +406,9 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = SsaTape::new(&ctx, c9).unwrap();
+        let (tape, vs) = SsaTape::new(&ctx, c9).unwrap();
         assert_eq!(tape.len(), 8);
+        assert_eq!(vs.len(), 2);
     }
 
     #[test]
@@ -415,7 +417,8 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = SsaTape::new(&ctx, x_squared).unwrap();
+        let (tape, vs) = SsaTape::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
+        assert_eq!(vs.len(), 1);
     }
 }

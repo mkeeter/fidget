@@ -12,7 +12,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
     let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
@@ -58,7 +58,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
     let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");

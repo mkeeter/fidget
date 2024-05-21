@@ -1,8 +1,8 @@
 use fidget::{
     context::{Context, Tree},
-    eval::MathShape,
     render::{BitRenderMode, RenderConfig},
     shape::Bounds,
+    shape::MathShape,
     vm::{VmData, VmShape},
     Error,
 };
@@ -29,16 +29,18 @@ pub fn eval_script(s: &str) -> Result<JsTree, String> {
 pub fn serialize_into_tape(t: JsTree) -> Result<Vec<u8>, String> {
     let mut ctx = Context::new();
     let root = ctx.import(&t.0);
-    let shape = VmShape::new(&ctx, root).map_err(|e| format!("{e}"))?;
-    bincode::serialize(shape.data()).map_err(|e| format!("{e}"))
+    let shape = VmShape::new(&mut ctx, root).map_err(|e| format!("{e}"))?;
+    let vm_data = shape.inner().data();
+    let axes = shape.axes();
+    bincode::serialize(&(vm_data, axes)).map_err(|e| format!("{e}"))
 }
 
 /// Deserialize a `bincode`-packed `VmData` into a `VmShape`
 #[wasm_bindgen]
 pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
-    let d: VmData<255> =
+    let (d, axes): (VmData<255>, [Option<usize>; 3]) =
         bincode::deserialize(&data).map_err(|e| format!("{e}"))?;
-    Ok(JsVmShape(VmShape::from(d)))
+    Ok(JsVmShape(VmShape::new_raw(d.into(), axes)))
 }
 
 /// Renders a subregion of an image, for webworker-based multithreading

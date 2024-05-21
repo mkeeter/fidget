@@ -41,11 +41,6 @@ pub trait TracingEvaluator: Default {
         z: F,
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error>;
 
-    /// Build a new empty evaluator
-    fn new() -> Self {
-        Self::default()
-    }
-
     #[cfg(test)]
     fn eval_x<J: Into<Self::Data>>(
         &mut self,

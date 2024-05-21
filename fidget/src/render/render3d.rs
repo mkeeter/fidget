@@ -298,9 +298,9 @@ fn worker<S: Shape>(
         color: vec![],
         config,
 
-        eval_float_slice: S::FloatSliceEval::new(),
-        eval_interval: S::IntervalEval::new(),
-        eval_grad_slice: S::GradSliceEval::new(),
+        eval_float_slice: S::FloatSliceEval::default(),
+        eval_interval: S::IntervalEval::default(),
+        eval_grad_slice: S::GradSliceEval::default(),
 
         tape_storage: vec![],
         shape_storage: vec![],

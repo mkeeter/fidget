@@ -14,7 +14,7 @@
 //! let radius = ctx.add(x_squared, y_squared)?;
 //! let circle = ctx.sub(radius, 1.0)?;
 //!
-//! let shape = VmShape::new(&ctx, circle)?;
+//! let shape = VmShape::new(&mut ctx, circle)?;
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
 //!
@@ -109,13 +109,8 @@ mod test {
         let v = ctx.add(x, y).unwrap();
 
         assert_eq!(
-            ctx.eval(
-                v,
-                &[("X".to_string(), 1.0), ("Y".to_string(), 2.0)]
-                    .into_iter()
-                    .collect()
-            )
-            .unwrap(),
+            ctx.eval(v, &[(Var::X, 1.0), (Var::Y, 2.0)].into_iter().collect())
+                .unwrap(),
             3.0
         );
         assert_eq!(ctx.eval_xyz(v, 2.0, 3.0, 0.0).unwrap(), 5.0);

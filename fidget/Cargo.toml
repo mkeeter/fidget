@@ -39,7 +39,7 @@ windows = { version = "0.54.0", features = ["Win32_Foundation", "Win32_System_Me
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
-default = ["rhai", "render", "mesh"]
+default = ["jit", "rhai", "render", "mesh"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on

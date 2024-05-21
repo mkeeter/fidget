@@ -1,13 +1,13 @@
 //! Compilation down to native machine code
 //!
-//! Users are unlikely to use anything in this module other than [`JitShape`],
-//! which is a [`Shape`] that uses JIT evaluation.
+//! Users are unlikely to use anything in this module other than [`JitFunction`],
+//! which is a [`Function`] that uses JIT evaluation.
 //!
 //! ```
 //! use fidget::{
 //!     context::Tree,
 //!     shape::{TracingEvaluator, Shape, MathShape, EzShape},
-//!     jit::JitShape
+//!     jit::JitShape,
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();
@@ -26,10 +26,11 @@
 use crate::{
     compiler::RegOp,
     context::{Context, Node},
-    eval::{MathFunction, Tape},
+    eval::{
+        BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator, VarMap,
+    },
     jit::mmap::Mmap,
     shape::RenderHints,
-    shape::{BulkEvaluator, Shape, TracingEvaluator, TransformedShape},
     types::{Grad, Interval},
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
     Error,
@@ -38,7 +39,6 @@ use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
-use nalgebra::Matrix4;
 
 mod mmap;
 
@@ -825,11 +825,11 @@ fn build_asm_fn_with_storage<A: Assembler>(
     // JIT execute mode is restored here when the _guard is dropped
 }
 
-/// Shape for use with a JIT evaluator
+/// Function for use with a JIT evaluator
 #[derive(Clone)]
-pub struct JitShape(GenericVmFunction<REGISTER_LIMIT>);
+pub struct JitFunction(GenericVmFunction<REGISTER_LIMIT>);
 
-impl JitShape {
+impl JitFunction {
     fn tracing_tape<A: Assembler>(
         &self,
         storage: Mmap,
@@ -854,7 +854,7 @@ impl JitShape {
     }
 }
 
-impl Shape for JitShape {
+impl Function for JitFunction {
     type Trace = VmTrace;
     type Storage = VmData<REGISTER_LIMIT>;
     type Workspace = VmWorkspace<REGISTER_LIMIT>;
@@ -890,7 +890,7 @@ impl Shape for JitShape {
     ) -> Result<Self, Error> {
         self.0
             .simplify_inner(trace.as_slice(), storage, workspace)
-            .map(JitShape)
+            .map(JitFunction)
     }
 
     fn recycle(self) -> Option<Self::Storage> {
@@ -900,14 +900,9 @@ impl Shape for JitShape {
     fn size(&self) -> usize {
         self.0.size()
     }
-
-    type TransformedShape = TransformedShape<Self>;
-    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
-        TransformedShape::new(self, mat)
-    }
 }
 
-impl RenderHints for JitShape {
+impl RenderHints for JitFunction {
     fn tile_sizes_3d() -> &'static [usize] {
         &[64, 16, 8]
     }
@@ -952,7 +947,7 @@ macro_rules! jit_fn {
 /// Evaluator for a JIT-compiled tracing function
 ///
 /// Users are unlikely to use this directly, but it's public because it's an
-/// associated type on [`JitShape`].
+/// associated type on [`JitFunction`].
 #[derive(Default)]
 struct JitTracingEval {
     choices: VmTrace,
@@ -990,15 +985,12 @@ impl JitTracingEval {
     fn eval<T>(
         &mut self,
         tape: &JitTracingFn<T>,
-        x: T,
-        y: T,
-        z: T,
+        vars: &[T],
     ) -> (T, Option<&VmTrace>) {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         assert!(tape.var_count <= 3);
         self.choices.fill(Choice::Unknown);
-        let vars = [x, y, z];
         let out = unsafe {
             (tape.fn_trace)(
                 vars.as_ptr(),
@@ -1029,11 +1021,9 @@ impl TracingEvaluator for JitIntervalEval {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: Self::Data,
-        y: Self::Data,
-        z: Self::Data,
+        vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        Ok(self.0.eval(tape, x, y, z))
+        Ok(self.0.eval(tape, vars))
     }
 }
 
@@ -1049,11 +1039,9 @@ impl TracingEvaluator for JitPointEval {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: Self::Data,
-        y: Self::Data,
-        z: Self::Data,
+        vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        Ok(self.0.eval(tape, x, y, z))
+        Ok(self.0.eval(tape, vars))
     }
 }
 
@@ -1080,15 +1068,38 @@ impl<T> Tape for JitBulkFn<T> {
     }
 }
 
+/// Maximum SIMD width for any type, checked at runtime (alas)
+///
+/// We can't use T::SIMD_SIZE directly here due to Rust limitations. Instead we
+/// hard-code a maximum SIMD size along with an assertion that should be
+/// optimized out; we can't use a constant assertion here due to the same
+/// compiler limitations.
+const MAX_SIMD_WIDTH: usize = 8;
+
 /// Bulk evaluator for JIT functions
 struct JitBulkEval<T> {
+    /// Array of pointers used when calling into the JIT function
+    ptrs: Vec<*const T>,
+
+    /// Scratch array for evaluation of less-than-SIMD-size slices
+    scratch: Vec<[T; MAX_SIMD_WIDTH]>,
+
     /// Output array that's written to during evaluation
     out: Vec<T>,
 }
 
+// SAFETY: the pointers in `JitBulkEval` are transient and only scoped to a
+// single evaluation.
+unsafe impl<T> Sync for JitBulkEval<T> {}
+unsafe impl<T> Send for JitBulkEval<T> {}
+
 impl<T> Default for JitBulkEval<T> {
     fn default() -> Self {
-        Self { out: vec![] }
+        Self {
+            out: vec![],
+            scratch: vec![],
+            ptrs: vec![],
+        }
     }
 }
 
@@ -1099,15 +1110,9 @@ unsafe impl<T> Sync for JitBulkFn<T> {}
 
 impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
-    fn eval(
-        &mut self,
-        tape: &JitBulkFn<T>,
-        xs: &[T],
-        ys: &[T],
-        zs: &[T],
-    ) -> &[T] {
+    fn eval(&mut self, tape: &JitBulkFn<T>, vars: &[&[T]]) -> &[T] {
         assert!(tape.var_count <= 3);
-        let n = xs.len();
+        let n = vars.first().map(|v| v.len()).unwrap_or(0);
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
 
@@ -1115,51 +1120,51 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         // in which case the input slices can't be used as workspace (because
         // they are not valid for the entire range of values read in assembly)
         if n < T::SIMD_SIZE {
-            // We can't use T::SIMD_SIZE directly here due to Rust limitations.
-            // Instead we hard-code a maximum SIMD size along with an assertion
-            // that should be optimized out; we can't use a constant assertion
-            // here due to the same compiler limitations.
-            const MAX_SIMD_WIDTH: usize = 8;
-            let mut x = [T::from(0.0); MAX_SIMD_WIDTH];
-            let mut y = [T::from(0.0); MAX_SIMD_WIDTH];
-            let mut z = [T::from(0.0); MAX_SIMD_WIDTH];
             assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
-            x[0..n].copy_from_slice(xs);
-            y[0..n].copy_from_slice(ys);
-            z[0..n].copy_from_slice(zs);
+            // TODO reuse allocation here allocation here?
+            self.scratch.resize(n, [T::from(0.0); MAX_SIMD_WIDTH]);
+            for (v, t) in vars.iter().zip(self.scratch.iter_mut()) {
+                t[0..n].copy_from_slice(v);
+            }
 
-            let mut tmp = [f32::NAN.into(); MAX_SIMD_WIDTH];
-            let vars = [x.as_ptr(), y.as_ptr(), z.as_ptr()];
+            self.ptrs.clear();
+            self.ptrs.extend(self.scratch.iter().map(|t| t.as_ptr()));
+
+            let mut out = [f32::NAN.into(); MAX_SIMD_WIDTH];
             unsafe {
                 (tape.fn_bulk)(
-                    vars.as_ptr(),
-                    tmp.as_mut_ptr(),
+                    self.ptrs.as_ptr(),
+                    out.as_mut_ptr(),
                     T::SIMD_SIZE as u64,
                 );
             }
-            self.out.copy_from_slice(&tmp[0..n]);
+            self.out.copy_from_slice(&out[0..n]);
         } else {
             // Our vectorized function only accepts sets of a particular width,
             // so we'll find the biggest multiple, then do an extra operation to
             // process any remainders.
             let m = (n / T::SIMD_SIZE) * T::SIMD_SIZE; // Round down
-            let vars = [xs.as_ptr(), ys.as_ptr(), zs.as_ptr()];
+            self.ptrs.clear();
+            self.ptrs.extend(vars.iter().map(|v| v.as_ptr()));
             unsafe {
-                (tape.fn_bulk)(vars.as_ptr(), self.out.as_mut_ptr(), m as u64);
+                (tape.fn_bulk)(
+                    self.ptrs.as_ptr(),
+                    self.out.as_mut_ptr(),
+                    m as u64,
+                );
             }
             // If we weren't given an even multiple of vector width, then we'll
             // handle the remaining items by simply evaluating the *last* full
             // vector in the array again.
             if n != m {
+                self.ptrs.clear();
                 unsafe {
-                    let vars = [
-                        xs.as_ptr().add(n - T::SIMD_SIZE),
-                        ys.as_ptr().add(n - T::SIMD_SIZE),
-                        zs.as_ptr().add(n - T::SIMD_SIZE),
-                    ];
+                    self.ptrs.extend(
+                        vars.iter().map(|v| v.as_ptr().add(n - T::SIMD_SIZE)),
+                    );
                     (tape.fn_bulk)(
-                        vars.as_ptr(),
+                        self.ptrs.as_ptr(),
                         self.out.as_mut_ptr().add(n - T::SIMD_SIZE),
                         T::SIMD_SIZE as u64,
                     );
@@ -1181,11 +1186,10 @@ impl BulkEvaluator for JitFloatSliceEval {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        vars: &[&[Self::Data]],
     ) -> Result<&[Self::Data], Error> {
-        Ok(self.0.eval(tape, xs, ys, zs))
+        self.check_arguments(vars, tape.var_count)?;
+        Ok(self.0.eval(tape, vars))
     }
 }
 
@@ -1200,19 +1204,22 @@ impl BulkEvaluator for JitGradSliceEval {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[Self::Data],
-        ys: &[Self::Data],
-        zs: &[Self::Data],
+        vars: &[&[Self::Data]],
     ) -> Result<&[Self::Data], Error> {
-        Ok(self.0.eval(tape, xs, ys, zs))
+        self.check_arguments(vars, tape.var_count)?;
+        Ok(self.0.eval(tape, vars))
     }
 }
 
-impl MathFunction for JitShape {
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        GenericVmFunction::new(ctx, node).map(JitShape)
+impl MathFunction for JitFunction {
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+        let (f, vars) = GenericVmFunction::new(ctx, node)?;
+        Ok((JitFunction(f), vars))
     }
 }
+
+/// A [`Shape`](crate::shape::Shape) which uses the JIT evaluator
+pub type JitShape = crate::shape::FunctionShape<JitFunction>;
 
 ////////////////////////////////////////////////////////////////////////////////
 

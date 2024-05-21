@@ -19,7 +19,7 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::MathShape,
+//!     shape::MathShape,
 //!     mesh::{Octree, Settings},
 //!     vm::VmShape
 //! };

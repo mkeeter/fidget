@@ -10,7 +10,7 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
         fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
     let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");

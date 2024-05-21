@@ -62,10 +62,10 @@ pub trait Function: Send + Sync + Clone {
     /// identical result and may be cached.
     type Trace: Clone + Eq + Send + Trace;
 
-    /// Associated type for storage used by the shape itself
+    /// Associated type for storage used by the function itself
     type Storage: Default + Send;
 
-    /// Associated type for workspace used during shape simplification
+    /// Associated type for workspace used during function simplification
     type Workspace: Default + Send;
 
     /// Associated type for storage used by tapes
@@ -154,16 +154,16 @@ pub trait Function: Send + Sync + Clone {
     where
         Self: Sized;
 
-    /// Attempt to reclaim storage from this shape
+    /// Attempt to reclaim storage from this function
     ///
-    /// This may fail, because shapes are `Clone` and are often implemented
+    /// This may fail, because functions are `Clone` and are often implemented
     /// using an `Arc` around a heavier data structure.
     fn recycle(self) -> Option<Self::Storage>;
 
-    /// Returns a size associated with this shape
+    /// Returns a size associated with this function
     ///
     /// This is underspecified and only used for unit testing; for tape-based
-    /// shapes, it's typically the length of the tape,
+    /// functions, it's typically the length of the tape,
     fn size(&self) -> usize;
 }
 
@@ -172,13 +172,17 @@ pub type VarMap = std::collections::HashMap<Var, usize>;
 
 /// A [`Function`] which can be built from a math expression
 pub trait MathFunction {
-    /// Builds a new shape from the given context and node
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    /// Builds a new function from the given context and node
+    ///
+    /// Returns a tuple of the [`MathFunction`] and a [`VarMap`] representing a
+    /// mapping from variables (in the [`Context`]) to indices used during
+    /// evaluation.
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error>
     where
         Self: Sized;
 
-    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
-    fn from_tree(t: &Tree) -> Self
+    /// Helper function to build a function from a [`Tree`]
+    fn from_tree(t: &Tree) -> (Self, VarMap)
     where
         Self: Sized,
     {
