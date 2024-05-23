@@ -6,7 +6,7 @@ use crate::{
         BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
         VarMap,
     },
-    shape::{FunctionShape, RenderHints},
+    shape::{RenderHints, Shape},
     types::{Grad, Interval},
     Context, Error,
 };
@@ -20,6 +20,8 @@ pub use data::{VmData, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
 
+pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
+
 /// Shape that use a VM backend for evaluation
 ///
 /// Internally, the [`VmShape`] stores an [`Arc<VmData>`](VmData), and
@@ -27,7 +29,7 @@ pub use data::{VmData, VmWorkspace};
 ///
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
 /// there's no separate planning required to generate a tape.
-pub type VmShape = FunctionShape<GenericVmFunction<{ u8::MAX as usize }>>;
+pub type VmShape = Shape<VmFunction>;
 
 impl<const N: usize> Tape for GenericVmFunction<N> {
     type Storage = ();
@@ -1429,8 +1431,8 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_slice_tests!(VmShape);
-    crate::interval_tests!(VmShape);
-    crate::float_slice_tests!(VmShape);
-    crate::point_tests!(VmShape);
+    crate::grad_slice_tests!(VmFunction);
+    crate::interval_tests!(VmFunction);
+    crate::float_slice_tests!(VmFunction);
+    crate::point_tests!(VmFunction);
 }

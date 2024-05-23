@@ -6,26 +6,24 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    shape::{BulkEvaluator, EzShape, MathShape, Shape},
+    eval::{Function, MathFunction},
+    shape::{EzShape, Shape},
 };
 
 /// Helper struct to put constrains on our `Shape` object
-pub struct TestFloatSlice<S>(std::marker::PhantomData<*const S>);
+pub struct TestFloatSlice<F>(std::marker::PhantomData<*const F>);
 
-impl<S> TestFloatSlice<S>
-where
-    S: Shape + MathShape,
-{
+impl<F: Function + MathFunction> TestFloatSlice<F> {
     pub fn test_give_take() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape_x = S::new(&mut ctx, x).unwrap();
-        let shape_y = S::new(&mut ctx, y).unwrap();
+        let shape_x = Shape::<F>::new(&mut ctx, x).unwrap();
+        let shape_y = Shape::<F>::new(&mut ctx, y).unwrap();
 
         // This is a fuzz test for icache issues
-        let mut eval = S::new_float_slice_eval();
+        let mut eval = Shape::<F>::new_float_slice_eval();
         for _ in 0..10000 {
             let tape = shape_x.ez_float_slice_tape();
             let out = eval
@@ -58,8 +56,8 @@ where
         let x = ctx.x();
         let y = ctx.y();
 
-        let mut eval = S::new_float_slice_eval();
-        let shape = S::new(&mut ctx, x).unwrap();
+        let mut eval = Shape::<F>::new_float_slice_eval();
+        let shape = Shape::<F>::new(&mut ctx, x).unwrap();
         let tape = shape.ez_float_slice_tape();
         let out = eval
             .eval(
@@ -92,7 +90,7 @@ where
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let shape = S::new(&mut ctx, mul).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, mul).unwrap();
         let tape = shape.ez_float_slice_tape();
         let out = eval
             .eval(
@@ -125,8 +123,8 @@ where
         let a = ctx.x();
         let b = ctx.sin(a).unwrap();
 
-        let shape = S::new(&mut ctx, b).unwrap();
-        let mut eval = S::new_float_slice_eval();
+        let shape = Shape::<F>::new(&mut ctx, b).unwrap();
+        let mut eval = Shape::<F>::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
         let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
@@ -147,8 +145,8 @@ where
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = S::new(&mut ctx, node).unwrap();
-        let mut eval = S::new_float_slice_eval();
+        let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+        let mut eval = Shape::<F>::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
         let out = eval.eval(&tape, &x, &y, &z).unwrap();
@@ -204,8 +202,8 @@ where
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
             let node = C::build(&mut ctx, v);
 
-            let shape = S::new(&mut ctx, node).unwrap();
-            let mut eval = S::new_float_slice_eval();
+            let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+            let mut eval = Shape::<F>::new_float_slice_eval();
             let tape = shape.ez_float_slice_tape();
 
             let out = match i {
@@ -261,8 +259,8 @@ where
                 for (j, &u) in inputs.iter().enumerate() {
                     let node = C::build(&mut ctx, v, u);
 
-                    let shape = S::new(&mut ctx, node).unwrap();
-                    let mut eval = S::new_float_slice_eval();
+                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+                    let mut eval = Shape::<F>::new_float_slice_eval();
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match (i, j) {
@@ -308,8 +306,8 @@ where
                     let c = ctx.constant(*rhs as f64);
                     let node = C::build(&mut ctx, v, c);
 
-                    let shape = S::new(&mut ctx, node).unwrap();
-                    let mut eval = S::new_float_slice_eval();
+                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+                    let mut eval = Shape::<F>::new_float_slice_eval();
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match i {
@@ -349,8 +347,8 @@ where
                     let c = ctx.constant(*lhs as f64);
                     let node = C::build(&mut ctx, c, v);
 
-                    let shape = S::new(&mut ctx, node).unwrap();
-                    let mut eval = S::new_float_slice_eval();
+                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+                    let mut eval = Shape::<F>::new_float_slice_eval();
                     let tape = shape.ez_float_slice_tape();
 
                     let out = match i {

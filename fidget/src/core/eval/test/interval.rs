@@ -9,28 +9,28 @@ use super::{
 };
 use crate::{
     context::Context,
-    eval::Tape,
-    shape::{EzShape, MathShape, Shape, TracingEvaluator},
+    eval::{Function, MathFunction},
+    shape::{EzShape, Shape},
     types::Interval,
     vm::Choice,
 };
 
 /// Helper struct to put constrains on our `Shape` object
-pub struct TestInterval<S>(std::marker::PhantomData<*const S>);
+pub struct TestInterval<F>(std::marker::PhantomData<*const F>);
 
-impl<S> TestInterval<S>
+impl<F> TestInterval<F>
 where
-    for<'a> S: Shape + MathShape,
-    <S as Shape>::Trace: AsRef<[Choice]>,
+    for<'a> F: Function + MathFunction,
+    <F as Function>::Trace: AsRef<[Choice]>,
 {
     pub fn test_interval() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape = S::new(&mut ctx, x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(
             eval.eval_xy(&tape, [0.0, 1.0], [2.0, 3.0]),
             [0.0, 1.0].into()
@@ -40,9 +40,9 @@ where
             [1.0, 5.0].into()
         );
 
-        let shape = S::new(&mut ctx, y).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, y).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(
             eval.eval_xy(&tape, [0.0, 1.0], [2.0, 3.0]),
             [2.0, 3.0].into()
@@ -58,9 +58,9 @@ where
         let x = ctx.x();
         let abs_x = ctx.abs(x).unwrap();
 
-        let shape = S::new(&mut ctx, abs_x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, abs_x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x(&tape, [1.0, 5.0]), [1.0, 5.0].into());
         assert_eq!(eval.eval_x(&tape, [-2.0, 5.0]), [0.0, 5.0].into());
@@ -70,9 +70,9 @@ where
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
-        let shape = S::new(&mut ctx, sum).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sum).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(
             eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
             [0.0, 2.0].into()
@@ -93,9 +93,9 @@ where
         let v = ctx.add(x, 0.5).unwrap();
         let out = ctx.abs(v).unwrap();
 
-        let shape = S::new(&mut ctx, out).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, out).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
 
         assert_eq!(eval.eval_x(&tape, [-1.0, 1.0]), [0.0, 1.5].into());
     }
@@ -105,9 +105,9 @@ where
         let x = ctx.x();
         let sqrt_x = ctx.sqrt(x).unwrap();
 
-        let shape = S::new(&mut ctx, sqrt_x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sqrt_x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [0.0, 2.0].into());
 
@@ -133,9 +133,9 @@ where
         let x = ctx.x();
         let sqrt_x = ctx.square(x).unwrap();
 
-        let shape = S::new(&mut ctx, sqrt_x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sqrt_x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 1.0].into());
         assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [0.0, 16.0].into());
         assert_eq!(eval.eval_x(&tape, [2.0, 4.0]), [4.0, 16.0].into());
@@ -154,17 +154,17 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
-        let shape = S::new(&mut ctx, s).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
         let tape = shape.ez_interval_tape();
 
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-1.0, 1.0].into());
 
         let y = ctx.y();
         let y = ctx.mul(y, 2.0).unwrap();
         let s = ctx.sin(y).unwrap();
         let s = ctx.add(x, s).unwrap();
-        let shape = S::new(&mut ctx, s).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
         let tape = shape.ez_interval_tape();
 
         assert_eq!(eval.eval_x(&tape, [0.0, 3.0]), [-1.0, 4.0].into());
@@ -175,9 +175,9 @@ where
         let x = ctx.x();
         let neg_x = ctx.neg(x).unwrap();
 
-        let shape = S::new(&mut ctx, neg_x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, neg_x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-1.0, 0.0].into());
         assert_eq!(eval.eval_x(&tape, [0.0, 4.0]), [-4.0, 0.0].into());
         assert_eq!(eval.eval_x(&tape, [2.0, 4.0]), [-4.0, -2.0].into());
@@ -197,9 +197,9 @@ where
         let x = ctx.x();
         let not_x = ctx.not(x).unwrap();
 
-        let shape = S::new(&mut ctx, not_x).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, not_x).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [-5.0, 0.0]), [0.0, 1.0].into());
     }
 
@@ -209,9 +209,9 @@ where
         let y = ctx.y();
         let mul = ctx.mul(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, mul).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, mul).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(
             eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
             [0.0, 1.0].into()
@@ -250,16 +250,16 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let mul = ctx.mul(x, 2.0).unwrap();
-        let shape = S::new(&mut ctx, mul).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, mul).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [0.0, 2.0].into());
         assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [2.0, 4.0].into());
 
         let mul = ctx.mul(x, -3.0).unwrap();
-        let shape = S::new(&mut ctx, mul).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, mul).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-3.0, 0.0].into());
         assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-6.0, -3.0].into());
     }
@@ -270,9 +270,9 @@ where
         let y = ctx.y();
         let sub = ctx.sub(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, sub).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sub).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(
             eval.eval_xy(&tape, [0.0, 1.0], [0.0, 1.0]),
             [-1.0, 1.0].into()
@@ -299,16 +299,16 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let sub = ctx.sub(x, 2.0).unwrap();
-        let shape = S::new(&mut ctx, sub).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sub).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-2.0, -1.0].into());
         assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-1.0, 0.0].into());
 
         let sub = ctx.sub(-3.0, x).unwrap();
-        let shape = S::new(&mut ctx, sub).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, sub).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         assert_eq!(eval.eval_x(&tape, [0.0, 1.0]), [-4.0, -3.0].into());
         assert_eq!(eval.eval_x(&tape, [1.0, 2.0]), [-5.0, -4.0].into());
     }
@@ -317,9 +317,9 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
-        let shape = S::new(&mut ctx, recip).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, recip).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
 
         let nanan = eval.eval_x(&tape, [0.0, 1.0]);
         assert!(nanan.lower().is_nan());
@@ -342,9 +342,9 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let div = ctx.div(x, y).unwrap();
-        let shape = S::new(&mut ctx, div).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, div).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
 
         let nanan = eval.eval_xy(&tape, [0.0, 1.0], [-1.0, 1.0]);
         assert!(nanan.lower().is_nan());
@@ -389,9 +389,9 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, min).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, min).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, data) =
             eval.eval(&tape, [0.0, 1.0], [0.5, 1.5], [0.0; 2]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
@@ -427,9 +427,9 @@ where
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let shape = S::new(&mut ctx, min).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, min).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, data) =
             eval.eval(&tape, [0.0, 1.0], [0.0; 2], [0.0; 2]).unwrap();
         assert_eq!(r, [0.0, 1.0].into());
@@ -452,9 +452,9 @@ where
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, max).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, max).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, data) =
             eval.eval(&tape, [0.0, 1.0], [0.5, 1.5], [0.0; 2]).unwrap();
         assert_eq!(r, [0.5, 1.5].into());
@@ -486,9 +486,9 @@ where
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
-        let shape = S::new(&mut ctx, max_xy_z).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, max_xy_z).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, data) = eval
             .eval(&tape, [2.0, 3.0], [0.0, 1.0], [4.0, 5.0])
             .unwrap();
@@ -508,18 +508,15 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left, Choice::Left]);
     }
 
-    pub fn test_i_and()
-    where
-        <S as Shape>::Trace: AsRef<[Choice]>,
-    {
+    pub fn test_i_and() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
         let v = ctx.and(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, v).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, v).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, trace) = eval
             .eval(&tape, [0.0, 0.0], [-1.0, 3.0], [0.0, 0.0])
             .unwrap();
@@ -545,18 +542,15 @@ where
         assert!(trace.is_none()); // can't simplify
     }
 
-    pub fn test_i_or()
-    where
-        <S as Shape>::Trace: AsRef<[Choice]>,
-    {
+    pub fn test_i_or() {
         let mut ctx = Context::new();
         let x = ctx.x();
         let y = ctx.y();
         let v = ctx.or(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, v).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, v).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, trace) = eval
             .eval(&tape, [0.0, 0.0], [-1.0, 3.0], [0.0, 0.0])
             .unwrap();
@@ -587,9 +581,9 @@ where
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let shape = S::new(&mut ctx, min).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, min).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (out, data) =
             eval.eval(&tape, [0.0, 2.0], [0.0; 2], [0.0; 2]).unwrap();
         assert_eq!(out, [0.0, 1.0].into());
@@ -606,9 +600,9 @@ where
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let max = ctx.max(x, 1.0).unwrap();
-        let shape = S::new(&mut ctx, max).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, max).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (out, data) =
             eval.eval(&tape, [0.0, 2.0], [0.0; 2], [0.0; 2]).unwrap();
         assert_eq!(out, [1.0, 2.0].into());
@@ -632,10 +626,10 @@ where
         let z = ctx.z();
 
         let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
-        let shape = S::new(&mut ctx, if_else).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, if_else).unwrap();
 
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (out, data) = eval
             .eval(&tape, [-1.0, 2.0], [1.0, 2.0], [3.0, 4.0])
             .unwrap();
@@ -681,9 +675,9 @@ where
         let x = ctx.x();
         let max = ctx.max(x, 1.0).unwrap();
 
-        let shape = S::new(&mut ctx, max).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, max).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (r, data) = eval
             .eval(&tape, [0.0, 2.0], [0.0, 0.0], [0.0, 0.0])
             .unwrap();
@@ -709,9 +703,9 @@ where
         let y = ctx.y();
         let c = ctx.compare(x, y).unwrap();
 
-        let shape = S::new(&mut ctx, c).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, c).unwrap();
         let tape = shape.ez_interval_tape();
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         let (out, _trace) = eval.eval(&tape, -5.0, -6.0, 0.0).unwrap();
         assert_eq!(out, Interval::from(1f32));
     }
@@ -729,8 +723,8 @@ where
         let y: Vec<_> = x[1..].iter().chain(&x[0..1]).cloned().collect();
         let z: Vec<_> = x[2..].iter().chain(&x[0..2]).cloned().collect();
 
-        let shape = S::new(&mut ctx, node).unwrap();
-        let mut eval = S::new_interval_eval();
+        let shape = Shape::<F>::new(&mut ctx, node).unwrap();
+        let mut eval = Shape::<F>::new_interval_eval();
         let tape = shape.ez_interval_tape();
 
         let mut out = vec![];
@@ -781,11 +775,11 @@ where
 
         let mut ctx = Context::new();
         let mut tape_data = None;
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
             let node = C::build(&mut ctx, v);
 
-            let shape = S::new(&mut ctx, node).unwrap();
+            let shape = Shape::<F>::new(&mut ctx, node).unwrap();
             let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
             for &a in args.iter() {
@@ -877,7 +871,7 @@ where
         let name = format!("{}(reg, reg)", C::NAME);
         let zero = Interval::new(0.0, 0.0);
         let mut tape_data = None;
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         for &lhs in args.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
@@ -891,7 +885,7 @@ where
                             continue;
                         }
 
-                        let shape = S::new(&mut ctx, node).unwrap();
+                        let shape = Shape::<F>::new(&mut ctx, node).unwrap();
                         let tape =
                             shape.interval_tape(tape_data.unwrap_or_default());
 
@@ -934,14 +928,14 @@ where
         let name = format!("{}(reg, imm)", C::NAME);
         let zero = Interval::new(0.0, 0.0);
         let mut tape_data = None;
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         for &lhs in args.iter() {
             for &rhs in values.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
                     let c = ctx.constant(rhs as f64);
                     let node = C::build(&mut ctx, u, c);
 
-                    let shape = S::new(&mut ctx, node).unwrap();
+                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
                     let tape =
                         shape.interval_tape(tape_data.unwrap_or_default());
 
@@ -976,14 +970,14 @@ where
         let name = format!("{}(imm, reg)", C::NAME);
         let zero = Interval::new(0.0, 0.0);
         let mut tape_data = None;
-        let mut eval = S::new_interval_eval();
+        let mut eval = Shape::<F>::new_interval_eval();
         for &lhs in values.iter() {
             for &rhs in args.iter() {
                 for (i, &u) in xyz.iter().enumerate() {
                     let c = ctx.constant(lhs as f64);
                     let node = C::build(&mut ctx, c, u);
 
-                    let shape = S::new(&mut ctx, node).unwrap();
+                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
                     let tape =
                         shape.interval_tape(tape_data.unwrap_or_default());
 

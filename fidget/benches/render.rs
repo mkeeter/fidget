@@ -4,8 +4,6 @@ use criterion::{
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
-use fidget::shape::{MathShape, RenderHints};
-
 pub fn prospero_size_sweep(c: &mut Criterion) {
     let (mut ctx, root) =
         fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();

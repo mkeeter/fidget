@@ -1219,15 +1219,15 @@ impl MathFunction for JitFunction {
 }
 
 /// A [`Shape`](crate::shape::Shape) which uses the JIT evaluator
-pub type JitShape = crate::shape::FunctionShape<JitFunction>;
+pub type JitShape = crate::shape::Shape<JitFunction>;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_slice_tests!(JitShape);
-    crate::interval_tests!(JitShape);
-    crate::float_slice_tests!(JitShape);
-    crate::point_tests!(JitShape);
+    crate::grad_slice_tests!(JitFunction);
+    crate::interval_tests!(JitFunction);
+    crate::float_slice_tests!(JitFunction);
+    crate::point_tests!(JitFunction);
 }

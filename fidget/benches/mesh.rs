@@ -1,7 +1,6 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::shape::MathShape;
 
 const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 

@@ -1,6 +1,7 @@
 //! Multithreaded octree construction
 use super::pool::{QueuePool, ThreadContext, ThreadPool};
 use crate::{
+    eval::Function,
     mesh::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
@@ -8,7 +9,6 @@ use crate::{
         Octree, Settings,
     },
     shape::RenderHints,
-    shape::Shape,
 };
 use std::sync::{mpsc::TryRecvError, Arc};
 
@@ -18,22 +18,22 @@ use std::sync::{mpsc::TryRecvError, Arc};
 /// octants, sending results back to the parent (which is numbered implicitly
 /// based on what queue we stole this from).
 #[derive(Clone)]
-struct Task<S: Shape> {
-    data: Arc<TaskData<S>>,
+struct Task<F: Function> {
+    data: Arc<TaskData<F>>,
 }
 
-impl<S: Shape> std::ops::Deref for Task<S> {
-    type Target = TaskData<S>;
+impl<F: Function> std::ops::Deref for Task<F> {
+    type Target = TaskData<F>;
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl<S: Shape> Task<S> {
+impl<F: Function> Task<F> {
     /// Builds a new root task
     ///
     /// The root task is from worker 0 with the default cell index
-    fn new(eval: Arc<EvalGroup<S>>) -> Self {
+    fn new(eval: Arc<EvalGroup<F>>) -> Self {
         Self {
             data: Arc::new(TaskData {
                 eval,
@@ -46,7 +46,7 @@ impl<S: Shape> Task<S> {
 
     fn child(
         &self,
-        eval: Arc<EvalGroup<S>>,
+        eval: Arc<EvalGroup<F>>,
         target_cell: CellIndex,
         assigned_by: usize,
     ) -> Self {
@@ -61,8 +61,8 @@ impl<S: Shape> Task<S> {
     }
 }
 
-struct TaskData<S: Shape> {
-    eval: Arc<EvalGroup<S>>,
+struct TaskData<F: Function> {
+    eval: Arc<EvalGroup<F>>,
 
     /// Thread in which the parent cell lives
     assigned_by: usize,
@@ -70,12 +70,12 @@ struct TaskData<S: Shape> {
     /// Parent cell, which must be an `Invalid` cell waiting for population
     target_cell: CellIndex,
 
-    parent: Option<Arc<TaskData<S>>>,
+    parent: Option<Arc<TaskData<F>>>,
 }
 
-struct Done<S: Shape> {
+struct Done<F: Function> {
     /// The task that we have finished evaluating
-    task: Task<S>,
+    task: Task<F>,
 
     /// The resulting cell
     ///
@@ -89,7 +89,7 @@ struct Done<S: Shape> {
     completed_by: usize,
 }
 
-pub struct OctreeWorker<S: Shape + RenderHints> {
+pub struct OctreeWorker<F: Function + RenderHints> {
     /// Global index of this worker thread
     ///
     /// For example, this is the thread's own index in `friend_queue` and
@@ -101,24 +101,24 @@ pub struct OctreeWorker<S: Shape + RenderHints> {
     /// This octree may not be complete; worker 0 is guaranteed to contain the
     /// root, and other works may contain fragmentary branches that point to
     /// each other in a tree structure.
-    octree: OctreeBuilder<S>,
+    octree: OctreeBuilder<F>,
 
     /// Incoming completed tasks from other threads
-    done: std::sync::mpsc::Receiver<Done<S>>,
+    done: std::sync::mpsc::Receiver<Done<F>>,
 
     /// Our queue of tasks
-    queue: QueuePool<Task<S>>,
+    queue: QueuePool<Task<F>>,
 
     /// When a worker finishes a task, it returns it through these queues
     ///
     /// Like `friend_queue`, there's one per thread, including the worker's own
     /// thread; it would be silly to send stuff back to your own thread via the
     /// queue (rather than storing it directly).
-    friend_done: Vec<std::sync::mpsc::Sender<Done<S>>>,
+    friend_done: Vec<std::sync::mpsc::Sender<Done<F>>>,
 }
 
-impl<S: Shape + RenderHints> OctreeWorker<S> {
-    pub fn scheduler(eval: Arc<EvalGroup<S>>, settings: Settings) -> Octree {
+impl<F: Function + RenderHints> OctreeWorker<F> {
+    pub fn scheduler(eval: Arc<EvalGroup<F>>, settings: Settings) -> Octree {
         let task_queues = QueuePool::new(settings.threads());
         let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)
             .take(settings.threads())
@@ -250,13 +250,13 @@ impl<S: Shape + RenderHints> OctreeWorker<S> {
         self.octree.into()
     }
 
-    fn reclaim(&mut self, task: Task<S>) {
+    fn reclaim(&mut self, task: Task<F>) {
         if let Ok(t) = Arc::try_unwrap(task.data) {
             self.reclaim_inner(t)
         }
     }
 
-    fn reclaim_inner(&mut self, mut t: TaskData<S>) {
+    fn reclaim_inner(&mut self, mut t: TaskData<F>) {
         // Try recycling the tapes, if no one else is using them
         if let Ok(e) = Arc::try_unwrap(t.eval) {
             self.octree.reclaim(e);
@@ -271,7 +271,7 @@ impl<S: Shape + RenderHints> OctreeWorker<S> {
     fn on_done(
         &mut self,
         result: BranchResult,
-        task: &Arc<TaskData<S>>,
+        task: &Arc<TaskData<F>>,
         completed_by: usize,
         ctx: &mut ThreadContext,
     ) {
@@ -306,7 +306,7 @@ impl<S: Shape + RenderHints> OctreeWorker<S> {
         &mut self,
         index: usize,
         cell: CellData,
-        parent_task: &Arc<TaskData<S>>,
+        parent_task: &Arc<TaskData<F>>,
         ctx: &mut ThreadContext,
     ) {
         self.octree.record(index, cell);

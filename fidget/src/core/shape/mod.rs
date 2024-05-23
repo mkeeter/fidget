@@ -28,154 +28,169 @@
 //! ambiguity.
 
 use crate::{
-    context::{Context, Node},
-    eval::{self, Trace},
-    types::{Grad, Interval},
+    context::{Context, Node, Tree},
+    eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     Error,
 };
 
 mod bounds;
-mod bulk;
-mod tracing;
-mod transform;
 
 // Re-export a few things
 pub use bounds::Bounds;
-pub use bulk::BulkEvaluator;
-pub use tracing::TracingEvaluator;
-pub use transform::TransformedShape;
 
 /// A shape represents an implicit surface
 ///
-/// It is mostly agnostic to _how_ that surface is represented; we simply
-/// require that the shape can generate evaluators of various kinds.
+/// It is mostly agnostic to _how_ that surface is represented, wrapping a
+/// [`Function`](Function) and a set of axes.
 ///
 /// Shapes are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
-pub trait Shape: Send + Sync + Clone {
-    /// Associated type traces collected during tracing evaluation
-    ///
-    /// This type must implement [`Eq`] so that traces can be compared; calling
-    /// [`Shape::simplify`] with traces that compare equal should produce an
-    /// identical result and may be cached.
-    type Trace: Clone + Eq + Send + Trace;
+#[derive(Clone)]
+pub struct Shape<F> {
+    /// Wrapped function
+    f: F,
 
-    /// Associated type for storage used by the shape itself
-    type Storage: Default + Send;
+    /// Index of x, y, z axes within the function's variable list (if present)
+    axes: [Option<usize>; 3],
+}
 
-    /// Associated type for workspace used during shape simplification
-    type Workspace: Default + Send;
-
-    /// Associated type for storage used by tapes
-    ///
-    /// For simplicity, we require that every tape use the same type for storage.
-    /// This could change in the future!
-    type TapeStorage: Default + Send;
-
-    /// Associated type for single-point tracing evaluation
-    type PointEval: TracingEvaluator<
-            Data = f32,
-            Trace = Self::Trace,
-            TapeStorage = Self::TapeStorage,
-        > + Send
-        + Sync;
-
+impl<F: Function + Clone> Shape<F> {
     /// Builds a new point evaluator
-    fn new_point_eval() -> Self::PointEval {
-        Self::PointEval::default()
+    pub fn new_point_eval() -> ShapeTracingEval<F::PointEval> {
+        ShapeTracingEval {
+            eval: F::PointEval::default(),
+        }
     }
-
-    /// Associated type for single interval tracing evaluation
-    type IntervalEval: TracingEvaluator<
-            Data = Interval,
-            Trace = Self::Trace,
-            TapeStorage = Self::TapeStorage,
-        > + Send
-        + Sync;
 
     /// Builds a new interval evaluator
-    fn new_interval_eval() -> Self::IntervalEval {
-        Self::IntervalEval::default()
+    pub fn new_interval_eval() -> ShapeTracingEval<F::IntervalEval> {
+        ShapeTracingEval {
+            eval: F::IntervalEval::default(),
+        }
     }
-
-    /// Associated type for evaluating many points in one call
-    type FloatSliceEval: BulkEvaluator<Data = f32, TapeStorage = Self::TapeStorage>
-        + Send
-        + Sync;
 
     /// Builds a new float slice evaluator
-    fn new_float_slice_eval() -> Self::FloatSliceEval {
-        Self::FloatSliceEval::default()
+    pub fn new_float_slice_eval() -> ShapeBulkEval<F::FloatSliceEval> {
+        ShapeBulkEval {
+            eval: F::FloatSliceEval::default(),
+        }
     }
 
-    /// Associated type for evaluating many gradients in one call
-    type GradSliceEval: BulkEvaluator<Data = Grad, TapeStorage = Self::TapeStorage>
-        + Send
-        + Sync;
-
     /// Builds a new gradient slice evaluator
-    fn new_grad_slice_eval() -> Self::GradSliceEval {
-        Self::GradSliceEval::default()
+    pub fn new_grad_slice_eval() -> ShapeBulkEval<F::GradSliceEval> {
+        ShapeBulkEval {
+            eval: F::GradSliceEval::default(),
+        }
     }
 
     /// Returns an evaluation tape for a point evaluator
-    fn point_tape(
+    pub fn point_tape(
         &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::PointEval as TracingEvaluator>::Tape;
+        storage: F::TapeStorage,
+    ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape> {
+        ShapeTape {
+            tape: self.f.point_tape(storage),
+            axes: self.axes,
+        }
+    }
 
-    /// Returns an evaluation tape for an interval evaluator
-    fn interval_tape(
+    /// Returns an evaluation tape for a interval evaluator
+    pub fn interval_tape(
         &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
+        storage: F::TapeStorage,
+    ) -> ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
+        ShapeTape {
+            tape: self.f.interval_tape(storage),
+            axes: self.axes,
+        }
+    }
 
     /// Returns an evaluation tape for a float slice evaluator
-    fn float_slice_tape(
+    pub fn float_slice_tape(
         &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
+        storage: F::TapeStorage,
+    ) -> ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
+        ShapeTape {
+            tape: self.f.float_slice_tape(storage),
+            axes: self.axes,
+        }
+    }
 
-    /// Returns an evaluation tape for a float slice evaluator
-    fn grad_slice_tape(
+    /// Returns an evaluation tape for a gradient slice evaluator
+    pub fn grad_slice_tape(
         &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
+        storage: F::TapeStorage,
+    ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
+        ShapeTape {
+            tape: self.f.grad_slice_tape(storage),
+            axes: self.axes,
+        }
+    }
 
     /// Computes a simplified tape using the given trace, and reusing storage
-    fn simplify(
+    pub fn simplify(
         &self,
-        trace: &Self::Trace,
-        storage: Self::Storage,
-        workspace: &mut Self::Workspace,
+        trace: &F::Trace,
+        storage: F::Storage,
+        workspace: &mut F::Workspace,
     ) -> Result<Self, Error>
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        let f = self.f.simplify(trace, storage, workspace)?;
+        Ok(Self { f, axes: self.axes })
+    }
 
     /// Attempt to reclaim storage from this shape
     ///
     /// This may fail, because shapes are `Clone` and are often implemented
     /// using an `Arc` around a heavier data structure.
-    fn recycle(self) -> Option<Self::Storage>;
+    pub fn recycle(self) -> Option<F::Storage> {
+        self.f.recycle()
+    }
 
     /// Returns a size associated with this shape
     ///
     /// This is underspecified and only used for unit testing; for tape-based
     /// shapes, it's typically the length of the tape,
-    fn size(&self) -> usize;
+    pub fn size(&self) -> usize {
+        self.f.size()
+    }
 
-    /// Associated type returned when applying a transform
-    ///
-    /// This is normally [`TransformedShape<Self>`](TransformedShape), but if
-    /// `Self` is already `TransformedShape`, then the transform is stacked
-    /// (instead of creating a wrapped object).
-    type TransformedShape: Shape;
+    /// Borrows the inner [`Function`](Function) object
+    pub fn inner(&self) -> &F {
+        &self.f
+    }
 
-    /// Returns a shape with the given transform applied
-    fn apply_transform(
-        self,
-        mat: nalgebra::Matrix4<f32>,
-    ) -> <Self as Shape>::TransformedShape;
+    /// Borrows the inner axis mapping
+    pub fn axes(&self) -> &[Option<usize>; 3] {
+        &self.axes
+    }
+
+    /// Raw constructor
+    pub fn new_raw(f: F, axes: [Option<usize>; 3]) -> Self {
+        Self { f, axes }
+    }
+}
+
+impl<F: RenderHints> Shape<F> {
+    pub fn tile_sizes_3d() -> &'static [usize] {
+        F::tile_sizes_3d()
+    }
+
+    pub fn tile_sizes_2d() -> &'static [usize] {
+        F::tile_sizes_2d()
+    }
+
+    pub fn simplify_tree_during_meshing(d: usize) -> bool {
+        F::simplify_tree_during_meshing(d)
+    }
+}
+
+impl<F> Shape<F> {
+    pub fn apply_transform(&self, mat: nalgebra::Matrix4<f32>) -> Self {
+        todo!();
+    }
 }
 
 /// Extension trait for working with a shape without thinking much about memory
@@ -187,55 +202,59 @@ pub trait Shape: Send + Sync + Clone {
 ///
 /// This trait is automatically implemented for every [`Shape`], but must be
 /// imported separately as a speed-bump to using it everywhere.
-pub trait EzShape: Shape {
+pub trait EzShape<F: Function> {
     /// Returns an evaluation tape for a point evaluator
-    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape;
+    fn ez_point_tape(
+        &self,
+    ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape>;
 
     /// Returns an evaluation tape for an interval evaluator
     fn ez_interval_tape(
         &self,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
+    ) -> ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn ez_float_slice_tape(
         &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
+    ) -> ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>;
 
     /// Returns an evaluation tape for a float slice evaluator
     fn ez_grad_slice_tape(
         &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
+    ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>;
 
     /// Computes a simplified tape using the given trace
-    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
+    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, Error>
     where
         Self: Sized;
 }
 
-impl<S: Shape> EzShape for S {
-    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape {
+impl<F: Function> EzShape<F> for Shape<F> {
+    fn ez_point_tape(
+        &self,
+    ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape> {
         self.point_tape(Default::default())
     }
 
     fn ez_interval_tape(
         &self,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
+    ) -> ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
         self.interval_tape(Default::default())
     }
 
     fn ez_float_slice_tape(
         &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
+    ) -> ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
         self.float_slice_tape(Default::default())
     }
 
     fn ez_grad_slice_tape(
         &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
+    ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
         self.grad_slice_tape(Default::default())
     }
 
-    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
+    fn ez_simplify(&self, trace: &F::Trace) -> Result<Self, Error> {
         let mut workspace = Default::default();
         self.simplify(trace, Default::default(), &mut workspace)
     }
@@ -260,141 +279,8 @@ pub trait RenderHints {
     }
 }
 
-/// A [`Shape`] which can be built from a math expression
-pub trait MathShape {
-    /// Builds a new shape from the given node with default (X, Y, Z) axes
-    fn new(ctx: &mut Context, node: Node) -> Result<Self, Error>
-    where
-        Self: Sized,
-    {
-        let axes = ctx.axes();
-        Self::new_with_axes(ctx, node, axes)
-    }
-
-    /// Builds a new shape from the given context, node, and axes
-    fn new_with_axes(
-        ctx: &Context,
-        node: Node,
-        axes: [Node; 3],
-    ) -> Result<Self, Error>
-    where
-        Self: Sized;
-
-    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
-    ///
-    /// This function uses the default (X, Y, Z) axes
-    fn from_tree(t: &crate::context::Tree) -> Self
-    where
-        Self: Sized,
-    {
-        let mut ctx = Context::new();
-        let node = ctx.import(t);
-        Self::new(&mut ctx, node).unwrap()
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-/// Wrapper to convert a [`Function`](fidget::eval::Function) into a [`Shape`]
-/// for evaluation.
-#[derive(Clone)]
-pub struct FunctionShape<F> {
-    /// Wrapped function
-    f: F,
-
-    /// Index of x, y, z axes within the function's variable list (if present)
-    axes: [Option<usize>; 3],
-}
-
-impl<F: eval::Function + Clone> Shape for FunctionShape<F> {
-    type Trace = <F as eval::Function>::Trace;
-    type Storage = <F as eval::Function>::Storage;
-    type Workspace = <F as eval::Function>::Workspace;
-    type TapeStorage = <F as eval::Function>::TapeStorage;
-
-    type PointEval = FunctionShapeTracingEval<<F as eval::Function>::PointEval>;
-    type IntervalEval =
-        FunctionShapeTracingEval<<F as eval::Function>::IntervalEval>;
-    type FloatSliceEval =
-        FunctionShapeBulkEval<<F as eval::Function>::FloatSliceEval>;
-    type GradSliceEval =
-        FunctionShapeBulkEval<<F as eval::Function>::GradSliceEval>;
-
-    fn point_tape(
-        &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::PointEval as TracingEvaluator>::Tape {
-        FunctionShapeTape {
-            tape: self.f.point_tape(storage),
-            axes: self.axes,
-        }
-    }
-
-    fn interval_tape(
-        &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
-        FunctionShapeTape {
-            tape: self.f.interval_tape(storage),
-            axes: self.axes,
-        }
-    }
-
-    fn float_slice_tape(
-        &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
-        FunctionShapeTape {
-            tape: self.f.float_slice_tape(storage),
-            axes: self.axes,
-        }
-    }
-
-    fn grad_slice_tape(
-        &self,
-        storage: Self::TapeStorage,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
-        FunctionShapeTape {
-            tape: self.f.grad_slice_tape(storage),
-            axes: self.axes,
-        }
-    }
-
-    fn simplify(
-        &self,
-        trace: &Self::Trace,
-        storage: Self::Storage,
-        workspace: &mut Self::Workspace,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized,
-    {
-        let f = self.f.simplify(trace, storage, workspace)?;
-        Ok(Self { f, axes: self.axes })
-    }
-
-    fn recycle(self) -> Option<Self::Storage> {
-        self.f.recycle()
-    }
-
-    fn size(&self) -> usize {
-        self.f.size()
-    }
-
-    type TransformedShape = TransformedShape<Self>;
-
-    fn apply_transform(
-        self,
-        mat: nalgebra::Matrix4<f32>,
-    ) -> <Self as Shape>::TransformedShape {
-        TransformedShape::new(self, mat)
-    }
-
-    // todo
-}
-
-impl<F: eval::MathFunction> MathShape for FunctionShape<F> {
-    fn new_with_axes(
+impl<F: MathFunction> Shape<F> {
+    pub fn new_with_axes(
         ctx: &Context,
         node: Node,
         axes: [Node; 3],
@@ -408,76 +294,55 @@ impl<F: eval::MathFunction> MathShape for FunctionShape<F> {
             axes: [x, y, z].map(|v| vs.get(v).cloned()),
         })
     }
-}
 
-impl<F: RenderHints> FunctionShape<F> {
-    /// Borrows the inner [`Function`](eval::Function) object
-    pub fn inner(&self) -> &F {
-        &self.f
-    }
-
-    /// Borrows the inner axis mapping
-    pub fn axes(&self) -> &[Option<usize>; 3] {
-        &self.axes
-    }
-
-    /// Raw constructor
-    pub fn new_raw(f: F, axes: [Option<usize>; 3]) -> Self {
-        Self { f, axes }
+    /// Builds a new shape from the given node with default (X, Y, Z) axes
+    pub fn new(ctx: &mut Context, node: Node) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let axes = ctx.axes();
+        Self::new_with_axes(ctx, node, axes)
     }
 }
 
-impl<F: RenderHints> RenderHints for FunctionShape<F> {
-    fn tile_sizes_3d() -> &'static [usize] {
-        F::tile_sizes_3d()
-    }
-
-    fn tile_sizes_2d() -> &'static [usize] {
-        F::tile_sizes_2d()
-    }
-
-    fn simplify_tree_during_meshing(d: usize) -> bool {
-        F::simplify_tree_during_meshing(d)
+impl<F: MathFunction> From<Tree> for Shape<F> {
+    fn from(t: Tree) -> Self {
+        let mut ctx = Context::new();
+        let node = ctx.import(&t);
+        Self::new(&mut ctx, node).unwrap()
     }
 }
 
 /// Wrapper struct to bind a generic tape to particular X, Y, Z axes
-pub struct FunctionShapeTape<T> {
+pub struct ShapeTape<T> {
     tape: T,
 
     /// Index of the X, Y, Z axes in the variables array
     axes: [Option<usize>; 3],
 }
 
-impl<T: eval::Tape> eval::Tape for FunctionShapeTape<T> {
-    type Storage = <T as eval::Tape>::Storage;
-    fn recycle(self) -> Self::Storage {
+impl<T: Tape> ShapeTape<T> {
+    /// Recycles the inner tape's storage for reuse
+    pub fn recycle(self) -> T::Storage {
         self.tape.recycle()
     }
 }
 
-/// Wrapper struct to convert from [`eval::TracingEvaluator`] to
+/// Wrapper struct to convert from [`TracingEvaluator`] to
 /// [`shape::TracingEvaluator`](TracingEvaluator)
-#[derive(Default)]
-pub struct FunctionShapeTracingEval<E> {
+#[derive(Debug, Default)]
+pub struct ShapeTracingEval<E> {
     eval: E,
 }
 
-impl<E: eval::TracingEvaluator> TracingEvaluator
-    for FunctionShapeTracingEval<E>
-{
-    type Data = E::Data;
-    type Tape = FunctionShapeTape<E::Tape>;
-    type TapeStorage = E::TapeStorage;
-    type Trace = E::Trace;
-
-    fn eval<F: Into<Self::Data>>(
+impl<E: TracingEvaluator> ShapeTracingEval<E> {
+    pub fn eval<F: Into<E::Data>>(
         &mut self,
-        tape: &Self::Tape,
+        tape: &ShapeTape<E::Tape>,
         x: F,
         y: F,
         z: F,
-    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+    ) -> Result<(E::Data, Option<&E::Trace>), Error> {
         let mut vars = [None, None, None];
         if let Some(a) = tape.axes[0] {
             vars[a] = Some(x.into());
@@ -488,32 +353,49 @@ impl<E: eval::TracingEvaluator> TracingEvaluator
         if let Some(c) = tape.axes[2] {
             vars[c] = Some(z.into());
         }
-        let n = vars.iter().position(|v| Option::is_none(v)).unwrap_or(3);
+        let n = vars.iter().position(Option::is_none).unwrap_or(3);
         let vars = vars.map(|v| v.unwrap_or(0f32.into()));
         self.eval.eval(&tape.tape, &vars[..n])
     }
-    // todo
+
+    #[cfg(test)]
+    pub fn eval_x<J: Into<E::Data>>(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: J,
+    ) -> E::Data {
+        self.eval(tape, x.into(), E::Data::from(0.0), E::Data::from(0.0))
+            .unwrap()
+            .0
+    }
+    #[cfg(test)]
+    pub fn eval_xy<J: Into<E::Data>>(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: J,
+        y: J,
+    ) -> E::Data {
+        self.eval(tape, x.into(), y.into(), E::Data::from(0.0))
+            .unwrap()
+            .0
+    }
 }
 
-/// Wrapper struct to convert from [`eval::BulkEvaluator`] to
+/// Wrapper struct to convert from [`BulkEvaluator`] to
 /// [`shape::TracingEvaluator`](BulkEvaluator)
-#[derive(Default)]
-pub struct FunctionShapeBulkEval<E> {
+#[derive(Debug, Default)]
+pub struct ShapeBulkEval<E> {
     eval: E,
 }
 
-impl<E: eval::BulkEvaluator> BulkEvaluator for FunctionShapeBulkEval<E> {
-    type Data = E::Data;
-    type Tape = FunctionShapeTape<E::Tape>;
-    type TapeStorage = E::TapeStorage;
-
-    fn eval(
+impl<E: BulkEvaluator> ShapeBulkEval<E> {
+    pub fn eval(
         &mut self,
-        tape: &Self::Tape,
-        x: &[Self::Data],
-        y: &[Self::Data],
-        z: &[Self::Data],
-    ) -> Result<&[Self::Data], Error> {
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+    ) -> Result<&[E::Data], Error> {
         let mut vars = [None, None, None];
         if let Some(a) = tape.axes[0] {
             vars[a] = Some(x);
@@ -528,7 +410,7 @@ impl<E: eval::BulkEvaluator> BulkEvaluator for FunctionShapeBulkEval<E> {
         let vars = if vars.iter().all(Option::is_some) {
             vars.map(Option::unwrap)
         } else if let Some(q) = vars.iter().find(|v| v.is_some()) {
-            vars.map(|v| if v.is_some() { v.unwrap() } else { q.unwrap() })
+            vars.map(|v| v.unwrap_or_else(|| q.unwrap()))
         } else {
             [[].as_slice(); 3]
         };

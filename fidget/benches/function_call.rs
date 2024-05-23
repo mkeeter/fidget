@@ -3,19 +3,20 @@ use criterion::{
 };
 use fidget::{
     context::{Context, Node},
-    shape::{BulkEvaluator, EzShape, MathShape, Shape},
+    eval::{Function, MathFunction},
+    shape::{EzShape, Shape},
 };
 
-pub fn run_bench<S: Shape + MathShape>(
+pub fn run_bench<F: Function + MathFunction>(
     c: &mut Criterion,
     mut ctx: Context,
     node: Node,
     test_name: &'static str,
     name: &'static str,
 ) {
-    let shape_vm = &S::new(&mut ctx, node).unwrap();
+    let shape_vm = &Shape::<F>::new(&mut ctx, node).unwrap();
 
-    let mut eval = S::new_float_slice_eval();
+    let mut eval = Shape::<F>::new_float_slice_eval();
     let tape = shape_vm.ez_float_slice_tape();
 
     let mut group = c.benchmark_group(test_name);
@@ -30,7 +31,7 @@ pub fn run_bench<S: Shape + MathShape>(
     }
 }
 
-pub fn test_single_fn<S: Shape + MathShape>(
+pub fn test_single_fn<F: Function + MathFunction>(
     c: &mut Criterion,
     name: &'static str,
 ) {
@@ -38,10 +39,10 @@ pub fn test_single_fn<S: Shape + MathShape>(
     let x = ctx.x();
     let f = ctx.sin(x).unwrap();
 
-    run_bench::<S>(c, ctx, f, "single function", name);
+    run_bench::<F>(c, ctx, f, "single function", name);
 }
 
-pub fn test_many_fn<S: Shape + MathShape>(
+pub fn test_many_fn<F: Function + MathFunction>(
     c: &mut Criterion,
     name: &'static str,
 ) {
@@ -56,19 +57,19 @@ pub fn test_many_fn<S: Shape + MathShape>(
     let out = ctx.add(f, g).unwrap();
     let out = ctx.add(out, h).unwrap();
 
-    run_bench::<S>(c, ctx, out, "many functions", name);
+    run_bench::<F>(c, ctx, out, "many functions", name);
 }
 
 pub fn test_single_fns(c: &mut Criterion) {
-    test_single_fn::<fidget::vm::VmShape>(c, "vm");
+    test_single_fn::<fidget::vm::VmFunction>(c, "vm");
     #[cfg(feature = "jit")]
-    test_single_fn::<fidget::jit::JitShape>(c, "jit");
+    test_single_fn::<fidget::jit::JitFunction>(c, "jit");
 }
 
 pub fn test_many_fns(c: &mut Criterion) {
-    test_many_fn::<fidget::vm::VmShape>(c, "vm");
+    test_many_fn::<fidget::vm::VmFunction>(c, "vm");
     #[cfg(feature = "jit")]
-    test_many_fn::<fidget::jit::JitShape>(c, "jit");
+    test_many_fn::<fidget::jit::JitFunction>(c, "jit");
 }
 
 criterion_group!(benches, test_single_fns, test_many_fns);

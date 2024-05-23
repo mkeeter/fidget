@@ -1,4 +1,5 @@
 use crate::{
+    eval::Function,
     render::RenderMode,
     shape::{Bounds, Shape},
     Error,
@@ -214,11 +215,11 @@ impl RenderConfig<2> {
     ///
     /// Under the hood, this delegates to
     /// [`fidget::render::render2d`](crate::render::render2d())
-    pub fn run<S: Shape, M: RenderMode + Sync>(
+    pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
-        shape: S,
+        shape: Shape<F>,
     ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        Ok(crate::render::render2d::<S, M>(shape, self))
+        Ok(crate::render::render2d::<F, M>(shape, self))
     }
 }
 
@@ -229,11 +230,11 @@ impl RenderConfig<3> {
     /// [`fidget::render::render3d`](crate::render::render3d())
     ///
     /// Returns a tuple of heightmap, RGB image.
-    pub fn run<S: Shape>(
+    pub fn run<F: Function>(
         &self,
-        shape: S,
+        shape: Shape<F>,
     ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        Ok(crate::render::render3d::<S>(shape, self))
+        Ok(crate::render::render3d::<F>(shape, self))
     }
 }
 
