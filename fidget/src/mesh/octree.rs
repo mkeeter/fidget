@@ -366,19 +366,16 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         } else if i.lower() > 0.0 {
             CellResult::Done(Cell::Empty)
         } else {
-            let sub_tape =
-                if Shape::<F>::simplify_tree_during_meshing(cell.depth) {
-                    let s = self.shape_storage.pop().unwrap_or_default();
-                    r.map(|r| {
-                        Arc::new(EvalGroup::new(
-                            eval.shape
-                                .simplify(r, s, &mut self.workspace)
-                                .unwrap(),
-                        ))
-                    })
-                } else {
-                    None
-                };
+            let sub_tape = if F::simplify_tree_during_meshing(cell.depth) {
+                let s = self.shape_storage.pop().unwrap_or_default();
+                r.map(|r| {
+                    Arc::new(EvalGroup::new(
+                        eval.shape.simplify(r, s, &mut self.workspace).unwrap(),
+                    ))
+                })
+            } else {
+                None
+            };
             if cell.depth == settings.depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
                 let out = CellResult::Done(self.leaf(&eval, cell));

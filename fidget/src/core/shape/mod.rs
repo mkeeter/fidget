@@ -196,20 +196,6 @@ impl<F: Function + Clone> Shape<F> {
     }
 }
 
-impl<F: RenderHints> Shape<F> {
-    pub fn tile_sizes_3d() -> &'static [usize] {
-        F::tile_sizes_3d()
-    }
-
-    pub fn tile_sizes_2d() -> &'static [usize] {
-        F::tile_sizes_2d()
-    }
-
-    pub fn simplify_tree_during_meshing(d: usize) -> bool {
-        F::simplify_tree_during_meshing(d)
-    }
-}
-
 impl<F> Shape<F> {
     pub fn apply_transform(mut self, mat: Matrix4<f32>) -> Self {
         if let Some(prev) = self.transform.as_mut() {
