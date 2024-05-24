@@ -6,12 +6,12 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     shape::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     shape::EzShape,
 //!     jit::JitShape,
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();
-//! let shape = JitShape::from_tree(&tree);
+//! let shape = JitShape::from(tree);
 //!
 //! // Generate machine code to execute the tape
 //! let tape = shape.ez_point_tape();

@@ -3,7 +3,7 @@
 //! ```
 //! use fidget::{
 //!     context::Context,
-//!     shape::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::EzShape,
 //!     vm::VmShape
 //! };
 //! let mut ctx = Context::new();

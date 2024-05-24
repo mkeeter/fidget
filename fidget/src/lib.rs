@@ -107,12 +107,12 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     shape::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::{Shape, EzShape},
 //!     vm::VmShape
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, _trace) = interval_eval.eval(
@@ -136,12 +136,12 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     shape::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     shape::EzShape,
 //!     vm::VmShape
 //! };
 //!
 //! let tree = Tree::x().min(Tree::y());
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, trace) = interval_eval.eval(
@@ -165,11 +165,11 @@
 //! ```
 //! # use fidget::{
 //! #     context::Tree,
-//! #     shape::{TracingEvaluator, Shape, MathShape, EzShape},
+//! #     shape::EzShape,
 //! #     vm::VmShape
 //! # };
 //! # let tree = Tree::x().min(Tree::y());
-//! # let shape = VmShape::from_tree(&tree);
+//! # let shape = VmShape::from(tree);
 //! assert_eq!(shape.size(), 3); // min, X, Y
 //! # let mut interval_eval = VmShape::new_interval_eval();
 //! # let tape = shape.ez_interval_tape();
@@ -197,7 +197,6 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     shape::MathShape,
 //!     render::{BitRenderMode, RenderConfig},
 //!     vm::VmShape,
 //! };
@@ -209,7 +208,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let out = cfg.run::<_, BitRenderMode>(shape)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {

@@ -7,7 +7,7 @@
 //! ```rust
 //! use fidget::vm::VmShape;
 //! use fidget::context::Context;
-//! use fidget::shape::{TracingEvaluator, Shape, MathShape, EzShape};
+//! use fidget::shape::EzShape;
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
@@ -30,8 +30,10 @@
 use crate::{
     context::{Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
+    types::{Grad, Interval},
     Error,
 };
+use nalgebra::{Matrix4, Point3};
 
 mod bounds;
 
@@ -52,6 +54,9 @@ pub struct Shape<F> {
 
     /// Index of x, y, z axes within the function's variable list (if present)
     axes: [Option<usize>; 3],
+
+    /// Optional transform to apply to the shape
+    transform: Option<Matrix4<f32>>,
 }
 
 impl<F: Function + Clone> Shape<F> {
@@ -73,6 +78,9 @@ impl<F: Function + Clone> Shape<F> {
     pub fn new_float_slice_eval() -> ShapeBulkEval<F::FloatSliceEval> {
         ShapeBulkEval {
             eval: F::FloatSliceEval::default(),
+            xs: vec![],
+            ys: vec![],
+            zs: vec![],
         }
     }
 
@@ -80,6 +88,9 @@ impl<F: Function + Clone> Shape<F> {
     pub fn new_grad_slice_eval() -> ShapeBulkEval<F::GradSliceEval> {
         ShapeBulkEval {
             eval: F::GradSliceEval::default(),
+            xs: vec![],
+            ys: vec![],
+            zs: vec![],
         }
     }
 
@@ -91,6 +102,7 @@ impl<F: Function + Clone> Shape<F> {
         ShapeTape {
             tape: self.f.point_tape(storage),
             axes: self.axes,
+            transform: self.transform,
         }
     }
 
@@ -102,6 +114,7 @@ impl<F: Function + Clone> Shape<F> {
         ShapeTape {
             tape: self.f.interval_tape(storage),
             axes: self.axes,
+            transform: self.transform,
         }
     }
 
@@ -113,6 +126,7 @@ impl<F: Function + Clone> Shape<F> {
         ShapeTape {
             tape: self.f.float_slice_tape(storage),
             axes: self.axes,
+            transform: self.transform,
         }
     }
 
@@ -124,6 +138,7 @@ impl<F: Function + Clone> Shape<F> {
         ShapeTape {
             tape: self.f.grad_slice_tape(storage),
             axes: self.axes,
+            transform: self.transform,
         }
     }
 
@@ -138,7 +153,11 @@ impl<F: Function + Clone> Shape<F> {
         Self: Sized,
     {
         let f = self.f.simplify(trace, storage, workspace)?;
-        Ok(Self { f, axes: self.axes })
+        Ok(Self {
+            f,
+            axes: self.axes,
+            transform: self.transform,
+        })
     }
 
     /// Attempt to reclaim storage from this shape
@@ -169,7 +188,11 @@ impl<F: Function + Clone> Shape<F> {
 
     /// Raw constructor
     pub fn new_raw(f: F, axes: [Option<usize>; 3]) -> Self {
-        Self { f, axes }
+        Self {
+            f,
+            axes,
+            transform: None,
+        }
     }
 }
 
@@ -188,8 +211,13 @@ impl<F: RenderHints> Shape<F> {
 }
 
 impl<F> Shape<F> {
-    pub fn apply_transform(&self, mat: nalgebra::Matrix4<f32>) -> Self {
-        todo!();
+    pub fn apply_transform(mut self, mat: Matrix4<f32>) -> Self {
+        if let Some(prev) = self.transform.as_mut() {
+            *prev *= mat;
+        } else {
+            self.transform = Some(mat);
+        }
+        self
     }
 }
 
@@ -292,6 +320,7 @@ impl<F: MathFunction> Shape<F> {
         Ok(Self {
             f,
             axes: [x, y, z].map(|v| vs.get(v).cloned()),
+            transform: None,
         })
     }
 
@@ -319,6 +348,9 @@ pub struct ShapeTape<T> {
 
     /// Index of the X, Y, Z axes in the variables array
     axes: [Option<usize>; 3],
+
+    /// Optional transform
+    transform: Option<Matrix4<f32>>,
 }
 
 impl<T: Tape> ShapeTape<T> {
@@ -335,7 +367,10 @@ pub struct ShapeTracingEval<E> {
     eval: E,
 }
 
-impl<E: TracingEvaluator> ShapeTracingEval<E> {
+impl<E: TracingEvaluator> ShapeTracingEval<E>
+where
+    <E as TracingEvaluator>::Data: Transformable,
+{
     pub fn eval<F: Into<E::Data>>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -343,6 +378,15 @@ impl<E: TracingEvaluator> ShapeTracingEval<E> {
         y: F,
         z: F,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
+        let x = x.into();
+        let y = y.into();
+        let z = z.into();
+        let (x, y, z) = if let Some(mat) = tape.transform {
+            Transformable::transform(x, y, z, mat)
+        } else {
+            (x, y, z)
+        };
+
         let mut vars = [None, None, None];
         if let Some(a) = tape.axes[0] {
             vars[a] = Some(x.into());
@@ -381,14 +425,23 @@ impl<E: TracingEvaluator> ShapeTracingEval<E> {
     }
 }
 
-/// Wrapper struct to convert from [`BulkEvaluator`] to
-/// [`shape::TracingEvaluator`](BulkEvaluator)
+/// Bulk evaluator for a shape
+///
+/// This wraps a generic [`BulkEvaluator`] and exposes an API that takes
+/// `(x, y, z)` arguments instead.  In addition, it applies the transform
+/// associated with the [`ShapeTape`].
 #[derive(Debug, Default)]
-pub struct ShapeBulkEval<E> {
+pub struct ShapeBulkEval<E: BulkEvaluator> {
     eval: E,
+    xs: Vec<E::Data>,
+    ys: Vec<E::Data>,
+    zs: Vec<E::Data>,
 }
 
-impl<E: BulkEvaluator> ShapeBulkEval<E> {
+impl<E: BulkEvaluator> ShapeBulkEval<E>
+where
+    E::Data: From<f32> + Transformable,
+{
     pub fn eval(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -396,15 +449,33 @@ impl<E: BulkEvaluator> ShapeBulkEval<E> {
         y: &[E::Data],
         z: &[E::Data],
     ) -> Result<&[E::Data], Error> {
+        let (xs, ys, zs) = if let Some(mat) = tape.transform {
+            if x.len() != y.len() || x.len() != z.len() {
+                return Err(Error::MismatchedSlices);
+            }
+            let n = x.len();
+            self.xs.resize(n, 0.0.into());
+            self.ys.resize(n, 0.0.into());
+            self.zs.resize(n, 0.0.into());
+            for i in 0..n {
+                let (x, y, z) = Transformable::transform(x[i], y[i], z[i], mat);
+                self.xs[i] = x;
+                self.ys[i] = y;
+                self.zs[i] = z;
+            }
+            (self.xs.as_slice(), self.ys.as_slice(), self.zs.as_slice())
+        } else {
+            (x, y, z)
+        };
         let mut vars = [None, None, None];
         if let Some(a) = tape.axes[0] {
-            vars[a] = Some(x);
+            vars[a] = Some(xs);
         }
         if let Some(b) = tape.axes[1] {
-            vars[b] = Some(y);
+            vars[b] = Some(ys);
         }
         if let Some(c) = tape.axes[2] {
-            vars[c] = Some(z);
+            vars[c] = Some(zs);
         }
         let n = vars.iter().position(|v| v.is_none()).unwrap_or(3);
         let vars = if vars.iter().all(Option::is_some) {
@@ -416,5 +487,55 @@ impl<E: BulkEvaluator> ShapeBulkEval<E> {
         };
 
         self.eval.eval(&tape.tape, &vars[..n])
+    }
+}
+
+pub trait Transformable {
+    fn transform(
+        x: Self,
+        y: Self,
+        z: Self,
+        mat: Matrix4<f32>,
+    ) -> (Self, Self, Self)
+    where
+        Self: Sized;
+}
+
+impl Transformable for f32 {
+    fn transform(x: f32, y: f32, z: f32, mat: Matrix4<f32>) -> (f32, f32, f32) {
+        let out = mat.transform_point(&Point3::new(x, y, z));
+        (out.x, out.y, out.z)
+    }
+}
+
+impl Transformable for Interval {
+    fn transform(
+        x: Interval,
+        y: Interval,
+        z: Interval,
+        mat: Matrix4<f32>,
+    ) -> (Interval, Interval, Interval) {
+        let out = [0, 1, 2, 3].map(|i| {
+            let row = mat.row(i);
+            x * row[0] + y * row[1] + z * row[2] + Interval::from(row[3])
+        });
+
+        (out[0] / out[3], out[1] / out[3], out[2] / out[3])
+    }
+}
+
+impl Transformable for Grad {
+    fn transform(
+        x: Grad,
+        y: Grad,
+        z: Grad,
+        mat: Matrix4<f32>,
+    ) -> (Grad, Grad, Grad) {
+        let out = [0, 1, 2, 3].map(|i| {
+            let row = mat.row(i);
+            x * row[0] + y * row[1] + z * row[2] + Grad::from(row[3])
+        });
+
+        (out[0] / out[3], out[1] / out[3], out[2] / out[3])
     }
 }

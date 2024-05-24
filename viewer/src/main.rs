@@ -75,15 +75,15 @@ struct RenderResult {
     image_size: usize,
 }
 
-fn render_thread<S>(
+fn render_thread<F>(
     cfg: Receiver<RenderSettings>,
     rx: Receiver<Result<fidget::rhai::ScriptContext, String>>,
     tx: Sender<Result<RenderResult, String>>,
     wake: Sender<()>,
 ) -> Result<()>
 where
-    S: fidget::shape::Shape
-        + fidget::shape::MathShape
+    F: fidget::eval::Function
+        + fidget::eval::MathFunction
         + fidget::shape::RenderHints,
 {
     let mut config = None;
@@ -128,7 +128,7 @@ where
             );
             let render_start = std::time::Instant::now();
             for s in out.shapes.iter() {
-                let tape = S::from_tree(&s.tree);
+                let tape = fidget::shape::Shape::<F>::from(s.tree.clone());
                 render(
                     &render_config.mode,
                     tape,
@@ -150,9 +150,9 @@ where
     }
 }
 
-fn render<S: fidget::shape::Shape + fidget::shape::RenderHints>(
+fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     mode: &RenderMode,
-    shape: S,
+    shape: fidget::shape::Shape<F>,
     image_size: usize,
     color: [u8; 3],
     pixels: &mut [egui::Color32],
@@ -161,7 +161,7 @@ fn render<S: fidget::shape::Shape + fidget::shape::RenderHints>(
         RenderMode::TwoD(camera, mode) => {
             let config = RenderConfig {
                 image_size,
-                tile_sizes: S::tile_sizes_2d().to_vec(),
+                tile_sizes: F::tile_sizes_2d().to_vec(),
                 bounds: fidget::shape::Bounds {
                     center: Vector2::new(camera.offset.x, camera.offset.y),
                     size: camera.scale,
@@ -213,7 +213,7 @@ fn render<S: fidget::shape::Shape + fidget::shape::RenderHints>(
         RenderMode::ThreeD(camera, mode) => {
             let config = RenderConfig {
                 image_size,
-                tile_sizes: S::tile_sizes_2d().to_vec(),
+                tile_sizes: F::tile_sizes_2d().to_vec(),
                 bounds: fidget::shape::Bounds {
                     center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
                     size: camera.scale,
@@ -281,17 +281,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     std::thread::spawn(move || {
         #[cfg(feature = "jit")]
-        type Shape = fidget::jit::JitShape;
+        type F = fidget::jit::JitFunction;
 
         #[cfg(not(feature = "jit"))]
-        type Shape = fidget::vm::VmShape;
+        type F = fidget::vm::VmFunction;
 
-        let _ = render_thread::<Shape>(
-            config_rx,
-            rhai_result_rx,
-            render_tx,
-            wake_tx,
-        );
+        let _ =
+            render_thread::<F>(config_rx, rhai_result_rx, render_tx, wake_tx);
         info!("render thread is done");
     });
 

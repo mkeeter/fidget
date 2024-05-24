@@ -2,7 +2,6 @@ use fidget::{
     context::{Context, Tree},
     render::{BitRenderMode, RenderConfig},
     shape::Bounds,
-    shape::MathShape,
     vm::{VmData, VmShape},
     Error,
 };

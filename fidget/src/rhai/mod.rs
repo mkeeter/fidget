@@ -7,12 +7,12 @@
 //!
 //! ```
 //! use fidget::{
-//!     shape::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::EzShape,
 //!     vm::VmShape,
 //! };
 //!
 //! let tree = fidget::rhai::eval("x + y")?;
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
 //! assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0)?.0, 3.0);
@@ -24,16 +24,16 @@
 //!
 //! ```
 //! use fidget::{
-//!     shape::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::EzShape,
 //!     vm::VmShape,
 //!     rhai::Engine
 //! };
 //!
 //! let mut engine = Engine::new();
-//! let out = engine.run("draw(x + y - 1)")?;
+//! let mut out = engine.run("draw(x + y - 1)")?;
 //!
 //! assert_eq!(out.shapes.len(), 1);
-//! let shape = VmShape::from_tree(&out.shapes[0].tree);
+//! let shape = VmShape::from(out.shapes.pop().unwrap().tree);
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
 //! assert_eq!(eval.eval(&tape, 0.5, 2.0, 0.0)?.0, 1.5);
