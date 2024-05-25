@@ -4,7 +4,8 @@
 //!
 //! - A [`Tree`] is a free-floating math expression, which can be cloned
 //!   and has overloaded operators for ease of use.  It is **not** deduplicated;
-//!   two calls to [`Tree::x`] will produce two different [`TreeOp`] objects.
+//!   two calls to [`Tree::constant(1.0)`](Tree::constant) will allocate two
+//!   different [`TreeOp`] objects.
 //!   `Tree` objects are typically used when building up expressions; they
 //!   should be converted to `Node` objects (in a particular `Context`) after
 //!   they have been constructed.
@@ -132,7 +133,7 @@ impl Context {
 
     ////////////////////////////////////////////////////////////////////////////
     // Primitives
-    /// Constructs or finds a variable node named "X"
+    /// Constructs or finds a [`Var::X`] node
     /// ```
     /// # use fidget::context::Context;
     /// let mut ctx = Context::new();
@@ -141,17 +142,22 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn x(&mut self) -> Node {
-        self.ops.insert(Op::Input(Var::X))
+        self.var(Var::X)
     }
 
-    /// Constructs or finds a variable node named "Y"
+    /// Constructs or finds a [`Var::Y`] node
     pub fn y(&mut self) -> Node {
-        self.ops.insert(Op::Input(Var::Y))
+        self.var(Var::Y)
     }
 
-    /// Constructs or finds a variable node named "Z"
+    /// Constructs or finds a [`Var::Z`] node
     pub fn z(&mut self) -> Node {
-        self.ops.insert(Op::Input(Var::Z))
+        self.var(Var::Z)
+    }
+
+    /// Constructs or finds a variable input node
+    pub fn var(&mut self, v: Var) -> Node {
+        self.ops.insert(Op::Input(v))
     }
 
     /// Returns a 3-element array of `X`, `Y`, `Z` nodes
@@ -1197,9 +1203,9 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let (tape, vs) = VmData::<255>::new(&ctx, c9).unwrap();
+        let tape = VmData::<255>::new(&ctx, c9).unwrap();
         assert_eq!(tape.len(), 8);
-        assert_eq!(vs.len(), 2);
+        assert_eq!(tape.vars.len(), 2);
     }
 
     #[test]
@@ -1208,8 +1214,8 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let (tape, vs) = VmData::<255>::new(&ctx, x_squared).unwrap();
+        let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
-        assert_eq!(vs.len(), 1);
+        assert_eq!(tape.vars.len(), 1);
     }
 }

@@ -50,6 +50,10 @@ pub struct Shape<F> {
     f: F,
 
     /// Index of x, y, z axes within the function's variable list (if present)
+    ///
+    /// We could instead store an array of [`Var`]s and look them in with
+    /// [`self.f.vars()[&v]`](Function::vars), but it's more efficient to cache
+    /// them upon construction (because they never change).
     axes: [Option<usize>; 3],
 
     /// Optional transform to apply to the shape
@@ -297,10 +301,12 @@ impl<F: MathFunction> Shape<F> {
         node: Node,
         axes: [Var; 3],
     ) -> Result<Self, Error> {
-        let (f, vs) = F::new(ctx, node)?;
+        let f = F::new(ctx, node)?;
+        let vars = f.vars();
+        let axes = axes.map(|v| vars.get(&v).cloned());
         Ok(Self {
             f,
-            axes: axes.map(|v| vs.get(&v).cloned()),
+            axes,
             transform: None,
         })
     }

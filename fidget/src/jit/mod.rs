@@ -898,6 +898,10 @@ impl Function for JitFunction {
     fn size(&self) -> usize {
         self.0.size()
     }
+
+    fn vars(&self) -> &VarMap<usize> {
+        self.0.vars()
+    }
 }
 
 impl RenderHints for JitFunction {
@@ -1209,9 +1213,8 @@ impl BulkEvaluator for JitGradSliceEval {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap<usize>), Error> {
-        let (f, vars) = GenericVmFunction::new(ctx, node)?;
-        Ok((JitFunction(f), vars))
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        GenericVmFunction::new(ctx, node).map(JitFunction)
     }
 }
 

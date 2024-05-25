@@ -176,6 +176,10 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     fn size(&self) -> usize {
         GenericVmFunction::size(self)
     }
+
+    fn vars(&self) -> &VarMap<usize> {
+        &self.0.vars
+    }
 }
 
 impl<const N: usize> RenderHints for GenericVmFunction<N> {
@@ -189,9 +193,9 @@ impl<const N: usize> RenderHints for GenericVmFunction<N> {
 }
 
 impl<const N: usize> MathFunction for GenericVmFunction<N> {
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap<usize>), Error> {
-        let (d, vs) = VmData::new(ctx, node)?;
-        Ok((Self(Arc::new(d)), vs))
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        let d = VmData::new(ctx, node)?;
+        Ok(Self(d.into()))
     }
 }
 
