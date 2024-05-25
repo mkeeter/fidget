@@ -38,6 +38,7 @@ use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
+use std::sync::Arc;
 
 mod mmap;
 
@@ -837,7 +838,7 @@ impl JitFunction {
         let ptr = f.as_ptr();
         JitTracingFn {
             mmap: f,
-            var_count: self.0.var_count(),
+            vars: self.0.data().vars.clone(),
             choice_count: self.0.choice_count(),
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
@@ -847,7 +848,7 @@ impl JitFunction {
         let ptr = f.as_ptr();
         JitBulkFn {
             mmap: f,
-            var_count: self.0.data().var_count(),
+            vars: self.0.data().vars.clone(),
             fn_bulk: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -901,7 +902,7 @@ impl Function for JitFunction {
     }
 
     fn vars(&self) -> &VarMap<usize> {
-        self.0.vars()
+        Function::vars(&self.0)
     }
 }
 
@@ -961,7 +962,7 @@ pub struct JitTracingFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     choice_count: usize,
-    var_count: usize,
+    vars: Arc<VarMap<usize>>,
     fn_trace: jit_fn!(
         unsafe fn(
             *const T, // vars
@@ -975,6 +976,10 @@ impl<T> Tape for JitTracingFn<T> {
     type Storage = Mmap;
     fn recycle(self) -> Self::Storage {
         self.mmap
+    }
+
+    fn vars(&self) -> &VarMap<usize> {
+        &self.vars
     }
 }
 
@@ -1053,7 +1058,7 @@ impl TracingEvaluator for JitPointEval {
 pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
-    var_count: usize,
+    vars: Arc<VarMap<usize>>,
     fn_bulk: jit_fn!(
         unsafe fn(
             *const *const T, // vars
@@ -1067,6 +1072,10 @@ impl<T> Tape for JitBulkFn<T> {
     type Storage = Mmap;
     fn recycle(self) -> Self::Storage {
         self.mmap
+    }
+
+    fn vars(&self) -> &VarMap<usize> {
+        &self.vars
     }
 }
 
@@ -1188,7 +1197,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         tape: &Self::Tape,
         vars: &[&[Self::Data]],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.var_count)?;
+        self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
     }
 }
@@ -1206,7 +1215,7 @@ impl BulkEvaluator for JitGradSliceEval {
         tape: &Self::Tape,
         vars: &[&[Self::Data]],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.var_count)?;
+        self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
     }
 }

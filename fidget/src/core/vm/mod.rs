@@ -37,6 +37,10 @@ impl<const N: usize> Tape for GenericVmFunction<N> {
     fn recycle(self) -> Self::Storage {
         // nothing to do here
     }
+
+    fn vars(&self) -> &VarMap<usize> {
+        &self.0.vars
+    }
 }
 
 /// A trace captured by a VM evaluation

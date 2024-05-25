@@ -28,6 +28,9 @@ pub trait Tape {
 
     /// Retrieves the internal storage from this tape
     fn recycle(self) -> Self::Storage;
+
+    /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    fn vars(&self) -> &VarMap<usize>;
 }
 
 /// Represents the trace captured by a tracing evaluation
