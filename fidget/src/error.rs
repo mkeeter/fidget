@@ -37,13 +37,17 @@ pub enum Error {
     #[error("choice slice length ({0}) does not match choice count ({1})")]
     BadChoiceSlice(usize, usize),
 
-    /// Slice lengths are mismatched
-    #[error("slice lengths are mismatched")]
+    /// Variable slice lengths are mismatched
+    #[error("variable slice lengths are mismatched")]
     MismatchedSlices,
 
-    /// Var slice length does not match var count
-    #[error("var slice length ({0}) does not match var count ({1})")]
+    /// Variable slice length does not match expected count
+    #[error("variable slice length ({0}) does not match expected count ({1})")]
     BadVarSlice(usize, usize),
+
+    /// Variable index exceeds max var index for this tape
+    #[error("variable index ({0}) exceeds max var index for this tape ({1})")]
+    BadVarIndex(usize, usize),
 
     /// This name is reserved for 3D coordinates
     #[error("this name is reserved for 3D coordinates")]

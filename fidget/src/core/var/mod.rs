@@ -22,8 +22,24 @@ pub enum Var {
     X,
     Y,
     Z,
-    V(u64),
+    V(VarIndex),
 }
+
+/// Type for a variable index (implemented as a `u64`)
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct VarIndex(u64);
 
 impl Var {
     /// Returns a new variable, with a random 64-bit index
@@ -34,7 +50,7 @@ impl Var {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let v: u64 = rand::random();
-        Var::V(v)
+        Var::V(VarIndex(v))
     }
 }
 
@@ -44,8 +60,8 @@ impl std::fmt::Display for Var {
             Var::X => write!(f, "X"),
             Var::Y => write!(f, "Y"),
             Var::Z => write!(f, "Z"),
-            Var::V(v) if *v < 256 => write!(f, "v_{v}"),
-            Var::V(v) => write!(f, "V({v:x})"),
+            Var::V(VarIndex(v)) if *v < 256 => write!(f, "v_{v}"),
+            Var::V(VarIndex(v)) => write!(f, "V({v:x})"),
         }
     }
 }
@@ -63,7 +79,7 @@ pub struct VarMap<T> {
     x: Option<T>,
     y: Option<T>,
     z: Option<T>,
-    v: HashMap<u64, T>,
+    v: HashMap<VarIndex, T>,
 }
 
 impl<T> Default for VarMap<T> {
@@ -129,7 +145,7 @@ impl<T> VarMap<T> {
 #[allow(missing_docs)]
 pub enum VarMapEntry<'a, T> {
     Option(&'a mut Option<T>),
-    Hash(std::collections::hash_map::Entry<'a, u64, T>),
+    Hash(std::collections::hash_map::Entry<'a, VarIndex, T>),
 }
 
 #[allow(missing_docs)]

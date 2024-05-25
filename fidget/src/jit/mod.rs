@@ -1121,8 +1121,12 @@ unsafe impl<T> Sync for JitBulkFn<T> {}
 
 impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
-    fn eval(&mut self, tape: &JitBulkFn<T>, vars: &[&[T]]) -> &[T] {
-        let n = vars.first().map(|v| v.len()).unwrap_or(0);
+    fn eval<V: std::ops::Deref<Target = [T]>>(
+        &mut self,
+        tape: &JitBulkFn<T>,
+        vars: &[V],
+    ) -> &[T] {
+        let n = vars.first().map(|v| v.deref().len()).unwrap_or(0);
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
 
@@ -1192,10 +1196,10 @@ impl BulkEvaluator for JitFloatSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Self::Data]],
+        vars: &[V],
     ) -> Result<&[Self::Data], Error> {
         self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
@@ -1210,10 +1214,10 @@ impl BulkEvaluator for JitGradSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Self::Data]],
+        vars: &[V],
     ) -> Result<&[Self::Data], Error> {
         self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
