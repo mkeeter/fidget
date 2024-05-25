@@ -1,8 +1,7 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
-    context::{Context, Node},
-    eval::VarMap,
+    context::{Context, Node, VarMap},
     vm::Choice,
     Error,
 };
@@ -67,7 +66,10 @@ pub struct VmData<const N: usize = { u8::MAX as usize }> {
 
 impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
-    pub fn new(context: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+    pub fn new(
+        context: &Context,
+        node: Node,
+    ) -> Result<(Self, VarMap<usize>), Error> {
         let (ssa, vs) = SsaTape::new(context, node)?;
         let asm = RegTape::new::<N>(&ssa);
         Ok((Self { ssa, asm }, vs))

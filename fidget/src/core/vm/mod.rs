@@ -1,10 +1,9 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
     compiler::RegOp,
-    context::Node,
+    context::{Node, VarMap},
     eval::{
         BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
-        VarMap,
     },
     shape::{RenderHints, Shape},
     types::{Grad, Interval},
@@ -190,7 +189,7 @@ impl<const N: usize> RenderHints for GenericVmFunction<N> {
 }
 
 impl<const N: usize> MathFunction for GenericVmFunction<N> {
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap<usize>), Error> {
         let (d, vs) = VmData::new(ctx, node)?;
         Ok((Self(Arc::new(d)), vs))
     }

@@ -17,10 +17,12 @@
 mod indexed;
 mod op;
 mod tree;
+mod var;
 
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
+pub use var::{Var, VarMap};
 
 use crate::Error;
 
@@ -32,7 +34,6 @@ use std::sync::Arc;
 use ordered_float::OrderedFloat;
 
 define_index!(Node, "An index in the `Context::ops` map");
-define_index!(VarNode, "An index in the `Context::vars` map");
 
 /// A `Context` holds a set of deduplicated constants, variables, and
 /// operations.
@@ -42,39 +43,6 @@ define_index!(VarNode, "An index in the `Context::vars` map");
 #[derive(Debug, Default)]
 pub struct Context {
     ops: IndexMap<Op, Node>,
-    vars: IndexMap<Var, VarNode>,
-}
-
-/// A `Var` represents a value which can vary during evaluation
-///
-/// We pre-define common variables (e.g. X, Y, Z) but also allow for fully
-/// customized values.
-#[allow(missing_docs)]
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Var {
-    X,
-    Y,
-    Z,
-    W,
-    T,
-    Static(&'static str),
-    Named(String),
-    Value(u64),
-}
-
-impl std::fmt::Display for Var {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Var::X => write!(f, "X"),
-            Var::Y => write!(f, "Y"),
-            Var::Z => write!(f, "Z"),
-            Var::W => write!(f, "W"),
-            Var::T => write!(f, "T"),
-            Var::Static(s) => write!(f, "{s}"),
-            Var::Named(s) => write!(f, "{s}"),
-            Var::Value(v) => write!(f, "v_{v}"),
-        }
-    }
 }
 
 impl Context {
@@ -85,7 +53,7 @@ impl Context {
 
     /// Clears the context
     ///
-    /// All [`Node`] and [`VarNode`] handles from this context are invalidated.
+    /// All [`Node`] handles from this context are invalidated.
     ///
     /// ```
     /// # use fidget::context::Context;
@@ -96,7 +64,6 @@ impl Context {
     /// ```
     pub fn clear(&mut self) {
         self.ops.clear();
-        self.vars.clear();
     }
 
     /// Returns the number of [`Op`] nodes in the context
@@ -155,19 +122,11 @@ impl Context {
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not an `Op::Input`, returns `Ok(None)`.
-    pub fn var_name(&self, n: Node) -> Result<Option<&Var>, Error> {
+    pub fn get_var(&self, n: Node) -> Result<Option<Var>, Error> {
         match self.get_op(n) {
-            Some(Op::Input(c)) => self.get_var_by_index(*c).map(Some),
+            Some(Op::Input(v)) => Ok(Some(*v)),
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
-        }
-    }
-
-    /// Looks up the [`Var`] associated with the given [`VarNode`]
-    pub fn get_var_by_index(&self, n: VarNode) -> Result<&Var, Error> {
-        match self.vars.get_by_index(n) {
-            Some(c) => Ok(c),
-            None => Err(Error::BadVar),
         }
     }
 
@@ -182,20 +141,17 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn x(&mut self) -> Node {
-        let v = self.vars.insert(Var::X);
-        self.ops.insert(Op::Input(v))
+        self.ops.insert(Op::Input(Var::X))
     }
 
     /// Constructs or finds a variable node named "Y"
     pub fn y(&mut self) -> Node {
-        let v = self.vars.insert(Var::Y);
-        self.ops.insert(Op::Input(v))
+        self.ops.insert(Op::Input(Var::Y))
     }
 
     /// Constructs or finds a variable node named "Z"
     pub fn z(&mut self) -> Node {
-        let v = self.vars.insert(Var::Z);
-        self.ops.insert(Op::Input(v))
+        self.ops.insert(Op::Input(Var::Z))
     }
 
     /// Returns a 3-element array of `X`, `Y`, `Z` nodes
@@ -822,10 +778,7 @@ impl Context {
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
         let v = match self.get_op(node).ok_or(Error::BadNode)? {
-            Op::Input(v) => {
-                let var_name = self.vars.get_by_index(*v).unwrap();
-                *vars.get(var_name).unwrap()
-            }
+            Op::Input(v) => *vars.get(v).unwrap(),
             Op::Const(c) => c.0,
 
             Op::Binary(op, a, b) => {
@@ -995,7 +948,6 @@ impl Context {
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
             Op::Input(v) => {
-                let v = self.vars.get_by_index(*v).unwrap();
                 out += &v.to_string();
             }
             Op::Binary(op, ..) => match op {

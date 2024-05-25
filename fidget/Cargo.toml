@@ -17,6 +17,7 @@ nalgebra = "0.31"
 num-derive = "0.3"
 num-traits = "0.2"
 ordered-float = "3"
+rand = "0.8.5"
 static_assertions = "1"
 thiserror = "1"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

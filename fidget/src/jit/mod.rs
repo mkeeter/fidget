@@ -25,10 +25,8 @@
 
 use crate::{
     compiler::RegOp,
-    context::{Context, Node},
-    eval::{
-        BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator, VarMap,
-    },
+    context::{Context, Node, VarMap},
+    eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     jit::mmap::Mmap,
     shape::RenderHints,
     types::{Grad, Interval},
@@ -1211,7 +1209,7 @@ impl BulkEvaluator for JitGradSliceEval {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap<usize>), Error> {
         let (f, vars) = GenericVmFunction::new(ctx, node)?;
         Ok((JitFunction(f), vars))
     }
