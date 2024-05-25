@@ -992,7 +992,6 @@ impl JitTracingEval {
     ) -> (T, Option<&VmTrace>) {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
-        assert!(tape.var_count <= 3);
         self.choices.fill(Choice::Unknown);
         let out = unsafe {
             (tape.fn_trace)(
@@ -1114,7 +1113,6 @@ unsafe impl<T> Sync for JitBulkFn<T> {}
 impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
     fn eval(&mut self, tape: &JitBulkFn<T>, vars: &[&[T]]) -> &[T] {
-        assert!(tape.var_count <= 3);
         let n = vars.first().map(|v| v.len()).unwrap_or(0);
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
