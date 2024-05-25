@@ -34,6 +34,7 @@ use crate::{
     Error,
 };
 use nalgebra::{Matrix4, Point3};
+use std::collections::HashMap;
 
 mod bounds;
 pub use bounds::Bounds;
@@ -361,15 +362,27 @@ impl<E: TracingEvaluator> ShapeTracingEval<E>
 where
     <E as TracingEvaluator>::Data: Transformable,
 {
-    /// Tracing evaluation of a single sample
-    ///
-    /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval<F: Into<E::Data>>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: F,
         y: F,
         z: F,
+    ) -> Result<(E::Data, Option<&E::Trace>), Error> {
+        let h = HashMap::default();
+        self.eval_v(tape, x, y, z, &h)
+    }
+
+    /// Tracing evaluation of a single sample
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_v<F: Into<E::Data>>(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: F,
+        y: F,
+        z: F,
+        vars: &HashMap<Var, F>,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
         let x = x.into();
         let y = y.into();
@@ -443,6 +456,21 @@ where
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
+    ) -> Result<&[E::Data], Error> {
+        let h = HashMap::default();
+        self.eval_v(tape, x, y, z, &h)
+    }
+
+    /// Bulk evaluation of many samples
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_v(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+        vs: &HashMap<Var, &[E::Data]>,
     ) -> Result<&[E::Data], Error> {
         let (xs, ys, zs) = if let Some(mat) = tape.transform {
             if x.len() != y.len() || x.len() != z.len() {
