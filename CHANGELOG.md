@@ -10,6 +10,12 @@
     - Using the `VmShape` or `JitShape` types should be mostly the same as
       before; changes are most noticeable if you're writing things that are
       generic across `S: Shape`.
+- Major refactoring of how variables are handled
+    - Removed `VarNode`; the canonical variable type is `Var`, which is its own
+      unique index.
+    - Removed named variables, to make `Var` trivially `Copy + Clone`.
+    - Added `vars()` method to `Function` trait, allowing users to look up the
+      mapping from variable to evaluation index.
 
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding
