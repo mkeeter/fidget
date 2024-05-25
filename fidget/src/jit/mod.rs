@@ -131,7 +131,7 @@ trait Assembler {
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
 
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32);
 
     /// Copies a register
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);

@@ -23,8 +23,8 @@ macro_rules! opcodes {
     ) => {
         $(#[$($attrss)*])*
         pub enum $name {
-            #[doc = "Read one of the inputs (X, Y, Z)"]
-            Input($t, $t),
+            #[doc = "Read an input variable by index"]
+            Input($t, u32),
 
             #[doc = "Negate the given register"]
             NegReg($t, $t),

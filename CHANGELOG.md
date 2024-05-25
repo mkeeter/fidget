@@ -19,6 +19,7 @@
       persistent identity from `Tree` to `Context` to `Function` evaluation.
     - Move `Var` and `VarMap` into `fidget::vars` module, because they're no
       longer specific to a `Context`.
+    - `Op::Input` now takes a `u32` argument, instead of a `u8`
 
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding

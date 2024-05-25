@@ -40,8 +40,9 @@ use std::sync::Arc;
 /// ```
 /// use fidget::{
 ///     compiler::RegOp,
-///     context::{Context, Tree, Var},
+///     context::{Context, Tree},
 ///     vm::VmData,
+///     var::Var,
 /// };
 ///
 /// let tree = Tree::x() + Tree::y();
@@ -51,8 +52,9 @@ use std::sync::Arc;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///
 /// let mut iter = data.iter_asm();
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, data.vars[&Var::X] as u8));
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, data.vars[&Var::Y] as u8));
+/// let vars = &data.vars; // map from var to index
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
 /// # Ok::<(), fidget::Error>(())
 /// ```
