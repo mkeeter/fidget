@@ -30,6 +30,7 @@ use crate::{
     context::{Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
+    var::Var,
     Error,
 };
 use nalgebra::{Matrix4, Point3};
@@ -50,6 +51,10 @@ pub struct Shape<F> {
     f: F,
 
     /// Index of x, y, z axes within the function's variable list (if present)
+    ///
+    /// We could instead store an array of [`Var`]s and look them in with
+    /// [`self.f.vars()[&v]`](Function::vars), but it's more efficient to cache
+    /// them upon construction (because they never change).
     axes: [Option<usize>; 3],
 
     /// Optional transform to apply to the shape
@@ -295,15 +300,14 @@ impl<F: MathFunction> Shape<F> {
     pub fn new_with_axes(
         ctx: &Context,
         node: Node,
-        axes: [Node; 3],
+        axes: [Var; 3],
     ) -> Result<Self, Error> {
-        let (f, vs) = F::new(ctx, node)?;
-        let x = ctx.var_name(axes[0])?.ok_or(Error::NotAVar)?;
-        let y = ctx.var_name(axes[1])?.ok_or(Error::NotAVar)?;
-        let z = ctx.var_name(axes[2])?.ok_or(Error::NotAVar)?;
+        let f = F::new(ctx, node)?;
+        let vars = f.vars();
+        let axes = axes.map(|v| vars.get(&v).cloned());
         Ok(Self {
             f,
-            axes: [x, y, z].map(|v| vs.get(v).cloned()),
+            axes,
             transform: None,
         })
     }
@@ -313,8 +317,7 @@ impl<F: MathFunction> Shape<F> {
     where
         Self: Sized,
     {
-        let axes = ctx.axes();
-        Self::new_with_axes(ctx, node, axes)
+        Self::new_with_axes(ctx, node, [Var::X, Var::Y, Var::Z])
     }
 }
 

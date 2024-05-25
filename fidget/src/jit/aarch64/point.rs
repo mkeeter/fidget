@@ -115,10 +115,10 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops ; str S(reg(src_reg)), [sp, sp_offset])
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        assert!(src_arg as u32 * 4 < 16384);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg < 16384 / 4);
         dynasm!(self.0.ops
-            ; ldr S(reg(out_reg)), [x0, src_arg as u32 * 4]
+            ; ldr S(reg(out_reg)), [x0, src_arg * 4]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {

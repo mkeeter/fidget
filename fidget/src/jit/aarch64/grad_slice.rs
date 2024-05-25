@@ -158,10 +158,10 @@ impl Assembler for GradSliceAssembler {
         )
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        assert!(src_arg as u32 * 8 < 16384);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg < 16384 / 8);
         dynasm!(self.0.ops
-            ; ldr x4, [x0, src_arg as u32 * 8]
+            ; ldr x4, [x0, src_arg * 8]
             ; add x4, x4, x3 // apply array offset
             ; eor V(reg(out_reg)).b16, V(reg(out_reg)).b16, V(reg(out_reg)).b16
             ; ldr Q(reg(out_reg)), [x4]

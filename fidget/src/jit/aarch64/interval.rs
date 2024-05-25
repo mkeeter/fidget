@@ -120,10 +120,10 @@ impl Assembler for IntervalAssembler {
         dynasm!(self.0.ops ; str D(reg(src_reg)), [sp, sp_offset])
     }
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        assert!(src_arg as u32 * 8 < 16384);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32) {
+        assert!(src_arg < 16384 / 8);
         dynasm!(self.0.ops
-            ; ldr D(reg(out_reg)), [x0, src_arg as u32 * 8]
+            ; ldr D(reg(out_reg)), [x0, src_arg * 8]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {

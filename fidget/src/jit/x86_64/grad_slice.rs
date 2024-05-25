@@ -92,8 +92,8 @@ impl Assembler for GradSliceAssembler {
             ; vmovups [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        let pos = 8 * (src_arg as i32); // offset within the pointer array
+    fn build_input(&mut self, out_reg: u8, src_arg: u32) {
+        let pos = 8 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             ; mov r8, [rdi + pos]   // read the *const float from the array
             ; add r8, rcx           // offset it by array position

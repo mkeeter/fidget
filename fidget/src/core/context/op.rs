@@ -1,4 +1,7 @@
-use crate::context::{indexed::Index, Node, VarNode};
+use crate::{
+    context::{indexed::Index, Node},
+    var::Var,
+};
 use ordered_float::OrderedFloat;
 
 /// A one-argument math operation
@@ -53,7 +56,7 @@ pub enum BinaryOpcode {
 #[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Op {
-    Input(VarNode),
+    Input(Var),
     Const(OrderedFloat<f64>),
     Binary(BinaryOpcode, Node, Node),
     Unary(UnaryOpcode, Node),

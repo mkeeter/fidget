@@ -10,9 +10,6 @@ pub struct RegTape {
 
     /// Total allocated slots
     pub(super) slot_count: u32,
-
-    /// Number of variables
-    pub(super) var_count: u32,
 }
 
 impl RegTape {
@@ -35,7 +32,6 @@ impl RegTape {
         Self {
             tape: vec![],
             slot_count: 1,
-            var_count: 0,
         }
     }
 
@@ -49,11 +45,6 @@ impl RegTape {
     #[inline]
     pub fn slot_count(&self) -> usize {
         self.slot_count as usize
-    }
-    /// Returns the number of variables (inputs) used in this tape
-    #[inline]
-    pub fn var_count(&self) -> usize {
-        self.var_count as usize
     }
     /// Returns the number of elements in the tape
     #[inline]

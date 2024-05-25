@@ -2,11 +2,12 @@
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
-    eval::VarMap,
+    var::VarMap,
     vm::Choice,
     Error,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// A flattened math expression, ready for evaluation or further compilation.
 ///
@@ -39,19 +40,21 @@ use serde::{Deserialize, Serialize};
 /// ```
 /// use fidget::{
 ///     compiler::RegOp,
-///     context::{Context, Tree, Var},
+///     context::{Context, Tree},
 ///     vm::VmData,
+///     var::Var,
 /// };
 ///
 /// let tree = Tree::x() + Tree::y();
 /// let mut ctx = Context::new();
 /// let sum = ctx.import(&tree);
-/// let (data, vars) = VmData::<255>::new(&ctx, sum)?;
+/// let data = VmData::<255>::new(&ctx, sum)?;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///
 /// let mut iter = data.iter_asm();
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u8));
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u8));
+/// let vars = &data.vars; // map from var to index
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u32));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u32));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
 /// # Ok::<(), fidget::Error>(())
 /// ```
@@ -63,14 +66,24 @@ use serde::{Deserialize, Serialize};
 pub struct VmData<const N: usize = { u8::MAX as usize }> {
     ssa: SsaTape,
     asm: RegTape,
+
+    /// Mapping from variables to indices during evaluation
+    ///
+    /// This member is stored in a shared pointer because it's passed down to
+    /// children (constructed with [`VmData::simplify`]).
+    pub vars: Arc<VarMap<usize>>,
 }
 
 impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
-    pub fn new(context: &Context, node: Node) -> Result<(Self, VarMap), Error> {
-        let (ssa, vs) = SsaTape::new(context, node)?;
+    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
+        let (ssa, vars) = SsaTape::new(context, node)?;
         let asm = RegTape::new::<N>(&ssa);
-        Ok((Self { ssa, asm }, vs))
+        Ok(Self {
+            ssa,
+            asm,
+            vars: vars.into(),
+        })
     }
 
     /// Returns the length of the internal VM tape
@@ -96,9 +109,12 @@ impl<const N: usize> VmData<N> {
         self.asm.slot_count()
     }
 
-    /// Returns the number of variables (inputs) in the inner VM tape
+    /// Returns the number of variables that may be used
+    ///
+    /// Note that this can sometimes be an overestimate, if the inner tape has
+    /// been simplified.
     pub fn var_count(&self) -> usize {
-        self.asm.var_count()
+        self.vars.len()
     }
 
     /// Simplifies both inner tapes, using the provided choice array
@@ -287,6 +303,7 @@ impl<const N: usize> VmData<N> {
                 choice_count,
             },
             asm: asm_tape,
+            vars: self.vars.clone(),
         })
     }
 

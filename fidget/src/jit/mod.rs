@@ -26,12 +26,11 @@
 use crate::{
     compiler::RegOp,
     context::{Context, Node},
-    eval::{
-        BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator, VarMap,
-    },
+    eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     jit::mmap::Mmap,
     shape::RenderHints,
     types::{Grad, Interval},
+    var::VarMap,
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
     Error,
 };
@@ -132,7 +131,7 @@ trait Assembler {
     fn build_store(&mut self, dst_mem: u32, src_reg: u8);
 
     /// Copies the given input to `out_reg`
-    fn build_input(&mut self, out_reg: u8, src_arg: u8);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32);
 
     /// Copies a register
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
@@ -900,6 +899,10 @@ impl Function for JitFunction {
     fn size(&self) -> usize {
         self.0.size()
     }
+
+    fn vars(&self) -> &VarMap<usize> {
+        self.0.vars()
+    }
 }
 
 impl RenderHints for JitFunction {
@@ -989,7 +992,6 @@ impl JitTracingEval {
     ) -> (T, Option<&VmTrace>) {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
-        assert!(tape.var_count <= 3);
         self.choices.fill(Choice::Unknown);
         let out = unsafe {
             (tape.fn_trace)(
@@ -1111,7 +1113,6 @@ unsafe impl<T> Sync for JitBulkFn<T> {}
 impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
     fn eval(&mut self, tape: &JitBulkFn<T>, vars: &[&[T]]) -> &[T] {
-        assert!(tape.var_count <= 3);
         let n = vars.first().map(|v| v.len()).unwrap_or(0);
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
@@ -1211,9 +1212,8 @@ impl BulkEvaluator for JitGradSliceEval {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
-        let (f, vars) = GenericVmFunction::new(ctx, node)?;
-        Ok((JitFunction(f), vars))
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
+        GenericVmFunction::new(ctx, node).map(JitFunction)
     }
 }
 

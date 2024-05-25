@@ -1,7 +1,8 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    context::{Context, Node, Tree, Var},
+    context::{Context, Node},
     types::{Grad, Interval},
+    var::VarMap,
     Error,
 };
 
@@ -165,29 +166,15 @@ pub trait Function: Send + Sync + Clone {
     /// This is underspecified and only used for unit testing; for tape-based
     /// functions, it's typically the length of the tape,
     fn size(&self) -> usize;
+
+    /// Returns a map from variable to index
+    fn vars(&self) -> &VarMap<usize>;
 }
 
-/// Map from variable (from a particular [`Context`]) to index
-pub type VarMap = std::collections::HashMap<Var, usize>;
-
 /// A [`Function`] which can be built from a math expression
-pub trait MathFunction {
+pub trait MathFunction: Function {
     /// Builds a new function from the given context and node
-    ///
-    /// Returns a tuple of the [`MathFunction`] and a [`VarMap`] representing a
-    /// mapping from variables (in the [`Context`]) to indices used during
-    /// evaluation.
-    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error>
+    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
     where
         Self: Sized;
-
-    /// Helper function to build a function from a [`Tree`]
-    fn from_tree(t: &Tree) -> (Self, VarMap)
-    where
-        Self: Sized,
-    {
-        let mut ctx = Context::new();
-        let node = ctx.import(t);
-        Self::new(&ctx, node).unwrap()
-    }
 }

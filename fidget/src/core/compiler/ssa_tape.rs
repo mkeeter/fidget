@@ -2,7 +2,7 @@
 use crate::{
     compiler::SsaOp,
     context::{BinaryOpcode, Node, Op, UnaryOpcode},
-    eval::VarMap,
+    var::VarMap,
     Context, Error,
 };
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,10 @@ impl SsaTape {
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn new(ctx: &Context, root: Node) -> Result<(Self, VarMap), Error> {
+    pub fn new(
+        ctx: &Context,
+        root: Node,
+    ) -> Result<(Self, VarMap<usize>), Error> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
         let mut slot_count = 0;
@@ -47,7 +50,7 @@ impl SsaTape {
 
         // Accumulate parent counts and declare all nodes
         let mut seen = HashSet::new();
-        let mut vars = HashMap::new();
+        let mut vars = VarMap::new();
         let mut todo = vec![root];
         while let Some(node) = todo.pop() {
             if !seen.insert(node) {
@@ -61,8 +64,7 @@ impl SsaTape {
                 _ => {
                     if let Op::Input(v) = op {
                         let next = vars.len();
-                        let v = ctx.get_var_by_index(*v).unwrap().clone();
-                        vars.entry(v).or_insert(next);
+                        vars.entry(*v).or_insert(next);
                     }
                     let i = slot_count;
                     slot_count += 1;
@@ -97,8 +99,8 @@ impl SsaTape {
                 continue;
             };
             let op = match op {
-                Op::Input(..) => {
-                    let arg = vars[ctx.var_name(node).unwrap().unwrap()];
+                Op::Input(v) => {
+                    let arg = vars[v];
                     SsaOp::Input(i, arg.try_into().unwrap())
                 }
                 Op::Const(..) => {

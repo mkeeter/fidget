@@ -4,7 +4,8 @@
 //!
 //! - A [`Tree`] is a free-floating math expression, which can be cloned
 //!   and has overloaded operators for ease of use.  It is **not** deduplicated;
-//!   two calls to [`Tree::x`] will produce two different [`TreeOp`] objects.
+//!   two calls to [`Tree::constant(1.0)`](Tree::constant) will allocate two
+//!   different [`TreeOp`] objects.
 //!   `Tree` objects are typically used when building up expressions; they
 //!   should be converted to `Node` objects (in a particular `Context`) after
 //!   they have been constructed.
@@ -22,7 +23,7 @@ use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
 
-use crate::Error;
+use crate::{var::Var, Error};
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
@@ -32,7 +33,6 @@ use std::sync::Arc;
 use ordered_float::OrderedFloat;
 
 define_index!(Node, "An index in the `Context::ops` map");
-define_index!(VarNode, "An index in the `Context::vars` map");
 
 /// A `Context` holds a set of deduplicated constants, variables, and
 /// operations.
@@ -42,39 +42,6 @@ define_index!(VarNode, "An index in the `Context::vars` map");
 #[derive(Debug, Default)]
 pub struct Context {
     ops: IndexMap<Op, Node>,
-    vars: IndexMap<Var, VarNode>,
-}
-
-/// A `Var` represents a value which can vary during evaluation
-///
-/// We pre-define common variables (e.g. X, Y, Z) but also allow for fully
-/// customized values.
-#[allow(missing_docs)]
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Var {
-    X,
-    Y,
-    Z,
-    W,
-    T,
-    Static(&'static str),
-    Named(String),
-    Value(u64),
-}
-
-impl std::fmt::Display for Var {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Var::X => write!(f, "X"),
-            Var::Y => write!(f, "Y"),
-            Var::Z => write!(f, "Z"),
-            Var::W => write!(f, "W"),
-            Var::T => write!(f, "T"),
-            Var::Static(s) => write!(f, "{s}"),
-            Var::Named(s) => write!(f, "{s}"),
-            Var::Value(v) => write!(f, "v_{v}"),
-        }
-    }
 }
 
 impl Context {
@@ -85,7 +52,7 @@ impl Context {
 
     /// Clears the context
     ///
-    /// All [`Node`] and [`VarNode`] handles from this context are invalidated.
+    /// All [`Node`] handles from this context are invalidated.
     ///
     /// ```
     /// # use fidget::context::Context;
@@ -96,7 +63,6 @@ impl Context {
     /// ```
     pub fn clear(&mut self) {
         self.ops.clear();
-        self.vars.clear();
     }
 
     /// Returns the number of [`Op`] nodes in the context
@@ -155,25 +121,17 @@ impl Context {
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not an `Op::Input`, returns `Ok(None)`.
-    pub fn var_name(&self, n: Node) -> Result<Option<&Var>, Error> {
+    pub fn get_var(&self, n: Node) -> Result<Option<Var>, Error> {
         match self.get_op(n) {
-            Some(Op::Input(c)) => self.get_var_by_index(*c).map(Some),
+            Some(Op::Input(v)) => Ok(Some(*v)),
             Some(_) => Ok(None),
             _ => Err(Error::BadNode),
         }
     }
 
-    /// Looks up the [`Var`] associated with the given [`VarNode`]
-    pub fn get_var_by_index(&self, n: VarNode) -> Result<&Var, Error> {
-        match self.vars.get_by_index(n) {
-            Some(c) => Ok(c),
-            None => Err(Error::BadVar),
-        }
-    }
-
     ////////////////////////////////////////////////////////////////////////////
     // Primitives
-    /// Constructs or finds a variable node named "X"
+    /// Constructs or finds a [`Var::X`] node
     /// ```
     /// # use fidget::context::Context;
     /// let mut ctx = Context::new();
@@ -182,19 +140,21 @@ impl Context {
     /// assert_eq!(v, 1.0);
     /// ```
     pub fn x(&mut self) -> Node {
-        let v = self.vars.insert(Var::X);
-        self.ops.insert(Op::Input(v))
+        self.var(Var::X)
     }
 
-    /// Constructs or finds a variable node named "Y"
+    /// Constructs or finds a [`Var::Y`] node
     pub fn y(&mut self) -> Node {
-        let v = self.vars.insert(Var::Y);
-        self.ops.insert(Op::Input(v))
+        self.var(Var::Y)
     }
 
-    /// Constructs or finds a variable node named "Z"
+    /// Constructs or finds a [`Var::Z`] node
     pub fn z(&mut self) -> Node {
-        let v = self.vars.insert(Var::Z);
+        self.var(Var::Z)
+    }
+
+    /// Constructs or finds a variable input node
+    pub fn var(&mut self, v: Var) -> Node {
         self.ops.insert(Op::Input(v))
     }
 
@@ -822,10 +782,7 @@ impl Context {
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
         let v = match self.get_op(node).ok_or(Error::BadNode)? {
-            Op::Input(v) => {
-                let var_name = self.vars.get_by_index(*v).unwrap();
-                *vars.get(var_name).unwrap()
-            }
+            Op::Input(v) => *vars.get(v).unwrap(),
             Op::Const(c) => c.0,
 
             Op::Binary(op, a, b) => {
@@ -995,7 +952,6 @@ impl Context {
         match op {
             Op::Const(c) => write!(out, "{}", c).unwrap(),
             Op::Input(v) => {
-                let v = self.vars.get_by_index(*v).unwrap();
                 out += &v.to_string();
             }
             Op::Binary(op, ..) => match op {
@@ -1245,9 +1201,9 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let (tape, vs) = VmData::<255>::new(&ctx, c9).unwrap();
+        let tape = VmData::<255>::new(&ctx, c9).unwrap();
         assert_eq!(tape.len(), 8);
-        assert_eq!(vs.len(), 2);
+        assert_eq!(tape.vars.len(), 2);
     }
 
     #[test]
@@ -1256,8 +1212,8 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let (tape, vs) = VmData::<255>::new(&ctx, x_squared).unwrap();
+        let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
-        assert_eq!(vs.len(), 1);
+        assert_eq!(tape.vars.len(), 1);
     }
 }

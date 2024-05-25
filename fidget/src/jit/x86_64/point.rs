@@ -83,8 +83,8 @@ impl Assembler for PointAssembler {
             ; vmovss [rsp + sp_offset], Rx(reg(src_reg))
         );
     }
-    fn build_input(&mut self, out_reg: u8, src_arg: u8) {
-        let pos = 4 * (src_arg as i32);
+    fn build_input(&mut self, out_reg: u8, src_arg: u32) {
+        let pos = 4 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             // Pull the input from the rdi array
             ; vmovss Rx(reg(out_reg)), [rdi + pos]
