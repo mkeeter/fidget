@@ -35,9 +35,7 @@ pub trait BulkEvaluator: Default {
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: &[Self::Data],
-        y: &[Self::Data],
-        z: &[Self::Data],
+        vars: &[&[Self::Data]],
     ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator
@@ -46,19 +44,24 @@ pub trait BulkEvaluator: Default {
     }
 
     /// Helper function to return an error if the inputs are invalid
-    fn check_arguments<T>(
+    fn check_arguments(
         &self,
-        xs: &[T],
-        ys: &[T],
-        zs: &[T],
+        vars: &[&[Self::Data]],
         var_count: usize,
     ) -> Result<(), Error> {
-        if xs.len() != ys.len() || ys.len() != zs.len() {
-            Err(Error::MismatchedSlices)
-        } else if var_count > 3 {
-            Err(Error::BadVarSlice(3, var_count))
+        // It's fine if the caller has given us extra variables (e.g. due to
+        // tape simplification), but it must have given us enough.
+        if vars.len() < var_count {
+            Err(Error::BadVarSlice(vars.len(), var_count))
         } else {
-            Ok(())
+            let Some(n) = vars.first().map(|v| v.len()) else {
+                return Ok(());
+            };
+            if vars.iter().any(|v| v.len() == n) {
+                Ok(())
+            } else {
+                Err(Error::MismatchedSlices)
+            }
         }
     }
 }

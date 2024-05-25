@@ -2,6 +2,7 @@
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
+    eval::VarMap,
     vm::Choice,
     Error,
 };
@@ -38,19 +39,19 @@ use serde::{Deserialize, Serialize};
 /// ```
 /// use fidget::{
 ///     compiler::RegOp,
-///     context::{Context, Tree},
+///     context::{Context, Tree, Var},
 ///     vm::VmData,
 /// };
 ///
 /// let tree = Tree::x() + Tree::y();
 /// let mut ctx = Context::new();
 /// let sum = ctx.import(&tree);
-/// let data = VmData::<255>::new(&ctx, sum)?;
+/// let (data, vars) = VmData::<255>::new(&ctx, sum)?;
 /// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
 ///
 /// let mut iter = data.iter_asm();
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, 0));
-/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, 1));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(0, vars[&Var::X] as u8));
+/// assert_eq!(iter.next().unwrap(), RegOp::Input(1, vars[&Var::Y] as u8));
 /// assert_eq!(iter.next().unwrap(), RegOp::AddRegReg(0, 0, 1));
 /// # Ok::<(), fidget::Error>(())
 /// ```
@@ -66,10 +67,10 @@ pub struct VmData<const N: usize = { u8::MAX as usize }> {
 
 impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
-    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
-        let ssa = SsaTape::new(context, node)?;
+    pub fn new(context: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+        let (ssa, vs) = SsaTape::new(context, node)?;
         let asm = RegTape::new::<N>(&ssa);
-        Ok(Self { ssa, asm })
+        Ok((Self { ssa, asm }, vs))
     }
 
     /// Returns the length of the internal VM tape

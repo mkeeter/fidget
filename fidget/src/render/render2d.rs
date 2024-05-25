@@ -1,8 +1,9 @@
 //! 2D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    eval::{BulkEvaluator, Shape, TracingEvaluator},
+    eval::Function,
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::Interval,
 };
 use nalgebra::Point2;
@@ -200,29 +201,29 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Per-thread worker
-struct Worker<'a, S: Shape, M: RenderMode> {
+struct Worker<'a, F: Function, M: RenderMode> {
     config: &'a AlignedRenderConfig<2>,
     scratch: Scratch,
 
-    eval_float_slice: S::FloatSliceEval,
-    eval_interval: S::IntervalEval,
+    eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
+    eval_interval: ShapeTracingEval<F::IntervalEval>,
 
     /// Spare tape storage for reuse
-    tape_storage: Vec<S::TapeStorage>,
+    tape_storage: Vec<F::TapeStorage>,
 
     /// Spare shape storage for reuse
-    shape_storage: Vec<S::Storage>,
+    shape_storage: Vec<F::Storage>,
 
     /// Workspace for shape simplification
-    workspace: S::Workspace,
+    workspace: F::Workspace,
 
     image: Vec<M::Output>,
 }
 
-impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
+impl<F: Function, M: RenderMode> Worker<'_, F, M> {
     fn render_tile_recurse(
         &mut self,
-        shape: &mut RenderHandle<S>,
+        shape: &mut RenderHandle<F>,
         depth: usize,
         tile: Tile<2>,
     ) {
@@ -310,7 +311,7 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
     fn render_tile_pixels(
         &mut self,
-        shape: &mut RenderHandle<S>,
+        shape: &mut RenderHandle<F>,
         tile_size: usize,
         tile: Tile<2>,
     ) {
@@ -346,20 +347,20 @@ impl<S: Shape, M: RenderMode> Worker<'_, S, M> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<S: Shape, M: RenderMode>(
-    mut shape: RenderHandle<S>,
+fn worker<F: Function, M: RenderMode>(
+    mut shape: RenderHandle<F>,
     queue: &Queue<2>,
     config: &AlignedRenderConfig<2>,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
 
-    let mut w: Worker<S, M> = Worker {
+    let mut w: Worker<F, M> = Worker {
         scratch,
         image: vec![],
         config,
-        eval_float_slice: S::FloatSliceEval::new(),
-        eval_interval: S::IntervalEval::new(),
+        eval_float_slice: Default::default(),
+        eval_interval: Default::default(),
         tape_storage: vec![],
         shape_storage: vec![],
         workspace: Default::default(),
@@ -384,8 +385,8 @@ fn worker<S: Shape, M: RenderMode>(
 /// This function is parameterized by both shape type (which determines how we
 /// perform evaluation) and render mode (which tells us how to color in the
 /// resulting pixels).
-pub fn render<S: Shape, M: RenderMode + Sync>(
-    shape: S,
+pub fn render<F: Function, M: RenderMode + Sync>(
+    shape: Shape<F>,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
     let (config, mat) = config.align();
@@ -402,8 +403,8 @@ pub fn render<S: Shape, M: RenderMode + Sync>(
     render_inner::<_, M>(shape, config)
 }
 
-fn render_inner<S: Shape, M: RenderMode + Sync>(
-    shape: S,
+fn render_inner<F: Function, M: RenderMode + Sync>(
+    shape: Shape<F>,
     config: AlignedRenderConfig<2>,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
@@ -423,7 +424,7 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = if threads == 1 {
-        worker::<S, M>(rh, &queue, &config).into_iter().collect()
+        worker::<F, M>(rh, &queue, &config).into_iter().collect()
     } else {
         #[cfg(target_arch = "wasm32")]
         unreachable!("multithreaded rendering is not supported on wasm32");
@@ -433,7 +434,7 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
             let mut handles = vec![];
             for _ in 0..threads {
                 let rh = rh.clone();
-                handles.push(s.spawn(|| worker::<S, M>(rh, &queue, &config)));
+                handles.push(s.spawn(|| worker::<F, M>(rh, &queue, &config)));
             }
             let mut out = vec![];
             for h in handles {
@@ -467,9 +468,9 @@ fn render_inner<S: Shape, M: RenderMode + Sync>(
 mod test {
     use super::*;
     use crate::{
-        eval::{MathShape, Shape},
-        shape::Bounds,
-        vm::{GenericVmShape, VmShape},
+        eval::{Function, MathFunction},
+        shape::{Bounds, Shape},
+        vm::{GenericVmFunction, VmFunction},
         Context,
     };
 
@@ -480,8 +481,8 @@ mod test {
         "/../models/quarter.vm"
     ));
 
-    fn render_and_compare_with_bounds<S: Shape>(
-        shape: S,
+    fn render_and_compare_with_bounds<F: Function>(
+        shape: Shape<F>,
         expected: &'static str,
         bounds: Bounds<2>,
     ) {
@@ -509,13 +510,16 @@ mod test {
         }
     }
 
-    fn render_and_compare<S: Shape>(shape: S, expected: &'static str) {
+    fn render_and_compare<F: Function>(
+        shape: Shape<F>,
+        expected: &'static str,
+    ) {
         render_and_compare_with_bounds(shape, expected, Bounds::default())
     }
 
-    fn check_hi<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+    fn check_hi<F: Function + MathFunction>() {
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             .................X..............
             .................X..............
@@ -552,9 +556,9 @@ mod test {
         render_and_compare(shape, EXPECTED);
     }
 
-    fn check_hi_transformed<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+    fn check_hi_transformed<F: Function + MathFunction>() {
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
         let mut mat = nalgebra::Matrix4::<f32>::identity();
         mat.prepend_translation_mut(&nalgebra::Vector3::new(0.5, 0.5, 0.0));
         mat.prepend_scaling_mut(0.5);
@@ -595,9 +599,9 @@ mod test {
         render_and_compare(shape, EXPECTED);
     }
 
-    fn check_hi_bounded<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+    fn check_hi_bounded<F: Function + MathFunction>() {
+        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             .XXX............................
             .XXX............................
@@ -641,9 +645,9 @@ mod test {
         );
     }
 
-    fn check_quarter<S: Shape + MathShape>() {
-        let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
-        let shape = S::new(&ctx, root).unwrap();
+    fn check_quarter<F: Function + MathFunction>() {
+        let (mut ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
         const EXPECTED: &str = "
             ................................
             ................................
@@ -682,65 +686,65 @@ mod test {
 
     #[test]
     fn render_hi_vm() {
-        check_hi::<VmShape>();
+        check_hi::<VmFunction>();
     }
 
     #[test]
     fn render_hi_vm3() {
-        check_hi::<GenericVmShape<3>>();
+        check_hi::<GenericVmFunction<3>>();
     }
 
     #[cfg(feature = "jit")]
     #[test]
     fn render_hi_jit() {
-        check_hi::<crate::jit::JitShape>();
+        check_hi::<crate::jit::JitFunction>();
     }
 
     #[test]
     fn render_hi_transformed_vm() {
-        check_hi_transformed::<VmShape>();
+        check_hi_transformed::<VmFunction>();
     }
 
     #[test]
     fn render_hi_transformed_vm3() {
-        check_hi_transformed::<GenericVmShape<3>>();
+        check_hi_transformed::<GenericVmFunction<3>>();
     }
 
     #[cfg(feature = "jit")]
     #[test]
     fn render_hi_transformed_jit() {
-        check_hi_transformed::<crate::jit::JitShape>();
+        check_hi_transformed::<crate::jit::JitFunction>();
     }
 
     #[test]
     fn render_hi_bounded_vm() {
-        check_hi_bounded::<VmShape>();
+        check_hi_bounded::<VmFunction>();
     }
 
     #[test]
     fn render_hi_bounded_vm3() {
-        check_hi_bounded::<GenericVmShape<3>>();
+        check_hi_bounded::<GenericVmFunction<3>>();
     }
 
     #[cfg(feature = "jit")]
     #[test]
     fn render_hi_bounded_jit() {
-        check_hi_bounded::<crate::jit::JitShape>();
+        check_hi_bounded::<crate::jit::JitFunction>();
     }
 
     #[test]
     fn render_quarter_vm() {
-        check_quarter::<VmShape>();
+        check_quarter::<VmFunction>();
     }
 
     #[test]
     fn render_quarter_vm3() {
-        check_quarter::<GenericVmShape<3>>();
+        check_quarter::<GenericVmFunction<3>>();
     }
 
     #[cfg(feature = "jit")]
     #[test]
     fn render_quarter_jit() {
-        check_quarter::<crate::jit::JitShape>();
+        check_quarter::<crate::jit::JitFunction>();
     }
 }

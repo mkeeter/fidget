@@ -1,24 +1,24 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
+use fidget::shape::RenderHints;
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
-use fidget::{eval::MathShape, shape::RenderHints};
-
 pub fn prospero_size_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
     for size in [256, 512, 768, 1024, 1280, 1546, 1792, 2048] {
         let cfg = &fidget::render::RenderConfig {
             image_size: size,
-            tile_sizes: fidget::vm::VmShape::tile_sizes_2d().to_vec(),
+            tile_sizes: fidget::vm::VmFunction::tile_sizes_2d().to_vec(),
             ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", size), move |b| {
@@ -35,7 +35,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
         {
             let cfg = &fidget::render::RenderConfig {
                 image_size: size,
-                tile_sizes: fidget::jit::JitShape::tile_sizes_2d().to_vec(),
+                tile_sizes: fidget::jit::JitFunction::tile_sizes_2d().to_vec(),
                 ..Default::default()
             };
             group.bench_function(BenchmarkId::new("jit", size), move |b| {
@@ -52,18 +52,19 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 }
 
 pub fn prospero_thread_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(PROSPERO.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
 
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");
     for threads in [1, 2, 4, 8, 16] {
         let cfg = &fidget::render::RenderConfig {
             image_size: 1024,
-            tile_sizes: fidget::vm::VmShape::tile_sizes_2d().to_vec(),
+            tile_sizes: fidget::vm::VmFunction::tile_sizes_2d().to_vec(),
             threads: threads.try_into().unwrap(),
             ..Default::default()
         };
@@ -80,7 +81,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         {
             let cfg = &fidget::render::RenderConfig {
                 image_size: 1024,
-                tile_sizes: fidget::jit::JitShape::tile_sizes_2d().to_vec(),
+                tile_sizes: fidget::jit::JitFunction::tile_sizes_2d().to_vec(),
                 threads: threads.try_into().unwrap(),
                 ..Default::default()
             };

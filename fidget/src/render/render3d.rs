@@ -1,8 +1,9 @@
 //! 3D bitmap rendering / rasterization
 use super::RenderHandle;
 use crate::{
-    eval::{BulkEvaluator, Shape, TracingEvaluator},
+    eval::Function,
     render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::{Grad, Interval},
 };
 
@@ -44,29 +45,29 @@ impl Scratch {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Worker<'a, S: Shape> {
+struct Worker<'a, F: Function> {
     config: &'a AlignedRenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
 
-    eval_float_slice: S::FloatSliceEval,
-    eval_grad_slice: S::GradSliceEval,
-    eval_interval: S::IntervalEval,
+    eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
+    eval_grad_slice: ShapeBulkEval<F::GradSliceEval>,
+    eval_interval: ShapeTracingEval<F::IntervalEval>,
 
-    tape_storage: Vec<S::TapeStorage>,
-    shape_storage: Vec<S::Storage>,
-    workspace: S::Workspace,
+    tape_storage: Vec<F::TapeStorage>,
+    shape_storage: Vec<F::Storage>,
+    workspace: F::Workspace,
 
     /// Output images for this specific tile
     depth: Vec<u32>,
     color: Vec<[u8; 3]>,
 }
 
-impl<S: Shape> Worker<'_, S> {
+impl<F: Function> Worker<'_, F> {
     fn render_tile_recurse(
         &mut self,
-        shape: &mut RenderHandle<S>,
+        shape: &mut RenderHandle<F>,
         depth: usize,
         tile: Tile<3>,
     ) {
@@ -143,7 +144,7 @@ impl<S: Shape> Worker<'_, S> {
 
     fn render_tile_pixels(
         &mut self,
-        shape: &mut RenderHandle<S>,
+        shape: &mut RenderHandle<F>,
         tile_size: usize,
         tile: Tile<3>,
     ) {
@@ -281,8 +282,8 @@ impl Image {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<S: Shape>(
-    mut shape: RenderHandle<S>,
+fn worker<F: Function>(
+    mut shape: RenderHandle<F>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &AlignedRenderConfig<3>,
@@ -292,15 +293,15 @@ fn worker<S: Shape>(
     // Calculate maximum evaluation buffer size
     let buf_size = *config.tile_sizes.last().unwrap();
     let scratch = Scratch::new(buf_size);
-    let mut w: Worker<S> = Worker {
+    let mut w: Worker<F> = Worker {
         scratch,
         depth: vec![],
         color: vec![],
         config,
 
-        eval_float_slice: S::FloatSliceEval::new(),
-        eval_interval: S::IntervalEval::new(),
-        eval_grad_slice: S::GradSliceEval::new(),
+        eval_float_slice: Default::default(),
+        eval_interval: Default::default(),
+        eval_grad_slice: Default::default(),
 
         tape_storage: vec![],
         shape_storage: vec![],
@@ -351,8 +352,8 @@ fn worker<S: Shape>(
 ///
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
-pub fn render<S: Shape>(
-    shape: S,
+pub fn render<F: Function>(
+    shape: Shape<F>,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let (config, mat) = config.align();
@@ -365,8 +366,8 @@ pub fn render<S: Shape>(
     render_inner(shape, config)
 }
 
-pub fn render_inner<S: Shape>(
-    shape: S,
+pub fn render_inner<F: Function>(
+    shape: Shape<F>,
     config: AlignedRenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
@@ -396,7 +397,7 @@ pub fn render_inner<S: Shape>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = if threads == 1 {
-        worker::<S>(rh, tile_queues.as_slice(), 0, &config)
+        worker::<F>(rh, tile_queues.as_slice(), 0, &config)
             .into_iter()
             .collect()
     } else {
@@ -411,7 +412,7 @@ pub fn render_inner<S: Shape>(
             for i in 0..threads {
                 let rh = rh.clone();
                 handles
-                    .push(s.spawn(move || worker::<S>(rh, queues, i, config)));
+                    .push(s.spawn(move || worker::<F>(rh, queues, i, config)));
             }
             let mut out = vec![];
             for h in handles {
@@ -448,14 +449,14 @@ pub fn render_inner<S: Shape>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{eval::MathShape, vm::VmShape, Context};
+    use crate::{vm::VmShape, Context};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
     fn test_tile_queues() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = VmShape::new(&ctx, x).unwrap();
+        let shape = VmShape::new(&mut ctx, x).unwrap();
 
         let cfg = RenderConfig::<3> {
             image_size: 128, // very small!

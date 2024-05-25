@@ -3,7 +3,7 @@
 //! This module implements
 //! [Manifold Dual Contouring](https://people.engr.tamu.edu/schaefer/research/dualsimp_tvcg.pdf),
 //! to generate a triangle mesh from an implicit surface (or anything
-//! implementing [`Shape`](crate::eval::Shape)).
+//! implementing [`Shape`](crate::shape::Shape)).
 //!
 //! The resulting meshes should be
 //! - Manifold
@@ -19,13 +19,12 @@
 //!
 //! ```
 //! use fidget::{
-//!     eval::MathShape,
 //!     mesh::{Octree, Settings},
 //!     vm::VmShape
 //! };
 //!
 //! let tree = fidget::rhai::eval("sphere(0, 0, 0, 0.6)")?;
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let settings = Settings {
 //!     depth: 4,
 //!     ..Default::default()

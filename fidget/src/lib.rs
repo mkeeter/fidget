@@ -68,7 +68,7 @@
 //!
 //! Evaluation is deliberately agnostic to the specific details of how we go
 //! from position to results.  This abstraction is represented by the
-//! [`Shape` trait](crate::eval::Shape), which defines how to make both
+//! [`Function` trait](crate::eval::Function), which defines how to make both
 //! **evaluators** and **tapes**.
 //!
 //! An **evaluator** is an object which performs evaluation of some kind (point,
@@ -77,22 +77,22 @@
 //!
 //! A **tape** contains instructions for an evaluator.
 //!
-//! At the moment, Fidget implements two kinds of shapes:
+//! At the moment, Fidget implements two kinds of functions:
 //!
-//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates a list of opcodes
-//!   using an interpreter.  This is slower, but can run in more situations
-//!   (e.g. in WebAssembly).
-//! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
-//!   by compiling shapes down to native code.
+//! - [`fidget::vm::VmFunction`](crate::vm::VmFunction) evaluates a list of
+//!   opcodes using an interpreter.  This is slower, but can run in more
+//!   situations (e.g. in WebAssembly).
+//! - [`fidget::jit::JitFunction`](crate::jit::JitFunction) performs fast
+//!   evaluation by compiling expressions down to native code.
 //!
-//! The [`eval::Shape`](crate::eval::Shape) trait requires four different kinds
+//! The [`Function`](crate::eval::Function) trait requires four different kinds
 //! of evaluation:
 //!
 //! - Single-point evaluation
 //! - Interval evaluation
 //! - Evaluation on an array of points, returning `f32` values
 //! - Evaluation on an array of points, returning partial derivatives with
-//!   respect to `x, y, z`
+//!   respect to input variables
 //!
 //! These evaluation flavors are used in rendering:
 //! - Interval evaluation can conservatively prove large regions of space to be
@@ -103,16 +103,24 @@
 //! - At the surface of the model, partial derivatives represent normals and
 //!   can be used for shading.
 //!
-//! Here's a simple example of interval evaluation:
+//! # Functions and shapes
+//! The [`Function`](crate::eval::Function) trait supports arbitrary numbers of
+//! varibles; when using it for implicit surfaces, it's common to wrap it in a
+//! [`Shape`](crate::shape::Shape), which binds `(x, y, z)` axes to specific
+//! variables.
+//!
+//! Here's a simple example of interval evaluation, using a `Shape` to wrap a
+//! function and evaluate it at a particular `(x, y, z)` position:
+//!
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     eval::{Shape, MathShape, EzShape, TracingEvaluator},
+//!     shape::{Shape, EzShape},
 //!     vm::VmShape
 //! };
 //!
 //! let tree = Tree::x() + Tree::y();
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, _trace) = interval_eval.eval(
@@ -136,12 +144,12 @@
 //! ```
 //! use fidget::{
 //!     context::Tree,
-//!     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//!     shape::EzShape,
 //!     vm::VmShape
 //! };
 //!
 //! let tree = Tree::x().min(Tree::y());
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let mut interval_eval = VmShape::new_interval_eval();
 //! let tape = shape.ez_interval_tape();
 //! let (out, trace) = interval_eval.eval(
@@ -165,11 +173,12 @@
 //! ```
 //! # use fidget::{
 //! #     context::Tree,
-//! #     eval::{TracingEvaluator, Shape, MathShape, EzShape},
+//! #     shape::EzShape,
 //! #     vm::VmShape
 //! # };
 //! # let tree = Tree::x().min(Tree::y());
-//! # let shape = VmShape::from_tree(&tree);
+//! # let shape = VmShape::from(tree);
+//! assert_eq!(shape.size(), 3); // min, X, Y
 //! # let mut interval_eval = VmShape::new_interval_eval();
 //! # let tape = shape.ez_interval_tape();
 //! # let (out, trace) = interval_eval.eval(
@@ -179,9 +188,8 @@
 //! #         [0.0, 0.0], // Z
 //! #     )?;
 //! // (same code as above)
-//! assert_eq!(tape.size(), 3);
 //! let new_shape = shape.ez_simplify(trace.unwrap())?;
-//! assert_eq!(new_shape.ez_interval_tape().size(), 1); // just the 'X' term
+//! assert_eq!(new_shape.size(), 1); // just the X term
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
@@ -197,7 +205,6 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     eval::MathShape,
 //!     render::{BitRenderMode, RenderConfig},
 //!     vm::VmShape,
 //! };
@@ -209,7 +216,7 @@
 //!     image_size: 32,
 //!     ..RenderConfig::default()
 //! };
-//! let shape = VmShape::from_tree(&tree);
+//! let shape = VmShape::from(tree);
 //! let out = cfg.run::<_, BitRenderMode>(shape)?;
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size {

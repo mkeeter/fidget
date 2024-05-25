@@ -1,15 +1,15 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::eval::MathShape;
 
 const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 
 pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
     #[cfg(feature = "jit")]
-    let shape_jit = &fidget::jit::JitShape::new(&ctx, root).unwrap();
+    let shape_jit = &fidget::jit::JitShape::new(&mut ctx, root).unwrap();
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
@@ -36,8 +36,9 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
 }
 
 pub fn colonnade_mesh(c: &mut Criterion) {
-    let (ctx, root) = fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
-    let shape_vm = &fidget::vm::VmShape::new(&ctx, root).unwrap();
+    let (mut ctx, root) =
+        fidget::Context::from_text(COLONNADE.as_bytes()).unwrap();
+    let shape_vm = &fidget::vm::VmShape::new(&mut ctx, root).unwrap();
     let cfg = fidget::mesh::Settings {
         depth: 8,
         ..Default::default()

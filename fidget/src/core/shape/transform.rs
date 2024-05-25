@@ -1,6 +1,7 @@
 use crate::{
-    eval::{BulkEvaluator, Grad, Interval, Shape, Tape, TracingEvaluator},
-    shape::RenderHints,
+    eval::Tape,
+    shape::{BulkEvaluator, RenderHints, Shape, TracingEvaluator},
+    types::{Grad, Interval},
     Error,
 };
 use nalgebra::{Matrix4, Point3, Vector3};

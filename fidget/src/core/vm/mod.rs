@@ -3,14 +3,13 @@ use crate::{
     compiler::RegOp,
     context::Node,
     eval::{
-        BulkEvaluator, MathShape, Shape, Tape, Trace, TracingEvaluator,
-        TransformedShape,
+        BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
+        VarMap,
     },
-    shape::RenderHints,
+    shape::{RenderHints, Shape},
     types::{Grad, Interval},
     Context, Error,
 };
-use nalgebra::Matrix4;
 use std::sync::Arc;
 
 mod choice;
@@ -21,17 +20,19 @@ pub use data::{VmData, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Shape that use a VM backend for evaluation
+/// Function which uses the VM backend for evaluation
 ///
-/// Internally, the [`VmShape`] stores an [`Arc<VmData>`](VmData), and
+/// Internally, the [`VmFunction`] stores an [`Arc<VmData>`](VmData), and
 /// iterates over a [`Vec<RegOp>`](RegOp) to perform evaluation.
 ///
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
 /// there's no separate planning required to generate a tape.
-///
-pub type VmShape = GenericVmShape<{ u8::MAX as usize }>;
+pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 
-impl<const N: usize> Tape for GenericVmShape<N> {
+/// Shape that use a the [`VmFunction`] backend for evaluation
+pub type VmShape = Shape<VmFunction>;
+
+impl<const N: usize> Tape for GenericVmFunction<N> {
     type Storage = ();
     fn recycle(self) -> Self::Storage {
         // nothing to do here
@@ -93,15 +94,15 @@ impl AsRef<[Choice]> for VmTrace {
 /// You are unlikely to use this directly; [`VmShape`] should be used for
 /// VM-based evaluation.
 #[derive(Clone)]
-pub struct GenericVmShape<const N: usize>(Arc<VmData<N>>);
+pub struct GenericVmFunction<const N: usize>(Arc<VmData<N>>);
 
-impl<const N: usize> From<VmData<N>> for GenericVmShape<N> {
+impl<const N: usize> From<VmData<N>> for GenericVmFunction<N> {
     fn from(d: VmData<N>) -> Self {
         Self(d.into())
     }
 }
 
-impl<const N: usize> GenericVmShape<N> {
+impl<const N: usize> GenericVmFunction<N> {
     pub(crate) fn simplify_inner(
         &self,
         choices: &[Choice],
@@ -137,7 +138,7 @@ impl<const N: usize> GenericVmShape<N> {
     }
 }
 
-impl<const N: usize> Shape for GenericVmShape<N> {
+impl<const N: usize> Function for GenericVmFunction<N> {
     type FloatSliceEval = VmFloatSliceEval<N>;
     type Storage = VmData<N>;
     type Workspace = VmWorkspace<N>;
@@ -170,20 +171,15 @@ impl<const N: usize> Shape for GenericVmShape<N> {
     }
 
     fn recycle(self) -> Option<Self::Storage> {
-        GenericVmShape::recycle(self)
+        GenericVmFunction::recycle(self)
     }
 
     fn size(&self) -> usize {
-        GenericVmShape::size(self)
-    }
-
-    type TransformedShape = TransformedShape<Self>;
-    fn apply_transform(self, mat: Matrix4<f32>) -> Self::TransformedShape {
-        TransformedShape::new(self, mat)
+        GenericVmFunction::size(self)
     }
 }
 
-impl<const N: usize> RenderHints for GenericVmShape<N> {
+impl<const N: usize> RenderHints for GenericVmFunction<N> {
     fn tile_sizes_3d() -> &'static [usize] {
         &[256, 128, 64, 32, 16, 8]
     }
@@ -193,10 +189,10 @@ impl<const N: usize> RenderHints for GenericVmShape<N> {
     }
 }
 
-impl<const N: usize> MathShape for GenericVmShape<N> {
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        let d = VmData::new(ctx, node)?;
-        Ok(Self(Arc::new(d)))
+impl<const N: usize> MathFunction for GenericVmFunction<N> {
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error> {
+        let (d, vs) = VmData::new(ctx, node)?;
+        Ok((Self(Arc::new(d)), vs))
     }
 }
 
@@ -257,22 +253,17 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
 pub struct VmIntervalEval<const N: usize>(TracingVmEval<Interval>);
 impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
     type Data = Interval;
-    type Tape = GenericVmShape<N>;
+    type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
     type TapeStorage = ();
 
-    fn eval<F: Into<Interval>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: F,
-        y: F,
-        z: F,
+        vars: &[Interval],
     ) -> Result<(Interval, Option<&VmTrace>), Error> {
-        let x = x.into();
-        let y = y.into();
-        let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(tape.var_count())?;
+        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut simplify = false;
@@ -281,12 +272,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
-                    v[out] = match i {
-                        0 => x,
-                        1 => y,
-                        2 => z,
-                        _ => panic!("Invalid input: {}", i),
-                    }
+                    v[out] = vars[i as usize];
                 }
                 RegOp::NegReg(out, arg) => {
                     v[out] = -v[arg];
@@ -496,22 +482,17 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
 pub struct VmPointEval<const N: usize>(TracingVmEval<f32>);
 impl<const N: usize> TracingEvaluator for VmPointEval<N> {
     type Data = f32;
-    type Tape = GenericVmShape<N>;
+    type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
     type TapeStorage = ();
 
-    fn eval<F: Into<f32>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: F,
-        y: F,
-        z: F,
+        vars: &[f32],
     ) -> Result<(f32, Option<&VmTrace>), Error> {
-        let x = x.into();
-        let y = y.into();
-        let z = z.into();
         let tape = tape.0.as_ref();
-        self.check_arguments(tape.var_count())?;
+        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
@@ -520,12 +501,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
-                    v[out] = match i {
-                        0 => x,
-                        1 => y,
-                        2 => z,
-                        _ => panic!("Invalid input: {}", i),
-                    }
+                    v[out] = vars[i as usize];
                 }
                 RegOp::NegReg(out, arg) => {
                     v[out] = -v[arg];
@@ -593,7 +569,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
                     v[out] = imm / v[arg];
                 }
                 RegOp::AtanRegImm(out, arg, imm) => {
-                    v[out] = v[arg].atan2(imm.into());
+                    v[out] = v[arg].atan2(imm);
                 }
                 RegOp::AtanImmReg(out, arg, imm) => {
                     v[out] = imm.atan2(v[arg]);
@@ -821,34 +797,25 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
 pub struct VmFloatSliceEval<const N: usize>(BulkVmEval<f32>);
 impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Data = f32;
-    type Tape = GenericVmShape<N>;
+    type Tape = GenericVmFunction<N>;
     type TapeStorage = ();
 
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[f32],
-        ys: &[f32],
-        zs: &[f32],
+        vars: &[&[f32]],
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(xs, ys, zs, tape.var_count())?;
-        self.0.resize_slots(tape, xs.len());
-        assert_eq!(xs.len(), ys.len());
-        assert_eq!(ys.len(), zs.len());
+        self.check_arguments(vars, tape.var_count())?;
 
-        let size = xs.len();
+        let size = vars.first().map(|v| v.len()).unwrap_or(0);
+        self.0.resize_slots(tape, size);
 
         let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
-                    v[out][0..size].copy_from_slice(match i {
-                        0 => xs,
-                        1 => ys,
-                        2 => zs,
-                        _ => panic!("Invalid input: {}", i),
-                    })
+                    v[out][0..size].copy_from_slice(vars[i as usize]);
                 }
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {
@@ -1139,35 +1106,24 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
 pub struct VmGradSliceEval<const N: usize>(BulkVmEval<Grad>);
 impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Data = Grad;
-    type Tape = GenericVmShape<N>;
+    type Tape = GenericVmFunction<N>;
     type TapeStorage = ();
 
     fn eval(
         &mut self,
         tape: &Self::Tape,
-        xs: &[Grad],
-        ys: &[Grad],
-        zs: &[Grad],
+        vars: &[&[Grad]],
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
-        self.check_arguments(xs, ys, zs, tape.var_count())?;
-        self.0.resize_slots(tape, xs.len());
-        assert_eq!(xs.len(), ys.len());
-        assert_eq!(ys.len(), zs.len());
+        self.check_arguments(vars, tape.var_count())?;
+        let size = vars.first().map(|v| v.len()).unwrap_or(0);
+        self.0.resize_slots(tape, size);
 
-        let size = xs.len();
         let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
-                RegOp::Input(out, j) => {
-                    for i in 0..size {
-                        v[out][i] = match j {
-                            0 => xs[i],
-                            1 => ys[i],
-                            2 => zs[i],
-                            _ => panic!("Invalid input: {}", i),
-                        }
-                    }
+                RegOp::Input(out, i) => {
+                    v[out][0..size].copy_from_slice(vars[i as usize]);
                 }
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {
@@ -1476,8 +1432,8 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-    crate::grad_slice_tests!(VmShape);
-    crate::interval_tests!(VmShape);
-    crate::float_slice_tests!(VmShape);
-    crate::point_tests!(VmShape);
+    crate::grad_slice_tests!(VmFunction);
+    crate::interval_tests!(VmFunction);
+    crate::float_slice_tests!(VmFunction);
+    crate::point_tests!(VmFunction);
 }

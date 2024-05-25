@@ -11,6 +11,10 @@ pub enum Error {
     #[error("variable is not present in this `Context`")]
     BadVar,
 
+    /// The given node does not have an associated variable
+    #[error("node does not have an associated variable")]
+    NotAVar,
+
     /// `Context` is empty
     #[error("`Context` is empty")]
     EmptyContext,

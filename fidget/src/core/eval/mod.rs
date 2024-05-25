@@ -1,29 +1,8 @@
-//! Traits and data structures for evaluation
-//!
-//! There are a bunch of things in here, but the most important trait is
-//! [`Shape`], followed by the evaluator traits ([`BulkEvaluator`] and
-//! [`TracingEvaluator`]).
-//!
-//! ```rust
-//! use fidget::vm::VmShape;
-//! use fidget::context::Context;
-//! use fidget::eval::{TracingEvaluator, Shape, MathShape, EzShape};
-//!
-//! let mut ctx = Context::new();
-//! let x = ctx.x();
-//! let shape = VmShape::new(&ctx, x)?;
-//!
-//! // Let's build a single point evaluator:
-//! let mut eval = VmShape::new_point_eval();
-//! let tape = shape.ez_point_tape();
-//! let (value, _trace) = eval.eval(&tape, 0.25, 0.0, 0.0)?;
-//! assert_eq!(value, 0.25);
-//! # Ok::<(), fidget::Error>(())
-//! ```
+//! Traits and data structures for function evaluation
 use crate::{
-    context::Node,
+    context::{Context, Node, Tree, Var},
     types::{Grad, Interval},
-    Context, Error,
+    Error,
 };
 
 #[cfg(any(test, feature = "eval-tests"))]
@@ -31,32 +10,62 @@ pub mod test;
 
 mod bulk;
 mod tracing;
-mod transform;
 
-// Re-export a few things
+// Reexport a few types
 pub use bulk::BulkEvaluator;
 pub use tracing::TracingEvaluator;
-pub use transform::TransformedShape;
 
-/// A shape represents an implicit surface
+/// A tape represents something that can be evaluated by an evaluator
 ///
-/// It is mostly agnostic to _how_ that surface is represented; we simply
-/// require that the shape can generate evaluators of various kinds.
+/// The only property enforced on the trait is that we must have some way to
+/// recycle its internal storage.  This matters most for JIT evaluators, whose
+/// tapes are regions of executable memory-mapped RAM (which is expensive to map
+/// and unmap).
+pub trait Tape {
+    /// Associated type for this tape's data storage
+    type Storage: Default;
+
+    /// Retrieves the internal storage from this tape
+    fn recycle(self) -> Self::Storage;
+}
+
+/// Represents the trace captured by a tracing evaluation
 ///
-/// Shapes are shared between threads, so they should be cheap to clone.  In
+/// The only property enforced on the trait is that we must have a way of
+/// reusing trace allocations.  Because [`Trace`] implies `Clone` where it's
+/// used in [`Function`], this is trivial, but we can't provide a default
+/// implementation because it would fall afoul of `impl` specialization.
+pub trait Trace {
+    /// Copies the contents of `other` into `self`
+    fn copy_from(&mut self, other: &Self);
+}
+
+impl<T: Copy + Clone + Default> Trace for Vec<T> {
+    fn copy_from(&mut self, other: &Self) {
+        self.resize(other.len(), T::default());
+        self.copy_from_slice(other);
+    }
+}
+
+/// A function represents something that can be evaluated
+///
+/// It is mostly agnostic to _how_ that something is represented; we simply
+/// require that it can generate evaluators of various kinds.
+///
+/// Functions are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
-pub trait Shape: Send + Sync + Clone {
+pub trait Function: Send + Sync + Clone {
     /// Associated type traces collected during tracing evaluation
     ///
     /// This type must implement [`Eq`] so that traces can be compared; calling
-    /// [`Shape::simplify`] with traces that compare equal should produce an
+    /// [`Function::simplify`] with traces that compare equal should produce an
     /// identical result and may be cached.
     type Trace: Clone + Eq + Send + Trace;
 
-    /// Associated type for storage used by the shape itself
+    /// Associated type for storage used by the function itself
     type Storage: Default + Send;
 
-    /// Associated type for workspace used during shape simplification
+    /// Associated type for workspace used during function simplification
     type Workspace: Default + Send;
 
     /// Associated type for storage used by tapes
@@ -145,141 +154,40 @@ pub trait Shape: Send + Sync + Clone {
     where
         Self: Sized;
 
-    /// Attempt to reclaim storage from this shape
+    /// Attempt to reclaim storage from this function
     ///
-    /// This may fail, because shapes are `Clone` and are often implemented
+    /// This may fail, because functions are `Clone` and are often implemented
     /// using an `Arc` around a heavier data structure.
     fn recycle(self) -> Option<Self::Storage>;
 
-    /// Returns a size associated with this shape
+    /// Returns a size associated with this function
     ///
     /// This is underspecified and only used for unit testing; for tape-based
-    /// shapes, it's typically the length of the tape,
+    /// functions, it's typically the length of the tape,
     fn size(&self) -> usize;
+}
 
-    /// Associated type returned when applying a transform
+/// Map from variable (from a particular [`Context`]) to index
+pub type VarMap = std::collections::HashMap<Var, usize>;
+
+/// A [`Function`] which can be built from a math expression
+pub trait MathFunction {
+    /// Builds a new function from the given context and node
     ///
-    /// This is normally [`TransformedShape<Self>`](TransformedShape), but if
-    /// `Self` is already `TransformedShape`, then the transform is stacked
-    /// (instead of creating a wrapped object).
-    type TransformedShape: Shape;
-
-    /// Returns a shape with the given transform applied
-    fn apply_transform(
-        self,
-        mat: nalgebra::Matrix4<f32>,
-    ) -> <Self as Shape>::TransformedShape;
-}
-
-/// Extension trait for working with a shape without thinking much about memory
-///
-/// All of the [`Shape`] functions that use significant amounts of memory
-/// pedantically require you to pass in storage for reuse.  This trait allows
-/// you to ignore that, at the cost of performance; we require that all storage
-/// types implement [`Default`], so these functions do the boilerplate for you.
-///
-/// This trait is automatically implemented for every [`Shape`], but must be
-/// imported separately as a speed-bump to using it everywhere.
-pub trait EzShape: Shape {
-    /// Returns an evaluation tape for a point evaluator
-    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape;
-
-    /// Returns an evaluation tape for an interval evaluator
-    fn ez_interval_tape(
-        &self,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape;
-
-    /// Returns an evaluation tape for a float slice evaluator
-    fn ez_float_slice_tape(
-        &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape;
-
-    /// Returns an evaluation tape for a float slice evaluator
-    fn ez_grad_slice_tape(
-        &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape;
-
-    /// Computes a simplified tape using the given trace
-    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error>
-    where
-        Self: Sized;
-}
-
-impl<S: Shape> EzShape for S {
-    fn ez_point_tape(&self) -> <Self::PointEval as TracingEvaluator>::Tape {
-        self.point_tape(Default::default())
-    }
-
-    fn ez_interval_tape(
-        &self,
-    ) -> <Self::IntervalEval as TracingEvaluator>::Tape {
-        self.interval_tape(Default::default())
-    }
-
-    fn ez_float_slice_tape(
-        &self,
-    ) -> <Self::FloatSliceEval as BulkEvaluator>::Tape {
-        self.float_slice_tape(Default::default())
-    }
-
-    fn ez_grad_slice_tape(
-        &self,
-    ) -> <Self::GradSliceEval as BulkEvaluator>::Tape {
-        self.grad_slice_tape(Default::default())
-    }
-
-    fn ez_simplify(&self, trace: &Self::Trace) -> Result<Self, Error> {
-        let mut workspace = Default::default();
-        self.simplify(trace, Default::default(), &mut workspace)
-    }
-}
-
-/// A [`Shape`] which can be built from a math expression
-pub trait MathShape {
-    /// Builds a new shape from the given context and node
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    /// Returns a tuple of the [`MathFunction`] and a [`VarMap`] representing a
+    /// mapping from variables (in the [`Context`]) to indices used during
+    /// evaluation.
+    fn new(ctx: &Context, node: Node) -> Result<(Self, VarMap), Error>
     where
         Self: Sized;
 
-    /// Helper function to build a shape from a [`Tree`](crate::context::Tree)
-    fn from_tree(t: &crate::context::Tree) -> Self
+    /// Helper function to build a function from a [`Tree`]
+    fn from_tree(t: &Tree) -> (Self, VarMap)
     where
         Self: Sized,
     {
         let mut ctx = Context::new();
         let node = ctx.import(t);
         Self::new(&ctx, node).unwrap()
-    }
-}
-
-/// A tape represents something that can be evaluated by an evaluator
-///
-/// The only property enforced on the trait is that we must have some way to
-/// recycle its internal storage.  This matters most for JIT evaluators, whose
-/// tapes are regions of executable memory-mapped RAM (which is expensive to map
-/// and unmap).
-pub trait Tape {
-    /// Associated type for this tape's data storage
-    type Storage: Default;
-
-    /// Retrieves the internal storage from this tape
-    fn recycle(self) -> Self::Storage;
-}
-
-/// Represents the trace captured by a tracing evaluation
-///
-/// The only property enforced on the trait is that we must have a way of
-/// reusing trace allocations.  Because [`Trace`] implies `Clone` where it's
-/// used in [`Shape`], this is trivial, but we can't provide a default
-/// implementation because it would fall afoul of `impl` specialization.
-pub trait Trace {
-    /// Copies the contents of `other` into `self`
-    fn copy_from(&mut self, other: &Self);
-}
-
-impl<T: Copy + Clone + Default> Trace for Vec<T> {
-    fn copy_from(&mut self, other: &Self) {
-        self.resize(other.len(), T::default());
-        self.copy_from_slice(other);
     }
 }

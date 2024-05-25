@@ -7,10 +7,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::{
-    context::Context,
-    eval::{BulkEvaluator, MathShape},
-};
+use fidget::context::Context;
 
 /// Simple test program
 #[derive(Parser)]
@@ -112,8 +109,8 @@ struct MeshSettings {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
-    shape: S,
+fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
+    shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     isometric: bool,
     mode_color: bool,
@@ -124,7 +121,7 @@ fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
     }
     let cfg = fidget::render::RenderConfig {
         image_size: settings.size as usize,
-        tile_sizes: S::tile_sizes_3d().to_vec(),
+        tile_sizes: F::tile_sizes_3d().to_vec(),
         threads: settings.threads,
         ..Default::default()
     };
@@ -168,15 +165,15 @@ fn run3d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
-    shape: S,
+fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
+    shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
     sdf: bool,
 ) -> Vec<u8> {
     if brute {
         let tape = shape.float_slice_tape(Default::default());
-        let mut eval = S::new_float_slice_eval();
+        let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
         for _ in 0..settings.n {
             let mut xs = vec![];
@@ -202,7 +199,7 @@ fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
     } else {
         let cfg = fidget::render::RenderConfig {
             image_size: settings.size as usize,
-            tile_sizes: S::tile_sizes_2d().to_vec(),
+            tile_sizes: F::tile_sizes_2d().to_vec(),
             threads: settings.threads,
             ..Default::default()
         };
@@ -236,13 +233,10 @@ fn run2d<S: fidget::eval::Shape + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run_mesh<S: fidget::eval::Shape + fidget::shape::RenderHints>(
-    shape: S,
+fn run_mesh<F: fidget::eval::Function + fidget::shape::RenderHints>(
+    shape: fidget::shape::Shape<F>,
     settings: &MeshSettings,
-) -> fidget::mesh::Mesh
-where
-    <S as fidget::eval::Shape>::TransformedShape: fidget::shape::RenderHints,
-{
+) -> fidget::mesh::Mesh {
     let mut mesh = fidget::mesh::Mesh::new();
 
     for _ in 0..settings.n {
@@ -264,7 +258,7 @@ fn main() -> Result<()> {
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(&args.input)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
+    let (mut ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
     match args.cmd {
@@ -277,12 +271,12 @@ fn main() -> Result<()> {
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }
@@ -314,12 +308,12 @@ fn main() -> Result<()> {
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
@@ -348,12 +342,12 @@ fn main() -> Result<()> {
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run_mesh(shape, &settings)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&mut ctx, root)?;
                     info!("Built shape in {:?}", start.elapsed());
                     run_mesh(shape, &settings)
                 }

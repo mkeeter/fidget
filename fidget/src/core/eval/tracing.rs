@@ -3,7 +3,7 @@
 //! Tracing evaluators are run on a single data type and capture a trace of
 //! execution, which is the [`Trace` associated type](TracingEvaluator::Trace).
 //!
-//! The resulting trace can be used to simplify the original shape.
+//! The resulting trace can be used to simplify the original function.
 //!
 //! It is unlikely that you'll want to use these traits or types directly;
 //! they're implementation details to minimize code duplication.
@@ -12,8 +12,9 @@ use crate::{eval::Tape, Error};
 
 /// Evaluator for single values which simultaneously captures an execution trace
 ///
-/// The trace can later be used to simplify the [`Shape`](crate::eval::Shape)
-/// using [`Shape::simplify`](crate::eval::Shape::simplify).
+/// The trace can later be used to simplify the
+/// [`Function`](crate::eval::Function)
+/// using [`Function::simplify`](crate::eval::Function::simplify).
 pub trait TracingEvaluator: Default {
     /// Data type used during evaluation
     type Data: From<f32> + Copy + Clone;
@@ -33,12 +34,10 @@ pub trait TracingEvaluator: Default {
     type Trace;
 
     /// Evaluates the given tape at a particular position
-    fn eval<F: Into<Self::Data>>(
+    fn eval(
         &mut self,
         tape: &Self::Tape,
-        x: F,
-        y: F,
-        z: F,
+        vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error>;
 
     /// Build a new empty evaluator
@@ -47,33 +46,17 @@ pub trait TracingEvaluator: Default {
     }
 
     /// Helper function to return an error if the inputs are invalid
-    fn check_arguments(&self, var_count: usize) -> Result<(), Error> {
-        if var_count > 3 {
-            Err(Error::BadVarSlice(3, var_count))
+    fn check_arguments(
+        &self,
+        vars: &[Self::Data],
+        var_count: usize,
+    ) -> Result<(), Error> {
+        // It's fine if the caller has given us extra variables (e.g. due to
+        // tape simplification), but it must have given us enough.
+        if vars.len() < var_count {
+            Err(Error::BadVarSlice(vars.len(), var_count))
         } else {
             Ok(())
         }
-    }
-
-    #[cfg(test)]
-    fn eval_x<J: Into<Self::Data>>(
-        &mut self,
-        tape: &Self::Tape,
-        x: J,
-    ) -> Self::Data {
-        self.eval(tape, x.into(), Self::Data::from(0.0), Self::Data::from(0.0))
-            .unwrap()
-            .0
-    }
-    #[cfg(test)]
-    fn eval_xy<J: Into<Self::Data>>(
-        &mut self,
-        tape: &Self::Tape,
-        x: J,
-        y: J,
-    ) -> Self::Data {
-        self.eval(tape, x.into(), y.into(), Self::Data::from(0.0))
-            .unwrap()
-            .0
     }
 }

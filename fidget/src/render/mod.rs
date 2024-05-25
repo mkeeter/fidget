@@ -4,7 +4,10 @@
 //! [`RenderConfig::run`](RenderConfig::run); you can also use the lower-level
 //! functions ([`render2d`](render2d()) and [`render3d`](render3d())) for manual
 //! control over the input tape.
-use crate::eval::{BulkEvaluator, Shape, Tape, Trace, TracingEvaluator};
+use crate::{
+    eval::{BulkEvaluator, Function, Trace, TracingEvaluator},
+    shape::{Shape, ShapeTape},
+};
 use std::sync::Arc;
 
 mod config;
@@ -25,17 +28,17 @@ pub use render2d::{
 /// The tapes are stored as `Arc<..>`, so it can be cheaply cloned.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
-pub struct RenderHandle<S: Shape> {
-    shape: S,
+pub struct RenderHandle<F: Function> {
+    shape: Shape<F>,
 
-    i_tape: Option<Arc<<S::IntervalEval as TracingEvaluator>::Tape>>,
-    f_tape: Option<Arc<<S::FloatSliceEval as BulkEvaluator>::Tape>>,
-    g_tape: Option<Arc<<S::GradSliceEval as BulkEvaluator>::Tape>>,
+    i_tape: Option<Arc<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>>,
+    f_tape: Option<Arc<ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>>>,
+    g_tape: Option<Arc<ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>>>,
 
-    next: Option<(S::Trace, Box<Self>)>,
+    next: Option<(F::Trace, Box<Self>)>,
 }
 
-impl<S: Shape> Clone for RenderHandle<S> {
+impl<F: Function> Clone for RenderHandle<F> {
     fn clone(&self) -> Self {
         Self {
             shape: self.shape.clone(),
@@ -47,14 +50,11 @@ impl<S: Shape> Clone for RenderHandle<S> {
     }
 }
 
-impl<S> RenderHandle<S>
-where
-    S: Shape,
-{
+impl<F: Function> RenderHandle<F> {
     /// Build a new [`RenderHandle`] for the given shape
     ///
     /// None of the tapes are populated here.
-    pub fn new(shape: S) -> Self {
+    pub fn new(shape: Shape<F>) -> Self {
         Self {
             shape,
             i_tape: None,
@@ -67,8 +67,8 @@ where
     /// Returns a tape for tracing interval evaluation
     pub fn i_tape(
         &mut self,
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::IntervalEval as TracingEvaluator>::Tape {
+        storage: &mut Vec<F::TapeStorage>,
+    ) -> &ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
         self.i_tape.get_or_insert_with(|| {
             Arc::new(
                 self.shape.interval_tape(storage.pop().unwrap_or_default()),
@@ -79,8 +79,8 @@ where
     /// Returns a tape for bulk float evaluation
     pub fn f_tape(
         &mut self,
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::FloatSliceEval as BulkEvaluator>::Tape {
+        storage: &mut Vec<F::TapeStorage>,
+    ) -> &ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
         self.f_tape.get_or_insert_with(|| {
             Arc::new(
                 self.shape
@@ -92,8 +92,8 @@ where
     /// Returns a tape for bulk gradient evaluation
     pub fn g_tape(
         &mut self,
-        storage: &mut Vec<S::TapeStorage>,
-    ) -> &<S::GradSliceEval as BulkEvaluator>::Tape {
+        storage: &mut Vec<F::TapeStorage>,
+    ) -> &ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
         self.g_tape.get_or_insert_with(|| {
             Arc::new(
                 self.shape
@@ -108,10 +108,10 @@ where
     /// the trace matches.
     pub fn simplify(
         &mut self,
-        trace: &S::Trace,
-        workspace: &mut S::Workspace,
-        shape_storage: &mut Vec<S::Storage>,
-        tape_storage: &mut Vec<S::TapeStorage>,
+        trace: &F::Trace,
+        workspace: &mut F::Workspace,
+        shape_storage: &mut Vec<F::Storage>,
+        tape_storage: &mut Vec<F::TapeStorage>,
     ) -> &mut Self {
         // Free self.next if it doesn't match our new set of choices
         let mut trace_storage = if let Some(neighbor) = &self.next {
@@ -165,8 +165,8 @@ where
     /// Recycles the entire handle into the given storage vectors
     pub fn recycle(
         mut self,
-        shape_storage: &mut Vec<S::Storage>,
-        tape_storage: &mut Vec<S::TapeStorage>,
+        shape_storage: &mut Vec<F::Storage>,
+        tape_storage: &mut Vec<F::TapeStorage>,
     ) {
         // Recycle the child first, in case it borrowed from us
         if let Some((_trace, shape)) = self.next.take() {
