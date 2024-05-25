@@ -33,10 +33,7 @@ impl SsaTape {
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn new(
-        ctx: &Context,
-        root: Node,
-    ) -> Result<(Self, VarMap<usize>), Error> {
+    pub fn new(ctx: &Context, root: Node) -> Result<(Self, VarMap), Error> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
         let mut slot_count = 0;
@@ -63,8 +60,7 @@ impl SsaTape {
                 }
                 _ => {
                     if let Op::Input(v) = op {
-                        let next = vars.len();
-                        vars.entry(*v).or_insert(next);
+                        vars.insert(*v);
                     }
                     let i = slot_count;
                     slot_count += 1;

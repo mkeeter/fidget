@@ -901,7 +901,7 @@ impl Function for JitFunction {
         self.0.size()
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         Function::vars(&self.0)
     }
 }
@@ -962,7 +962,7 @@ pub struct JitTracingFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     choice_count: usize,
-    vars: Arc<VarMap<usize>>,
+    vars: Arc<VarMap>,
     fn_trace: jit_fn!(
         unsafe fn(
             *const T, // vars
@@ -978,7 +978,7 @@ impl<T> Tape for JitTracingFn<T> {
         self.mmap
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         &self.vars
     }
 }
@@ -1058,7 +1058,7 @@ impl TracingEvaluator for JitPointEval {
 pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
-    vars: Arc<VarMap<usize>>,
+    vars: Arc<VarMap>,
     fn_bulk: jit_fn!(
         unsafe fn(
             *const *const T, // vars
@@ -1074,7 +1074,7 @@ impl<T> Tape for JitBulkFn<T> {
         self.mmap
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         &self.vars
     }
 }

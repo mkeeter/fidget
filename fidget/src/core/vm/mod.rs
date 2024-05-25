@@ -38,7 +38,7 @@ impl<const N: usize> Tape for GenericVmFunction<N> {
         // nothing to do here
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         &self.0.vars
     }
 }
@@ -182,7 +182,7 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         GenericVmFunction::size(self)
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         &self.0.vars
     }
 }

@@ -303,7 +303,7 @@ impl<F: MathFunction> Shape<F> {
     ) -> Result<Self, Error> {
         let f = F::new(ctx, node)?;
         let vars = f.vars();
-        let axes = axes.map(|v| vars.get(&v).cloned());
+        let axes = axes.map(|v| vars.get(&v));
         Ok(Self {
             f,
             axes,
@@ -347,7 +347,7 @@ impl<T: Tape> ShapeTape<T> {
     }
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
-    pub fn vars(&self) -> &VarMap<usize> {
+    pub fn vars(&self) -> &VarMap {
         self.tape.vars()
     }
 }
@@ -425,10 +425,10 @@ where
         let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
-                if *i < self.scratch.len() {
-                    self.scratch[*i] = (*value).into();
+                if i < self.scratch.len() {
+                    self.scratch[i] = (*value).into();
                 } else {
-                    return Err(Error::BadVarIndex(*i, self.scratch.len()));
+                    return Err(Error::BadVarIndex(i, self.scratch.len()));
                 }
             } else {
                 // Passing in Bonus Variables is allowed (for now)
@@ -546,10 +546,10 @@ where
         let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
-                if *i < self.scratch.len() {
-                    self.scratch[*i].copy_from_slice(value);
+                if i < self.scratch.len() {
+                    self.scratch[i].copy_from_slice(value);
                 } else {
-                    return Err(Error::BadVarIndex(*i, self.scratch.len()));
+                    return Err(Error::BadVarIndex(i, self.scratch.len()));
                 }
             } else {
                 // Passing in Bonus Variables is allowed (for now)
