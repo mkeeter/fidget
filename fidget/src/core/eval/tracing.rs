@@ -12,8 +12,9 @@ use crate::{eval::Tape, Error};
 
 /// Evaluator for single values which simultaneously captures an execution trace
 ///
-/// The trace can later be used to simplify the [`Shape`](crate::eval::Shape)
-/// using [`Shape::simplify`](crate::eval::Shape::simplify).
+/// The trace can later be used to simplify the
+/// [`Function`](crate::eval::Function)
+/// using [`Function::simplify`](crate::eval::Function::simplify).
 pub trait TracingEvaluator: Default {
     /// Data type used during evaluation
     type Data: From<f32> + Copy + Clone;

@@ -1,8 +1,13 @@
-//! Traits and data structures for shape evaluation
+//! Data structures for shape evaluation
 //!
-//! There are a bunch of things in here, but the most important trait is
-//! [`Shape`], followed by the evaluator traits ([`BulkEvaluator`] and
-//! [`TracingEvaluator`]).
+//! Types in this module are typically thin (generic) wrappers around objects
+//! that implement traits in [`fidget::eval`](crate::eval).  The wraper types
+//! are specialized to operate on `x, y, z` arguments, rather than taking
+//! arbitrary numbers of variables.
+//!
+//! For example, a [`Shape`] is a wrapper which makes it easier to treat a
+//! [`Function`] as an implicit surface (with X, Y, Z axes and an optional
+//! transform matrix).
 //!
 //! ```rust
 //! use fidget::vm::VmShape;
@@ -20,12 +25,6 @@
 //! assert_eq!(value, 0.25);
 //! # Ok::<(), fidget::Error>(())
 //! ```
-//!
-//! Note that the traits here mirror the ones in ones in
-//! [`fidget::eval`](crate::eval), but are specialized to operate on `x, y, z`
-//! arguments (rather than taking arbitrary numbers of variables).  It is
-//! recommended to import the traits from either one or the other, to avoid
-//! ambiguity.
 
 use crate::{
     context::{Context, Node, Tree},
@@ -36,8 +35,6 @@ use crate::{
 use nalgebra::{Matrix4, Point3};
 
 mod bounds;
-
-// Re-export a few things
 pub use bounds::Bounds;
 
 /// A shape represents an implicit surface
@@ -175,7 +172,9 @@ impl<F: Function + Clone> Shape<F> {
     pub fn size(&self) -> usize {
         self.f.size()
     }
+}
 
+impl<F> Shape<F> {
     /// Borrows the inner [`Function`](Function) object
     pub fn inner(&self) -> &F {
         &self.f
@@ -194,9 +193,7 @@ impl<F: Function + Clone> Shape<F> {
             transform: None,
         }
     }
-}
-
-impl<F> Shape<F> {
+    /// Returns a shape with the given transform applied
     pub fn apply_transform(mut self, mat: Matrix4<f32>) -> Self {
         if let Some(prev) = self.transform.as_mut() {
             *prev *= mat;
@@ -294,6 +291,7 @@ pub trait RenderHints {
 }
 
 impl<F: MathFunction> Shape<F> {
+    /// Builds a new shape from a math expression with the given axes
     pub fn new_with_axes(
         ctx: &Context,
         node: Node,
@@ -320,6 +318,7 @@ impl<F: MathFunction> Shape<F> {
     }
 }
 
+/// Converts a [`Tree`] to a [`Shape`] with the default axes
 impl<F: MathFunction> From<Tree> for Shape<F> {
     fn from(t: Tree) -> Self {
         let mut ctx = Context::new();
@@ -328,7 +327,7 @@ impl<F: MathFunction> From<Tree> for Shape<F> {
     }
 }
 
-/// Wrapper struct to bind a generic tape to particular X, Y, Z axes
+/// Wrapper around a function tape, with axes and an optional transform matrix
 pub struct ShapeTape<T> {
     tape: T,
 
@@ -346,8 +345,10 @@ impl<T: Tape> ShapeTape<T> {
     }
 }
 
-/// Wrapper struct to convert from [`TracingEvaluator`] to
-/// [`shape::TracingEvaluator`](TracingEvaluator)
+/// Wrapper around a [`TracingEvaluator`]
+///
+/// Unlike the raw tracing evaluator, a [`ShapeTracingEval`] knows about the
+/// tape's X, Y, Z axes and optional transform matrix.
 #[derive(Debug, Default)]
 pub struct ShapeTracingEval<E> {
     eval: E,
@@ -357,6 +358,9 @@ impl<E: TracingEvaluator> ShapeTracingEval<E>
 where
     <E as TracingEvaluator>::Data: Transformable,
 {
+    /// Tracing evaluation of a single sample
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval<F: Into<E::Data>>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -375,13 +379,13 @@ where
 
         let mut vars = [None, None, None];
         if let Some(a) = tape.axes[0] {
-            vars[a] = Some(x.into());
+            vars[a] = Some(x);
         }
         if let Some(b) = tape.axes[1] {
-            vars[b] = Some(y.into());
+            vars[b] = Some(y);
         }
         if let Some(c) = tape.axes[2] {
-            vars[c] = Some(z.into());
+            vars[c] = Some(z);
         }
         let n = vars.iter().position(Option::is_none).unwrap_or(3);
         let vars = vars.map(|v| v.unwrap_or(0f32.into()));
@@ -411,11 +415,10 @@ where
     }
 }
 
-/// Bulk evaluator for a shape
+/// Wrapper around a [`BulkEvaluator`]
 ///
-/// This wraps a generic [`BulkEvaluator`] and exposes an API that takes
-/// `(x, y, z)` arguments instead.  In addition, it applies the transform
-/// associated with the [`ShapeTape`].
+/// Unlike the raw bulk evaluator, a [`ShapeBulkEval`] knows about the
+/// tape's X, Y, Z axes and optional transform matrix.
 #[derive(Debug, Default)]
 pub struct ShapeBulkEval<E: BulkEvaluator> {
     eval: E,
@@ -428,6 +431,9 @@ impl<E: BulkEvaluator> ShapeBulkEval<E>
 where
     E::Data: From<f32> + Transformable,
 {
+    /// Bulk evaluation of many samples
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval(
         &mut self,
         tape: &ShapeTape<E::Tape>,
@@ -476,7 +482,9 @@ where
     }
 }
 
+/// Trait for types that can be transformed by a 4x4 homogenous transform matrix
 pub trait Transformable {
+    /// Apply the given transform to an `(x, y, z)` position
     fn transform(
         x: Self,
         y: Self,

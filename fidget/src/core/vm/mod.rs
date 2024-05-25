@@ -20,15 +20,16 @@ pub use data::{VmData, VmWorkspace};
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
-
-/// Shape that use a VM backend for evaluation
+/// Function which uses the VM backend for evaluation
 ///
-/// Internally, the [`VmShape`] stores an [`Arc<VmData>`](VmData), and
+/// Internally, the [`VmFunction`] stores an [`Arc<VmData>`](VmData), and
 /// iterates over a [`Vec<RegOp>`](RegOp) to perform evaluation.
 ///
 /// All of the associated [`Tape`] types simply clone the internal `Arc`;
 /// there's no separate planning required to generate a tape.
+pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
+
+/// Shape that use a the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
 
 impl<const N: usize> Tape for GenericVmFunction<N> {

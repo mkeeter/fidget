@@ -159,7 +159,7 @@
 //! tape from `min(x, y) →  x`.
 //!
 //! Interval evaluation is a kind of
-//! [tracing evaluation](crate::shape::TracingEvaluator), which returns a tuple
+//! [tracing evaluation](crate::eval::TracingEvaluator), which returns a tuple
 //! of `(value, trace)`.  The trace can be used to simplify the original shape:
 //!
 //! ```
