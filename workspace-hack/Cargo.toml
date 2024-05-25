@@ -19,12 +19,14 @@ bytemuck = { version = "1", default-features = false, features = ["derive", "ext
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 crossbeam-utils = { version = "0.8" }
+getrandom = { version = "0.2", default-features = false, features = ["std"] }
 once_cell = { version = "1" }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
-serde = { version = "1", features = ["alloc", "derive"] }
+serde = { version = "1", features = ["alloc", "derive", "rc"] }
 
 [build-dependencies]
+getrandom = { version = "0.2", default-features = false, features = ["std"] }
 once_cell = { version = "1" }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
