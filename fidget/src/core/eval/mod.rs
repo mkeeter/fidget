@@ -1,6 +1,6 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    context::{Context, Node, Tree, VarMap},
+    context::{Context, Node, VarMap},
     types::{Grad, Interval},
     Error,
 };
@@ -176,14 +176,4 @@ pub trait MathFunction: Function {
     fn new(ctx: &Context, node: Node) -> Result<Self, Error>
     where
         Self: Sized;
-
-    /// Helper function to build a function from a [`Tree`]
-    fn from_tree(t: &Tree) -> Self
-    where
-        Self: Sized,
-    {
-        let mut ctx = Context::new();
-        let node = ctx.import(t);
-        Self::new(&ctx, node).unwrap()
-    }
 }
