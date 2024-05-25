@@ -68,7 +68,7 @@
 //!
 //! Evaluation is deliberately agnostic to the specific details of how we go
 //! from position to results.  This abstraction is represented by the
-//! [`Shape` trait](crate::shape::Shape), which defines how to make both
+//! [`Function` trait](crate::eval::Function), which defines how to make both
 //! **evaluators** and **tapes**.
 //!
 //! An **evaluator** is an object which performs evaluation of some kind (point,
@@ -77,22 +77,22 @@
 //!
 //! A **tape** contains instructions for an evaluator.
 //!
-//! At the moment, Fidget implements two kinds of shapes:
+//! At the moment, Fidget implements two kinds of functions:
 //!
-//! - [`fidget::vm::VmShape`](crate::vm::VmShape) evaluates a list of opcodes
-//!   using an interpreter.  This is slower, but can run in more situations
-//!   (e.g. in WebAssembly).
-//! - [`fidget::jit::JitShape`](crate::jit::JitShape) performs fast evaluation
-//!   by compiling shapes down to native code.
+//! - [`fidget::vm::VmFunction`](crate::vm::VmFunction) evaluates a list of
+//!   opcodes using an interpreter.  This is slower, but can run in more
+//!   situations (e.g. in WebAssembly).
+//! - [`fidget::jit::JitFunction`](crate::jit::JitFunction) performs fast
+//!   evaluation by compiling expressions down to native code.
 //!
-//! The [`Shape`](crate::shape::Shape) trait requires four different kinds
+//! The [`Function`](crate::eval::Function) trait requires four different kinds
 //! of evaluation:
 //!
 //! - Single-point evaluation
 //! - Interval evaluation
 //! - Evaluation on an array of points, returning `f32` values
 //! - Evaluation on an array of points, returning partial derivatives with
-//!   respect to `x, y, z`
+//!   respect to input variables
 //!
 //! These evaluation flavors are used in rendering:
 //! - Interval evaluation can conservatively prove large regions of space to be
@@ -103,7 +103,15 @@
 //! - At the surface of the model, partial derivatives represent normals and
 //!   can be used for shading.
 //!
-//! Here's a simple example of interval evaluation:
+//! # Functions and shapes
+//! The [`Function`](crate::eval::Function) trait supports arbitrary numbers of
+//! varibles; when using it for implicit surfaces, it's common to wrap it in a
+//! [`Shape`](crate::shape::Shape), which binds `(x, y, z)` axes to specific
+//! variables.
+//!
+//! Here's a simple example of interval evaluation, using a `Shape` to wrap a
+//! function and evaluate it at a particular `(x, y, z)` position:
+//!
 //! ```
 //! use fidget::{
 //!     context::Tree,

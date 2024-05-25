@@ -1,4 +1,15 @@
-# 0.2.8 (unreleased)
+# 0.2.8
+- Major refactoring of core evaluation traits
+    - The lowest-level "thing that can be evaluated" trait has changed from
+      `Shape` (taking `(x, y, z)` inputs) to `Function` (taking an arbitrary
+      number of variables).
+    - `Shape` is now a wrapper around a `F: Function` instead of a trait.
+    - Shape evaluators are now wrappers around `E: BulkEvaluator` or `E:
+      TracingEvaluator`, which convert `(x, y, z)` arguments into
+      list-of-variables arguments.
+    - Using the `VmShape` or `JitShape` types should be mostly the same as
+      before; changes are most noticeable if you're writing things that are
+      generic across `S: Shape`.
 
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding
