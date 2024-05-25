@@ -27,9 +27,10 @@
 //! ```
 
 use crate::{
-    context::{Context, Node, Tree, Var},
+    context::{Context, Node, Tree},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     types::{Grad, Interval},
+    var::Var,
     Error,
 };
 use nalgebra::{Matrix4, Point3};

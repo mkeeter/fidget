@@ -1,7 +1,8 @@
 //! Traits and data structures for function evaluation
 use crate::{
-    context::{Context, Node, VarMap},
+    context::{Context, Node},
     types::{Grad, Interval},
+    var::VarMap,
     Error,
 };
 

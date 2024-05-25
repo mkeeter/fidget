@@ -25,11 +25,12 @@
 
 use crate::{
     compiler::RegOp,
-    context::{Context, Node, VarMap},
+    context::{Context, Node},
     eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
     jit::mmap::Mmap,
     shape::RenderHints,
     types::{Grad, Interval},
+    var::VarMap,
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
     Error,
 };

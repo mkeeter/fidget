@@ -1,7 +1,8 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
-    context::{Context, Node, VarMap},
+    context::{Context, Node},
+    var::VarMap,
     vm::Choice,
     Error,
 };

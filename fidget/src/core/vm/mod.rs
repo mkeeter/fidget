@@ -1,12 +1,13 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
     compiler::RegOp,
-    context::{Node, VarMap},
+    context::Node,
     eval::{
         BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
     },
     shape::{RenderHints, Shape},
     types::{Grad, Interval},
+    var::VarMap,
     Context, Error,
 };
 use std::sync::Arc;

@@ -15,7 +15,10 @@
       unique index.
     - Removed named variables, to make `Var` trivially `Copy + Clone`.
     - Added `vars()` method to `Function` trait, allowing users to look up the
-      mapping from variable to evaluation index.
+      mapping from variable to evaluation index.  A `Var` now represents a
+      persistent identity from `Tree` to `Context` to `Function` evaluation.
+    - Move `Var` and `VarMap` into `fidget::vars` module, because they're no
+      longer specific to a `Context`.
 
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding

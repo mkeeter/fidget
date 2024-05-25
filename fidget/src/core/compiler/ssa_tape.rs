@@ -1,7 +1,8 @@
 //use crate::vm::{RegisterAllocator, Tape as VmTape};
 use crate::{
     compiler::SsaOp,
-    context::{BinaryOpcode, Node, Op, UnaryOpcode, VarMap},
+    context::{BinaryOpcode, Node, Op, UnaryOpcode},
+    var::VarMap,
     Context, Error,
 };
 use serde::{Deserialize, Serialize};

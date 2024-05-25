@@ -1,4 +1,7 @@
-use crate::context::{indexed::Index, Node, Var};
+use crate::{
+    context::{indexed::Index, Node},
+    var::Var,
+};
 use ordered_float::OrderedFloat;
 
 /// A one-argument math operation

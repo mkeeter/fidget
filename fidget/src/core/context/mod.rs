@@ -18,14 +18,12 @@
 mod indexed;
 mod op;
 mod tree;
-mod var;
 
 use indexed::{define_index, Index, IndexMap, IndexVec};
 pub use op::{BinaryOpcode, Op, UnaryOpcode};
 pub use tree::{Tree, TreeOp};
-pub use var::{Var, VarMap};
 
-use crate::Error;
+use crate::{var::Var, Error};
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;

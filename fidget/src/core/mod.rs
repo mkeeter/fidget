@@ -60,11 +60,13 @@ pub mod compiler;
 pub mod eval;
 pub mod shape;
 pub mod types;
+pub mod var;
 pub mod vm;
 
 #[cfg(test)]
 mod test {
     use crate::context::*;
+    use crate::var::Var;
 
     #[test]
     fn it_works() {
