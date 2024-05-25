@@ -12,8 +12,11 @@ pub struct RenderConfig<const N: usize> {
 
     /// Tile sizes to use during evaluation.
     ///
-    /// You'll likely want to use [`Shape::tile_sizes_2d`] or
-    /// [`Shape::tile_sizes_3d`] to select this based on evaluator type.
+    /// You'll likely want to use
+    /// [`RenderHints::tile_sizes_2d`](crate::shape::RenderHints::tile_sizes_2d)
+    /// or
+    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
+    /// to select this based on evaluator type.
     pub tile_sizes: Vec<usize>,
 
     /// Bounds of the rendered image, in shape coordinates
