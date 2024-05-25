@@ -1,5 +1,6 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
+use crate::var::Var;
 use std::sync::Arc;
 
 /// Opcode type for trees
@@ -9,8 +10,8 @@ use std::sync::Arc;
 #[derive(Debug)]
 #[allow(missing_docs)]
 pub enum TreeOp {
-    /// Input (at the moment, limited to "X", "Y", "Z")
-    Input(&'static str),
+    /// Input (an arbitrary [`Var`])
+    Input(Var),
     Const(f64),
     Binary(BinaryOpcode, Arc<TreeOp>, Arc<TreeOp>),
     Unary(UnaryOpcode, Arc<TreeOp>),
@@ -94,6 +95,12 @@ impl From<f32> for Tree {
     }
 }
 
+impl From<Var> for Tree {
+    fn from(v: Var) -> Tree {
+        Tree(Arc::new(TreeOp::Input(v)))
+    }
+}
+
 /// Owned handle for a standalone math tree
 #[derive(Clone, Debug)]
 pub struct Tree(Arc<TreeOp>);
@@ -152,13 +159,13 @@ impl Tree {
 #[allow(missing_docs)]
 impl Tree {
     pub fn x() -> Self {
-        Tree(Arc::new(TreeOp::Input("X")))
+        Tree(Arc::new(TreeOp::Input(Var::X)))
     }
     pub fn y() -> Self {
-        Tree(Arc::new(TreeOp::Input("Y")))
+        Tree(Arc::new(TreeOp::Input(Var::Y)))
     }
     pub fn z() -> Self {
-        Tree(Arc::new(TreeOp::Input("Z")))
+        Tree(Arc::new(TreeOp::Input(Var::Z)))
     }
     pub fn constant(f: f64) -> Self {
         Tree(Arc::new(TreeOp::Const(f)))

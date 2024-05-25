@@ -1051,10 +1051,10 @@ impl Context {
                         TreeOp::Input(s) => {
                             let axes = axes.last().unwrap();
                             stack.push(match *s {
-                                "X" => axes.0,
-                                "Y" => axes.1,
-                                "Z" => axes.2,
-                                s => panic!("invalid tree input string {s:?}"),
+                                Var::X => axes.0,
+                                Var::Y => axes.1,
+                                Var::Z => axes.2,
+                                v @ Var::V(..) => self.var(v),
                             });
                         }
                         TreeOp::Unary(_op, arg) => {

@@ -412,6 +412,15 @@ where
             (x, y, z)
         };
 
+        let vs = tape.vars();
+        let expected_vars = vs.len()
+            - vs.get(&Var::X).is_some() as usize
+            - vs.get(&Var::Y).is_some() as usize
+            - vs.get(&Var::Z).is_some() as usize;
+        if expected_vars != vars.len() {
+            return Err(Error::BadVarSlice(vars.len(), expected_vars));
+        }
+
         self.scratch.resize(tape.vars().len(), 0f32.into());
         if let Some(a) = tape.axes[0] {
             self.scratch[a] = x;
@@ -422,7 +431,6 @@ where
         if let Some(c) = tape.axes[2] {
             self.scratch[c] = z;
         }
-        let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
                 if i < self.scratch.len() {
@@ -508,7 +516,16 @@ where
         if vars.values().any(|vs| vs.len() != n) {
             return Err(Error::MismatchedSlices);
         }
-        self.scratch.resize_with(tape.vars().len(), Vec::new);
+        let vs = tape.vars();
+        let expected_vars = vs.len()
+            - vs.get(&Var::X).is_some() as usize
+            - vs.get(&Var::Y).is_some() as usize
+            - vs.get(&Var::Z).is_some() as usize;
+        if expected_vars != vars.len() {
+            return Err(Error::BadVarSlice(vars.len(), expected_vars));
+        }
+
+        self.scratch.resize_with(vs.len(), Vec::new);
         for s in &mut self.scratch {
             s.resize(n, 0.0.into());
         }
@@ -543,7 +560,6 @@ where
             // TODO fast path if there are no extra vars, reusing slices
         };
 
-        let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
                 if i < self.scratch.len() {
@@ -609,5 +625,35 @@ impl Transformable for Grad {
         });
 
         (out[0] / out[3], out[1] / out[3], out[2] / out[3])
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::vm::VmShape;
+
+    #[test]
+    fn shape_vars() {
+        let v = Var::new();
+        let s = Tree::x() + Tree::y() + v;
+
+        let mut ctx = Context::new();
+        let s = ctx.import(&s);
+
+        let s = VmShape::new(&mut ctx, s).unwrap();
+        let vs = Function::vars(s.inner());
+        assert_eq!(vs.len(), 3);
+
+        assert!(vs.get(&Var::X).is_some());
+        assert!(vs.get(&Var::Y).is_some());
+        assert!(vs.get(&Var::Z).is_none());
+        assert!(vs.get(&v).is_some());
+
+        let mut seen = [false; 3];
+        for v in [Var::X, Var::Y, v] {
+            seen[vs[&v]] = true;
+        }
+        assert!(seen.iter().all(|i| *i));
     }
 }

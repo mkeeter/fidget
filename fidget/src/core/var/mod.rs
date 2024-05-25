@@ -52,6 +52,15 @@ impl Var {
         let v: u64 = rand::random();
         Var::V(VarIndex(v))
     }
+
+    /// Returns the [`VarIndex`] from a [`Var::V`] instance, or `None`
+    pub fn index(&self) -> Option<VarIndex> {
+        if let Var::V(i) = *self {
+            Some(i)
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for Var {
