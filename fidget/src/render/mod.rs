@@ -15,7 +15,10 @@ pub use config::RenderConfig;
 pub use render2d::render as render2d;
 pub use render3d::render as render3d;
 
-pub use render2d::{BitRenderMode, DebugRenderMode, RenderMode, SdfRenderMode};
+pub use render2d::{
+    BitRenderMode, DebugRenderMode, RenderMode, SdfPixelRenderMode,
+    SdfRenderMode,
+};
 
 /// A `RenderHandle` contains lazily-populated tapes for rendering
 ///
