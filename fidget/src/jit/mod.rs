@@ -1122,7 +1122,6 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         if n < T::SIMD_SIZE {
             assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
-            // TODO reuse allocation here allocation here?
             self.scratch.resize(n, [T::from(0.0); MAX_SIMD_WIDTH]);
             for (v, t) in vars.iter().zip(self.scratch.iter_mut()) {
                 t[0..n].copy_from_slice(v);
