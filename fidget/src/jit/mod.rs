@@ -900,10 +900,6 @@ impl Function for JitFunction {
     fn size(&self) -> usize {
         self.0.size()
     }
-
-    fn vars(&self) -> &VarMap {
-        Function::vars(&self.0)
-    }
 }
 
 impl RenderHints for JitFunction {

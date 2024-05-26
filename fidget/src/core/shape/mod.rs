@@ -51,12 +51,8 @@ pub struct Shape<F> {
     /// Wrapped function
     f: F,
 
-    /// Index of x, y, z axes within the function's variable list (if present)
-    ///
-    /// We could instead store an array of [`Var`]s and look them in with
-    /// [`self.f.vars()[&v]`](Function::vars), but it's more efficient to cache
-    /// them upon construction (because they never change).
-    axes: [Option<usize>; 3],
+    /// Variables representing x, y, z axes
+    axes: [Var; 3],
 
     /// Optional transform to apply to the shape
     transform: Option<Matrix4<f32>>,
@@ -100,9 +96,12 @@ impl<F: Function + Clone> Shape<F> {
         &self,
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::PointEval as TracingEvaluator>::Tape> {
+        let tape = self.f.point_tape(storage);
+        let vars = tape.vars();
+        let axes = self.axes.map(|v| vars.get(&v));
         ShapeTape {
-            tape: self.f.point_tape(storage),
-            axes: self.axes,
+            tape,
+            axes,
             transform: self.transform,
         }
     }
@@ -112,9 +111,12 @@ impl<F: Function + Clone> Shape<F> {
         &self,
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
+        let tape = self.f.interval_tape(storage);
+        let vars = tape.vars();
+        let axes = self.axes.map(|v| vars.get(&v));
         ShapeTape {
-            tape: self.f.interval_tape(storage),
-            axes: self.axes,
+            tape,
+            axes,
             transform: self.transform,
         }
     }
@@ -124,9 +126,12 @@ impl<F: Function + Clone> Shape<F> {
         &self,
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
+        let tape = self.f.float_slice_tape(storage);
+        let vars = tape.vars();
+        let axes = self.axes.map(|v| vars.get(&v));
         ShapeTape {
-            tape: self.f.float_slice_tape(storage),
-            axes: self.axes,
+            tape,
+            axes,
             transform: self.transform,
         }
     }
@@ -136,9 +141,12 @@ impl<F: Function + Clone> Shape<F> {
         &self,
         storage: F::TapeStorage,
     ) -> ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
+        let tape = self.f.grad_slice_tape(storage);
+        let vars = tape.vars();
+        let axes = self.axes.map(|v| vars.get(&v));
         ShapeTape {
-            tape: self.f.grad_slice_tape(storage),
-            axes: self.axes,
+            tape,
+            axes,
             transform: self.transform,
         }
     }
@@ -185,12 +193,12 @@ impl<F> Shape<F> {
     }
 
     /// Borrows the inner axis mapping
-    pub fn axes(&self) -> &[Option<usize>; 3] {
+    pub fn axes(&self) -> &[Var; 3] {
         &self.axes
     }
 
     /// Raw constructor
-    pub fn new_raw(f: F, axes: [Option<usize>; 3]) -> Self {
+    pub fn new_raw(f: F, axes: [Var; 3]) -> Self {
         Self {
             f,
             axes,
@@ -302,8 +310,6 @@ impl<F: MathFunction> Shape<F> {
         axes: [Var; 3],
     ) -> Result<Self, Error> {
         let f = F::new(ctx, node)?;
-        let vars = f.vars();
-        let axes = axes.map(|v| vars.get(&v));
         Ok(Self {
             f,
             axes,
@@ -642,7 +648,7 @@ mod test {
         let s = ctx.import(&s);
 
         let s = VmShape::new(&mut ctx, s).unwrap();
-        let vs = Function::vars(s.inner());
+        let vs = s.inner().vars();
         assert_eq!(vs.len(), 3);
 
         assert!(vs.get(&Var::X).is_some());

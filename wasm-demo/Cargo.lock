@@ -926,6 +926,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "crossbeam-utils",
+ "getrandom",
  "libc",
  "log",
  "memchr",
