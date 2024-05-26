@@ -518,8 +518,8 @@ mod test {
     }
 
     fn check_hi<F: Function + MathFunction>() {
-        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
             .................X..............
             .................X..............
@@ -557,8 +557,8 @@ mod test {
     }
 
     fn check_hi_transformed<F: Function + MathFunction>() {
-        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
         let mut mat = nalgebra::Matrix4::<f32>::identity();
         mat.prepend_translation_mut(&nalgebra::Vector3::new(0.5, 0.5, 0.0));
         mat.prepend_scaling_mut(0.5);
@@ -600,8 +600,8 @@ mod test {
     }
 
     fn check_hi_bounded<F: Function + MathFunction>() {
-        let (mut ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
             .XXX............................
             .XXX............................
@@ -646,8 +646,8 @@ mod test {
     }
 
     fn check_quarter<F: Function + MathFunction>() {
-        let (mut ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, root).unwrap();
+        let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
             ................................
             ................................

@@ -5,9 +5,9 @@
 use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{BulkEvaluator, Function, MathFunction},
-    shape::{EzShape, Shape, ShapeTape},
+    eval::{BulkEvaluator, Function, MathFunction, Tape},
     types::Grad,
+    var::Var,
     vm::VmFunction,
 };
 
@@ -19,9 +19,7 @@ pub struct TestGradSlice<F>(std::marker::PhantomData<*const F>);
 
 impl<F: Function + MathFunction> TestGradSlice<F> {
     fn eval_xyz(
-        tape: &ShapeTape<
-            <<F as Function>::GradSliceEval as BulkEvaluator>::Tape,
-        >,
+        tape: &<<F as Function>::GradSliceEval as BulkEvaluator>::Tape,
         xs: &[f32],
         ys: &[f32],
         zs: &[f32],
@@ -35,16 +33,32 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let zs: Vec<_> =
             zs.iter().map(|z| Grad::new(*z, 0.0, 0.0, 1.0)).collect();
 
-        let mut eval = Shape::<F>::new_grad_slice_eval();
-        eval.eval(tape, &xs, &ys, &zs).unwrap().to_owned()
+        let vars = tape.vars();
+        let mut out = [
+            vec![Grad::from(0.0); xs.len()],
+            vec![Grad::from(0.0); ys.len()],
+            vec![Grad::from(0.0); zs.len()],
+        ];
+        if let Some(ix) = vars.get(&Var::X) {
+            out[ix] = xs;
+        }
+        if let Some(iy) = vars.get(&Var::Y) {
+            out[iy] = ys;
+        }
+        if let Some(iz) = vars.get(&Var::Z) {
+            out[iz] = zs;
+        }
+
+        let mut eval = F::new_grad_slice_eval();
+        eval.eval(tape, &out).unwrap().to_owned()
     }
 
     pub fn test_g_x() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = Shape::<F>::new(&mut ctx, x).unwrap();
+        let shape = F::new(&ctx, x).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[4.0])[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -54,9 +68,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     pub fn test_g_y() {
         let mut ctx = Context::new();
         let y = ctx.y();
-        let shape = Shape::<F>::new(&mut ctx, y).unwrap();
+        let shape = F::new(&ctx, y).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[4.0])[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
@@ -66,9 +80,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     pub fn test_g_z() {
         let mut ctx = Context::new();
         let z = ctx.z();
-        let shape = Shape::<F>::new(&mut ctx, z).unwrap();
+        let shape = F::new(&ctx, z).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[4.0])[0],
             Grad::new(4.0, 0.0, 0.0, 1.0)
@@ -79,9 +93,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[0.0], &[0.0], &[0.0])[0],
             Grad::new(0.0, 0.0, 0.0, 0.0)
@@ -104,9 +118,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.abs(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[0.0], &[0.0])[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -121,9 +135,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[1.0], &[0.0], &[0.0])[0],
             Grad::new(1.0, 0.5, 0.0, 0.0)
@@ -138,8 +152,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
-        let tape = shape.ez_grad_slice_tape();
+        let shape = F::new(&ctx, s).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
 
         let v = Self::eval_xyz(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3]);
         v[0].compare_eq(Grad::new(1f32.sin(), 1f32.cos(), 0.0, 0.0));
@@ -149,8 +163,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let y = ctx.y();
         let y = ctx.mul(y, 2.0).unwrap();
         let s = ctx.sin(y).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
-        let tape = shape.ez_grad_slice_tape();
+        let shape = F::new(&ctx, s).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
         let v = Self::eval_xyz(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3]);
         v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
         v[1].compare_eq(Grad::new(4f32.sin(), 0.0, 2.0 * 4f32.cos(), 0.0));
@@ -162,9 +176,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[1.0], &[0.0], &[0.0])[0],
             Grad::new(0.0, 0.0, 1.0, 0.0)
@@ -187,9 +201,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[1.0], &[0.0], &[0.0])[0],
             Grad::new(0.5, 0.5, 0.0, 0.0)
@@ -200,9 +214,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, s).unwrap();
+        let shape = F::new(&ctx, s).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[1.0], &[0.0], &[0.0])[0],
             Grad::new(1.0, -1.0, 0.0, 0.0)
@@ -218,9 +232,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.min(x, y).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, m).unwrap();
+        let shape = F::new(&ctx, m).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[0.0])[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -238,9 +252,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let z = ctx.z();
         let min = ctx.min(x, y).unwrap();
         let max = ctx.max(min, z).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, max).unwrap();
+        let shape = F::new(&ctx, max).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[0.0])[0],
             Grad::new(2.0, 1.0, 0.0, 0.0)
@@ -260,9 +274,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.max(x, y).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, m).unwrap();
+        let shape = F::new(&ctx, m).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[2.0], &[3.0], &[0.0])[0],
             Grad::new(3.0, 0.0, 1.0, 0.0)
@@ -277,9 +291,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let m = ctx.not(x).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, m).unwrap();
+        let shape = F::new(&ctx, m).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[0.0], &[0.0], &[0.0])[0],
             Grad::new(1.0, 0.0, 0.0, 0.0)
@@ -296,9 +310,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
         let sub = ctx.sub(sqrt, 0.5).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, sub).unwrap();
+        let shape = F::new(&ctx, sub).unwrap();
 
-        let tape = shape.ez_grad_slice_tape();
+        let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
             Self::eval_xyz(&tape, &[1.0], &[0.0], &[0.0])[0],
             Grad::new(0.5, 1.0, 0.0, 0.0)
@@ -318,7 +332,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     }
 
     pub fn test_g_stress_n(depth: usize) {
-        let (mut ctx, node) = build_stress_fn(depth);
+        let (ctx, node) = build_stress_fn(depth);
 
         // Pick an input slice that's guaranteed to be > 1 SIMD registers
         let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
@@ -328,8 +342,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-        let tape = shape.ez_grad_slice_tape();
+        let shape = F::new(&ctx, node).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
 
         let out = Self::eval_xyz(&tape, &x, &y, &z);
 
@@ -352,9 +366,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         // Compare against the VmShape evaluator as a baseline.  It's possible
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
-        use crate::vm::VmShape;
-        let shape = VmShape::new(&mut ctx, node).unwrap();
-        let tape = shape.ez_grad_slice_tape();
+        let shape = VmFunction::new(&ctx, node).unwrap();
+        #[allow(clippy::unit_arg)]
+        let tape = shape.grad_slice_tape(Default::default());
 
         let cmp = TestGradSlice::<VmFunction>::eval_xyz(&tape, &x, &y, &z);
         for (a, b) in out.iter().zip(cmp.iter()) {
@@ -370,23 +384,27 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
 
     pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = test_args();
-        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
-        for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = C::build(&mut ctx, v);
+        let v = ctx.var(Var::new());
+        let node = C::build(&mut ctx, v);
+        let shape = F::new(&ctx, node).unwrap();
+        let tape = shape.grad_slice_tape(Default::default());
+        let mut eval = F::new_grad_slice_eval();
 
-            let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-            let tape = shape.ez_grad_slice_tape();
-
-            let out = match i {
-                0 => Self::eval_xyz(&tape, &args, &zero, &zero),
-                1 => Self::eval_xyz(&tape, &zero, &args, &zero),
-                2 => Self::eval_xyz(&tape, &zero, &zero, &args),
-                _ => unreachable!(),
-            };
+        for i in 0..3 {
+            let args = args
+                .iter()
+                .map(|&v| match i {
+                    0 => Grad::new(v, 1.0, 0.0, 0.0),
+                    1 => Grad::new(v, 0.0, 1.0, 0.0),
+                    2 => Grad::new(v, 0.0, 0.0, 1.0),
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<Grad>>();
+            let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
             for (a, &o) in args.iter().zip(out.iter()) {
-                let v = C::eval_f64(*a as f64);
+                let v = C::eval_f64(a.v as f64);
                 let err = (v as f32 - o.v).abs();
                 let err_frac = err / (v.abs() as f32).max(o.v.abs());
                 assert!(
@@ -398,13 +416,13 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     C::NAME,
                 );
 
-                if C::discontinuous_at(*a) {
+                if C::discontinuous_at(a.v) {
                     continue;
                 }
 
                 let grad = o.d(i);
                 if !v.is_nan() && grad < 1e9 && !grad.is_infinite() {
-                    let a = *a as f64;
+                    let a = a.v as f64;
                     let d = C::eval_f64(a + EPSILON);
                     let est_grad = (d - v) / EPSILON;
                     let mut err = (est_grad as f32 - grad).abs();
@@ -529,8 +547,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 for (j, &u) in inputs.iter().enumerate() {
                     let node = C::build(&mut ctx, v, u);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let tape = shape.ez_grad_slice_tape();
+                    let shape = F::new(&ctx, node).unwrap();
+                    let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match (i, j) {
                         (0, 0) => Self::eval_xyz(&tape, &args, &zero, &zero),
@@ -576,8 +594,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     let c = ctx.constant(*rhs as f64);
                     let node = C::build(&mut ctx, v, c);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let tape = shape.ez_grad_slice_tape();
+                    let shape = F::new(&ctx, node).unwrap();
+                    let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match i {
                         0 => Self::eval_xyz(&tape, &args, &zero, &zero),
@@ -617,8 +635,8 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     let c = ctx.constant(*lhs as f64);
                     let node = C::build(&mut ctx, c, v);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let tape = shape.ez_grad_slice_tape();
+                    let shape = F::new(&ctx, node).unwrap();
+                    let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match i {
                         0 => Self::eval_xyz(&tape, &args, &zero, &zero),

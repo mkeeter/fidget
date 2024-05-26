@@ -4,7 +4,11 @@ pub mod grad_slice;
 pub mod interval;
 pub mod point;
 
-use crate::context::{Context, Node};
+use crate::{
+    context::{Context, Node},
+    eval::Tape,
+    var::Var,
+};
 
 /// Builds a function which stresses the register allocator and function caller
 pub fn build_stress_fn(n: usize) -> (Context, Node) {
@@ -54,6 +58,38 @@ fn test_args_n(n: i64) -> Vec<f32> {
 
 fn test_args() -> Vec<f32> {
     test_args_n(32)
+}
+
+fn bind_xy<T: Tape, V, G: Into<V>>(tape: &T) -> Box<dyn Fn(G, G) -> [V; 2]> {
+    let vars = tape.vars();
+    let ix = vars[&Var::X];
+    let iy = vars[&Var::Y];
+    assert_ne!(ix, iy);
+    Box::new(move |x, y| {
+        let mut out = [None, None];
+        out[ix] = Some(x.into());
+        out[iy] = Some(y.into());
+        out.map(Option::unwrap)
+    })
+}
+
+fn bind_xyz<T: Tape, V, G: Into<V>>(
+    tape: &T,
+) -> Box<dyn Fn(G, G, G) -> [V; 3]> {
+    let vars = tape.vars();
+    let ix = vars[&Var::X];
+    let iy = vars[&Var::Y];
+    let iz = vars[&Var::Z];
+    assert_ne!(ix, iy);
+    assert_ne!(iy, iz);
+    assert_ne!(ix, iz);
+    Box::new(move |x, y, z| {
+        let mut out = [None, None, None];
+        out[ix] = Some(x.into());
+        out[iy] = Some(y.into());
+        out[iz] = Some(z.into());
+        out.map(Option::unwrap)
+    })
 }
 
 /// Trait for canonical evaluation testing of unary operations

@@ -16,7 +16,7 @@
 //!
 //! let mut ctx = Context::new();
 //! let x = ctx.x();
-//! let shape = VmShape::new(&mut ctx, x)?;
+//! let shape = VmShape::new(&ctx, x)?;
 //!
 //! // Let's build a single point evaluator:
 //! let mut eval = VmShape::new_point_eval();
@@ -318,7 +318,7 @@ impl<F: MathFunction> Shape<F> {
     }
 
     /// Builds a new shape from the given node with default (X, Y, Z) axes
-    pub fn new(ctx: &mut Context, node: Node) -> Result<Self, Error>
+    pub fn new(ctx: &Context, node: Node) -> Result<Self, Error>
     where
         Self: Sized,
     {
@@ -331,7 +331,7 @@ impl<F: MathFunction> From<Tree> for Shape<F> {
     fn from(t: Tree) -> Self {
         let mut ctx = Context::new();
         let node = ctx.import(&t);
-        Self::new(&mut ctx, node).unwrap()
+        Self::new(&ctx, node).unwrap()
     }
 }
 
@@ -450,28 +450,6 @@ where
         }
 
         self.eval.eval(&tape.tape, &self.scratch)
-    }
-
-    #[cfg(test)]
-    pub fn eval_x<J: Into<E::Data>>(
-        &mut self,
-        tape: &ShapeTape<E::Tape>,
-        x: J,
-    ) -> E::Data {
-        self.eval(tape, x.into(), E::Data::from(0.0), E::Data::from(0.0))
-            .unwrap()
-            .0
-    }
-    #[cfg(test)]
-    pub fn eval_xy<J: Into<E::Data>>(
-        &mut self,
-        tape: &ShapeTape<E::Tape>,
-        x: J,
-        y: J,
-    ) -> E::Data {
-        self.eval(tape, x.into(), y.into(), E::Data::from(0.0))
-            .unwrap()
-            .0
     }
 }
 
@@ -647,7 +625,7 @@ mod test {
         let mut ctx = Context::new();
         let s = ctx.import(&s);
 
-        let s = VmShape::new(&mut ctx, s).unwrap();
+        let s = VmShape::new(&ctx, s).unwrap();
         let vs = s.inner().vars();
         assert_eq!(vs.len(), 3);
 
