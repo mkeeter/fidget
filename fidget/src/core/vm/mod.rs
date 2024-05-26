@@ -37,6 +37,10 @@ impl<const N: usize> Tape for GenericVmFunction<N> {
     fn recycle(self) -> Self::Storage {
         // nothing to do here
     }
+
+    fn vars(&self) -> &VarMap {
+        &self.0.vars
+    }
 }
 
 /// A trace captured by a VM evaluation
@@ -178,7 +182,7 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         GenericVmFunction::size(self)
     }
 
-    fn vars(&self) -> &VarMap<usize> {
+    fn vars(&self) -> &VarMap {
         &self.0.vars
     }
 }
@@ -804,10 +808,10 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Tape = GenericVmFunction<N>;
     type TapeStorage = ();
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[f32]],
+        vars: &[V],
     ) -> Result<&[f32], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(vars, tape.var_count())?;
@@ -819,7 +823,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
-                    v[out][0..size].copy_from_slice(vars[i as usize]);
+                    v[out][0..size].copy_from_slice(&vars[i as usize]);
                 }
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {
@@ -1113,10 +1117,10 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Tape = GenericVmFunction<N>;
     type TapeStorage = ();
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Grad]],
+        vars: &[V],
     ) -> Result<&[Grad], Error> {
         let tape = tape.0.as_ref();
         self.check_arguments(vars, tape.var_count())?;
@@ -1127,7 +1131,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Input(out, i) => {
-                    v[out][0..size].copy_from_slice(vars[i as usize]);
+                    v[out][0..size].copy_from_slice(&vars[i as usize]);
                 }
                 RegOp::NegReg(out, arg) => {
                     for i in 0..size {

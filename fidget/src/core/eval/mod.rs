@@ -28,6 +28,9 @@ pub trait Tape {
 
     /// Retrieves the internal storage from this tape
     fn recycle(self) -> Self::Storage;
+
+    /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    fn vars(&self) -> &VarMap;
 }
 
 /// Represents the trace captured by a tracing evaluation
@@ -168,7 +171,7 @@ pub trait Function: Send + Sync + Clone {
     fn size(&self) -> usize;
 
     /// Returns a map from variable to index
-    fn vars(&self) -> &VarMap<usize>;
+    fn vars(&self) -> &VarMap;
 }
 
 /// A [`Function`] which can be built from a math expression

@@ -7,8 +7,10 @@ use crate::{
     context::Context,
     eval::{Function, MathFunction},
     shape::{EzShape, Shape},
+    var::Var,
     vm::Choice,
 };
+use std::collections::HashMap;
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestPoint<F>(std::marker::PhantomData<*const F>);
@@ -306,6 +308,33 @@ where
         assert_eq!(eval.eval(&tape, 1.0, 2.0, 0.0).unwrap().0, 6.0);
     }
 
+    pub fn test_p_var() {
+        let v = Var::new();
+        let mut ctx = Context::new();
+
+        let x = ctx.x();
+        let y = ctx.y();
+        let v_ = ctx.var(v);
+
+        let a = ctx.add(x, y).unwrap();
+        let a = ctx.add(a, v_).unwrap();
+
+        let s = Shape::<F>::new(&mut ctx, a).unwrap();
+
+        let mut eval = Shape::<F>::new_point_eval();
+        let tape = s.ez_point_tape();
+        assert!(eval.eval(&tape, 1.0, 2.0, 0.0).is_err());
+
+        let mut h = HashMap::new();
+        assert!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).is_err());
+
+        let index = v.index().unwrap();
+        h.insert(index, 3.0);
+        assert_eq!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).unwrap().0, 6.0);
+        h.insert(index, 4.0);
+        assert_eq!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).unwrap().0, 7.0);
+    }
+
     pub fn test_p_stress_n(depth: usize) {
         let (mut ctx, node) = build_stress_fn(depth);
 
@@ -564,6 +593,7 @@ macro_rules! point_tests {
         $crate::point_test!(basic_interpreter, $t);
         $crate::point_test!(test_push, $t);
         $crate::point_test!(test_basic, $t);
+        $crate::point_test!(test_p_var, $t);
         $crate::point_test!(test_p_stress, $t);
 
         mod p_unary {

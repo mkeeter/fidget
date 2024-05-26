@@ -22,8 +22,24 @@ pub enum Var {
     X,
     Y,
     Z,
-    V(u64),
+    V(VarIndex),
 }
+
+/// Type for a variable index (implemented as a `u64`)
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct VarIndex(u64);
 
 impl Var {
     /// Returns a new variable, with a random 64-bit index
@@ -34,7 +50,16 @@ impl Var {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let v: u64 = rand::random();
-        Var::V(v)
+        Var::V(VarIndex(v))
+    }
+
+    /// Returns the [`VarIndex`] from a [`Var::V`] instance, or `None`
+    pub fn index(&self) -> Option<VarIndex> {
+        if let Var::V(i) = *self {
+            Some(i)
+        } else {
+            None
+        }
     }
 }
 
@@ -44,41 +69,29 @@ impl std::fmt::Display for Var {
             Var::X => write!(f, "X"),
             Var::Y => write!(f, "Y"),
             Var::Z => write!(f, "Z"),
-            Var::V(v) if *v < 256 => write!(f, "v_{v}"),
-            Var::V(v) => write!(f, "V({v:x})"),
+            Var::V(VarIndex(v)) if *v < 256 => write!(f, "v_{v}"),
+            Var::V(VarIndex(v)) => write!(f, "V({v:x})"),
         }
     }
 }
 
-/// Map from [`Var`] to a particular value
+/// Map from [`Var`] to a particular index
 ///
-/// This is equivalent to a
-/// [`HashMap<Var, T>`](std::collections::HashMap) and as such does not include
-/// per-function documentation.
+/// Variable indexes are automatically assigned the first time
+/// [`VarMap::insert`] is called on that variable.
 ///
-/// The advantage over a `HashMap` is that for common variables (`X`, `Y`, `Z`),
-/// no allocation is required.
-#[derive(Serialize, Deserialize)]
-pub struct VarMap<T> {
-    x: Option<T>,
-    y: Option<T>,
-    z: Option<T>,
-    v: HashMap<u64, T>,
-}
-
-impl<T> Default for VarMap<T> {
-    fn default() -> Self {
-        Self {
-            x: None,
-            y: None,
-            z: None,
-            v: HashMap::default(),
-        }
-    }
+/// Indexes are guaranteed to be tightly packed, i.e. contains values from
+/// `0..vars.len()`.
+#[derive(Default, Serialize, Deserialize)]
+pub struct VarMap {
+    x: Option<usize>,
+    y: Option<usize>,
+    z: Option<usize>,
+    v: HashMap<VarIndex, usize>,
 }
 
 #[allow(missing_docs)]
-impl<T> VarMap<T> {
+impl VarMap {
     pub fn new() -> Self {
         Self::default()
     }
@@ -94,62 +107,30 @@ impl<T> VarMap<T> {
             && self.z.is_none()
             && self.v.is_empty()
     }
-    pub fn get(&self, v: &Var) -> Option<&T> {
+    pub fn get(&self, v: &Var) -> Option<usize> {
         match v {
-            Var::X => self.x.as_ref(),
-            Var::Y => self.y.as_ref(),
-            Var::Z => self.z.as_ref(),
-            Var::V(v) => self.v.get(v),
+            Var::X => self.x,
+            Var::Y => self.y,
+            Var::Z => self.z,
+            Var::V(v) => self.v.get(v).cloned(),
         }
     }
-
-    pub fn get_mut(&mut self, v: &Var) -> Option<&mut T> {
+    /// Inserts a variable if not already present in the map
+    ///
+    /// The index is automatically assigned.
+    pub fn insert(&mut self, v: Var) {
+        let next = self.len();
         match v {
-            Var::X => self.x.as_mut(),
-            Var::Y => self.y.as_mut(),
-            Var::Z => self.z.as_mut(),
-            Var::V(v) => self.v.get_mut(v),
-        }
-    }
-
-    pub fn entry(&mut self, v: Var) -> VarMapEntry<T> {
-        match v {
-            Var::X => VarMapEntry::Option(&mut self.x),
-            Var::Y => VarMapEntry::Option(&mut self.y),
-            Var::Z => VarMapEntry::Option(&mut self.z),
-            Var::V(v) => VarMapEntry::Hash(self.v.entry(v)),
-        }
+            Var::X => self.x.get_or_insert(next),
+            Var::Y => self.y.get_or_insert(next),
+            Var::Z => self.z.get_or_insert(next),
+            Var::V(v) => self.v.entry(v).or_insert(next),
+        };
     }
 }
 
-/// Entry into a [`VarMap`]; equivalent to [`std::collections::hash_map::Entry`]
-///
-/// The implementation has just enough functions to be useful; if you find
-/// yourself wanting the rest of the entry API, it could easily be expanded.
-#[allow(missing_docs)]
-pub enum VarMapEntry<'a, T> {
-    Option(&'a mut Option<T>),
-    Hash(std::collections::hash_map::Entry<'a, u64, T>),
-}
-
-#[allow(missing_docs)]
-impl<'a, T> VarMapEntry<'a, T> {
-    pub fn or_insert(self, default: T) -> &'a mut T {
-        match self {
-            VarMapEntry::Option(o) => match o {
-                Some(v) => v,
-                None => {
-                    *o = Some(default);
-                    o.as_mut().unwrap()
-                }
-            },
-            VarMapEntry::Hash(e) => e.or_insert(default),
-        }
-    }
-}
-
-impl<T> std::ops::Index<&Var> for VarMap<T> {
-    type Output = T;
+impl std::ops::Index<&Var> for VarMap {
+    type Output = usize;
     fn index(&self, v: &Var) -> &Self::Output {
         match v {
             Var::X => self.x.as_ref().unwrap(),
@@ -176,9 +157,14 @@ mod test {
         let v = Var::new();
         let mut m = VarMap::new();
         assert!(m.get(&v).is_none());
-        let p = m.entry(v).or_insert(123);
-        assert_eq!(*p, 123);
-        let p = m.entry(v).or_insert(456);
-        assert_eq!(*p, 123);
+        m.insert(v);
+        assert_eq!(m.get(&v), Some(0));
+        m.insert(v);
+        assert_eq!(m.get(&v), Some(0));
+
+        let u = Var::new();
+        assert!(m.get(&u).is_none());
+        m.insert(u);
+        assert_eq!(m.get(&u), Some(1));
     }
 }

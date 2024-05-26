@@ -32,10 +32,10 @@ pub trait BulkEvaluator: Default {
     ///
     /// Returns an error if the `x`, `y`, `z`, and `out` slices are of different
     /// lengths.
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Self::Data]],
+        vars: &[V],
     ) -> Result<&[Self::Data], Error>;
 
     /// Build a new empty evaluator
@@ -44,9 +44,9 @@ pub trait BulkEvaluator: Default {
     }
 
     /// Helper function to return an error if the inputs are invalid
-    fn check_arguments(
+    fn check_arguments<V: std::ops::Deref<Target = [Self::Data]>>(
         &self,
-        vars: &[&[Self::Data]],
+        vars: &[V],
         var_count: usize,
     ) -> Result<(), Error> {
         // It's fine if the caller has given us extra variables (e.g. due to

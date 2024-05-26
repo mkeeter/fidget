@@ -38,6 +38,7 @@ use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
 };
+use std::sync::Arc;
 
 mod mmap;
 
@@ -837,7 +838,7 @@ impl JitFunction {
         let ptr = f.as_ptr();
         JitTracingFn {
             mmap: f,
-            var_count: self.0.var_count(),
+            vars: self.0.data().vars.clone(),
             choice_count: self.0.choice_count(),
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
@@ -847,7 +848,7 @@ impl JitFunction {
         let ptr = f.as_ptr();
         JitBulkFn {
             mmap: f,
-            var_count: self.0.data().var_count(),
+            vars: self.0.data().vars.clone(),
             fn_bulk: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -900,8 +901,8 @@ impl Function for JitFunction {
         self.0.size()
     }
 
-    fn vars(&self) -> &VarMap<usize> {
-        self.0.vars()
+    fn vars(&self) -> &VarMap {
+        Function::vars(&self.0)
     }
 }
 
@@ -961,7 +962,7 @@ pub struct JitTracingFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     choice_count: usize,
-    var_count: usize,
+    vars: Arc<VarMap>,
     fn_trace: jit_fn!(
         unsafe fn(
             *const T, // vars
@@ -975,6 +976,10 @@ impl<T> Tape for JitTracingFn<T> {
     type Storage = Mmap;
     fn recycle(self) -> Self::Storage {
         self.mmap
+    }
+
+    fn vars(&self) -> &VarMap {
+        &self.vars
     }
 }
 
@@ -1053,7 +1058,7 @@ impl TracingEvaluator for JitPointEval {
 pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
-    var_count: usize,
+    vars: Arc<VarMap>,
     fn_bulk: jit_fn!(
         unsafe fn(
             *const *const T, // vars
@@ -1067,6 +1072,10 @@ impl<T> Tape for JitBulkFn<T> {
     type Storage = Mmap;
     fn recycle(self) -> Self::Storage {
         self.mmap
+    }
+
+    fn vars(&self) -> &VarMap {
+        &self.vars
     }
 }
 
@@ -1112,8 +1121,12 @@ unsafe impl<T> Sync for JitBulkFn<T> {}
 
 impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
     /// Evaluate multiple points
-    fn eval(&mut self, tape: &JitBulkFn<T>, vars: &[&[T]]) -> &[T] {
-        let n = vars.first().map(|v| v.len()).unwrap_or(0);
+    fn eval<V: std::ops::Deref<Target = [T]>>(
+        &mut self,
+        tape: &JitBulkFn<T>,
+        vars: &[V],
+    ) -> &[T] {
+        let n = vars.first().map(|v| v.deref().len()).unwrap_or(0);
         self.out.resize(n, f32::NAN.into());
         self.out.fill(f32::NAN.into());
 
@@ -1123,7 +1136,8 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         if n < T::SIMD_SIZE {
             assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
-            self.scratch.resize(n, [T::from(0.0); MAX_SIMD_WIDTH]);
+            self.scratch
+                .resize(vars.len(), [T::from(0.0); MAX_SIMD_WIDTH]);
             for (v, t) in vars.iter().zip(self.scratch.iter_mut()) {
                 t[0..n].copy_from_slice(v);
             }
@@ -1183,12 +1197,12 @@ impl BulkEvaluator for JitFloatSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Self::Data]],
+        vars: &[V],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.var_count)?;
+        self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
     }
 }
@@ -1201,12 +1215,12 @@ impl BulkEvaluator for JitGradSliceEval {
     type Tape = JitBulkFn<Self::Data>;
     type TapeStorage = Mmap;
 
-    fn eval(
+    fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
-        vars: &[&[Self::Data]],
+        vars: &[V],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.var_count)?;
+        self.check_arguments(vars, tape.vars().len())?;
         Ok(self.0.eval(tape, vars))
     }
 }

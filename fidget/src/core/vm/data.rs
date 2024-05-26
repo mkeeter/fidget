@@ -71,7 +71,7 @@ pub struct VmData<const N: usize = { u8::MAX as usize }> {
     ///
     /// This member is stored in a shared pointer because it's passed down to
     /// children (constructed with [`VmData::simplify`]).
-    pub vars: Arc<VarMap<usize>>,
+    pub vars: Arc<VarMap>,
 }
 
 impl<const N: usize> VmData<N> {
