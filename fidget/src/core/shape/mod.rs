@@ -451,28 +451,6 @@ where
 
         self.eval.eval(&tape.tape, &self.scratch)
     }
-
-    #[cfg(test)]
-    pub fn eval_x<J: Into<E::Data>>(
-        &mut self,
-        tape: &ShapeTape<E::Tape>,
-        x: J,
-    ) -> E::Data {
-        self.eval(tape, x.into(), E::Data::from(0.0), E::Data::from(0.0))
-            .unwrap()
-            .0
-    }
-    #[cfg(test)]
-    pub fn eval_xy<J: Into<E::Data>>(
-        &mut self,
-        tape: &ShapeTape<E::Tape>,
-        x: J,
-        y: J,
-    ) -> E::Data {
-        self.eval(tape, x.into(), y.into(), E::Data::from(0.0))
-            .unwrap()
-            .0
-    }
 }
 
 /// Wrapper around a [`BulkEvaluator`]

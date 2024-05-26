@@ -60,24 +60,24 @@ fn test_args() -> Vec<f32> {
     test_args_n(32)
 }
 
-fn bind_xy<T: Tape, V: From<f32> + Copy>(
+fn bind_xy<T: Tape, V: From<f32> + Copy, G: Into<V>>(
     tape: &T,
-) -> Box<dyn Fn(V, V) -> [V; 2]> {
+) -> Box<dyn Fn(G, G) -> [V; 2]> {
     let vars = tape.vars();
     let ix = vars[&Var::X];
     let iy = vars[&Var::Y];
     assert_ne!(ix, iy);
     Box::new(move |x, y| {
         let mut out = [V::from(0f32); 2];
-        out[ix] = x;
-        out[iy] = y;
+        out[ix] = x.into();
+        out[iy] = y.into();
         out
     })
 }
 
-fn bind_xyz<T: Tape, V: From<f32> + Copy>(
+fn bind_xyz<T: Tape, V: From<f32> + Copy, G: Into<V>>(
     tape: &T,
-) -> Box<dyn Fn(V, V, V) -> [V; 3]> {
+) -> Box<dyn Fn(G, G, G) -> [V; 3]> {
     let vars = tape.vars();
     let ix = vars[&Var::X];
     let iy = vars[&Var::Y];
@@ -87,9 +87,9 @@ fn bind_xyz<T: Tape, V: From<f32> + Copy>(
     assert_ne!(ix, iz);
     Box::new(move |x, y, z| {
         let mut out = [V::from(0f32); 3];
-        out[ix] = x;
-        out[iy] = y;
-        out[iz] = z;
+        out[ix] = x.into();
+        out[iy] = y.into();
+        out[iz] = z.into();
         out
     })
 }

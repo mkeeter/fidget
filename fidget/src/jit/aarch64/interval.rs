@@ -76,7 +76,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x18     | `d9`         |                                             |
 /// | 0x10     | `d8`         |                                             |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x8      | `sp` (`x30`) | Stack frame                                 |
+/// | 0x8      | `lr` (`x30`) | Link register                               |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
 const STACK_SIZE: u32 = 0xf0;

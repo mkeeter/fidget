@@ -301,10 +301,9 @@ where
         let min = ctx.min(x, 1.0).unwrap();
         let shape = F::new(&ctx, min).unwrap();
         let tape = shape.point_tape(Default::default());
-        let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(0.5, 0.0)).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 0.0)).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 1.0);
 
         let next = shape
             .simplify(
@@ -314,9 +313,8 @@ where
             )
             .unwrap();
         let tape = next.point_tape(Default::default());
-        let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(0.5, 0.0)).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 0.0)).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 0.5);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 3.0);
 
         let next = shape
             .simplify(
@@ -326,9 +324,8 @@ where
             )
             .unwrap();
         let tape = next.point_tape(Default::default());
-        let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(0.5, 0.0)).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 0.0)).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 1.0);
     }
 
     pub fn test_basic() {
@@ -338,17 +335,15 @@ where
 
         let shape = F::new(&ctx, x).unwrap();
         let tape = shape.point_tape(Default::default());
-        let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 4.0)).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 3.0);
 
         let shape = F::new(&ctx, y).unwrap();
         let tape = shape.point_tape(Default::default());
-        let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 4.0)).unwrap().0, 4.0);
+        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, &[4.0]).unwrap().0, 4.0);
 
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
