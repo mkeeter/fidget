@@ -18,15 +18,18 @@ pub use tracing::TracingEvaluator;
 
 /// A tape represents something that can be evaluated by an evaluator
 ///
-/// The only property enforced on the trait is that we must have some way to
-/// recycle its internal storage.  This matters most for JIT evaluators, whose
-/// tapes are regions of executable memory-mapped RAM (which is expensive to map
-/// and unmap).
+/// It includes some kind of storage and the ability to look up variable
+/// mapping.  The variable mapping should be identical to calling
+/// [`Function::vars`] on the `Function` which produced this tape, but it's
+/// convenient to be able to look up vars locally.
 pub trait Tape {
     /// Associated type for this tape's data storage
     type Storage: Default;
 
     /// Retrieves the internal storage from this tape
+    ///
+    /// This matters most for JIT evaluators, whose tapes are regions of
+    /// executable memory-mapped RAM (which is expensive to map and unmap).
     fn recycle(self) -> Self::Storage;
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
@@ -169,9 +172,6 @@ pub trait Function: Send + Sync + Clone {
     /// This is underspecified and only used for unit testing; for tape-based
     /// functions, it's typically the length of the tape,
     fn size(&self) -> usize;
-
-    /// Returns a map from variable to index
-    fn vars(&self) -> &VarMap;
 }
 
 /// A [`Function`] which can be built from a math expression

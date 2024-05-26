@@ -181,10 +181,6 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     fn size(&self) -> usize {
         GenericVmFunction::size(self)
     }
-
-    fn vars(&self) -> &VarMap {
-        &self.0.vars
-    }
 }
 
 impl<const N: usize> RenderHints for GenericVmFunction<N> {

@@ -2,6 +2,7 @@ use fidget::{
     context::{Context, Tree},
     render::{BitRenderMode, RenderConfig},
     shape::Bounds,
+    var::Var,
     vm::{VmData, VmShape},
     Error,
 };
@@ -37,7 +38,7 @@ pub fn serialize_into_tape(t: JsTree) -> Result<Vec<u8>, String> {
 /// Deserialize a `bincode`-packed `VmData` into a `VmShape`
 #[wasm_bindgen]
 pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
-    let (d, axes): (VmData<255>, [Option<usize>; 3]) =
+    let (d, axes): (VmData<255>, [Var; 3]) =
         bincode::deserialize(&data).map_err(|e| format!("{e}"))?;
     Ok(JsVmShape(VmShape::new_raw(d.into(), axes)))
 }

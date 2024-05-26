@@ -17,7 +17,18 @@ use std::collections::HashMap;
 /// same thing.  To generate a "local" variable, [`Var::new`] picks a random
 /// 64-bit value, which is very unlikely to collide with anything else.
 #[allow(missing_docs)]
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Hash,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
 pub enum Var {
     X,
     Y,
