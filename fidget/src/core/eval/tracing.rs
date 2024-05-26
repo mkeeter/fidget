@@ -51,7 +51,9 @@ pub trait TracingEvaluator: Default {
         vars: &[Self::Data],
         var_count: usize,
     ) -> Result<(), Error> {
-        if vars.len() != var_count {
+        if vars.len() < var_count {
+            // It's okay to be passed extra vars, because expressions may have
+            // been simplified.
             Err(Error::BadVarSlice(vars.len(), var_count))
         } else {
             Ok(())
