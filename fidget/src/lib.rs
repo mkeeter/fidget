@@ -1,5 +1,5 @@
-//! Fidget is a library of infrastructure and algorithms for complex closed-form
-//! implicit surfaces.
+//! Fidget is a library of infrastructure and algorithms for function
+//! evaluation, with an emphasis on complex closed-form implicit surfaces.
 //!
 //! An **implicit surface** is a function `f(x, y, z)`, where `x`, `y`, and `z`
 //! represent a position in 3D space.  By convention, if `f(x, y, z) < 0`, then

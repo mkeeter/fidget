@@ -5,7 +5,7 @@
 //! - A [`Tree`] is a free-floating math expression, which can be cloned
 //!   and has overloaded operators for ease of use.  It is **not** deduplicated;
 //!   two calls to [`Tree::constant(1.0)`](Tree::constant) will allocate two
-//!   different [`TreeOp`] objects.
+//!   different objects.
 //!   `Tree` objects are typically used when building up expressions; they
 //!   should be converted to `Node` objects (in a particular `Context`) after
 //!   they have been constructed.
@@ -38,7 +38,12 @@ define_index!(Node, "An index in the `Context::ops` map");
 /// operations.
 ///
 /// It should be used like an arena allocator: it grows over time, then frees
-/// all of its contents when dropped.
+/// all of its contents when dropped.  There is no reference counting within the
+/// context.
+///
+/// Items in the context are accessed with [`Node`] keys, which are simple
+/// handles into an internal map.  Inside the context, operations are
+/// represented with the [`Op`] type.
 #[derive(Debug, Default)]
 pub struct Context {
     ops: IndexMap<Op, Node>,
@@ -121,10 +126,10 @@ impl Context {
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not an `Op::Input`, returns `Ok(None)`.
-    pub fn get_var(&self, n: Node) -> Result<Option<Var>, Error> {
+    pub fn get_var(&self, n: Node) -> Result<Var, Error> {
         match self.get_op(n) {
-            Some(Op::Input(v)) => Ok(Some(*v)),
-            Some(_) => Ok(None),
+            Some(Op::Input(v)) => Ok(*v),
+            Some(..) => Err(Error::NotAVar),
             _ => Err(Error::BadNode),
         }
     }
@@ -154,6 +159,20 @@ impl Context {
     }
 
     /// Constructs or finds a variable input node
+    ///
+    /// To make an anonymous variable, call this function with [`Var::new()`]:
+    ///
+    /// ```
+    /// let mut ctx = Context::new();
+    /// let v1 = ctx.var(Var::new());
+    /// let v2 = ctx.var(Var::new());
+    /// assert_ne!(v1, v2);
+    ///
+    /// let mut vars = HashMap::new();
+    /// vars.insert(v1.get_var().unwrap(), 3.0);
+    /// assert_eq!(ctx.eval(v1, &vars), 3.0);
+    /// assert!(ctx.eval(v2, &vars).is_err()); // v2 isn't in the map
+    /// ```
     pub fn var(&mut self, v: Var) -> Node {
         self.ops.insert(Op::Input(v))
     }
@@ -181,7 +200,7 @@ impl Context {
         let op_a = *self.get_op(a).ok_or(Error::BadNode)?;
         let n = self.ops.insert(Op::Unary(op, a));
         let out = if matches!(op_a, Op::Const(_)) {
-            let v = self.eval(n, &BTreeMap::new())?;
+            let v = self.eval(n, &Default::default())?;
             self.pop().unwrap(); // removes `n`
             self.constant(v)
         } else {
@@ -214,7 +233,7 @@ impl Context {
         // constant-folded (indeed, we pop the node right afterwards)
         let n = self.ops.insert(f(a, b));
         let out = if matches!((op_a, op_b), (Op::Const(_), Op::Const(_))) {
-            let v = self.eval(n, &BTreeMap::new())?;
+            let v = self.eval(n, &Default::default())?;
             self.pop().unwrap(); // removes `n`
             self.constant(v)
         } else {
@@ -762,7 +781,7 @@ impl Context {
     pub fn eval(
         &self,
         root: Node,
-        vars: &BTreeMap<Var, f64>,
+        vars: &HashMap<Var, f64>,
     ) -> Result<f64, Error> {
         let mut cache = vec![None; self.ops.len()].into();
         self.eval_inner(root, vars, &mut cache)
@@ -771,7 +790,7 @@ impl Context {
     fn eval_inner(
         &self,
         node: Node,
-        vars: &BTreeMap<Var, f64>,
+        vars: &HashMap<Var, f64>,
         cache: &mut IndexVec<Option<f64>, Node>,
     ) -> Result<f64, Error> {
         if node.0 >= cache.len() {
