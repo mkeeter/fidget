@@ -32,10 +32,14 @@ pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 /// Shape that use a the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
 
+/// Tape storage type which indicates that there's no actual backing storage
+#[derive(Default)]
+pub struct EmptyTapeStorage;
+
 impl<const N: usize> Tape for GenericVmFunction<N> {
-    type Storage = ();
+    type Storage = EmptyTapeStorage;
     fn recycle(self) -> Self::Storage {
-        // nothing to do here
+        EmptyTapeStorage
     }
 
     fn vars(&self) -> &VarMap {
@@ -147,21 +151,21 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     type Storage = VmData<N>;
     type Workspace = VmWorkspace<N>;
 
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
-    fn float_slice_tape(&self, _storage: ()) -> Self {
+    fn float_slice_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type GradSliceEval = VmGradSliceEval<N>;
-    fn grad_slice_tape(&self, _storage: ()) -> Self {
+    fn grad_slice_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type PointEval = VmPointEval<N>;
-    fn point_tape(&self, _storage: ()) -> Self {
+    fn point_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type IntervalEval = VmIntervalEval<N>;
-    fn interval_tape(&self, _storage: ()) -> Self {
+    fn interval_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type Trace = VmTrace;
@@ -259,7 +263,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
     type Data = Interval;
     type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval(
         &mut self,
@@ -488,7 +492,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
     type Data = f32;
     type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval(
         &mut self,
@@ -802,7 +806,7 @@ pub struct VmFloatSliceEval<const N: usize>(BulkVmEval<f32>);
 impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Data = f32;
     type Tape = GenericVmFunction<N>;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
@@ -1111,7 +1115,7 @@ pub struct VmGradSliceEval<const N: usize>(BulkVmEval<Grad>);
 impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Data = Grad;
     type Tape = GenericVmFunction<N>;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
