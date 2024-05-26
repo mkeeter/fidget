@@ -20,6 +20,8 @@
     - Move `Var` and `VarMap` into `fidget::vars` module, because they're no
       longer specific to a `Context`.
     - `Op::Input` now takes a `u32` argument, instead of a `u8`
+- Fixed a bug in the AArch64 JIT would which could corrupt certain registers
+  during interval evaluation.
 
 # 0.2.7
 This release brings us to opcode parity with `libfive`'s operators, adding

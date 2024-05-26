@@ -796,8 +796,6 @@ impl IntervalAssembler {
             ; stp d26, d27, [sp, 0xa0]
             ; stp d28, d29, [sp, 0xb0]
             ; stp d30, d31, [sp, 0xc0]
-            ; stp d0, d1, [sp, 0xd0]
-            ; str d2, [sp, 0xe0]
 
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it's about to be overwritten, because we only call it once)
@@ -865,8 +863,6 @@ impl IntervalAssembler {
             ; stp d26, d27, [sp, 0xa0]
             ; stp d28, d29, [sp, 0xb0]
             ; stp d30, d31, [sp, 0xc0]
-            ; stp d0, d1, [sp, 0xd0]
-            ; str d2, [sp, 0xe0]
 
             // Load the function address, awkwardly, into a caller-saved
             // register (so we only need to do this once)
