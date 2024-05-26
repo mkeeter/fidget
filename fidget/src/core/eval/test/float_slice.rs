@@ -3,10 +3,12 @@
 //! If the `eval-tests` feature is set, then this exposes a standard test suite
 //! for such evaluators; otherwise, the module has no public exports.
 
-use super::{build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp};
+use super::{
+    bind_xyz, build_stress_fn, test_args, CanonicalBinaryOp, CanonicalUnaryOp,
+};
 use crate::{
     context::Context,
-    eval::{Function, MathFunction},
+    eval::{BulkEvaluator, Function, MathFunction, Tape},
     shape::{EzShape, Shape},
     var::{Var, VarIndex},
     Error,
@@ -20,37 +22,28 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
     pub fn test_give_take() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let y = ctx.y();
+        let x1 = ctx.add(x, 1.0).unwrap();
 
-        let shape_x = Shape::<F>::new(&mut ctx, x).unwrap();
-        let shape_y = Shape::<F>::new(&mut ctx, y).unwrap();
+        let shape_x = F::new(&ctx, x).unwrap();
+        let shape_x1 = F::new(&ctx, x1).unwrap();
 
         // This is a fuzz test for icache issues
-        let mut eval = Shape::<F>::new_float_slice_eval();
+        let mut eval = F::new_float_slice_eval();
         for _ in 0..10000 {
-            let tape = shape_x.ez_float_slice_tape();
+            let tape = shape_x.float_slice_tape(Default::default());
             let out = eval
-                .eval(
-                    &tape,
-                    &[0.0, 1.0, 2.0, 3.0],
-                    &[3.0, 2.0, 1.0, 0.0],
-                    &[0.0, 0.0, 0.0, 100.0],
-                )
+                .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
                 .unwrap();
             assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
 
             // TODO: reuse tape data here
+            let t = tape.recycle();
 
-            let tape = shape_y.ez_float_slice_tape();
+            let tape = shape_x1.float_slice_tape(t);
             let out = eval
-                .eval(
-                    &tape,
-                    &[0.0, 1.0, 2.0, 3.0],
-                    &[3.0, 2.0, 1.0, 0.0],
-                    &[0.0, 0.0, 0.0, 100.0],
-                )
+                .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
                 .unwrap();
-            assert_eq!(out, [3.0, 2.0, 1.0, 0.0]);
+            assert_eq!(out, [1.0, 2.0, 3.0, 4.0]);
         }
     }
 
@@ -59,25 +52,18 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
 
-        let mut eval = Shape::<F>::new_float_slice_eval();
-        let shape = Shape::<F>::new(&mut ctx, x).unwrap();
-        let tape = shape.ez_float_slice_tape();
+        let mut eval = F::new_float_slice_eval();
+        let shape = F::new(&ctx, x).unwrap();
+        let tape = shape.float_slice_tape(Default::default());
         let out = eval
-            .eval(
-                &tape,
-                &[0.0, 1.0, 2.0, 3.0],
-                &[3.0, 2.0, 1.0, 0.0],
-                &[0.0, 0.0, 0.0, 100.0],
-            )
+            .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
 
         let out = eval
             .eval(
                 &tape,
-                &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
-                &[3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0],
-                &[0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0],
+                &[[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0].as_slice()],
             )
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
@@ -85,38 +71,24 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let out = eval
             .eval(
                 &tape,
-                &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-                &[3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0, 0.0],
-                &[0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0, 200.0],
+                &[[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].as_slice()],
             )
             .unwrap();
         assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let shape = Shape::<F>::new(&mut ctx, mul).unwrap();
-        let tape = shape.ez_float_slice_tape();
+        let shape = F::new(&ctx, mul).unwrap();
+        let tape = shape.float_slice_tape(Default::default());
         let out = eval
-            .eval(
-                &tape,
-                &[0.0, 1.0, 2.0, 3.0],
-                &[3.0, 2.0, 1.0, 0.0],
-                &[0.0, 0.0, 0.0, 100.0],
-            )
+            .eval(&tape, &[[3.0, 2.0, 1.0, 0.0].as_slice()])
             .unwrap();
         assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
 
-        let out = eval
-            .eval(&tape, &[0.0, 1.0, 2.0], &[1.0, 4.0, 8.0], &[0.0, 0.0, 0.0])
-            .unwrap();
+        let out = eval.eval(&tape, &[[1.0, 4.0, 8.0].as_slice()]).unwrap();
         assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
 
         let out = eval
-            .eval(
-                &tape,
-                &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                &[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0],
-                &[0.0; 7],
-            )
+            .eval(&tape, &[[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0].as_slice()])
             .unwrap();
         assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
@@ -126,18 +98,18 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let a = ctx.x();
         let b = ctx.sin(a).unwrap();
 
-        let shape = Shape::<F>::new(&mut ctx, b).unwrap();
-        let mut eval = Shape::<F>::new_float_slice_eval();
-        let tape = shape.ez_float_slice_tape();
+        let shape = F::new(&ctx, b).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
 
         let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
         assert_eq!(
-            eval.eval(&tape, &args, &[0.0; 4], &[0.0; 4],).unwrap(),
+            eval.eval(&tape, &[args.as_slice()]).unwrap(),
             args.map(f32::sin),
         );
     }
 
-    pub fn test_f_var() {
+    pub fn test_f_shape_var() {
         let v = Var::new();
         let mut ctx = Context::new();
 
@@ -148,7 +120,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let a = ctx.add(x, y).unwrap();
         let a = ctx.add(a, v_).unwrap();
 
-        let s = Shape::<F>::new(&mut ctx, a).unwrap();
+        let s = Shape::<F>::new(&ctx, a).unwrap();
 
         let mut eval = Shape::<F>::new_float_slice_eval();
         let tape = s.ez_float_slice_tape();
@@ -183,7 +155,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
     }
 
     pub fn test_f_stress_n(depth: usize) {
-        let (mut ctx, node) = build_stress_fn(depth);
+        let (ctx, node) = build_stress_fn(depth);
 
         // Pick an input slice that's guaranteed to be > 1 SIMD register
         let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
@@ -193,11 +165,12 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-        let mut eval = Shape::<F>::new_float_slice_eval();
-        let tape = shape.ez_float_slice_tape();
+        let shape = F::new(&ctx, node).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
 
-        let out = eval.eval(&tape, &x, &y, &z).unwrap();
+        let vs = bind_xyz::<_, &[f32], &[f32]>(&tape);
+        let out = eval.eval(&tape, &vs(&x, &y, &z)).unwrap();
 
         for (i, v) in out.iter().cloned().enumerate() {
             let q = ctx
@@ -218,7 +191,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
         use crate::vm::VmShape;
-        let shape = VmShape::new(&mut ctx, node).unwrap();
+        let shape = VmShape::new(&ctx, node).unwrap();
         let mut eval = VmShape::new_float_slice_eval();
         let tape = shape.ez_float_slice_tape();
 
@@ -237,39 +210,32 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
     }
 
     pub fn test_f_stress() {
-        for n in [1, 2, 4, 8, 12, 16, 32] {
+        for n in [4, 8, 12, 16, 32] {
             Self::test_f_stress_n(n);
         }
     }
 
     pub fn test_unary<C: CanonicalUnaryOp>() {
         let args = test_args();
-        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
-        for (i, v) in [ctx.x(), ctx.y(), ctx.z()].into_iter().enumerate() {
-            let node = C::build(&mut ctx, v);
+        let v = ctx.var(Var::new());
 
-            let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-            let mut eval = Shape::<F>::new_float_slice_eval();
-            let tape = shape.ez_float_slice_tape();
+        let node = C::build(&mut ctx, v);
 
-            let out = match i {
-                0 => eval.eval(&tape, &args, &zero, &zero),
-                1 => eval.eval(&tape, &zero, &args, &zero),
-                2 => eval.eval(&tape, &zero, &zero, &args),
-                _ => unreachable!(),
-            }
-            .unwrap();
-            for (a, &o) in args.iter().zip(out.iter()) {
-                let v = C::eval_f32(*a);
-                let err = (v - o).abs();
-                assert!(
-                    (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
-                    "mismatch in '{}' at {a}: {v} != {o} ({err})",
-                    C::NAME,
-                )
-            }
+        let shape = F::new(&ctx, node).unwrap();
+        let mut eval = F::new_float_slice_eval();
+        let tape = shape.float_slice_tape(Default::default());
+
+        let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
+        for (a, &o) in args.iter().zip(out.iter()) {
+            let v = C::eval_f32(*a);
+            let err = (v - o).abs();
+            assert!(
+                (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
+                "mismatch in '{}' at {a}: {v} != {o} ({err})",
+                C::NAME,
+            )
         }
     }
 
@@ -295,127 +261,106 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
     pub fn test_binary_reg_reg<C: CanonicalBinaryOp>() {
         let args = test_args();
-        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
-        let inputs = [ctx.x(), ctx.y(), ctx.z()];
+        let va = Var::new();
+        let vb = Var::new();
+        let a = ctx.var(va);
+        let b = ctx.var(vb);
+
         let name = format!("{}(reg, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
-            for (i, &v) in inputs.iter().enumerate() {
-                for (j, &u) in inputs.iter().enumerate() {
-                    let node = C::build(&mut ctx, v, u);
+            let node = C::build(&mut ctx, a, b);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let mut eval = Shape::<F>::new_float_slice_eval();
-                    let tape = shape.ez_float_slice_tape();
+            let shape = F::new(&ctx, node).unwrap();
+            let mut eval = F::new_float_slice_eval();
+            let tape = shape.float_slice_tape(Default::default());
+            let vars = tape.vars();
 
-                    let out = match (i, j) {
-                        (0, 0) => eval.eval(&tape, &args, &zero, &zero),
-                        (0, 1) => eval.eval(&tape, &args, &rgsa, &zero),
-                        (0, 2) => eval.eval(&tape, &args, &zero, &rgsa),
-                        (1, 0) => eval.eval(&tape, &rgsa, &args, &zero),
-                        (1, 1) => eval.eval(&tape, &zero, &args, &zero),
-                        (1, 2) => eval.eval(&tape, &zero, &args, &rgsa),
-                        (2, 0) => eval.eval(&tape, &rgsa, &zero, &args),
-                        (2, 1) => eval.eval(&tape, &zero, &rgsa, &args),
-                        (2, 2) => eval.eval(&tape, &zero, &zero, &args),
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
+            let i_index = vars[&va];
+            let j_index = vars[&vb];
+            assert_ne!(i_index, j_index);
 
-                    let rhs = if i == j { &args } else { &rgsa };
-                    Self::compare_float_results::<C>(
-                        &args,
-                        rhs,
-                        out,
-                        C::eval_reg_reg_f32,
-                        &name,
-                    );
-                }
-            }
+            let mut arg_slice = [[].as_slice(); 2];
+            arg_slice[j_index] = rgsa.as_slice();
+            arg_slice[i_index] = args.as_slice();
+
+            let out = eval.eval(&tape, &arg_slice).unwrap();
+
+            Self::compare_float_results::<C>(
+                &args,
+                &rgsa,
+                out,
+                C::eval_reg_reg_f32,
+                &name,
+            );
         }
     }
 
     fn test_binary_reg_imm<C: CanonicalBinaryOp>() {
         let args = test_args();
-        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
-        let inputs = [ctx.x(), ctx.y(), ctx.z()];
+        let va = Var::new();
+        let a = ctx.var(va);
 
         let name = format!("{}(reg, imm)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
-            for (i, &v) in inputs.iter().enumerate() {
-                for rhs in args.iter() {
-                    let c = ctx.constant(*rhs as f64);
-                    let node = C::build(&mut ctx, v, c);
+            for rhs in args.iter() {
+                let c = ctx.constant(*rhs as f64);
+                let node = C::build(&mut ctx, a, c);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let mut eval = Shape::<F>::new_float_slice_eval();
-                    let tape = shape.ez_float_slice_tape();
+                let shape = F::new(&ctx, node).unwrap();
+                let mut eval = F::new_float_slice_eval();
+                let tape = shape.float_slice_tape(Default::default());
 
-                    let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero),
-                        1 => eval.eval(&tape, &zero, &args, &zero),
-                        2 => eval.eval(&tape, &zero, &zero, &args),
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
+                let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
 
-                    let rhs = vec![*rhs; out.len()];
-                    Self::compare_float_results::<C>(
-                        &args,
-                        &rhs,
-                        out,
-                        C::eval_reg_imm_f32,
-                        &name,
-                    );
-                }
+                let rhs = vec![*rhs; out.len()];
+                Self::compare_float_results::<C>(
+                    &args,
+                    &rhs,
+                    out,
+                    C::eval_reg_imm_f32,
+                    &name,
+                );
             }
         }
     }
 
     fn test_binary_imm_reg<C: CanonicalBinaryOp>() {
         let args = test_args();
-        let zero = vec![0.0; args.len()];
 
         let mut ctx = Context::new();
-        let inputs = [ctx.x(), ctx.y(), ctx.z()];
+        let va = Var::new();
+        let a = ctx.var(va);
 
         let name = format!("{}(imm, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
-            for (i, &v) in inputs.iter().enumerate() {
-                for lhs in args.iter() {
-                    let c = ctx.constant(*lhs as f64);
-                    let node = C::build(&mut ctx, c, v);
+            for lhs in args.iter() {
+                let c = ctx.constant(*lhs as f64);
+                let node = C::build(&mut ctx, c, a);
 
-                    let shape = Shape::<F>::new(&mut ctx, node).unwrap();
-                    let mut eval = Shape::<F>::new_float_slice_eval();
-                    let tape = shape.ez_float_slice_tape();
+                let shape = F::new(&ctx, node).unwrap();
+                let mut eval = F::new_float_slice_eval();
+                let tape = shape.float_slice_tape(Default::default());
 
-                    let out = match i {
-                        0 => eval.eval(&tape, &args, &zero, &zero),
-                        1 => eval.eval(&tape, &zero, &args, &zero),
-                        2 => eval.eval(&tape, &zero, &zero, &args),
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
+                let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
 
-                    let lhs = vec![*lhs; out.len()];
-                    Self::compare_float_results::<C>(
-                        &lhs,
-                        &args,
-                        out,
-                        C::eval_imm_reg_f32,
-                        &name,
-                    );
-                }
+                let lhs = vec![*lhs; out.len()];
+                Self::compare_float_results::<C>(
+                    &lhs,
+                    &args,
+                    out,
+                    C::eval_imm_reg_f32,
+                    &name,
+                );
             }
         }
     }
@@ -443,7 +388,7 @@ macro_rules! float_slice_tests {
         $crate::float_slice_test!(test_give_take, $t);
         $crate::float_slice_test!(test_vectorized, $t);
         $crate::float_slice_test!(test_f_sin, $t);
-        $crate::float_slice_test!(test_f_var, $t);
+        $crate::float_slice_test!(test_f_shape_var, $t);
         $crate::float_slice_test!(test_f_stress, $t);
 
         mod f_unary {

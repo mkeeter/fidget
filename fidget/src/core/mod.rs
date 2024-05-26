@@ -14,7 +14,7 @@
 //! let radius = ctx.add(x_squared, y_squared)?;
 //! let circle = ctx.sub(radius, 1.0)?;
 //!
-//! let shape = VmShape::new(&mut ctx, circle)?;
+//! let shape = VmShape::new(&ctx, circle)?;
 //! let mut eval = VmShape::new_point_eval();
 //! let tape = shape.ez_point_tape();
 //!

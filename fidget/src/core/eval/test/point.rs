@@ -366,7 +366,7 @@ where
         let a = ctx.add(x, y).unwrap();
         let a = ctx.add(a, v_).unwrap();
 
-        let s = Shape::<F>::new(&mut ctx, a).unwrap();
+        let s = Shape::<F>::new(&ctx, a).unwrap();
 
         let mut eval = Shape::<F>::new_point_eval();
         let tape = s.ez_point_tape();
@@ -383,7 +383,7 @@ where
     }
 
     pub fn test_p_stress_n(depth: usize) {
-        let (mut ctx, node) = build_stress_fn(depth);
+        let (ctx, node) = build_stress_fn(depth);
 
         // Pick an input slice that's guaranteed to be > 1 SIMD register
         let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
@@ -420,7 +420,7 @@ where
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
         use crate::vm::VmShape;
-        let shape = VmShape::new(&mut ctx, node).unwrap();
+        let shape = VmShape::new(&ctx, node).unwrap();
         let mut eval = VmShape::new_point_eval();
         let tape = shape.ez_point_tape();
 

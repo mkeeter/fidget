@@ -788,7 +788,7 @@ where
     }
 
     pub fn test_i_stress_n(depth: usize) {
-        let (mut ctx, node) = build_stress_fn(depth);
+        let (ctx, node) = build_stress_fn(depth);
 
         // Pick an input slice that's guaranteed to be > 1 SIMD register
         let args = (0..32).map(|i| i as f32 / 32f32).collect::<Vec<f32>>();
@@ -813,7 +813,7 @@ where
         // Compare against the VmShape evaluator as a baseline.  It's possible
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
-        let shape = VmShape::new(&mut ctx, node).unwrap();
+        let shape = VmShape::new(&ctx, node).unwrap();
         let mut eval = VmShape::new_interval_eval();
         let tape = shape.ez_interval_tape();
 

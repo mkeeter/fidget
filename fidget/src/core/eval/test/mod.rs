@@ -60,22 +60,20 @@ fn test_args() -> Vec<f32> {
     test_args_n(32)
 }
 
-fn bind_xy<T: Tape, V: From<f32> + Copy, G: Into<V>>(
-    tape: &T,
-) -> Box<dyn Fn(G, G) -> [V; 2]> {
+fn bind_xy<T: Tape, V, G: Into<V>>(tape: &T) -> Box<dyn Fn(G, G) -> [V; 2]> {
     let vars = tape.vars();
     let ix = vars[&Var::X];
     let iy = vars[&Var::Y];
     assert_ne!(ix, iy);
     Box::new(move |x, y| {
-        let mut out = [V::from(0f32); 2];
-        out[ix] = x.into();
-        out[iy] = y.into();
-        out
+        let mut out = [None, None];
+        out[ix] = Some(x.into());
+        out[iy] = Some(y.into());
+        out.map(Option::unwrap)
     })
 }
 
-fn bind_xyz<T: Tape, V: From<f32> + Copy, G: Into<V>>(
+fn bind_xyz<T: Tape, V, G: Into<V>>(
     tape: &T,
 ) -> Box<dyn Fn(G, G, G) -> [V; 3]> {
     let vars = tape.vars();
@@ -86,11 +84,11 @@ fn bind_xyz<T: Tape, V: From<f32> + Copy, G: Into<V>>(
     assert_ne!(iy, iz);
     assert_ne!(ix, iz);
     Box::new(move |x, y, z| {
-        let mut out = [V::from(0f32); 3];
-        out[ix] = x.into();
-        out[iy] = y.into();
-        out[iz] = z.into();
-        out
+        let mut out = [None, None, None];
+        out[ix] = Some(x.into());
+        out[iy] = Some(y.into());
+        out[iz] = Some(z.into());
+        out.map(Option::unwrap)
     })
 }
 

@@ -29,7 +29,7 @@ pub fn eval_script(s: &str) -> Result<JsTree, String> {
 pub fn serialize_into_tape(t: JsTree) -> Result<Vec<u8>, String> {
     let mut ctx = Context::new();
     let root = ctx.import(&t.0);
-    let shape = VmShape::new(&mut ctx, root).map_err(|e| format!("{e}"))?;
+    let shape = VmShape::new(&ctx, root).map_err(|e| format!("{e}"))?;
     let vm_data = shape.inner().data();
     let axes = shape.axes();
     bincode::serialize(&(vm_data, axes)).map_err(|e| format!("{e}"))

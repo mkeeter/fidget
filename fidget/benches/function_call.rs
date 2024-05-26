@@ -9,12 +9,12 @@ use fidget::{
 
 pub fn run_bench<F: Function + MathFunction>(
     c: &mut Criterion,
-    mut ctx: Context,
+    ctx: Context,
     node: Node,
     test_name: &'static str,
     name: &'static str,
 ) {
-    let shape_vm = &Shape::<F>::new(&mut ctx, node).unwrap();
+    let shape_vm = &Shape::<F>::new(&ctx, node).unwrap();
 
     let mut eval = Shape::<F>::new_float_slice_eval();
     let tape = shape_vm.ez_float_slice_tape();
