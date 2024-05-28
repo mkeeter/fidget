@@ -258,7 +258,7 @@ fn main() -> Result<()> {
     let now = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(&args.input)?;
-    let (mut ctx, root) = Context::from_text(&mut file)?;
+    let (ctx, root) = Context::from_text(&mut file)?;
     info!("Loaded file in {:?}", now.elapsed());
 
     match args.cmd {
