@@ -1,4 +1,5 @@
 //! Module containing the Fidget universal error type
+use crate::var::Var;
 use thiserror::Error;
 
 /// Universal error type for Fidget
@@ -7,9 +8,14 @@ pub enum Error {
     /// Node is not present in this `Context`
     #[error("node is not present in this `Context`")]
     BadNode,
+
     /// Variable is not present in this `Context`
     #[error("variable is not present in this `Context`")]
     BadVar,
+
+    /// Variable is missing in the evaluation map
+    #[error("variable {0} is missing in the evaluation map")]
+    MissingVar(Var),
 
     /// The given node does not have an associated variable
     #[error("node does not have an associated variable")]
@@ -18,6 +24,7 @@ pub enum Error {
     /// `Context` is empty
     #[error("`Context` is empty")]
     EmptyContext,
+
     /// `IndexMap` is empty
     #[error("`IndexMap` is empty")]
     EmptyMap,
@@ -25,6 +32,7 @@ pub enum Error {
     /// Unknown opcode {0}
     #[error("unknown opcode {0}")]
     UnknownOpcode(String),
+
     /// Unknown variable {0}
     #[error("unknown variable {0}")]
     UnknownVariable(String),

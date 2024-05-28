@@ -9,10 +9,6 @@
 use crate::{eval::Tape, Error};
 
 /// Trait for bulk evaluation returning the given type `T`
-///
-/// It's uncommon to use this trait outside the library itself; it's an
-/// abstraction to reduce code duplication, and is public because it's used as a
-/// constraint on other public APIs.
 pub trait BulkEvaluator: Default {
     /// Data type used during evaluation
     type Data: From<f32> + Copy + Clone;
@@ -30,8 +26,12 @@ pub trait BulkEvaluator: Default {
 
     /// Evaluates many points using the given instruction tape
     ///
-    /// Returns an error if the `x`, `y`, `z`, and `out` slices are of different
-    /// lengths.
+    /// `vars` should be a slice-of-slices (or a slice-of-`Vec`s) representing
+    /// input arguments for each of the tape's variables; use [`Tape::vars`] to
+    /// map from [`Var`](crate::var::Var) to position in the list.
+    ///
+    /// Returns an error if any of the `var` slices are of different lengths, or
+    /// if all variables aren't present.
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
@@ -41,27 +41,5 @@ pub trait BulkEvaluator: Default {
     /// Build a new empty evaluator
     fn new() -> Self {
         Self::default()
-    }
-
-    /// Helper function to return an error if the inputs are invalid
-    fn check_arguments<V: std::ops::Deref<Target = [Self::Data]>>(
-        &self,
-        vars: &[V],
-        var_count: usize,
-    ) -> Result<(), Error> {
-        // It's fine if the caller has given us extra variables (e.g. due to
-        // tape simplification), but it must have given us enough.
-        if vars.len() < var_count {
-            Err(Error::BadVarSlice(vars.len(), var_count))
-        } else {
-            let Some(n) = vars.first().map(|v| v.len()) else {
-                return Ok(());
-            };
-            if vars.iter().any(|v| v.len() == n) {
-                Ok(())
-            } else {
-                Err(Error::MismatchedSlices)
-            }
-        }
     }
 }

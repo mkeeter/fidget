@@ -163,14 +163,16 @@ impl Context {
     /// To make an anonymous variable, call this function with [`Var::new()`]:
     ///
     /// ```
+    /// # use fidget::{context::Context, var::Var};
+    /// # use std::collections::HashMap;
     /// let mut ctx = Context::new();
     /// let v1 = ctx.var(Var::new());
     /// let v2 = ctx.var(Var::new());
     /// assert_ne!(v1, v2);
     ///
     /// let mut vars = HashMap::new();
-    /// vars.insert(v1.get_var().unwrap(), 3.0);
-    /// assert_eq!(ctx.eval(v1, &vars), 3.0);
+    /// vars.insert(ctx.get_var(v1).unwrap(), 3.0);
+    /// assert_eq!(ctx.eval(v1, &vars).unwrap(), 3.0);
     /// assert!(ctx.eval(v2, &vars).is_err()); // v2 isn't in the map
     /// ```
     pub fn var(&mut self, v: Var) -> Node {
@@ -801,7 +803,7 @@ impl Context {
         }
         let mut get = |n: Node| self.eval_inner(n, vars, cache);
         let v = match self.get_op(node).ok_or(Error::BadNode)? {
-            Op::Input(v) => *vars.get(v).unwrap(),
+            Op::Input(v) => *vars.get(v).ok_or(Error::MissingVar(*v))?,
             Op::Const(c) => c.0,
 
             Op::Binary(op, a, b) => {

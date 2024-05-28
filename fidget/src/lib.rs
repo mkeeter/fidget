@@ -21,6 +21,10 @@
 //! the rest of this page is a quick tour through the library APIs.
 //!
 //! # Shape construction
+//! A "shape" is a closed-form function of `(x, y, z)` with a single output.
+//! For example, a circle of radius `1` could be expressed as
+//! `sqrt(x*x + y*y) - 1`.
+//!
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
 //! an arena-style allocator, doing local deduplication and other simple

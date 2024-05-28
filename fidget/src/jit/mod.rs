@@ -1027,7 +1027,7 @@ impl TracingEvaluator for JitIntervalEval {
         tape: &Self::Tape,
         vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        self.check_arguments(vars, tape.vars().len())?;
+        tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
 }
@@ -1046,7 +1046,7 @@ impl TracingEvaluator for JitPointEval {
         tape: &Self::Tape,
         vars: &[Self::Data],
     ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
-        self.check_arguments(vars, tape.vars().len())?;
+        tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
 }
@@ -1201,7 +1201,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.vars().len())?;
+        tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
 }
@@ -1219,7 +1219,7 @@ impl BulkEvaluator for JitGradSliceEval {
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[Self::Data], Error> {
-        self.check_arguments(vars, tape.vars().len())?;
+        tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
 }

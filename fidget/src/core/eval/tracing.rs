@@ -34,6 +34,12 @@ pub trait TracingEvaluator: Default {
     type Trace;
 
     /// Evaluates the given tape at a particular position
+    ///
+    /// `vars` should be a slice of values representing input arguments for each
+    /// of the tape's variables; use [`Tape::vars`] to map from
+    /// [`Var`](crate::var::Var) to position in the list.
+    ///
+    /// Returns an error if the `var` slice is not of sufficient length.
     fn eval(
         &mut self,
         tape: &Self::Tape,
@@ -43,20 +49,5 @@ pub trait TracingEvaluator: Default {
     /// Build a new empty evaluator
     fn new() -> Self {
         Self::default()
-    }
-
-    /// Helper function to return an error if the inputs are invalid
-    fn check_arguments(
-        &self,
-        vars: &[Self::Data],
-        var_count: usize,
-    ) -> Result<(), Error> {
-        if vars.len() < var_count {
-            // It's okay to be passed extra vars, because expressions may have
-            // been simplified.
-            Err(Error::BadVarSlice(vars.len(), var_count))
-        } else {
-            Ok(())
-        }
     }
 }

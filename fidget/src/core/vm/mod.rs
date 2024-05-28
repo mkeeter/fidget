@@ -139,11 +139,6 @@ impl<const N: usize> GenericVmFunction<N> {
     pub fn choice_count(&self) -> usize {
         self.0.choice_count()
     }
-
-    /// Returns the number of variables (inputs) in the tape
-    pub fn var_count(&self) -> usize {
-        self.0.var_count()
-    }
 }
 
 impl<const N: usize> Function for GenericVmFunction<N> {
@@ -270,8 +265,8 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         tape: &Self::Tape,
         vars: &[Interval],
     ) -> Result<(Interval, Option<&VmTrace>), Error> {
+        tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut simplify = false;
@@ -499,8 +494,8 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         tape: &Self::Tape,
         vars: &[f32],
     ) -> Result<(f32, Option<&VmTrace>), Error> {
+        tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
@@ -813,8 +808,8 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[f32], Error> {
+        tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
 
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
         self.0.resize_slots(tape, size);
@@ -1122,8 +1117,8 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[Grad], Error> {
+        tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
         self.0.resize_slots(tape, size);
 
