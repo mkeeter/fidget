@@ -32,10 +32,14 @@ pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 /// Shape that use a the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
 
+/// Tape storage type which indicates that there's no actual backing storage
+#[derive(Default)]
+pub struct EmptyTapeStorage;
+
 impl<const N: usize> Tape for GenericVmFunction<N> {
-    type Storage = ();
+    type Storage = EmptyTapeStorage;
     fn recycle(self) -> Self::Storage {
-        // nothing to do here
+        EmptyTapeStorage
     }
 
     fn vars(&self) -> &VarMap {
@@ -135,11 +139,6 @@ impl<const N: usize> GenericVmFunction<N> {
     pub fn choice_count(&self) -> usize {
         self.0.choice_count()
     }
-
-    /// Returns the number of variables (inputs) in the tape
-    pub fn var_count(&self) -> usize {
-        self.0.var_count()
-    }
 }
 
 impl<const N: usize> Function for GenericVmFunction<N> {
@@ -147,21 +146,21 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     type Storage = VmData<N>;
     type Workspace = VmWorkspace<N>;
 
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
-    fn float_slice_tape(&self, _storage: ()) -> Self {
+    fn float_slice_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type GradSliceEval = VmGradSliceEval<N>;
-    fn grad_slice_tape(&self, _storage: ()) -> Self {
+    fn grad_slice_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type PointEval = VmPointEval<N>;
-    fn point_tape(&self, _storage: ()) -> Self {
+    fn point_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type IntervalEval = VmIntervalEval<N>;
-    fn interval_tape(&self, _storage: ()) -> Self {
+    fn interval_tape(&self, _storage: EmptyTapeStorage) -> Self {
         self.clone()
     }
     type Trace = VmTrace;
@@ -259,15 +258,15 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
     type Data = Interval;
     type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval(
         &mut self,
         tape: &Self::Tape,
         vars: &[Interval],
     ) -> Result<(Interval, Option<&VmTrace>), Error> {
+        tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut simplify = false;
@@ -488,15 +487,15 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
     type Data = f32;
     type Tape = GenericVmFunction<N>;
     type Trace = VmTrace;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval(
         &mut self,
         tape: &Self::Tape,
         vars: &[f32],
     ) -> Result<(f32, Option<&VmTrace>), Error> {
+        tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         self.0.resize_slots(tape);
 
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
@@ -802,15 +801,15 @@ pub struct VmFloatSliceEval<const N: usize>(BulkVmEval<f32>);
 impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
     type Data = f32;
     type Tape = GenericVmFunction<N>;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[f32], Error> {
+        tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
 
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
         self.0.resize_slots(tape, size);
@@ -1111,15 +1110,15 @@ pub struct VmGradSliceEval<const N: usize>(BulkVmEval<Grad>);
 impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
     type Data = Grad;
     type Tape = GenericVmFunction<N>;
-    type TapeStorage = ();
+    type TapeStorage = EmptyTapeStorage;
 
     fn eval<V: std::ops::Deref<Target = [Self::Data]>>(
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
     ) -> Result<&[Grad], Error> {
+        tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
-        self.check_arguments(vars, tape.var_count())?;
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
         self.0.resize_slots(tape, size);
 

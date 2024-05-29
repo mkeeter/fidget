@@ -18,10 +18,8 @@ pub use tracing::TracingEvaluator;
 
 /// A tape represents something that can be evaluated by an evaluator
 ///
-/// It includes some kind of storage and the ability to look up variable
-/// mapping.  The variable mapping should be identical to calling
-/// [`Function::vars`] on the `Function` which produced this tape, but it's
-/// convenient to be able to look up vars locally.
+/// It includes some kind of storage (which could be empty) and the ability to
+/// look up variable mapping.
 pub trait Tape {
     /// Associated type for this tape's data storage
     type Storage: Default;

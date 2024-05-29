@@ -3,8 +3,9 @@
 //! A [`Var`] maintains a persistent identity from
 //! [`Tree`](crate::context::Tree) to [`Context`](crate::context::Node) (where
 //! it is wrapped in a [`Op::Input`](crate::context::Op::Input)) to evaluation
-//! (where [`Function::vars`](crate::eval::Function::vars) maps from `Var` to
-//! index in the argument list).
+//! (where [`Tape::vars`](crate::eval::Tape::vars) maps from `Var` to index in
+//! the argument list).
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -16,7 +17,6 @@ use std::collections::HashMap;
 /// Variables are "global", in that every instance of `Var::X` represents the
 /// same thing.  To generate a "local" variable, [`Var::new`] picks a random
 /// 64-bit value, which is very unlikely to collide with anything else.
-#[allow(missing_docs)]
 #[derive(
     Copy,
     Clone,
@@ -30,13 +30,17 @@ use std::collections::HashMap;
     Deserialize,
 )]
 pub enum Var {
+    /// Variable representing the X axis for 2D / 3D shapes
     X,
+    /// Variable representing the Y axis for 2D / 3D shapes
     Y,
+    /// Variable representing the Z axis for 3D shapes
     Z,
+    /// Generic variable
     V(VarIndex),
 }
 
-/// Type for a variable index (implemented as a `u64`)
+/// Type for a variable index (implemented as a `u64`), used in [`Var::V`]
 #[derive(
     Copy,
     Clone,
@@ -91,8 +95,10 @@ impl std::fmt::Display for Var {
 /// Variable indexes are automatically assigned the first time
 /// [`VarMap::insert`] is called on that variable.
 ///
-/// Indexes are guaranteed to be tightly packed, i.e. contains values from
-/// `0..vars.len()`.
+/// Indexes are guaranteed to be tightly packed, i.e. a map `vars` will contains
+/// values from `0..vars.len()`.
+///
+/// For efficiency, this type does not allocate heap memory for `Var::X/Y/Z`.
 #[derive(Default, Serialize, Deserialize)]
 pub struct VarMap {
     x: Option<usize>,
@@ -137,6 +143,39 @@ impl VarMap {
             Var::Z => self.z.get_or_insert(next),
             Var::V(v) => self.v.entry(v).or_insert(next),
         };
+    }
+
+    pub(crate) fn check_tracing_arguments<T>(
+        &self,
+        vars: &[T],
+    ) -> Result<(), Error> {
+        if vars.len() < self.len() {
+            // It's okay to be passed extra vars, because expressions may have
+            // been simplified.
+            Err(Error::BadVarSlice(vars.len(), self.len()))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn check_bulk_arguments<T, V: std::ops::Deref<Target = [T]>>(
+        &self,
+        vars: &[V],
+    ) -> Result<(), Error> {
+        // It's fine if the caller has given us extra variables (e.g. due to
+        // tape simplification), but it must have given us enough.
+        if vars.len() < self.len() {
+            Err(Error::BadVarSlice(vars.len(), self.len()))
+        } else {
+            let Some(n) = vars.first().map(|v| v.len()) else {
+                return Ok(());
+            };
+            if vars.iter().any(|v| v.len() == n) {
+                Ok(())
+            } else {
+                Err(Error::MismatchedSlices)
+            }
+        }
     }
 }
 

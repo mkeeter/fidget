@@ -367,7 +367,6 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
         let shape = VmFunction::new(&ctx, node).unwrap();
-        #[allow(clippy::unit_arg)]
         let tape = shape.grad_slice_tape(Default::default());
 
         let cmp = TestGradSlice::<VmFunction>::eval_xyz(&tape, &x, &y, &z);

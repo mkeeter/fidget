@@ -1,5 +1,5 @@
-//! Fidget is a library of infrastructure and algorithms for complex closed-form
-//! implicit surfaces.
+//! Fidget is a library of infrastructure and algorithms for function
+//! evaluation, with an emphasis on complex closed-form implicit surfaces.
 //!
 //! An **implicit surface** is a function `f(x, y, z)`, where `x`, `y`, and `z`
 //! represent a position in 3D space.  By convention, if `f(x, y, z) < 0`, then
@@ -21,6 +21,10 @@
 //! the rest of this page is a quick tour through the library APIs.
 //!
 //! # Shape construction
+//! A "shape" is a closed-form function of `(x, y, z)` with a single output.
+//! For example, a circle of radius `1` could be expressed as
+//! `sqrt(x*x + y*y) - 1`.
+//!
 //! Shapes are constructed within a
 //! [`fidget::context::Context`](crate::context::Context).  A context serves as
 //! an arena-style allocator, doing local deduplication and other simple
@@ -109,8 +113,8 @@
 //! [`Shape`](crate::shape::Shape), which binds `(x, y, z)` axes to specific
 //! variables.
 //!
-//! Here's a simple example of interval evaluation, using a `Shape` to wrap a
-//! function and evaluate it at a particular `(x, y, z)` position:
+//! Here's a simple example of multi-point evaluation, using a `VmShape` to
+//! evaluate the function `X + Y` at four sample locations:
 //!
 //! ```
 //! use fidget::{
@@ -121,15 +125,15 @@
 //!
 //! let tree = Tree::x() + Tree::y();
 //! let shape = VmShape::from(tree);
-//! let mut interval_eval = VmShape::new_interval_eval();
-//! let tape = shape.ez_interval_tape();
-//! let (out, _trace) = interval_eval.eval(
+//! let mut eval = VmShape::new_float_slice_eval();
+//! let tape = shape.ez_float_slice_tape();
+//! let out = eval.eval(
 //!     &tape,
-//!     [0.0, 1.0], // X
-//!     [2.0, 3.0], // Y
-//!     [0.0, 0.0], // Z
+//!     &[0.0, 1.0, 2.0, 3.0], // X
+//!     &[2.0, 3.0, 4.0, 5.0], // Y
+//!     &[0.0, 0.0, 0.0, 0.0], // Z
 //! )?;
-//! assert_eq!(out, [2.0, 4.0].into());
+//! assert_eq!(out, &[2.0, 4.0, 6.0, 8.0]);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

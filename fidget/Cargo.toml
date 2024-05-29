@@ -1,6 +1,6 @@
 [package]
 name = "fidget"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2021"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -60,7 +60,7 @@ render = []
 ## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
 mesh = ["dep:crossbeam-deque"]
 
-## Enable `eval-tests` if you're writing your own Shape / evaluators and want to
+## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
 ## evaluator type, e.g. `float_slice_tests!(...)`.
 eval-tests = []

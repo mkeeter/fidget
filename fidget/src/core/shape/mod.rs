@@ -1,7 +1,7 @@
 //! Data structures for shape evaluation
 //!
 //! Types in this module are typically thin (generic) wrappers around objects
-//! that implement traits in [`fidget::eval`](crate::eval).  The wraper types
+//! that implement traits in [`fidget::eval`](crate::eval).  The wrapper types
 //! are specialized to operate on `x, y, z` arguments, rather than taking
 //! arbitrary numbers of variables.
 //!
@@ -467,7 +467,11 @@ impl<E: BulkEvaluator> ShapeBulkEval<E>
 where
     E::Data: From<f32> + Transformable,
 {
-    /// Bulk evaluation of many samples
+    /// Bulk evaluation of many samples, without any variables
+    ///
+    /// If the shape includes variables other than `X`, `Y`, `Z`,
+    /// [`eval_v`](Self::eval_v) should be used instead (and this function will
+    /// return an error).
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval(
@@ -481,7 +485,7 @@ where
         self.eval_v(tape, x, y, z, &h)
     }
 
-    /// Bulk evaluation of many samples
+    /// Bulk evaluation of many samples, with variables
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval_v<V: std::ops::Deref<Target = [E::Data]>>(
