@@ -1,4 +1,4 @@
-# 0.2.8
+# 0.3.0
 - Major refactoring of core evaluation traits
     - The lowest-level "thing that can be evaluated" trait has changed from
       `Shape` (taking `(x, y, z)` inputs) to `Function` (taking an arbitrary
