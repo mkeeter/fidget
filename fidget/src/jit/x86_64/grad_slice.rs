@@ -561,7 +561,6 @@ impl GradSliceAssembler {
             ; mov [rbp - 0x10], rsi
             ; mov [rbp - 0x18], rdx
             ; mov [rbp - 0x20], rcx
-            ; mov [rbp - 0x28], r8
 
             // Back up register values to the stack, saving all 128 bits
             ; vmovups [rsp], xmm4
@@ -606,7 +605,6 @@ impl GradSliceAssembler {
             ; mov rsi, [rbp - 0x10]
             ; mov rdx, [rbp - 0x18]
             ; mov rcx, [rbp - 0x20]
-            ; mov r8, [rbp - 0x28]
 
             // Collect the 4x floats into the out register
             ; vpunpcklqdq Rx(reg(out_reg)), xmm0, xmm1
