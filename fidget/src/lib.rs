@@ -113,8 +113,8 @@
 //! [`Shape`](crate::shape::Shape), which binds `(x, y, z)` axes to specific
 //! variables.
 //!
-//! Here's a simple example of interval evaluation, using a `Shape` to wrap a
-//! function and evaluate it at a particular `(x, y, z)` position:
+//! Here's a simple example of multi-point evaluation, using a `VmShape` to
+//! evaluate the function `X + Y` at four sample locations:
 //!
 //! ```
 //! use fidget::{
@@ -125,15 +125,15 @@
 //!
 //! let tree = Tree::x() + Tree::y();
 //! let shape = VmShape::from(tree);
-//! let mut interval_eval = VmShape::new_interval_eval();
-//! let tape = shape.ez_interval_tape();
-//! let (out, _trace) = interval_eval.eval(
+//! let mut eval = VmShape::new_float_slice_eval();
+//! let tape = shape.ez_float_slice_tape();
+//! let out = eval.eval(
 //!     &tape,
-//!     [0.0, 1.0], // X
-//!     [2.0, 3.0], // Y
-//!     [0.0, 0.0], // Z
+//!     &[0.0, 1.0, 2.0, 3.0], // X
+//!     &[2.0, 3.0, 4.0, 5.0], // Y
+//!     &[0.0, 0.0, 0.0, 0.0], // Z
 //! )?;
-//! assert_eq!(out, [2.0, 4.0].into());
+//! assert_eq!(out, &[2.0, 4.0, 6.0, 8.0]);
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!
