@@ -60,7 +60,7 @@ render = []
 ## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
 mesh = ["dep:crossbeam-deque"]
 
-## Enable `eval-tests` if you're writing your own Shape / evaluators and want to
+## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
 ## evaluator type, e.g. `float_slice_tests!(...)`.
 eval-tests = []
