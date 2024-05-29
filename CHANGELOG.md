@@ -1,3 +1,5 @@
+# 0.3.1 (unreleased)
+
 # 0.3.0
 - Major refactoring of core evaluation traits
     - The lowest-level "thing that can be evaluated" trait has changed from
