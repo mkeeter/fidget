@@ -39,9 +39,23 @@ pub fn solve<F: Function>(
         }
     }
 
-    // Build a map from free variable to index of its gradient
-    let grad_index: HashMap<Var, usize> =
-        cur.keys().enumerate().map(|(i, v)| (*v, i)).collect();
+    // Build a map from free variable to index of its gradient, since we'll be
+    // using tightly-packed Vec everywhere here
+    let grad_index: HashMap<Var, usize> = vars
+        .iter()
+        .filter(|(_v, p)| matches!(p, Parameter::Free(..)))
+        .enumerate()
+        .map(|(i, (v, _p))| (*v, i))
+        .collect();
+
+    // Build an array of current values for each free variable
+    let mut cur = vec![0f32; grad_index.len()];
+    for (v, i) in &grad_index {
+        let Parameter::Free(f) = vars[v] else {
+            unreachable!();
+        };
+        cur[*i] = f;
+    }
 
     // Build a scratch array with rows for each variable, and enough columns to
     // simultaneously compute all of the gradients that we need
@@ -53,8 +67,11 @@ pub fn solve<F: Function>(
             // Build the evaluation data array
             // TODO: set up gradients once then only change values?
             for (v, p) in vars {
-                let (gv, f) = match p {
-                    Parameter::Free(..) => (Some(v), cur[v]),
+                let (gi, f) = match p {
+                    Parameter::Free(..) => {
+                        let gi = grad_index[v];
+                        (Some(gi), cur[gi])
+                    }
                     Parameter::Fixed(f) => (None, *f),
                 };
                 let var_map = tape.vars();
@@ -66,7 +83,6 @@ pub fn solve<F: Function>(
                     return Err(Error::BadVarIndex(i, scratch.len()));
                 }
                 let slice = &mut scratch[var_map[v]];
-                let gi = gv.map(|v| grad_index[v]);
                 if let Some(gi) = gi {
                     for (j, v) in slice.iter_mut().enumerate() {
                         *v = Grad::new(
