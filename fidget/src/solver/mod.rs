@@ -101,11 +101,16 @@ pub fn solve<F: Function>(
                 println!("{s:?}");
             }
             println!(" => {out:?}");
+            // TODO populate this row of the Jacobian
         }
+        // TODO: calculate the next step and update `cur`
+        // TODO: determine exit critera for breaking out of the loop
         break;
     }
 
-    Ok(HashMap::new())
+    // Return the new "current" values, which are our optimized position
+    let out = grad_index.into_iter().map(|(v, i)| (v, cur[i])).collect();
+    Ok(out)
 }
 
 #[cfg(test)]
