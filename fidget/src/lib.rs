@@ -282,3 +282,6 @@ pub mod jit;
 
 #[cfg(feature = "mesh")]
 pub mod mesh;
+
+#[cfg(feature = "solver")]
+pub mod solver;

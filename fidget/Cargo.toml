@@ -40,7 +40,7 @@ windows = { version = "0.54.0", features = ["Win32_Foundation", "Win32_System_Me
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
-default = ["jit", "rhai", "render", "mesh"]
+default = ["jit", "rhai", "render", "mesh", "solver"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -59,6 +59,10 @@ render = []
 
 ## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
 mesh = ["dep:crossbeam-deque"]
+
+## Enable a system-of-equations solver, in the [`fidget::solver`](crate::solver)
+## module
+solver = []
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each
