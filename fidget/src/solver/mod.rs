@@ -62,8 +62,11 @@ pub fn solve<F: Function>(
     let mut scratch =
         vec![vec![Grad::from(0f32); cur.len().div_ceil(3)]; vars.len()];
 
-    loop {
-        for tape in &tapes {
+    let mut jacobian = nalgebra::DMatrix::repeat(tapes.len(), cur.len(), 0f32);
+    let mut result = nalgebra::DVector::repeat(tapes.len(), 0f32);
+
+    for _ in 0..100 {
+        for (ti, tape) in tapes.iter().enumerate() {
             // Build the evaluation data array
             // TODO: set up gradients once then only change values?
             for (v, p) in vars {
@@ -97,19 +100,37 @@ pub fn solve<F: Function>(
                 }
             }
             let out = eval.eval(tape, &scratch)?;
-            for s in &scratch {
-                println!("{s:?}");
+
+            // Populate this row of the Jacobian
+            for gi in 0..grad_index.len() {
+                *jacobian.get_mut((ti, gi)).unwrap() = out[gi / 3].d(gi % 3);
             }
-            println!(" => {out:?}");
-            // TODO populate this row of the Jacobian
+            result[ti] = out[0].v;
         }
         // TODO: calculate the next step and update `cur`
         // TODO: determine exit critera for breaking out of the loop
-        break;
+        //
+        let jt = jacobian.transpose();
+        let jt_j = &jt * &jacobian;
+
+        let err = jt * &result;
+
+        let jt_j_i = (&jt_j
+            + nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
+        .try_inverse()
+        .unwrap();
+
+        let delta = jt_j_i * err;
+
+        for gi in 0..grad_index.len() {
+            cur[gi] -= delta[gi];
+        }
     }
+    println!("got result \n{result}");
 
     // Return the new "current" values, which are our optimized position
     let out = grad_index.into_iter().map(|(v, i)| (v, cur[i])).collect();
+    println!("solved to {out:?}");
     Ok(out)
 }
 
