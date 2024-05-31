@@ -1,4 +1,6 @@
 # 0.3.1 (unreleased)
+- Fixed a bug in the x86 JIT which could corrupt registers during gradient
+  (`grad_slice`) evaluation
 
 # 0.3.0
 - Major refactoring of core evaluation traits
