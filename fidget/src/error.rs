@@ -21,6 +21,10 @@ pub enum Error {
     #[error("node does not have an associated variable")]
     NotAVar,
 
+    /// The given node is not a constant
+    #[error("node is not a constant")]
+    NotAConst,
+
     /// `Context` is empty
     #[error("`Context` is empty")]
     EmptyContext,

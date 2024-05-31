@@ -95,6 +95,12 @@ impl From<f32> for Tree {
     }
 }
 
+impl From<i32> for Tree {
+    fn from(v: i32) -> Tree {
+        Tree::constant(v as f64)
+    }
+}
+
 impl From<Var> for Tree {
     fn from(v: Var) -> Tree {
         Tree(Arc::new(TreeOp::Input(v)))
@@ -457,5 +463,15 @@ mod test {
             "tree import cache failed:
              {large:?} is not much larger than {small:?}"
         );
+    }
+
+    #[test]
+    fn tree_from_int() {
+        let a = Tree::from(3);
+        let b = a * 5;
+
+        let mut ctx = Context::new();
+        let root = ctx.import(&b);
+        assert_eq!(ctx.get_const(root).unwrap(), 15.0);
     }
 }

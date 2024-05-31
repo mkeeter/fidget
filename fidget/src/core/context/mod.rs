@@ -114,18 +114,18 @@ impl Context {
     ///
     /// If the node is invalid for this tree, returns an error; if the node is
     /// not a constant, returns `Ok(None)`.
-    pub fn const_value(&self, n: Node) -> Result<Option<f64>, Error> {
+    pub fn get_const(&self, n: Node) -> Result<f64, Error> {
         match self.get_op(n) {
-            Some(Op::Const(c)) => Ok(Some(c.0)),
-            Some(_) => Ok(None),
+            Some(Op::Const(c)) => Ok(c.0),
+            Some(_) => Err(Error::NotAConst),
             _ => Err(Error::BadNode),
         }
     }
 
     /// Looks up the [`Var`] associated with the given node.
     ///
-    /// If the node is invalid for this tree, returns an error; if the node is
-    /// not an `Op::Input`, returns `Ok(None)`.
+    /// If the node is invalid for this tree or not an `Op::Input`, returns an
+    /// error.
     pub fn get_var(&self, n: Node) -> Result<Var, Error> {
         match self.get_op(n) {
             Some(Op::Input(v)) => Ok(*v),
@@ -274,9 +274,9 @@ impl Context {
             let two = self.constant(2.0);
             self.mul(a, two)
         } else {
-            match (self.const_value(a)?, self.const_value(b)?) {
-                (Some(zero), _) if zero == 0.0 => Ok(b),
-                (_, Some(zero)) if zero == 0.0 => Ok(a),
+            match (self.get_const(a), self.get_const(b)) {
+                (Ok(zero), _) if zero == 0.0 => Ok(b),
+                (_, Ok(zero)) if zero == 0.0 => Ok(a),
                 _ => self.op_binary_commutative(a, b, BinaryOpcode::Add),
             }
         }
@@ -300,11 +300,11 @@ impl Context {
         if a == b {
             self.square(a)
         } else {
-            match (self.const_value(a)?, self.const_value(b)?) {
-                (Some(one), _) if one == 1.0 => Ok(b),
-                (_, Some(one)) if one == 1.0 => Ok(a),
-                (Some(zero), _) if zero == 0.0 => Ok(a),
-                (_, Some(zero)) if zero == 0.0 => Ok(b),
+            match (self.get_const(a), self.get_const(b)) {
+                (Ok(one), _) if one == 1.0 => Ok(b),
+                (_, Ok(one)) if one == 1.0 => Ok(a),
+                (Ok(zero), _) if zero == 0.0 => Ok(a),
+                (_, Ok(zero)) if zero == 0.0 => Ok(b),
                 _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
             }
         }
@@ -627,9 +627,9 @@ impl Context {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
-        match (self.const_value(a)?, self.const_value(b)?) {
-            (Some(zero), _) if zero == 0.0 => self.neg(b),
-            (_, Some(zero)) if zero == 0.0 => Ok(a),
+        match (self.get_const(a), self.get_const(b)) {
+            (Ok(zero), _) if zero == 0.0 => self.neg(b),
+            (_, Ok(zero)) if zero == 0.0 => Ok(a),
             _ => self.op_binary(a, b, BinaryOpcode::Sub),
         }
     }
@@ -651,9 +651,9 @@ impl Context {
         let a = a.into_node(self)?;
         let b = b.into_node(self)?;
 
-        match (self.const_value(a)?, self.const_value(b)?) {
-            (Some(zero), _) if zero == 0.0 => Ok(a),
-            (_, Some(one)) if one == 1.0 => Ok(a),
+        match (self.get_const(a), self.get_const(b)) {
+            (Ok(zero), _) if zero == 0.0 => Ok(a),
+            (_, Ok(one)) if one == 1.0 => Ok(a),
             _ => self.op_binary(a, b, BinaryOpcode::Div),
         }
     }

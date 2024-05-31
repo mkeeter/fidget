@@ -1,6 +1,9 @@
 # 0.3.1 (unreleased)
 - Fixed a bug in the x86 JIT which could corrupt registers during gradient
   (`grad_slice`) evaluation
+- Renamed `Context::const_value` to `Context::get_const` and tweaked its return
+  type to match `Context::get_var`.
+- Added `impl From<i32> for Tree` to make writing tree expressions easier
 
 # 0.3.0
 - Major refactoring of core evaluation traits

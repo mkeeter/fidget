@@ -228,7 +228,7 @@ impl SsaTape {
         // Special case if the Node is a single constant, which isn't usually
         // recorded in the tape
         if tape.is_empty() {
-            let c = ctx.const_value(root).unwrap().unwrap() as f32;
+            let c = ctx.get_const(root).unwrap() as f32;
             tape.push(SsaOp::CopyImm(0, c));
         }
 
