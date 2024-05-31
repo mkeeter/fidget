@@ -160,7 +160,7 @@ impl<'a, F: Function> Solver<'a, F> {
                 match p {
                     Parameter::Free(..) => {
                         let gi = self.grad_index[v];
-                        *f = cur[gi] + delta[gi];
+                        *f = cur[gi] - delta[gi];
                     }
                     Parameter::Fixed(p) => {
                         *f = *p;
@@ -190,6 +190,10 @@ pub fn solve<F: Function>(
     // "Improvements to the Levenberg-Marquardt algorithm for nonlinear
     // least-squares minimization" (Transtrum 2012)
     // https://arxiv.org/pdf/1201.5885
+    //
+    // "The Levenberg-Marquardt Algorithm"
+    // Ananth Ranganathan, 8th June 2004
+    // http://ananth.in/docs/lmtut.pdf
 
     let tapes = eqs
         .iter()
@@ -221,10 +225,9 @@ pub fn solve<F: Function>(
 
     let mut damping = 1.0;
     let mut prev_err = f32::INFINITY;
-    for _ in 0..100 {
+    for _step in 0..1000 {
         solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
-        // TODO: determine exit critera for breaking out of the loop
         let jt = jacobian.transpose();
         let jt_j = &jt * &jacobian;
 
@@ -232,11 +235,24 @@ pub fn solve<F: Function>(
 
         // TODO: be optimistic and evaluate the full gradient on the first
         // attempt, since it should usually succeed?
-        loop {
-            let jt_j_i = (&jt_j
-                + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
-            .try_inverse()
-            .unwrap();
+        let (err, step) = loop {
+            let adjusted = &jt_j
+                + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal());
+
+            let jt_j_i = match adjusted.try_inverse() {
+                Some(i) => i,
+                None => {
+                    let avg = jt_j.diagonal().mean();
+                    let adjusted = &jt_j
+                        + damping
+                            * nalgebra::DMatrix::from_diagonal_element(
+                                cur.len(),
+                                cur.len(),
+                                avg,
+                            );
+                    adjusted.try_inverse().unwrap()
+                }
+            };
             let delta = jt_j_i * &jt_r;
 
             let err = solver.get_err(&cur, (&delta).into())?;
@@ -246,17 +262,23 @@ pub fn solve<F: Function>(
             } else {
                 // We found a good step size, so reduce damping
                 damping /= 1.5;
-                for gi in 0..solver.grad_index.len() {
-                    cur[gi] -= delta[gi];
-                }
-                prev_err = err;
-                break;
+                break (err, delta);
             }
+        };
+        // Update our current position, checking whether it actually changed
+        // (i.e. whether our steps are below the floating-point epsilon)
+        //
+        // TODO: improve exit critera?
+        let mut changed = false;
+        for gi in 0..solver.grad_index.len() {
+            let prev = cur[gi];
+            cur[gi] -= step[gi];
+            changed |= prev != cur[gi];
         }
-        // The easiest termination condition:
-        if prev_err == 0.0 {
+        if !changed || err == 0.0 {
             break;
         }
+        prev_err = err;
     }
 
     // Return the new "current" values, which are our optimized position
@@ -365,5 +387,28 @@ mod test {
 
         assert_relative_eq!((x * 2.0 + y * 3.0) * (x - y), 2.0);
         assert_relative_eq!(x * 3.0 + y, 5.0);
+    }
+
+    #[test]
+    fn one_var_no_solution() {
+        // Solve for X == 1 and X == 2 simultaneously
+        let constraints = vec![Tree::x() - 1.0, Tree::x() - 2.0];
+
+        let mut ctx = Context::new();
+        let eqns = constraints
+            .into_iter()
+            .map(|c| {
+                let root = ctx.import(&c);
+                VmFunction::new(&ctx, root).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let mut values = HashMap::new();
+        values.insert(Var::X, Parameter::Free(0.0));
+
+        let sol = solve(&eqns, &values).unwrap();
+
+        let x = sol[&Var::X];
+        assert_relative_eq!(x, 1.5);
     }
 }
