@@ -31,8 +31,11 @@ struct Solver<'a, F: Function> {
     /// Single-point evaluator, for use in checking our current error
     point_eval: F::PointEval,
 
-    /// Input data for use when calling the evaluator
-    input: Vec<Vec<Grad>>,
+    /// Input data for use when calling the gradient bulk evaluator
+    input_grad: Vec<Vec<Grad>>,
+
+    /// Input data for use when calling the single-point evaluator
+    input_point: Vec<f32>,
 
     /// Map from (free) variables to the index of their gradient
     ///
@@ -69,10 +72,12 @@ impl<'a, F: Function> Solver<'a, F> {
 
         // Build a scratch array with rows for each variable, and enough columns
         // to simultaneously compute all of the gradients that we need
-        let input = vec![
-            vec![Grad::from(0f32); grad_index.len().div_ceil(3)];
-            vars.len()
-        ];
+        let input_grad =
+            vec![
+                vec![Grad::from(0f32); grad_index.len().div_ceil(3)];
+                vars.len()
+            ];
+        let input_point = vec![0f32; vars.len()];
 
         Ok(Self {
             vars,
@@ -81,7 +86,9 @@ impl<'a, F: Function> Solver<'a, F> {
             grad_eval: Default::default(),
             point_eval: Default::default(),
             grad_index,
-            input,
+
+            input_grad,
+            input_point,
         })
     }
 
@@ -104,8 +111,8 @@ impl<'a, F: Function> Solver<'a, F> {
                 let Some(i) = tape.vars().get(v) else {
                     continue;
                 };
-                let Some(slice) = self.input.get_mut(i) else {
-                    return Err(Error::BadVarIndex(i, self.input.len()));
+                let Some(slice) = self.input_grad.get_mut(i) else {
+                    return Err(Error::BadVarIndex(i, self.input_grad.len()));
                 };
                 match p {
                     Parameter::Free(..) => {
@@ -125,7 +132,7 @@ impl<'a, F: Function> Solver<'a, F> {
                 };
             }
             // Do the actual gradient evaluation
-            let out = self.grad_eval.eval(tape, &self.input)?;
+            let out = self.grad_eval.eval(tape, &self.input_grad)?;
 
             // Populate this row of the Jacobian
             for gi in 0..self.grad_index.len() {
@@ -134,6 +141,37 @@ impl<'a, F: Function> Solver<'a, F> {
             result[ti] = out[0].v;
         }
         Ok(())
+    }
+
+    fn get_err(&mut self, cur: &[f32], delta: &[f32]) -> Result<f32, Error> {
+        let mut err = 0f32;
+        for tape in self.point_tapes.iter() {
+            // Update the free values in the gradient evaluation array
+            //
+            // (we preloaded unit gradients and fixed values in the appropriate
+            // locations, which don't change from evaluation to evaluation)
+            for (v, p) in self.vars {
+                let Some(i) = tape.vars().get(v) else {
+                    continue;
+                };
+                let Some(f) = self.input_point.get_mut(i) else {
+                    return Err(Error::BadVarIndex(i, self.input_point.len()));
+                };
+                match p {
+                    Parameter::Free(..) => {
+                        let gi = self.grad_index[v];
+                        *f = cur[gi] + delta[gi];
+                    }
+                    Parameter::Fixed(p) => {
+                        *f = *p;
+                    }
+                };
+            }
+            // Do the actual gradient evaluation
+            let (out, _t) = self.point_eval.eval(tape, &self.input_point)?;
+            err += out.powi(2);
+        }
+        Ok(err)
     }
 }
 
@@ -182,6 +220,7 @@ pub fn solve<F: Function>(
     let mut result = nalgebra::DVector::repeat(tapes.len(), 0f32);
 
     let mut damping = 1.0;
+    let mut prev_err = f32::INFINITY;
     for _ in 0..100 {
         solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
@@ -189,17 +228,34 @@ pub fn solve<F: Function>(
         let jt = jacobian.transpose();
         let jt_j = &jt * &jacobian;
 
-        let err = jt * &result;
+        let jt_r = jt * &result;
 
-        let jt_j_i = (&jt_j
-            + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
-        .try_inverse()
-        .unwrap();
+        // TODO: be optimistic and evaluate the full gradient on the first
+        // attempt, since it should usually succeed?
+        loop {
+            let jt_j_i = (&jt_j
+                + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
+            .try_inverse()
+            .unwrap();
+            let delta = jt_j_i * &jt_r;
 
-        let delta = jt_j_i * err;
-
-        for gi in 0..solver.grad_index.len() {
-            cur[gi] -= delta[gi];
+            let err = solver.get_err(&cur, (&delta).into())?;
+            if err > prev_err {
+                // Keep going in this inner loop, taking smaller steps
+                damping *= 3.0;
+            } else {
+                // We found a good step size, so reduce damping
+                damping /= 1.5;
+                for gi in 0..solver.grad_index.len() {
+                    cur[gi] -= delta[gi];
+                }
+                prev_err = err;
+                break;
+            }
+        }
+        // The easiest termination condition:
+        if prev_err == 0.0 {
+            break;
         }
     }
     println!("got result \n{result}");
