@@ -67,6 +67,7 @@ pub mod vm;
 mod test {
     use crate::context::*;
     use crate::var::Var;
+    use crate::Error;
 
     #[test]
     fn it_works() {
@@ -78,14 +79,14 @@ mod test {
         let a = ctx.constant(1.0);
         let b = ctx.constant(1.0);
         assert_eq!(a, b);
-        assert_eq!(ctx.const_value(a).unwrap(), Some(1.0));
-        assert_eq!(ctx.const_value(x1).unwrap(), None);
+        assert_eq!(ctx.get_const(a).unwrap(), 1.0);
+        assert!(matches!(ctx.get_const(x1), Err(Error::NotAConst)));
 
         let c = ctx.add(a, b).unwrap();
-        assert_eq!(ctx.const_value(c).unwrap(), Some(2.0));
+        assert_eq!(ctx.get_const(c).unwrap(), 2.0);
 
         let c = ctx.neg(c).unwrap();
-        assert_eq!(ctx.const_value(c).unwrap(), Some(-2.0));
+        assert_eq!(ctx.get_const(c).unwrap(), -2.0);
     }
 
     #[test]
