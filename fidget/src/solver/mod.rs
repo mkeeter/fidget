@@ -258,7 +258,6 @@ pub fn solve<F: Function>(
             break;
         }
     }
-    println!("got result \n{result}");
 
     // Return the new "current" values, which are our optimized position
     let out = solver
@@ -266,7 +265,6 @@ pub fn solve<F: Function>(
         .into_iter()
         .map(|(v, i)| (v, cur[i]))
         .collect();
-    println!("solved to {out:?}");
     Ok(out)
 }
 
@@ -278,6 +276,7 @@ mod test {
         eval::MathFunction,
         vm::VmFunction,
     };
+    use approx::assert_relative_eq;
 
     #[test]
     fn basic_solver() {
@@ -289,7 +288,9 @@ mod test {
         let mut values = HashMap::new();
         values.insert(Var::X, Parameter::Free(0.0));
         values.insert(Var::Y, Parameter::Fixed(-1.0));
-        solve(&[f], &values).unwrap();
+        let sol = solve(&[f], &values).unwrap();
+        assert_eq!(sol.len(), 1);
+        assert_relative_eq!(sol[&Var::X], 1.0);
     }
 
     #[test]
@@ -307,7 +308,13 @@ mod test {
         for (i, &v) in vs.iter().enumerate() {
             values.insert(v, Parameter::Free(i as f32));
         }
-        solve(&[f], &values).unwrap();
+        let sol = solve(&[f], &values).unwrap();
+        assert_eq!(sol.len(), 4);
+        let mut out = 0.0;
+        for v in &vs {
+            out += sol[v];
+        }
+        assert_relative_eq!(out, 0.0);
     }
 
     #[test]
@@ -326,7 +333,11 @@ mod test {
         for (i, &v) in vs.iter().enumerate() {
             values.insert(v, Parameter::Free(i as f32 * 2.0));
         }
-        solve(&eqns, &values).unwrap();
+        let sol = solve(&eqns, &values).unwrap();
+        assert_eq!(sol.len(), 4);
+        for (i, v) in vs.iter().enumerate() {
+            assert_relative_eq!(i as f32, sol[v]);
+        }
     }
 
     #[test]
@@ -347,6 +358,12 @@ mod test {
         let mut values = HashMap::new();
         values.insert(Var::X, Parameter::Free(0.0));
         values.insert(Var::Y, Parameter::Free(0.0));
-        solve(&eqns, &values).unwrap();
+        let sol = solve(&eqns, &values).unwrap();
+
+        let x = sol[&Var::X];
+        let y = sol[&Var::Y];
+
+        assert_relative_eq!((x * 2.0 + y * 3.0) * (x - y), 2.0);
+        assert_relative_eq!(x * 3.0 + y, 5.0);
     }
 }

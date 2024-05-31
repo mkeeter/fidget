@@ -879,6 +879,7 @@ dependencies = [
 name = "fidget"
 version = "0.3.1"
 dependencies = [
+ "approx",
  "arrayvec",
  "bimap",
  "criterion",
