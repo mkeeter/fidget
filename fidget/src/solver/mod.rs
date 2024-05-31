@@ -1,6 +1,6 @@
 //! Solver for systems of equations expressed as sets of [`Function`]s
 use crate::{
-    eval::{BulkEvaluator, Function, Tape},
+    eval::{BulkEvaluator, Function, Tape, TracingEvaluator},
     types::Grad,
     var::Var,
     Error,
@@ -16,6 +16,127 @@ pub enum Parameter {
     Fixed(f32),
 }
 
+struct Solver<'a, F: Function> {
+    vars: &'a HashMap<Var, Parameter>,
+
+    /// Tapes for bulk gradient evaluation of each constraint
+    grad_tapes: Vec<<F::GradSliceEval as BulkEvaluator>::Tape>,
+
+    /// Tapes for single-point evaluation of each constraint
+    point_tapes: Vec<<F::PointEval as TracingEvaluator>::Tape>,
+
+    /// Bulk gradient evaluator, for use in computing the Jacobian
+    grad_eval: F::GradSliceEval,
+
+    /// Single-point evaluator, for use in checking our current error
+    point_eval: F::PointEval,
+
+    /// Input data for use when calling the evaluator
+    input: Vec<Vec<Grad>>,
+
+    /// Map from (free) variables to the index of their gradient
+    ///
+    /// We evaluate 3x gradients per sample, so for `grad_index = gi`, the
+    /// relevant derivative will be `out[gi / 3].d(gi % 3)`
+    grad_index: HashMap<Var, usize>,
+}
+
+impl<'a, F: Function> Solver<'a, F> {
+    fn new(
+        eqs: &'a [F],
+        vars: &'a HashMap<Var, Parameter>,
+    ) -> Result<Self, Error> {
+        // Build our per-constraint
+        let grad_tapes = eqs
+            .iter()
+            .map(|f| f.grad_slice_tape(Default::default()))
+            .collect::<Vec<_>>();
+        let point_tapes = eqs
+            .iter()
+            .map(|f| f.point_tape(Default::default()))
+            .collect::<Vec<_>>();
+
+        // Build a map from *free* variable to index of its gradient, since
+        // we'll be using tightly-packed Vec everywhere here
+        //
+        // (We ignore the gradient of fixed variables)
+        let grad_index: HashMap<Var, usize> = vars
+            .iter()
+            .filter(|(_v, p)| matches!(p, Parameter::Free(..)))
+            .enumerate()
+            .map(|(i, (v, _p))| (*v, i))
+            .collect();
+
+        // Build a scratch array with rows for each variable, and enough columns
+        // to simultaneously compute all of the gradients that we need
+        let input = vec![
+            vec![Grad::from(0f32); grad_index.len().div_ceil(3)];
+            vars.len()
+        ];
+
+        Ok(Self {
+            vars,
+            grad_tapes,
+            point_tapes,
+            grad_eval: Default::default(),
+            point_eval: Default::default(),
+            grad_index,
+            input,
+        })
+    }
+
+    /// Computes the Jacobian into `cur`
+    ///
+    /// # Panics
+    /// If `jacobian` or `result` are an invalid size
+    fn get_jacobian(
+        &mut self,
+        cur: &[f32],
+        jacobian: &mut nalgebra::DMatrix<f32>,
+        result: &mut nalgebra::DVector<f32>,
+    ) -> Result<(), Error> {
+        for (ti, tape) in self.grad_tapes.iter().enumerate() {
+            // Update the free values in the gradient evaluation array
+            //
+            // (we preloaded unit gradients and fixed values in the appropriate
+            // locations, which don't change from evaluation to evaluation)
+            for (v, p) in self.vars {
+                let Some(i) = tape.vars().get(v) else {
+                    continue;
+                };
+                let Some(slice) = self.input.get_mut(i) else {
+                    return Err(Error::BadVarIndex(i, self.input.len()));
+                };
+                match p {
+                    Parameter::Free(..) => {
+                        let gi = self.grad_index[v];
+                        for (j, v) in slice.iter_mut().enumerate() {
+                            *v = Grad::new(
+                                cur[gi],
+                                if j * 3 == gi { 1.0 } else { 0.0 },
+                                if j * 3 + 1 == gi { 1.0 } else { 0.0 },
+                                if j * 3 + 2 == gi { 1.0 } else { 0.0 },
+                            );
+                        }
+                    }
+                    Parameter::Fixed(f) => {
+                        slice.fill(Grad::new(*f, 0.0, 0.0, 0.0));
+                    }
+                };
+            }
+            // Do the actual gradient evaluation
+            let out = self.grad_eval.eval(tape, &self.input)?;
+
+            // Populate this row of the Jacobian
+            for gi in 0..self.grad_index.len() {
+                *jacobian.get_mut((ti, gi)).unwrap() = out[gi / 3].d(gi % 3);
+            }
+            result[ti] = out[0].v;
+        }
+        Ok(())
+    }
+}
+
 /// Least-squares minimization on a set of functions
 ///
 /// Returns a map from free variable to their final value
@@ -24,12 +145,18 @@ pub fn solve<F: Function>(
     vars: &HashMap<Var, Parameter>,
 ) -> Result<HashMap<Var, f32>, Error> {
     // Levenberg–Marquardt algorithm
+    //
+    // References:
+    // https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm
+    //
+    // "Improvements to the Levenberg-Marquardt algorithm for nonlinear
+    // least-squares minimization" (Transtrum 2012)
+    // https://arxiv.org/pdf/1201.5885
 
     let tapes = eqs
         .iter()
         .map(|f| f.grad_slice_tape(Default::default()))
         .collect::<Vec<_>>();
-    let mut eval = F::new_grad_slice_eval();
 
     // Current values for free variables
     let mut cur = HashMap::new();
@@ -39,97 +166,50 @@ pub fn solve<F: Function>(
         }
     }
 
-    // Build a map from free variable to index of its gradient, since we'll be
-    // using tightly-packed Vec everywhere here
-    let grad_index: HashMap<Var, usize> = vars
-        .iter()
-        .filter(|(_v, p)| matches!(p, Parameter::Free(..)))
-        .enumerate()
-        .map(|(i, (v, _p))| (*v, i))
-        .collect();
+    let mut solver = Solver::new(eqs, vars)?;
 
     // Build an array of current values for each free variable
-    let mut cur = vec![0f32; grad_index.len()];
-    for (v, i) in &grad_index {
+    let mut cur = vec![0f32; solver.grad_index.len()];
+    for (v, i) in &solver.grad_index {
         let Parameter::Free(f) = vars[v] else {
             unreachable!();
         };
         cur[*i] = f;
     }
 
-    // Build a scratch array with rows for each variable, and enough columns to
-    // simultaneously compute all of the gradients that we need
-    let mut scratch =
-        vec![vec![Grad::from(0f32); cur.len().div_ceil(3)]; vars.len()];
-
+    // Working arrays for the current Jacobian and result
     let mut jacobian = nalgebra::DMatrix::repeat(tapes.len(), cur.len(), 0f32);
     let mut result = nalgebra::DVector::repeat(tapes.len(), 0f32);
 
+    let mut damping = 1.0;
     for _ in 0..100 {
-        for (ti, tape) in tapes.iter().enumerate() {
-            // Build the evaluation data array
-            // TODO: set up gradients once then only change values?
-            for (v, p) in vars {
-                let (gi, f) = match p {
-                    Parameter::Free(..) => {
-                        let gi = grad_index[v];
-                        (Some(gi), cur[gi])
-                    }
-                    Parameter::Fixed(f) => (None, *f),
-                };
-                let var_map = tape.vars();
-                let Some(i) = var_map.get(v) else {
-                    // TODO split into independent subproblems?
-                    continue;
-                };
-                if i >= scratch.len() {
-                    return Err(Error::BadVarIndex(i, scratch.len()));
-                }
-                let slice = &mut scratch[var_map[v]];
-                if let Some(gi) = gi {
-                    for (j, v) in slice.iter_mut().enumerate() {
-                        *v = Grad::new(
-                            f,
-                            if j * 3 == gi { 1.0 } else { 0.0 },
-                            if j * 3 + 1 == gi { 1.0 } else { 0.0 },
-                            if j * 3 + 2 == gi { 1.0 } else { 0.0 },
-                        );
-                    }
-                } else {
-                    slice.fill(Grad::new(f, 0.0, 0.0, 0.0));
-                }
-            }
-            let out = eval.eval(tape, &scratch)?;
+        solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
-            // Populate this row of the Jacobian
-            for gi in 0..grad_index.len() {
-                *jacobian.get_mut((ti, gi)).unwrap() = out[gi / 3].d(gi % 3);
-            }
-            result[ti] = out[0].v;
-        }
-        // TODO: calculate the next step and update `cur`
         // TODO: determine exit critera for breaking out of the loop
-        //
         let jt = jacobian.transpose();
         let jt_j = &jt * &jacobian;
 
         let err = jt * &result;
 
         let jt_j_i = (&jt_j
-            + nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
+            + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal()))
         .try_inverse()
         .unwrap();
 
         let delta = jt_j_i * err;
 
-        for gi in 0..grad_index.len() {
+        for gi in 0..solver.grad_index.len() {
             cur[gi] -= delta[gi];
         }
     }
     println!("got result \n{result}");
 
     // Return the new "current" values, which are our optimized position
-    let out = grad_index.into_iter().map(|(v, i)| (v, cur[i])).collect();
+    let out = solver
+        .grad_index
+        .into_iter()
+        .map(|(v, i)| (v, cur[i]))
+        .collect();
     println!("solved to {out:?}");
     Ok(out)
 }
@@ -190,6 +270,27 @@ mod test {
         for (i, &v) in vs.iter().enumerate() {
             values.insert(v, Parameter::Free(i as f32 * 2.0));
         }
+        solve(&eqns, &values).unwrap();
+    }
+
+    #[test]
+    fn xy_nonlinear() {
+        let constraints = vec![
+            (Tree::x() * 2 + Tree::y() * 3) * (Tree::x() - Tree::y()) - 2,
+            Tree::x() * 3 + Tree::y() - 5,
+        ];
+        let mut ctx = Context::new();
+        let eqns = constraints
+            .into_iter()
+            .map(|c| {
+                let root = ctx.import(&c);
+                VmFunction::new(&ctx, root).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let mut values = HashMap::new();
+        values.insert(Var::X, Parameter::Free(0.0));
+        values.insert(Var::Y, Parameter::Free(0.0));
         solve(&eqns, &values).unwrap();
     }
 }
