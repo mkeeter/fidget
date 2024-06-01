@@ -439,4 +439,27 @@ mod test {
         assert_relative_eq!(sol[&Var::X], 1.0);
         assert_relative_eq!(sol[&Var::Y], 1.0);
     }
+
+    #[test]
+    fn solve_circle() {
+        let t = (Tree::x().square() + Tree::y().square()).sqrt();
+        let mut ctx = Context::new();
+        let root = ctx.import(&t);
+        let eqn = VmFunction::new(&ctx, root).unwrap();
+        let eqns = [eqn];
+
+        let mut values = HashMap::new();
+        values.insert(Var::X, Parameter::Free(0.0));
+        values.insert(Var::Y, Parameter::Free(0.0));
+        let sol = solve(&eqns, &values).unwrap();
+        assert_relative_eq!(sol[&Var::X], 0.0);
+        assert_relative_eq!(sol[&Var::Y], 0.0);
+
+        let mut values = HashMap::new();
+        values.insert(Var::X, Parameter::Free(1.0));
+        values.insert(Var::Y, Parameter::Free(1.5));
+        let sol = solve(&eqns, &values).unwrap();
+        assert_relative_eq!(sol[&Var::X], 0.0);
+        assert_relative_eq!(sol[&Var::Y], 0.0);
+    }
 }
