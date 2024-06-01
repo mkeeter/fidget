@@ -16,7 +16,9 @@ pub enum Parameter {
     Fixed(f32),
 }
 
+/// Workspace for solvers
 struct Solver<'a, F: Function> {
+    /// Input parameters
     vars: &'a HashMap<Var, Parameter>,
 
     /// Tapes for bulk gradient evaluation of each constraint
@@ -103,10 +105,7 @@ impl<'a, F: Function> Solver<'a, F> {
         result: &mut nalgebra::DVector<f32>,
     ) -> Result<(), Error> {
         for (ti, tape) in self.grad_tapes.iter().enumerate() {
-            // Update the free values in the gradient evaluation array
-            //
-            // (we preloaded unit gradients and fixed values in the appropriate
-            // locations, which don't change from evaluation to evaluation)
+            // Update the values in the gradient evaluation array
             for (v, p) in self.vars {
                 let Some(i) = tape.vars().get(v) else {
                     continue;
