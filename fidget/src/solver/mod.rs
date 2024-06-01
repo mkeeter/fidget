@@ -462,4 +462,44 @@ mod test {
         assert_relative_eq!(sol[&Var::X], 0.0);
         assert_relative_eq!(sol[&Var::Y], 0.0);
     }
+
+    #[test]
+    fn big_linear() {
+        const N: usize = 50;
+
+        // Build a random matrix of our solutions
+        let mut values = nalgebra::DVector::<f32>::zeros(N);
+        for v in values.iter_mut() {
+            *v = rand::random();
+        }
+
+        let vars = (0..N).map(|_| Var::new()).collect::<Vec<_>>();
+        let trees = vars.iter().map(|v| Tree::from(*v)).collect::<Vec<_>>();
+
+        let mut mat = nalgebra::DMatrix::<f32>::zeros(N, N);
+        for v in mat.iter_mut() {
+            *v = rand::random();
+        }
+
+        let sol = &mat * &values;
+
+        let mut ctx = Context::new();
+        let mut eqns = vec![];
+        for row in 0..N {
+            let mut out = Tree::from(-sol[row]);
+            for (col, t) in trees.iter().enumerate() {
+                out += *mat.get((row, col)).unwrap() * t.clone();
+            }
+            let root = ctx.import(&out);
+            let f = VmFunction::new(&ctx, root).unwrap();
+            eqns.push(f);
+        }
+
+        let params = vars.iter().map(|v| (*v, Parameter::Free(0.0))).collect();
+        let sol = solve(&eqns, &params).unwrap();
+
+        for (var, value) in vars.iter().zip(values.iter()) {
+            assert_relative_eq!(sol[var], value, epsilon = 1e-3);
+        }
+    }
 }
