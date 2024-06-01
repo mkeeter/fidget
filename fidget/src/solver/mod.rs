@@ -176,27 +176,20 @@ impl<'a, F: Function> Solver<'a, F> {
 
 /// Least-squares minimization on a set of functions
 ///
-/// Returns a map from free variable to their final value
+/// Returns a map from free variable to its final value
+///
+/// Minimization is accomplished using a relatively basic implementation of
+/// the [Levenberg-Marquardt algorithm](https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm).
+///
+/// ## References
+/// - [The Levenberg-Marquardt Algorithm (Ranganathan 2004)](http://ananth.in/docs/lmtut.pdf)
+/// - [Basics on Continuous Optimization § Levenberg-Marquardt](https://www.brnt.eu/phd/node10.html#SECTION00622700000000000000)
+/// - [Improvements to the Levenberg-Marquardt algorithm for nonlinear
+///    least-squares minimization (Transtrum 2012)](https://arxiv.org/pdf/1201.5885)
 pub fn solve<F: Function>(
     eqs: &[F],
     vars: &HashMap<Var, Parameter>,
 ) -> Result<HashMap<Var, f32>, Error> {
-    // Levenberg–Marquardt algorithm
-    //
-    // References:
-    // https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm
-    //
-    // "Improvements to the Levenberg-Marquardt algorithm for nonlinear
-    // least-squares minimization" (Transtrum 2012)
-    // https://arxiv.org/pdf/1201.5885
-    //
-    // "The Levenberg-Marquardt Algorithm"
-    // Ananth Ranganathan, 8th June 2004
-    // http://ananth.in/docs/lmtut.pdf
-    //
-    // "Basics on Continuous Optimization"
-    // https://www.brnt.eu/phd/node10.html#SECTION00622700000000000000
-
     let tapes = eqs
         .iter()
         .map(|f| f.grad_slice_tape(Default::default()))
