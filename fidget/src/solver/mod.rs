@@ -231,9 +231,6 @@ pub fn solve<F: Function>(
     for _step in 0.. {
         solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
-        let d_dx = jacobian.get((0, solver.grad_index[&Var::X])).unwrap();
-        let d_dy = jacobian.get((0, solver.grad_index[&Var::Y])).unwrap();
-
         if result.iter().all(|v| *v == 0.0) {
             break;
         }
@@ -255,17 +252,14 @@ pub fn solve<F: Function>(
             let err = solver.get_err(&cur, delta.as_slice())?;
             if err > prev_err {
                 // Keep going in this inner loop, taking smaller steps
-                damping *= 2.0;
+                damping *= 1.5;
             } else {
                 // We found a good step size, so reduce damping
-                damping /= 10.0;
+                damping /= 3.0;
                 break (err, delta);
             }
         };
 
-        let x = cur[solver.grad_index[&Var::X]];
-        let y = cur[solver.grad_index[&Var::Y]];
-        println!("[{x}, {y}, {d_dx}, {d_dy}],");
         // Update our current position, checking whether it actually changed
         // (i.e. whether our steps are below the floating-point epsilon)
         //
@@ -418,18 +412,23 @@ mod test {
         // See https://en.wikipedia.org/wiki/Rosenbrock_function
         let a = 1f32;
         let b = 100f32;
-        let f = (a - Tree::x()).square()
-            + b * (Tree::y() - Tree::x().square()).square();
+        let constraints = [a - Tree::x(), b * (Tree::y() - Tree::x().square())];
 
         let mut ctx = Context::new();
-        let root = ctx.import(&f);
-        let eqn = VmFunction::new(&ctx, root).unwrap();
+        let eqns = constraints
+            .into_iter()
+            .map(|c| {
+                let root = ctx.import(&c);
+                VmFunction::new(&ctx, root).unwrap()
+            })
+            .collect::<Vec<_>>();
 
         let mut values = HashMap::new();
         values.insert(Var::X, Parameter::Free(0.0));
         values.insert(Var::Y, Parameter::Free(0.0));
 
-        let sol = solve(&[eqn], &values).unwrap();
-        println!("{sol:?}");
+        let sol = solve(&eqns, &values).unwrap();
+        assert_relative_eq!(sol[&Var::X], 1.0);
+        assert_relative_eq!(sol[&Var::Y], 1.0);
     }
 }
