@@ -245,8 +245,10 @@ pub fn solve<F: Function>(
             let adjusted = &jt_j
                 + damping * nalgebra::DMatrix::from_diagonal(&jt_j.diagonal());
 
-            let delta =
-                adjusted.svd(true, true).solve(&jt_r, f32::EPSILON).unwrap();
+            let delta = adjusted
+                .svd(true, true)
+                .solve(&jt_r, f32::EPSILON)
+                .map_err(Error::SingularMatrix)?;
 
             let err = solver.get_err(&cur, delta.as_slice())?;
             if err > prev_err {
