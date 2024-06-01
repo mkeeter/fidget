@@ -230,6 +230,7 @@ pub fn solve<F: Function>(
     for _step in 0.. {
         solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
+        // Early exit if we're done
         if result.iter().all(|v| *v == 0.0) {
             break;
         }
@@ -427,7 +428,13 @@ mod test {
         let mut values = HashMap::new();
         values.insert(Var::X, Parameter::Free(0.0));
         values.insert(Var::Y, Parameter::Free(0.0));
+        let sol = solve(&eqns, &values).unwrap();
+        assert_relative_eq!(sol[&Var::X], 1.0);
+        assert_relative_eq!(sol[&Var::Y], 1.0);
 
+        let mut values = HashMap::new();
+        values.insert(Var::X, Parameter::Free(1.0));
+        values.insert(Var::Y, Parameter::Free(1.0));
         let sol = solve(&eqns, &values).unwrap();
         assert_relative_eq!(sol[&Var::X], 1.0);
         assert_relative_eq!(sol[&Var::Y], 1.0);
