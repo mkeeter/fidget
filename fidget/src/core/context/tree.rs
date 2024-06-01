@@ -1,6 +1,6 @@
 //! Context-free math trees
 use super::op::{BinaryOpcode, UnaryOpcode};
-use crate::var::Var;
+use crate::{var::Var, Error};
 use std::sync::Arc;
 
 /// Opcode type for trees
@@ -158,6 +158,22 @@ impl Tree {
             y: y.0,
             z: z.0,
         }))
+    }
+
+    /// Returns the inner [`Var`] if this is an input tree, or `None`
+    pub fn var(&self) -> Option<Var> {
+        if let TreeOp::Input(v) = &*self.0 {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+}
+
+impl TryFrom<Tree> for Var {
+    type Error = Error;
+    fn try_from(t: Tree) -> Result<Var, Error> {
+        t.var().ok_or(Error::NotAVar)
     }
 }
 
