@@ -2941,6 +2941,7 @@ name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "approx",
  "bitflags 2.4.2",
  "bytemuck",
  "clap",
@@ -2950,6 +2951,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
+ "num-traits",
  "once_cell",
  "proc-macro2",
  "quote",
