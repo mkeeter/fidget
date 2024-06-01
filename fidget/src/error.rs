@@ -61,14 +61,6 @@ pub enum Error {
     #[error("variable index ({0}) exceeds max var index for this tape ({1})")]
     BadVarIndex(usize, usize),
 
-    /// This name is reserved for 3D coordinates
-    #[error("this name is reserved for 3D coordinates")]
-    ReservedName,
-
-    /// This name has already been used
-    #[error("this name has already been used")]
-    DuplicateName,
-
     /// io error; see inner code for details
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),

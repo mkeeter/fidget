@@ -4,6 +4,7 @@
 - Renamed `Context::const_value` to `Context::get_const` and tweaked its return
   type to match `Context::get_var`.
 - Added `impl From<i32> for Tree` to make writing tree expressions easier
+- Removed `Error::ReservedName` and `Error::DuplicateName`, which were unused
 
 # 0.3.0
 - Major refactoring of core evaluation traits
