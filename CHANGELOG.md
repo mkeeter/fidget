@@ -5,6 +5,11 @@
   type to match `Context::get_var`.
 - Added `impl From<i32> for Tree` to make writing tree expressions easier
 - Removed `Error::ReservedName` and `Error::DuplicateName`, which were unused
+- Add the `fidget::solver` module, which contains a simple solver for systems of
+  equations.  The solver requires the equations to implement Fidget's `Function`
+  trait.  It uses both point-wise and gradient evaluation to solve for a set of
+  `Var` values, using the Levenberg-Marquardt algorithm.
+- Add `Tree::var()` and `impl TryFrom<Tree> for Var`
 
 # 0.3.0
 - Major refactoring of core evaluation traits
