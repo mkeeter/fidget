@@ -220,7 +220,8 @@ pub fn solve<F: Function>(
 
     let mut damping = 1.0;
     let mut prev_err = f32::INFINITY;
-    for _step in 0.. {
+    let mut err_buf = [0f32; 4];
+    for i in 0.. {
         solver.get_jacobian(&cur, &mut jacobian, &mut result)?;
 
         // Early exit if we're done
@@ -265,7 +266,12 @@ pub fn solve<F: Function>(
             cur[gi] -= step[gi];
             changed |= prev != cur[gi];
         }
-        if !changed || err == 0.0 {
+        err_buf[i % err_buf.len()] = err;
+        if !changed
+            || err == 0.0
+            || damping == 0.0
+            || err_buf.iter().all(|e| *e == err_buf[0])
+        {
             break;
         }
         prev_err = err;
@@ -456,20 +462,17 @@ mod test {
         assert_relative_eq!(sol[&Var::Y], 0.0);
     }
 
-    #[test]
-    fn big_linear() {
-        const N: usize = 50;
-
+    fn one_linear(n: usize) {
         // Build a random matrix of our solutions
-        let mut values = nalgebra::DVector::<f32>::zeros(N);
+        let mut values = nalgebra::DVector::<f32>::zeros(n);
         for v in values.iter_mut() {
             *v = rand::random();
         }
 
-        let vars = (0..N).map(|_| Var::new()).collect::<Vec<_>>();
+        let vars = (0..n).map(|_| Var::new()).collect::<Vec<_>>();
         let trees = vars.iter().map(|v| Tree::from(*v)).collect::<Vec<_>>();
 
-        let mut mat = nalgebra::DMatrix::<f32>::zeros(N, N);
+        let mut mat = nalgebra::DMatrix::<f32>::zeros(n, n);
         for v in mat.iter_mut() {
             *v = rand::random();
         }
@@ -478,7 +481,7 @@ mod test {
 
         let mut ctx = Context::new();
         let mut eqns = vec![];
-        for row in 0..N {
+        for row in 0..n {
             let mut out = Tree::from(-sol[row]);
             for (col, t) in trees.iter().enumerate() {
                 out += *mat.get((row, col)).unwrap() * t.clone();
@@ -489,10 +492,115 @@ mod test {
         }
 
         let params = vars.iter().map(|v| (*v, Parameter::Free(0.0))).collect();
-        let sol = solve(&eqns, &params).unwrap();
+        let out = solve(&eqns, &params).unwrap();
 
-        for (var, value) in vars.iter().zip(values.iter()) {
-            assert_relative_eq!(sol[var], value, epsilon = 1e-3);
+        // It's possible for there to be multiple solutions here, so we'll check
+        // the actual equations.
+        for i in 0..n {
+            values[i] = out[&vars[i]];
+        }
+        let sol2 = &mat * &values;
+        let err = (&sol - &sol2).norm_squared();
+        assert!(err < 1e-3, "error {err} is too large");
+        for (a, b) in sol.iter().zip(sol2.iter()) {
+            assert_relative_eq!(a, b, epsilon = 1e-2);
+        }
+    }
+
+    #[test]
+    fn small_linear() {
+        for _ in 0..1000 {
+            one_linear(2);
+        }
+    }
+
+    #[test]
+    fn medium_linear() {
+        for _ in 0..1000 {
+            one_linear(10);
+        }
+    }
+
+    #[test]
+    fn big_linear() {
+        for _ in 0..50 {
+            one_linear(50);
+        }
+    }
+
+    fn one_quadratic(n: usize) {
+        let m: usize = n * n + n;
+
+        // Build a random matrix of our solutions
+        let mut values = nalgebra::DVector::<f32>::zeros(n);
+        for v in values.iter_mut() {
+            *v = rand::random();
+        }
+
+        // Build a column vector of [a b c ... aa ab ac ... ba bb ...]^T
+        let mut col = nalgebra::DVector::<f32>::zeros(m);
+        col.rows_range_mut(..n).copy_from(&values);
+        for i in 0..n {
+            for j in 0..n {
+                let index = i * n + j + n;
+                col[index] = values[i] * values[j];
+            }
+        }
+
+        let vars = (0..n).map(|_| Var::new()).collect::<Vec<_>>();
+        let trees = vars.iter().map(|v| Tree::from(*v)).collect::<Vec<_>>();
+
+        let mut mat = nalgebra::DMatrix::<f32>::zeros(n, m);
+        for v in mat.iter_mut() {
+            *v = rand::random();
+        }
+
+        let sol = &mat * &col;
+
+        let mut ctx = Context::new();
+        let mut eqns = vec![];
+        for row in 0..n {
+            let mut out = Tree::from(-sol[row]);
+            for (col, t) in trees.iter().enumerate() {
+                out += *mat.get((row, col)).unwrap() * t.clone();
+            }
+            for i in 0..n {
+                for j in 0..n {
+                    let index = i * n + j + n;
+                    out += *mat.get((row, index)).unwrap()
+                        * trees[i].clone()
+                        * trees[j].clone();
+                }
+            }
+            let root = ctx.import(&out);
+            let f = VmFunction::new(&ctx, root).unwrap();
+            eqns.push(f);
+        }
+
+        let params = vars.iter().map(|v| (*v, Parameter::Free(0.0))).collect();
+        let out = solve(&eqns, &params).unwrap();
+
+        // It's possible for there to be multiple solutions here, so we'll check
+        // the actual equations.
+        for i in 0..n {
+            col[i] = out[&vars[i]];
+            for j in 0..n {
+                let index = i * n + j + n;
+                col[index] = out[&vars[i]] * out[&vars[j]];
+            }
+        }
+        let sol2 = &mat * &col;
+        let err = (&sol - &sol2).norm_squared();
+        assert!(err < 1e-3, "error {err} is too large");
+        for (a, b) in sol.iter().zip(sol2.iter()) {
+            assert_relative_eq!(a, b, epsilon = 1e-2);
+        }
+    }
+
+    #[test]
+    fn small_quadratic() {
+        for _ in 0..100 {
+            one_quadratic(2);
         }
     }
 }
