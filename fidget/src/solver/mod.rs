@@ -294,7 +294,7 @@ mod test {
         eval::MathFunction,
         vm::VmFunction,
     };
-    use approx::assert_relative_eq;
+    use approx::{assert_relative_eq, relative_eq};
 
     #[test]
     fn basic_solver() {
@@ -528,7 +528,7 @@ mod test {
         }
     }
 
-    fn one_quadratic(n: usize) {
+    fn one_quadratic(n: usize) -> bool {
         let m: usize = n * n + n;
 
         // Build a random matrix of our solutions
@@ -577,7 +577,7 @@ mod test {
             eqns.push(f);
         }
 
-        let params = vars.iter().map(|v| (*v, Parameter::Free(0.0))).collect();
+        let params = vars.iter().map(|v| (*v, Parameter::Free(0.5))).collect();
         let out = solve(&eqns, &params).unwrap();
 
         // It's possible for there to be multiple solutions here, so we'll check
@@ -591,16 +591,44 @@ mod test {
         }
         let sol2 = &mat * &col;
         let err = (&sol - &sol2).norm_squared();
-        assert!(err < 1e-3, "error {err} is too large");
-        for (a, b) in sol.iter().zip(sol2.iter()) {
-            assert_relative_eq!(a, b, epsilon = 1e-2);
+        if err >= 1e-3 {
+            return false;
         }
+        for (a, b) in sol.iter().zip(sol2.iter()) {
+            if !relative_eq!(a, b, epsilon = 1e-2) {
+                return false;
+            }
+        }
+        true
+    }
+
+    // Quadratic functions can get trapped in local minima, so we only require a
+    // certain percent to succeed (hard-coded to 90% right now)
+    fn many_quadratic(size: usize, count: usize) {
+        let mut okay = 0;
+        for _ in 0..count {
+            if one_quadratic(size) {
+                okay += 1;
+            }
+        }
+        assert!(
+            okay >= count * 9 / 10,
+            "too many failures: {okay} / {count}"
+        );
     }
 
     #[test]
     fn small_quadratic() {
-        for _ in 0..100 {
-            one_quadratic(2);
-        }
+        many_quadratic(2, 1000);
+    }
+
+    #[test]
+    fn medium_quadratic() {
+        many_quadratic(5, 100);
+    }
+
+    #[test]
+    fn large_quadratic() {
+        many_quadratic(10, 50);
     }
 }
