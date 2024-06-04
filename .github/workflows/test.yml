@@ -19,5 +19,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
-    - name: Run tests
-      run: cargo test --verbose --package fidget
+    - name: Build tests
+      run: cargo test --verbose --package fidget --no-run
+    - name: Run crate tests
+      run: cargo test --verbose --package fidget --lib
+    - name: Run doc tests
+      run: cargo test --verbose --package fidget --doc
