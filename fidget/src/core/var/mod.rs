@@ -5,6 +5,7 @@
 //! it is wrapped in a [`Op::Input`](crate::context::Op::Input)) to evaluation
 //! (where [`Tape::vars`](crate::eval::Tape::vars) maps from `Var` to index in
 //! the argument list).
+use crate::context::{Context, IntoNode, Node};
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -87,6 +88,12 @@ impl std::fmt::Display for Var {
             Var::V(VarIndex(v)) if *v < 256 => write!(f, "v_{v}"),
             Var::V(VarIndex(v)) => write!(f, "V({v:x})"),
         }
+    }
+}
+
+impl IntoNode for Var {
+    fn into_node(self, ctx: &mut Context) -> Result<Node, Error> {
+        Ok(ctx.var(self))
     }
 }
 

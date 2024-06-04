@@ -1,4 +1,6 @@
 # 0.3.2 (unreleased)
+- Added `impl IntoNode for Var`, to make handling `Var` values in a context
+  easier.
 
 # 0.3.1
 The highlight of this release is the `fidget::solver` module, which implements
