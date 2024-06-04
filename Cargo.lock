@@ -491,6 +491,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "constraints"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "eframe",
+ "env_logger 0.10.2",
+ "fidget",
+ "log",
+ "nalgebra",
+ "workspace-hack",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

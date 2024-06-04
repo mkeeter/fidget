@@ -4,7 +4,7 @@ members = [
     "fidget",
     "demo",
     "viewer",
-    "workspace-hack",
+    "workspace-hack", "constraints",
 ]
 exclude = ["wasm-demo"]
 
