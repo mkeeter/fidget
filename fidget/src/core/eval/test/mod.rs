@@ -5,7 +5,7 @@ pub mod interval;
 pub mod point;
 
 use crate::{
-    context::{Context, Node},
+    context::{Context, IntoNode, Node},
     eval::Tape,
     var::Var,
 };
@@ -111,7 +111,11 @@ pub trait CanonicalUnaryOp {
 /// Trait for canonical evaluation testing of binary operations
 pub trait CanonicalBinaryOp {
     const NAME: &'static str;
-    fn build(ctx: &mut Context, lhs: Node, rhs: Node) -> Node;
+    fn build<A: IntoNode, B: IntoNode>(
+        ctx: &mut Context,
+        lhs: A,
+        rhs: B,
+    ) -> Node;
     fn eval_reg_reg_f32(lhs: f32, rhs: f32) -> f32;
     fn eval_reg_imm_f32(lhs: f32, rhs: f32) -> f32;
     fn eval_imm_reg_f32(lhs: f32, rhs: f32) -> f32;
@@ -157,7 +161,13 @@ macro_rules! declare_canonical_binary {
         pub struct $i;
         impl CanonicalBinaryOp for $i {
             const NAME: &'static str = stringify!($i);
-            fn build(ctx: &mut Context, lhs: Node, rhs: Node) -> Node {
+            fn build<A: IntoNode, B: IntoNode>(
+                ctx: &mut Context,
+                lhs: A,
+                rhs: B,
+            ) -> Node {
+                let lhs = lhs.into_node(ctx).unwrap();
+                let rhs = rhs.into_node(ctx).unwrap();
                 Context::$i(ctx, lhs, rhs).unwrap()
             }
             fn eval_reg_reg_f32($lhs: f32, $rhs: f32) -> f32 {
@@ -197,7 +207,13 @@ macro_rules! declare_canonical_binary_full {
         pub struct $i;
         impl CanonicalBinaryOp for $i {
             const NAME: &'static str = stringify!($i);
-            fn build(ctx: &mut Context, lhs: Node, rhs: Node) -> Node {
+            fn build<A: IntoNode, B: IntoNode>(
+                ctx: &mut Context,
+                lhs: A,
+                rhs: B,
+            ) -> Node {
+                let lhs = lhs.into_node(ctx).unwrap();
+                let rhs = rhs.into_node(ctx).unwrap();
                 Context::$i(ctx, lhs, rhs).unwrap()
             }
             fn eval_reg_reg_f32($lhs_reg_reg: f32, $rhs_reg_reg: f32) -> f32 {

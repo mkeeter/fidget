@@ -590,8 +590,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             args.rotate_left(rot);
             for (i, &v) in inputs.iter().enumerate() {
                 for rhs in args.iter() {
-                    let c = ctx.constant(*rhs as f64);
-                    let node = C::build(&mut ctx, v, c);
+                    let node = C::build(&mut ctx, v, *rhs);
 
                     let shape = F::new(&ctx, node).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
@@ -631,8 +630,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
             args.rotate_left(rot);
             for (i, &v) in inputs.iter().enumerate() {
                 for lhs in args.iter() {
-                    let c = ctx.constant(*lhs as f64);
-                    let node = C::build(&mut ctx, c, v);
+                    let node = C::build(&mut ctx, *lhs, v);
 
                     let shape = F::new(&ctx, node).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());

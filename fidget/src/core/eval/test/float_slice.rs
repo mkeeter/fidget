@@ -115,10 +115,9 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let x = ctx.x();
         let y = ctx.y();
-        let v_ = ctx.var(v);
 
         let a = ctx.add(x, y).unwrap();
-        let a = ctx.add(a, v_).unwrap();
+        let a = ctx.add(a, v).unwrap();
 
         let s = Shape::<F>::new(&ctx, a).unwrap();
 
@@ -265,14 +264,12 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let mut ctx = Context::new();
         let va = Var::new();
         let vb = Var::new();
-        let a = ctx.var(va);
-        let b = ctx.var(vb);
 
         let name = format!("{}(reg, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut rgsa = args.clone();
             rgsa.rotate_left(rot);
-            let node = C::build(&mut ctx, a, b);
+            let node = C::build(&mut ctx, va, vb);
 
             let shape = F::new(&ctx, node).unwrap();
             let mut eval = F::new_float_slice_eval();
@@ -304,15 +301,13 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let mut ctx = Context::new();
         let va = Var::new();
-        let a = ctx.var(va);
 
         let name = format!("{}(reg, imm)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
             for rhs in args.iter() {
-                let c = ctx.constant(*rhs as f64);
-                let node = C::build(&mut ctx, a, c);
+                let node = C::build(&mut ctx, va, *rhs);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let mut eval = F::new_float_slice_eval();
@@ -337,15 +332,13 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let mut ctx = Context::new();
         let va = Var::new();
-        let a = ctx.var(va);
 
         let name = format!("{}(imm, reg)", C::NAME);
         for rot in 0..args.len() {
             let mut args = args.clone();
             args.rotate_left(rot);
             for lhs in args.iter() {
-                let c = ctx.constant(*lhs as f64);
-                let node = C::build(&mut ctx, c, a);
+                let node = C::build(&mut ctx, *lhs, va);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let mut eval = F::new_float_slice_eval();

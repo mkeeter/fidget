@@ -1025,8 +1025,7 @@ where
         let mut eval = F::new_interval_eval();
         for &lhs in args.iter() {
             for &rhs in values.iter() {
-                let c = ctx.constant(rhs as f64);
-                let node = C::build(&mut ctx, a, c);
+                let node = C::build(&mut ctx, a, rhs);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
@@ -1051,15 +1050,13 @@ where
 
         let mut ctx = Context::new();
         let va = Var::new();
-        let a = ctx.var(va);
 
         let name = format!("{}(imm, reg)", C::NAME);
         let mut tape_data = None;
         let mut eval = F::new_interval_eval();
         for &lhs in values.iter() {
             for &rhs in args.iter() {
-                let c = ctx.constant(lhs as f64);
-                let node = C::build(&mut ctx, c, a);
+                let node = C::build(&mut ctx, lhs, va);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());

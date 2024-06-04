@@ -34,9 +34,7 @@ where
 
     pub fn test_constant_push() {
         let mut ctx = Context::new();
-        let a = ctx.constant(1.5);
-        let x = ctx.x();
-        let min = ctx.min(a, x).unwrap();
+        let min = ctx.min(1.5, Var::X).unwrap();
         let shape = F::new(&ctx, min).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
@@ -361,10 +359,9 @@ where
 
         let x = ctx.x();
         let y = ctx.y();
-        let v_ = ctx.var(v);
 
         let a = ctx.add(x, y).unwrap();
-        let a = ctx.add(a, v_).unwrap();
+        let a = ctx.add(a, v).unwrap();
 
         let s = Shape::<F>::new(&ctx, a).unwrap();
 
@@ -491,13 +488,11 @@ where
         let mut ctx = Context::new();
         let va = Var::new();
         let vb = Var::new();
-        let a = ctx.var(va);
-        let b = ctx.var(vb);
 
         let name = format!("{}(reg, reg)", C::NAME);
         for &lhs in args.iter() {
             for &rhs in args.iter() {
-                let node = C::build(&mut ctx, a, b);
+                let node = C::build(&mut ctx, va, vb);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let mut eval = F::new_point_eval();
@@ -525,7 +520,7 @@ where
         }
 
         for &lhs in args.iter() {
-            let node = C::build(&mut ctx, a, a);
+            let node = C::build(&mut ctx, va, va);
 
             let shape = F::new(&ctx, node).unwrap();
             let mut eval = F::new_point_eval();
@@ -553,13 +548,11 @@ where
 
         let mut ctx = Context::new();
         let va = Var::new();
-        let a = ctx.var(va);
 
         let name = format!("{}(reg, imm)", C::NAME);
         for &lhs in args.iter() {
             for &rhs in args.iter() {
-                let c = ctx.constant(rhs as f64);
-                let node = C::build(&mut ctx, a, c);
+                let node = C::build(&mut ctx, va, rhs);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let mut eval = F::new_point_eval();
@@ -583,13 +576,11 @@ where
 
         let mut ctx = Context::new();
         let va = Var::new();
-        let a = ctx.var(va);
 
         let name = format!("{}(imm, reg)", C::NAME);
         for &lhs in args.iter() {
             for &rhs in args.iter() {
-                let c = ctx.constant(lhs as f64);
-                let node = C::build(&mut ctx, c, a);
+                let node = C::build(&mut ctx, lhs, va);
 
                 let shape = F::new(&ctx, node).unwrap();
                 let mut eval = F::new_point_eval();
