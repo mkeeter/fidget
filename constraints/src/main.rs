@@ -64,16 +64,12 @@ impl ConstraintsApp {
         let mut constraints = vec![];
 
         // add a constraint matching the Y position of two values
-        let v1 = ctx.var(points[0].y.var);
-        let v2 = ctx.var(points[1].y.var);
-        let w = ctx.sub(v1, v2).unwrap();
+        let w = ctx.sub(points[0].y.var, points[1].y.var).unwrap();
         let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
         constraints.push(f);
 
         // Add a constraint that point 2 must have the same X and Y values
-        let v3 = ctx.var(points[2].x.var);
-        let v4 = ctx.var(points[2].y.var);
-        let w = ctx.sub(v3, v4).unwrap();
+        let w = ctx.sub(points[2].x.var, points[2].y.var).unwrap();
         let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
         constraints.push(f);
 
