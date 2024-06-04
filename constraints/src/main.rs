@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{emath, pos2, Pos2, Rect, Sense, Shape, Vec2};
+use egui::{emath, pos2, Rect, Sense, Shape, Vec2};
 use fidget::eval::MathFunction;
 use log::{info, trace};
 use std::collections::HashMap;
@@ -49,10 +49,10 @@ struct ConstraintsApp {
 impl ConstraintsApp {
     fn new() -> Self {
         let points = vec![
-            Point::new(50.0, 50.0),
-            Point::new(100.0, 50.0),
-            Point::new(200.0, 200.0),
-            Point::new(250.0, 50.0),
+            Point::new(-0.4, -0.4),
+            Point::new(-0.6, 0.4),
+            Point::new(0.3, 0.3),
+            Point::new(0.75, 0.4),
         ];
 
         let mut ctx = fidget::Context::new();
@@ -82,9 +82,10 @@ impl eframe::App for ConstraintsApp {
                 ui.allocate_painter(Vec2::new(SIZE, SIZE), Sense::hover());
 
             let to_screen = emath::RectTransform::from_to(
-                Rect::from_min_size(Pos2::ZERO, response.rect.size()),
+                Rect::from_min_size(pos2(-1.0, -1.0), Vec2::new(2.0, 2.0)),
                 response.rect,
             );
+            let from_screen = to_screen.inverse();
 
             let control_point_radius = 8.0;
 
@@ -109,9 +110,9 @@ impl eframe::App for ConstraintsApp {
                     let dragged = point_response.dragged();
                     changed |= dragged;
 
-                    let new_pos = to_screen
-                        .from()
-                        .clamp(point_pos + point_response.drag_delta());
+                    let new_pos = from_screen.transform_pos_clamped(
+                        point_in_screen + point_response.drag_delta(),
+                    );
                     (stroke, new_pos, dragged)
                 })
                 .collect::<Vec<_>>();
