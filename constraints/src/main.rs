@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{emath, pos2, Rect, Sense, Shape, Vec2};
+use egui::{emath, pos2, Pos2, Rect, Sense, Shape, Vec2};
 use fidget::eval::MathFunction;
 use log::{info, trace};
 use std::collections::HashMap;
@@ -37,6 +37,11 @@ impl Point {
     }
 }
 
+enum Decoration {
+    Line(Pos2, Pos2),
+    Circle(Pos2, f32),
+}
+
 #[derive(Default)]
 struct ConstraintsApp {
     /// Handles to variables within our equations
@@ -44,6 +49,9 @@ struct ConstraintsApp {
 
     /// Built-in constraints
     constraints: Vec<fidget::vm::VmFunction>,
+
+    /// Guide lines, drawn in light grey
+    decorations: Vec<Decoration>,
 }
 
 impl ConstraintsApp {
@@ -71,6 +79,10 @@ impl ConstraintsApp {
         Self {
             points,
             constraints,
+            decorations: vec![
+                Decoration::Line(pos2(-1.0, -1.0), pos2(1.0, 1.0)),
+                Decoration::Circle(pos2(0.0, 0.0), 0.5),
+            ],
         }
     }
 }
@@ -86,6 +98,21 @@ impl eframe::App for ConstraintsApp {
                 response.rect,
             );
             let from_screen = to_screen.inverse();
+
+            let debug_stroke =
+                egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY);
+            painter.extend(self.decorations.iter().map(|d| match d {
+                Decoration::Line(a, b) => {
+                    let a = to_screen.transform_pos(*a);
+                    let b = to_screen.transform_pos(*b);
+                    Shape::line_segment([a, b], debug_stroke)
+                }
+                Decoration::Circle(p, r) => {
+                    let p = to_screen.transform_pos(*p);
+                    let r = to_screen.scale().x * r;
+                    Shape::circle_stroke(p, r, debug_stroke)
+                }
+            }));
 
             let control_point_radius = 8.0;
 
