@@ -1,3 +1,5 @@
+# 0.3.2 (unreleased)
+
 # 0.3.1
 The highlight of this release is the `fidget::solver` module, which implements
 the Levenberg-Marquardt algorithm to minimize a system of equations (represented
