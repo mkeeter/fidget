@@ -15,11 +15,13 @@ publish = false
 ### BEGIN HAKARI SECTION
 [dependencies]
 ahash = { version = "0.8", default-features = false, features = ["compile-time-rng", "no-rng", "runtime-rng", "std"] }
+approx = { version = "0.5" }
 bytemuck = { version = "1", default-features = false, features = ["derive", "extern_crate_alloc"] }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 crossbeam-utils = { version = "0.8" }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
+num-traits = { version = "0.2", features = ["i128"] }
 once_cell = { version = "1" }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
