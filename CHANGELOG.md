@@ -1,4 +1,9 @@
-# 0.3.1 (unreleased)
+# 0.3.1
+The highlight of this release is the `fidget::solver` module, which implements
+the Levenberg-Marquardt algorithm to minimize a system of equations (represented
+as `fidget::eval::Function` objects).  It's our first official case of using
+Fidget's types and traits for things _other than_ pure implicit surfaces!
+
 - Fixed a bug in the x86 JIT which could corrupt registers during gradient
   (`grad_slice`) evaluation
 - Renamed `Context::const_value` to `Context::get_const` and tweaked its return
