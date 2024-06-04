@@ -1,16 +1,11 @@
-use anyhow::Result;
-use clap::Parser;
 use eframe::egui;
 use egui::{emath, pos2, Pos2, Rect, Sense, Shape, Vec2};
-use env_logger::Env;
 use fidget::eval::MathFunction;
 use log::{info, trace};
 use std::collections::HashMap;
 
-/// Minimal demo of constraint solving
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args;
+/// Size for rendering
+const SIZE: f32 = 300.0;
 
 /// Container holding an abstract variable and its current value
 #[derive(Copy, Clone, Debug)]
@@ -83,17 +78,8 @@ impl ConstraintsApp {
 impl eframe::App for ConstraintsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-            });
-
-            let (response, painter) = ui.allocate_painter(
-                Vec2::new(ui.available_width(), 300.0),
-                Sense::hover(),
-            );
+            let (response, painter) =
+                ui.allocate_painter(Vec2::new(SIZE, SIZE), Sense::hover());
 
             let to_screen = emath::RectTransform::from_to(
                 Rect::from_min_size(Pos2::ZERO, response.rect.size()),
@@ -214,10 +200,11 @@ impl eframe::App for ConstraintsApp {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
+    use env_logger::Env;
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
-    let _args = Args::parse();
 
     let options = eframe::NativeOptions::default();
     info!("starting...");
@@ -228,4 +215,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+    info!("starting...");
+
+    let web_options = eframe::WebOptions {
+        max_size_points: egui::Vec2::new(SIZE, SIZE),
+        ..eframe::WebOptions::default()
+    };
+
+    wasm_bindgen_futures::spawn_local(async {
+        eframe::WebRunner::new()
+            .start(
+                "the_canvas_id", // hardcode it
+                web_options,
+                Box::new(|_cc| Box::new(ConstraintsApp::new())),
+            )
+            .await
+            .expect("failed to start eframe");
+    });
+
+    let web_options = eframe::WebOptions {
+        max_size_points: egui::Vec2::new(SIZE, SIZE),
+        ..eframe::WebOptions::default()
+    };
+    wasm_bindgen_futures::spawn_local(async {
+        eframe::WebRunner::new()
+            .start(
+                "the_other_canvas_id", // hardcode it
+                web_options,
+                Box::new(|_cc| Box::new(ConstraintsApp::new())),
+            )
+            .await
+            .expect("failed to start eframe");
+    });
 }

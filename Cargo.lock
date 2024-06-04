@@ -495,12 +495,12 @@ name = "constraints"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "eframe",
  "env_logger 0.10.2",
  "fidget",
  "log",
  "nalgebra",
+ "wasm-bindgen-futures",
  "workspace-hack",
 ]
 
