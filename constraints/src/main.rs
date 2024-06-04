@@ -13,7 +13,7 @@ use std::collections::HashMap;
 struct Args;
 
 /// Container holding an abstract variable and its current value
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct Value {
     var: fidget::var::Var,
     cur: f32,
@@ -27,7 +27,7 @@ impl Value {
 }
 
 /// Container holding two values
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct Point {
     x: Value,
     y: Value,
@@ -55,21 +55,31 @@ impl ConstraintsApp {
     fn new() -> Self {
         let points = vec![
             Point::new(50.0, 50.0),
-            Point::new(60.0, 250.0),
+            Point::new(100.0, 50.0),
             Point::new(200.0, 200.0),
             Point::new(250.0, 50.0),
         ];
 
-        // add a constraint matching the Y position of two values
         let mut ctx = fidget::Context::new();
+        let mut constraints = vec![];
+
+        // add a constraint matching the Y position of two values
         let v1 = ctx.var(points[0].y.var);
         let v2 = ctx.var(points[1].y.var);
         let w = ctx.sub(v1, v2).unwrap();
         let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
+        constraints.push(f);
+
+        // Add a constraint that point 2 must have the same X and Y values
+        let v3 = ctx.var(points[2].x.var);
+        let v4 = ctx.var(points[2].y.var);
+        let w = ctx.sub(v3, v4).unwrap();
+        let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
+        constraints.push(f);
 
         Self {
             points,
-            constraints: vec![f],
+            constraints,
         }
     }
 }
@@ -114,38 +124,69 @@ impl eframe::App for ConstraintsApp {
                         ui.interact(point_rect, point_id, Sense::drag());
                     let stroke = ui.style().interact(&point_response).fg_stroke;
 
-                    changed |= point_response.dragged();
+                    let dragged = point_response.dragged();
+                    changed |= dragged;
 
                     let new_pos = to_screen
                         .from()
                         .clamp(point_pos + point_response.drag_delta());
-                    (stroke, new_pos)
+                    (stroke, new_pos, dragged)
                 })
                 .collect::<Vec<_>>();
 
             // Constraint solving!
             if changed {
                 trace!("points have changed, running constraint solver");
-                // Constraint equations, starting from our baseline
-                let mut constraints = self.constraints.clone();
-
                 // Initial values for parameters
                 let mut parameters = HashMap::new();
 
-                let mut ctx = fidget::Context::new();
-                for (point, (_, pos)) in self.points.iter().zip(&r) {
+                // Do an initial solve that forces the point to the cursor
+                for (point, (_, pos, dragged)) in self.points.iter().zip(&r) {
                     for (var, p) in [(point.x.var, pos.x), (point.y.var, pos.y)]
                     {
-                        let v = ctx.var(var);
-                        let w = ctx.sub(v, p).unwrap();
-                        let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
-                        constraints.push(f);
-                        parameters
-                            .insert(var, fidget::solver::Parameter::Free(p));
+                        parameters.insert(
+                            var,
+                            if *dragged {
+                                fidget::solver::Parameter::Fixed(p)
+                            } else {
+                                fidget::solver::Parameter::Free(p)
+                            },
+                        );
                     }
                 }
-                let sol =
-                    fidget::solver::solve(&constraints, &parameters).unwrap();
+                let sol = fidget::solver::solve(&self.constraints, &parameters)
+                    .unwrap();
+                // Update positions, either to the drag pos or the solver pos
+                for (point, (_, pos, dragged)) in self.points.iter_mut().zip(&r)
+                {
+                    if *dragged {
+                        point.x.cur = pos.x;
+                        point.y.cur = pos.y;
+                    } else {
+                        for (var, p) in [
+                            (point.x.var, &mut point.x.cur),
+                            (point.y.var, &mut point.y.cur),
+                        ] {
+                            if let Some(v) = sol.get(&var) {
+                                *p = *v;
+                            }
+                        }
+                    }
+                }
+
+                // A second solve which frees the dragged variable to fully
+                // minimize the constraints
+                let mut parameters = HashMap::new();
+                for point in self.points.iter() {
+                    for v in [point.x, point.y] {
+                        parameters.insert(
+                            v.var,
+                            fidget::solver::Parameter::Free(v.cur),
+                        );
+                    }
+                }
+                let sol = fidget::solver::solve(&self.constraints, &parameters)
+                    .unwrap();
                 for point in self.points.iter_mut() {
                     for (var, p) in [
                         (point.x.var, &mut point.x.cur),
@@ -160,7 +201,7 @@ impl eframe::App for ConstraintsApp {
 
             // Draw the points
             painter.extend(self.points.iter().zip(&r).map(
-                |(point, (stroke, _))| {
+                |(point, (stroke, _, _))| {
                     let point_in_screen =
                         to_screen.transform_pos(pos2(point.x.cur, point.y.cur));
 
