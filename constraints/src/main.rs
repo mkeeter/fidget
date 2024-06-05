@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{emath, pos2, Pos2, Rect, Sense, Shape, Vec2};
+use egui::{emath, pos2, Color32, Pos2, Rect, Sense, Shape, Vec2};
 use fidget::eval::MathFunction;
 use log::{info, trace};
 use std::collections::HashMap;
@@ -42,6 +42,8 @@ enum Decoration {
     Circle(Pos2, f32),
 }
 
+struct Beam(usize, usize, Color32);
+
 #[derive(Default)]
 struct ConstraintsApp {
     /// Handles to variables within our equations
@@ -52,6 +54,8 @@ struct ConstraintsApp {
 
     /// Guide lines, drawn in light grey
     decorations: Vec<Decoration>,
+
+    beams: Vec<Beam>,
 }
 
 impl ConstraintsApp {
@@ -83,6 +87,7 @@ impl ConstraintsApp {
                 Decoration::Line(pos2(-1.0, -1.0), pos2(1.0, 1.0)),
                 Decoration::Circle(pos2(0.0, 0.0), 0.5),
             ],
+            beams: vec![Beam(0, 1, Color32::RED)],
         }
     }
 }
@@ -99,8 +104,7 @@ impl eframe::App for ConstraintsApp {
             );
             let from_screen = to_screen.inverse();
 
-            let debug_stroke =
-                egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY);
+            let debug_stroke = egui::Stroke::new(1.0, Color32::LIGHT_GRAY);
             painter.extend(self.decorations.iter().map(|d| match d {
                 Decoration::Line(a, b) => {
                     let a = to_screen.transform_pos(*a);
@@ -208,6 +212,15 @@ impl eframe::App for ConstraintsApp {
                     }
                 }
             }
+
+            painter.extend(self.beams.iter().map(|beam| {
+                let pa = self.points[beam.0];
+                let a = to_screen.transform_pos(pos2(pa.x.cur, pa.y.cur));
+                let pb = self.points[beam.1];
+                let b = to_screen.transform_pos(pos2(pb.x.cur, pb.y.cur));
+                let stroke = egui::Stroke::new(2.0, beam.2);
+                Shape::line_segment([a, b], stroke)
+            }));
 
             // Draw the points
             painter.extend(self.points.iter().zip(&r).map(
