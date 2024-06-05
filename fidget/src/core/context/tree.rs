@@ -278,6 +278,13 @@ macro_rules! impl_binary {
                 Self::op_binary(self, other.into(), BinaryOpcode::$op)
             }
         }
+        impl<'a> std::ops::$op<&'a Tree> for Tree {
+            type Output = Self;
+
+            fn $base_fn(self, other: &Tree) -> Self {
+                Self::op_binary(self, other.clone(), BinaryOpcode::$op)
+            }
+        }
         impl<A: Into<Tree>> std::ops::$op_assign<A> for Tree {
             fn $assign_fn(&mut self, other: A) {
                 use std::ops::$op;
