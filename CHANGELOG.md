@@ -1,6 +1,8 @@
 # 0.3.2 (unreleased)
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context
   easier.
+- Overloaded `Tree` operations for `&Tree` as well, which means writing fewer
+  calls to `.clone()`.
 
 # 0.3.1
 The highlight of this release is the `fidget::solver` module, which implements
