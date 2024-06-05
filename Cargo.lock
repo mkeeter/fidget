@@ -499,7 +499,6 @@ dependencies = [
  "env_logger 0.10.2",
  "fidget",
  "log",
- "nalgebra",
  "wasm-bindgen-futures",
  "workspace-hack",
 ]

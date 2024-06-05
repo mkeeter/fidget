@@ -8,9 +8,7 @@
 <head>
     <title>Fidget constraint demo</title>
 
-    <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
     <link data-trunk rel="rust" data-wasm-opt="2" />
-    <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
     <base data-trunk-public-url />
 
     <style>
@@ -19,7 +17,6 @@
             touch-action: manipulation;
         }
 
-        /* Allow canvas to fill entire web page: */
         html,
         body {
             overflow: hidden;
@@ -42,12 +39,14 @@
 </head>
 
 <body>
-    <!-- The WASM code will resize the canvas dynamically -->
-    <!-- the id is hardcoded in main.rs . so, make sure both match. -->
-    <!-- See https://github.com/emilk/egui/discussions/746 -->
+    <!--
+        canvas-in-div is required because egui will float the canvas to the
+        top of its container; see https://github.com/emilk/egui/discussions/746
+    -->
     <div class="box" style="position: relative; width: 300px; height: 300px">
     <canvas id="the_canvas_id"></canvas>
     </div>
+
     <!--
     <div class="box" style="position: relative; width: 300px; height: 300px">
     <canvas id="the_other_canvas_id"></canvas>
