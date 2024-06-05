@@ -75,8 +75,9 @@ impl ConstraintsApp {
 
         let constraints = vec![
             (ax.square() + ay.square()).sqrt() - 0.4,
-            ((ax - &bx).square() + (ay - &by).square()).sqrt() - 0.5,
-            cx - &bx - 0.4,
+            ((ax - bx.clone()).square() + (ay - by.clone()).square()).sqrt()
+                - 0.5,
+            cx - bx.clone() - 0.4,
             by, // by == 0
             cy, // cy == 0
         ];
