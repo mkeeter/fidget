@@ -297,6 +297,7 @@ fn main() {
             .expect("failed to start eframe");
     });
 
+    /*
     let web_options = eframe::WebOptions {
         max_size_points: egui::Vec2::new(SIZE, SIZE),
         ..eframe::WebOptions::default()
@@ -311,4 +312,5 @@ fn main() {
             .await
             .expect("failed to start eframe");
     });
+    */
 }
