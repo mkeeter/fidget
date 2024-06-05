@@ -167,24 +167,27 @@ impl eframe::App for ConstraintsApp {
                 trace!("points have changed, running constraint solver");
                 // Initial values for parameters
                 let mut parameters = HashMap::new();
+                let mut constraints = self.constraints.clone();
+                let mut ctx = fidget::Context::new();
 
                 // Do an initial solve that forces the point to the cursor
                 for (point, (_, pos, dragged)) in self.points.iter().zip(&r) {
                     for (var, p) in [(point.x.var, pos.x), (point.y.var, pos.y)]
                     {
-                        parameters.insert(
-                            var,
-                            if *dragged {
-                                fidget::solver::Parameter::Fixed(p)
-                            } else {
-                                fidget::solver::Parameter::Free(p)
-                            },
-                        );
+                        parameters
+                            .insert(var, fidget::solver::Parameter::Free(p));
+                        if *dragged {
+                            let v = ctx.var(var);
+                            let weight = ctx.sub(v, p).unwrap();
+                            let f = fidget::vm::VmFunction::new(&ctx, weight)
+                                .unwrap();
+                            constraints.push(f);
+                        }
                     }
                 }
                 let start = std::time::Instant::now();
-                let sol = fidget::solver::solve(&self.constraints, &parameters)
-                    .unwrap();
+                let sol =
+                    fidget::solver::solve(&constraints, &parameters).unwrap();
                 info!("solved in {:?}", start.elapsed());
                 // Update positions, either to the drag pos or the solver pos
                 for (point, (_, pos, dragged)) in self.points.iter_mut().zip(&r)
