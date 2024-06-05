@@ -1,6 +1,6 @@
 use eframe::egui;
 use egui::{emath, pos2, Color32, Pos2, Rect, Sense, Shape, Vec2};
-use fidget::eval::MathFunction;
+use fidget::{context::Tree, eval::MathFunction};
 use log::{info, trace};
 use std::collections::HashMap;
 
@@ -60,34 +60,45 @@ struct ConstraintsApp {
 
 impl ConstraintsApp {
     fn new() -> Self {
-        let points = vec![
-            Point::new(-0.4, -0.4),
-            Point::new(-0.6, 0.4),
-            Point::new(0.3, 0.3),
-            Point::new(0.75, 0.4),
+        let pa = Point::new(0.0, 0.4);
+        let pb = Point::new(0.4, 0.0);
+        let pc = Point::new(0.7, 0.0);
+
+        let points = vec![pa, pb, pc];
+
+        let ax = Tree::from(pa.x.var);
+        let ay = Tree::from(pa.y.var);
+        let bx = Tree::from(pb.x.var);
+        let by = Tree::from(pb.y.var);
+        let cx = Tree::from(pc.x.var);
+        let cy = Tree::from(pc.y.var);
+
+        let constraints = vec![
+            (ax.square() + ay.square()).sqrt() - 0.4,
+            ((ax - &bx).square() + (ay - &by).square()).sqrt() - 0.5,
+            cx - &bx - 0.4,
+            by, // by == 0
+            cy, // cy == 0
         ];
 
         let mut ctx = fidget::Context::new();
-        let mut constraints = vec![];
-
-        // add a constraint matching the Y position of two values
-        let w = ctx.sub(points[0].y.var, points[1].y.var).unwrap();
-        let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
-        constraints.push(f);
-
-        // Add a constraint that point 2 must have the same X and Y values
-        let w = ctx.sub(points[2].x.var, points[2].y.var).unwrap();
-        let f = fidget::vm::VmFunction::new(&ctx, w).unwrap();
-        constraints.push(f);
+        let constraints = constraints
+            .into_iter()
+            .map(|eqn| {
+                let root = ctx.import(&eqn);
+                fidget::vm::VmFunction::new(&ctx, root).unwrap()
+            })
+            .collect::<Vec<_>>();
 
         Self {
             points,
             constraints,
             decorations: vec![
-                Decoration::Line(pos2(-1.0, -1.0), pos2(1.0, 1.0)),
-                Decoration::Circle(pos2(0.0, 0.0), 0.5),
+                Decoration::Line(pos2(-1.0, -0.1), pos2(1.0, -0.1)),
+                Decoration::Line(pos2(-1.0, 0.1), pos2(1.0, 0.1)),
+                Decoration::Circle(pos2(0.0, 0.0), 0.4),
             ],
-            beams: vec![Beam(0, 1, Color32::RED)],
+            beams: vec![Beam(0, 1, Color32::RED), Beam(1, 2, Color32::BLUE)],
         }
     }
 }
@@ -99,7 +110,7 @@ impl eframe::App for ConstraintsApp {
                 ui.allocate_painter(Vec2::new(SIZE, SIZE), Sense::hover());
 
             let to_screen = emath::RectTransform::from_to(
-                Rect::from_min_size(pos2(-1.0, -1.0), Vec2::new(2.0, 2.0)),
+                Rect::from_min_size(pos2(-0.5, -1.0), Vec2::new(2.0, 2.0)),
                 response.rect,
             );
             let from_screen = to_screen.inverse();
@@ -140,10 +151,13 @@ impl eframe::App for ConstraintsApp {
 
                     let dragged = point_response.dragged();
                     changed |= dragged;
-
-                    let new_pos = from_screen.transform_pos_clamped(
-                        point_in_screen + point_response.drag_delta(),
-                    );
+                    let new_pos = if dragged {
+                        from_screen.transform_pos(
+                            point_response.interact_pointer_pos.unwrap(),
+                        )
+                    } else {
+                        point_pos
+                    };
                     (stroke, new_pos, dragged)
                 })
                 .collect::<Vec<_>>();
@@ -168,8 +182,10 @@ impl eframe::App for ConstraintsApp {
                         );
                     }
                 }
+                let start = std::time::Instant::now();
                 let sol = fidget::solver::solve(&self.constraints, &parameters)
                     .unwrap();
+                info!("solved in {:?}", start.elapsed());
                 // Update positions, either to the drag pos or the solver pos
                 for (point, (_, pos, dragged)) in self.points.iter_mut().zip(&r)
                 {
