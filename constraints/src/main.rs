@@ -185,10 +185,8 @@ impl eframe::App for ConstraintsApp {
                         }
                     }
                 }
-                let start = std::time::Instant::now();
                 let sol =
                     fidget::solver::solve(&constraints, &parameters).unwrap();
-                info!("solved in {:?}", start.elapsed());
                 // Update positions, either to the drag pos or the solver pos
                 for (point, (_, pos, dragged)) in self.points.iter_mut().zip(&r)
                 {
