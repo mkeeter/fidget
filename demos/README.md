@@ -1,6 +1,5 @@
 # Fidget demos
-## Command-line demo
-[`cli/`](cli/)
+## Command-line demo ([`cli`](cli/))
 
 Bitmap rendering and meshing from the command line
 ```shell
@@ -12,11 +11,7 @@ $ cargo run -pfidget-cli --release -- -i models/prospero.vm render2d -s512 --eva
 [2024-06-06T16:08:12Z INFO  fidget_cli] Rendered 1x at 14.489 ms/frame
 ```
 
-## Script viewer
-[`viewer/`](viewer/)
-
-![screenshot of script viewer](viewer/screenshot.png)
-
+## Script viewer ([`viewer`](viewer/))
 Minimal desktop GUI for interactive exploration,
 using [`egui`](https://github.com/emilk/egui)
 
@@ -24,12 +19,9 @@ using [`egui`](https://github.com/emilk/egui)
 cargo run --release -pfidget-viewer
 ```
 
-## Constraint solving
-[`constraints/`](constraints/)
+![screenshot of script viewer](viewer/screenshot.png)
 
-![screenshot of contraint editor](constraints/screenshot.png)
-
-
+## Constraint solving ([`constraints`](constraints/))
 Example of using Fidget for constraint solving.
 Uses [`egui`](https://github.com/emilk/egui)
 and runs either on the desktop or as a web app.
@@ -37,13 +29,13 @@ and runs either on the desktop or as a web app.
 cargo run --release -pconstraints
 ```
 
+![screenshot of contraint editor](constraints/screenshot.png)
+
 See the [subfolder](constraints/) for details on bundling for the web.
 
-## Web-based editor
-![`web-editor/`](web-editor/)
+## Web-based editor ([`web-editor`](web-editor/))
+Integrates Fidget into a TypeScript project (web only)
 
 ![screenshot of web editor](web-editor/screenshot.png)
-
-Integrates Fidget into a TypeScript project (web only)
 
 See the [subfolder](web-editor/) for details on bundling for the web.
