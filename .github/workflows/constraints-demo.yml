@@ -18,6 +18,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
+    - name: Install wasm target
+      run: rustup target add wasm32-unknown-unknown
     - name: Install trunk
       run: |
         wget -qO- https://github.com/trunk-rs/trunk/releases/download/v0.20.2/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf-
