@@ -635,20 +635,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 
 [[package]]
-name = "demo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger 0.11.2",
- "fidget",
- "image",
- "log",
- "nalgebra",
- "workspace-hack",
-]
-
-[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -912,6 +898,37 @@ dependencies = [
  "static_assertions",
  "thiserror",
  "windows",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger 0.11.2",
+ "fidget",
+ "image",
+ "log",
+ "nalgebra",
+ "workspace-hack",
+]
+
+[[package]]
+name = "fidget-viewer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossbeam-channel",
+ "eframe",
+ "env_logger 0.10.2",
+ "fidget",
+ "log",
+ "nalgebra",
+ "notify",
+ "rhai",
  "workspace-hack",
 ]
 
@@ -2378,23 +2395,6 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
-
-[[package]]
-name = "viewer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossbeam-channel",
- "eframe",
- "env_logger 0.10.2",
- "fidget",
- "log",
- "nalgebra",
- "notify",
- "rhai",
- "workspace-hack",
-]
 
 [[package]]
 name = "walkdir"

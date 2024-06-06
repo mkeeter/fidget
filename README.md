@@ -51,31 +51,10 @@ Issues and PRs are welcome, although I'm unlikely to merge anything which adds
 substantial maintenance burden.  This is a personal-scale experimental project,
 so adjust your expectations accordingly.
 
-## Demo applications
-In the [repository on Github](https://github.com/mkeeter/fidget), there are
-two demo applications:
-
-- `demo` does bitmap rendering and meshing from the command line
-- `viewer` is a minimal GUI for interactive exploration
-
-These are deliberately not published to [https://crates.io](crates.io), because
-they're demo applications and not complete end-user tools.
-
-## WebAssembly demo
-The `wasm-demo` subfolder embeds Fidget into a web application.  Building this
-demo requires [`wasm-pack`](https://rustwasm.github.io/wasm-pack/)
-to be installed on the host system.
-
-In that folder, run it with
-```
-npm install
-npm run serve
-```
-
-Or bundle files for distribution with
-```
-npm run build
-```
+## Demos
+The [`demos` folder](demos/README.md) contains several demo tools and
+applications built using the Fidget crate,
+ranging from CLI to GUI to web app.
 
 ## Support matrix
 At the moment, Fidget supports a limited number of platforms:

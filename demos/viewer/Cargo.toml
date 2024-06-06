@@ -1,5 +1,5 @@
 [package]
-name = "viewer"
+name = "fidget-viewer"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,12 +15,12 @@ eframe = { version = "0.27", default-features = false, features = [
 ] }
 env_logger = "0.10.0"
 
-fidget = { path = "../fidget", default-features = false, features = ["render", "rhai"] }
+fidget = { path = "../../fidget", default-features = false, features = ["render", "rhai"] }
 log = "0.4"
 nalgebra = "0.31"
 notify = "5.0"
 rhai = "1.10"
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]
 default = ["jit"]

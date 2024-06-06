@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 bincode = "1.3.3"
-fidget = {path = "../fidget", default-features = false, features = ["rhai", "mesh", "render"]}
+fidget = {path = "../../fidget", default-features = false, features = ["rhai", "mesh", "render"]}
 wasm-bindgen = "0.2.92"
 nalgebra = "0.31"
 

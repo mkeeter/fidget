@@ -2,9 +2,9 @@
 resolver = "2"
 members = [
     "fidget",
-    "constraints",
-    "demo",
-    "viewer",
+    "demos/constraints",
+    "demos/cli",
+    "demos/viewer",
     "workspace-hack",
 ]
 exclude = ["wasm-demo"]

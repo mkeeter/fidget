@@ -1,8 +1,9 @@
 # Demo of constraint solving
 ## WebAssembly
 ### Setup
+Install the [`trunk`](https://trunkrs.dev/) bundler with
 ```
-cargon install +locked trunk # installs the `trunk` bundler
+cargo install +locked trunk
 ```
 ### Developing
 In this folder, run
