@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+<!-- Disable zooming: -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+<head>
+    <title>Fidget constraint demo</title>
+
+    <link data-trunk rel="rust" data-wasm-opt="2" />
+    <base data-trunk-public-url />
+
+    <style>
+        html {
+            /* Remove touch delay: */
+            touch-action: manipulation;
+        }
+
+        html,
+        body {
+            overflow: hidden;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: 100%;
+            width: 100%;
+        }
+
+        div.box {
+            outline: 1px solid #bbb;
+            margin: 20px;
+        }
+
+        /* Position canvas in center-top: */
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <!--
+        canvas-in-div is required because egui will float the canvas to the
+        top of its container; see https://github.com/emilk/egui/discussions/746
+    -->
+    <div class="box" style="position: relative; width: 300px; height: 300px">
+    <canvas id="the_canvas_id"></canvas>
+    </div>
+
+    <!--
+    <div class="box" style="position: relative; width: 300px; height: 300px">
+    <canvas id="the_other_canvas_id"></canvas>
+    </div>
+    -->
+</body>
+
+</html>

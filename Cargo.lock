@@ -491,6 +491,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "constraints"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "env_logger 0.10.2",
+ "fidget",
+ "log",
+ "wasm-bindgen-futures",
+ "workspace-hack",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2958,6 +2971,7 @@ dependencies = [
  "regex",
  "regex-automata",
  "serde",
+ "smallvec",
  "syn 1.0.109",
  "syn 2.0.48",
 ]
