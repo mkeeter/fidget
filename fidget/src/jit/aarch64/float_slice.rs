@@ -35,7 +35,8 @@ pub const SIMD_WIDTH: usize = 4;
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|--------------|---------------------------------------------|
-/// | 0x228    | ...          | Register spills live up here                |
+/// | 0x230    | ...          | Register spills live up here                |
+/// | 0x228    | ---          | Padding for 16-byte alignment               |
 /// |----------|--------------|---------------------------------------------|
 /// | 0x220    | `x24`        | Backup for callee-saved register            |
 /// | 0x218    | `x23`        |                                             |
@@ -80,7 +81,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0x228;
+const STACK_SIZE: u32 = 0x230;
 
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
