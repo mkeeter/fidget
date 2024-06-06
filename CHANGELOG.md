@@ -1,6 +1,8 @@
 # 0.3.2 (unreleased)
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context
   easier.
+- Fix possible corruption of `x24` during AArch64 float slice JIT evaluation,
+  due to incorrect stack alignment.
 
 # 0.3.1
 The highlight of this release is the `fidget::solver` module, which implements
