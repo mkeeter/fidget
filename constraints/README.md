@@ -2,7 +2,7 @@
 ## WebAssembly
 ### Setup
 ```
-cargon install +locked trunk # setup
+cargon install +locked trunk # installs the `trunk` bundler
 ```
 ### Developing
 In this folder, run
@@ -17,6 +17,11 @@ In this folder, run
 trunk build --release
 ```
 `trunk` will populate the `dist/` subfolder with assets.
+
+If the site will be hosted at a non-root URL, then add `--public-url`, e.g.
+```
+trunk build --release --public-url=/projects/fidget/constraints/
+```
 
 ## Native
 ```
