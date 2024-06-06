@@ -21,5 +21,5 @@ jobs:
     - name: Install trunk
       run: cargo install --locked trunk
     - name: Build wasm-demo
-      run: trunk dist --release
+      run: trunk build --release
 
