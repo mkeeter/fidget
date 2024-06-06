@@ -14,14 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./wasm-demo
+        working-directory: ./demos/web-editor
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
     - name: Install wasm target
       run: rustup target add wasm32-unknown-unknown
     - name: Install wasm-pack
-      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      run: |
+        curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     - name: Install npm dependencies
       run: npm install
     - name: Check Prettier

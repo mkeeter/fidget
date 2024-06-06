@@ -25,7 +25,7 @@ fn intersection(a, b) {
 }
 
 fn inverse(a) {
-    a.neg()
+    -a
 }
 
 fn difference(a, b) {

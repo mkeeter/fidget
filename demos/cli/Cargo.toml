@@ -1,10 +1,10 @@
 [package]
-name = "demo"
+name = "fidget-cli"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fidget = { path = "../fidget", default-features = false, features = ["render", "mesh"] }
+fidget = { path = "../../fidget", default-features = false, features = ["render", "mesh"] }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -12,7 +12,7 @@ env_logger = "0.11.2"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = "0.4"
 nalgebra = "0.31"
-workspace-hack = { version = "0.1", path = "../workspace-hack" }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]
 jit = ["fidget/jit"]

@@ -2,12 +2,12 @@
 resolver = "2"
 members = [
     "fidget",
-    "constraints",
-    "demo",
-    "viewer",
+    "demos/constraints",
+    "demos/cli",
+    "demos/viewer",
     "workspace-hack",
 ]
-exclude = ["wasm-demo"]
+exclude = ["demos/web-editor"]
 
 [profile.release]
 debug = true
