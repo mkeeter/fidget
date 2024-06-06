@@ -7,7 +7,7 @@ members = [
     "demos/viewer",
     "workspace-hack",
 ]
-exclude = ["wasm-demo"]
+exclude = ["demos/web-editor"]
 
 [profile.release]
 debug = true
