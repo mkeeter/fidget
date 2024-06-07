@@ -496,7 +496,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "env_logger 0.10.2",
+ "env_logger",
  "fidget",
  "log",
  "wasm-bindgen-futures",
@@ -803,19 +803,6 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
-dependencies = [
- "humantime",
- "is-terminal",
- "log",
- "regex",
- "termcolor",
-]
-
-[[package]]
-name = "env_logger"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c012a26a7f605efc424dd53697843a72be7dc86ad2d01f7814337794a12231d"
@@ -907,7 +894,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "env_logger 0.11.2",
+ "env_logger",
  "fidget",
  "image",
  "log",
@@ -923,7 +910,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "eframe",
- "env_logger 0.10.2",
+ "env_logger",
  "fidget",
  "log",
  "nalgebra",
@@ -2233,15 +2220,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "termcolor"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
-dependencies = [
- "winapi-util",
-]
-
-[[package]]
 name = "thin-vec"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2954,6 +2932,7 @@ name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "anstream",
  "approx",
  "bitflags 2.4.2",
  "bytemuck",

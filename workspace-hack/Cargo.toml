@@ -38,6 +38,7 @@ syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-trai
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 ahash = { version = "0.8" }
+anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -49,6 +50,7 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 
 [target.aarch64-apple-darwin.dependencies]
+anstream = { version = "0.6" }
 libc = { version = "0.2" }
 
 [target.aarch64-apple-darwin.build-dependencies]
@@ -56,6 +58,7 @@ libc = { version = "0.2" }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 ahash = { version = "0.8" }
+anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }

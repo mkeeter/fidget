@@ -13,7 +13,7 @@ eframe = { version = "0.27", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     #"wgpu"
 ] }
-env_logger = "0.10.0"
+env_logger = "0.11.2"
 
 fidget = { path = "../../fidget", default-features = false, features = ["render", "rhai"] }
 log = "0.4"
