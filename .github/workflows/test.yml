@@ -47,7 +47,9 @@ jobs:
       env:
         CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
         RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
-      run: rustup default stable
+      run: |
+        rustup set profile minimal
+        rustup default stable
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: ${{ env.DEV_DRIVE }}/fidget
