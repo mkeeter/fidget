@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "fidget"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "arrayvec",
  "bimap",
@@ -264,7 +264,6 @@ dependencies = [
  "getrandom",
  "ieee754",
  "nalgebra",
- "num-derive",
  "num-traits",
  "ordered-float",
  "rand",
@@ -401,17 +400,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23c6602fda94a57c990fe0df199a035d83576b496aa29f4e634a8ac6004e68a6"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "num-derive"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "876a53fff98e03a936a674b29568b0e605f06b29372c2489ff4de23f1949743d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -921,6 +909,8 @@ name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "anstream",
+ "approx",
  "bitflags",
  "bytemuck",
  "clap",
@@ -930,12 +920,14 @@ dependencies = [
  "libc",
  "log",
  "memchr",
+ "num-traits",
  "once_cell",
  "proc-macro2",
  "quote",
  "regex",
  "regex-automata",
  "serde",
+ "smallvec",
  "syn 1.0.109",
  "syn 2.0.59",
 ]

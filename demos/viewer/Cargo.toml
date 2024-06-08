@@ -4,22 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-clap = { version = "4.1.6", features = ["derive"] }
-crossbeam-channel = "0.5"
-eframe = { version = "0.27", default-features = false, features = [
-    #"accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    #"wgpu"
-] }
-env_logger = "0.11.2"
+anyhow.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+eframe.workspace = true
+env_logger.workspace = true
+log.workspace = true
+nalgebra.workspace = true
+notify.workspace = true
+rhai.workspace = true
 
 fidget = { path = "../../fidget", default-features = false, features = ["render", "rhai"] }
-log = "0.4"
-nalgebra = "0.32"
-notify = "5.0"
-rhai = "1.10"
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]
