@@ -15,7 +15,7 @@ log = "0.4"
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.10.0"
+env_logger = "0.11.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
