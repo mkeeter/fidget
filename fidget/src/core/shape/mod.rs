@@ -564,7 +564,7 @@ where
     }
 }
 
-/// Trait for types that can be transformed by a 4x4 homogenous transform matrix
+/// Trait for types that can be transformed by a 4x4 homogeneous transform matrix
 pub trait Transformable {
     /// Apply the given transform to an `(x, y, z)` position
     fn transform(

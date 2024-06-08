@@ -259,7 +259,7 @@ pub fn solve<F: Function>(
         // Update our current position, checking whether it actually changed
         // (i.e. whether our steps are below the floating-point epsilon)
         //
-        // TODO: improve exit critera?
+        // TODO: improve exit criteria?
         let mut changed = false;
         for gi in 0..solver.grad_index.len() {
             let prev = cur[gi];

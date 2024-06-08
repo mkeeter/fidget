@@ -226,7 +226,7 @@ trait Assembler {
 
     /// Minimum of two values
     ///
-    /// In a tracing evaluator, this function muld also write to the `choices`
+    /// In a tracing evaluator, this function must also write to the `choices`
     /// array and may set `simplify` if one branch is always taken.
     fn build_min(&mut self, out_reg: u8, lhs_reg: u8, rhs_reg: u8);
 
@@ -235,7 +235,7 @@ trait Assembler {
 
     // Special-case functions for immediates.  In some cases, you can be more
     // efficient if you know that an argument is an immediate (for example, both
-    // values in the interval will be the same, and it wlll have no gradients).
+    // values in the interval will be the same, and it will have no gradients).
 
     /// Builds a addition (immediate + register)
     ///

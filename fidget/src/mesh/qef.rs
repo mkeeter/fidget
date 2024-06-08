@@ -61,7 +61,7 @@ impl QuadraticErrorSolver {
     /// Solve the given QEF, minimizing towards the mass point
     ///
     /// Returns a vertex localized within the given cell, and adjusts the solver
-    /// to increase the likelyhood that the vertex is bounded in the cell.
+    /// to increase the likelihood that the vertex is bounded in the cell.
     ///
     /// Also returns the QEF error as the second item in the tuple
     pub fn solve(&self) -> (CellVertex, f32) {
@@ -83,7 +83,7 @@ impl QuadraticErrorSolver {
             .last()
             .unwrap_or(0);
 
-        // "Dual Contouring: The Secret Sauce" recomments a threshold of 0.1
+        // "Dual Contouring: The Secret Sauce" recommends a threshold of 0.1
         // when using normalized gradients, but I've found that fails on
         // things like the cone model.  Instead, we'll be a little more
         // clever: we'll pick the smallest epsilon that keeps the feature in

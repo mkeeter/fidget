@@ -234,7 +234,7 @@ impl<const N: usize> RegisterAllocator<N> {
     fn release_mem(&mut self, mem: u32) {
         assert!(mem >= N as u32);
         self.spare_memory.push(mem);
-        // This leaves self.allocations[...] stil pointing to the memory slot,
+        // This leaves self.allocations[...] still pointing to the memory slot,
         // but that's okay, because it should never be used
     }
 

@@ -29,7 +29,7 @@ and runs either on the desktop or as a web app.
 cargo run --release -pconstraints
 ```
 
-![screenshot of contraint editor](constraints/screenshot.png)
+![screenshot of constraint editor](constraints/screenshot.png)
 
 See the [subfolder](constraints/) for details on bundling for the web.
 

@@ -123,7 +123,7 @@ impl RenderMode for BitRenderMode {
     }
 }
 
-/// Pixel-perfect render mode which mimicks many SDF demos on ShaderToy
+/// Pixel-perfect render mode which mimics many SDF demos on ShaderToy
 ///
 /// This mode recurses down to individual pixels, so it doesn't take advantage
 /// of skipping empty / full regions; use [`SdfRenderMode`] for a
@@ -160,7 +160,7 @@ impl RenderMode for SdfPixelRenderMode {
     }
 }
 
-/// Fast rendering mode which mimicks many SDF demos on ShaderToy
+/// Fast rendering mode which mimics many SDF demos on ShaderToy
 ///
 /// Unlike [`SdfPixelRenderMode`], this mode uses linear interpolation when
 /// evaluating empty or full regions, which is significantly faster.
