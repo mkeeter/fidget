@@ -29,7 +29,7 @@ pub use data::{VmData, VmWorkspace};
 /// there's no separate planning required to generate a tape.
 pub type VmFunction = GenericVmFunction<{ u8::MAX as usize }>;
 
-/// Shape that use a the [`VmFunction`] backend for evaluation
+/// Shape that uses the [`VmFunction`] backend for evaluation
 pub type VmShape = Shape<VmFunction>;
 
 /// Tape storage type which indicates that there's no actual backing storage

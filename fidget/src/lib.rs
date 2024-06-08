@@ -109,7 +109,7 @@
 //!
 //! # Functions and shapes
 //! The [`Function`](crate::eval::Function) trait supports arbitrary numbers of
-//! varibles; when using it for implicit surfaces, it's common to wrap it in a
+//! variables; when using it for implicit surfaces, it's common to wrap it in a
 //! [`Shape`](crate::shape::Shape), which binds `(x, y, z)` axes to specific
 //! variables.
 //!
