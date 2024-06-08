@@ -13,7 +13,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-14", "windows-latest"]
+        os: ["ubuntu-latest", "macos-14"]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -24,4 +24,53 @@ jobs:
     - name: Run crate tests
       run: cargo test --verbose --package fidget --lib
     - name: Run doc tests
+      run: cargo test --verbose --package fidget --doc
+
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+    - name: Create dev drive using ReFS
+      run: |
+        $Volume = New-VHD -Path C:/fidget_dev_drive.vhdx -SizeBytes 10GB |
+                  Mount-VHD -Passthru |
+                  Initialize-Disk -Passthru |
+                  New-Partition -AssignDriveLetter -UseMaximumSize |
+                  Format-Volume -FileSystem ReFS -Confirm:$false -Force
+        Write-Output $Volume
+        Write-Output "DEV_DRIVE=$($Volume.DriveLetter):" >> $env:GITHUB_ENV
+    - uses: actions/checkout@v4
+    - name: Copy repo to dev drive
+      run: |
+        Copy-Item -Path "${{ github.workspace }}" -Destination "${{ env.DEV_DRIVE }}/fidget" -Recurse
+    - name: Select Rust toolchain
+      env:
+        CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
+        RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
+      run: |
+        rustup set profile minimal
+        rustup default stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ env.DEV_DRIVE }}/fidget
+      env:
+        CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
+        RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
+    - name: Build tests
+      working-directory: ${{ env.DEV_DRIVE }}/fidget
+      env:
+        CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
+        RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
+      run: cargo test --verbose --package fidget --no-run
+    - name: Run crate tests
+      working-directory: ${{ env.DEV_DRIVE }}/fidget
+      env:
+        CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
+        RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
+      run: cargo test --verbose --package fidget --lib
+    - name: Run doc tests
+      working-directory: ${{ env.DEV_DRIVE }}/fidget
+      env:
+        CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
+        RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
       run: cargo test --verbose --package fidget --doc
