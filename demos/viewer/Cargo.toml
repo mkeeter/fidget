@@ -17,7 +17,7 @@ env_logger = "0.11.2"
 
 fidget = { path = "../../fidget", default-features = false, features = ["render", "rhai"] }
 log = "0.4"
-nalgebra = "0.31"
+nalgebra = "0.32"
 notify = "5.0"
 rhai = "1.10"
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
