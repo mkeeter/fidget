@@ -52,10 +52,9 @@ impl<const N: usize> RenderConfig<N>
 where
     nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
     DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
     DefaultAllocator:
         nalgebra::allocator::Allocator<
-            f32,
             <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
                 Const<1>,
             >>::Output,
@@ -89,12 +88,11 @@ where
                 Const<1>,
             >>::Output,
             <DefaultAllocator as nalgebra::allocator::Allocator<
-                f32,
                 <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
                     Const<1>,
                 >>::Output,
                 U1,
-            >>::Buffer,
+            >>::Buffer<f32>,
         >::from_element(-1.0);
 
         // Build a matrix which transforms from pixel coordinates to [-1, +1]
@@ -129,7 +127,7 @@ pub(crate) struct AlignedRenderConfig<const N: usize>
 where
     nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
     DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
 {
     pub image_size: usize,
     pub orig_image_size: usize,
@@ -146,17 +144,16 @@ type NPlusOneMatrix<const N: usize> = nalgebra::Matrix<
     <Const<N> as DimNameAdd<Const<1>>>::Output,
     <Const<N> as DimNameAdd<Const<1>>>::Output,
     <DefaultAllocator as nalgebra::allocator::Allocator<
-        f32,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
-    >>::Buffer,
+    >>::Buffer<f32>,
 >;
 
 impl<const N: usize> AlignedRenderConfig<N>
 where
     nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
     DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
     <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
 {
     #[inline]
