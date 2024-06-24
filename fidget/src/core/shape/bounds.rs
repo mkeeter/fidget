@@ -31,7 +31,7 @@ impl<const N: usize> Bounds<N>
 where
     Const<N>: DimNameAdd<U1>,
     DefaultAllocator:
-        Allocator<f32, DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
     <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<U1>,
 {
     /// Returns a homogeneous transform matrix for these bounds

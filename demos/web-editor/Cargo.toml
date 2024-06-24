@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bincode = "1.3.3"
 wasm-bindgen = "0.2.92"
-nalgebra = "0.32"
+nalgebra = "0.33"
 
 fidget = {path = "../../fidget", default-features = false, features = ["rhai", "mesh", "render"]}
 

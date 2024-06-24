@@ -41,7 +41,7 @@ ieee754 = "0.2"
 image = { version = "0.24", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
-nalgebra = "0.32"
+nalgebra = "0.33"
 notify = "6.0"
 num-traits = "0.2"
 ordered-float = "4"
