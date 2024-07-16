@@ -1,6 +1,9 @@
 # 0.3.2 (unreleased)
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context
   easier.
+- Added `impl From<TreeOp> for Tree` for convenience
+- Added `Context::export(&self, n: Node) -> Tree` to make a freestanding `Tree`
+  given a context-specific `Node`.
 - Fix possible corruption of `x24` during AArch64 float slice JIT evaluation,
   due to incorrect stack alignment.
 
