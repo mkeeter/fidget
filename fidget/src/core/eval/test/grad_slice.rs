@@ -392,7 +392,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut eval = F::new_grad_slice_eval();
 
         for i in 0..3 {
-            let args = args
+            let args_g = args
                 .iter()
                 .map(|&v| match i {
                     0 => Grad::new(v, 1.0, 0.0, 0.0),
@@ -401,8 +401,9 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                     _ => unreachable!(),
                 })
                 .collect::<Vec<Grad>>();
-            let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
-            for (a, &o) in args.iter().zip(out.iter()) {
+            let out = eval.eval(&tape, &[args_g.as_slice()]).unwrap();
+
+            for (a, &o) in args_g.iter().zip(out.iter()) {
                 let v = C::eval_f64(a.v as f64);
                 let err = (v as f32 - o.v).abs();
                 let err_frac = err / (v.abs() as f32).max(o.v.abs());

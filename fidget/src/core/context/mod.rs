@@ -1423,7 +1423,7 @@ impl Context {
                                 self.div(c, v)
                             }
                             BinaryOpcode::Atan => {
-                                let a = self.square(v_rhs).unwrap();
+                                let a = self.square(v_lhs).unwrap();
                                 let b = self.square(v_rhs).unwrap();
                                 let d = self.add(a, b).unwrap();
 
