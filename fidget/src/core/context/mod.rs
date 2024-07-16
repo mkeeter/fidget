@@ -1149,6 +1149,84 @@ impl Context {
         assert_eq!(stack.len(), 1);
         stack.pop().unwrap()
     }
+
+    /// Converts from a context-specific node into a standalone [`Tree`]
+    pub fn export(&self, n: Node) -> Result<Tree, Error> {
+        if self.get_op(n).is_none() {
+            return Err(Error::BadNode);
+        }
+
+        // Do recursion on the heap to avoid stack overflows for deep trees
+        enum Action {
+            /// Pushes `Up(n)` followed by `Down(n)` for each child
+            Down(Node),
+            /// Consumes trees from the stack and pushes a new tree
+            Up(Node, Op),
+        }
+        let mut todo = vec![Action::Down(n)];
+        let mut stack = vec![];
+
+        // Cache of Node -> Tree mapping, for Tree deduplication
+        let mut seen: HashMap<Node, Tree> = HashMap::new();
+
+        while let Some(t) = todo.pop() {
+            match t {
+                Action::Down(n) => {
+                    // If we've already seen this TreeOp with these axes, then
+                    // we can return the previous Node.
+                    if let Some(p) = seen.get(&n) {
+                        stack.push(p.clone());
+                        continue;
+                    }
+                    let op = self.get_op(n).unwrap();
+                    match op {
+                        Op::Const(c) => {
+                            let t = Tree::from(c.0);
+                            seen.insert(n, t.clone());
+                            stack.push(t);
+                        }
+                        Op::Input(v) => {
+                            let t = Tree::from(*v);
+                            seen.insert(n, t.clone());
+                            stack.push(t);
+                        }
+                        Op::Unary(_op, arg) => {
+                            todo.push(Action::Up(n, *op));
+                            todo.push(Action::Down(*arg));
+                        }
+                        Op::Binary(_op, lhs, rhs) => {
+                            todo.push(Action::Up(n, *op));
+                            todo.push(Action::Down(*lhs));
+                            todo.push(Action::Down(*rhs));
+                        }
+                    }
+                }
+                Action::Up(n, op) => match op {
+                    Op::Const(..) | Op::Input(..) => unreachable!(),
+                    Op::Unary(op, ..) => {
+                        let arg = stack.pop().unwrap();
+                        let out =
+                            Tree::from(TreeOp::Unary(op, arg.arc().clone()));
+                        seen.insert(n, out.clone());
+                        stack.push(out);
+                    }
+                    Op::Binary(op, ..) => {
+                        let lhs = stack.pop().unwrap();
+                        let rhs = stack.pop().unwrap();
+                        let out = Tree::from(TreeOp::Binary(
+                            op,
+                            lhs.arc().clone(),
+                            rhs.arc().clone(),
+                        ));
+                        seen.insert(n, out.clone());
+                        stack.push(out);
+                    }
+                },
+            }
+        }
+        assert_eq!(stack.len(), 1);
+        Ok(stack.pop().unwrap())
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1236,5 +1314,31 @@ mod test {
         let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 2);
         assert_eq!(tape.vars.len(), 1);
+    }
+
+    #[test]
+    fn test_export() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let s = ctx.sin(x).unwrap();
+        let c = ctx.cos(x).unwrap();
+        let sum = ctx.add(s, c).unwrap();
+        let t = ctx.export(sum).unwrap();
+        if let TreeOp::Binary(BinaryOpcode::Add, lhs, rhs) = &*t {
+            match (&**lhs, &**rhs) {
+                (
+                    TreeOp::Unary(UnaryOpcode::Sin, x1),
+                    TreeOp::Unary(UnaryOpcode::Cos, x2),
+                ) => {
+                    assert_eq!(Arc::as_ptr(x1), Arc::as_ptr(x2));
+                    let TreeOp::Input(Var::X) = &**x1 else {
+                        panic!("invalid X: {x1:?}");
+                    };
+                }
+                _ => panic!("invalid lhs / rhs: {lhs:?} {rhs:?}"),
+            }
+        } else {
+            panic!("unexpected opcode {t:?}");
+        }
     }
 }

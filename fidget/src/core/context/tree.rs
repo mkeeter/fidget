@@ -107,6 +107,12 @@ impl From<Var> for Tree {
     }
 }
 
+impl From<TreeOp> for Tree {
+    fn from(t: TreeOp) -> Tree {
+        Tree(Arc::new(t))
+    }
+}
+
 /// Owned handle for a standalone math tree
 #[derive(Clone, Debug)]
 pub struct Tree(Arc<TreeOp>);
