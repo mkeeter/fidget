@@ -17,7 +17,7 @@ import {
 
 import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
 
-const INITIAL_SCRIPT = "y + x*x";
+import INITIAL_SCRIPT from "../../models/gyroid-sphere.rhai";
 
 var fidget: any = null;
 

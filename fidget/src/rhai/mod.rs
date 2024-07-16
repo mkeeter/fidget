@@ -401,7 +401,10 @@ pub fn eval(s: &str) -> Result<Tree, Error> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Context;
+    use crate::{
+        context::{BinaryOpcode, Op},
+        Context,
+    };
 
     #[test]
     fn test_bind() {
@@ -450,6 +453,20 @@ mod test {
         let mut engine = Engine::new();
         let out = engine.run("x < 0");
         assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_gyroid_sphere() {
+        let mut engine = Engine::new();
+        let s = include_str!("../../../models/gyroid-sphere.rhai");
+        let out = engine.run(s).unwrap();
+        assert_eq!(out.shapes.len(), 1);
+        let mut ctx = Context::new();
+        let sphere = ctx.import(&out.shapes[0].tree);
+        assert!(matches!(
+            ctx.get_op(sphere).unwrap(),
+            Op::Binary(BinaryOpcode::Max, _, _)
+        ));
     }
 }
 
