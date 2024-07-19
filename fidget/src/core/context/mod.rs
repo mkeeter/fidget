@@ -734,7 +734,7 @@ impl Context {
     /// # let mut ctx = fidget::context::Context::new();
     /// let x = ctx.x();
     /// let y = ctx.y();
-    /// let op = ctx.less_than(x, y).unwrap();
+    /// let op = ctx.less_than_or_equal(x, y).unwrap();
     /// let v = ctx.eval_xyz(op, 0.0, 1.0, 0.0).unwrap();
     /// assert_eq!(v, 1.0);
     /// let v = ctx.eval_xyz(op, 1.0, 1.0, 0.0).unwrap();
@@ -751,7 +751,7 @@ impl Context {
         let rhs = rhs.into_node(self)?;
         let cmp = self.op_binary(rhs, lhs, BinaryOpcode::Compare)?;
         let shift = self.add(cmp, 1.0)?;
-        self.div(shift, 2.0)
+        self.min(shift, 1.0)
     }
 
     /// Builds a node that takes the modulo (least non-negative remainder)

@@ -7,7 +7,7 @@ use crate::{
     vm::VmFunction,
 };
 
-/// Helper struct to put constrains on our `Shape` object
+/// Helper struct to test symbolic differentiation
 pub struct TestSymbolicDerivs;
 
 impl TestSymbolicDerivs {
@@ -21,7 +21,6 @@ impl TestSymbolicDerivs {
         let tape = shape.grad_slice_tape(Default::default());
         let mut eval = VmFunction::new_grad_slice_eval();
 
-        // Test symbolic differentiation at the same time
         let node_deriv = ctx.deriv(node, ctx.get_var(v).unwrap()).unwrap();
         let shape_deriv = VmFunction::new(&ctx, node_deriv).unwrap();
         let tape_deriv = shape_deriv.float_slice_tape(Default::default());
