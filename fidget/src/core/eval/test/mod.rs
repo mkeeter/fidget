@@ -4,6 +4,9 @@ pub mod grad_slice;
 pub mod interval;
 pub mod point;
 
+// Internal-only tests
+mod symbolic_deriv;
+
 use crate::{
     context::{Context, IntoNode, Node},
     eval::Tape,
