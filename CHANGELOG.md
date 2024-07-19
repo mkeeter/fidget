@@ -6,6 +6,8 @@
   given a context-specific `Node`.
 - Fix possible corruption of `x24` during AArch64 float slice JIT evaluation,
   due to incorrect stack alignment.
+- Added `Context::deriv` and `Tree::deriv` to do symbolic differentiation of
+  math expressions.
 
 # 0.3.1
 The highlight of this release is the `fidget::solver` module, which implements

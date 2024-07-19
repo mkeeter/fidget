@@ -174,6 +174,13 @@ impl Tree {
             None
         }
     }
+
+    /// Performs symbolic differentiation with respect to the given variable
+    pub fn deriv(&self, v: Var) -> Tree {
+        let mut ctx = crate::Context::new();
+        let node = ctx.import(self);
+        ctx.deriv(node, v).and_then(|d| ctx.export(d)).unwrap()
+    }
 }
 
 impl TryFrom<Tree> for Var {
@@ -495,5 +502,24 @@ mod test {
         let mut ctx = Context::new();
         let root = ctx.import(&b);
         assert_eq!(ctx.get_const(root).unwrap(), 15.0);
+    }
+
+    #[test]
+    fn tree_deriv() {
+        // dx/dx = 1
+        let x = Tree::x();
+        let vx = x.var().unwrap();
+        let d = x.deriv(vx);
+        let TreeOp::Const(v) = *d else {
+            panic!("invalid deriv {d:?}")
+        };
+        assert_eq!(v, 1.0);
+
+        // dx/dv = 0
+        let d = x.deriv(Var::new());
+        let TreeOp::Const(v) = *d else {
+            panic!("invalid deriv {d:?}")
+        };
+        assert_eq!(v, 0.0);
     }
 }
