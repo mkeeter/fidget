@@ -1,4 +1,4 @@
-# 0.3.2 (unreleased)
+# 0.3.2
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context
   easier.
 - Added `impl From<TreeOp> for Tree` for convenience
