@@ -1,3 +1,6 @@
+# 0.3.3
+(nothing here yet)
+
 # 0.3.2
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context
   easier.
