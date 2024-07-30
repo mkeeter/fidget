@@ -7,7 +7,7 @@ let parserWithMetadata = parser.configure({
     styleTags({
       DefinitionKeyword: tags.definitionKeyword,
       ControlKeyword: tags.controlKeyword,
-      "Call/identifier": tags.function(tags.name),
+      "Call/Identifier": tags.function(tags.name),
       Identifier: tags.name,
       Number: tags.number,
       String: tags.string,

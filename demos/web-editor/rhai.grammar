@@ -9,18 +9,21 @@
 
 @skip { space }
 
+Identifier { identifier }
+Call { Identifier '(' }
+
 @tokens {
   @precedence {
     DefinitionKeyword,
     ControlKeyword,
-    Call,
-    Identifier
+    identifier
   }
+
   space { @whitespace+ }
+  identifier { $[A-Za-z_]+ }
+
   DefinitionKeyword { 'let' | 'const' }
   ControlKeyword { 'if' | 'else' | 'switch' | 'do' | 'while' | 'loop' | 'until' | 'for' | 'in' | 'continue' | 'break' | 'return' | 'throw' | 'try' | 'catch' }
-  Call { Identifier '(' }
-  Identifier { $[A-Za-z_]+ }
   Number { $[0-9]+ }
   String { '"' !["]* '"' }
 }

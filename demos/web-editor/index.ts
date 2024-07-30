@@ -88,6 +88,7 @@ class App {
   }
 
   onScriptChanged(text: string) {
+    document.getElementById("status").textContent = "Evaluating...";
     this.workers[0].postMessage(new ScriptRequest(text));
   }
 
@@ -140,12 +141,15 @@ class App {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
+          document.getElementById("status").textContent = "Rendering...";
           this.start_time = performance.now();
           this.workers_done = 0;
           const mode = this.getMode();
           this.workers.forEach((w) => {
             w.postMessage(new ShapeRequest(r.tape, mode));
           });
+        } else {
+          document.getElementById("status").textContent = "";
         }
         break;
       }
@@ -169,14 +173,11 @@ class Editor {
     this.timeout = null;
 
     const rhaiHighlight = HighlightStyle.define([
-      { tag: tags.definitionKeyword, color: "#8fd" },
-      { tag: tags.controlKeyword, color: "#5f2" },
-      { tag: tags.variableName, color: "#fc6" },
-      { tag: tags.function(tags.name), color: "#fff" },
-      { tag: tags.name, color: "#f2f" },
-      { tag: tags.number, color: "#34f" },
-      { tag: tags.string, color: "#f5d", fontStyle: "italic" },
-      { tag: tags.paren, color: "#f5d", fontStyle: "italic" },
+      { tag: tags.definitionKeyword, color: "#C62828" },
+      { tag: tags.controlKeyword, color: "#6A1B9A" },
+      { tag: tags.function(tags.name), color: "#0277BD" },
+      { tag: tags.number, color: "#2E7D32" },
+      { tag: tags.string, color: "#AD1457", fontStyle: "italic" },
     ]);
 
     this.view = new EditorView({
