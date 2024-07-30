@@ -1,0 +1,29 @@
+@top File { (
+    Identifier
+    | Call
+    | DefinitionKeyword
+    | ControlKeyword
+    | Number
+    | String
+)+ }
+
+@skip { space }
+
+Identifier { identifier }
+Call { Identifier '(' }
+
+@tokens {
+  @precedence {
+    DefinitionKeyword,
+    ControlKeyword,
+    identifier
+  }
+
+  space { @whitespace+ }
+  identifier { $[A-Za-z_]+ }
+
+  DefinitionKeyword { 'let' | 'const' }
+  ControlKeyword { 'if' | 'else' | 'switch' | 'do' | 'while' | 'loop' | 'until' | 'for' | 'in' | 'continue' | 'break' | 'return' | 'throw' | 'try' | 'catch' }
+  Number { $[0-9]+ }
+  String { '"' !["]* '"' }
+}

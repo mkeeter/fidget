@@ -1,8 +1,13 @@
 import { basicSetup } from "codemirror";
 import { EditorView, ViewPlugin, keymap, lineNumbers } from "@codemirror/view";
-import { foldGutter } from "@codemirror/language";
+import {
+  foldGutter,
+  HighlightStyle,
+  syntaxHighlighting,
+} from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { defaultKeymap } from "@codemirror/commands";
+import { tags } from "@lezer/highlight";
 
 import {
   RenderMode,
@@ -15,9 +20,11 @@ import {
   WorkerResponse,
 } from "./message";
 
+import { rhai } from "./rhai";
+
 import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
 
-import INITIAL_SCRIPT from "../../models/gyroid-sphere.rhai";
+import GYROID_SCRIPT from "../../models/gyroid-sphere.rhai";
 
 var fidget: any = null;
 
@@ -37,8 +44,23 @@ class App {
 
   constructor() {
     this.scene = new Scene();
+
+    // Hot-patch the gyroid script to be eval (instead of exec) flavored
+    const re = /draw\((.*)\);/;
+    const script = GYROID_SCRIPT.split(/\r?\n/)
+      .map((line: string) => {
+        let m = line.match(re);
+        if (m) {
+          return m[1];
+        } else {
+          return line;
+        }
+      })
+      .join("\n")
+      .trim();
+
     this.editor = new Editor(
-      INITIAL_SCRIPT,
+      script,
       document.getElementById("editor-outer"),
       this.onScriptChanged.bind(this),
     );
@@ -66,6 +88,7 @@ class App {
   }
 
   onScriptChanged(text: string) {
+    document.getElementById("status").textContent = "Evaluating...";
     this.workers[0].postMessage(new ScriptRequest(text));
   }
 
@@ -105,10 +128,12 @@ class App {
         break;
       }
       case ResponseKind.Started: {
+        // Once all of the workers have started, do an initial render
         this.workers[i].postMessage(new StartRequest(i));
         this.workers_started += 1;
         if (this.workers_started == WORKER_COUNT) {
-          this.onScriptChanged(INITIAL_SCRIPT);
+          const text = this.editor.view.state.doc.toString();
+          this.onScriptChanged(text);
         }
         break;
       }
@@ -116,12 +141,15 @@ class App {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
+          document.getElementById("status").textContent = "Rendering...";
           this.start_time = performance.now();
           this.workers_done = 0;
           const mode = this.getMode();
           this.workers.forEach((w) => {
             w.postMessage(new ShapeRequest(r.tape, mode));
           });
+        } else {
+          document.getElementById("status").textContent = "";
         }
         break;
       }
@@ -143,11 +171,22 @@ class Editor {
     cb: (text: string) => void,
   ) {
     this.timeout = null;
+
+    const rhaiHighlight = HighlightStyle.define([
+      { tag: tags.definitionKeyword, color: "#C62828" },
+      { tag: tags.controlKeyword, color: "#6A1B9A" },
+      { tag: tags.function(tags.name), color: "#0277BD" },
+      { tag: tags.number, color: "#2E7D32" },
+      { tag: tags.string, color: "#AD1457", fontStyle: "italic" },
+    ]);
+
     this.view = new EditorView({
       doc: initial_script,
       extensions: [
         basicSetup,
         keymap.of(defaultKeymap),
+        rhai(),
+        syntaxHighlighting(rhaiHighlight),
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
             if (this.timeout) {
