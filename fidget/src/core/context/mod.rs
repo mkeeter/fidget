@@ -11,8 +11,8 @@
 //!   they have been constructed.
 //! - A [`Context`] is an arena for unique (deduplicated) math expressions,
 //!   which are represented as [`Node`] handles.  Each `Node` is specific to a
-//!   particular context.  Only `Node` objects can be converted into `Function`
-//!   objects for evaluation.
+//!   particular context.  Only `Node` objects can be converted into
+//!   [`Function`](crate::eval::Function) objects for evaluation.
 //!
 //! In other words, the typical workflow is `Tree → (Context, Node) → Function`.
 mod indexed;

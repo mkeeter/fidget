@@ -9,6 +9,12 @@
 use crate::{eval::Tape, Error};
 
 /// Trait for bulk evaluation returning the given type `T`
+///
+/// Bulk evaluators should usually be constructed on a per-thread basis.
+///
+/// They contain (at minimum) output array storage, which is borrowed in the
+/// return from [`eval`](BulkEvaluator::eval).  They may also contain
+/// intermediate storage (e.g. an array of VM registers).
 pub trait BulkEvaluator: Default {
     /// Data type used during evaluation
     type Data: From<f32> + Copy + Clone;
@@ -29,6 +35,8 @@ pub trait BulkEvaluator: Default {
     /// `vars` should be a slice-of-slices (or a slice-of-`Vec`s) representing
     /// input arguments for each of the tape's variables; use [`Tape::vars`] to
     /// map from [`Var`](crate::var::Var) to position in the list.
+    ///
+    /// The returned slice is borrowed from the evaluator.
     ///
     /// Returns an error if any of the `var` slices are of different lengths, or
     /// if all variables aren't present.

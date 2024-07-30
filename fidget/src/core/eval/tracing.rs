@@ -15,6 +15,9 @@ use crate::{eval::Tape, Error};
 /// The trace can later be used to simplify the
 /// [`Function`](crate::eval::Function)
 /// using [`Function::simplify`](crate::eval::Function::simplify).
+///
+/// Tracing evaluators may contain intermediate storage (e.g. an array of VM
+/// registers), and should be constructed on a per-thread basis.
 pub trait TracingEvaluator: Default {
     /// Data type used during evaluation
     type Data: From<f32> + Copy + Clone;
