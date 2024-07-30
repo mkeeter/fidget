@@ -15,6 +15,10 @@ module.exports = {
         test: /\.rhai$/i,
         use: "raw-loader",
       },
+      {
+        test: /\.grammar$/i,
+        use: "lezer-loader",
+      },
     ],
   },
   resolve: {
