@@ -99,14 +99,22 @@ impl Assembler for FloatSliceAssembler {
             ; vmovups [rsp + sp_offset], Ry(reg(src_reg))
         );
     }
+
     fn build_input(&mut self, out_reg: u8, src_arg: u32) {
         let pos = 8 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             ; mov r8, [rdi + pos]   // read the *const float from the array
-            ; add r8, rcx           // offset it by array position
-            ; vmovups Ry(reg(out_reg)), [r8]
+            ; vmovups Ry(reg(out_reg)), [r8 + rcx] // offset by array
         );
     }
+
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; vmovups [rsi + rcx], Ry(reg(arg_reg))
+        );
+    }
+
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn float_sin(f: f32) -> f32 {
             f.sin()
@@ -366,11 +374,8 @@ impl Assembler for FloatSliceAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
-            // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [rsi], Ry(reg(out_reg))
-            ; add rsi, 32
             ; sub rdx, 8
             ; add rcx, 32
             ; jmp ->L

@@ -96,10 +96,17 @@ impl Assembler for GradSliceAssembler {
         let pos = 8 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             ; mov r8, [rdi + pos]   // read the *const float from the array
-            ; add r8, rcx           // offset it by array position
-            ; vmovaps Rx(reg(out_reg)), [r8]
+            ; vmovaps Rx(reg(out_reg)), [r8 + rcx] // offset by array
         );
     }
+
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; vmovups [rsi + rcx], Rx(reg(arg_reg))
+        );
+    }
+
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "sysv64" fn grad_sin(v: Grad) -> Grad {
             v.sin()
@@ -466,11 +473,8 @@ impl Assembler for GradSliceAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
-            // Copy data from out_reg into the out array, then adjust it
-            ; vmovups [rsi], Rx(reg(out_reg))
-            ; add rsi, 16 // 4x float
             ; sub rdx, 1 // we process one element at a time
             ; add rcx, 16 // input is array is Grad (f32 x 4)
             ; jmp ->L
