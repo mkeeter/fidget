@@ -49,7 +49,7 @@ use std::sync::Arc;
 /// let mut ctx = Context::new();
 /// let sum = ctx.import(&tree);
 /// let data = VmData::<255>::new(&ctx, sum)?;
-/// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
+/// assert_eq!(data.len(), 4); // X, Y, (X + Y), and output
 ///
 /// let mut iter = data.iter_asm();
 /// let vars = &data.vars; // map from var to index
