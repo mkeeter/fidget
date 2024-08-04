@@ -182,7 +182,7 @@
 //! # };
 //! # let tree = Tree::x().min(Tree::y());
 //! # let shape = VmShape::from(tree);
-//! assert_eq!(shape.size(), 3); // min, X, Y
+//! assert_eq!(shape.size(), 4); // min, X, Y, output
 //! # let mut interval_eval = VmShape::new_interval_eval();
 //! # let tape = shape.ez_interval_tape();
 //! # let (out, trace) = interval_eval.eval(
@@ -193,7 +193,7 @@
 //! #     )?;
 //! // (same code as above)
 //! let new_shape = shape.ez_simplify(trace.unwrap())?;
-//! assert_eq!(new_shape.size(), 1); // just the X term
+//! assert_eq!(new_shape.size(), 2); // just the X term, then the output
 //! # Ok::<(), fidget::Error>(())
 //! ```
 //!

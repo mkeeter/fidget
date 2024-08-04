@@ -18,6 +18,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `vars`     | `x0`       | `*const (f32, f32)`     |
 /// | `choices`  | `x1`       | `*mut u8` (array)       |
 /// | `simplify` | `x2`       | `*mut u8` (single)      |
+/// | `output`   | `x3`       | `*mut (f32, f32)`       |
 ///
 /// During evaluation, `x0-2` maintain their meaning.  Intervals are stored in
 /// the lower two float of a SIMD register `Vx` `s[0]` is the lower bound of the
@@ -44,11 +45,12 @@ use dynasmrt::{dynasm, DynasmApi};
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|------------------------------------------------------------|
-/// | 0xf0     | ...          | Register spills live up here                |
+/// | 0x100     | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
-/// | 0xe8     | `x22`        | During functions calls, we use these        |
-/// | 0xe0     | `x21`        | as temporary storage so must preserve their |
-/// | 0xd8     | `x20`        | previous values on the stack                |
+/// | 0xf0     | `x23`        | During functions calls, we use these        |
+/// | 0xe8     | `x22`        | as temporary storage so must preserve their |
+/// | 0xe0     | `x21`        | previous values on the stack                |
+/// | 0xd8     | `x20`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | 0xc8     | `d31`        | During functions calls, caller-saved tape   |
 /// | 0xc0     | `d30`        | registers are saved on the stack            |
@@ -79,7 +81,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x8      | `lr` (`x30`) | Link register                               |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0xf0;
+const STACK_SIZE: u32 = 0x100;
 
 impl Assembler for IntervalAssembler {
     type Data = Interval;
@@ -124,6 +126,13 @@ impl Assembler for IntervalAssembler {
         assert!(src_arg < 16384 / 8);
         dynasm!(self.0.ops
             ; ldr D(reg(out_reg)), [x0, src_arg * 8]
+        );
+    }
+    /// Copies the register to the output
+    fn build_output(&mut self, arg_reg: u8, output_index: u32) {
+        assert_eq!(output_index, 0);
+        dynasm!(self.0.ops
+            ; str D(reg(arg_reg)), [x3]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -731,20 +740,17 @@ impl Assembler for IntervalAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         assert!(self.0.mem_offset < 4096);
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
                 ; ldp x20, x21, [sp, 0xd8]
                 ; ldr x22, [sp, 0xe8]
+                ; ldr x23, [sp, 0xf0]
             )
         }
         dynasm!(self.0.ops
-            // Prepare our return value
-            ; mov  s0, V(reg(out_reg)).s[0]
-            ; mov  s1, V(reg(out_reg)).s[1]
-
             // Restore frame and link register
             ; ldp   x29, x30, [sp, 0x0]
 
@@ -765,27 +771,31 @@ impl Assembler for IntervalAssembler {
 }
 
 impl IntervalAssembler {
+    fn ensure_callee_regs_saved(&mut self) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, 0xd8]
+                ; stp x22, x23, [sp, 0xe8]
+            );
+            self.0.saved_callee_regs = true;
+        }
+    }
+
     fn call_fn_unary(
         &mut self,
         out_reg: u8,
         arg_reg: u8,
         f: extern "C" fn(Interval) -> Interval,
     ) {
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0xd8]
-                ; str x22, [sp, 0xe8]
-            );
-            self.0.saved_callee_regs = true;
-        }
-
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
             ; mov x22, x2
+            ; mov x23, x3
 
             // Back up our state
             ; stp d16, d17, [sp, 0x50]
@@ -828,6 +838,7 @@ impl IntervalAssembler {
             ; mov x0, x20
             ; mov x1, x21
             ; mov x2, x22
+            ; mov x3, x23
         );
     }
 
@@ -838,21 +849,14 @@ impl IntervalAssembler {
         rhs_reg: u8,
         f: extern "C" fn(Interval, Interval) -> Interval,
     ) {
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0xd8]
-                ; str x22, [sp, 0xe8]
-            );
-            self.0.saved_callee_regs = true;
-        }
-
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
             ; mov x22, x2
+            ; mov x23, x3
 
             // Back up our state
             ; stp d16, d17, [sp, 0x50]
@@ -897,6 +901,7 @@ impl IntervalAssembler {
             ; mov x0, x20
             ; mov x1, x21
             ; mov x2, x22
+            ; mov x3, x23
         );
     }
 }

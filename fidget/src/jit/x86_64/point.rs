@@ -17,6 +17,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const f32`          |
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
+/// | `output`   | `rcx`    | `*mut f32` (single)   |
 ///
 /// The stack is configured as follows
 ///
@@ -28,6 +29,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | -0x08    | `r12`        | During functions calls, we use these        |
 /// | -0x10    | `r13`        | as temporary storage so must preserve their |
 /// | -0x18    | `r14`        | previous values on the stack                |
+/// | -0x20    | `r15`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -44,7 +46,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x04     | xmm5         |                                             |
 /// | 0x00     | xmm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x18; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x30; // Positions relative to `rsp`
 
 impl Assembler for PointAssembler {
@@ -88,6 +90,12 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             // Pull the input from the rdi array
             ; vmovss Rx(reg(out_reg)), [rdi + pos]
+        );
+    }
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; vmovss [rcx], Rx(reg(arg_reg))
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -326,17 +334,17 @@ impl Assembler for PointAssembler {
             ; vmovaps xmm1, Rx(reg(rhs_reg))
             ; vxorps xmm2, xmm2, xmm2
             ; vucomiss xmm2, Rx(reg(lhs_reg))
-            ; setnp cl
+            ; setnp r8b
             ; sete al
             ; jne >E
             ; jp >E
             ; vmovaps xmm1, Rx(reg(lhs_reg))
 
             ; E:
-            ; and al, cl
-            ; mov cl, 2
-            ; sub cl, al
-            ; or [rsi], cl // write the choice flag, based on condition flags
+            ; and al, r8b
+            ; mov r8b, 2
+            ; sub r8b, al
+            ; or [rsi], r8b // write the choice flag, based on condition flags
             ; or [rdx], 1 // write the simplify bit
             ; movaps Rx(reg(out_reg)), xmm1
         );
@@ -348,14 +356,14 @@ impl Assembler for PointAssembler {
             ; vmovaps xmm1, Rx(reg(lhs_reg))
             ; vxorps xmm2, xmm2, xmm2
             ; vucomiss xmm2, Rx(reg(lhs_reg))
-            ; setnp cl
+            ; setnp r8b
             ; sete al
             ; jne >E
             ; jp >E
             ; vmovaps xmm1, Rx(reg(rhs_reg))
 
             ; E:
-            ; and al, cl
+            ; and al, r8b
             ; inc al
             ; or [rsi], al // write the choice flag, based on condition flags
             ; or [rdx], 1 // write the simplify bit
@@ -402,17 +410,16 @@ impl Assembler for PointAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 ; mov r12, [rbp - 0x8]
                 ; mov r13, [rbp - 0x10]
                 ; mov r14, [rbp - 0x18]
+                ; mov r15, [rbp - 0x20]
             );
         }
         dynasm!(self.0.ops
-            // Prepare our return value
-            ; vmovss xmm0, xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
             ; emms
@@ -423,27 +430,32 @@ impl Assembler for PointAssembler {
 }
 
 impl PointAssembler {
-    fn call_fn_unary(
-        &mut self,
-        out_reg: u8,
-        arg_reg: u8,
-        f: extern "sysv64" fn(f32) -> f32,
-    ) {
+    fn ensure_callee_regs_saved(&mut self) {
         // Back up a few callee-saved registers that we're about to use
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 ; mov [rbp - 0x8], r12
                 ; mov [rbp - 0x10], r13
                 ; mov [rbp - 0x18], r14
+                ; mov [rbp - 0x20], r15
             );
             self.0.saved_callee_regs = true
         }
+    }
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "sysv64" fn(f32) -> f32,
+    ) {
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up pointers to caller-saved registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
+            ; mov r15, rcx
 
             // Back up all register values to the stack
             ; movss [rsp], xmm4
@@ -482,6 +494,7 @@ impl PointAssembler {
             ; mov rdi, r12
             ; mov rsi, r13
             ; mov rdx, r14
+            ; mov rcx, r15
 
             ; movss Rx(reg(out_reg)), xmm0
         );
@@ -493,21 +506,14 @@ impl PointAssembler {
         rhs_reg: u8,
         f: extern "sysv64" fn(f32, f32) -> f32,
     ) {
-        // Back up a few callee-saved registers that we're about to use
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                ; mov [rbp - 0x8], r12
-                ; mov [rbp - 0x10], r13
-                ; mov [rbp - 0x18], r14
-            );
-            self.0.saved_callee_regs = true
-        }
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up pointers to caller-saved registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
+            ; mov r15, rcx
 
             // Back up all register values to the stack
             ; movss [rsp], xmm4
@@ -549,6 +555,7 @@ impl PointAssembler {
             ; mov rdi, r12
             ; mov rsi, r13
             ; mov rdx, r14
+            ; mov rcx, r15
 
             ; movss Rx(reg(out_reg)), xmm0
         );

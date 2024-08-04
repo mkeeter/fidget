@@ -273,6 +273,7 @@ impl<const N: usize> RegisterAllocator<N> {
     #[inline(always)]
     pub fn op(&mut self, op: SsaOp) {
         match op {
+            SsaOp::Output(reg, i) => self.op_output(reg, i),
             SsaOp::Input(out, i) => self.op_input(out, i),
             SsaOp::CopyImm(out, imm) => self.op_copy_imm(out, imm),
 
@@ -675,5 +676,25 @@ impl<const N: usize> RegisterAllocator<N> {
     #[inline(always)]
     fn op_input(&mut self, out: u32, i: u32) {
         self.op_out_only(out, |out| RegOp::Input(out, i));
+    }
+
+    /// Pushes an [`Output`](crate::compiler::RegOp::Output) operation to the
+    /// tape
+    #[inline(always)]
+    fn op_output(&mut self, arg: u32, i: u32) {
+        match self.get_allocation(arg) {
+            Allocation::Register(r_y) => self.out.push(RegOp::Output(r_y, i)),
+            Allocation::Memory(m_y) => {
+                let r_a = self.get_register();
+                self.push_store(r_a, m_y);
+                self.out.push(RegOp::Output(r_a, i));
+                self.bind_register(arg, r_a);
+            }
+            Allocation::Unassigned => {
+                let r_a = self.get_register();
+                self.out.push(RegOp::Output(r_a, i));
+                self.bind_register(arg, r_a);
+            }
+        }
     }
 }

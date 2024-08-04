@@ -134,6 +134,9 @@ trait Assembler {
     /// Copies the given input to `out_reg`
     fn build_input(&mut self, out_reg: u8, src_arg: u32);
 
+    /// Writes the argument register to the output
+    fn build_output(&mut self, arg_reg: u8, out_index: u32);
+
     /// Copies a register
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8);
 
@@ -270,7 +273,7 @@ trait Assembler {
     fn load_imm(&mut self, imm: f32) -> u8;
 
     /// Finalize the assembly code, returning a memory-mapped region
-    fn finalize(self, out_reg: u8) -> Result<Mmap, Error>;
+    fn finalize(self) -> Result<Mmap, Error>;
 }
 
 /// Trait defining SIMD width
@@ -667,6 +670,9 @@ fn build_asm_fn_with_storage<A: Assembler>(
             RegOp::Input(out, i) => {
                 asm.build_input(out, i);
             }
+            RegOp::Output(arg, i) => {
+                asm.build_output(arg, i);
+            }
             RegOp::NegReg(out, arg) => {
                 asm.build_neg(out, arg);
             }
@@ -821,7 +827,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
         }
     }
 
-    asm.finalize(0).expect("failed to build JIT function")
+    asm.finalize().expect("failed to build JIT function")
     // JIT execute mode is restored here when the _guard is dropped
 }
 
@@ -927,8 +933,8 @@ impl RenderHints for JitFunction {
 /// This is selected at compile time, based on `target_arch`
 #[cfg(target_arch = "x86_64")]
 macro_rules! jit_fn {
-    (unsafe fn($($args:tt)*) -> $($out:tt)*) => {
-        unsafe extern "sysv64" fn($($args)*) -> $($out)*
+    (unsafe fn($($args:tt)*)) => {
+        unsafe extern "sysv64" fn($($args)*)
     };
 }
 
@@ -937,8 +943,8 @@ macro_rules! jit_fn {
 /// This is selected at compile time, based on `target_arch`
 #[cfg(target_arch = "aarch64")]
 macro_rules! jit_fn {
-    (unsafe fn($($args:tt)*) -> $($out:tt)*) => {
-        unsafe extern "C" fn($($args)*) -> $($out)*
+    (unsafe fn($($args:tt)*)) => {
+        unsafe extern "C" fn($($args)*)
     };
 }
 
@@ -964,7 +970,8 @@ pub struct JitTracingFn<T> {
             *const T, // vars
             *mut u8,  // choices
             *mut u8,  // simplify (single boolean)
-        ) -> T
+            *mut T,   // output (single value)
+        )
     ),
 }
 
@@ -986,7 +993,7 @@ unsafe impl<T> Sync for JitTracingFn<T> {}
 
 impl JitTracingEval {
     /// Evaluates a single point, capturing an evaluation trace
-    fn eval<T>(
+    fn eval<T: From<f32>>(
         &mut self,
         tape: &JitTracingFn<T>,
         vars: &[T],
@@ -994,11 +1001,13 @@ impl JitTracingEval {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         self.choices.fill(Choice::Unknown);
-        let out = unsafe {
+        let mut out = std::f32::NAN.into();
+        unsafe {
             (tape.fn_trace)(
                 vars.as_ptr(),
                 self.choices.as_mut_ptr() as *mut u8,
                 &mut simplify,
+                &mut out,
             )
         };
 
@@ -1063,7 +1072,7 @@ pub struct JitBulkFn<T> {
             *const *const T, // vars
             *mut T,          // out
             u64,             // size
-        ) -> T
+        )
     ),
 }
 

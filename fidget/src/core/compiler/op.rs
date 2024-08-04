@@ -26,6 +26,9 @@ macro_rules! opcodes {
             #[doc = "Read an input variable by index"]
             Input($t, u32),
 
+            #[doc = "Writes an output variable by index"]
+            Output($t, u32),
+
             #[doc = "Negate the given register"]
             NegReg($t, $t),
 
@@ -164,7 +167,7 @@ opcodes!(
 
 impl SsaOp {
     /// Returns the output pseudo-register
-    pub fn output(&self) -> u32 {
+    pub fn output(&self) -> Option<u32> {
         match self {
             SsaOp::Input(out, ..)
             | SsaOp::CopyImm(out, ..)
@@ -212,13 +215,15 @@ impl SsaOp {
             | SsaOp::AndRegImm(out, ..)
             | SsaOp::AndRegReg(out, ..)
             | SsaOp::OrRegImm(out, ..)
-            | SsaOp::OrRegReg(out, ..) => *out,
+            | SsaOp::OrRegReg(out, ..) => Some(*out),
+            SsaOp::Output(..) => None,
         }
     }
     /// Returns true if the given opcode is associated with a choice
     pub fn has_choice(&self) -> bool {
         match self {
             SsaOp::Input(..)
+            | SsaOp::Output(..)
             | SsaOp::CopyImm(..)
             | SsaOp::NegReg(..)
             | SsaOp::AbsReg(..)

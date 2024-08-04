@@ -48,7 +48,7 @@ where
                 &mut Default::default(),
             )
             .unwrap();
-        assert_eq!(next.size(), 1);
+        assert_eq!(next.size(), 2); // constant, output
 
         let tape = next.point_tape(Default::default());
         assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0, 1.5);

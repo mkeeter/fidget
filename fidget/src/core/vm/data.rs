@@ -49,7 +49,7 @@ use std::sync::Arc;
 /// let mut ctx = Context::new();
 /// let sum = ctx.import(&tree);
 /// let data = VmData::<255>::new(&ctx, sum)?;
-/// assert_eq!(data.len(), 3); // X, Y, and (X + Y)
+/// assert_eq!(data.len(), 4); // X, Y, (X + Y), and output
 ///
 /// let mut iter = data.iter_asm();
 /// let vars = &data.vars; // map from var to index
@@ -132,18 +132,21 @@ impl<const N: usize> VmData<N> {
 
         let mut choice_count = 0;
 
-        // The tape is constructed so that the output slot is first
-        assert_eq!(self.ssa.tape[0].output(), 0);
-        workspace.set_active(self.ssa.tape[0].output(), 0);
-        workspace.count += 1;
-
         // Other iterators to consume various arrays in order
         let mut choice_iter = choices.iter().rev();
 
         let mut ops_out = tape.ssa.tape;
 
         for mut op in self.ssa.tape.iter().cloned() {
-            let index = op.output();
+            let index = match &mut op {
+                SsaOp::Output(reg, _i) => {
+                    *reg = workspace.get_or_insert_active(*reg);
+                    workspace.alloc.op(op);
+                    ops_out.push(op);
+                    continue;
+                }
+                _ => op.output().unwrap(),
+            };
 
             if workspace.active(index).is_none() {
                 if op.has_choice() {
@@ -158,6 +161,7 @@ impl<const N: usize> VmData<N> {
             let new_index = workspace.active(index).unwrap();
 
             match &mut op {
+                SsaOp::Output(..) => unreachable!(),
                 SsaOp::Input(index, ..) | SsaOp::CopyImm(index, ..) => {
                     *index = new_index;
                 }
@@ -286,7 +290,7 @@ impl<const N: usize> VmData<N> {
             ops_out.push(op);
         }
 
-        assert_eq!(workspace.count as usize, ops_out.len());
+        assert_eq!(workspace.count as usize + 1, ops_out.len());
         let asm_tape = workspace.alloc.finalize();
 
         Ok(VmData {

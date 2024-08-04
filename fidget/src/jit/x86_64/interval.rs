@@ -13,11 +13,12 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 ///
 /// Registers are passed in as follows:
 ///
-/// | Variable   | Register | Type                  |
-/// |------------|----------|-----------------------|
-/// | `vars`     | `rdi`    | `*const [f32; 2]`     |
-/// | `choices`  | `rsi`    | `*mut u8` (array)     |
-/// | `simplify` | `rdx`    | `*mut u8` (single)    |
+/// | Variable   | Register | Type                          |
+/// |------------|----------|-------------------------------|
+/// | `vars`     | `rdi`    | `*const [f32; 2]`             |
+/// | `choices`  | `rsi`    | `*mut u8` (array)             |
+/// | `simplify` | `rdx`    | `*mut u8` (single)            |
+/// | `output`   | `rcx`    | `*mut [f32; 2]` (single)      |
 ///
 /// The stack is configured as follows
 ///
@@ -29,6 +30,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | -0x08    | `r12`        | During functions calls, we use these        |
 /// | -0x10    | `r13`        | as temporary storage so must preserve their |
 /// | -0x18    | `r14`        | previous values on the stack                |
+/// | -0x20    | `r15`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
@@ -45,7 +47,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | 0x08     | xmm5         |                                             |
 /// | 0x00     | xmm4         |                                             |
 /// ```
-const STACK_SIZE_UPPER: usize = 0x18; // Positions relative to `rbp`
+const STACK_SIZE_UPPER: usize = 0x20; // Positions relative to `rbp`
 const STACK_SIZE_LOWER: usize = 0x60; // Positions relative to `rsp`
 
 impl Assembler for IntervalAssembler {
@@ -89,6 +91,12 @@ impl Assembler for IntervalAssembler {
         let pos = 8 * i32::try_from(src_arg).unwrap();
         dynasm!(self.0.ops
             ; vmovq Rx(reg(out_reg)), [rdi + pos]
+        );
+    }
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; vmovq [rcx], Rx(reg(arg_reg))
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -423,16 +431,16 @@ impl Assembler for IntervalAssembler {
             ; L:
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // rhs.upper < lhs.lower
             ; R:
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
-            ; mov cx, 1
-            ; mov [rdx], cx
+            ; mov r8w, 1
+            ; mov [rdx], r8w
             // Fallthrough
 
             ; E:
@@ -487,16 +495,16 @@ impl Assembler for IntervalAssembler {
             ; L:
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // rhs.upper < lhs.lower
             ; R:
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
-            ; mov cx, 1
-            ; mov [rdx], cx
+            ; mov r8w, 1
+            ; mov [rdx], r8w
             // Fallthrough
 
             ; E:
@@ -577,8 +585,8 @@ impl Assembler for IntervalAssembler {
             // !lhs.contains(0.0) -> RHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // xmm3 = (lower == 0) && (upper == 0)
@@ -593,8 +601,8 @@ impl Assembler for IntervalAssembler {
             // (lhs.lower == 0) && (lhs.upper == 0) -> LHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // We have to combine the outputs
@@ -641,8 +649,8 @@ impl Assembler for IntervalAssembler {
             // !lhs.contains(0.0) -> LHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
             ; or ax, CHOICE_LEFT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // xmm3 = (lower == 0) && (upper == 0)
@@ -657,8 +665,8 @@ impl Assembler for IntervalAssembler {
             // (lhs.lower == 0) && (lhs.upper == 0) -> RHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
             ; or ax, CHOICE_RIGHT as i16
-            ; mov cx, 1 // TODO: why can't we write 1 to [rdx] directly?
-            ; mov [rdx], cx
+            ; mov r8w, 1 // TODO: why can't we write 1 to [rdx] directly?
+            ; mov [rdx], r8w
             ; jmp >E
 
             // We have to combine the outputs
@@ -754,16 +762,16 @@ impl Assembler for IntervalAssembler {
         );
         IMM_REG.wrapping_sub(OFFSET)
     }
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 ; mov r12, [rbp - 0x8]
                 ; mov r13, [rbp - 0x10]
                 ; mov r14, [rbp - 0x18]
+                ; mov r15, [rbp - 0x20]
             );
         }
         dynasm!(self.0.ops
-            ; vmovq xmm0, Rx(reg(out_reg))
             ; add rsp, self.0.mem_offset as i32
             ; pop rbp
             ; emms
@@ -774,27 +782,32 @@ impl Assembler for IntervalAssembler {
 }
 
 impl IntervalAssembler {
-    fn call_fn_unary(
-        &mut self,
-        out_reg: u8,
-        arg_reg: u8,
-        f: extern "sysv64" fn(Interval) -> Interval,
-    ) {
+    fn ensure_callee_regs_saved(&mut self) {
         // Back up a few callee-saved registers that we're about to use
         if !self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 ; mov [rbp - 0x8], r12
                 ; mov [rbp - 0x10], r13
                 ; mov [rbp - 0x18], r14
+                ; mov [rbp - 0x20], r15
             );
             self.0.saved_callee_regs = true
         }
+    }
+    fn call_fn_unary(
+        &mut self,
+        out_reg: u8,
+        arg_reg: u8,
+        f: extern "sysv64" fn(Interval) -> Interval,
+    ) {
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up choice/simplify pointers to registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
+            ; mov r15, rcx
 
             // Back up register values to the stack, treating them as doubles
             // (since we want to back up all 64 bits)
@@ -836,6 +849,7 @@ impl IntervalAssembler {
             ; mov rdi, r12
             ; mov rsi, r13
             ; mov rdx, r14
+            ; mov rcx, r15
 
             // Unpack the interval result
             ; vmovq Rx(reg(out_reg)), xmm0
@@ -849,20 +863,14 @@ impl IntervalAssembler {
         rhs_reg: u8,
         f: extern "sysv64" fn(Interval, Interval) -> Interval,
     ) {
-        // Back up a few callee-saved registers that we're about to use
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                ; mov [rbp - 0x8], r12
-                ; mov [rbp - 0x10], r13
-            );
-            self.0.saved_callee_regs = true
-        }
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up choice/simplify pointers to registers
             ; mov r12, rdi
             ; mov r13, rsi
             ; mov r14, rdx
+            ; mov r15, rcx
 
             // Back up register values to the stack, treating them as doubles
             // (since we want to back up all 64 bits)
@@ -906,6 +914,7 @@ impl IntervalAssembler {
             ; mov rdi, r12
             ; mov rsi, r13
             ; mov rdx, r14
+            ; mov rcx, r15
 
             // Unpack the interval result
             ; vmovq Rx(reg(out_reg)), xmm0
