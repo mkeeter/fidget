@@ -39,7 +39,7 @@ impl SsaTape {
         let mut slot_count = 0;
 
         // Get either a node or constant index
-        #[derive(Copy, Clone)]
+        #[derive(Copy, Clone, Debug)]
         enum Slot {
             Reg(u32),
             Immediate(f32),
@@ -78,12 +78,22 @@ impl SsaTape {
         let mut seen = HashSet::new();
         let mut todo = vec![root];
         let mut choice_count = 0;
+
         let mut tape = vec![];
+        match mapping[&root] {
+            Slot::Reg(out_reg) => tape.push(SsaOp::Output(out_reg, 0)),
+            Slot::Immediate(imm) => {
+                tape.push(SsaOp::Output(0, 0));
+                tape.push(SsaOp::CopyImm(0, imm));
+            }
+        }
+
         while let Some(node) = todo.pop() {
             if *parent_count.get(&node).unwrap_or(&0) > 0 || !seen.insert(node)
             {
                 continue;
             }
+
             let op = ctx.get_op(node).unwrap();
             for child in op.iter_children() {
                 todo.push(child);
@@ -231,7 +241,6 @@ impl SsaTape {
             let c = ctx.get_const(root).unwrap() as f32;
             tape.push(SsaOp::CopyImm(0, c));
         }
-
         Ok((SsaTape { tape, choice_count }, vars))
     }
 
@@ -261,8 +270,11 @@ impl SsaTape {
     pub fn pretty_print(&self) {
         for &op in self.tape.iter().rev() {
             match op {
+                SsaOp::Output(arg, i) => {
+                    println!("OUTPUT[{i}] = ${arg}");
+                }
                 SsaOp::Input(out, i) => {
-                    println!("${out} = INPUT {i}");
+                    println!("${out} = INPUT[{i}]");
                 }
                 SsaOp::NegReg(out, arg)
                 | SsaOp::AbsReg(out, arg)
@@ -405,7 +417,7 @@ mod test {
         let c9 = ctx.max(c8, c6).unwrap();
 
         let (tape, vs) = SsaTape::new(&ctx, c9).unwrap();
-        assert_eq!(tape.len(), 8);
+        assert_eq!(tape.len(), 9);
         assert_eq!(vs.len(), 2);
     }
 
@@ -416,7 +428,7 @@ mod test {
         let x_squared = ctx.mul(x, x).unwrap();
 
         let (tape, vs) = SsaTape::new(&ctx, x_squared).unwrap();
-        assert_eq!(tape.len(), 2);
+        assert_eq!(tape.len(), 3); // x, square, output
         assert_eq!(vs.len(), 1);
     }
 }

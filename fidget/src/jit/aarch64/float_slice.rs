@@ -165,6 +165,15 @@ impl Assembler for FloatSliceAssembler {
             ; ldr Q(reg(out_reg)), [x4]
         );
     }
+
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; add x4, x1, x3 // apply array offset
+            ; str Q(reg(arg_reg)), [x4] // write to the output array
+        );
+    }
+
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn float_sin(f: f32) -> f32 {
             f.sin()
@@ -400,19 +409,15 @@ impl Assembler for FloatSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // update our "items remaining" counter
             ; sub x2, x2, 4 // We handle 4 items at a time
 
-            // Adjust the array offset pointer
+            // Adjust the input array offset amount
             ; add x3, x3, 16
 
-            // Prepare our return value, writing to the pointer in x1
-            // It's fine to overwrite X at this point in V0, since we're not
-            // using it anymore.
-            ; mov v0.d[0], V(reg(out_reg)).d[1]
-            ; stp D(reg(out_reg)), d0, [x1], 16
+            // Keep looping!
             ; b ->L
 
             ; ->E:

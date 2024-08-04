@@ -272,8 +272,14 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
+        let mut out = None;
         for op in tape.iter_asm() {
             match op {
+                RegOp::Output(arg, i) => {
+                    assert_eq!(i, 0);
+                    assert!(out.is_none());
+                    out = Some(v[arg]);
+                }
                 RegOp::Input(out, i) => {
                     v[out] = vars[i as usize];
                 }
@@ -470,7 +476,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
             }
         }
         Ok((
-            self.0.slots[0],
+            out.unwrap(),
             if simplify {
                 Some(&self.0.choices)
             } else {
@@ -501,8 +507,14 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
+        let mut out = None;
         for op in tape.iter_asm() {
             match op {
+                RegOp::Output(arg, i) => {
+                    assert_eq!(i, 0);
+                    assert!(out.is_none());
+                    out = Some(v[arg]);
+                }
                 RegOp::Input(out, i) => {
                     v[out] = vars[i as usize];
                 }
@@ -765,7 +777,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
             }
         }
         Ok((
-            self.0.slots[0],
+            out.unwrap(),
             if simplify {
                 Some(&self.0.choices)
             } else {
@@ -782,6 +794,9 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
 struct BulkVmEval<T> {
     /// Workspace for data
     slots: Vec<Vec<T>>,
+
+    /// Output array
+    out: Vec<T>,
 }
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
@@ -792,6 +807,7 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
         for s in self.slots.iter_mut() {
             s.resize(size, f32::NAN.into());
         }
+        self.out.resize(size, f32::NAN.into());
     }
 }
 
@@ -817,6 +833,10 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
+                RegOp::Output(arg, i) => {
+                    assert_eq!(i, 0);
+                    self.0.out[0..size].copy_from_slice(&v[arg][0..size]);
+                }
                 RegOp::Input(out, i) => {
                     v[out][0..size].copy_from_slice(&vars[i as usize]);
                 }
@@ -1100,7 +1120,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
             }
         }
-        Ok(&self.0.slots[0])
+        Ok(&self.0.out[0..size])
     }
 }
 
@@ -1125,6 +1145,10 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         let mut v = SlotArray(&mut self.0.slots);
         for op in tape.iter_asm() {
             match op {
+                RegOp::Output(arg, i) => {
+                    assert_eq!(i, 0);
+                    self.0.out[0..size].copy_from_slice(&v[arg][0..size]);
+                }
                 RegOp::Input(out, i) => {
                     v[out][0..size].copy_from_slice(&vars[i as usize]);
                 }
@@ -1428,7 +1452,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
             }
         }
-        Ok(&self.0.slots[0])
+        Ok(&self.0.out[0..size])
     }
 }
 

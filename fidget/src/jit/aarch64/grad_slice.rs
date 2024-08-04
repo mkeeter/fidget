@@ -167,6 +167,15 @@ impl Assembler for GradSliceAssembler {
             ; ldr Q(reg(out_reg)), [x4]
         );
     }
+
+    fn build_output(&mut self, arg_reg: u8, out_index: u32) {
+        assert_eq!(out_index, 0);
+        dynasm!(self.0.ops
+            ; add x4, x1, x3 // apply array offset
+            ; str Q(reg(arg_reg)), [x4] // write to the output array
+        );
+    }
+
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {
         extern "C" fn grad_sin(v: Grad) -> Grad {
             v.sin()
@@ -486,7 +495,7 @@ impl Assembler for GradSliceAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         dynasm!(self.0.ops
             // update our "items remaining" counter
             ; sub x2, x2, 1 // We handle 1 item at a time
@@ -494,8 +503,6 @@ impl Assembler for GradSliceAssembler {
             // Adjust the array offset pointer
             ; add x3, x3, 16 // 1 item = 16 bytes
 
-            // Prepare our return value, writing to the pointer in x1
-            ; str Q(reg(out_reg)), [x1], 16
             ; b ->L // Jump back to the loop start
 
             ; ->E:

@@ -17,6 +17,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `vars`     | `x0`     | `*const f32` (array)  |
 /// | `choices`  | `x1`     | `*mut u8` (array)     |
 /// | `simplify` | `x2`     | `*mut u8` (single)    |
+/// | `output`   | `x3`     | `*mut f32` (single)   |
 ///
 /// During evaluation, registers are identical.  In addition, we use the
 /// following registers during evaluation:
@@ -33,15 +34,17 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `x20`    | Backup for `x0` during function calls (callee-saved) |
 /// | `x21`    | Backup for `x1` during function calls (callee-saved) |
 /// | `x22`    | Backup for `x2` during function calls (callee-saved) |
+/// | `x23`    | Backup for `x3` during function calls (callee-saved) |
 ///
 /// The stack is configured as follows
 ///
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|--------------|---------------------------------------------|
-/// | 0xa0     | `x22`        | During functions calls, we use these        |
-/// | 0x98     | `x21`        | as temporary storage so must preserve their |
-/// | 0x90     | `x20`        | previous values on the stack                |
+/// | 0xa8     | `x23`        | During functions calls, we use these        |
+/// | 0xa0     | `x22`        | as temporary storage so must preserve their |
+/// | 0x98     | `x21`        | previous values on the stack                |
+/// | 0x90     | `x20`        |                                             |
 /// |----------|--------------|---------------------------------------------|
 /// | ...      |              | Alignment padding                           |
 /// |----------|--------------|---------------------------------------------|
@@ -74,7 +77,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x8      | `sp` (`x30`) | Stack frame                                 |
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
-const STACK_SIZE: u32 = 0xa8;
+const STACK_SIZE: u32 = 0xb0;
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -119,6 +122,13 @@ impl Assembler for PointAssembler {
         assert!(src_arg < 16384 / 4);
         dynasm!(self.0.ops
             ; ldr S(reg(out_reg)), [x0, src_arg * 4]
+        );
+    }
+    /// Copies the register to the output
+    fn build_output(&mut self, arg_reg: u8, output_index: u32) {
+        assert_eq!(output_index, 0);
+        dynasm!(self.0.ops
+            ; str S(reg(arg_reg)), [x3]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {
@@ -432,18 +442,16 @@ impl Assembler for PointAssembler {
         IMM_REG.wrapping_sub(OFFSET)
     }
 
-    fn finalize(mut self, out_reg: u8) -> Result<Mmap, Error> {
+    fn finalize(mut self) -> Result<Mmap, Error> {
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
                 ; ldp x20, x21, [sp, 0x90]
                 ; ldr x22, [sp, 0xa0]
+                ; ldr x23, [sp, 0xa8]
             )
         }
         dynasm!(self.0.ops
-            // Prepare our return value
-            ; fmov  s0, S(reg(out_reg))
-
             // Restore frame and link register
             ; ldp   x29, x30, [sp, 0x0]
 
@@ -464,27 +472,32 @@ impl Assembler for PointAssembler {
 }
 
 impl PointAssembler {
+    fn ensure_callee_regs_saved(&mut self) {
+        if !self.0.saved_callee_regs {
+            dynasm!(self.0.ops
+                // Back up a few callee-saved registers that we're about to use
+                ; stp x20, x21, [sp, 0x90]
+                ; str x22, [sp, 0xa0]
+                ; str x23, [sp, 0xa8]
+            );
+            self.0.saved_callee_regs = true;
+        }
+    }
+
     fn call_fn_unary(
         &mut self,
         out_reg: u8,
         arg_reg: u8,
         f: extern "C" fn(f32) -> f32,
     ) {
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0x90]
-                ; str x22, [sp, 0xa0]
-            );
-            self.0.saved_callee_regs = true;
-        }
-
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to callee-saved registers
             ; mov x20, x0
             ; mov x21, x1
             ; mov x22, x2
+            ; mov x23, x3
 
             // Back up our state
             ; stp s16, s17, [sp, 0x50]
@@ -527,6 +540,7 @@ impl PointAssembler {
             ; mov x0, x20
             ; mov x1, x21
             ; mov x2, x22
+            ; mov x3, x23
         );
     }
 
@@ -537,15 +551,7 @@ impl PointAssembler {
         rhs_reg: u8,
         f: extern "C" fn(f32, f32) -> f32,
     ) {
-        if !self.0.saved_callee_regs {
-            dynasm!(self.0.ops
-                // Back up a few callee-saved registers that we're about to use
-                ; stp x20, x21, [sp, 0x90]
-                ; str x22, [sp, 0xa0]
-            );
-            self.0.saved_callee_regs = true;
-        }
-
+        self.ensure_callee_regs_saved();
         let addr = f as usize;
         dynasm!(self.0.ops
             // Back up our current state to callee-saved registers
