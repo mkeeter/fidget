@@ -560,7 +560,8 @@ where
             }
         }
 
-        self.eval.eval(&tape.tape, &self.scratch)
+        let out = self.eval.eval(&tape.tape, &self.scratch)?;
+        Ok(out.borrow(0))
     }
 }
 

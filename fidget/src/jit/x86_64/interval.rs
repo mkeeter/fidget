@@ -18,7 +18,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const [f32; 2]`             |
 /// | `choices`  | `rsi`    | `*mut u8` (array)             |
 /// | `simplify` | `rdx`    | `*mut u8` (single)            |
-/// | `output`   | `rcx`    | `*mut [f32; 2]` (single)      |
+/// | `output`   | `rcx`    | `*mut [f32; 2]` (array)       |
 ///
 /// The stack is configured as follows
 ///
@@ -94,9 +94,9 @@ impl Assembler for IntervalAssembler {
         );
     }
     fn build_output(&mut self, arg_reg: u8, out_index: u32) {
-        assert_eq!(out_index, 0);
+        let pos = 8 * i32::try_from(out_index).unwrap();
         dynasm!(self.0.ops
-            ; vmovq [rcx], Rx(reg(arg_reg))
+            ; vmovq [rcx + pos], Rx(reg(arg_reg))
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {

@@ -3,7 +3,8 @@ use crate::{
     compiler::RegOp,
     context::Node,
     eval::{
-        BulkEvaluator, Function, MathFunction, Tape, Trace, TracingEvaluator,
+        BulkEvaluator, BulkOutput, Function, MathFunction, Tape, Trace,
+        TracingEvaluator,
     },
     shape::{RenderHints, Shape},
     types::{Grad, Interval},
@@ -796,7 +797,7 @@ struct BulkVmEval<T> {
     slots: Vec<Vec<T>>,
 
     /// Output array
-    out: Vec<T>,
+    out: Vec<Vec<T>>,
 }
 
 impl<T: From<f32> + Clone> BulkVmEval<T> {
@@ -807,7 +808,13 @@ impl<T: From<f32> + Clone> BulkVmEval<T> {
         for s in self.slots.iter_mut() {
             s.resize(size, f32::NAN.into());
         }
-        self.out.resize(size, f32::NAN.into());
+
+        const OUTPUT_COUNT: usize = 1;
+        self.out
+            .resize_with(OUTPUT_COUNT, || vec![f32::NAN.into(); size]);
+        for o in self.out.iter_mut() {
+            o.resize(size, f32::NAN.into());
+        }
     }
 }
 
@@ -823,7 +830,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<&[f32], Error> {
+    ) -> Result<BulkOutput<f32>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
 
@@ -834,8 +841,8 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Output(arg, i) => {
-                    assert_eq!(i, 0);
-                    self.0.out[0..size].copy_from_slice(&v[arg][0..size]);
+                    self.0.out[i as usize][0..size]
+                        .copy_from_slice(&v[arg][0..size]);
                 }
                 RegOp::Input(out, i) => {
                     v[out][0..size].copy_from_slice(&vars[i as usize]);
@@ -1120,7 +1127,7 @@ impl<const N: usize> BulkEvaluator for VmFloatSliceEval<N> {
                 }
             }
         }
-        Ok(&self.0.out[0..size])
+        Ok(BulkOutput::new(&self.0.out, size))
     }
 }
 
@@ -1136,7 +1143,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<&[Grad], Error> {
+    ) -> Result<BulkOutput<Grad>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         let tape = tape.0.as_ref();
         let size = vars.first().map(|v| v.len()).unwrap_or(0);
@@ -1146,8 +1153,8 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
         for op in tape.iter_asm() {
             match op {
                 RegOp::Output(arg, i) => {
-                    assert_eq!(i, 0);
-                    self.0.out[0..size].copy_from_slice(&v[arg][0..size]);
+                    self.0.out[i as usize][0..size]
+                        .copy_from_slice(&v[arg][0..size]);
                 }
                 RegOp::Input(out, i) => {
                     v[out][0..size].copy_from_slice(&vars[i as usize]);
@@ -1452,7 +1459,7 @@ impl<const N: usize> BulkEvaluator for VmGradSliceEval<N> {
                 }
             }
         }
-        Ok(&self.0.out[0..size])
+        Ok(BulkOutput::new(&self.0.out, size))
     }
 }
 

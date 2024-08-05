@@ -26,7 +26,10 @@
 use crate::{
     compiler::RegOp,
     context::{Context, Node},
-    eval::{BulkEvaluator, Function, MathFunction, Tape, TracingEvaluator},
+    eval::{
+        BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
+        TracingEvaluator,
+    },
     jit::mmap::Mmap,
     shape::RenderHints,
     types::{Grad, Interval},
@@ -970,7 +973,7 @@ pub struct JitTracingFn<T> {
             *const T, // vars
             *mut u8,  // choices
             *mut u8,  // simplify (single boolean)
-            *mut T,   // output (single value)
+            *mut T,   // output (array)
         )
     ),
 }
@@ -1070,7 +1073,7 @@ pub struct JitBulkFn<T> {
     fn_bulk: jit_fn!(
         unsafe fn(
             *const *const T, // vars
-            *mut T,          // out
+            *const *mut T,   // out
             u64,             // size
         )
     ),
@@ -1098,13 +1101,16 @@ const MAX_SIMD_WIDTH: usize = 8;
 /// Bulk evaluator for JIT functions
 struct JitBulkEval<T> {
     /// Array of pointers used when calling into the JIT function
-    ptrs: Vec<*const T>,
+    input_ptrs: Vec<*const T>,
+
+    /// Array of pointers used when calling into the JIT function
+    output_ptrs: Vec<*mut T>,
 
     /// Scratch array for evaluation of less-than-SIMD-size slices
     scratch: Vec<[T; MAX_SIMD_WIDTH]>,
 
-    /// Output array that's written to during evaluation
-    out: Vec<T>,
+    /// Output arrays, written to during evaluation
+    out: Vec<Vec<T>>,
 }
 
 // SAFETY: the pointers in `JitBulkEval` are transient and only scoped to a
@@ -1117,7 +1123,8 @@ impl<T> Default for JitBulkEval<T> {
         Self {
             out: vec![],
             scratch: vec![],
-            ptrs: vec![],
+            input_ptrs: vec![],
+            output_ptrs: vec![],
         }
     }
 }
@@ -1133,10 +1140,15 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
         &mut self,
         tape: &JitBulkFn<T>,
         vars: &[V],
-    ) -> &[T] {
+    ) -> BulkOutput<T> {
         let n = vars.first().map(|v| v.deref().len()).unwrap_or(0);
-        self.out.resize(n, f32::NAN.into());
-        self.out.fill(f32::NAN.into());
+
+        const OUTPUT_COUNT: usize = 1;
+        self.out.resize_with(OUTPUT_COUNT, Vec::new);
+        for o in &mut self.out {
+            o.resize(n.max(T::SIMD_SIZE), f32::NAN.into());
+            o.fill(f32::NAN.into());
+        }
 
         // Special case for when we have fewer items than the native SIMD size,
         // in which case the input slices can't be used as workspace (because
@@ -1145,34 +1157,41 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
             assert!(T::SIMD_SIZE <= MAX_SIMD_WIDTH);
 
             self.scratch
-                .resize(vars.len(), [T::from(0.0); MAX_SIMD_WIDTH]);
+                .resize(vars.len(), [f32::NAN.into(); MAX_SIMD_WIDTH]);
             for (v, t) in vars.iter().zip(self.scratch.iter_mut()) {
                 t[0..n].copy_from_slice(v);
             }
 
-            self.ptrs.clear();
-            self.ptrs.extend(self.scratch.iter().map(|t| t.as_ptr()));
+            self.input_ptrs.clear();
+            self.input_ptrs
+                .extend(self.scratch[..vars.len()].iter().map(|t| t.as_ptr()));
 
-            let mut out = [f32::NAN.into(); MAX_SIMD_WIDTH];
+            self.output_ptrs.clear();
+            self.output_ptrs
+                .extend(self.out.iter_mut().map(|t| t.as_mut_ptr()));
+
             unsafe {
                 (tape.fn_bulk)(
-                    self.ptrs.as_ptr(),
-                    out.as_mut_ptr(),
+                    self.input_ptrs.as_ptr(),
+                    self.output_ptrs.as_ptr(),
                     T::SIMD_SIZE as u64,
                 );
             }
-            self.out.copy_from_slice(&out[0..n]);
         } else {
             // Our vectorized function only accepts sets of a particular width,
             // so we'll find the biggest multiple, then do an extra operation to
             // process any remainders.
             let m = (n / T::SIMD_SIZE) * T::SIMD_SIZE; // Round down
-            self.ptrs.clear();
-            self.ptrs.extend(vars.iter().map(|v| v.as_ptr()));
+            self.input_ptrs.clear();
+            self.input_ptrs.extend(vars.iter().map(|v| v.as_ptr()));
+
+            self.output_ptrs.clear();
+            self.output_ptrs
+                .extend(self.out.iter_mut().map(|v| v.as_mut_ptr()));
             unsafe {
                 (tape.fn_bulk)(
-                    self.ptrs.as_ptr(),
-                    self.out.as_mut_ptr(),
+                    self.input_ptrs.as_ptr(),
+                    self.output_ptrs.as_ptr(),
                     m as u64,
                 );
             }
@@ -1180,20 +1199,26 @@ impl<T: From<f32> + Copy + SimdSize> JitBulkEval<T> {
             // handle the remaining items by simply evaluating the *last* full
             // vector in the array again.
             if n != m {
-                self.ptrs.clear();
+                self.input_ptrs.clear();
+                self.output_ptrs.clear();
                 unsafe {
-                    self.ptrs.extend(
+                    self.input_ptrs.extend(
                         vars.iter().map(|v| v.as_ptr().add(n - T::SIMD_SIZE)),
                     );
+                    self.output_ptrs.extend(
+                        self.out
+                            .iter_mut()
+                            .map(|v| v.as_mut_ptr().add(n - T::SIMD_SIZE)),
+                    );
                     (tape.fn_bulk)(
-                        self.ptrs.as_ptr(),
-                        self.out.as_mut_ptr().add(n - T::SIMD_SIZE),
+                        self.input_ptrs.as_ptr(),
+                        self.output_ptrs.as_ptr(),
                         T::SIMD_SIZE as u64,
                     );
                 }
             }
         }
-        &self.out
+        BulkOutput::new(&self.out, n)
     }
 }
 
@@ -1209,7 +1234,7 @@ impl BulkEvaluator for JitFloatSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<&[Self::Data], Error> {
+    ) -> Result<BulkOutput<f32>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1227,7 +1252,7 @@ impl BulkEvaluator for JitGradSliceEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[V],
-    ) -> Result<&[Self::Data], Error> {
+    ) -> Result<BulkOutput<Grad>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }

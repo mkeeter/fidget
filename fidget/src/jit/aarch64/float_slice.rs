@@ -11,7 +11,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// | Argument | Register | Type                       |
 /// | ---------|----------|----------------------------|
 /// | `vars`   | `x0`     | `*const *const [f32; 4]`   |
-/// | `out`    | `x1`     | `*mut [f32; 4]`            |
+/// | `out`    | `x1`     | `*const *mut [f32; 4]`     |
 /// | `count`  | `x2`     | `u64`                      |
 ///
 /// The arrays must be an even multiple of 4 floats, since we're using NEON and
@@ -167,9 +167,10 @@ impl Assembler for FloatSliceAssembler {
     }
 
     fn build_output(&mut self, arg_reg: u8, out_index: u32) {
-        assert_eq!(out_index, 0);
+        assert!(out_index < 16384 / 8);
         dynasm!(self.0.ops
-            ; add x4, x1, x3 // apply array offset
+            ; ldr x4, [x1, out_index * 8]
+            ; add x4, x4, x3 // apply array offset
             ; str Q(reg(arg_reg)), [x4] // write to the output array
         );
     }

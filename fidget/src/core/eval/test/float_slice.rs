@@ -34,7 +34,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             let out = eval
                 .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
                 .unwrap();
-            assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
+            assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0]);
 
             // TODO: reuse tape data here
             let t = tape.recycle();
@@ -43,7 +43,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             let out = eval
                 .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
                 .unwrap();
-            assert_eq!(out, [1.0, 2.0, 3.0, 4.0]);
+            assert_eq!(&out[0], [1.0, 2.0, 3.0, 4.0]);
         }
     }
 
@@ -58,7 +58,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let out = eval
             .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
             .unwrap();
-        assert_eq!(out, [0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0]);
 
         let out = eval
             .eval(
@@ -66,7 +66,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &[[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0].as_slice()],
             )
             .unwrap();
-        assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+        assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
 
         let out = eval
             .eval(
@@ -74,7 +74,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
                 &[[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0].as_slice()],
             )
             .unwrap();
-        assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
         let shape = F::new(&ctx, mul).unwrap();
@@ -82,15 +82,15 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let out = eval
             .eval(&tape, &[[3.0, 2.0, 1.0, 0.0].as_slice()])
             .unwrap();
-        assert_eq!(out, [6.0, 4.0, 2.0, 0.0]);
+        assert_eq!(&out[0], [6.0, 4.0, 2.0, 0.0]);
 
         let out = eval.eval(&tape, &[[1.0, 4.0, 8.0].as_slice()]).unwrap();
-        assert_eq!(&out[0..3], &[2.0, 8.0, 16.0]);
+        assert_eq!(&out[0][0..3], &[2.0, 8.0, 16.0]);
 
         let out = eval
             .eval(&tape, &[[1.0, 4.0, 4.0, -1.0, -2.0, -3.0, 0.0].as_slice()])
             .unwrap();
-        assert_eq!(out, [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
+        assert_eq!(&out[0], [2.0, 8.0, 8.0, -2.0, -4.0, -6.0, 0.0]);
     }
 
     pub fn test_f_sin() {
@@ -104,7 +104,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let args = [0.0, 1.0, 2.0, std::f32::consts::PI / 2.0];
         assert_eq!(
-            eval.eval(&tape, &[args.as_slice()]).unwrap(),
+            &eval.eval(&tape, &[args.as_slice()]).unwrap()[0],
             args.map(f32::sin),
         );
     }
@@ -171,7 +171,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let vs = bind_xyz::<_, &[f32], &[f32]>(&tape);
         let out = eval.eval(&tape, &vs(&x, &y, &z)).unwrap();
 
-        for (i, v) in out.iter().cloned().enumerate() {
+        for (i, v) in out[0].iter().cloned().enumerate() {
             let q = ctx
                 .eval_xyz(node, x[i] as f64, y[i] as f64, z[i] as f64)
                 .unwrap();
@@ -195,7 +195,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let tape = shape.ez_float_slice_tape();
 
         let cmp = eval.eval(&tape, &x, &y, &z).unwrap();
-        for (i, (a, b)) in out.iter().zip(cmp.iter()).enumerate() {
+        for (i, (a, b)) in out[0].iter().zip(cmp.iter()).enumerate() {
             let err = (a - b).abs();
             assert!(
                 err < 1e-6,
@@ -227,7 +227,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let tape = shape.float_slice_tape(Default::default());
 
         let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
-        for (a, &o) in args.iter().zip(out.iter()) {
+        for (a, &o) in args.iter().zip(out[0].iter()) {
             let v = C::eval_f32(*a);
             let err = (v - o).abs();
             assert!(
@@ -289,7 +289,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             Self::compare_float_results::<C>(
                 &args,
                 &rgsa,
-                out,
+                &out[0],
                 C::eval_reg_reg_f32,
                 &name,
             );
@@ -315,11 +315,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
                 let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
 
-                let rhs = vec![*rhs; out.len()];
+                let rhs = vec![*rhs; out[0].len()];
                 Self::compare_float_results::<C>(
                     &args,
                     &rhs,
-                    out,
+                    &out[0],
                     C::eval_reg_imm_f32,
                     &name,
                 );
@@ -346,11 +346,11 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
                 let out = eval.eval(&tape, &[args.as_slice()]).unwrap();
 
-                let lhs = vec![*lhs; out.len()];
+                let lhs = vec![*lhs; out[0].len()];
                 Self::compare_float_results::<C>(
                     &lhs,
                     &args,
-                    out,
+                    &out[0],
                     C::eval_imm_reg_f32,
                     &name,
                 );

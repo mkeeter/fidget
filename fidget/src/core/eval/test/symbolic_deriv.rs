@@ -35,7 +35,7 @@ impl TestSymbolicDerivs {
         // Check symbolic differentiation results
         let out_deriv =
             eval_deriv.eval(&tape_deriv, &[args.as_slice()]).unwrap();
-        for (v, (a, b)) in args.iter().zip(out.iter().zip(out_deriv)) {
+        for (v, (a, b)) in args.iter().zip(out[0].iter().zip(&out_deriv[0])) {
             let a = a.dx;
             let err = a - b;
             let err_frac = err / a.abs().max(b.abs());
@@ -104,7 +104,7 @@ impl TestSymbolicDerivs {
                 vs[ib] = rgsa.as_slice();
             }
             let out_a_deriv =
-                eval_deriv.eval(&tape_a_deriv, &vs).unwrap().to_vec();
+                eval_deriv.eval(&tape_a_deriv, &vs).unwrap()[0].to_vec();
 
             let mut vs = [args.as_slice(), args.as_slice()];
             if let Some(ia) = shape_b_deriv.vars().get(&va) {
@@ -113,10 +113,10 @@ impl TestSymbolicDerivs {
             if let Some(ib) = shape_b_deriv.vars().get(&vb) {
                 vs[ib] = rgsa.as_slice();
             }
-            let out_b_deriv = eval_deriv.eval(&tape_b_deriv, &vs).unwrap();
+            let out_b_deriv = &eval_deriv.eval(&tape_b_deriv, &vs).unwrap()[0];
 
-            for i in 0..out.len() {
-                let v = out[i];
+            for i in 0..out[0].len() {
+                let v = out[0][i];
                 let da = out_a_deriv[i];
 
                 let a = args[i];
