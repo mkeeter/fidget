@@ -13,12 +13,12 @@ use dynasmrt::{dynasm, DynasmApi};
 ///
 /// Registers as pased in as follows:
 ///
-/// | Variable   | Register   | Type                    |
-/// |------------|------------|-------------------------|
-/// | `vars`     | `x0`       | `*const (f32, f32)`     |
-/// | `choices`  | `x1`       | `*mut u8` (array)       |
-/// | `simplify` | `x2`       | `*mut u8` (single)      |
-/// | `output`   | `x3`       | `*mut (f32, f32)`       |
+/// | Variable   | Register   | Type                      |
+/// |------------|------------|---------------------------|
+/// | `vars`     | `x0`       | `*const (f32, f32)`       |
+/// | `choices`  | `x1`       | `*mut u8` (array)         |
+/// | `simplify` | `x2`       | `*mut u8` (single)        |
+/// | `output`   | `x3`       | `*mut (f32, f32)` (array) |
 ///
 /// During evaluation, `x0-2` maintain their meaning.  Intervals are stored in
 /// the lower two float of a SIMD register `Vx` `s[0]` is the lower bound of the
@@ -130,9 +130,9 @@ impl Assembler for IntervalAssembler {
     }
     /// Copies the register to the output
     fn build_output(&mut self, arg_reg: u8, output_index: u32) {
-        assert_eq!(output_index, 0);
+        assert!(output_index < 16384 / 8);
         dynasm!(self.0.ops
-            ; str D(reg(arg_reg)), [x3]
+            ; str D(reg(arg_reg)), [x3, output_index * 8]
         );
     }
     fn build_sin(&mut self, out_reg: u8, lhs_reg: u8) {

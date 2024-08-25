@@ -17,7 +17,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | `vars`     | `rdi`    | `*const f32`          |
 /// | `choices`  | `rsi`    | `*mut u8` (array)     |
 /// | `simplify` | `rdx`    | `*mut u8` (single)    |
-/// | `output`   | `rcx`    | `*mut f32` (single)   |
+/// | `output`   | `rcx`    | `*mut f32` (array)    |
 ///
 /// The stack is configured as follows
 ///
@@ -93,9 +93,9 @@ impl Assembler for PointAssembler {
         );
     }
     fn build_output(&mut self, arg_reg: u8, out_index: u32) {
-        assert_eq!(out_index, 0);
+        let pos = 4 * i32::try_from(out_index).unwrap();
         dynasm!(self.0.ops
-            ; vmovss [rcx], Rx(reg(arg_reg))
+            ; vmovss [rcx + pos], Rx(reg(arg_reg))
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {

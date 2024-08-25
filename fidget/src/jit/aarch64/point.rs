@@ -17,7 +17,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | `vars`     | `x0`     | `*const f32` (array)  |
 /// | `choices`  | `x1`     | `*mut u8` (array)     |
 /// | `simplify` | `x2`     | `*mut u8` (single)    |
-/// | `output`   | `x3`     | `*mut f32` (single)   |
+/// | `output`   | `x3`     | `*mut f32` (array)    |
 ///
 /// During evaluation, registers are identical.  In addition, we use the
 /// following registers during evaluation:
@@ -126,9 +126,9 @@ impl Assembler for PointAssembler {
     }
     /// Copies the register to the output
     fn build_output(&mut self, arg_reg: u8, output_index: u32) {
-        assert_eq!(output_index, 0);
+        assert!(output_index < 16384 / 4);
         dynasm!(self.0.ops
-            ; str S(reg(arg_reg)), [x3]
+            ; str S(reg(arg_reg)), [x3, output_index * 4]
         );
     }
     fn build_copy(&mut self, out_reg: u8, lhs_reg: u8) {

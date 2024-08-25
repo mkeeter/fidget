@@ -13,7 +13,7 @@ pub const SIMD_WIDTH: usize = 8;
 /// | Argument | Register | Type                       |
 /// | ---------|----------|----------------------------|
 /// | vars     | `rdi`    | `*const *const [f32; 8]`   |
-/// | out      | `rsi`    | `*mut [f32; 8]`            |
+/// | out      | `rsi`    | `*const *mut [f32; 8]`     |
 /// | size     | `rdx`    | `u64`                      |
 ///
 /// The arrays must be an even multiple of 8 floats, since we're using AVX2 and
@@ -109,9 +109,10 @@ impl Assembler for FloatSliceAssembler {
     }
 
     fn build_output(&mut self, arg_reg: u8, out_index: u32) {
-        assert_eq!(out_index, 0);
+        let pos = 8 * i32::try_from(out_index).unwrap();
         dynasm!(self.0.ops
-            ; vmovups [rsi + rcx], Ry(reg(arg_reg))
+            ; mov r8, [rsi + pos]   // read the *mut float from the array
+            ; vmovups [r8 + rcx], Ry(reg(arg_reg))
         );
     }
 

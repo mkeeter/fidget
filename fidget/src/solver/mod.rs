@@ -135,9 +135,9 @@ impl<'a, F: Function> Solver<'a, F> {
 
             // Populate this row of the Jacobian
             for gi in 0..self.grad_index.len() {
-                *jacobian.get_mut((ti, gi)).unwrap() = out[gi / 3].d(gi % 3);
+                *jacobian.get_mut((ti, gi)).unwrap() = out[0][gi / 3].d(gi % 3);
             }
-            result[ti] = out[0].v;
+            result[ti] = out[0][0].v;
         }
         Ok(())
     }

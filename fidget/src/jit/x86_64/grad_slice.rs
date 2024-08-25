@@ -15,7 +15,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// | Variable   | Register | Type                     |
 /// |------------|----------|--------------------------|
 /// | `vars`     | `rdi`    | `*const *const [f32; 4]` |
-/// | `out`      | `rsi`    | `*mut [f32; 4]`          |
+/// | `out`      | `rsi`    | `*const *mut [f32; 4]`   |
 /// | `count`    | `rdx`    | `u64`                    |
 ///
 /// During evaluation, `rcx` is used to track offset within `vars`.
@@ -101,9 +101,10 @@ impl Assembler for GradSliceAssembler {
     }
 
     fn build_output(&mut self, arg_reg: u8, out_index: u32) {
-        assert_eq!(out_index, 0);
+        let pos = 8 * i32::try_from(out_index).unwrap();
         dynasm!(self.0.ops
-            ; vmovups [rsi + rcx], Rx(reg(arg_reg))
+            ; mov r8, [rsi + pos]   // read the *mut float from the array
+            ; vmovups [r8 + rcx], Rx(reg(arg_reg))
         );
     }
 
