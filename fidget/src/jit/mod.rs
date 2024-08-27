@@ -1004,7 +1004,7 @@ impl JitTracingEval {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         self.choices.fill(Choice::Unknown);
-        let mut out = std::f32::NAN.into();
+        let mut out = f32::NAN.into();
         unsafe {
             (tape.fn_trace)(
                 vars.as_ptr(),
