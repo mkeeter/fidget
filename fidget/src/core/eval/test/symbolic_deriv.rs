@@ -17,12 +17,12 @@ impl TestSymbolicDerivs {
         let mut ctx = Context::new();
         let v = ctx.var(Var::new());
         let node = C::build(&mut ctx, v);
-        let shape = VmFunction::new(&ctx, node).unwrap();
+        let shape = VmFunction::new(&ctx, &[node]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
         let mut eval = VmFunction::new_grad_slice_eval();
 
         let node_deriv = ctx.deriv(node, ctx.get_var(v).unwrap()).unwrap();
-        let shape_deriv = VmFunction::new(&ctx, node_deriv).unwrap();
+        let shape_deriv = VmFunction::new(&ctx, &[node_deriv]).unwrap();
         let tape_deriv = shape_deriv.float_slice_tape(Default::default());
         let mut eval_deriv = VmFunction::new_float_slice_eval();
 
@@ -64,15 +64,15 @@ impl TestSymbolicDerivs {
         let mut eval_deriv = VmFunction::new_float_slice_eval();
 
         let node = C::build(&mut ctx, a, b);
-        let shape = VmFunction::new(&ctx, node).unwrap();
+        let shape = VmFunction::new(&ctx, &[node]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
 
         let node_a_deriv = ctx.deriv(node, va).unwrap();
-        let shape_a_deriv = VmFunction::new(&ctx, node_a_deriv).unwrap();
+        let shape_a_deriv = VmFunction::new(&ctx, &[node_a_deriv]).unwrap();
         let tape_a_deriv = shape_a_deriv.float_slice_tape(Default::default());
 
         let node_b_deriv = ctx.deriv(node, vb).unwrap();
-        let shape_b_deriv = VmFunction::new(&ctx, node_b_deriv).unwrap();
+        let shape_b_deriv = VmFunction::new(&ctx, &[node_b_deriv]).unwrap();
         let tape_b_deriv = shape_b_deriv.float_slice_tape(Default::default());
 
         for rot in 0..args.len() {

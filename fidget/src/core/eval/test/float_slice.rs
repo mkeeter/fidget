@@ -24,8 +24,8 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let x = ctx.x();
         let x1 = ctx.add(x, 1.0).unwrap();
 
-        let shape_x = F::new(&ctx, x).unwrap();
-        let shape_x1 = F::new(&ctx, x1).unwrap();
+        let shape_x = F::new(&ctx, &[x]).unwrap();
+        let shape_x1 = F::new(&ctx, &[x1]).unwrap();
 
         // This is a fuzz test for icache issues
         let mut eval = F::new_float_slice_eval();
@@ -53,7 +53,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let y = ctx.y();
 
         let mut eval = F::new_float_slice_eval();
-        let shape = F::new(&ctx, x).unwrap();
+        let shape = F::new(&ctx, &[x]).unwrap();
         let tape = shape.float_slice_tape(Default::default());
         let out = eval
             .eval(&tape, &[[0.0, 1.0, 2.0, 3.0].as_slice()])
@@ -77,7 +77,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
 
         let mul = ctx.mul(y, 2.0).unwrap();
-        let shape = F::new(&ctx, mul).unwrap();
+        let shape = F::new(&ctx, &[mul]).unwrap();
         let tape = shape.float_slice_tape(Default::default());
         let out = eval
             .eval(&tape, &[[3.0, 2.0, 1.0, 0.0].as_slice()])
@@ -98,7 +98,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let a = ctx.x();
         let b = ctx.sin(a).unwrap();
 
-        let shape = F::new(&ctx, b).unwrap();
+        let shape = F::new(&ctx, &[b]).unwrap();
         let mut eval = F::new_float_slice_eval();
         let tape = shape.float_slice_tape(Default::default());
 
@@ -164,7 +164,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let mut eval = F::new_float_slice_eval();
         let tape = shape.float_slice_tape(Default::default());
 
@@ -222,7 +222,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
 
         let node = C::build(&mut ctx, v);
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let mut eval = F::new_float_slice_eval();
         let tape = shape.float_slice_tape(Default::default());
 
@@ -271,7 +271,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             rgsa.rotate_left(rot);
             let node = C::build(&mut ctx, va, vb);
 
-            let shape = F::new(&ctx, node).unwrap();
+            let shape = F::new(&ctx, &[node]).unwrap();
             let mut eval = F::new_float_slice_eval();
             let tape = shape.float_slice_tape(Default::default());
             let vars = tape.vars();
@@ -309,7 +309,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             for rhs in args.iter() {
                 let node = C::build(&mut ctx, va, *rhs);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_float_slice_eval();
                 let tape = shape.float_slice_tape(Default::default());
 
@@ -340,7 +340,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             for lhs in args.iter() {
                 let node = C::build(&mut ctx, *lhs, va);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_float_slice_eval();
                 let tape = shape.float_slice_tape(Default::default());
 

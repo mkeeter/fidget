@@ -309,7 +309,7 @@ impl<F: MathFunction> Shape<F> {
         node: Node,
         axes: [Var; 3],
     ) -> Result<Self, Error> {
-        let f = F::new(ctx, node)?;
+        let f = F::new(ctx, &[node])?;
         Ok(Self {
             f,
             axes,
@@ -449,7 +449,8 @@ where
             }
         }
 
-        self.eval.eval(&tape.tape, &self.scratch)
+        let (out, trace) = self.eval.eval(&tape.tape, &self.scratch)?;
+        Ok((out[0], trace))
     }
 }
 

@@ -175,7 +175,7 @@ pub trait Function: Send + Sync + Clone {
 /// A [`Function`] which can be built from a math expression
 pub trait MathFunction: Function {
     /// Builds a new function from the given context and node
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error>
     where
         Self: Sized;
 }

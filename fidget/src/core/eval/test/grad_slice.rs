@@ -56,7 +56,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     pub fn test_g_x() {
         let mut ctx = Context::new();
         let x = ctx.x();
-        let shape = F::new(&ctx, x).unwrap();
+        let shape = F::new(&ctx, &[x]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -68,7 +68,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     pub fn test_g_y() {
         let mut ctx = Context::new();
         let y = ctx.y();
-        let shape = F::new(&ctx, y).unwrap();
+        let shape = F::new(&ctx, &[y]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -80,7 +80,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
     pub fn test_g_z() {
         let mut ctx = Context::new();
         let z = ctx.z();
-        let shape = F::new(&ctx, z).unwrap();
+        let shape = F::new(&ctx, &[z]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -93,7 +93,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.square(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -118,7 +118,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.abs(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -135,7 +135,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sqrt(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -152,7 +152,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
 
         let v = Self::eval_xyz(&tape, &[1.0, 2.0, 3.0], &[0.0; 3], &[0.0; 3]);
@@ -163,7 +163,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let y = ctx.y();
         let y = ctx.mul(y, 2.0).unwrap();
         let s = ctx.sin(y).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
         let v = Self::eval_xyz(&tape, &[0.0; 3], &[1.0, 2.0, 3.0], &[0.0; 3]);
         v[0].compare_eq(Grad::new(2f32.sin(), 0.0, 2.0 * 2f32.cos(), 0.0));
@@ -176,7 +176,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let s = ctx.mul(x, y).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -201,7 +201,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.div(x, 2.0).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -214,7 +214,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.recip(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -232,7 +232,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.min(x, y).unwrap();
-        let shape = F::new(&ctx, m).unwrap();
+        let shape = F::new(&ctx, &[m]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -252,7 +252,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let z = ctx.z();
         let min = ctx.min(x, y).unwrap();
         let max = ctx.max(min, z).unwrap();
-        let shape = F::new(&ctx, max).unwrap();
+        let shape = F::new(&ctx, &[max]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -274,7 +274,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let x = ctx.x();
         let y = ctx.y();
         let m = ctx.max(x, y).unwrap();
-        let shape = F::new(&ctx, m).unwrap();
+        let shape = F::new(&ctx, &[m]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -291,7 +291,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let x = ctx.x();
         let m = ctx.not(x).unwrap();
-        let shape = F::new(&ctx, m).unwrap();
+        let shape = F::new(&ctx, &[m]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -310,7 +310,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let sum = ctx.add(x2, y2).unwrap();
         let sqrt = ctx.sqrt(sum).unwrap();
         let sub = ctx.sub(sqrt, 0.5).unwrap();
-        let shape = F::new(&ctx, sub).unwrap();
+        let shape = F::new(&ctx, &[sub]).unwrap();
 
         let tape = shape.grad_slice_tape(Default::default());
         assert_eq!(
@@ -342,7 +342,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let z: Vec<f32> =
             args[2..].iter().chain(&args[0..2]).cloned().collect();
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
 
         let out = Self::eval_xyz(&tape, &x, &y, &z);
@@ -366,7 +366,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         // Compare against the VmShape evaluator as a baseline.  It's possible
         // that S is also a VmShape, but this comparison isn't particularly
         // expensive, so we'll do it regardless.
-        let shape = VmFunction::new(&ctx, node).unwrap();
+        let shape = VmFunction::new(&ctx, &[node]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
 
         let cmp = TestGradSlice::<VmFunction>::eval_xyz(&tape, &x, &y, &z);
@@ -387,7 +387,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
         let mut ctx = Context::new();
         let v = ctx.var(Var::new());
         let node = C::build(&mut ctx, v);
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let tape = shape.grad_slice_tape(Default::default());
         let mut eval = F::new_grad_slice_eval();
 
@@ -546,7 +546,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 for (j, &u) in inputs.iter().enumerate() {
                     let node = C::build(&mut ctx, v, u);
 
-                    let shape = F::new(&ctx, node).unwrap();
+                    let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match (i, j) {
@@ -592,7 +592,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 for rhs in args.iter() {
                     let node = C::build(&mut ctx, v, *rhs);
 
-                    let shape = F::new(&ctx, node).unwrap();
+                    let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match i {
@@ -632,7 +632,7 @@ impl<F: Function + MathFunction> TestGradSlice<F> {
                 for lhs in args.iter() {
                     let node = C::build(&mut ctx, *lhs, v);
 
-                    let shape = F::new(&ctx, node).unwrap();
+                    let shape = F::new(&ctx, &[node]).unwrap();
                     let tape = shape.grad_slice_tape(Default::default());
 
                     let out = match i {

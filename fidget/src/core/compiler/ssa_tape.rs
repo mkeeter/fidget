@@ -26,6 +26,9 @@ pub struct SsaTape {
 
     /// Number of choice operations in the tape
     pub choice_count: usize,
+
+    /// Number of output operations in the tape
+    pub output_count: usize,
 }
 
 impl SsaTape {
@@ -33,7 +36,7 @@ impl SsaTape {
     ///
     /// This should always succeed unless the `root` is from a different
     /// `Context`, in which case `Error::BadNode` will be returned.
-    pub fn new(ctx: &Context, root: Node) -> Result<(Self, VarMap), Error> {
+    pub fn new(ctx: &Context, roots: &[Node]) -> Result<(Self, VarMap), Error> {
         let mut mapping = HashMap::new();
         let mut parent_count: HashMap<Node, usize> = HashMap::new();
         let mut slot_count = 0;
@@ -48,7 +51,7 @@ impl SsaTape {
         // Accumulate parent counts and declare all nodes
         let mut seen = HashSet::new();
         let mut vars = VarMap::new();
-        let mut todo = vec![root];
+        let mut todo = roots.to_vec();
         while let Some(node) = todo.pop() {
             if !seen.insert(node) {
                 continue;
@@ -76,15 +79,18 @@ impl SsaTape {
 
         // Now that we've populated our parents, flatten the graph
         let mut seen = HashSet::new();
-        let mut todo = vec![root];
+        let mut todo = roots.to_vec();
         let mut choice_count = 0;
 
         let mut tape = vec![];
-        match mapping[&root] {
-            Slot::Reg(out_reg) => tape.push(SsaOp::Output(out_reg, 0)),
-            Slot::Immediate(imm) => {
-                tape.push(SsaOp::Output(0, 0));
-                tape.push(SsaOp::CopyImm(0, imm));
+        for (i, r) in roots.iter().enumerate() {
+            let i = i as u32;
+            match mapping[r] {
+                Slot::Reg(out_reg) => tape.push(SsaOp::Output(out_reg, i)),
+                Slot::Immediate(imm) => {
+                    tape.push(SsaOp::Output(0, i));
+                    tape.push(SsaOp::CopyImm(0, imm));
+                }
             }
         }
 
@@ -235,7 +241,14 @@ impl SsaTape {
             tape.push(op);
         }
 
-        Ok((SsaTape { tape, choice_count }, vars))
+        Ok((
+            SsaTape {
+                tape,
+                choice_count,
+                output_count: roots.len(),
+            },
+            vars,
+        ))
     }
 
     /// Checks whether the tape is empty
@@ -410,7 +423,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let (tape, vs) = SsaTape::new(&ctx, c9).unwrap();
+        let (tape, vs) = SsaTape::new(&ctx, &[c9]).unwrap();
         assert_eq!(tape.len(), 9);
         assert_eq!(vs.len(), 2);
     }
@@ -421,7 +434,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let (tape, vs) = SsaTape::new(&ctx, x_squared).unwrap();
+        let (tape, vs) = SsaTape::new(&ctx, &[x_squared]).unwrap();
         assert_eq!(tape.len(), 3); // x, square, output
         assert_eq!(vs.len(), 1);
     }
@@ -430,7 +443,7 @@ mod test {
     fn test_constant() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
-        let (tape, vs) = SsaTape::new(&ctx, p).unwrap();
+        let (tape, vs) = SsaTape::new(&ctx, &[p]).unwrap();
         assert_eq!(tape.len(), 2); // CopyImm, output
         assert_eq!(vs.len(), 0);
     }

@@ -849,6 +849,7 @@ impl JitFunction {
             mmap: f,
             vars: self.0.data().vars.clone(),
             choice_count: self.0.choice_count(),
+            output_count: self.0.output_count(),
             fn_trace: unsafe { std::mem::transmute(ptr) },
         }
     }
@@ -957,9 +958,18 @@ macro_rules! jit_fn {
 ///
 /// Users are unlikely to use this directly, but it's public because it's an
 /// associated type on [`JitFunction`].
-#[derive(Default)]
-struct JitTracingEval {
+struct JitTracingEval<T> {
     choices: VmTrace,
+    out: Vec<T>,
+}
+
+impl<T> Default for JitTracingEval<T> {
+    fn default() -> Self {
+        Self {
+            choices: VmTrace::default(),
+            out: Vec::default(),
+        }
+    }
 }
 
 /// Handle to an owned function pointer for tracing evaluation
@@ -967,6 +977,7 @@ pub struct JitTracingFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     choice_count: usize,
+    output_count: usize,
     vars: Arc<VarMap>,
     fn_trace: jit_fn!(
         unsafe fn(
@@ -994,28 +1005,29 @@ impl<T> Tape for JitTracingFn<T> {
 unsafe impl<T> Send for JitTracingFn<T> {}
 unsafe impl<T> Sync for JitTracingFn<T> {}
 
-impl JitTracingEval {
+impl<T: From<f32> + Clone> JitTracingEval<T> {
     /// Evaluates a single point, capturing an evaluation trace
-    fn eval<T: From<f32>>(
+    fn eval(
         &mut self,
         tape: &JitTracingFn<T>,
         vars: &[T],
-    ) -> (T, Option<&VmTrace>) {
+    ) -> (&[T], Option<&VmTrace>) {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         self.choices.fill(Choice::Unknown);
-        let mut out = f32::NAN.into();
+        self.out.resize(tape.output_count, std::f32::NAN.into());
+        self.out.fill(f32::NAN.into());
         unsafe {
             (tape.fn_trace)(
                 vars.as_ptr(),
                 self.choices.as_mut_ptr() as *mut u8,
                 &mut simplify,
-                &mut out,
+                self.out.as_mut_ptr(),
             )
         };
 
         (
-            out,
+            &self.out,
             if simplify != 0 {
                 Some(&self.choices)
             } else {
@@ -1027,7 +1039,7 @@ impl JitTracingEval {
 
 /// JIT-based tracing evaluator for interval values
 #[derive(Default)]
-pub struct JitIntervalEval(JitTracingEval);
+pub struct JitIntervalEval(JitTracingEval<Interval>);
 impl TracingEvaluator for JitIntervalEval {
     type Data = Interval;
     type Tape = JitTracingFn<Interval>;
@@ -1038,7 +1050,7 @@ impl TracingEvaluator for JitIntervalEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1046,7 +1058,7 @@ impl TracingEvaluator for JitIntervalEval {
 
 /// JIT-based tracing evaluator for point values
 #[derive(Default)]
-pub struct JitPointEval(JitTracingEval);
+pub struct JitPointEval(JitTracingEval<f32>);
 impl TracingEvaluator for JitPointEval {
     type Data = f32;
     type Tape = JitTracingFn<f32>;
@@ -1057,7 +1069,7 @@ impl TracingEvaluator for JitPointEval {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(Self::Data, Option<&Self::Trace>), Error> {
+    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error> {
         tape.vars().check_tracing_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
     }
@@ -1259,8 +1271,8 @@ impl BulkEvaluator for JitGradSliceEval {
 }
 
 impl MathFunction for JitFunction {
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        GenericVmFunction::new(ctx, node).map(JitFunction)
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+        GenericVmFunction::new(ctx, nodes).map(JitFunction)
     }
 }
 
