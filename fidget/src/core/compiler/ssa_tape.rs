@@ -235,12 +235,6 @@ impl SsaTape {
             tape.push(op);
         }
 
-        // Special case if the Node is a single constant, which isn't usually
-        // recorded in the tape
-        if tape.is_empty() {
-            let c = ctx.get_const(root).unwrap() as f32;
-            tape.push(SsaOp::CopyImm(0, c));
-        }
         Ok((SsaTape { tape, choice_count }, vars))
     }
 
@@ -430,5 +424,14 @@ mod test {
         let (tape, vs) = SsaTape::new(&ctx, x_squared).unwrap();
         assert_eq!(tape.len(), 3); // x, square, output
         assert_eq!(vs.len(), 1);
+    }
+
+    #[test]
+    fn test_constant() {
+        let mut ctx = Context::new();
+        let p = ctx.constant(1.5);
+        let (tape, vs) = SsaTape::new(&ctx, p).unwrap();
+        assert_eq!(tape.len(), 2); // CopyImm, output
+        assert_eq!(vs.len(), 0);
     }
 }
