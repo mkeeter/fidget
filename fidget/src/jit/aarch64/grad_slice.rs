@@ -10,7 +10,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 
 /// Implementation for the gradient slice assembler on `aarch64`
 ///
-/// Registers as pased in as follows:
+/// Registers are passed in as follows:
 ///
 /// | Variable   | Register | Type                      |
 /// |------------|----------|---------------------------|

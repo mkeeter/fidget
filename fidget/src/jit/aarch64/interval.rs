@@ -11,7 +11,7 @@ use dynasmrt::{dynasm, DynasmApi};
 
 /// Implementation for the interval assembler on `aarch64`
 ///
-/// Registers as pased in as follows:
+/// Registers are passed in as follows:
 ///
 /// | Variable   | Register   | Type                      |
 /// |------------|------------|---------------------------|
@@ -45,7 +45,7 @@ use dynasmrt::{dynasm, DynasmApi};
 /// ```text
 /// | Position | Value        | Notes                                       |
 /// |----------|------------------------------------------------------------|
-/// | 0x100     | ...          | Register spills live up here                |
+/// | 0x100    | ...          | Register spills live up here                |
 /// |----------|--------------|---------------------------------------------|
 /// | 0xf0     | `x23`        | During functions calls, we use these        |
 /// | 0xe8     | `x22`        | as temporary storage so must preserve their |
