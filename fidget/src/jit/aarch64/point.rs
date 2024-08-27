@@ -10,7 +10,7 @@ use dynasmrt::{dynasm, DynasmApi};
 
 /// Implementation for the single-point assembler on `aarch64`
 ///
-/// Registers as pased in as follows:
+/// Registers are passed in as follows:
 ///
 /// | Variable   | Register | Type                  |
 /// |------------|----------|-----------------------|
