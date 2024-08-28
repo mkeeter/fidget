@@ -1,5 +1,10 @@
 # 0.3.3
-(nothing here yet)
+- `Function` and evaluator types now produce multiple outputs
+    - `MathFunction::new` now takes a slice of nodes, instead of a single node
+    - All of the intermediate tape formats (`SsaTape`, etc) are aware of
+      multiple output nodes
+    - Evaluation now returns a slice of outputs, one for each root node (ordered
+      based on order in the `&[Node]` slice passed  to `MathFunction::new`)
 
 # 0.3.2
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context

@@ -55,7 +55,7 @@ pub trait BulkEvaluator: Default {
 /// Container for bulk output results
 ///
 /// This container represents an array-of-arrays.  It is indexed first by
-/// variable, then by index within the evaluation array.
+/// output index, then by index within the evaluation array.
 pub struct BulkOutput<'a, T> {
     data: &'a Vec<Vec<T>>,
     len: usize,
