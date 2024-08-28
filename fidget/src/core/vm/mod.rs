@@ -46,6 +46,10 @@ impl<const N: usize> Tape for GenericVmFunction<N> {
     fn vars(&self) -> &VarMap {
         &self.0.vars
     }
+
+    fn output_count(&self) -> usize {
+        self.0.output_count()
+    }
 }
 
 /// A trace captured by a VM evaluation
@@ -139,11 +143,6 @@ impl<const N: usize> GenericVmFunction<N> {
     /// Returns the number of choices (i.e. `min` and `max` nodes) in the tape
     pub fn choice_count(&self) -> usize {
         self.0.choice_count()
-    }
-
-    /// Returns the number of output clauses in the tape
-    pub fn output_count(&self) -> usize {
-        self.0.output_count()
     }
 }
 

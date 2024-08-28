@@ -32,6 +32,13 @@ pub trait Tape {
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
     fn vars(&self) -> &VarMap;
+
+    /// Returns the number of outputs written by this tape
+    ///
+    /// The order of outputs is set by the caller at tape construction, so we
+    /// don't need a map to determine the index of a particular output (unlike
+    /// variables).
+    fn output_count(&self) -> usize;
 }
 
 /// Represents the trace captured by a tracing evaluation

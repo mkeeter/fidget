@@ -858,6 +858,7 @@ impl JitFunction {
         let ptr = f.as_ptr();
         JitBulkFn {
             mmap: f,
+            output_count: self.0.output_count(),
             vars: self.0.data().vars.clone(),
             fn_bulk: unsafe { std::mem::transmute(ptr) },
         }
@@ -998,6 +999,10 @@ impl<T> Tape for JitTracingFn<T> {
     fn vars(&self) -> &VarMap {
         &self.vars
     }
+
+    fn output_count(&self) -> usize {
+        self.output_count
+    }
 }
 
 // SAFETY: there is no mutable state in a `JitTracingFn`, and the pointer
@@ -1082,6 +1087,7 @@ pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     vars: Arc<VarMap>,
+    output_count: usize,
     fn_bulk: jit_fn!(
         unsafe fn(
             *const *const T, // vars
@@ -1099,6 +1105,10 @@ impl<T> Tape for JitBulkFn<T> {
 
     fn vars(&self) -> &VarMap {
         &self.vars
+    }
+
+    fn output_count(&self) -> usize {
+        self.output_count
     }
 }
 
