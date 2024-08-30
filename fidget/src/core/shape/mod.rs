@@ -309,7 +309,7 @@ impl<F: MathFunction> Shape<F> {
         node: Node,
         axes: [Var; 3],
     ) -> Result<Self, Error> {
-        let f = F::new(ctx, node)?;
+        let f = F::new(ctx, &[node])?;
         Ok(Self {
             f,
             axes,
@@ -409,6 +409,12 @@ where
         z: F,
         vars: &HashMap<VarIndex, F>,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
+        assert_eq!(
+            tape.tape.output_count(),
+            1,
+            "ShapeTape has multiple outputs"
+        );
+
         let x = x.into();
         let y = y.into();
         let z = z.into();
@@ -449,7 +455,8 @@ where
             }
         }
 
-        self.eval.eval(&tape.tape, &self.scratch)
+        let (out, trace) = self.eval.eval(&tape.tape, &self.scratch)?;
+        Ok((out[0], trace))
     }
 }
 
@@ -496,6 +503,12 @@ where
         z: &[E::Data],
         vars: &HashMap<VarIndex, V>,
     ) -> Result<&[E::Data], Error> {
+        assert_eq!(
+            tape.tape.output_count(),
+            1,
+            "ShapeTape has multiple outputs"
+        );
+
         // Make sure our scratch arrays are big enough for this evaluation
         if x.len() != y.len() || x.len() != z.len() {
             return Err(Error::MismatchedSlices);

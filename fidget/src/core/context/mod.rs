@@ -1566,7 +1566,7 @@ mod test {
         let c8 = ctx.sub(c7, r).unwrap();
         let c9 = ctx.max(c8, c6).unwrap();
 
-        let tape = VmData::<255>::new(&ctx, c9).unwrap();
+        let tape = VmData::<255>::new(&ctx, &[c9]).unwrap();
         assert_eq!(tape.len(), 9);
         assert_eq!(tape.vars.len(), 2);
     }
@@ -1577,7 +1577,7 @@ mod test {
         let x = ctx.x();
         let x_squared = ctx.mul(x, x).unwrap();
 
-        let tape = VmData::<255>::new(&ctx, x_squared).unwrap();
+        let tape = VmData::<255>::new(&ctx, &[x_squared]).unwrap();
         assert_eq!(tape.len(), 3); // x, square, output
         assert_eq!(tape.vars.len(), 1);
     }

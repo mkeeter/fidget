@@ -29,27 +29,27 @@ where
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape = F::new(&ctx, x).unwrap();
+        let shape = F::new(&ctx, &[x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 5.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 5.0].into()]).unwrap().0[0],
             [1.0, 5.0].into()
         );
 
-        let shape = F::new(&ctx, y).unwrap();
+        let shape = F::new(&ctx, &[y]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[2.0, 3.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[2.0, 3.0].into()]).unwrap().0[0],
             [2.0, 3.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[4.0, 5.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[4.0, 5.0].into()]).unwrap().0[0],
             [4.0, 5.0].into()
         );
     }
@@ -59,47 +59,47 @@ where
         let x = ctx.x();
         let abs_x = ctx.abs(x).unwrap();
 
-        let shape = F::new(&ctx, abs_x).unwrap();
+        let shape = F::new(&ctx, &[abs_x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 5.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 5.0].into()]).unwrap().0[0],
             [1.0, 5.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-2.0, 5.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-2.0, 5.0].into()]).unwrap().0[0],
             [0.0, 5.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, 5.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, 5.0].into()]).unwrap().0[0],
             [0.0, 6.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, -1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, -1.0].into()]).unwrap().0[0],
             [1.0, 6.0].into()
         );
 
         let y = ctx.y();
         let abs_y = ctx.abs(y).unwrap();
         let sum = ctx.add(abs_x, abs_y).unwrap();
-        let shape = F::new(&ctx, sum).unwrap();
+        let shape = F::new(&ctx, &[sum]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0[0],
             [0.0, 2.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([1.0, 5.0], [-2.0, 3.0])).unwrap().0,
+            eval.eval(&tape, &vs([1.0, 5.0], [-2.0, 3.0])).unwrap().0[0],
             [1.0, 8.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([1.0, 5.0], [-4.0, 3.0])).unwrap().0,
+            eval.eval(&tape, &vs([1.0, 5.0], [-4.0, 3.0])).unwrap().0[0],
             [1.0, 9.0].into()
         );
     }
@@ -110,12 +110,12 @@ where
         let v = ctx.add(x, 0.5).unwrap();
         let out = ctx.abs(v).unwrap();
 
-        let shape = F::new(&ctx, out).unwrap();
+        let shape = F::new(&ctx, &[out]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
 
         assert_eq!(
-            eval.eval(&tape, &[[-1.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-1.0, 1.0].into()]).unwrap().0[0],
             [0.0, 1.5].into()
         );
     }
@@ -125,29 +125,29 @@ where
         let x = ctx.x();
         let sqrt_x = ctx.sqrt(x).unwrap();
 
-        let shape = F::new(&ctx, sqrt_x).unwrap();
+        let shape = F::new(&ctx, &[sqrt_x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0[0],
             [0.0, 2.0].into()
         );
 
         // Even a partial negative returns a NAN interval
-        let nanan = eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0;
+        let nanan = eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
         // Full negatives are right out
-        let nanan = eval.eval(&tape, &[[-2.0, -1.0].into()]).unwrap().0;
+        let nanan = eval.eval(&tape, &[[-2.0, -1.0].into()]).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let (v, _) = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap();
+        let v = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
     }
@@ -157,35 +157,35 @@ where
         let x = ctx.x();
         let sqrt_x = ctx.square(x).unwrap();
 
-        let shape = F::new(&ctx, sqrt_x).unwrap();
+        let shape = F::new(&ctx, &[sqrt_x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0[0],
             [0.0, 16.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[2.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[2.0, 4.0].into()]).unwrap().0[0],
             [4.0, 16.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0[0],
             [0.0, 16.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, -2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, -2.0].into()]).unwrap().0[0],
             [4.0, 36.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, 1.0].into()]).unwrap().0[0],
             [0.0, 36.0].into()
         );
 
-        let (v, _) = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap();
+        let v = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
     }
@@ -194,12 +194,12 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.interval_tape(Default::default());
 
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [-1.0, 1.0].into()
         );
 
@@ -207,12 +207,12 @@ where
         let y = ctx.mul(y, 2.0).unwrap();
         let s = ctx.sin(y).unwrap();
         let s = ctx.add(x, s).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
 
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 3.0], [0.0, 0.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 3.0], [0.0, 0.0])).unwrap().0[0],
             [-1.0, 4.0].into()
         );
     }
@@ -222,35 +222,35 @@ where
         let x = ctx.x();
         let neg_x = ctx.neg(x).unwrap();
 
-        let shape = F::new(&ctx, neg_x).unwrap();
+        let shape = F::new(&ctx, &[neg_x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [-1.0, 0.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 4.0].into()]).unwrap().0[0],
             [-4.0, 0.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[2.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[2.0, 4.0].into()]).unwrap().0[0],
             [-4.0, -2.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-2.0, 4.0].into()]).unwrap().0[0],
             [-4.0, 2.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, -2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, -2.0].into()]).unwrap().0[0],
             [2.0, 6.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[-6.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-6.0, 1.0].into()]).unwrap().0[0],
             [-1.0, 6.0].into()
         );
 
-        let (v, _) = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap();
+        let v = eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
     }
@@ -260,11 +260,11 @@ where
         let x = ctx.x();
         let not_x = ctx.not(x).unwrap();
 
-        let shape = F::new(&ctx, not_x).unwrap();
+        let shape = F::new(&ctx, &[not_x]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[-5.0, 0.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-5.0, 0.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
     }
@@ -275,36 +275,36 @@ where
         let y = ctx.y();
         let mul = ctx.mul(x, y).unwrap();
 
-        let shape = F::new(&ctx, mul).unwrap();
+        let shape = F::new(&ctx, &[mul]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0[0],
             [0.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 2.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 2.0])).unwrap().0[0],
             [0.0, 2.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-2.0, 1.0], [0.0, 1.0])).unwrap().0,
+            eval.eval(&tape, &vs([-2.0, 1.0], [0.0, 1.0])).unwrap().0[0],
             [-2.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-2.0, -1.0], [-5.0, -4.0])).unwrap().0,
+            eval.eval(&tape, &vs([-2.0, -1.0], [-5.0, -4.0])).unwrap().0[0],
             [4.0, 10.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-3.0, -1.0], [-2.0, 6.0])).unwrap().0,
+            eval.eval(&tape, &vs([-3.0, -1.0], [-2.0, 6.0])).unwrap().0[0],
             [-18.0, 6.0].into()
         );
 
-        let (v, _) = eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
+        let v = eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
-        let (v, _) = eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
+        let v = eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
     }
@@ -313,28 +313,28 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let mul = ctx.mul(x, 2.0).unwrap();
-        let shape = F::new(&ctx, mul).unwrap();
+        let shape = F::new(&ctx, &[mul]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [0.0, 2.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0[0],
             [2.0, 4.0].into()
         );
 
         let mul = ctx.mul(x, -3.0).unwrap();
-        let shape = F::new(&ctx, mul).unwrap();
+        let shape = F::new(&ctx, &[mul]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [-3.0, 0.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0[0],
             [-6.0, -3.0].into()
         );
     }
@@ -345,28 +345,28 @@ where
         let y = ctx.y();
         let sub = ctx.sub(x, y).unwrap();
 
-        let shape = F::new(&ctx, sub).unwrap();
+        let shape = F::new(&ctx, &[sub]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 1.0])).unwrap().0[0],
             [-1.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 2.0])).unwrap().0,
+            eval.eval(&tape, &vs([0.0, 1.0], [0.0, 2.0])).unwrap().0[0],
             [-2.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-2.0, 1.0], [0.0, 1.0])).unwrap().0,
+            eval.eval(&tape, &vs([-2.0, 1.0], [0.0, 1.0])).unwrap().0[0],
             [-3.0, 1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-2.0, -1.0], [-5.0, -4.0])).unwrap().0,
+            eval.eval(&tape, &vs([-2.0, -1.0], [-5.0, -4.0])).unwrap().0[0],
             [2.0, 4.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &vs([-3.0, -1.0], [-2.0, 6.0])).unwrap().0,
+            eval.eval(&tape, &vs([-3.0, -1.0], [-2.0, 6.0])).unwrap().0[0],
             [-9.0, 1.0].into()
         );
     }
@@ -375,28 +375,28 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let sub = ctx.sub(x, 2.0).unwrap();
-        let shape = F::new(&ctx, sub).unwrap();
+        let shape = F::new(&ctx, &[sub]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [-2.0, -1.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0[0],
             [-1.0, 0.0].into()
         );
 
         let sub = ctx.sub(-3.0, x).unwrap();
-        let shape = F::new(&ctx, sub).unwrap();
+        let shape = F::new(&ctx, &[sub]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         assert_eq!(
-            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0],
             [-4.0, -3.0].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0[0],
             [-5.0, -4.0].into()
         );
     }
@@ -405,28 +405,28 @@ where
         let mut ctx = Context::new();
         let x = ctx.x();
         let recip = ctx.recip(x).unwrap();
-        let shape = F::new(&ctx, recip).unwrap();
+        let shape = F::new(&ctx, &[recip]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
 
-        let nanan = eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0;
+        let nanan = eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let nanan = eval.eval(&tape, &[[-1.0, 0.0].into()]).unwrap().0;
+        let nanan = eval.eval(&tape, &[[-1.0, 0.0].into()]).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let nanan = eval.eval(&tape, &[[-2.0, 3.0].into()]).unwrap().0;
+        let nanan = eval.eval(&tape, &[[-2.0, 3.0].into()]).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
         assert_eq!(
-            eval.eval(&tape, &[[-2.0, -1.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[-2.0, -1.0].into()]).unwrap().0[0],
             [-1.0, -0.5].into()
         );
         assert_eq!(
-            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0,
+            eval.eval(&tape, &[[1.0, 2.0].into()]).unwrap().0[0],
             [0.5, 1.0].into()
         );
     }
@@ -436,40 +436,43 @@ where
         let x = ctx.x();
         let y = ctx.y();
         let div = ctx.div(x, y).unwrap();
-        let shape = F::new(&ctx, div).unwrap();
+        let shape = F::new(&ctx, &[div]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
 
-        let nanan = eval.eval(&tape, &vs([0.0, 1.0], [-1.0, 1.0])).unwrap().0;
+        let nanan =
+            eval.eval(&tape, &vs([0.0, 1.0], [-1.0, 1.0])).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let nanan = eval.eval(&tape, &vs([0.0, 1.0], [-2.0, 0.0])).unwrap().0;
+        let nanan =
+            eval.eval(&tape, &vs([0.0, 1.0], [-2.0, 0.0])).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let nanan = eval.eval(&tape, &vs([0.0, 1.0], [0.0, 4.0])).unwrap().0;
+        let nanan = eval.eval(&tape, &vs([0.0, 1.0], [0.0, 4.0])).unwrap().0[0];
         assert!(nanan.lower().is_nan());
         assert!(nanan.upper().is_nan());
 
-        let out = eval.eval(&tape, &vs([-1.0, 0.0], [1.0, 2.0])).unwrap().0;
+        let out = eval.eval(&tape, &vs([-1.0, 0.0], [1.0, 2.0])).unwrap().0[0];
         assert_eq!(out, [-1.0, 0.0].into());
 
-        let out = eval.eval(&tape, &vs([-1.0, 4.0], [-1.0, -0.5])).unwrap().0;
+        let out =
+            eval.eval(&tape, &vs([-1.0, 4.0], [-1.0, -0.5])).unwrap().0[0];
         assert_eq!(out, [-8.0, 2.0].into());
 
-        let out = eval.eval(&tape, &vs([1.0, 4.0], [-1.0, -0.5])).unwrap().0;
+        let out = eval.eval(&tape, &vs([1.0, 4.0], [-1.0, -0.5])).unwrap().0[0];
         assert_eq!(out, [-8.0, -1.0].into());
 
-        let out = eval.eval(&tape, &vs([-1.0, 4.0], [0.5, 1.0])).unwrap().0;
+        let out = eval.eval(&tape, &vs([-1.0, 4.0], [0.5, 1.0])).unwrap().0[0];
         assert_eq!(out, [-2.0, 8.0].into());
 
-        let (v, _) = eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
+        let v = eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
 
-        let (v, _) = eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
+        let v = eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap().0[0];
         assert!(v.lower().is_nan());
         assert!(v.upper().is_nan());
     }
@@ -480,32 +483,32 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         let (r, data) = eval.eval(&tape, &vs([0.0, 1.0], [0.5, 1.5])).unwrap();
-        assert_eq!(r, [0.0, 1.0].into());
+        assert_eq!(r[0], [0.0, 1.0].into());
         assert!(data.is_none());
 
         let (r, data) = eval.eval(&tape, &vs([0.0, 1.0], [2.0, 3.0])).unwrap();
-        assert_eq!(r, [0.0, 1.0].into());
+        assert_eq!(r[0], [0.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, data) = eval.eval(&tape, &vs([2.0, 3.0], [0.0, 1.0])).unwrap();
-        assert_eq!(r, [0.0, 1.0].into());
+        assert_eq!(r[0], [0.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let (v, data) =
             eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
-        assert!(v.lower().is_nan());
-        assert!(v.upper().is_nan());
+        assert!(v[0].lower().is_nan());
+        assert!(v[0].upper().is_nan());
         assert!(data.is_none());
 
         let (v, data) =
             eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
-        assert!(v.lower().is_nan());
-        assert!(v.upper().is_nan());
+        assert!(v[0].lower().is_nan());
+        assert!(v[0].upper().is_nan());
         assert!(data.is_none());
     }
 
@@ -514,19 +517,19 @@ where
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         let (r, data) = eval.eval(&tape, &[[0.0, 1.0].into()]).unwrap();
-        assert_eq!(r, [0.0, 1.0].into());
+        assert_eq!(r[0], [0.0, 1.0].into());
         assert!(data.is_none());
 
         let (r, data) = eval.eval(&tape, &[[-1.0, 0.0].into()]).unwrap();
-        assert_eq!(r, [-1.0, 0.0].into());
+        assert_eq!(r[0], [-1.0, 0.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, data) = eval.eval(&tape, &[[2.0, 3.0].into()]).unwrap();
-        assert_eq!(r, [1.0, 1.0].into());
+        assert_eq!(r[0], [1.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
     }
 
@@ -536,56 +539,56 @@ where
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let shape = F::new(&ctx, max).unwrap();
+        let shape = F::new(&ctx, &[max]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         let (r, data) = eval.eval(&tape, &vs([0.0, 1.0], [0.5, 1.5])).unwrap();
-        assert_eq!(r, [0.5, 1.5].into());
+        assert_eq!(r[0], [0.5, 1.5].into());
         assert!(data.is_none());
 
         let (r, data) = eval.eval(&tape, &vs([0.0, 1.0], [2.0, 3.0])).unwrap();
-        assert_eq!(r, [2.0, 3.0].into());
+        assert_eq!(r[0], [2.0, 3.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, data) = eval.eval(&tape, &vs([2.0, 3.0], [0.0, 1.0])).unwrap();
-        assert_eq!(r, [2.0, 3.0].into());
+        assert_eq!(r[0], [2.0, 3.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
         let (v, data) =
             eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
-        assert!(v.lower().is_nan());
-        assert!(v.upper().is_nan());
+        assert!(v[0].lower().is_nan());
+        assert!(v[0].upper().is_nan());
         assert!(data.is_none());
 
         let (v, data) =
             eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
-        assert!(v.lower().is_nan());
-        assert!(v.upper().is_nan());
+        assert!(v[0].lower().is_nan());
+        assert!(v[0].upper().is_nan());
         assert!(data.is_none());
 
         let z = ctx.z();
         let max_xy_z = ctx.max(max, z).unwrap();
-        let shape = F::new(&ctx, max_xy_z).unwrap();
+        let shape = F::new(&ctx, &[max_xy_z]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xyz(&tape);
         let mut eval = F::new_interval_eval();
         let (r, data) = eval
             .eval(&tape, &vs([2.0, 3.0], [0.0, 1.0], [4.0, 5.0]))
             .unwrap();
-        assert_eq!(r, [4.0, 5.0].into());
+        assert_eq!(r[0], [4.0, 5.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left, Choice::Right]);
 
         let (r, data) = eval
             .eval(&tape, &vs([2.0, 3.0], [0.0, 1.0], [1.0, 4.0]))
             .unwrap();
-        assert_eq!(r, [2.0, 4.0].into());
+        assert_eq!(r[0], [2.0, 4.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left, Choice::Both]);
 
         let (r, data) = eval
             .eval(&tape, &vs([2.0, 3.0], [0.0, 1.0], [1.0, 1.5]))
             .unwrap();
-        assert_eq!(r, [2.0, 3.0].into());
+        assert_eq!(r[0], [2.0, 3.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left, Choice::Left]);
     }
 
@@ -595,28 +598,28 @@ where
         let y = ctx.y();
         let v = ctx.and(x, y).unwrap();
 
-        let shape = F::new(&ctx, v).unwrap();
+        let shape = F::new(&ctx, &[v]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         let (r, trace) =
             eval.eval(&tape, &vs([0.0, 0.0], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [0.0, 0.0].into());
+        assert_eq!(r[0], [0.0, 0.0].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([-1.0, -0.2], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(r[0], [-1.0, 3.0].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([0.2, 1.3], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(r[0], [-1.0, 3.0].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([-0.2, 1.3], [1.0, 3.0])).unwrap();
-        assert_eq!(r, [0.0, 3.0].into());
+        assert_eq!(r[0], [0.0, 3.0].into());
         assert!(trace.is_none()); // can't simplify
     }
 
@@ -626,28 +629,28 @@ where
         let y = ctx.y();
         let v = ctx.or(x, y).unwrap();
 
-        let shape = F::new(&ctx, v).unwrap();
+        let shape = F::new(&ctx, &[v]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         let (r, trace) =
             eval.eval(&tape, &vs([0.0, 0.0], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [-1.0, 3.0].into());
+        assert_eq!(r[0], [-1.0, 3.0].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([-1.0, -0.2], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [-1.0, -0.2].into());
+        assert_eq!(r[0], [-1.0, -0.2].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([0.2, 1.3], [-1.0, 3.0])).unwrap();
-        assert_eq!(r, [0.2, 1.3].into());
+        assert_eq!(r[0], [0.2, 1.3].into());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) =
             eval.eval(&tape, &vs([-0.2, 1.3], [1.0, 3.0])).unwrap();
-        assert_eq!(r, [-0.2, 3.0].into());
+        assert_eq!(r[0], [-0.2, 3.0].into());
         assert!(trace.is_none());
     }
 
@@ -656,35 +659,35 @@ where
         let x = ctx.x();
         let min = ctx.min(x, 1.0).unwrap();
 
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         let (out, data) = eval.eval(&tape, &[[0.0, 2.0].into()]).unwrap();
-        assert_eq!(out, [0.0, 1.0].into());
+        assert_eq!(out[0], [0.0, 1.0].into());
         assert!(data.is_none());
 
         let (out, data) = eval.eval(&tape, &[[0.0, 0.5].into()]).unwrap();
-        assert_eq!(out, [0.0, 0.5].into());
+        assert_eq!(out[0], [0.0, 0.5].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
 
         let (out, data) = eval.eval(&tape, &[[1.5, 2.5].into()]).unwrap();
-        assert_eq!(out, [1.0, 1.0].into());
+        assert_eq!(out[0], [1.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let max = ctx.max(x, 1.0).unwrap();
-        let shape = F::new(&ctx, max).unwrap();
+        let shape = F::new(&ctx, &[max]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         let (out, data) = eval.eval(&tape, &[[0.0, 2.0].into()]).unwrap();
-        assert_eq!(out, [1.0, 2.0].into());
+        assert_eq!(out[0], [1.0, 2.0].into());
         assert!(data.is_none());
 
         let (out, data) = eval.eval(&tape, &[[0.0, 0.5].into()]).unwrap();
-        assert_eq!(out, [1.0, 1.0].into());
+        assert_eq!(out[0], [1.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let (out, data) = eval.eval(&tape, &[[1.5, 2.5].into()]).unwrap();
-        assert_eq!(out, [1.5, 2.5].into());
+        assert_eq!(out[0], [1.5, 2.5].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
     }
 
@@ -695,7 +698,7 @@ where
         let z = ctx.z();
 
         let if_else = ctx.if_nonzero_else(x, y, z).unwrap();
-        let shape = F::new(&ctx, if_else).unwrap();
+        let shape = F::new(&ctx, &[if_else]).unwrap();
 
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xyz(&tape);
@@ -706,14 +709,14 @@ where
 
         // Alas, we lose the information that the conditional is correlated, so
         // the interval naively must include 0
-        assert_eq!(out, [0.0, 4.0].into());
+        assert_eq!(out[0], [0.0, 4.0].into());
         assert!(data.is_none());
 
         // Confirm that simplification of the right side works
         let (out, data) = eval
             .eval(&tape, &vs([0.0, 0.0], [1.0, 2.0], [3.0, 4.0]))
             .unwrap();
-        assert_eq!(out, [3.0, 4.0].into());
+        assert_eq!(out[0], [3.0, 4.0].into());
         let s_z = shape
             .simplify(
                 data.expect("must have trace"),
@@ -726,13 +729,13 @@ where
             .eval(&t_z, &vs([-1.0, 1.0], [1.0, 2.0], [5.0, 6.0]))
             .unwrap();
         assert!(s_z.size() < shape.size());
-        assert_eq!(out, [5.0, 6.0].into());
+        assert_eq!(out[0], [5.0, 6.0].into());
         assert!(data.is_none());
 
         let (out, data) = eval
             .eval(&tape, &vs([1.0, 3.0], [1.0, 2.0], [3.0, 4.0]))
             .unwrap();
-        assert_eq!(out, [1.0, 2.0].into());
+        assert_eq!(out[0], [1.0, 2.0].into());
         assert!(data.is_some());
         let s_y = shape
             .simplify(
@@ -746,7 +749,7 @@ where
             .eval(&t_y, &vs([-1.0, 1.0], [1.0, 4.0], [5.0, 6.0]))
             .unwrap();
         assert!(s_y.size() < shape.size());
-        assert_eq!(out, [1.0, 4.0].into());
+        assert_eq!(out[0], [1.0, 4.0].into());
         assert!(data.is_none());
 
         assert_eq!(s_y.size(), s_z.size())
@@ -757,19 +760,19 @@ where
         let x = ctx.x();
         let max = ctx.max(x, 1.0).unwrap();
 
-        let shape = F::new(&ctx, max).unwrap();
+        let shape = F::new(&ctx, &[max]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let mut eval = F::new_interval_eval();
         let (r, data) = eval.eval(&tape, &[[0.0, 2.0].into()]).unwrap();
-        assert_eq!(r, [1.0, 2.0].into());
+        assert_eq!(r[0], [1.0, 2.0].into());
         assert!(data.is_none());
 
         let (r, data) = eval.eval(&tape, &[[-1.0, 0.0].into()]).unwrap();
-        assert_eq!(r, [1.0, 1.0].into());
+        assert_eq!(r[0], [1.0, 1.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, data) = eval.eval(&tape, &[[2.0, 3.0].into()]).unwrap();
-        assert_eq!(r, [2.0, 3.0].into());
+        assert_eq!(r[0], [2.0, 3.0].into());
         assert_eq!(data.unwrap().as_ref(), &[Choice::Left]);
     }
 
@@ -779,12 +782,12 @@ where
         let y = ctx.y();
         let c = ctx.compare(x, y).unwrap();
 
-        let shape = F::new(&ctx, c).unwrap();
+        let shape = F::new(&ctx, &[c]).unwrap();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_interval_eval();
         let (out, _trace) = eval.eval(&tape, &vs(-5.0, -6.0)).unwrap();
-        assert_eq!(out, Interval::from(1f32));
+        assert_eq!(out[0], Interval::from(1f32));
     }
 
     pub fn test_i_stress_n(depth: usize) {
@@ -800,14 +803,14 @@ where
         let y: Vec<_> = x[1..].iter().chain(&x[0..1]).cloned().collect();
         let z: Vec<_> = x[2..].iter().chain(&x[0..2]).cloned().collect();
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let mut eval = F::new_interval_eval();
         let tape = shape.interval_tape(Default::default());
         let vs = bind_xyz(&tape);
 
         let mut out = vec![];
         for i in 0..args.len() {
-            out.push(eval.eval(&tape, &vs(x[i], y[i], z[i])).unwrap().0);
+            out.push(eval.eval(&tape, &vs(x[i], y[i], z[i])).unwrap().0[0]);
         }
 
         // Compare against the VmShape evaluator as a baseline.  It's possible
@@ -856,12 +859,13 @@ where
         let v = ctx.var(Var::new());
         let node = C::build(&mut ctx, v);
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let tape = shape.interval_tape(Default::default());
         assert_eq!(tape.vars().len(), 1);
 
         for &a in args.iter() {
             let (o, trace) = eval.eval(&tape, &[a]).unwrap();
+            let o = o[0];
             assert!(trace.is_none());
 
             for i in 0..32 {
@@ -954,7 +958,7 @@ where
                     continue;
                 }
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
                 let vars = tape.vars();
@@ -973,7 +977,7 @@ where
                 Self::compare_interval_results(
                     lhs,
                     rhs,
-                    out,
+                    out[0],
                     C::eval_reg_reg_f32,
                     &name,
                 );
@@ -990,7 +994,7 @@ where
                 continue;
             }
 
-            let shape = F::new(&ctx, node).unwrap();
+            let shape = F::new(&ctx, &[node]).unwrap();
             let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
             let vars = tape.vars();
@@ -1005,7 +1009,7 @@ where
             Self::compare_interval_results(
                 lhs,
                 lhs,
-                out,
+                out[0],
                 C::eval_reg_reg_f32,
                 &name,
             );
@@ -1027,7 +1031,7 @@ where
             for &rhs in values.iter() {
                 let node = C::build(&mut ctx, a, rhs);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
                 let (out, _trace) = eval.eval(&tape, &[lhs]).unwrap();
@@ -1036,7 +1040,7 @@ where
                 Self::compare_interval_results(
                     lhs,
                     rhs.into(),
-                    out,
+                    out[0],
                     C::eval_reg_imm_f32,
                     &name,
                 );
@@ -1058,7 +1062,7 @@ where
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, lhs, va);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
                 let (out, _trace) = eval.eval(&tape, &[rhs]).unwrap();
@@ -1067,7 +1071,7 @@ where
                 Self::compare_interval_results(
                     lhs.into(),
                     rhs,
-                    out,
+                    out[0],
                     C::eval_imm_reg_f32,
                     &name,
                 );

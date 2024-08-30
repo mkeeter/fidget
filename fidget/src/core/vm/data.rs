@@ -48,7 +48,7 @@ use std::sync::Arc;
 /// let tree = Tree::x() + Tree::y();
 /// let mut ctx = Context::new();
 /// let sum = ctx.import(&tree);
-/// let data = VmData::<255>::new(&ctx, sum)?;
+/// let data = VmData::<255>::new(&ctx, &[sum])?;
 /// assert_eq!(data.len(), 4); // X, Y, (X + Y), and output
 ///
 /// let mut iter = data.iter_asm();
@@ -76,8 +76,8 @@ pub struct VmData<const N: usize = { u8::MAX as usize }> {
 
 impl<const N: usize> VmData<N> {
     /// Builds a new tape for the given node
-    pub fn new(context: &Context, node: Node) -> Result<Self, Error> {
-        let (ssa, vars) = SsaTape::new(context, node)?;
+    pub fn new(context: &Context, nodes: &[Node]) -> Result<Self, Error> {
+        let (ssa, vars) = SsaTape::new(context, nodes)?;
         let asm = RegTape::new::<N>(&ssa);
         Ok(Self {
             ssa,
@@ -102,6 +102,14 @@ impl<const N: usize> VmData<N> {
     /// choice array.
     pub fn choice_count(&self) -> usize {
         self.ssa.choice_count
+    }
+
+    /// Returns the number of output nodes in the tape.
+    ///
+    /// This is required because some evaluators pre-allocate spaces for the
+    /// output array.
+    pub fn output_count(&self) -> usize {
+        self.ssa.output_count
     }
 
     /// Returns the number of slots used by the inner VM tape
@@ -131,6 +139,7 @@ impl<const N: usize> VmData<N> {
         workspace.reset(self.ssa.tape.len(), tape.asm);
 
         let mut choice_count = 0;
+        let mut output_count = 0;
 
         // Other iterators to consume various arrays in order
         let mut choice_iter = choices.iter().rev();
@@ -143,6 +152,7 @@ impl<const N: usize> VmData<N> {
                     *reg = workspace.get_or_insert_active(*reg);
                     workspace.alloc.op(op);
                     ops_out.push(op);
+                    output_count += 1;
                     continue;
                 }
                 _ => op.output().unwrap(),
@@ -297,6 +307,7 @@ impl<const N: usize> VmData<N> {
             ssa: SsaTape {
                 tape: ops_out,
                 choice_count,
+                output_count,
             },
             asm: asm_tape,
             vars: self.vars.clone(),

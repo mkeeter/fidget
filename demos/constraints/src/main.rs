@@ -87,7 +87,7 @@ impl ConstraintsApp {
             .into_iter()
             .map(|eqn| {
                 let root = ctx.import(&eqn);
-                fidget::vm::VmFunction::new(&ctx, root).unwrap()
+                fidget::vm::VmFunction::new(&ctx, &[root]).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -180,8 +180,9 @@ impl eframe::App for ConstraintsApp {
                         if *dragged {
                             let v = ctx.var(var);
                             let weight = ctx.sub(v, p).unwrap();
-                            let f = fidget::vm::VmFunction::new(&ctx, weight)
-                                .unwrap();
+                            let f =
+                                fidget::vm::VmFunction::new(&ctx, &[weight])
+                                    .unwrap();
                             constraints.push(f);
                         }
                     }

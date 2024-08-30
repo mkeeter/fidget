@@ -168,7 +168,7 @@ impl<'a, F: Function> Solver<'a, F> {
             }
             // Do the actual gradient evaluation
             let (out, _t) = self.point_eval.eval(tape, &self.input_point)?;
-            err += out.powi(2);
+            err += out[0].powi(2); // TODO: consolidate into a single tape
         }
         Ok(err)
     }
@@ -302,7 +302,7 @@ mod test {
         let mut ctx = Context::new();
         let root = ctx.import(&eqn);
 
-        let f = VmFunction::new(&ctx, root).unwrap();
+        let f = VmFunction::new(&ctx, &[root]).unwrap();
         let mut values = HashMap::new();
         values.insert(Var::X, Parameter::Free(0.0));
         values.insert(Var::Y, Parameter::Fixed(-1.0));
@@ -321,7 +321,7 @@ mod test {
         let mut ctx = Context::new();
         let root = ctx.import(&root);
 
-        let f = VmFunction::new(&ctx, root).unwrap();
+        let f = VmFunction::new(&ctx, &[root]).unwrap();
         let mut values = HashMap::new();
         for (i, &v) in vs.iter().enumerate() {
             values.insert(v, Parameter::Free(i as f32));
@@ -343,7 +343,7 @@ mod test {
         for (i, &v) in vs.iter().enumerate() {
             let eqn = Tree::from(v) - Tree::from(i as f32);
             let root = ctx.import(&eqn);
-            let f = VmFunction::new(&ctx, root).unwrap();
+            let f = VmFunction::new(&ctx, &[root]).unwrap();
             eqns.push(f);
         }
 
@@ -369,7 +369,7 @@ mod test {
             .into_iter()
             .map(|c| {
                 let root = ctx.import(&c);
-                VmFunction::new(&ctx, root).unwrap()
+                VmFunction::new(&ctx, &[root]).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -395,7 +395,7 @@ mod test {
             .into_iter()
             .map(|c| {
                 let root = ctx.import(&c);
-                VmFunction::new(&ctx, root).unwrap()
+                VmFunction::new(&ctx, &[root]).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -420,7 +420,7 @@ mod test {
             .into_iter()
             .map(|c| {
                 let root = ctx.import(&c);
-                VmFunction::new(&ctx, root).unwrap()
+                VmFunction::new(&ctx, &[root]).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -444,7 +444,7 @@ mod test {
         let t = (Tree::x().square() + Tree::y().square()).sqrt();
         let mut ctx = Context::new();
         let root = ctx.import(&t);
-        let eqn = VmFunction::new(&ctx, root).unwrap();
+        let eqn = VmFunction::new(&ctx, &[root]).unwrap();
         let eqns = [eqn];
 
         let mut values = HashMap::new();
@@ -487,7 +487,7 @@ mod test {
                 out += *mat.get((row, col)).unwrap() * t.clone();
             }
             let root = ctx.import(&out);
-            let f = VmFunction::new(&ctx, root).unwrap();
+            let f = VmFunction::new(&ctx, &[root]).unwrap();
             eqns.push(f);
         }
 
@@ -573,7 +573,7 @@ mod test {
                 }
             }
             let root = ctx.import(&out);
-            let f = VmFunction::new(&ctx, root).unwrap();
+            let f = VmFunction::new(&ctx, &[root]).unwrap();
             eqns.push(f);
         }
 

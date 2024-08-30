@@ -46,6 +46,10 @@ impl<const N: usize> Tape for GenericVmFunction<N> {
     fn vars(&self) -> &VarMap {
         &self.0.vars
     }
+
+    fn output_count(&self) -> usize {
+        self.0.output_count()
+    }
 }
 
 /// A trace captured by a VM evaluation
@@ -194,8 +198,8 @@ impl<const N: usize> RenderHints for GenericVmFunction<N> {
 }
 
 impl<const N: usize> MathFunction for GenericVmFunction<N> {
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error> {
-        let d = VmData::new(ctx, node)?;
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+        let d = VmData::new(ctx, nodes)?;
         Ok(Self(d.into()))
     }
 }
@@ -232,13 +236,15 @@ impl<T> std::ops::IndexMut<u32> for SlotArray<'_, T> {
 /// Generic VM evaluator for tracing evaluation
 struct TracingVmEval<T> {
     slots: Vec<T>,
+    out: Vec<T>,
     choices: VmTrace,
 }
 
 impl<T> Default for TracingVmEval<T> {
     fn default() -> Self {
         Self {
-            slots: vec![],
+            slots: Vec::default(),
+            out: Vec::default(),
             choices: VmTrace::default(),
         }
     }
@@ -248,6 +254,7 @@ impl<T: From<f32> + Clone> TracingVmEval<T> {
     fn resize_slots<const N: usize>(&mut self, tape: &VmData<N>) {
         self.slots.resize(tape.slot_count(), f32::NAN.into());
         self.choices.resize(tape.choice_count(), Choice::Unknown);
+        self.out.resize(tape.output_count(), f32::NAN.into());
         self.choices.fill(Choice::Unknown);
     }
 }
@@ -265,7 +272,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[Interval],
-    ) -> Result<(Interval, Option<&VmTrace>), Error> {
+    ) -> Result<(&[Interval], Option<&VmTrace>), Error> {
         tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
         self.0.resize_slots(tape);
@@ -273,13 +280,10 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
-        let mut out = None;
         for op in tape.iter_asm() {
             match op {
                 RegOp::Output(arg, i) => {
-                    assert_eq!(i, 0);
-                    assert!(out.is_none());
-                    out = Some(v[arg]);
+                    self.0.out[i as usize] = v[arg];
                 }
                 RegOp::Input(out, i) => {
                     v[out] = vars[i as usize];
@@ -477,7 +481,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
             }
         }
         Ok((
-            out.unwrap(),
+            &self.0.out,
             if simplify {
                 Some(&self.0.choices)
             } else {
@@ -500,7 +504,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         &mut self,
         tape: &Self::Tape,
         vars: &[f32],
-    ) -> Result<(f32, Option<&VmTrace>), Error> {
+    ) -> Result<(&[f32], Option<&VmTrace>), Error> {
         tape.vars().check_tracing_arguments(vars)?;
         let tape = tape.0.as_ref();
         self.0.resize_slots(tape);
@@ -508,13 +512,10 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
         let mut choices = self.0.choices.as_mut_slice().iter_mut();
         let mut simplify = false;
         let mut v = SlotArray(&mut self.0.slots);
-        let mut out = None;
         for op in tape.iter_asm() {
             match op {
                 RegOp::Output(arg, i) => {
-                    assert_eq!(i, 0);
-                    assert!(out.is_none());
-                    out = Some(v[arg]);
+                    self.0.out[i as usize] = v[arg];
                 }
                 RegOp::Input(out, i) => {
                     v[out] = vars[i as usize];
@@ -778,7 +779,7 @@ impl<const N: usize> TracingEvaluator for VmPointEval<N> {
             }
         }
         Ok((
-            out.unwrap(),
+            &self.0.out,
             if simplify {
                 Some(&self.0.choices)
             } else {

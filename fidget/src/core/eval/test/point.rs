@@ -26,20 +26,20 @@ where
     pub fn test_constant() {
         let mut ctx = Context::new();
         let p = ctx.constant(1.5);
-        let shape = F::new(&ctx, p).unwrap();
+        let shape = F::new(&ctx, &[p]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &[]).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&tape, &[]).unwrap().0[0], 1.5);
     }
 
     pub fn test_constant_push() {
         let mut ctx = Context::new();
         let min = ctx.min(1.5, Var::X).unwrap();
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
         let (r, trace) = eval.eval(&tape, &[2.0]).unwrap();
-        assert_eq!(r, 1.5);
+        assert_eq!(r[0], 1.5);
 
         let next = shape
             .simplify(
@@ -51,8 +51,8 @@ where
         assert_eq!(next.size(), 2); // constant, output
 
         let tape = next.point_tape(Default::default());
-        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0, 1.5);
-        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0, 1.5);
+        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0[0], 1.5);
+        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0[0], 1.5);
         assert!(eval.eval(&tape, &[]).is_err());
     }
 
@@ -65,11 +65,11 @@ where
         let radius = ctx.add(x_squared, y_squared).unwrap();
         let circle = ctx.sub(radius, 1.0).unwrap();
 
-        let shape = F::new(&ctx, circle).unwrap();
+        let shape = F::new(&ctx, &[circle]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &[0.0, 0.0]).unwrap().0, -1.0);
-        assert_eq!(eval.eval(&tape, &[1.0, 0.0]).unwrap().0, 0.0);
+        assert_eq!(eval.eval(&tape, &[0.0, 0.0]).unwrap().0[0], -1.0);
+        assert_eq!(eval.eval(&tape, &[1.0, 0.0]).unwrap().0[0], 0.0);
     }
 
     pub fn test_p_min() {
@@ -78,29 +78,29 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert!(trace.is_none());
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 1.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(2.0, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(f32::NAN, 0.0)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert!(trace.is_none());
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, f32::NAN)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert!(trace.is_none());
     }
 
@@ -110,29 +110,29 @@ where
         let y = ctx.y();
         let max = ctx.max(x, y).unwrap();
 
-        let shape = F::new(&ctx, max).unwrap();
+        let shape = F::new(&ctx, &[max]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert!(trace.is_none());
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 1.0)).unwrap();
-        assert_eq!(r, 1.0);
+        assert_eq!(r[0], 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(2.0, 0.0)).unwrap();
-        assert_eq!(r, 2.0);
+        assert_eq!(r[0], 2.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(f32::NAN, 0.0)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert!(trace.is_none());
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, f32::NAN)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert!(trace.is_none());
     }
 
@@ -142,33 +142,33 @@ where
         let y = ctx.y();
         let v = ctx.and(x, y).unwrap();
 
-        let shape = F::new(&ctx, v).unwrap();
+        let shape = F::new(&ctx, &[v]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 1.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, f32::NAN)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.1, 1.0)).unwrap();
-        assert_eq!(r, 1.0);
+        assert_eq!(r[0], 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.1, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(f32::NAN, 1.2)).unwrap();
-        assert_eq!(r, 1.2);
+        assert_eq!(r[0], 1.2);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
     }
 
@@ -178,33 +178,33 @@ where
         let y = ctx.y();
         let v = ctx.or(x, y).unwrap();
 
-        let shape = F::new(&ctx, v).unwrap();
+        let shape = F::new(&ctx, &[v]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
 
         let mut eval = F::new_point_eval();
         let (r, trace) = eval.eval(&tape, &vs(0.0, 0.0)).unwrap();
-        assert_eq!(r, 0.0);
+        assert_eq!(r[0], 0.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, 1.0)).unwrap();
-        assert_eq!(r, 1.0);
+        assert_eq!(r[0], 1.0);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.0, f32::NAN)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Right]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.1, 1.0)).unwrap();
-        assert_eq!(r, 0.1);
+        assert_eq!(r[0], 0.1);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(0.1, 0.0)).unwrap();
-        assert_eq!(r, 0.1);
+        assert_eq!(r[0], 0.1);
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
 
         let (r, trace) = eval.eval(&tape, &vs(f32::NAN, 1.2)).unwrap();
-        assert!(r.is_nan());
+        assert!(r[0].is_nan());
         assert_eq!(trace.unwrap().as_ref(), &[Choice::Left]);
     }
 
@@ -213,33 +213,33 @@ where
         let x = ctx.x();
         let s = ctx.sin(x).unwrap();
 
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
 
         for x in [0.0, 1.0, 2.0] {
             let (r, trace) = eval.eval(&tape, &[x]).unwrap();
-            assert_eq!(r, x.sin());
+            assert_eq!(r[0], x.sin());
             assert!(trace.is_none());
 
             let (r, trace) = eval.eval(&tape, &[x]).unwrap();
-            assert_eq!(r, x.sin());
+            assert_eq!(r[0], x.sin());
             assert!(trace.is_none());
 
             let (r, trace) = eval.eval(&tape, &[x]).unwrap();
-            assert_eq!(r, x.sin());
+            assert_eq!(r[0], x.sin());
             assert!(trace.is_none());
         }
 
         let y = ctx.y();
         let s = ctx.add(s, y).unwrap();
-        let shape = F::new(&ctx, s).unwrap();
+        let shape = F::new(&ctx, &[s]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
 
         for (x, y) in [(0.0, 1.0), (1.0, 3.0), (2.0, 8.0)] {
             let (r, trace) = eval.eval(&tape, &vs(x, y)).unwrap();
-            assert_eq!(r, x.sin() + y);
+            assert_eq!(r[0], x.sin() + y);
             assert!(trace.is_none());
         }
     }
@@ -250,13 +250,13 @@ where
         let y = ctx.y();
         let sum = ctx.add(x, 1.0).unwrap();
         let min = ctx.min(sum, y).unwrap();
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 3.0)).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 3.5)).unwrap().0, 3.5);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 3.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0, 3.5)).unwrap().0, [3.5]);
     }
 
     pub fn test_push() {
@@ -265,12 +265,12 @@ where
         let y = ctx.y();
         let min = ctx.min(x, y).unwrap();
 
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [2.0]);
 
         let next = shape
             .simplify(
@@ -281,8 +281,8 @@ where
             .unwrap();
         let tape = next.point_tape(Default::default());
         let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [3.0]);
 
         let next = shape
             .simplify(
@@ -293,15 +293,15 @@ where
             .unwrap();
         let tape = next.point_tape(Default::default());
         let vs = bind_xy(&tape);
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, 2.0);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &vs(3.0, 2.0)).unwrap().0, [2.0]);
 
         let min = ctx.min(x, 1.0).unwrap();
-        let shape = F::new(&ctx, min).unwrap();
+        let shape = F::new(&ctx, &[min]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, [0.5]);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, [1.0]);
 
         let next = shape
             .simplify(
@@ -311,8 +311,8 @@ where
             )
             .unwrap();
         let tape = next.point_tape(Default::default());
-        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 0.5);
-        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, [0.5]);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, [3.0]);
 
         let next = shape
             .simplify(
@@ -322,8 +322,8 @@ where
             )
             .unwrap();
         let tape = next.point_tape(Default::default());
-        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 1.0);
+        assert_eq!(eval.eval(&tape, &[0.5]).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, [1.0]);
     }
 
     pub fn test_basic() {
@@ -331,26 +331,26 @@ where
         let x = ctx.x();
         let y = ctx.y();
 
-        let shape = F::new(&ctx, x).unwrap();
+        let shape = F::new(&ctx, &[x]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0, 1.0);
-        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, 3.0);
+        assert_eq!(eval.eval(&tape, &[1.0]).unwrap().0, [1.0]);
+        assert_eq!(eval.eval(&tape, &[3.0]).unwrap().0, [3.0]);
 
-        let shape = F::new(&ctx, y).unwrap();
+        let shape = F::new(&ctx, &[y]).unwrap();
         let tape = shape.point_tape(Default::default());
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0, 2.0);
-        assert_eq!(eval.eval(&tape, &[4.0]).unwrap().0, 4.0);
+        assert_eq!(eval.eval(&tape, &[2.0]).unwrap().0, [2.0]);
+        assert_eq!(eval.eval(&tape, &[4.0]).unwrap().0, [4.0]);
 
         let y2 = ctx.mul(y, 2.5).unwrap();
         let sum = ctx.add(x, y2).unwrap();
 
-        let shape = F::new(&ctx, sum).unwrap();
+        let shape = F::new(&ctx, &[sum]).unwrap();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xy(&tape);
         let mut eval = F::new_point_eval();
-        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, 6.0);
+        assert_eq!(eval.eval(&tape, &vs(1.0, 2.0)).unwrap().0, [6.0]);
     }
 
     pub fn test_p_shape_var() {
@@ -388,14 +388,14 @@ where
         let y: Vec<_> = x[1..].iter().chain(&x[0..1]).cloned().collect();
         let z: Vec<_> = x[2..].iter().chain(&x[0..2]).cloned().collect();
 
-        let shape = F::new(&ctx, node).unwrap();
+        let shape = F::new(&ctx, &[node]).unwrap();
         let mut eval = F::new_point_eval();
         let tape = shape.point_tape(Default::default());
         let vs = bind_xyz(&tape);
 
         let mut out = vec![];
         for i in 0..args.len() {
-            out.push(eval.eval(&tape, &vs(x[i], y[i], z[i])).unwrap().0);
+            out.push(eval.eval(&tape, &vs(x[i], y[i], z[i])).unwrap().0[0]);
         }
 
         for (i, v) in out.iter().cloned().enumerate() {
@@ -445,7 +445,7 @@ where
         for v in [ctx.x(), ctx.y(), ctx.z(), ctx.var(Var::new())].into_iter() {
             let node = C::build(&mut ctx, v);
 
-            let shape = F::new(&ctx, node).unwrap();
+            let shape = F::new(&ctx, &[node]).unwrap();
             let mut eval = F::new_point_eval();
             let tape = shape.point_tape(Default::default());
 
@@ -453,6 +453,7 @@ where
                 let (o, trace) = eval.eval(&tape, &[a]).unwrap();
                 assert!(trace.is_none());
                 let v = C::eval_f32(a);
+                let o = o[0];
                 let err = (v - o).abs();
                 assert!(
                     (o == v) || err < 1e-6 || (v.is_nan() && o.is_nan()),
@@ -494,7 +495,7 @@ where
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, va, vb);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
                 let tape = shape.point_tape(Default::default());
                 let vars = tape.vars();
@@ -512,7 +513,7 @@ where
                 Self::compare_point_results::<C>(
                     lhs,
                     rhs,
-                    out,
+                    out[0],
                     C::eval_reg_reg_f32,
                     &name,
                 );
@@ -522,7 +523,7 @@ where
         for &lhs in args.iter() {
             let node = C::build(&mut ctx, va, va);
 
-            let shape = F::new(&ctx, node).unwrap();
+            let shape = F::new(&ctx, &[node]).unwrap();
             let mut eval = F::new_point_eval();
             let tape = shape.point_tape(Default::default());
             let vars = tape.vars();
@@ -536,7 +537,7 @@ where
             Self::compare_point_results::<C>(
                 lhs,
                 lhs,
-                out,
+                out[0],
                 C::eval_reg_reg_f32,
                 &name,
             );
@@ -554,7 +555,7 @@ where
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, va, rhs);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
                 let tape = shape.point_tape(Default::default());
 
@@ -563,7 +564,7 @@ where
                 Self::compare_point_results::<C>(
                     lhs,
                     rhs,
-                    out,
+                    out[0],
                     C::eval_reg_imm_f32,
                     &name,
                 );
@@ -582,7 +583,7 @@ where
             for &rhs in args.iter() {
                 let node = C::build(&mut ctx, lhs, va);
 
-                let shape = F::new(&ctx, node).unwrap();
+                let shape = F::new(&ctx, &[node]).unwrap();
                 let mut eval = F::new_point_eval();
                 let tape = shape.point_tape(Default::default());
 
@@ -591,7 +592,7 @@ where
                 Self::compare_point_results::<C>(
                     lhs,
                     rhs,
-                    out,
+                    out[0],
                     C::eval_imm_reg_f32,
                     &name,
                 );
@@ -603,6 +604,23 @@ where
         Self::test_binary_reg_reg::<C>();
         Self::test_binary_reg_imm::<C>();
         Self::test_binary_imm_reg::<C>();
+    }
+
+    pub fn test_multi_output() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let a = ctx.min(x, y).unwrap();
+        let b = ctx.max(x, y).unwrap();
+
+        let shape = F::new(&ctx, &[a, b]).unwrap();
+        let mut eval = F::new_point_eval();
+        let tape = shape.point_tape(Default::default());
+        let vs = bind_xy(&tape);
+
+        let (out, _trace) = eval.eval(&tape, &vs(1.0, 2.0)).unwrap();
+        assert_eq!(out[0], 1.0);
+        assert_eq!(out[1], 2.0);
     }
 }
 
@@ -632,6 +650,7 @@ macro_rules! point_tests {
         $crate::point_test!(test_basic, $t);
         $crate::point_test!(test_p_shape_var, $t);
         $crate::point_test!(test_p_stress, $t);
+        $crate::point_test!(test_multi_output, $t);
 
         mod p_unary {
             use super::*;

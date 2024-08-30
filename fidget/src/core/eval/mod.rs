@@ -32,6 +32,13 @@ pub trait Tape {
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
     fn vars(&self) -> &VarMap;
+
+    /// Returns the number of outputs written by this tape
+    ///
+    /// The order of outputs is set by the caller at tape construction, so we
+    /// don't need a map to determine the index of a particular output (unlike
+    /// variables).
+    fn output_count(&self) -> usize;
 }
 
 /// Represents the trace captured by a tracing evaluation
@@ -175,7 +182,7 @@ pub trait Function: Send + Sync + Clone {
 /// A [`Function`] which can be built from a math expression
 pub trait MathFunction: Function {
     /// Builds a new function from the given context and node
-    fn new(ctx: &Context, node: Node) -> Result<Self, Error>
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error>
     where
         Self: Sized;
 }
