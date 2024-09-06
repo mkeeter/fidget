@@ -27,18 +27,18 @@ impl RegTape {
         alloc.finalize()
     }
 
-    /// Builds a new empty tape, with one allocated slot
+    /// Builds a new empty tape
     pub(crate) fn empty() -> Self {
         Self {
             tape: vec![],
-            slot_count: 1,
+            slot_count: 0,
         }
     }
 
     /// Resets this tape, retaining its allocations
     pub fn reset(&mut self) {
         self.tape.clear();
-        self.slot_count = 1;
+        self.slot_count = 0;
     }
     /// Returns the number of unique register and memory locations that are used
     /// by this tape.
