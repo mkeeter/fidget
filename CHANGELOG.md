@@ -5,6 +5,8 @@
       multiple output nodes
     - Evaluation now returns a slice of outputs, one for each root node (ordered
       based on order in the `&[Node]` slice passed  to `MathFunction::new`)
+- `RegisterAllocator` no longer binds SSA register 0 to physical register 0 by
+  default. If you don't know what this means, don't worry about it.
 
 # 0.3.2
 - Added `impl IntoNode for Var`, to make handling `Var` values in a context

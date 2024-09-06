@@ -47,12 +47,9 @@ pub struct RegisterAllocator<const N: usize> {
 
 impl<const N: usize> RegisterAllocator<N> {
     /// Builds a new `RegisterAllocator`.
-    ///
-    /// Upon construction, SSA register 0 is bound to local register 0; you
-    /// would be well advised to use it as the output of your function.
     pub fn new(size: usize) -> Self {
         assert!(N <= u8::MAX as usize);
-        let mut out = Self {
+        Self {
             allocations: vec![UNASSIGNED; size],
 
             registers: [UNASSIGNED; N],
@@ -62,9 +59,7 @@ impl<const N: usize> RegisterAllocator<N> {
             spare_memory: Vec::with_capacity(1024),
 
             out: RegTape::empty(),
-        };
-        out.bind_register(0, 0);
-        out
+        }
     }
 
     /// Build a new empty register allocator
@@ -93,7 +88,6 @@ impl<const N: usize> RegisterAllocator<N> {
         self.spare_memory.clear();
         self.out = tape;
         self.out.reset();
-        self.bind_register(0, 0);
     }
 
     /// Claims the internal `Vec<RegOp>`, leaving it empty
