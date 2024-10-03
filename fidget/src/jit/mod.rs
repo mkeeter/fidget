@@ -1020,7 +1020,7 @@ impl<T: From<f32> + Clone> JitTracingEval<T> {
         let mut simplify = 0;
         self.choices.resize(tape.choice_count, Choice::Unknown);
         self.choices.fill(Choice::Unknown);
-        self.out.resize(tape.output_count, std::f32::NAN.into());
+        self.out.resize(tape.output_count, f32::NAN.into());
         self.out.fill(f32::NAN.into());
         unsafe {
             (tape.fn_trace)(
