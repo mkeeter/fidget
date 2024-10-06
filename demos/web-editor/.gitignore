@@ -1,4 +1,5 @@
-node_modules
-pkg
-dist
-target
+web/node_modules
+web/dist
+web/pkg
+crate/pkg
+crate/target

@@ -24,12 +24,12 @@ import { rhai } from "./rhai";
 
 import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
 
-import GYROID_SCRIPT from "../../models/gyroid-sphere.rhai";
+import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
 var fidget: any = null;
 
 async function setup() {
-  fidget = await import("./pkg")!;
+  fidget = await import("../../crate/pkg")!;
   const app = new App();
 }
 
