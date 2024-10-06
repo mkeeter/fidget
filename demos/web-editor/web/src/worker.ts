@@ -84,7 +84,7 @@ class Worker {
 }
 
 async function run() {
-  fidget = await import("./pkg")!;
+  fidget = await import("../../crate/pkg")!;
   let worker: null | Worker = null;
   onmessage = function (e: any) {
     let req = e.data as WorkerRequest;

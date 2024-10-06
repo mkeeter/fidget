@@ -7,7 +7,7 @@ members = [
     "demos/viewer",
     "workspace-hack",
 ]
-exclude = ["demos/web-editor"]
+exclude = ["demos/web-editor/crate"]
 
 [profile.release]
 debug = true
