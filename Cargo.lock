@@ -291,6 +291,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "camera"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -906,6 +913,7 @@ name = "fidget-viewer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "camera",
  "clap",
  "crossbeam-channel",
  "eframe",

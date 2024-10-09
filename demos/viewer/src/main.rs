@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
 use log::{debug, error, info, warn};
-use nalgebra::{Vector2, Vector3};
+use nalgebra::{Point2, Vector2, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
@@ -163,14 +163,14 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                 image_size,
                 tile_sizes: F::tile_sizes_2d().to_vec(),
                 bounds: fidget::shape::Bounds {
-                    center: Vector2::new(camera.offset.x, camera.offset.y),
-                    size: camera.scale,
+                    center: camera.offset(),
+                    size: camera.scale(),
                 },
                 ..RenderConfig::default()
             };
 
             match mode {
-                TwoDMode::Color => {
+                Mode2D::Color => {
                     let image = fidget::render::render2d::<
                         _,
                         fidget::render::BitRenderMode,
@@ -188,7 +188,7 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                     }
                 }
 
-                TwoDMode::Sdf => {
+                Mode2D::Sdf => {
                     let image = fidget::render::render2d::<
                         _,
                         fidget::render::SdfRenderMode,
@@ -198,7 +198,7 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                     }
                 }
 
-                TwoDMode::Debug => {
+                Mode2D::Debug => {
                     let image = fidget::render::render2d::<
                         _,
                         fidget::render::DebugRenderMode,
@@ -294,7 +294,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Automatically select the best implementation for your platform.
     let mut watcher = notify::recommended_watcher(move |res| match res {
         Ok(event) => {
-            println!("{event:?}");
+            info!("file watcher: {event:?}");
             file_watcher_tx.send(()).unwrap();
         }
         Err(e) => panic!("watch error: {:?}", e),
@@ -312,6 +312,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Run a worker thread which listens for wake events and pokes the
             // UI whenever they come in.
             let egui_ctx = cc.egui_ctx.clone();
+            let rect = egui_ctx.available_rect();
             std::thread::spawn(move || {
                 while let Ok(()) = wake_rx.recv() {
                     egui_ctx.request_repaint();
@@ -319,7 +320,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 info!("wake thread is done");
             });
 
-            Box::new(ViewerApp::new(config_tx, render_rx))
+            Box::new(ViewerApp::new(rect, config_tx, render_rx))
         }),
     )?;
 
@@ -328,42 +329,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Copy, Clone)]
-struct TwoDCamera {
-    // 2D camera parameters
-    scale: f32,
-    offset: egui::Vec2,
-    drag_start: Option<egui::Vec2>,
-}
-
-impl TwoDCamera {
-    /// Converts from mouse position to a UV position within the render window
-    fn mouse_to_uv(
-        &self,
-        rect: egui::Rect,
-        uv: egui::Rect,
-        p: egui::Pos2,
-    ) -> egui::Vec2 {
-        let r = (p - rect.min) / (rect.max - rect.min);
-        const ONE: egui::Vec2 = egui::Vec2::new(1.0, 1.0);
-        let pos = uv.min.to_vec2() * (ONE - r) + uv.max.to_vec2() * r;
-        let out = ((pos * 2.0) - ONE) * self.scale;
-        egui::Vec2::new(out.x, -out.y) + self.offset
-    }
-}
-
-impl Default for TwoDCamera {
-    fn default() -> Self {
-        TwoDCamera {
-            drag_start: None,
-            scale: 1.0,
-            offset: egui::Vec2::ZERO,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum TwoDMode {
+enum Mode2D {
     Color,
     Sdf,
     Debug,
@@ -412,12 +379,12 @@ enum ThreeDMode {
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD(TwoDCamera, TwoDMode),
+    TwoD(camera::Camera2D, Mode2D),
     ThreeD(ThreeDCamera, ThreeDMode),
 }
 
 impl RenderMode {
-    fn set_2d_mode(&mut self, mode: TwoDMode) -> bool {
+    fn set_2d_mode(&mut self, mode: Mode2D) -> bool {
         match self {
             RenderMode::TwoD(.., m) => {
                 let changed = *m != mode;
@@ -425,7 +392,20 @@ impl RenderMode {
                 changed
             }
             RenderMode::ThreeD(..) => {
-                *self = RenderMode::TwoD(TwoDCamera::default(), mode);
+                *self = RenderMode::TwoD(
+                    // TODO get parameters from 3D camera here?
+                    camera::Camera2D::new(
+                        camera::Rect {
+                            min: Vector2::new(0.0, 0.0),
+                            max: Vector2::new(640.0, 480.0),
+                        },
+                        camera::Rect {
+                            min: Vector2::new(-1.0, -1.0),
+                            max: Vector2::new(1.0, 1.0),
+                        },
+                    ),
+                    mode,
+                );
                 true
             }
         }
@@ -466,6 +446,7 @@ struct ViewerApp {
 
 impl ViewerApp {
     fn new(
+        rect: egui::Rect,
         config_tx: Sender<RenderSettings>,
         image_rx: Receiver<Result<RenderResult, String>>,
     ) -> Self {
@@ -479,7 +460,19 @@ impl ViewerApp {
             config_tx,
             image_rx,
 
-            mode: RenderMode::TwoD(TwoDCamera::default(), TwoDMode::Color),
+            mode: RenderMode::TwoD(
+                camera::Camera2D::new(
+                    camera::Rect {
+                        min: Vector2::new(rect.min.x, rect.min.y),
+                        max: Vector2::new(rect.max.x, rect.max.y),
+                    },
+                    camera::Rect {
+                        min: Vector2::new(-1.0, -1.0),
+                        max: Vector2::new(1.0, 1.0),
+                    },
+                ),
+                Mode2D::Color,
+            ),
         }
     }
 
@@ -512,13 +505,13 @@ impl ViewerApp {
                     };
                     ui.radio_value(
                         &mut mode_2d,
-                        Some(TwoDMode::Debug),
+                        Some(Mode2D::Debug),
                         "2D debug",
                     );
-                    ui.radio_value(&mut mode_2d, Some(TwoDMode::Sdf), "2D SDF");
+                    ui.radio_value(&mut mode_2d, Some(Mode2D::Sdf), "2D SDF");
                     ui.radio_value(
                         &mut mode_2d,
-                        Some(TwoDMode::Color),
+                        Some(Mode2D::Color),
                         "2D Color",
                     );
 
@@ -679,37 +672,30 @@ impl eframe::App for ViewerApp {
         // Handle pan and zoom
         match &mut self.mode {
             RenderMode::TwoD(camera, ..) => {
+                let rect = camera::Rect {
+                    min: Vector2::new(rect.min.x, rect.min.y),
+                    max: Vector2::new(rect.max.x, rect.max.y),
+                };
+                let uv = camera::Rect {
+                    min: Vector2::new(uv.min.x, uv.min.y),
+                    max: Vector2::new(uv.max.x, uv.max.y),
+                };
+                camera.set_viewport(rect, uv);
+
                 if let Some(pos) = r.interact_pointer_pos() {
-                    if let Some(start) = camera.drag_start {
-                        camera.offset = egui::Vec2::ZERO;
-                        let pos = camera.mouse_to_uv(rect, uv, pos);
-                        camera.offset = start - pos;
-                        render_changed = true;
-                    } else {
-                        let pos = camera.mouse_to_uv(rect, uv, pos);
-                        camera.drag_start = Some(pos);
-                    }
+                    let pos = Point2::new(pos.x, pos.y);
+                    render_changed |= camera.drag(pos);
                 } else {
-                    camera.drag_start = None;
+                    camera.release();
                 }
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    if scroll != 0.0 {
-                        let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
-                        let pos_before =
-                            mouse_pos.map(|p| camera.mouse_to_uv(rect, uv, p));
-                        render_changed = true;
-                        camera.scale /= (scroll / 100.0).exp2();
-                        if let Some(pos_before) = pos_before {
-                            let pos_after = camera.mouse_to_uv(
-                                rect,
-                                uv,
-                                mouse_pos.unwrap(),
-                            );
-                            camera.offset += pos_before - pos_after;
-                        }
-                    }
+                    let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
+                    render_changed |= camera.scroll(
+                        mouse_pos.map(|p| Point2::new(p.x, p.y)),
+                        scroll,
+                    );
                 }
             }
             RenderMode::ThreeD(..) => {
