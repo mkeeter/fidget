@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
 use log::{debug, error, info, warn};
-use nalgebra::{Point2, Vector2, Vector3};
+use nalgebra::{Vector2, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
@@ -304,7 +304,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .watch(Path::new(&args.target), notify::RecursiveMode::NonRecursive)
         .unwrap();
 
-    let options = eframe::NativeOptions::default();
+    let mut options = eframe::NativeOptions::default();
+    let size = egui::Vec2::new(640.0, 480.0);
+    options.viewport.inner_size = Some(size);
+
     eframe::run_native(
         "Fidget",
         options,
@@ -312,7 +315,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             // Run a worker thread which listens for wake events and pokes the
             // UI whenever they come in.
             let egui_ctx = cc.egui_ctx.clone();
-            let rect = egui_ctx.available_rect();
             std::thread::spawn(move || {
                 while let Ok(()) = wake_rx.recv() {
                     egui_ctx.request_repaint();
@@ -320,7 +322,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 info!("wake thread is done");
             });
 
-            Box::new(ViewerApp::new(rect, config_tx, render_rx))
+            Box::new(ViewerApp::new(config_tx, render_rx))
         }),
     )?;
 
@@ -394,16 +396,7 @@ impl RenderMode {
             RenderMode::ThreeD(..) => {
                 *self = RenderMode::TwoD(
                     // TODO get parameters from 3D camera here?
-                    camera::Camera2D::new(
-                        camera::Rect {
-                            min: Vector2::new(0.0, 0.0),
-                            max: Vector2::new(640.0, 480.0),
-                        },
-                        camera::Rect {
-                            min: Vector2::new(-1.0, -1.0),
-                            max: Vector2::new(1.0, 1.0),
-                        },
-                    ),
+                    camera::Camera2D::new(),
                     mode,
                 );
                 true
@@ -446,7 +439,6 @@ struct ViewerApp {
 
 impl ViewerApp {
     fn new(
-        rect: egui::Rect,
         config_tx: Sender<RenderSettings>,
         image_rx: Receiver<Result<RenderResult, String>>,
     ) -> Self {
@@ -460,19 +452,7 @@ impl ViewerApp {
             config_tx,
             image_rx,
 
-            mode: RenderMode::TwoD(
-                camera::Camera2D::new(
-                    camera::Rect {
-                        min: Vector2::new(rect.min.x, rect.min.y),
-                        max: Vector2::new(rect.max.x, rect.max.y),
-                    },
-                    camera::Rect {
-                        min: Vector2::new(-1.0, -1.0),
-                        max: Vector2::new(1.0, 1.0),
-                    },
-                ),
-                Mode2D::Color,
-            ),
+            mode: RenderMode::TwoD(camera::Camera2D::new(), Mode2D::Color),
         }
     }
 
@@ -562,12 +542,7 @@ impl ViewerApp {
         }
     }
 
-    fn paint_image(
-        &self,
-        rect: egui::Rect,
-        uv: egui::Rect,
-        ui: &mut egui::Ui,
-    ) -> egui::Response {
+    fn paint_image(&self, ui: &mut egui::Ui) -> egui::Response {
         let pos = ui.next_widget_position();
         let size = ui.available_size();
         let painter = ui.painter_at(egui::Rect {
@@ -576,10 +551,25 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
+        let RenderMode::TwoD(camera, ..) = &self.mode else {
+            panic!("can't render in 3D");
+        };
+        let rect = camera.viewport();
+        let rect = egui::Rect {
+            min: egui::Pos2::new(rect.min.x, rect.min.y),
+            max: egui::Pos2::new(rect.max.x, rect.max.y),
+        };
+        let uv = camera.uv();
+        let uv = egui::Rect {
+            min: egui::Pos2::new(uv.min.x, uv.min.y),
+            max: egui::Pos2::new(uv.max.x, uv.max.y),
+        };
+
         if let Some((dt, image_size)) = self.stats {
             // Only draw the image if we have valid stats (i.e. no error)
             if let Some(t) = self.texture.as_ref() {
                 let mut mesh = egui::Mesh::with_texture(t.id());
+
                 mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
                 painter.add(mesh);
             }
@@ -649,24 +639,10 @@ impl eframe::App for ViewerApp {
             render_changed = true;
         }
 
-        let uv = if size.x > size.y {
-            let r = (1.0 - (size.y / size.x)) / 2.0;
-            egui::Rect {
-                min: egui::Pos2::new(0.0, r),
-                max: egui::Pos2::new(1.0, 1.0 - r),
-            }
-        } else {
-            let r = (1.0 - (size.x / size.y)) / 2.0;
-            egui::Rect {
-                min: egui::Pos2::new(r, 0.0),
-                max: egui::Pos2::new(1.0 - r, 1.0),
-            }
-        };
-
         // Draw the current image and/or error
         let r = egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
-            .show(ctx, |ui| self.paint_image(rect, uv, ui))
+            .show(ctx, |ui| self.paint_image(ui))
             .inner;
 
         // Handle pan and zoom
@@ -676,14 +652,11 @@ impl eframe::App for ViewerApp {
                     min: Vector2::new(rect.min.x, rect.min.y),
                     max: Vector2::new(rect.max.x, rect.max.y),
                 };
-                let uv = camera::Rect {
-                    min: Vector2::new(uv.min.x, uv.min.y),
-                    max: Vector2::new(uv.max.x, uv.max.y),
-                };
-                camera.set_viewport(rect, uv);
+
+                camera.set_viewport(rect);
 
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let pos = Point2::new(pos.x, pos.y);
+                    let pos = Vector2::new(pos.x, pos.y);
                     render_changed |= camera.drag(pos);
                 } else {
                     camera.release();
@@ -693,7 +666,7 @@ impl eframe::App for ViewerApp {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
                     render_changed |= camera.scroll(
-                        mouse_pos.map(|p| Point2::new(p.x, p.y)),
+                        mouse_pos.map(|p| Vector2::new(p.x, p.y)),
                         scroll,
                     );
                 }
