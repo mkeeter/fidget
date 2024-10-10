@@ -36,19 +36,22 @@ impl Default for Camera2D {
 }
 
 impl Camera2D {
-    /// Builds a new camera with the given viewport
+    /// Builds a new camera with an empty viewport
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the camera's current offset, in world units
     pub fn offset(&self) -> Vector2<f32> {
         self.offset
     }
 
+    /// Returns the camera's current scale, mapping from screen to world units
     pub fn scale(&self) -> f32 {
         self.scale
     }
 
+    /// Returns the current viewport, in screen units
     pub fn viewport(&self) -> Rect {
         self.viewport
     }
@@ -71,7 +74,7 @@ impl Camera2D {
         }
     }
 
-    /// Updates the screen and world viewport sizes
+    /// Updates the screen viewport size
     pub fn set_viewport(&mut self, viewport: Rect) {
         self.viewport = viewport;
     }
@@ -85,7 +88,7 @@ impl Camera2D {
         self.offset + out.component_mul(&Vector2::new(2.0, -2.0))
     }
 
-    /// Performs a new drag operation
+    /// Updates the camera position when the mouse is held and dragged
     ///
     /// Returns `true` if the camera has changed
     pub fn drag(&mut self, pos: Vector2<f32>) -> bool {
@@ -109,14 +112,25 @@ impl Camera2D {
         self.drag_start = None
     }
 
-    /// Called when the mouse is scrolled
+    /// Updates the camera zoom when the mouse is scrolled
+    ///
+    /// If the mouse cursor position is provided (in screen units), then the
+    /// camera offset is updated to keep the same point under the cursor.
+    ///
+    /// Returns `true` if the camera has changed
     pub fn scroll(&mut self, pos: Option<Vector2<f32>>, scroll: f32) -> bool {
         if scroll != 0.0 {
-            let pos_before = pos.map(|p| self.screen_to_world(p));
-            self.scale /= (scroll / 100.0).exp2();
-            if let Some(pos_before) = pos_before {
-                let pos_after = self.screen_to_world(pos.unwrap());
-                self.offset += pos_before - pos_after;
+            let new_scale = self.scale / (scroll / 100.0).exp2();
+            match pos {
+                Some(p) => {
+                    let pos_before = self.screen_to_world(p);
+                    self.scale = new_scale;
+                    let pos_after = self.screen_to_world(p);
+                    self.offset += pos_before - pos_after;
+                }
+                None => {
+                    self.scale = new_scale;
+                }
             }
             true
         } else {
