@@ -23,66 +23,53 @@ macro_rules! opcodes {
     ) => {
         $(#[$($attrss)*])*
         pub enum $name {
-            #[doc = "Read an input variable by index"]
-            Input($t, u32),
-
+            // Special unary opcodes
             #[doc = "Writes an output variable by index"]
             Output($t, u32),
+            #[doc = "Read an input variable by index"]
+            Input($t, u32),
+            #[doc = "Copies the given register"]
+            CopyReg($t, $t),
+            #[doc = "Copy an immediate to a register"]
+            CopyImm($t, f32),
 
+            // Normal unary opcodes
             #[doc = "Negate the given register"]
             NegReg($t, $t),
-
             #[doc = "Take the absolute value of the given register"]
             AbsReg($t, $t),
-
             #[doc = "Take the reciprocal of the given register (1.0 / value)"]
             RecipReg($t, $t),
-
             #[doc = "Take the square root of the given register"]
             SqrtReg($t, $t),
-
             #[doc = "Square the given register"]
             SquareReg($t, $t),
-
             #[doc = "Returns the largest integer less than or equal to `self`"]
             FloorReg($t, $t),
-
             #[doc = "Returns the smallest integer greater than or equal to `self`"]
             CeilReg($t, $t),
-
             #[doc = "Returns the nearest integer to `self`. If a value is half-way between two integers, round away from `0.0`."]
             RoundReg($t, $t),
-
             #[doc = "Computes the sine of the given register (in radians)"]
             SinReg($t, $t),
-
             #[doc = "Computes the cosine of the given register (in radians)"]
             CosReg($t, $t),
-
             #[doc = "Computes the tangent of the given register (in radians)"]
             TanReg($t, $t),
-
             #[doc = "Computes the arcsin of the given register (in radians)"]
             AsinReg($t, $t),
-
             #[doc = "Computes the arccos of the given register (in radians)"]
             AcosReg($t, $t),
-
             #[doc = "Computes the arctangent of the given register (in radians)"]
             AtanReg($t, $t),
-
             #[doc = "Computes the exponential function of the given register"]
             ExpReg($t, $t),
-
             #[doc = "Computes the natural log of the given register"]
             LnReg($t, $t),
-
             #[doc = "Computes the logical negation of the given register"]
             NotReg($t, $t),
 
-            #[doc = "Copies the given register"]
-            CopyReg($t, $t),
-
+            // RegImm opcodes (without a choice)
             #[doc = "Add a register and an immediate"]
             AddRegImm($t, $t, f32),
             #[doc = "Multiply a register and an immediate"]
@@ -99,14 +86,12 @@ macro_rules! opcodes {
             ModRegReg($t, $t, $t),
             #[doc = "Take the module (least nonnegative remainder) of a register and an immediate"]
             ModRegImm($t, $t, f32),
-            #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
-            ModImmReg($t, $t, f32),
-            #[doc = "atan2 of a position `(y, x)` specified as register, register"]
-            AtanRegReg($t, $t, $t),
             #[doc = "atan2 of a position `(y, x)` specified as register, immediate"]
             AtanRegImm($t, $t, f32),
-            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
-            AtanImmReg($t, $t, f32),
+            #[doc = "Compares a register with an immediate"]
+            CompareRegImm($t, $t, f32),
+
+            // RegImm opcodes (with a choice)
             #[doc = "Compute the minimum of a register and an immediate"]
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
@@ -115,11 +100,16 @@ macro_rules! opcodes {
             AndRegImm($t, $t, f32),
             #[doc = "Add two values, short-circuiting if either is 0"]
             OrRegImm($t, $t, f32),
-            #[doc = "Compares a register with an immediate"]
-            CompareRegImm($t, $t, f32),
+
+            // ImmReg opcodes (without a choice)
+            #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
+            ModImmReg($t, $t, f32),
+            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
+            AtanImmReg($t, $t, f32),
             #[doc = "Compares an immediate with a register"]
             CompareImmReg($t, $t, f32),
 
+            // RegReg opcodes (without a choice)
             #[doc = "Add two registers"]
             AddRegReg($t, $t, $t),
             #[doc = "Multiply two registers"]
@@ -128,6 +118,12 @@ macro_rules! opcodes {
             DivRegReg($t, $t, $t),
             #[doc = "Subtract one register from another"]
             SubRegReg($t, $t, $t),
+            #[doc = "Compares two registers"]
+            CompareRegReg($t, $t, $t),
+            #[doc = "atan2 of a position `(y, x)` specified as register, register"]
+            AtanRegReg($t, $t, $t),
+
+            // RegReg opcodes (with a choice)
             #[doc = "Take the minimum of two registers"]
             MinRegReg($t, $t, $t),
             #[doc = "Take the maximum of two registers"]
@@ -136,11 +132,6 @@ macro_rules! opcodes {
             AndRegReg($t, $t, $t),
             #[doc = "Add two values, short-circuiting if either is 0"]
             OrRegReg($t, $t, $t),
-            #[doc = "Compares two registers"]
-            CompareRegReg($t, $t, $t),
-
-            #[doc = "Copy an immediate to a register"]
-            CopyImm($t, f32),
 
             $(
                 $(#[$($a)*])*
