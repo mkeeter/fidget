@@ -20,11 +20,11 @@ jobs:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
     - name: Build tests
-      run: cargo test --verbose --package fidget --no-run
+      run: cargo test --verbose --no-run
     - name: Run crate tests
-      run: cargo test --verbose --package fidget --lib
+      run: cargo test --verbose --lib
     - name: Run doc tests
-      run: cargo test --verbose --package fidget --doc
+      run: cargo test --verbose --doc
 
   test-windows:
     runs-on: windows-latest
@@ -61,16 +61,16 @@ jobs:
       env:
         CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
         RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
-      run: cargo test --verbose --package fidget --no-run
+      run: cargo test --verbose --no-run
     - name: Run crate tests
       working-directory: ${{ env.DEV_DRIVE }}/fidget
       env:
         CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
         RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
-      run: cargo test --verbose --package fidget --lib
+      run: cargo test --verbose --lib
     - name: Run doc tests
       working-directory: ${{ env.DEV_DRIVE }}/fidget
       env:
         CARGO_HOME: ${{ env.DEV_DRIVE }}/.cargo
         RUSTUP_HOME: ${{ env.DEV_DRIVE }}/.rustup
-      run: cargo test --verbose --package fidget --doc
+      run: cargo test --verbose --doc

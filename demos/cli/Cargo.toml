@@ -18,3 +18,8 @@ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 [features]
 jit = ["fidget/jit"]
 default = ["jit"]
+
+[[bin]]
+name = "fidget-cli"
+test = false
+doctest = false
