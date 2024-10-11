@@ -138,3 +138,75 @@ impl Camera2D {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_drag() {
+        let mut c = Camera2D::new();
+        c.set_viewport(Rect {
+            min: Vector2::new(0.0, 0.0),
+            max: Vector2::new(100.0, 100.0),
+        });
+        let p = c.screen_to_world(Vector2::new(0.0, 0.0));
+        assert_eq!(p, Vector2::new(-1.0, 1.0));
+        let p = c.screen_to_world(Vector2::new(100.0, 0.0));
+        assert_eq!(p, Vector2::new(1.0, 1.0));
+        let p = c.screen_to_world(Vector2::new(0.0, 100.0));
+        assert_eq!(p, Vector2::new(-1.0, -1.0));
+        let p = c.screen_to_world(Vector2::new(100.0, 100.0));
+        assert_eq!(p, Vector2::new(1.0, -1.0));
+
+        c.drag(Vector2::new(50.0, 50.0));
+        c.drag(Vector2::new(100.0, 50.0));
+        c.release();
+
+        let p = c.screen_to_world(Vector2::new(50.0, 50.0));
+        assert_eq!(p, Vector2::new(-1.0, 0.0));
+
+        c.drag(Vector2::new(50.0, 50.0));
+        c.drag(Vector2::new(50.0, 100.0));
+        c.release();
+
+        let p = c.screen_to_world(Vector2::new(50.0, 50.0));
+        assert_eq!(p, Vector2::new(-1.0, 1.0));
+    }
+
+    #[test]
+    fn test_zoom() {
+        let mut c = Camera2D::new();
+        c.set_viewport(Rect {
+            min: Vector2::new(0.0, 0.0),
+            max: Vector2::new(100.0, 100.0),
+        });
+
+        let points = [
+            (75.0, 75.0),
+            (75.0, 25.0),
+            (25.0, 75.0),
+            (25.0, 25.0),
+            (50.0, 50.0),
+        ]
+        .map(|(x, y)| Vector2::new(x, y));
+        for &p in &points {
+            let corner = Vector2::zeros();
+            let prev_p = c.screen_to_world(p);
+            let prev_corner = c.screen_to_world(corner);
+            c.scroll(Some(p), 100.0);
+            let next_p = c.screen_to_world(p);
+            let next_corner = c.screen_to_world(corner);
+
+            assert_eq!(prev_p, next_p);
+            assert_ne!(prev_corner, next_corner);
+        }
+
+        // Undo the zooming to put us back at the origin
+        assert_ne!(c.offset, Vector2::new(0.0, 0.0));
+        for &p in points.iter().rev() {
+            c.scroll(Some(p), -100.0);
+        }
+        assert_eq!(c.offset, Vector2::new(0.0, 0.0));
+    }
+}
