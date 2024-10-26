@@ -729,14 +729,26 @@ impl Assembler for IntervalAssembler {
         );
     }
 
-    /// Loads an immediate into register S4, using W9 as an intermediary
+    /// Loads an immediate into register S4, using W15 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
-        dynasm!(self.0.ops
-            ; movz w15, imm_u32 >> 16, lsl 16
-            ; movk w15, imm_u32
-            ; dup V(IMM_REG as u32).s2, w15
-        );
+        if imm_u32 & 0xFFFF == 0 {
+            dynasm!(self.0.ops
+                ; movz w15, imm_u32 >> 16, lsl 16
+                ; dup V(IMM_REG as u32).s2, w15
+            );
+        } else if imm_u32 & 0xFFFF_0000 == 0 {
+            dynasm!(self.0.ops
+                ; movz w15, imm_u32 & 0xFFFF
+                ; dup V(IMM_REG as u32).s2, w15
+            );
+        } else {
+            dynasm!(self.0.ops
+                ; movz w15, imm_u32 >> 16, lsl 16
+                ; movk w15, imm_u32 & 0xFFFF
+                ; dup V(IMM_REG as u32).s2, w15
+            );
+        }
         IMM_REG.wrapping_sub(OFFSET)
     }
 
