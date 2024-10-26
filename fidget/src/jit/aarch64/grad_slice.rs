@@ -488,11 +488,23 @@ impl Assembler for GradSliceAssembler {
     /// Loads an immediate into register S4, using W9 as an intermediary
     fn load_imm(&mut self, imm: f32) -> u8 {
         let imm_u32 = imm.to_bits();
-        dynasm!(self.0.ops
-            ; movz w9, imm_u32 >> 16, lsl 16
-            ; movk w9, imm_u32
-            ; fmov S(IMM_REG as u32), w9
-        );
+        if imm_u32 & 0xFFFF == 0 {
+            dynasm!(self.0.ops
+                ; movz w9, imm_u32 >> 16, lsl 16
+                ; fmov S(IMM_REG as u32), w9
+            );
+        } else if imm_u32 & 0xFFFF_0000 == 0 {
+            dynasm!(self.0.ops
+                ; movz w9, imm_u32 & 0xFFFF
+                ; fmov S(IMM_REG as u32), w9
+            );
+        } else {
+            dynasm!(self.0.ops
+                ; movz w9, imm_u32 >> 16, lsl 16
+                ; movk w9, imm_u32 & 0xFFFF
+                ; fmov S(IMM_REG as u32), w9
+            );
+        }
         IMM_REG.wrapping_sub(OFFSET)
     }
 
