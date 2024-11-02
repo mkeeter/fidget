@@ -42,7 +42,7 @@ pub use bounds::Bounds;
 /// A shape represents an implicit surface
 ///
 /// It is mostly agnostic to _how_ that surface is represented, wrapping a
-/// [`Function`](Function) and a set of axes.
+/// [`Function`] and a set of axes.
 ///
 /// Shapes are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
@@ -187,7 +187,7 @@ impl<F: Function + Clone> Shape<F> {
 }
 
 impl<F> Shape<F> {
-    /// Borrows the inner [`Function`](Function) object
+    /// Borrows the inner [`Function`] object
     pub fn inner(&self) -> &F {
         &self.f
     }
@@ -352,7 +352,7 @@ impl<T: Tape> ShapeTape<T> {
         self.tape.recycle()
     }
 
-    /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    /// Returns a mapping from [`Var`] to evaluation index
     pub fn vars(&self) -> &VarMap {
         self.tape.vars()
     }

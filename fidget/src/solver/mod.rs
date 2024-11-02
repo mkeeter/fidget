@@ -1,4 +1,4 @@
-//! Solver for systems of equations expressed as sets of [`Function`]s
+//! Solver for systems of equations expressed as sets of [Function] objects
 use crate::{
     eval::{BulkEvaluator, Function, Tape, TracingEvaluator},
     types::Grad,
