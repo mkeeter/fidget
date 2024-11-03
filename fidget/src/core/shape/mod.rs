@@ -382,6 +382,11 @@ impl<T: Tape> ShapeTape<T> {
     pub fn vars(&self) -> &VarMap {
         self.tape.vars()
     }
+
+    /// Returns a reference to the inner [`Tape`] object
+    pub fn raw_tape(&self) -> &T {
+        &self.tape
+    }
 }
 
 /// Wrapper around a [`TracingEvaluator`]

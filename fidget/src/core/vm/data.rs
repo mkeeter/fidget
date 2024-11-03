@@ -1,5 +1,6 @@
 //! General-purpose tapes for use during evaluation or further compilation
 use crate::{
+    bytecode::Bytecode,
     compiler::{RegOp, RegTape, RegisterAllocator, SsaOp, SsaTape},
     context::{Context, Node},
     var::VarMap,
@@ -317,6 +318,13 @@ impl<const N: usize> VmData<N> {
     /// Produces an iterator that visits [`RegOp`] values in evaluation order
     pub fn iter_asm(&self) -> impl Iterator<Item = RegOp> + '_ {
         self.asm.iter().cloned().rev()
+    }
+
+    /// Converts the inner [RegOp] tape to bytecode
+    ///
+    /// See [bytecode](crate::bytecode) for details on the format
+    pub fn to_bytecode(&self) -> Bytecode {
+        self.asm.to_bytecode()
     }
 
     /// Pretty-prints the inner SSA tape
