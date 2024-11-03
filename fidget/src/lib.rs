@@ -271,6 +271,8 @@ pub use crate::core::*;
 
 mod error;
 pub use error::Error;
+
+pub mod bytecode;
 pub mod mesh;
 pub mod render;
 pub mod solver;

@@ -1,5 +1,6 @@
 //! Traits and data structures for function evaluation
 use crate::{
+    bytecode::Bytecode,
     context::{Context, Node},
     types::{Grad, Interval},
     var::VarMap,
@@ -199,4 +200,9 @@ pub trait MathFunction: Function {
     fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error>
     where
         Self: Sized;
+
+    /// Converts the math expression to bytecode
+    ///
+    /// See [bytecode](crate::bytecode) for details on the format
+    fn to_bytecode(&self) -> Bytecode;
 }

@@ -76,20 +76,26 @@ macro_rules! opcodes {
             MulRegImm($t, $t, f32),
             #[doc = "Divides a register and an immediate"]
             DivRegImm($t, $t, f32),
-            #[doc = "Divides an immediate by a register"]
-            DivImmReg($t, $t, f32),
-            #[doc = "Subtract a register from an immediate"]
-            SubImmReg($t, $t, f32),
             #[doc = "Subtract an immediate from a register"]
             SubRegImm($t, $t, f32),
-            #[doc = "Take the module (least nonnegative remainder) of two registers"]
-            ModRegReg($t, $t, $t),
             #[doc = "Take the module (least nonnegative remainder) of a register and an immediate"]
             ModRegImm($t, $t, f32),
             #[doc = "atan2 of a position `(y, x)` specified as register, immediate"]
             AtanRegImm($t, $t, f32),
             #[doc = "Compares a register with an immediate"]
             CompareRegImm($t, $t, f32),
+
+            // ImmReg opcodes (without a choic
+            #[doc = "Divides an immediate by a register"]
+            DivImmReg($t, $t, f32),
+            #[doc = "Subtract a register from an immediate"]
+            SubImmReg($t, $t, f32),
+            #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
+            ModImmReg($t, $t, f32),
+            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
+            AtanImmReg($t, $t, f32),
+            #[doc = "Compares an immediate with a register"]
+            CompareImmReg($t, $t, f32),
 
             // RegImm opcodes (with a choice)
             #[doc = "Compute the minimum of a register and an immediate"]
@@ -100,14 +106,6 @@ macro_rules! opcodes {
             AndRegImm($t, $t, f32),
             #[doc = "Add two values, short-circuiting if either is 0"]
             OrRegImm($t, $t, f32),
-
-            // ImmReg opcodes (without a choice)
-            #[doc = "Take the module (least nonnegative remainder) of an immediate and a register"]
-            ModImmReg($t, $t, f32),
-            #[doc = "atan2 of a position `(y, x)` specified as immediate, register"]
-            AtanImmReg($t, $t, f32),
-            #[doc = "Compares an immediate with a register"]
-            CompareImmReg($t, $t, f32),
 
             // RegReg opcodes (without a choice)
             #[doc = "Add two registers"]
@@ -122,6 +120,8 @@ macro_rules! opcodes {
             CompareRegReg($t, $t, $t),
             #[doc = "atan2 of a position `(y, x)` specified as register, register"]
             AtanRegReg($t, $t, $t),
+            #[doc = "Take the module (least nonnegative remainder) of two registers"]
+            ModRegReg($t, $t, $t),
 
             // RegReg opcodes (with a choice)
             #[doc = "Take the minimum of two registers"]
@@ -275,7 +275,20 @@ opcodes!(
     ///
     /// We have a maximum of 256 registers, though some tapes (e.g. ones
     /// targeting physical hardware) may choose to use fewer.
-    #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(
+        Copy,
+        Clone,
+        Debug,
+        PartialEq,
+        Serialize,
+        Deserialize,
+        strum::EnumDiscriminants,
+    )]
+    #[strum_discriminants(derive(
+        strum::EnumIter,
+        strum::EnumCount,
+        strum::IntoStaticStr
+    ))]
     pub enum RegOp<u8> {
         // default variants
         /// Read from a memory slot to a register

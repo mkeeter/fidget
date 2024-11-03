@@ -24,6 +24,7 @@
 //! ```
 
 use crate::{
+    bytecode::Bytecode,
     compiler::RegOp,
     context::{Context, Node},
     eval::{
@@ -923,6 +924,10 @@ impl RenderHints for JitFunction {
 impl MathFunction for JitFunction {
     fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
         GenericVmFunction::new(ctx, nodes).map(JitFunction)
+    }
+
+    fn to_bytecode(&self) -> Bytecode {
+        self.0.to_bytecode()
     }
 }
 

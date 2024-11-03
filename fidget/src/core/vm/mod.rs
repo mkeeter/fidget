@@ -1,5 +1,6 @@
 //! Simple virtual machine for shape evaluation
 use crate::{
+    bytecode::Bytecode,
     compiler::RegOp,
     context::Node,
     eval::{
@@ -232,6 +233,10 @@ impl<const N: usize> MathFunction for GenericVmFunction<N> {
     fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
         let d = VmData::new(ctx, nodes)?;
         Ok(Self(d.into()))
+    }
+
+    fn to_bytecode(&self) -> Bytecode {
+        self.0.to_bytecode()
     }
 }
 
