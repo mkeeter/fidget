@@ -116,15 +116,6 @@ impl<const N: usize> From<VmData<N>> for GenericVmFunction<N> {
 }
 
 impl<const N: usize> GenericVmFunction<N> {
-    pub(crate) fn simplify_inner(
-        &self,
-        choices: &[Choice],
-        storage: VmData<N>,
-        workspace: &mut VmWorkspace<N>,
-    ) -> Result<Self, Error> {
-        let d = self.0.simplify(choices, workspace, storage)?;
-        Ok(Self(Arc::new(d)))
-    }
     /// Returns a characteristic size (the length of the inner assembly tape)
     pub fn size(&self) -> usize {
         self.0.len()
@@ -175,7 +166,8 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         storage: VmData<N>,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
-        self.simplify_inner(trace.as_slice(), storage, workspace)
+        let d = self.0.simplify(trace.as_slice(), workspace, storage)?;
+        Ok(Self(Arc::new(d)))
     }
 
     fn recycle(self) -> Option<Self::Storage> {

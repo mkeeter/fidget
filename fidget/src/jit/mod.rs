@@ -899,9 +899,7 @@ impl Function for JitFunction {
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
-        self.0
-            .simplify_inner(trace.as_slice(), storage, workspace)
-            .map(JitFunction)
+        self.0.simplify(trace, storage, workspace).map(JitFunction)
     }
 
     fn recycle(self) -> Option<Self::Storage> {
