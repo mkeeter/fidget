@@ -162,8 +162,8 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     type Trace = VmTrace;
     fn simplify(
         &self,
-        trace: &VmTrace,
-        storage: VmData<N>,
+        trace: &Self::Trace,
+        storage: Self::Storage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
         let d = self.0.simplify(trace.as_slice(), workspace, storage)?;
