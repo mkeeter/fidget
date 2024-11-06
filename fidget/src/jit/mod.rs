@@ -926,6 +926,24 @@ impl RenderHints for JitFunction {
     }
 }
 
+impl MathFunction for JitFunction {
+    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
+        GenericVmFunction::new(ctx, nodes).map(JitFunction)
+    }
+}
+
+impl From<GenericVmFunction<REGISTER_LIMIT>> for JitFunction {
+    fn from(v: GenericVmFunction<REGISTER_LIMIT>) -> Self {
+        Self(v)
+    }
+}
+
+impl<'a> From<&'a JitFunction> for &'a GenericVmFunction<REGISTER_LIMIT> {
+    fn from(v: &'a JitFunction) -> Self {
+        &v.0
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Selects the calling convention based on platform; this is forward-looking for
@@ -1275,12 +1293,6 @@ impl BulkEvaluator for JitGradSliceEval {
     ) -> Result<BulkOutput<Grad>, Error> {
         tape.vars().check_bulk_arguments(vars)?;
         Ok(self.0.eval(tape, vars))
-    }
-}
-
-impl MathFunction for JitFunction {
-    fn new(ctx: &Context, nodes: &[Node]) -> Result<Self, Error> {
-        GenericVmFunction::new(ctx, nodes).map(JitFunction)
     }
 }
 

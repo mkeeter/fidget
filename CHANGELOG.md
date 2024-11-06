@@ -1,3 +1,9 @@
+# 0.3.4 (unreleased)
+- Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
+  and pick a new register count for the resulting tape
+- Add bidirectional conversions between `JitFunction` and `GenericVmFunction`
+  (exposing the inner data member)
+
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
     - `MathFunction::new` now takes a slice of nodes, instead of a single node

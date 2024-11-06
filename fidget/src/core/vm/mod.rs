@@ -135,6 +135,17 @@ impl<const N: usize> GenericVmFunction<N> {
     pub fn choice_count(&self) -> usize {
         self.0.choice_count()
     }
+
+    /// Simplifies the function with the given trace and a new register count
+    pub fn simplify_with<const M: usize>(
+        &self,
+        trace: &VmTrace,
+        storage: VmData<M>,
+        workspace: &mut VmWorkspace<M>,
+    ) -> Result<GenericVmFunction<M>, Error> {
+        let d = self.0.simplify::<M>(trace.as_slice(), workspace, storage)?;
+        Ok(GenericVmFunction(Arc::new(d)))
+    }
 }
 
 impl<const N: usize> Function for GenericVmFunction<N> {
@@ -166,8 +177,7 @@ impl<const N: usize> Function for GenericVmFunction<N> {
         storage: Self::Storage,
         workspace: &mut Self::Workspace,
     ) -> Result<Self, Error> {
-        let d = self.0.simplify(trace.as_slice(), workspace, storage)?;
-        Ok(Self(Arc::new(d)))
+        self.simplify_with(trace, storage, workspace)
     }
 
     fn recycle(self) -> Option<Self::Storage> {
