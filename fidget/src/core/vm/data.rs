@@ -324,7 +324,11 @@ impl<const N: usize> VmData<N> {
     ///
     /// See [bytecode](crate::bytecode) for details on the format
     pub fn to_bytecode(&self) -> Bytecode {
-        self.asm.to_bytecode()
+        if N == u8::MAX as usize {
+            self.asm.to_bytecode()
+        } else {
+            RegTape::new::<{ u8::MAX as usize }>(&self.ssa).to_bytecode()
+        }
     }
 
     /// Pretty-prints the inner SSA tape

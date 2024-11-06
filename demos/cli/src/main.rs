@@ -267,36 +267,14 @@ fn run_wgpu<F: fidget::eval::MathFunction + fidget::shape::RenderHints>(
     brute: bool,
     sdf: bool,
 ) -> Vec<u8> {
-    let bytecode = shape.inner().to_bytecode();
-    assert_eq!(fidget::bytecode::VERSION, 1, "unexpected bytecode version");
-    assert_eq!(bytecode.mem_count, 0, "can't use Load / Store yet");
-
-    use zerocopy::{FromBytes, IntoBytes};
-
-    // Initialize wgpu
-    let instance = wgpu::Instance::default();
-    let (device, queue) = pollster::block_on(async {
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await
-            .expect("Failed to find an appropriate adapter");
-        adapter
-            .request_device(&wgpu::DeviceDescriptor::default(), None)
-            .await
-            .expect("Failed to create device")
-    });
-
-    let mut shader_code = String::new();
-    for (op, i) in fidget::bytecode::iter_ops() {
-        shader_code += &format!("const OP_{op}: u32 = {i};\n");
+    if brute {
+        run_wgpu_brute(shape, settings)
+    } else {
+        run_wgpu_smart(shape, settings)
     }
+}
 
-    // Compute shader code
-    shader_code += r#"
-@group(0) @binding(0) var<storage, read> vars: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> tape: array<u32>;
-@group(0) @binding(2) var<storage, read_write> result: array<f32>;
-
+const WGPU_SHADER_BASE: &str = r#"
 fn nan_f32() -> f32 {
     return bitcast<f32>(0x7FC00000);
 }
@@ -412,6 +390,44 @@ fn run_tape(start: u32, inputs: vec4<f32>) -> f32 {
     }
     return nan_f32(); // unknown opcode
 }
+"#;
+
+fn run_wgpu_brute<
+    F: fidget::eval::MathFunction + fidget::shape::RenderHints,
+>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let bytecode = shape.inner().to_bytecode();
+    assert_eq!(fidget::bytecode::VERSION, 1, "unexpected bytecode version");
+    assert_eq!(bytecode.mem_count, 0, "can't use Load / Store yet");
+
+    use zerocopy::{FromBytes, IntoBytes};
+
+    // Initialize wgpu
+    let instance = wgpu::Instance::default();
+    let (device, queue) = pollster::block_on(async {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("Failed to find an appropriate adapter");
+        adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .expect("Failed to create device")
+    });
+
+    let mut shader_code = String::new();
+    for (op, i) in fidget::bytecode::iter_ops() {
+        shader_code += &format!("const OP_{op}: u32 = {i};\n");
+    }
+
+    // Compute shader code
+    shader_code += WGPU_SHADER_BASE;
+    shader_code += r#"
+@group(0) @binding(0) var<storage, read> vars: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> tape: array<u32>;
+@group(0) @binding(2) var<storage, read_write> result: array<f32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -606,6 +622,321 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 }
             })
             .collect();
+
+        if pixel_count < 128 {
+            println!("Result: {:?}", result);
+        }
+
+        // Clean up
+        drop(data);
+        out_buffer.unmap();
+    }
+
+    image
+}
+
+fn run_wgpu_smart<
+    F: fidget::eval::MathFunction + fidget::shape::RenderHints,
+>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let bytecode = shape.inner().to_bytecode();
+    assert_eq!(fidget::bytecode::VERSION, 1, "unexpected bytecode version");
+    assert_eq!(bytecode.mem_count, 0, "can't use Load / Store yet");
+
+    use zerocopy::{FromBytes, Immutable, IntoBytes};
+
+    // Initialize wgpu
+    let instance = wgpu::Instance::default();
+    let (device, queue) = pollster::block_on(async {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("Failed to find an appropriate adapter");
+        adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .expect("Failed to create device")
+    });
+
+    let mut shader_code = String::new();
+    for (op, i) in fidget::bytecode::iter_ops() {
+        shader_code += &format!("const OP_{op}: u32 = {i};\n");
+    }
+
+    // Square tiles
+    #[derive(Debug, IntoBytes, Immutable)]
+    #[repr(C)]
+    struct Tile {
+        corner: [u32; 2],
+        start: u32,
+        _padding: u32,
+    }
+
+    #[derive(Debug, IntoBytes, Immutable)]
+    #[repr(C)]
+    struct Config {
+        window_size: u32,
+        tile_size: u32,
+    }
+
+    // Compute shader code
+    shader_code += WGPU_SHADER_BASE;
+    shader_code += r#"
+struct Tile {
+    corner: vec2<u32>,
+    start: u32,
+    _padding: u32,
+}
+
+struct Window {
+    size: u32,
+    padding: vec3<u32>,
+}
+
+struct Config {
+    window_size: u32,
+    tile_size: u32,
+}
+
+@group(0) @binding(0) var<uniform> config: Config;
+@group(0) @binding(1) var<storage, read> tiles: array<Tile>;
+@group(0) @binding(2) var<storage, read> tape: array<u32>;
+@group(0) @binding(3) var<storage, read_write> result: array<u32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let pos_idx = id.xy;
+    let tile_idx = id.z;
+    if (tile_idx < arrayLength(&tiles)) {
+        let tile = tiles[tile_idx];
+        if (pos_idx.x < config.tile_size && pos_idx.y < config.tile_size) {
+            // Absolute pixel position
+            let pos_pixels = tile.corner + pos_idx;
+            // Relative pixel position (±1)
+            let pos_frac = 2.0 * vec2<f32>(pos_pixels - config.window_size / 2)
+                / f32(config.window_size);
+
+            let v = vec4<f32>(pos_frac, 0.0, 0.0);
+            var p = 0u;
+            if (run_tape(tile.start, v) < 0.0) {
+                p = 0xFFFFFFFFu;
+            } else {
+                p = 0xFF000000u;
+            };
+
+            // Write to absolute position in the image
+            result[pos_pixels.x + pos_pixels.y * config.window_size] = 0xFFFFFFFFu;
+        }
+    }
+}
+    "#;
+
+    // Compile the shader
+    let shader_module =
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+        });
+
+    let pixel_count = settings.size.pow(2) as usize;
+
+    const TILE_SIZE: u32 = 32;
+    let tile_count = (settings.size / TILE_SIZE).pow(2);
+
+    // Create buffers for the input and output data
+    let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("config"),
+        size: std::mem::size_of::<Config>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let tiles_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("tiles"),
+        size: (tile_count as usize * std::mem::size_of::<Tile>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false, // XXX?
+    });
+    let tape_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("tape"),
+        size: (bytecode.len() * std::mem::size_of::<u32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let result_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("result"),
+        size: (pixel_count * std::mem::size_of::<u32>()) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("out"),
+        size: (pixel_count * std::mem::size_of::<u32>()) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    // Create bind group layout and bind group
+    let bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: true,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: true,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: false,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: config_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: tiles_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: tape_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: result_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    // Create the compute pipeline
+    let pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+    let compute_pipeline =
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+    // Send over our image pixels
+    // (TODO: generate this in the shader instead?)
+    let mut image = vec![];
+    for _i in 0..settings.n {
+        let mut tiles = Vec::with_capacity(tile_count as usize);
+        for x in (0..settings.size).step_by(TILE_SIZE as usize) {
+            for y in (0..settings.size).step_by(TILE_SIZE as usize) {
+                tiles.push(Tile {
+                    corner: [x, y],
+                    start: 0,
+                    _padding: 0,
+                });
+            }
+        }
+        let config = Config {
+            window_size: settings.size,
+            tile_size: TILE_SIZE,
+        };
+        queue.write_buffer(&config_buf, 0, config.as_bytes());
+        queue.write_buffer(&tiles_buf, 0, tiles.as_bytes());
+        queue.write_buffer(&tape_buffer, 0, bytecode.as_bytes());
+
+        // Create a command encoder and dispatch the compute work
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: None,
+            });
+
+        {
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None,
+                });
+            compute_pass.set_pipeline(&compute_pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(
+                TILE_SIZE,
+                TILE_SIZE,
+                tile_count.div_ceil(64),
+            );
+        }
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            &result_buffer,
+            0,
+            &out_buffer,
+            0,
+            (pixel_count * std::mem::size_of::<f32>()) as u64,
+        );
+
+        // Submit the commands and wait for the GPU to complete
+        queue.submit(Some(encoder.finish()));
+
+        println!("{tiles:?}");
+        // Map result buffer and read back the data
+        let buffer_slice = out_buffer.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        device.poll(wgpu::Maintain::Wait);
+
+        let data = buffer_slice.get_mapped_range();
+        let result = <[u32]>::ref_from_bytes(&data).unwrap();
+
+        image = result.iter().flat_map(|a| a.to_le_bytes()).collect();
 
         if pixel_count < 128 {
             println!("Result: {:?}", result);
