@@ -121,12 +121,12 @@ impl<const N: usize> VmData<N> {
     ///
     /// To minimize allocations, this function takes a [`VmWorkspace`] and
     /// spare [`VmData`]; it will reuse those allocations.
-    pub fn simplify(
+    pub fn simplify<const M: usize>(
         &self,
         choices: &[Choice],
-        workspace: &mut VmWorkspace<N>,
-        mut tape: VmData<N>,
-    ) -> Result<Self, Error> {
+        workspace: &mut VmWorkspace<M>,
+        mut tape: VmData<M>,
+    ) -> Result<VmData<M>, Error> {
         if choices.len() != self.choice_count() {
             return Err(Error::BadChoiceSlice(
                 choices.len(),
@@ -385,5 +385,34 @@ impl<const N: usize> VmWorkspace<N> {
         self.bind.fill(u32::MAX);
         self.bind.resize(tape_len, u32::MAX);
         self.count = 0;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn simplify_reg_count_change() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        let xy = ctx.add(x, y).unwrap();
+        let xyz = ctx.add(xy, z).unwrap();
+
+        let data = VmData::<3>::new(&ctx, &[xyz]).unwrap();
+        assert_eq!(data.len(), 6); // 3x input, 2x add, 1x output
+        let next = data
+            .simplify::<2>(&[], &mut Default::default(), Default::default())
+            .unwrap();
+        assert_eq!(next.len(), 8); // extra load + store
+
+        let data = VmData::<2>::new(&ctx, &[xyz]).unwrap();
+        assert_eq!(data.len(), 8);
+        let next = data
+            .simplify::<3>(&[], &mut Default::default(), Default::default())
+            .unwrap();
+        assert_eq!(next.len(), 6);
     }
 }
