@@ -938,9 +938,9 @@ impl From<GenericVmFunction<REGISTER_LIMIT>> for JitFunction {
     }
 }
 
-impl From<JitFunction> for GenericVmFunction<REGISTER_LIMIT> {
-    fn from(v: JitFunction) -> Self {
-        v.0.clone()
+impl<'a> From<&'a JitFunction> for &'a GenericVmFunction<REGISTER_LIMIT> {
+    fn from(v: &'a JitFunction) -> Self {
+        &v.0
     }
 }
 
