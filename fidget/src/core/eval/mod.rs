@@ -3,6 +3,7 @@ use crate::{
     context::{Context, Node},
     types::{Grad, Interval},
     var::VarMap,
+    vm::GenericVmFunction,
     Error,
 };
 
