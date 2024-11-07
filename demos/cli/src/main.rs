@@ -749,9 +749,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let pixel_count = settings.size.pow(2) as usize;
 
-    const TILE_SIZE: u32 = 32;
-    let tile_count = (settings.size / TILE_SIZE).pow(2);
-
     // Create buffers for the input and output data
     let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("config"),
@@ -845,8 +842,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         });
 
     let mut image = vec![];
+
     for _i in 0..settings.n {
-        let mut tiles = Vec::with_capacity(tile_count as usize);
+        const TILE_SIZE: u32 = 32;
+        let mut tiles = vec![];
         for x in (0..settings.size).step_by(TILE_SIZE as usize) {
             for y in (0..settings.size).step_by(TILE_SIZE as usize) {
                 tiles.push(Tile {
@@ -868,6 +867,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let mut new_tiles = vec![];
         let mut storage = None;
         let mut workspace = Default::default();
+
         for t in tiles {
             let x = 2.0 * (t.corner[0] as f32 - settings.size as f32 / 2.0)
                 / (settings.size as f32);
@@ -973,7 +973,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             compute_pass.dispatch_workgroups(
                 TILE_SIZE.div_ceil(64),
                 TILE_SIZE,
-                tile_count,
+                new_tiles.len() as u32,
             );
         }
 
