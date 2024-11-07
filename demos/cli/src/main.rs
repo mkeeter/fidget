@@ -641,9 +641,13 @@ fn run_wgpu_smart<
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
 ) -> Vec<u8> {
-    let bytecode = shape.inner().to_bytecode();
+    use fidget::shape::EzShape;
+
+    // XXX should bytecode be from the tape instead?
+    // Or should vars be accessible from the shape?
+    let tape = shape.ez_point_tape();
+
     assert_eq!(fidget::bytecode::VERSION, 1, "unexpected bytecode version");
-    assert_eq!(bytecode.mem_count, 0, "can't use Load / Store yet");
 
     use zerocopy::{FromBytes, Immutable, IntoBytes};
 
@@ -679,6 +683,10 @@ fn run_wgpu_smart<
     struct Config {
         window_size: u32,
         tile_size: u32,
+        _padding: [u32; 2],
+        /// Input index of X, Y, Z axes
+        axes: [u32; 3],
+        _ugh: u32,
     }
 
     // Compute shader code
@@ -687,17 +695,13 @@ fn run_wgpu_smart<
 struct Tile {
     corner: vec2<u32>,
     start: u32,
-    _padding: u32,
-}
-
-struct Window {
-    size: u32,
-    padding: vec3<u32>,
 }
 
 struct Config {
     window_size: u32,
     tile_size: u32,
+    _padding: vec2<u32>,
+    axes: vec3<u32>,
 }
 
 @group(0) @binding(0) var<uniform> config: Config;
@@ -714,11 +718,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (pos_idx.x < config.tile_size && pos_idx.y < config.tile_size) {
             // Absolute pixel position
             let pos_pixels = tile.corner + pos_idx;
+
             // Relative pixel position (±1)
-            let pos_frac = 2.0 * vec2<f32>(pos_pixels - config.window_size / 2)
+            let pos_frac = vec2<f32>(2.0, -2.0) * (vec2<f32>(pos_pixels) - vec2<f32>(config.window_size / 2))
                 / f32(config.window_size);
 
-            let v = vec4<f32>(pos_frac, 0.0, 0.0);
+            var v = vec4<f32>(0.0);
+            v[config.axes.x] = pos_frac.x;
+            v[config.axes.y] = pos_frac.y;
             var p = 0u;
             if (run_tape(tile.start, v) < 0.0) {
                 p = 0xFFFFFFFFu;
@@ -727,7 +734,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             };
 
             // Write to absolute position in the image
-            result[pos_pixels.x + pos_pixels.y * config.window_size] = 0xFFFFFFFFu;
+            result[pos_pixels.x + pos_pixels.y * config.window_size] = p;
         }
     }
 }
@@ -750,18 +757,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         label: Some("config"),
         size: std::mem::size_of::<Config>() as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let tiles_buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("tiles"),
-        size: (tile_count as usize * std::mem::size_of::<Tile>()) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false, // XXX?
-    });
-    let tape_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("tape"),
-        size: (bytecode.len() * std::mem::size_of::<u32>()) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     let result_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -831,29 +826,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             ],
         });
 
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: config_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: tiles_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: tape_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: result_buffer.as_entire_binding(),
-            },
-        ],
-    });
-
     // Create the compute pipeline
     let pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -872,8 +844,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             cache: None,
         });
 
-    // Send over our image pixels
-    // (TODO: generate this in the shader instead?)
     let mut image = vec![];
     for _i in 0..settings.n {
         let mut tiles = Vec::with_capacity(tile_count as usize);
@@ -886,12 +856,104 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 });
             }
         }
+
+        let tape_i = shape.ez_interval_tape();
+        let mut eval_i = fidget::shape::Shape::<F>::new_interval_eval();
+
+        // Address 0 in bytecode is the full tape
+        let bytecode = shape.inner().to_bytecode();
+        assert_eq!(bytecode.mem_count, 0, "can't use Load / Store yet");
+        let mut bytecode = bytecode.data;
+
+        let mut new_tiles = vec![];
+        let mut storage = None;
+        let mut workspace = Default::default();
+        for t in tiles {
+            let x = 2.0 * (t.corner[0] as f32 - settings.size as f32 / 2.0)
+                / (settings.size as f32);
+            let y = -2.0 * (t.corner[1] as f32 - settings.size as f32 / 2.0)
+                / (settings.size as f32);
+
+            let x = fidget::types::Interval::new(
+                x,
+                x + TILE_SIZE as f32 / settings.size as f32 * 2.0,
+            );
+            let y = fidget::types::Interval::new(
+                y - TILE_SIZE as f32 / settings.size as f32 * 2.0,
+                y,
+            );
+
+            let (out, trace) = eval_i.eval(&tape_i, x, y, 0.0.into()).unwrap();
+            if out.lower() > 0.0 || out.upper() < 0.0 {
+                // skip
+            } else if let Some(trace) = trace {
+                let simplified = shape
+                    .simplify(
+                        trace,
+                        storage.take().unwrap_or_default(),
+                        &mut workspace,
+                    )
+                    .unwrap();
+                let start = bytecode.len() as u32;
+                let b = simplified.inner().to_bytecode();
+                assert_eq!(b.mem_count, 0, "can't use Load / Store yet");
+                bytecode.extend(b.data.into_iter());
+                new_tiles.push(Tile { start, ..t });
+                storage = simplified.recycle();
+            } else {
+                new_tiles.push(t);
+            }
+        }
+
         let config = Config {
             window_size: settings.size,
             tile_size: TILE_SIZE,
+            axes: shape
+                .axes()
+                .map(|a| tape.vars().get(&a).unwrap_or(0) as u32),
+            _padding: [0; 2],
+            _ugh: 0,
         };
+
+        let tiles_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tiles"),
+            size: (new_tiles.len() * std::mem::size_of::<Tile>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false, // XXX?
+        });
+
+        let tape_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape"),
+            size: (bytecode.len() * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: config_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: tiles_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: tape_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: result_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         queue.write_buffer(&config_buf, 0, config.as_bytes());
-        queue.write_buffer(&tiles_buf, 0, tiles.as_bytes());
+        queue.write_buffer(&tiles_buf, 0, new_tiles.as_bytes());
         queue.write_buffer(&tape_buffer, 0, bytecode.as_bytes());
 
         // Create a command encoder and dispatch the compute work
@@ -909,9 +971,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             compute_pass.set_pipeline(&compute_pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch_workgroups(
+                TILE_SIZE.div_ceil(64),
                 TILE_SIZE,
-                TILE_SIZE,
-                tile_count.div_ceil(64),
+                tile_count,
             );
         }
 
@@ -927,7 +989,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         // Submit the commands and wait for the GPU to complete
         queue.submit(Some(encoder.finish()));
 
-        println!("{tiles:?}");
         // Map result buffer and read back the data
         let buffer_slice = out_buffer.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
