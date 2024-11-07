@@ -760,26 +760,38 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let tile_idx = id.z;
     if (tile_idx < arrayLength(&tiles)) {
         let tile = tiles[tile_idx];
-        if (pos_idx.x < config.tile_size && pos_idx.y < config.tile_size) {
+        if (pos_idx.x + 3 < config.tile_size && pos_idx.y < config.tile_size) {
+            var m = mat4x4<f32>(
+                vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0)
+            );
             // Absolute pixel position
             let pos_pixels = tile.corner + pos_idx;
 
-            // Relative pixel position (±1)
-            let pos_frac = vec2<f32>(2.0, -2.0) * (vec2<f32>(pos_pixels) - vec2<f32>(config.window_size / 2))
-                / f32(config.window_size);
+            for (var i=0u; i < 4; i += 1u) {
+                let subpos = pos_pixels + vec2<u32>(i, 0);
 
-            var v = vec4<f32>(0.0);
-            v[config.axes.x] = pos_frac.x;
-            v[config.axes.y] = pos_frac.y;
-            var p = 0u;
-            if (run_tape(tile.start, v) < 0.0) {
-                p = 0xFFFFFFFFu;
-            } else {
-                p = 0xFF000000u;
-            };
+                // Relative pixel position (±1)
+                let pos_frac = vec2<f32>(2.0, -2.0) * (vec2<f32>(subpos) - vec2<f32>(config.window_size / 2))
+                    / f32(config.window_size);
 
-            // Write to absolute position in the image
-            result[pos_pixels.x + pos_pixels.y * config.window_size] = p;
+                var v = vec4<f32>(0.0);
+                v[config.axes.x] = pos_frac.x;
+                v[config.axes.y] = pos_frac.y;
+                m[i] = v;
+            }
+
+            let out = run_tape(tile.start, m);
+            for (var i=0u; i < 4; i += 1u) {
+                var p = 0u;
+                if (out[i] < 0.0) {
+                    p = 0xFFFFFFFFu;
+                } else {
+                    p = 0xFF000000u;
+                };
+
+                // Write to absolute position in the image
+                result[pos_pixels.x + i + pos_pixels.y * config.window_size] = p;
+            }
         }
     }
 }
@@ -889,7 +901,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let mut image = vec![];
 
     for _i in 0..settings.n {
-        const TILE_SIZE: u32 = 32;
+        const TILE_SIZE: u32 = 16;
         let mut tiles = vec![];
         for x in (0..settings.size).step_by(TILE_SIZE as usize) {
             for y in (0..settings.size).step_by(TILE_SIZE as usize) {
