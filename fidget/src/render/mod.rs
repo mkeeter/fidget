@@ -158,7 +158,7 @@ impl<F: Function> RenderHandle<F> {
                 &mut self.next.as_mut().unwrap().1
             }
         } else {
-            return &mut self.next.as_mut().unwrap().1;
+            &mut self.next.as_mut().unwrap().1
         }
     }
 
