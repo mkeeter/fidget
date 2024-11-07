@@ -265,7 +265,7 @@ fn run_wgpu<F: fidget::eval::MathFunction + fidget::shape::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
-    sdf: bool,
+    _sdf: bool,
 ) -> Vec<u8> {
     if brute {
         run_wgpu_brute(shape, settings)
@@ -291,6 +291,14 @@ fn compare_f32(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
+fn compare_f32x4(lhs: vec4<f32>, rhs: vec4<f32>) -> vec4<f32> {
+    var out = vec4<f32>(0.0);
+    for (var i=0; i < 4; i += 1) {
+        out[i] = compare_f32(lhs[i], rhs[i]);
+    }
+    return out;
+}
+
 fn and_f32(lhs: f32, rhs: f32) -> f32 {
     if lhs == 0.0 {
         return rhs;
@@ -307,15 +315,43 @@ fn or_f32(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn read_imm_f32(i: ptr<function, u32>) -> f32 {
-    let imm = bitcast<f32>(tape[*i]);
-    *i = *i + 1;
-    return imm;
+fn not_f32(lhs: f32) -> f32 {
+    return f32(lhs != 0.0);
 }
 
-fn run_tape(start: u32, inputs: vec4<f32>) -> f32 {
+fn or_f32x4(lhs: vec4<f32>, rhs: vec4<f32>) -> vec4<f32> {
+    var out = vec4<f32>(0.0);
+    for (var i=0; i < 4; i += 1) {
+        out[i] = or_f32(lhs[i], rhs[i]);
+    }
+    return out;
+}
+
+fn and_f32x4(lhs: vec4<f32>, rhs: vec4<f32>) -> vec4<f32> {
+    var out = vec4<f32>(0.0);
+    for (var i=0; i < 4; i += 1) {
+        out[i] = and_f32(lhs[i], rhs[i]);
+    }
+    return out;
+}
+
+fn not_f32x4(lhs: vec4<f32>) -> vec4<f32> {
+    var out = vec4<f32>(0.0);
+    for (var i=0; i < 4; i += 1) {
+        out[i] = not_f32(lhs[i]);
+    }
+    return out;
+}
+
+fn read_imm_f32x4(i: ptr<function, u32>) -> vec4<f32> {
+    let imm = bitcast<f32>(tape[*i]);
+    *i = *i + 1;
+    return vec4<f32>(imm);
+}
+
+fn run_tape(start: u32, inputs: mat4x4<f32>) -> vec4<f32> {
     var i: u32 = start;
-    var reg: array<f32, 256>;
+    var reg: array<vec4<f32>, 256>;
     while (true) {
         let op = unpack4xU8(tape[i]);
         i = i + 1;
@@ -323,16 +359,16 @@ fn run_tape(start: u32, inputs: vec4<f32>) -> f32 {
             case OP_Output: {
                 // XXX we're not actually writing to an output slot here
                 let imm = tape[i];
-                i = i + 1; 
+                i = i + 1;
                 return reg[op[1]];
             }
             case OP_Input: {
                 let imm = tape[i];
                 i = i + 1;
-                reg[op[1]] = inputs[imm];
+                reg[op[1]] = transpose(inputs)[imm];
             }
             case OP_CopyReg:    { reg[op[1]] = reg[op[2]]; }
-            case OP_CopyImm:    { reg[op[1]] = read_imm_f32(&i); }
+            case OP_CopyImm:    { reg[op[1]] = read_imm_f32x4(&i); }
             case OP_NegReg:     { reg[op[1]] = -reg[op[2]]; }
             case OP_AbsReg:     { reg[op[1]] = abs(reg[op[2]]); }
             case OP_RecipReg:   { reg[op[1]] = 1.0 / reg[op[2]]; }
@@ -352,25 +388,25 @@ fn run_tape(start: u32, inputs: vec4<f32>) -> f32 {
             case OP_AtanReg:    { reg[op[1]] = atan(reg[op[2]]); }
             case OP_ExpReg:     { reg[op[1]] = exp(reg[op[2]]); }
             case OP_LnReg:      { reg[op[1]] = log(reg[op[2]]); }
-            case OP_NotReg:     { reg[op[1]] = f32(reg[op[2]] == 0.0); }
-            case OP_AddRegImm:  { reg[op[1]] = reg[op[2]] + read_imm_f32(&i); }
-            case OP_MulRegImm:  { reg[op[1]] = reg[op[2]] * read_imm_f32(&i); }
-            case OP_DivRegImm:  { reg[op[1]] = reg[op[2]] / read_imm_f32(&i); }
-            case OP_SubRegImm:  { reg[op[1]] = reg[op[2]] - read_imm_f32(&i); }
-            case OP_ModRegImm:  { reg[op[1]] = reg[op[2]] % read_imm_f32(&i); }
-            case OP_AtanRegImm: { reg[op[1]] = atan2(reg[op[2]], read_imm_f32(&i)); }
-            case OP_CompareRegImm:  { reg[op[1]] = compare_f32(reg[op[2]], read_imm_f32(&i)); }
+            case OP_NotReg:     { reg[op[1]] = not_f32x4(reg[op[2]]); }
+            case OP_AddRegImm:  { reg[op[1]] = reg[op[2]] + read_imm_f32x4(&i); }
+            case OP_MulRegImm:  { reg[op[1]] = reg[op[2]] * read_imm_f32x4(&i); }
+            case OP_DivRegImm:  { reg[op[1]] = reg[op[2]] / read_imm_f32x4(&i); }
+            case OP_SubRegImm:  { reg[op[1]] = reg[op[2]] - read_imm_f32x4(&i); }
+            case OP_ModRegImm:  { reg[op[1]] = reg[op[2]] % read_imm_f32x4(&i); }
+            case OP_AtanRegImm: { reg[op[1]] = atan2(reg[op[2]], read_imm_f32x4(&i)); }
+            case OP_CompareRegImm:  { reg[op[1]] = compare_f32x4(reg[op[2]], read_imm_f32x4(&i)); }
 
-            case OP_DivImmReg:      { reg[op[1]] = read_imm_f32(&i) / reg[op[2]]; }
-            case OP_SubImmReg:      { reg[op[1]] = read_imm_f32(&i) - reg[op[2]]; }
-            case OP_ModImmReg:      { reg[op[1]] = read_imm_f32(&i) % reg[op[2]]; }
-            case OP_AtanImmReg:     { reg[op[1]] = atan2(read_imm_f32(&i), reg[op[2]]); }
-            case OP_CompareImmReg:  { reg[op[1]] = compare_f32(read_imm_f32(&i), reg[op[2]]); }
+            case OP_DivImmReg:      { reg[op[1]] = read_imm_f32x4(&i) / reg[op[2]]; }
+            case OP_SubImmReg:      { reg[op[1]] = read_imm_f32x4(&i) - reg[op[2]]; }
+            case OP_ModImmReg:      { reg[op[1]] = read_imm_f32x4(&i) % reg[op[2]]; }
+            case OP_AtanImmReg:     { reg[op[1]] = atan2(read_imm_f32x4(&i), reg[op[2]]); }
+            case OP_CompareImmReg:  { reg[op[1]] = compare_f32x4(read_imm_f32x4(&i), reg[op[2]]); }
 
-            case OP_MinRegImm:  { reg[op[1]] = min(reg[op[2]], read_imm_f32(&i)); }
-            case OP_MaxRegImm:  { reg[op[1]] = max(reg[op[2]], read_imm_f32(&i)); }
-            case OP_AndRegImm:  { reg[op[1]] = and_f32(reg[op[2]], read_imm_f32(&i)); }
-            case OP_OrRegImm:   { reg[op[1]] = or_f32(reg[op[2]], read_imm_f32(&i)); }
+            case OP_MinRegImm:  { reg[op[1]] = min(reg[op[2]], read_imm_f32x4(&i)); }
+            case OP_MaxRegImm:  { reg[op[1]] = max(reg[op[2]], read_imm_f32x4(&i)); }
+            case OP_AndRegImm:  { reg[op[1]] = and_f32x4(reg[op[2]], read_imm_f32x4(&i)); }
+            case OP_OrRegImm:   { reg[op[1]] = or_f32x4(reg[op[2]], read_imm_f32x4(&i)); }
 
             case OP_AddRegReg:      { reg[op[1]] = reg[op[2]] + reg[op[3]]; }
             case OP_MulRegReg:      { reg[op[1]] = reg[op[2]] * reg[op[3]]; }
@@ -381,14 +417,14 @@ fn run_tape(start: u32, inputs: vec4<f32>) -> f32 {
 
             case OP_MinRegReg:      { reg[op[1]] = min(reg[op[2]], reg[op[3]]); }
             case OP_MaxRegReg:      { reg[op[1]] = max(reg[op[2]], reg[op[3]]); }
-            case OP_AndRegReg:      { reg[op[1]] = and_f32(reg[op[2]], reg[op[3]]); }
-            case OP_OrRegReg:       { reg[op[1]] = or_f32(reg[op[2]], reg[op[3]]); }
+            case OP_AndRegReg:      { reg[op[1]] = and_f32x4(reg[op[2]], reg[op[3]]); }
+            case OP_OrRegReg:       { reg[op[1]] = or_f32x4(reg[op[2]], reg[op[3]]); }
             default: {
                 break;
             }
         }
     }
-    return nan_f32(); // unknown opcode
+    return vec4<f32>(nan_f32()); // unknown opcode
 }
 "#;
 
@@ -432,8 +468,17 @@ fn run_wgpu_brute<
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let idx = id.x;
-    if (idx < arrayLength(&vars)) {
-        result[idx] = run_tape(0u, vars[idx]);
+    if (idx * 4 + 3 < arrayLength(&vars)) {
+        let vs = mat4x4<f32>(
+            vars[idx * 4],
+            vars[idx * 4 + 1],
+            vars[idx * 4 + 2],
+            vars[idx * 4 + 3]
+        );
+        let out = run_tape(0u, vs);
+        for (var i=0u; i < 4; i += 1u) {
+            result[idx * 4 + i] = out[i];
+        }
     }
 }
     "#;
@@ -586,7 +631,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             compute_pass.set_pipeline(&compute_pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch_workgroups(
-                (pixel_count as u32 + 63) / 64,
+                (pixel_count as u32 + 63) / 64 / 4,
                 1,
                 1,
             );
