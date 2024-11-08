@@ -908,7 +908,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let mut time_wgpu = std::time::Duration::ZERO;
 
     for _i in 0..settings.n {
-        const TILE_SIZE: u32 = 64;
+        const TILE_SIZE: u32 = 128;
         let mut tiles = vec![];
         for x in (0..settings.size).step_by(TILE_SIZE as usize) {
             for y in (0..settings.size).step_by(TILE_SIZE as usize) {
@@ -1037,12 +1037,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 });
             compute_pass.set_pipeline(&compute_pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
-            compute_pass.dispatch_workgroups(
-                // total work = tile pixels / (workgroup size * SIMD width)
-                (TILE_SIZE.pow(2) * new_tiles.len() as u32).div_ceil(64 * 4),
-                1,
-                1,
-            );
+
+            // total work = tile pixels / (workgroup size * SIMD width)
+            let dispatch_size =
+                (TILE_SIZE.pow(2) * new_tiles.len() as u32).div_ceil(64 * 4);
+            compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
