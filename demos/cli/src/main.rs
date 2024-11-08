@@ -756,22 +756,25 @@ struct Config {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let pos_idx = id.xy;
-    let tile_idx = id.z;
+    let tile_idx = id.x / (config.tile_size / 4 * config.tile_size);
+
+    // Position within the tile
+    let pos_x = 4 * (id.x % (config.tile_size / 4)); // 4x SIMD
+    let pos_y = (id.x / (config.tile_size / 4)) % config.tile_size;
+
     if (tile_idx < arrayLength(&tiles)) {
         let tile = tiles[tile_idx];
-        if (pos_idx.x + 3 < config.tile_size && pos_idx.y < config.tile_size) {
+        if (pos_x < config.tile_size && pos_y < config.tile_size) {
             var m = mat4x4<f32>(
                 vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0)
             );
-            // Absolute pixel position
-            let pos_pixels = tile.corner + pos_idx;
 
             for (var i=0u; i < 4; i += 1u) {
-                let subpos = pos_pixels + vec2<u32>(i, 0);
+                // Absolute pixel position
+                let pos_pixels = tile.corner + vec2(pos_x + i, pos_y);
 
                 // Relative pixel position (±1)
-                let pos_frac = vec2<f32>(2.0, -2.0) * (vec2<f32>(subpos) - vec2<f32>(config.window_size / 2))
+                let pos_frac = vec2<f32>(2.0, -2.0) * (vec2<f32>(pos_pixels) - vec2<f32>(config.window_size / 2))
                     / f32(config.window_size);
 
                 var v = vec4<f32>(0.0);
@@ -790,7 +793,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 };
 
                 // Write to absolute position in the image
-                result[pos_pixels.x + i + pos_pixels.y * config.window_size] = p;
+                let pos_pixels = tile.corner + vec2(pos_x + i, pos_y);
+                result[pos_pixels.x + pos_pixels.y * config.window_size] = p;
             }
         }
     }
@@ -900,8 +904,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let mut image = vec![];
 
+    let mut time_interval = std::time::Duration::ZERO;
+    let mut time_wgpu = std::time::Duration::ZERO;
+
     for _i in 0..settings.n {
-        const TILE_SIZE: u32 = 16;
+        const TILE_SIZE: u32 = 64;
         let mut tiles = vec![];
         for x in (0..settings.size).step_by(TILE_SIZE as usize) {
             for y in (0..settings.size).step_by(TILE_SIZE as usize) {
@@ -925,6 +932,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let mut storage = None;
         let mut workspace = Default::default();
 
+        let start = std::time::Instant::now();
         for t in tiles {
             let x = 2.0 * (t.corner[0] as f32 - settings.size as f32 / 2.0)
                 / (settings.size as f32);
@@ -961,7 +969,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 new_tiles.push(t);
             }
         }
+        time_interval += start.elapsed();
 
+        let start = std::time::Instant::now();
         let config = Config {
             window_size: settings.size,
             tile_size: TILE_SIZE,
@@ -1028,9 +1038,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             compute_pass.set_pipeline(&compute_pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch_workgroups(
-                TILE_SIZE.div_ceil(64),
-                TILE_SIZE,
-                new_tiles.len() as u32,
+                // total work = tile pixels / (workgroup size * SIMD width)
+                (TILE_SIZE.pow(2) * new_tiles.len() as u32).div_ceil(64 * 4),
+                1,
+                1,
             );
         }
 
@@ -1054,6 +1065,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let data = buffer_slice.get_mapped_range();
         let result = <[u32]>::ref_from_bytes(&data).unwrap();
 
+        time_wgpu += start.elapsed();
+
         image = result.iter().flat_map(|a| a.to_le_bytes()).collect();
 
         if pixel_count < 128 {
@@ -1064,6 +1077,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         drop(data);
         out_buffer.unmap();
     }
+    println!("interval time: {:?}", time_interval / settings.n as u32);
+    println!("wgpu time:     {:?}", time_wgpu / settings.n as u32);
 
     image
 }
