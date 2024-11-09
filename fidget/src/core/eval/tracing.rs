@@ -47,10 +47,13 @@ pub trait TracingEvaluator: Default {
         &mut self,
         tape: &Self::Tape,
         vars: &[Self::Data],
-    ) -> Result<(&[Self::Data], Option<&Self::Trace>), Error>;
+    ) -> Result<TracingResult<Self::Data, Self::Trace>, Error>;
 
     /// Build a new empty evaluator
     fn new() -> Self {
         Self::default()
     }
 }
+
+/// Tuple of tracing evaluation result
+type TracingResult<'a, Data, Trace> = (&'a [Data], Option<&'a Trace>);
