@@ -850,7 +850,12 @@ impl JitFunction {
             vars: self.0.data().vars.clone(),
             choice_count: self.0.choice_count(),
             output_count: self.0.output_count(),
-            fn_trace: unsafe { std::mem::transmute(ptr) },
+            fn_trace: unsafe {
+                std::mem::transmute::<
+                    *const std::ffi::c_void,
+                    JitTracingFnPointer<A::Data>,
+                >(ptr)
+            },
         }
     }
     fn bulk_tape<A: Assembler>(&self, storage: Mmap) -> JitBulkFn<A::Data> {
@@ -860,7 +865,12 @@ impl JitFunction {
             mmap: f,
             output_count: self.0.output_count(),
             vars: self.0.data().vars.clone(),
-            fn_bulk: unsafe { std::mem::transmute(ptr) },
+            fn_bulk: unsafe {
+                std::mem::transmute::<
+                    *const std::ffi::c_void,
+                    JitBulkFnPointer<A::Data>,
+                >(ptr)
+            },
         }
     }
 }
@@ -989,6 +999,16 @@ impl<T> Default for JitTracingEval<T> {
     }
 }
 
+/// Typedef for a tracing function pointer
+pub type JitTracingFnPointer<T> = jit_fn!(
+    unsafe fn(
+        *const T, // vars
+        *mut u8,  // choices
+        *mut u8,  // simplify (single boolean)
+        *mut T,   // output (array)
+    )
+);
+
 /// Handle to an owned function pointer for tracing evaluation
 pub struct JitTracingFn<T> {
     #[allow(unused)]
@@ -996,14 +1016,7 @@ pub struct JitTracingFn<T> {
     choice_count: usize,
     output_count: usize,
     vars: Arc<VarMap>,
-    fn_trace: jit_fn!(
-        unsafe fn(
-            *const T, // vars
-            *mut u8,  // choices
-            *mut u8,  // simplify (single boolean)
-            *mut T,   // output (array)
-        )
-    ),
+    fn_trace: JitTracingFnPointer<T>,
 }
 
 impl<T> Tape for JitTracingFn<T> {
@@ -1098,19 +1111,22 @@ impl TracingEvaluator for JitPointEval {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Typedef for a bulk function pointer
+pub type JitBulkFnPointer<T> = jit_fn!(
+    unsafe fn(
+        *const *const T, // vars
+        *const *mut T,   // out
+        u64,             // size
+    )
+);
+
 /// Handle to an owned function pointer for bulk evaluation
 pub struct JitBulkFn<T> {
     #[allow(unused)]
     mmap: Mmap,
     vars: Arc<VarMap>,
     output_count: usize,
-    fn_bulk: jit_fn!(
-        unsafe fn(
-            *const *const T, // vars
-            *const *mut T,   // out
-            u64,             // size
-        )
-    ),
+    fn_bulk: JitBulkFnPointer<T>,
 }
 
 impl<T> Tape for JitBulkFn<T> {
