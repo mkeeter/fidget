@@ -5,7 +5,7 @@ use windows::Win32::System::Memory::{
 };
 
 pub struct Mmap {
-    ptr: *mut libc::c_void,
+    ptr: *mut std::ffi::c_void,
     len: usize,
 }
 
@@ -21,7 +21,7 @@ impl Default for Mmap {
 impl Mmap {
     pub fn empty() -> Self {
         Self {
-            ptr: std::ptr::null_mut::<libc::c_void>(),
+            ptr: std::ptr::null_mut::<std::ffi::c_void>(),
             len: 0,
         }
     }
@@ -101,7 +101,7 @@ impl Mmap {
     }
 
     /// Returns the inner pointer
-    pub fn as_ptr(&self) -> *mut libc::c_void {
+    pub fn as_ptr(&self) -> *const std::ffi::c_void {
         self.ptr
     }
 }
@@ -253,7 +253,7 @@ mod macos {
 
     #[link(name = "pthread")]
     extern "C" {
-        pub fn pthread_jit_write_protect_np(enabled: libc::c_int);
+        pub fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
     }
 
     #[link(name = "c")]
