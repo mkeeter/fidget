@@ -39,7 +39,7 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 
-use crate::shape::Bounds;
+use crate::render::Camera;
 
 mod builder;
 mod cell;
@@ -83,8 +83,8 @@ pub struct Settings {
     /// Depth to recurse in the octree
     pub depth: u8,
 
-    /// Bounds for meshing
-    pub bounds: Bounds<3>,
+    /// Camera to provide a world-to-model transform
+    pub camera: Camera<3>,
 
     /// Number of threads to use
     ///
@@ -98,7 +98,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             depth: 3,
-            bounds: Default::default(),
+            camera: Default::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
             threads: std::num::NonZeroUsize::new(8).unwrap(),

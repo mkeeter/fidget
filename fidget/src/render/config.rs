@@ -1,19 +1,30 @@
 use crate::{
     eval::Function,
-    render::RenderMode,
-    shape::{Bounds, Shape, TileSizes},
+    render::{Camera, RegionSize, RenderMode},
+    shape::{Shape, TileSizes},
     Error,
 };
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, U1,
+    DimNameSum, OMatrix, OPoint, OVector, U1,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Container to store render configuration (resolution, etc)
-pub struct RenderConfig<const N: usize> {
-    /// Image size (for a square output image)
-    pub image_size: usize,
+pub struct RenderConfig<const N: usize>
+where
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
+    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy
+{
+    /// Image size (provides screen-to-world transform)
+    pub image_size: RegionSize<N>,
+
+    /// Camera (provides world-to-model transform)
+    pub camera: Camera<N>,
 
     /// Tile sizes to use during evaluation.
     ///
@@ -24,23 +35,29 @@ pub struct RenderConfig<const N: usize> {
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
-    /// Bounds of the rendered image, in shape coordinates
-    pub bounds: Bounds<N>,
-
     /// Number of threads to use; 8 by default
     #[cfg(not(target_arch = "wasm32"))]
     pub threads: std::num::NonZeroUsize,
 }
 
-impl<const N: usize> Default for RenderConfig<N> {
+impl<const N: usize> Default for RenderConfig<N>
+where
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
+    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
+    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: std::marker::Copy,
+{
     fn default() -> Self {
         Self {
-            image_size: 512,
+            image_size: RegionSize::from(512),
             tile_sizes: match N {
                 2 => TileSizes::new(&[128, 32, 8]).unwrap(),
                 _ => TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             },
-            bounds: Default::default(),
+            camera: Camera::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
             threads: std::num::NonZeroUsize::new(8).unwrap(),
@@ -50,135 +67,67 @@ impl<const N: usize> Default for RenderConfig<N> {
 
 impl<const N: usize> RenderConfig<N>
 where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator:
-        nalgebra::allocator::Allocator<
-            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
-                Const<1>,
-            >>::Output,
-        >,
-    <nalgebra::Const<N> as DimNameAdd<nalgebra::Const<1>>>::Output:
-        DimNameSub<nalgebra::Const<1>>,
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
+    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
+    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: Copy
 {
-    /// Returns a `RenderConfig` where the image size is padded to an even
-    /// multiple of `tile_size`, and `mat` is populated based on image size.
-    pub(crate) fn align(&self) -> (AlignedRenderConfig<N>, NPlusOneMatrix<N>) {
-        // Filter out tile sizes that are larger than our image size
-        let mut tile_sizes: Vec<usize> = self
-            .tile_sizes
-            .iter()
-            .skip_while(|t| **t > self.image_size)
-            .cloned()
-            .collect();
-        if tile_sizes.is_empty() {
-            tile_sizes.push(8);
-        }
-        let tile_sizes = TileSizes::new(&tile_sizes).unwrap();
+    /// Returns the number of threads to use when rendering
+    ///
+    /// This is always 1 for WebAssembly builds
+    pub fn threads(&self) -> usize {
+        #[cfg(target_arch = "wasm32")]
+        let out = 1;
 
-        // Pad image size to an even multiple of tile size.
-        let image_size = (self.image_size + tile_sizes[0] - 1) / tile_sizes[0]
-            * tile_sizes[0];
+        #[cfg(not(target_arch = "wasm32"))]
+        let out = self.threads.get();
 
-        // Compensate for the image size change
-        let scale = image_size as f32 / self.image_size as f32;
+        out
+    }
 
-        // Look, I'm not any happier about this than you are.
-        let v = nalgebra::OVector::<
-            f32,
-            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
-                Const<1>,
-            >>::Output,
-        >::from_element(-1.0);
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> OMatrix<
+        f32,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+        <Const<N> as DimNameAdd<Const<1>>>::Output
+    > {
+        self.camera.world_to_model() * self.image_size.screen_to_world()
+    }
 
-        // Build a matrix which transforms from pixel coordinates to [-1, +1]
-        let mut mat =
-            nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
-                .matrix()
-                .append_scaling(2.0 / image_size as f32)
-                .append_scaling(scale)
-                .append_translation(&v);
+    /// Returns the data offset of a position within a subtile
+    ///
+    /// The position within the subtile is given by `x` and `y`, which are
+    /// relative coordinates (in the range `0..self.tile_sizes[n]`).
+    ///
+    /// The root tile is assumed to be of size `self.tile_sizes[0]` and aligned.
+    #[inline]
+    pub(crate) fn tile_to_offset(&self, tile: Tile<N>, x: usize, y: usize) -> usize {
+        // Find the relative position within the root tile
+        let tx = tile.corner[0] % self.tile_sizes[0];
+        let ty = tile.corner[1] % self.tile_sizes[0];
 
-        // The bounds transform matrix goes from [-1, +1] to model coordinates
-        mat = self.bounds.transform().matrix() * mat;
-
-        (
-            AlignedRenderConfig {
-                image_size,
-                orig_image_size: self.image_size,
-                tile_sizes,
-
-                #[cfg(not(target_arch = "wasm32"))]
-                threads: self.threads,
-            },
-            mat,
-        )
+        // Apply the relative offset and find the data index
+        tx + x + (ty + y) * self.tile_sizes[0]
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
-pub(crate) struct AlignedRenderConfig<const N: usize>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-{
-    pub image_size: usize,
-    pub orig_image_size: usize,
-
-    pub tile_sizes: TileSizes,
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub threads: std::num::NonZeroUsize,
-}
-
-/// Type for a static `f32` matrix of size `N + 1`
-type NPlusOneMatrix<const N: usize> = nalgebra::OMatrix<
-    f32,
-    <Const<N> as DimNameAdd<Const<1>>>::Output,
-    <Const<N> as DimNameAdd<Const<1>>>::Output,
->;
-
-impl<const N: usize> AlignedRenderConfig<N>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-{
-    #[inline]
-    pub fn tile_to_offset(&self, tile: Tile<N>, x: usize, y: usize) -> usize {
-        tile.offset + x + y * self.tile_sizes[0]
-    }
-
-    #[inline]
-    pub fn new_tile(&self, corner: [usize; N]) -> Tile<N> {
-        let x = corner[0] % self.tile_sizes[0];
-        let y = corner[1] % self.tile_sizes[0];
-        Tile {
-            corner,
-            offset: x + y * self.tile_sizes[0],
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn threads(&self) -> usize {
-        1
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn threads(&self) -> usize {
-        self.threads.get()
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Tile<const N: usize> {
-    pub corner: [usize; N],
-    offset: usize,
+    /// Corner of this tile, in global screen (pixel) coordinates
+    pub corner: OPoint<usize, Const<N>>,
+}
+
+impl<const N: usize> Tile<N> {
+    /// Build a new tile from its global coordinates
+    #[inline]
+    pub(crate) fn new(corner: OPoint<usize, Const<N>>) -> Tile<N> {
+        Tile { corner }
+    }
 }
 
 /// Worker queue
@@ -233,117 +182,126 @@ impl RenderConfig<3> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::render::ImageSize;
     use nalgebra::Point2;
 
     #[test]
-    fn test_aligned_config() {
-        // Simple alignment
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 512,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
+    fn test_default_render_config() {
+        let config = RenderConfig::<2> {
+            image_size: ImageSize::from(512),
             ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.image_size, config.image_size);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(-1.0, -1.0)
+            Point2::new(-1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(512.0, 0.0)),
-            Point2::new(1.0, -1.0)
+            Point2::new(1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(512.0, 512.0)),
-            Point2::new(1.0, 1.0)
+            Point2::new(1.0, -1.0)
         );
 
         let config: RenderConfig<2> = RenderConfig {
-            image_size: 575,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
+            image_size: ImageSize::from(575),
             ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.orig_image_size, 575);
-        assert_eq!(aligned.image_size, 576);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(-1.0, -1.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
-            Point2::new(1.0, -1.0)
+            Point2::new(-1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(
-                config.image_size as f32,
-                config.image_size as f32
+                config.image_size.width() as f32,
+                0.0
             )),
             Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size.width() as f32,
+                config.image_size.height() as f32,
+            )),
+            Point2::new(1.0, -1.0)
         );
     }
 
     #[test]
-    fn test_bounded_config() {
-        // Simple alignment
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 512,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
-            bounds: Bounds {
-                center: nalgebra::Vector2::new(0.5, 0.5),
-                size: 0.5,
-            },
+    fn test_camera_render_config() {
+        let config = RenderConfig::<2> {
+            image_size: ImageSize::from(512),
+            camera: Camera::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.5,
+            ),
             ..RenderConfig::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.image_size, config.image_size);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(0.0, 0.0)
+            Point2::new(0.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(512.0, 0.0)),
-            Point2::new(1.0, 0.0)
+            Point2::new(1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(512.0, 512.0)),
-            Point2::new(1.0, 1.0)
+            Point2::new(1.0, 0.0)
         );
 
         let config: RenderConfig<2> = RenderConfig {
-            image_size: 575,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
-            bounds: Bounds {
-                center: nalgebra::Vector2::new(0.5, 0.5),
-                size: 0.5,
-            },
+            image_size: ImageSize::from(575),
+            camera: Camera::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.5,
+            ),
             ..RenderConfig::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.orig_image_size, 575);
-        assert_eq!(aligned.image_size, 576);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
             mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(0.0, 0.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
-            Point2::new(1.0, 0.0)
+            Point2::new(0.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(
-                config.image_size as f32,
-                config.image_size as f32
+                config.image_size.width() as f32,
+                0.0
             )),
             Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size.width() as f32,
+                config.image_size.height() as f32,
+            )),
+            Point2::new(1.0, 0.0)
+        );
+
+        let config = RenderConfig::<2> {
+            image_size: ImageSize::from(512),
+            camera: Camera::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.25,
+            ),
+            ..RenderConfig::default()
+        };
+        let mat = config.mat();
+        assert_eq!(
+            mat.transform_point(&Point2::new(0.0, 0.0)),
+            Point2::new(0.25, 0.75)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 0.0)),
+            Point2::new(0.75, 0.75)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 512.0)),
+            Point2::new(0.75, 0.25)
         );
     }
 }

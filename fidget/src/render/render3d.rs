@@ -2,12 +2,12 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    render::config::{Queue, RenderConfig, Tile},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::{Grad, Interval},
 };
 
-use nalgebra::Point3;
+use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,7 +46,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, F: Function> {
-    config: &'a AlignedRenderConfig<3>,
+    config: &'a RenderConfig<3>,
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
@@ -127,11 +127,10 @@ impl<F: Function> Worker<'_, F> {
                         self.render_tile_recurse(
                             sub_tape,
                             depth + 1,
-                            self.config.new_tile([
-                                tile.corner[0] + i * next_tile_size,
-                                tile.corner[1] + j * next_tile_size,
-                                tile.corner[2] + k * next_tile_size,
-                            ]),
+                            Tile::new(
+                                tile.corner
+                                    + Vector3::new(i, j, k) * next_tile_size,
+                            ),
                         );
                     }
                 }
@@ -157,6 +156,7 @@ impl<F: Function> Worker<'_, F> {
         for xy in 0..tile_size.pow(2) {
             let i = xy % tile_size;
             let j = xy / tile_size;
+
             let o = self.config.tile_to_offset(tile, i, j);
 
             // Skip pixels which are behind the image
@@ -286,7 +286,7 @@ fn worker<F: Function>(
     mut shape: RenderHandle<F>,
     queues: &[Queue<3>],
     mut index: usize,
-    config: &AlignedRenderConfig<3>,
+    config: &RenderConfig<3>,
 ) -> HashMap<[usize; 2], Image> {
     let mut out = HashMap::new();
 
@@ -356,26 +356,27 @@ pub fn render<F: Function>(
     shape: Shape<F>,
     config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
-    let (config, mat) = config.align();
-    assert!(config.image_size % config.tile_sizes[0] == 0);
-
-    let shape = shape.apply_transform(mat);
+    let shape = shape.apply_transform(config.mat());
     render_inner(shape, config)
 }
 
 pub fn render_inner<F: Function>(
     shape: Shape<F>,
-    config: AlignedRenderConfig<3>,
+    config: &RenderConfig<3>,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
-    for i in 0..config.image_size / config.tile_sizes[0] {
-        for j in 0..config.image_size / config.tile_sizes[0] {
-            for k in (0..config.image_size / config.tile_sizes[0]).rev() {
-                tiles.push(config.new_tile([
+    let t = config.tile_sizes[0];
+    let width = config.image_size[0] as usize;
+    let height = config.image_size[1] as usize;
+    let depth = config.image_size[2] as usize;
+    for i in 0..width.div_ceil(t) {
+        for j in 0..height.div_ceil(t) {
+            for k in (0..depth.div_ceil(t)).rev() {
+                tiles.push(Tile::new(Point3::new(
                     i * config.tile_sizes[0],
                     j * config.tile_sizes[0],
                     k * config.tile_sizes[0],
-                ]));
+                )));
             }
         }
     }
@@ -394,7 +395,7 @@ pub fn render_inner<F: Function>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = if threads == 1 {
-        worker::<F>(rh, tile_queues.as_slice(), 0, &config)
+        worker::<F>(rh, tile_queues.as_slice(), 0, config)
             .into_iter()
             .collect()
     } else {
@@ -419,18 +420,16 @@ pub fn render_inner<F: Function>(
         })
     };
 
-    let mut image_depth = vec![0; config.orig_image_size.pow(2)];
-    let mut image_color = vec![[0; 3]; config.orig_image_size.pow(2)];
+    let mut image_depth = vec![0; width * height];
+    let mut image_color = vec![[0; 3]; width * height];
     for (tile, patch) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile[1];
             for i in 0..config.tile_sizes[0] {
                 let x = i + tile[0];
-                if x < config.orig_image_size && y < config.orig_image_size {
-                    let o = (config.orig_image_size - y - 1)
-                        * config.orig_image_size
-                        + x;
+                if x < width && y < height {
+                    let o = y * width + x;
                     if patch.depth[index] >= image_depth[o] {
                         image_color[o] = patch.color[index];
                         image_depth[o] = patch.depth[index];
@@ -446,7 +445,7 @@ pub fn render_inner<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{vm::VmShape, Context};
+    use crate::{render::VoxelSize, vm::VmShape, Context};
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -456,7 +455,7 @@ mod test {
         let shape = VmShape::new(&ctx, x).unwrap();
 
         let cfg = RenderConfig::<3> {
-            image_size: 128, // very small!
+            image_size: VoxelSize::from(128), // very small!
             ..RenderConfig::default()
         };
         let out = cfg.run(shape);

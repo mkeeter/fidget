@@ -36,9 +36,6 @@ use crate::{
 use nalgebra::{Matrix4, Point3};
 use std::collections::HashMap;
 
-mod bounds;
-pub use bounds::Bounds;
-
 /// A shape represents an implicit surface
 ///
 /// It is mostly agnostic to _how_ that surface is represented, wrapping a
@@ -333,8 +330,8 @@ impl TileSizes {
     }
 
     /// Gets a tile size by index
-    pub fn get(&self, i: usize) -> Option<&usize> {
-        self.0.get(i)
+    pub fn get(&self, i: usize) -> Option<usize> {
+        self.0.get(i).copied()
     }
 }
 

@@ -160,12 +160,12 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     match mode {
         RenderMode::TwoD(camera, mode) => {
             let config = RenderConfig {
-                image_size,
+                image_size: fidget::render::ImageSize::from(image_size as u32),
                 tile_sizes: F::tile_sizes_2d(),
-                bounds: fidget::shape::Bounds {
-                    center: camera.offset(),
-                    size: camera.scale(),
-                },
+                camera: fidget::render::Camera::from_center_and_scale(
+                    camera.offset(),
+                    camera.scale(),
+                ),
                 ..RenderConfig::default()
             };
 
@@ -212,12 +212,12 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
         }
         RenderMode::ThreeD(camera, mode) => {
             let config = RenderConfig {
-                image_size,
-                tile_sizes: F::tile_sizes_2d(),
-                bounds: fidget::shape::Bounds {
-                    center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
-                    size: camera.scale,
-                },
+                image_size: fidget::render::VoxelSize::from(image_size as u32),
+                tile_sizes: F::tile_sizes_3d(),
+                camera: fidget::render::Camera::from_center_and_scale(
+                    Vector3::new(camera.offset.x, camera.offset.y, 0.0),
+                    camera.scale,
+                ),
                 ..RenderConfig::default()
             };
             let (depth, color) = fidget::render::render3d(shape, &config);

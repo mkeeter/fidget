@@ -85,10 +85,10 @@ pub fn render_region_2d(
 
         let cfg = RenderConfig::<2> {
             image_size: image_size / workers_per_side,
-            bounds: Bounds {
+            bounds: fidget::render::Camera::from_center_and_scale(
                 center,
-                size: scale / 2.0,
-            },
+                scale / 2.0,
+            ),
             ..RenderConfig::default()
         };
 

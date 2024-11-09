@@ -120,7 +120,7 @@ fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
     let cfg = fidget::render::RenderConfig {
-        image_size: settings.size as usize,
+        image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
         threads: settings.threads,
         ..Default::default()
@@ -198,7 +198,7 @@ fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
             .collect()
     } else {
         let cfg = fidget::render::RenderConfig {
-            image_size: settings.size as usize,
+            image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
             threads: settings.threads,
             ..Default::default()

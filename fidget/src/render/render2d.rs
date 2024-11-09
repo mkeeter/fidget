@@ -2,11 +2,11 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{AlignedRenderConfig, Queue, RenderConfig, Tile},
+    render::config::{Queue, RenderConfig, Tile},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::Interval,
 };
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -202,7 +202,7 @@ impl Scratch {
 
 /// Per-thread worker
 struct Worker<'a, F: Function, M: RenderMode> {
-    config: &'a AlignedRenderConfig<2>,
+    config: &'a RenderConfig<2>,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -217,6 +217,9 @@ struct Worker<'a, F: Function, M: RenderMode> {
     /// Workspace for shape simplification
     workspace: F::Workspace,
 
+    /// Tile being rendered
+    ///
+    /// This is a root tile, i.e. width and height of `config.tile_sizes[0]`
     image: Vec<M::Output>,
 }
 
@@ -229,12 +232,13 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
     ) {
         let tile_size = self.config.tile_sizes[depth];
 
-        // Brute-force way to find the (interval) bounding box of the region
+        // Find the interval bounds of the region, in screen coordinates
         let base = Point2::from(tile.corner).cast::<f32>();
         let x = Interval::new(base.x, base.x + tile_size as f32);
         let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(0.0, 0.0);
 
+        // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
             .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
@@ -256,6 +260,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                     .eval_float_slice
                     .eval(shape.f_tape(&mut self.tape_storage), &xs, &ys, &zs)
                     .unwrap();
+
                 // Bilinear interpolation on a per-pixel basis
                 for y in 0..tile_size {
                     // Y interpolation
@@ -297,10 +302,9 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                     self.render_tile_recurse(
                         sub_tape,
                         depth + 1,
-                        self.config.new_tile([
-                            tile.corner[0] + i * next_tile_size,
-                            tile.corner[1] + j * next_tile_size,
-                        ]),
+                        Tile::new(
+                            tile.corner + Vector2::new(i, j) * next_tile_size,
+                        ),
                     );
                 }
             }
@@ -350,7 +354,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 fn worker<F: Function, M: RenderMode>(
     mut shape: RenderHandle<F>,
     queue: &Queue<2>,
-    config: &AlignedRenderConfig<2>,
+    config: &RenderConfig<2>,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().pow(2));
@@ -389,10 +393,8 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
     config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
-    let (config, mat) = config.align();
-    assert!(config.image_size % config.tile_sizes[0] == 0);
-
     // Convert to a 4x4 matrix and apply to the shape
+    let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
@@ -402,15 +404,18 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 
 fn render_inner<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
-    config: AlignedRenderConfig<2>,
+    config: &RenderConfig<2>,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
-    for i in 0..config.image_size / config.tile_sizes[0] {
-        for j in 0..config.image_size / config.tile_sizes[0] {
-            tiles.push(config.new_tile([
+    let t = config.tile_sizes[0];
+    let width = config.image_size.width() as usize;
+    let height = config.image_size.height() as usize;
+    for i in 0..width.div_ceil(t) {
+        for j in 0..height.div_ceil(t) {
+            tiles.push(Tile::new(Point2::new(
                 i * config.tile_sizes[0],
                 j * config.tile_sizes[0],
-            ]));
+            )));
         }
     }
 
@@ -441,18 +446,15 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
         })
     };
 
-    let mut image = vec![M::Output::default(); config.orig_image_size.pow(2)];
+    let mut image = vec![M::Output::default(); width * height];
     for (tile, data) in out.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
-            let y = j + tile.corner[1];
+            let y = j + tile.corner.y;
             for i in 0..config.tile_sizes[0] {
-                let x = i + tile.corner[0];
-                if y < config.orig_image_size && x < config.orig_image_size {
-                    let o = (config.orig_image_size - y - 1)
-                        * config.orig_image_size
-                        + x;
-                    image[o] = data[index];
+                let x = i + tile.corner.x;
+                if y < height && x < width {
+                    image[y * width + x] = data[index];
                 }
                 index += 1;
             }
@@ -466,7 +468,8 @@ mod test {
     use super::*;
     use crate::{
         eval::{Function, MathFunction},
-        shape::{Bounds, Shape},
+        render::{Camera, ImageSize},
+        shape::Shape,
         vm::{GenericVmFunction, VmFunction},
         Context,
     };
@@ -478,14 +481,14 @@ mod test {
         "/../models/quarter.vm"
     ));
 
-    fn render_and_compare_with_bounds<F: Function>(
+    fn render_and_compare_with_camera<F: Function>(
         shape: Shape<F>,
         expected: &'static str,
-        bounds: Bounds<2>,
+        camera: Camera<2>,
     ) {
         let cfg = RenderConfig::<2> {
-            image_size: 32,
-            bounds,
+            image_size: ImageSize::from(32),
+            camera,
             ..RenderConfig::default()
         };
         let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
@@ -511,13 +514,14 @@ mod test {
         shape: Shape<F>,
         expected: &'static str,
     ) {
-        render_and_compare_with_bounds(shape, expected, Bounds::default())
+        render_and_compare_with_camera(shape, expected, Camera::default())
     }
 
     fn check_hi<F: Function + MathFunction>() {
         let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
         let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
+            ................................
             .................X..............
             .................X..............
             .................X..............
@@ -548,7 +552,6 @@ mod test {
             ................................
             ................................
             ................................
-            ................................
             ................................";
         render_and_compare(shape, EXPECTED);
     }
@@ -561,6 +564,7 @@ mod test {
         mat.prepend_scaling_mut(0.5);
         let shape = shape.apply_transform(mat);
         const EXPECTED: &str = "
+            ................................
             .XXX............................
             .XXX............................
             .XXX............................
@@ -591,8 +595,7 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
-            .XXX...........XXX......XXX.....
-            ................................";
+            .XXX...........XXX......XXX.....";
         render_and_compare(shape, EXPECTED);
     }
 
@@ -600,6 +603,7 @@ mod test {
         let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
         let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
+            ................................
             .XXX............................
             .XXX............................
             .XXX............................
@@ -630,15 +634,14 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
-            .XXX...........XXX......XXX.....
-            ................................";
-        render_and_compare_with_bounds(
+            .XXX...........XXX......XXX.....";
+        render_and_compare_with_camera(
             shape,
             EXPECTED,
-            Bounds {
-                center: nalgebra::Vector2::new(0.5, 0.5),
-                size: 0.5,
-            },
+            Camera::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.5,
+            ),
         );
     }
 
@@ -646,6 +649,7 @@ mod test {
         let (ctx, root) = Context::from_text(QUARTER.as_bytes()).unwrap();
         let shape = Shape::<F>::new(&ctx, root).unwrap();
         const EXPECTED: &str = "
+            ................................
             ................................
             ................................
             ................................
@@ -673,7 +677,6 @@ mod test {
             ..........XXXXXX................
             ...........XXXXX................
             ..............XX................
-            ................................
             ................................
             ................................
             ................................

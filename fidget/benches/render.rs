@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::shape::RenderHints;
+use fidget::{render::ImageSize, shape::RenderHints};
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
@@ -16,7 +16,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
     for size in [256, 512, 768, 1024, 1280, 1546, 1792, 2048] {
         let cfg = &fidget::render::RenderConfig {
-            image_size: size,
+            image_size: fidget::render::ImageSize::from(size),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
             ..Default::default()
         };
@@ -33,7 +33,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
         #[cfg(feature = "jit")]
         {
             let cfg = &fidget::render::RenderConfig {
-                image_size: size,
+                image_size: fidget::render::ImageSize::from(size),
                 tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
                 ..Default::default()
             };
@@ -61,7 +61,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");
     for threads in [1, 2, 4, 8, 16] {
         let cfg = &fidget::render::RenderConfig {
-            image_size: 1024,
+            image_size: ImageSize::from(1024),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
             threads: threads.try_into().unwrap(),
             ..Default::default()
@@ -78,7 +78,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         #[cfg(feature = "jit")]
         {
             let cfg = &fidget::render::RenderConfig {
-                image_size: 1024,
+                image_size: ImageSize::from(1024),
                 tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
                 threads: threads.try_into().unwrap(),
                 ..Default::default()
