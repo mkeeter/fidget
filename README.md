@@ -108,6 +108,7 @@ Fidget overlaps with various projects in the implicit modeling space:
 - [sdf: Simple SDF mesh generation in Python](https://github.com/fogleman/sdf)
 - [Forged Thoughts: A Modeling & Rendering Language in Rust](https://forgedthoughts.com/)
 - [Raumkuenstler: Node-based modeling with an LLVM-powered JIT compiler](https://github.com/elisabeth96/Raumkuenstler)
+- [`saft_sdf`: Signed distance field function utilities and interpreter](https://docs.rs/saft-sdf/0.2.1/saft_sdf/)
 - Probably more; PRs welcome!
 
 *written by the same author
