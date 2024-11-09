@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   check:
@@ -25,3 +26,5 @@ jobs:
       run: rustup target add ${{ matrix.target }}
     - name: Check
       run: cargo check --target=${{ matrix.target }} --all-targets --verbose
+    - name: Clippy
+      run: cargo clippy --target=${{ matrix.target }} --all-targets --verbose
