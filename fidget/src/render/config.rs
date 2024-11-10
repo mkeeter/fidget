@@ -82,17 +82,11 @@ where
         let scale = image_size as f32 / self.image_size as f32;
 
         // Look, I'm not any happier about this than you are.
-        let v = nalgebra::Vector::<
+        let v = nalgebra::OVector::<
             f32,
             <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
                 Const<1>,
             >>::Output,
-            <DefaultAllocator as nalgebra::allocator::Allocator<
-                <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
-                    Const<1>,
-                >>::Output,
-                U1,
-            >>::Buffer<f32>,
         >::from_element(-1.0);
 
         // Build a matrix which transforms from pixel coordinates to [-1, +1]
@@ -139,14 +133,10 @@ where
 }
 
 /// Type for a static `f32` matrix of size `N + 1`
-type NPlusOneMatrix<const N: usize> = nalgebra::Matrix<
+type NPlusOneMatrix<const N: usize> = nalgebra::OMatrix<
     f32,
     <Const<N> as DimNameAdd<Const<1>>>::Output,
     <Const<N> as DimNameAdd<Const<1>>>::Output,
-    <DefaultAllocator as nalgebra::allocator::Allocator<
-        <Const<N> as DimNameAdd<Const<1>>>::Output,
-        <Const<N> as DimNameAdd<Const<1>>>::Output,
-    >>::Buffer<f32>,
 >;
 
 impl<const N: usize> AlignedRenderConfig<N>
