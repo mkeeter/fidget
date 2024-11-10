@@ -1,7 +1,7 @@
 use crate::{
     eval::Function,
     render::RenderMode,
-    shape::{Bounds, Shape},
+    shape::{Bounds, Shape, TileSizes},
     Error,
 };
 use nalgebra::{
@@ -22,7 +22,7 @@ pub struct RenderConfig<const N: usize> {
     /// or
     /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
     /// to select this based on evaluator type.
-    pub tile_sizes: Vec<usize>,
+    pub tile_sizes: TileSizes,
 
     /// Bounds of the rendered image, in shape coordinates
     pub bounds: Bounds<N>,
@@ -37,8 +37,8 @@ impl<const N: usize> Default for RenderConfig<N> {
         Self {
             image_size: 512,
             tile_sizes: match N {
-                2 => vec![128, 32, 8],
-                _ => vec![128, 64, 32, 16, 8],
+                2 => TileSizes::new(&[128, 32, 8]).unwrap(),
+                _ => TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             },
             bounds: Default::default(),
 
@@ -65,6 +65,7 @@ where
     /// Returns a `RenderConfig` where the image size is padded to an even
     /// multiple of `tile_size`, and `mat` is populated based on image size.
     pub(crate) fn align(&self) -> (AlignedRenderConfig<N>, NPlusOneMatrix<N>) {
+        // Filter out tile sizes that are larger than our image size
         let mut tile_sizes: Vec<usize> = self
             .tile_sizes
             .iter()
@@ -74,6 +75,8 @@ where
         if tile_sizes.is_empty() {
             tile_sizes.push(8);
         }
+        let tile_sizes = TileSizes::new(&tile_sizes).unwrap();
+
         // Pad image size to an even multiple of tile size.
         let image_size = (self.image_size + tile_sizes[0] - 1) / tile_sizes[0]
             * tile_sizes[0];
@@ -126,7 +129,7 @@ where
     pub image_size: usize,
     pub orig_image_size: usize,
 
-    pub tile_sizes: Vec<usize>,
+    pub tile_sizes: TileSizes,
 
     #[cfg(not(target_arch = "wasm32"))]
     pub threads: std::num::NonZeroUsize,
@@ -237,7 +240,7 @@ mod test {
         // Simple alignment
         let config: RenderConfig<2> = RenderConfig {
             image_size: 512,
-            tile_sizes: vec![64, 32],
+            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
             ..Default::default()
         };
         let (aligned, mat) = config.align();
@@ -259,7 +262,7 @@ mod test {
 
         let config: RenderConfig<2> = RenderConfig {
             image_size: 575,
-            tile_sizes: vec![64, 32],
+            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
             ..Default::default()
         };
         let (aligned, mat) = config.align();
@@ -289,7 +292,7 @@ mod test {
         // Simple alignment
         let config: RenderConfig<2> = RenderConfig {
             image_size: 512,
-            tile_sizes: vec![64, 32],
+            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
             bounds: Bounds {
                 center: nalgebra::Vector2::new(0.5, 0.5),
                 size: 0.5,
@@ -315,7 +318,7 @@ mod test {
 
         let config: RenderConfig<2> = RenderConfig {
             image_size: 575,
-            tile_sizes: vec![64, 32],
+            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
             bounds: Bounds {
                 center: nalgebra::Vector2::new(0.5, 0.5),
                 size: 0.5,

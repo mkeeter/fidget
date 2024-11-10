@@ -283,13 +283,68 @@ impl<F: Function> EzShape<F> for Shape<F> {
     }
 }
 
+/// Container representing an ordered, checked list of tile sizes
+///
+/// This object wraps a `Vec<usize>`, guaranteeing three invariants:
+///
+/// - There must be at least one tile size
+/// - Tiles must be ordered from largest to smallest
+/// - Each tile size must be exactly divisible by subsequent tile sizes
+#[derive(Debug, Eq, PartialEq)]
+pub struct TileSizes(Vec<usize>);
+
+impl std::ops::Index<usize> for TileSizes {
+    type Output = usize;
+
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+impl TileSizes {
+    /// Builds a new tile size list, checking invariants
+    pub fn new(sizes: &[usize]) -> Result<Self, Error> {
+        if sizes.is_empty() {
+            return Err(Error::EmptyTileSizes);
+        }
+        for i in 1..sizes.len() {
+            if sizes[i - 1] <= sizes[i] {
+                return Err(Error::BadTileOrder(sizes[i - 1], sizes[i]));
+            } else if sizes[i - 1] % sizes[i] != 0 {
+                return Err(Error::BadTileSize(sizes[i - 1], sizes[i]));
+            }
+        }
+        Ok(Self(sizes.to_vec()))
+    }
+    /// Returns the length of the tile list
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns an iterator over tile sizes (largest to smallest)
+    pub fn iter(&self) -> impl Iterator<Item = &usize> {
+        self.0.iter()
+    }
+
+    /// Returns the last (smallest) tile size
+    pub fn last(&self) -> usize {
+        *self.0.last().unwrap()
+    }
+
+    /// Gets a tile size by index
+    pub fn get(&self, i: usize) -> Option<&usize> {
+        self.0.get(i)
+    }
+}
+
 /// Hints for how to render this particular type
 pub trait RenderHints {
     /// Recommended tile sizes for 3D rendering
-    fn tile_sizes_3d() -> &'static [usize];
+    fn tile_sizes_3d() -> TileSizes;
 
     /// Recommended tile sizes for 2D rendering
-    fn tile_sizes_2d() -> &'static [usize];
+    fn tile_sizes_2d() -> TileSizes;
 
     /// Indicates whether we run tape simplification at the given cell depth
     /// during meshing.

@@ -31,7 +31,7 @@ use crate::{
         TracingEvaluator,
     },
     jit::mmap::Mmap,
-    shape::RenderHints,
+    shape::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
@@ -922,12 +922,12 @@ impl Function for JitFunction {
 }
 
 impl RenderHints for JitFunction {
-    fn tile_sizes_3d() -> &'static [usize] {
-        &[64, 16, 8]
+    fn tile_sizes_3d() -> TileSizes {
+        TileSizes::new(&[64, 16, 8]).unwrap()
     }
 
-    fn tile_sizes_2d() -> &'static [usize] {
-        &[128, 16]
+    fn tile_sizes_2d() -> TileSizes {
+        TileSizes::new(&[128, 16]).unwrap()
     }
 
     fn simplify_tree_during_meshing(d: usize) -> bool {

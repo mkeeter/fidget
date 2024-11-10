@@ -65,9 +65,21 @@ pub enum Error {
     #[error("could not solve for matrix pseudo-inverse: {0}")]
     SingularMatrix(&'static str),
 
-    /// io error; see inner code for details
+    /// IO error; see inner code for details
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+
+    /// Each tile must be divisible by subsequent tiles
+    #[error("bad tile sizes; {0} is not divisible by {1}")]
+    BadTileSize(usize, usize),
+
+    /// Tile size list must be in descending order
+    #[error("bad tile order; {0} is not larger than {1}")]
+    BadTileOrder(usize, usize),
+
+    /// Tile size list must not be empty
+    #[error("tile size list must not be empty")]
+    EmptyTileSizes,
 
     #[cfg(feature = "rhai")]
     /// Rhai error; see inner code for details

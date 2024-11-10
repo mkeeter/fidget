@@ -6,7 +6,7 @@ use crate::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape, Trace,
         TracingEvaluator,
     },
-    shape::{RenderHints, Shape},
+    shape::{RenderHints, Shape, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
     Context, Error,
@@ -190,12 +190,12 @@ impl<const N: usize> Function for GenericVmFunction<N> {
 }
 
 impl<const N: usize> RenderHints for GenericVmFunction<N> {
-    fn tile_sizes_3d() -> &'static [usize] {
-        &[256, 128, 64, 32, 16, 8]
+    fn tile_sizes_3d() -> TileSizes {
+        TileSizes::new(&[256, 128, 64, 32, 16, 8]).unwrap()
     }
 
-    fn tile_sizes_2d() -> &'static [usize] {
-        &[256, 128, 64, 32, 16, 8]
+    fn tile_sizes_2d() -> TileSizes {
+        TileSizes::new(&[256, 128, 64, 32, 16, 8]).unwrap()
     }
 }
 

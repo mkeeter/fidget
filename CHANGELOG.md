@@ -3,6 +3,9 @@
   and pick a new register count for the resulting tape
 - Add bidirectional conversions between `JitFunction` and `GenericVmFunction`
   (exposing the inner data member)
+- Add a new `TileSizes(Vec<usize>)` object representing tile sizes used during
+  rendering.  Unlike the previous `Vec<usize>`, this data type checks our tile
+  size invariants at construction.  It is used in the `struct RenderConfig`.
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
