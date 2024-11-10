@@ -121,7 +121,7 @@ fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
     }
     let cfg = fidget::render::RenderConfig {
         image_size: settings.size as usize,
-        tile_sizes: F::tile_sizes_3d().to_vec(),
+        tile_sizes: F::tile_sizes_3d(),
         threads: settings.threads,
         ..Default::default()
     };
@@ -199,7 +199,7 @@ fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
     } else {
         let cfg = fidget::render::RenderConfig {
             image_size: settings.size as usize,
-            tile_sizes: F::tile_sizes_2d().to_vec(),
+            tile_sizes: F::tile_sizes_2d(),
             threads: settings.threads,
             ..Default::default()
         };

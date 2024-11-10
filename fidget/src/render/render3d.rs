@@ -291,7 +291,7 @@ fn worker<F: Function>(
     let mut out = HashMap::new();
 
     // Calculate maximum evaluation buffer size
-    let buf_size = *config.tile_sizes.last().unwrap();
+    let buf_size = config.tile_sizes.last();
     let scratch = Scratch::new(buf_size);
     let mut w: Worker<F> = Worker {
         scratch,
@@ -358,9 +358,6 @@ pub fn render<F: Function>(
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let (config, mat) = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
-    for i in 0..config.tile_sizes.len() - 1 {
-        assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
-    }
 
     let shape = shape.apply_transform(mat);
     render_inner(shape, config)

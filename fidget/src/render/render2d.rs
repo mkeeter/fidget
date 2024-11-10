@@ -353,7 +353,7 @@ fn worker<F: Function, M: RenderMode>(
     config: &AlignedRenderConfig<2>,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
-    let scratch = Scratch::new(config.tile_sizes.last().unwrap_or(&0).pow(2));
+    let scratch = Scratch::new(config.tile_sizes.last().pow(2));
 
     let mut w: Worker<F, M> = Worker {
         scratch,
@@ -391,9 +391,6 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 ) -> Vec<M::Output> {
     let (config, mat) = config.align();
     assert!(config.image_size % config.tile_sizes[0] == 0);
-    for i in 0..config.tile_sizes.len() - 1 {
-        assert!(config.tile_sizes[i] % config.tile_sizes[i + 1] == 0);
-    }
 
     // Convert to a 4x4 matrix and apply to the shape
     let mat = mat.insert_row(2, 0.0);
