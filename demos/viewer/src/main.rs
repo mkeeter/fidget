@@ -5,7 +5,7 @@ use eframe::egui;
 use env_logger::Env;
 use fidget::render::RenderConfig;
 use log::{debug, error, info, warn};
-use nalgebra::{Vector2, Vector3};
+use nalgebra::{Point2, Vector3};
 use notify::Watcher;
 
 use std::{error::Error, path::Path};
@@ -158,14 +158,11 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     pixels: &mut [egui::Color32],
 ) {
     match mode {
-        RenderMode::TwoD(camera, mode) => {
+        RenderMode::TwoD { camera, mode, .. } => {
             let config = RenderConfig {
                 image_size: fidget::render::ImageSize::from(image_size as u32),
                 tile_sizes: F::tile_sizes_2d(),
-                camera: fidget::render::Camera::from_center_and_scale(
-                    camera.offset(),
-                    camera.scale(),
-                ),
+                camera: *camera,
                 ..RenderConfig::default()
             };
 
@@ -381,31 +378,36 @@ enum ThreeDMode {
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD(camera::Camera2D, Mode2D),
+    TwoD {
+        camera: fidget::render::Camera<2>,
+        drag_start: Option<Point2<f32>>,
+        mode: Mode2D,
+    },
     ThreeD(ThreeDCamera, ThreeDMode),
 }
 
 impl RenderMode {
-    fn set_2d_mode(&mut self, mode: Mode2D) -> bool {
+    fn set_2d_mode(&mut self, new_mode: Mode2D) -> bool {
         match self {
-            RenderMode::TwoD(.., m) => {
-                let changed = *m != mode;
-                *m = mode;
+            RenderMode::TwoD { mode, .. } => {
+                let changed = *mode != new_mode;
+                *mode = new_mode;
                 changed
             }
             RenderMode::ThreeD(..) => {
-                *self = RenderMode::TwoD(
+                *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
-                    camera::Camera2D::new(),
-                    mode,
-                );
+                    camera: fidget::render::Camera::default(),
+                    drag_start: None,
+                    mode: new_mode,
+                };
                 true
             }
         }
     }
     fn set_3d_mode(&mut self, mode: ThreeDMode) -> bool {
         match self {
-            RenderMode::TwoD(..) => {
+            RenderMode::TwoD { .. } => {
                 *self = RenderMode::ThreeD(ThreeDCamera::default(), mode);
                 true
             }
@@ -452,7 +454,11 @@ impl ViewerApp {
             config_tx,
             image_rx,
 
-            mode: RenderMode::TwoD(camera::Camera2D::new(), Mode2D::Color),
+            mode: RenderMode::TwoD {
+                camera: fidget::render::Camera::default(),
+                drag_start: None,
+                mode: Mode2D::Color,
+            },
         }
     }
 
@@ -462,7 +468,7 @@ impl ViewerApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
-                        RenderMode::TwoD(..) => None,
+                        RenderMode::TwoD { .. } => None,
                         RenderMode::ThreeD(_camera, mode) => Some(*mode),
                     };
                     ui.radio_value(
@@ -480,7 +486,7 @@ impl ViewerApp {
                     }
                     ui.separator();
                     let mut mode_2d = match &self.mode {
-                        RenderMode::TwoD(_camera, mode) => Some(*mode),
+                        RenderMode::TwoD { mode, .. } => Some(*mode),
                         RenderMode::ThreeD(..) => None,
                     };
                     ui.radio_value(
@@ -551,7 +557,7 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        let RenderMode::TwoD(camera, ..) = &self.mode else {
+        let RenderMode::TwoD { camera, .. } = &self.mode else {
             panic!("can't render in 3D");
         };
         let rect = camera.viewport();
@@ -647,28 +653,37 @@ impl eframe::App for ViewerApp {
 
         // Handle pan and zoom
         match &mut self.mode {
-            RenderMode::TwoD(camera, ..) => {
-                let rect = camera::Rect {
-                    min: Vector2::new(rect.min.x, rect.min.y),
-                    max: Vector2::new(rect.max.x, rect.max.y),
-                };
-
-                camera.set_viewport(rect);
+            RenderMode::TwoD {
+                camera, drag_start, ..
+            } => {
+                let image_size = fidget::render::ImageSize::new(
+                    rect.width() as u32,
+                    rect.height() as u32,
+                );
 
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let pos = Vector2::new(pos.x, pos.y);
-                    render_changed |= camera.drag(pos);
+                    let mat = image_size.screen_to_world();
+                    let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
+                    if let Some(prev) = *drag_start {
+                        camera.translate(pos - prev);
+                        render_changed |= prev != pos;
+                    } else {
+                        *drag_start = Some(pos);
+                    }
                 } else {
-                    camera.release();
+                    *drag_start = None;
                 }
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
-                    render_changed |= camera.scroll(
-                        mouse_pos.map(|p| Vector2::new(p.x, p.y)),
-                        scroll,
-                    );
+                    if scroll != 0.0 {
+                        camera.zoom(
+                            (scroll / 100.0).exp2(),
+                            mouse_pos.map(|p| Point2::new(p.x, p.y)),
+                        );
+                        render_changed = true;
+                    }
                 }
             }
             RenderMode::ThreeD(..) => {
