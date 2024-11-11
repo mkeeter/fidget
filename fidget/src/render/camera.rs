@@ -1,18 +1,19 @@
 //! Helper types and functions for camera and viewport manipulation
-//!
-//! Rendering and meshing happen in the ±1 square or cube; these are referred to
-//! as "world" coordinates.  A camera generates a homogeneous transform matrix
-//! that maps from positions in world coordinates to "model" coordinates.
-//!
-//! When rendering, screen pixels are converted into the ±1 region.  If the
-//! render region is not square, then the shorter axis is clamped to ±1 and the
-//! longer axis will exceed that value.
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
     DimNameSum, OMatrix, OVector, Vector2, Vector3, U1,
 };
 
 /// Helper object for a camera in 3D space
+///
+/// Rendering and meshing happen in the ±1 square or cube; these are referred to
+/// as "world" coordinates.  A camera generates a homogeneous transform matrix
+/// that maps from positions in world coordinates to "model" coordinates.
+///
+/// When rendering, screen pixels are converted into the ±1 region by
+/// [`RegionSize::screen_to_world`].  If the render region is not square, then
+/// the shorter axis is clamped to ±1 and the longer axis will exceed that
+/// value.
 ///
 /// The camera converts points in world coordinates (±1) into model coordinates
 /// for actual evaluation against a function.  For example, if the region of
@@ -143,12 +144,12 @@ where
 /// The screen coordinate space is the following:
 ///
 /// ```text
-/// 0 ---------> +x
-/// |
-/// |
-/// |
-/// V
-/// +y
+///        0 ------------> width
+///        |             |
+///        |             |
+///        |             |
+///        V--------------
+///   height
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub struct RegionSize<const N: usize>
@@ -172,23 +173,27 @@ where
 {
     /// Builds a matrix that converts from screen to world coordinates
     ///
-    /// The world coordinate system is the following:
+    /// The map from screen to world coordinates is as following:
     /// ```text
-    ///                    y = +1
-    ///        --------------^--------------
+    ///       -1           y = +1
+    ///        0-------------^-------------> width
     ///        |             |             |
     ///        |             |             |
     ///        |             |             |
-    /// x = -1 --------------0-------------- x = +1
+    ///   x = -1 <-----------0-------------> x = +1
     ///        |             |             |
     ///        |             |             |
-    ///        |             |             |
-    ///        --------------V--------------
-    ///                    y = -1
+    ///        |             V             |
+    ///        V---------- y = -1 ---------
+    ///   height
     /// ```
     ///
     /// (with `+z` pointing out of the screen)
     ///
+    /// Note that Y axis is flipped: screen coordinates have `+y` pointing down,
+    /// but world coordinates have it pointing up.  For both X and Y
+    /// coordinates, the `+1` value is located one pixel beyond the edge of the
+    /// screen region (off the right edge for X, and off the top edge for Y).
     pub fn screen_to_world(
         &self,
     ) -> OMatrix<
@@ -196,7 +201,8 @@ where
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
     > {
-        let center = self.size.cast::<f32>() / 2.0;
+        let mut center = self.size.cast::<f32>() / 2.0;
+        center[1] -= 1.0;
         let scale = 2.0 / self.size.min() as f32;
 
         let mut out = OMatrix::<
@@ -211,12 +217,12 @@ where
         out
     }
 
-    /// Returns the width of the image (in pixels / voxels)
+    /// Returns the width of the image (in pixels or voxels)
     pub fn width(&self) -> u32 {
         self.size[0]
     }
 
-    /// Returns the height of the image (in pixels / voxels)
+    /// Returns the height of the image (in pixels or voxels)
     pub fn height(&self) -> u32 {
         self.size[1]
     }
@@ -294,23 +300,23 @@ mod test {
         let image_size = ImageSize::new(1000, 500);
         let mat = image_size.screen_to_world();
 
-        let pt = mat.transform_point(&Point2::new(500.0, 250.0));
+        let pt = mat.transform_point(&Point2::new(500.0, 249.0));
         assert_eq!(pt.x, 0.0);
         assert_eq!(pt.y, 0.0);
 
-        let pt = mat.transform_point(&Point2::new(500.0, 0.0));
+        let pt = mat.transform_point(&Point2::new(500.0, -1.0));
         assert_eq!(pt.x, 0.0);
         assert_eq!(pt.y, 1.0);
 
-        let pt = mat.transform_point(&Point2::new(500.0, 500.0));
+        let pt = mat.transform_point(&Point2::new(500.0, 499.0));
         assert_eq!(pt.x, 0.0);
         assert_eq!(pt.y, -1.0);
 
-        let pt = mat.transform_point(&Point2::new(0.0, 250.0));
+        let pt = mat.transform_point(&Point2::new(0.0, 249.0));
         assert_eq!(pt.x, -2.0);
         assert_eq!(pt.y, 0.0);
 
-        let pt = mat.transform_point(&Point2::new(1000.0, 250.0));
+        let pt = mat.transform_point(&Point2::new(1000.0, 249.0));
         assert_eq!(pt.x, 2.0);
         assert_eq!(pt.y, 0.0);
     }

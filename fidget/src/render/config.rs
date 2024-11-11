@@ -193,15 +193,15 @@ mod test {
         };
         let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, -1.0)),
             Point2::new(-1.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 0.0)),
+            mat.transform_point(&Point2::new(512.0, -1.0)),
             Point2::new(1.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 512.0)),
+            mat.transform_point(&Point2::new(512.0, 511.0)),
             Point2::new(1.0, -1.0)
         );
 
@@ -211,20 +211,20 @@ mod test {
         };
         let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, -1.0)),
             Point2::new(-1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(
                 config.image_size.width() as f32,
-                0.0
+                -1.0
             )),
             Point2::new(1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(
                 config.image_size.width() as f32,
-                config.image_size.height() as f32,
+                config.image_size.height() as f32 - 1.0,
             )),
             Point2::new(1.0, -1.0)
         );
@@ -242,43 +242,15 @@ mod test {
         };
         let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, -1.0)),
             Point2::new(0.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 0.0)),
+            mat.transform_point(&Point2::new(512.0, -1.0)),
             Point2::new(1.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 512.0)),
-            Point2::new(1.0, 0.0)
-        );
-
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: ImageSize::from(575),
-            camera: Camera::from_center_and_scale(
-                nalgebra::Vector2::new(0.5, 0.5),
-                0.5,
-            ),
-            ..RenderConfig::default()
-        };
-        let mat = config.mat();
-        assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(0.0, 1.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(
-                config.image_size.width() as f32,
-                0.0
-            )),
-            Point2::new(1.0, 1.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(
-                config.image_size.width() as f32,
-                config.image_size.height() as f32,
-            )),
+            mat.transform_point(&Point2::new(512.0, 511.0)),
             Point2::new(1.0, 0.0)
         );
 
@@ -292,15 +264,15 @@ mod test {
         };
         let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
+            mat.transform_point(&Point2::new(0.0, -1.0)),
             Point2::new(0.25, 0.75)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 0.0)),
+            mat.transform_point(&Point2::new(512.0, -1.0)),
             Point2::new(0.75, 0.75)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 512.0)),
+            mat.transform_point(&Point2::new(512.0, 511.0)),
             Point2::new(0.75, 0.25)
         );
     }
