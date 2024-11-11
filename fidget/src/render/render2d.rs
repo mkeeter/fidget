@@ -426,7 +426,7 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = if threads == 1 {
-        worker::<F, M>(rh, &queue, &config).into_iter().collect()
+        worker::<F, M>(rh, &queue, config).into_iter().collect()
     } else {
         #[cfg(target_arch = "wasm32")]
         unreachable!("multithreaded rendering is not supported on wasm32");
@@ -436,7 +436,7 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
             let mut handles = vec![];
             for _ in 0..threads {
                 let rh = rh.clone();
-                handles.push(s.spawn(|| worker::<F, M>(rh, &queue, &config)));
+                handles.push(s.spawn(|| worker::<F, M>(rh, &queue, config)));
             }
             let mut out = vec![];
             for h in handles {
