@@ -16,7 +16,7 @@ mod region;
 mod render2d;
 mod render3d;
 
-pub use camera::Camera;
+pub use camera::{Camera, TransformPoint};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 
 pub use config::RenderConfig;

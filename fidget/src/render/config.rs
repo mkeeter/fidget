@@ -1,6 +1,6 @@
 use crate::{
     eval::Function,
-    render::{Camera, RegionSize, RenderMode},
+    render::{Camera, RegionSize, RenderMode, TransformPoint},
     shape::{Shape, TileSizes},
     Error,
 };
@@ -18,7 +18,8 @@ where
     DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
     <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
     OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
-    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy
+    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
+    Camera<N>: TransformPoint<N>,
 {
     /// Image size (provides screen-to-world transform)
     pub image_size: RegionSize<N>,
@@ -49,6 +50,7 @@ where
     OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
     OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
     <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: std::marker::Copy,
+    Camera<N>: TransformPoint<N>,
 {
     fn default() -> Self {
         Self {
@@ -73,7 +75,8 @@ where
     <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
     OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
     OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
-    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: Copy
+    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: Copy,
+    Camera<N>: TransformPoint<N>,
 {
     /// Returns the number of threads to use when rendering
     ///

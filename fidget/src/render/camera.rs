@@ -15,11 +15,10 @@ use nalgebra::{
 ///
 /// ```
 /// # use nalgebra::{Vector2, Point2};
-/// # use fidget::render::Camera;
+/// # use fidget::render::{Camera, TransformPoint};
 /// let camera = Camera::<2>::from_center_and_scale(
 ///     Vector2::new(5.0, 5.0), 1.0
 /// );
-/// let mat = camera.world_to_model();
 ///
 /// //   -------d-------
 /// //   |             |
@@ -28,19 +27,19 @@ use nalgebra::{
 /// //   |             |
 /// //   |             |
 /// //   -------e-------
-/// let a = mat.transform_point(&Point2::new(0.0, 0.0));
+/// let a = camera.transform_point(&Point2::new(0.0, 0.0));
 /// assert_eq!(a, Point2::new(5.0, 5.0));
 ///
-/// let b = mat.transform_point(&Point2::new(1.0, 0.0));
+/// let b = camera.transform_point(&Point2::new(1.0, 0.0));
 /// assert_eq!(b, Point2::new(6.0, 5.0));
 ///
-/// let c = mat.transform_point(&Point2::new(-1.0, 0.0));
+/// let c = camera.transform_point(&Point2::new(-1.0, 0.0));
 /// assert_eq!(c, Point2::new(4.0, 5.0));
 ///
-/// let d = mat.transform_point(&Point2::new(0.0, 1.0));
+/// let d = camera.transform_point(&Point2::new(0.0, 1.0));
 /// assert_eq!(d, Point2::new(5.0, 6.0));
 ///
-/// let e = mat.transform_point(&Point2::new(0.0, -1.0));
+/// let e = camera.transform_point(&Point2::new(0.0, -1.0));
 /// assert_eq!(e, Point2::new(5.0, 4.0));
 /// ```
 ///
@@ -68,6 +67,7 @@ where
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
     >: Copy,
+    Self: TransformPoint<N>,
 {
     mat: OMatrix<
         f32,
@@ -93,6 +93,7 @@ where
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
     >: Copy,
+    Self: TransformPoint<N>,
 {
     /// Builds a camera from a center (in world coordinates) and a scale
     ///
@@ -140,21 +141,14 @@ where
     ) {
         self.mat.append_translation_mut(&dt);
     }
-}
-
-impl Camera<2> {
-    /// Transforms a point from world to model space
-    pub fn transform_point(&self, pt: Point2<f32>) -> Point2<f32> {
-        self.mat.transform_point(&pt)
-    }
 
     /// Zooms the camera about a particular position in world space
-    pub fn zoom(&mut self, amount: f32, pos: Option<Point2<f32>>) {
+    pub fn zoom(&mut self, amount: f32, pos: Option<OPoint<f32, Const<N>>>) {
         match pos {
             Some(p) => {
-                let pos_before = self.mat.transform_point(&p);
+                let pos_before = self.transform_point(&p);
                 self.mat.append_scaling_mut(amount);
-                let pos_after = self.mat.transform_point(&p);
+                let pos_after = self.transform_point(&p);
                 self.mat.append_translation_mut(&(pos_before - pos_after));
             }
             None => {
@@ -162,17 +156,35 @@ impl Camera<2> {
             }
         }
     }
+
+    fn transform_point(
+        &self,
+        pt: &OPoint<f32, Const<N>>,
+    ) -> OPoint<f32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>{
+        TransformPoint::<N>::transform_point(self, pt)
+    }
 }
 
 /// Helper trait for being able to transform a point
 ///
 /// `transform_point` is only implemented for specific matrix sizes in
 /// `nalgebra`, so we can't make it a function on every `Camera<N>`.
-pub trait TransformPoint<const N: usize> {
+pub trait TransformPoint<const N: usize>
+where
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator:
+        Allocator<
+            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
+                Const<1>,
+            >>::Output,
+        >,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+{
+    /// Transforms a point from one coordinate system to another
     fn transform_point(
         &self,
         pt: &OPoint<f32, Const<N>>,
-    ) -> OPoint<f32, Const<N>>;
+    ) -> OPoint<f32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>;
 }
 
 impl TransformPoint<2> for Camera<2> {
@@ -204,6 +216,7 @@ where
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
     >: Copy,
+    Self: TransformPoint<N>,
 {
     fn default() -> Self {
         Self {
