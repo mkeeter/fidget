@@ -129,7 +129,7 @@ where
         self.mat
     }
 
-    /// Applies a translation (in world units) to the current camera position
+    /// Applies a translation (in model units) to the current camera position
     pub fn translate(
         &mut self,
         dt: OVector<

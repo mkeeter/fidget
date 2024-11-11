@@ -388,6 +388,8 @@ enum ThreeDMode {
 enum RenderMode {
     TwoD {
         camera: fidget::render::Camera<2>,
+
+        /// Drag start position (in model coordinates)
         drag_start: Option<Point2<f32>>,
         mode: Mode2D,
     },
@@ -571,7 +573,7 @@ impl ViewerApp {
         let rect = ui.ctx().available_rect();
         let uv = egui::Rect {
             min: egui::Pos2::new(0.0, 0.0),
-            max: egui::Pos2::new(rect.width(), rect.height()),
+            max: egui::Pos2::new(1.0, 1.0),
         };
 
         if let Some((dt, image_size)) = self.stats {
@@ -668,10 +670,11 @@ impl eframe::App for ViewerApp {
                 );
 
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let mat = image_size.screen_to_world();
+                    let mat =
+                        camera.world_to_model() * image_size.screen_to_world();
                     let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
                     if let Some(prev) = *drag_start {
-                        camera.translate(pos - prev);
+                        camera.translate(prev - pos);
                         render_changed |= prev != pos;
                     } else {
                         *drag_start = Some(pos);
