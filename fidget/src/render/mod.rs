@@ -12,10 +12,12 @@ use std::sync::Arc;
 
 mod camera;
 mod config;
+mod region;
 mod render2d;
 mod render3d;
 
-pub use camera::{Camera, ImageSize, RegionSize, VoxelSize};
+pub use camera::Camera;
+pub use region::{ImageSize, RegionSize, VoxelSize};
 
 pub use config::RenderConfig;
 pub use render2d::render as render2d;
