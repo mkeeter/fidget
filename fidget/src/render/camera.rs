@@ -1,7 +1,7 @@
 //! Helper types and functions for camera and viewport manipulation
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, OMatrix, OPoint, OVector, Point2, U1,
+    DimNameSum, OMatrix, OPoint, OVector, Point2, Point3, U1,
 };
 
 /// Helper object for a camera in 2D or 3D space
@@ -161,6 +161,29 @@ impl Camera<2> {
                 self.mat.append_scaling_mut(amount);
             }
         }
+    }
+}
+
+/// Helper trait for being able to transform a point
+///
+/// `transform_point` is only implemented for specific matrix sizes in
+/// `nalgebra`, so we can't make it a function on every `Camera<N>`.
+pub trait TransformPoint<const N: usize> {
+    fn transform_point(
+        &self,
+        pt: &OPoint<f32, Const<N>>,
+    ) -> OPoint<f32, Const<N>>;
+}
+
+impl TransformPoint<2> for Camera<2> {
+    fn transform_point(&self, pt: &Point2<f32>) -> Point2<f32> {
+        self.mat.transform_point(pt)
+    }
+}
+
+impl TransformPoint<3> for Camera<3> {
+    fn transform_point(&self, pt: &Point3<f32>) -> Point3<f32> {
+        self.mat.transform_point(pt)
     }
 }
 

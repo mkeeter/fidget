@@ -65,14 +65,14 @@ fn rhai_script_thread(
 }
 
 struct RenderSettings {
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
     mode: RenderMode,
 }
 
 struct RenderResult {
     dt: std::time::Duration,
     image: egui::ImageData,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
 }
 
 fn render_thread<F>(
@@ -123,7 +123,10 @@ where
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
             debug!("Rendering...");
             let mut image = egui::ColorImage::new(
-                [render_config.image_size; 2],
+                [
+                    render_config.image_size.width() as usize,
+                    render_config.image_size.height() as usize,
+                ],
                 egui::Color32::BLACK,
             );
             let render_start = std::time::Instant::now();
@@ -153,14 +156,14 @@ where
 fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     mode: &RenderMode,
     shape: fidget::shape::Shape<F>,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
     color: [u8; 3],
     pixels: &mut [egui::Color32],
 ) {
     match mode {
         RenderMode::TwoD { camera, mode, .. } => {
             let config = RenderConfig {
-                image_size: fidget::render::ImageSize::from(image_size as u32),
+                image_size,
                 tile_sizes: F::tile_sizes_2d(),
                 camera: *camera,
                 ..RenderConfig::default()
@@ -208,8 +211,13 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
             }
         }
         RenderMode::ThreeD(camera, mode) => {
+            // XXX allow selection of depth?
             let config = RenderConfig {
-                image_size: fidget::render::VoxelSize::from(image_size as u32),
+                image_size: fidget::render::VoxelSize::new(
+                    image_size.width(),
+                    image_size.height(),
+                    512,
+                ),
                 tile_sizes: F::tile_sizes_3d(),
                 camera: fidget::render::Camera::from_center_and_scale(
                     Vector3::new(camera.offset.x, camera.offset.y, 0.0),
@@ -423,7 +431,7 @@ impl RenderMode {
 struct ViewerApp {
     // Current image
     texture: Option<egui::TextureHandle>,
-    stats: Option<(std::time::Duration, usize)>,
+    stats: Option<(std::time::Duration, fidget::render::ImageSize)>,
 
     // Most recent result, or an error string
     // TODO: this could be combined with stats as a Result
@@ -431,7 +439,7 @@ struct ViewerApp {
 
     /// Current render mode
     mode: RenderMode,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
 
     config_tx: Sender<RenderSettings>,
     image_rx: Receiver<Result<RenderResult, String>>,
@@ -449,7 +457,7 @@ impl ViewerApp {
             stats: None,
 
             err: None,
-            image_size: 0,
+            image_size: fidget::render::ImageSize::from(256),
 
             config_tx,
             image_rx,
@@ -557,18 +565,13 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        let RenderMode::TwoD { camera, .. } = &self.mode else {
+        if !matches!(self.mode, RenderMode::TwoD { .. }) {
             panic!("can't render in 3D");
-        };
-        let rect = camera.viewport();
-        let rect = egui::Rect {
-            min: egui::Pos2::new(rect.min.x, rect.min.y),
-            max: egui::Pos2::new(rect.max.x, rect.max.y),
-        };
-        let uv = camera.uv();
+        }
+        let rect = ui.ctx().available_rect();
         let uv = egui::Rect {
-            min: egui::Pos2::new(uv.min.x, uv.min.y),
-            max: egui::Pos2::new(uv.max.x, uv.max.y),
+            min: egui::Pos2::new(0.0, 0.0),
+            max: egui::Pos2::new(rect.width(), rect.height()),
         };
 
         if let Some((dt, image_size)) = self.stats {
@@ -582,8 +585,9 @@ impl ViewerApp {
 
             let layout = painter.layout(
                 format!(
-                    "Image size: {0}x{0}\nRender time: {dt:.2?}",
-                    image_size,
+                    "Image size: {}×{}\nRender time: {dt:.2?}",
+                    image_size.width(),
+                    image_size.height(),
                 ),
                 egui::FontId::proportional(14.0),
                 egui::Color32::WHITE,
@@ -637,8 +641,10 @@ impl eframe::App for ViewerApp {
 
         let rect = ctx.available_rect();
         let size = rect.max - rect.min;
-        let max_size = size.x.max(size.y);
-        let image_size = (max_size * ctx.pixels_per_point()) as usize;
+        let image_size = fidget::render::ImageSize::new(
+            (size.x * ctx.pixels_per_point()) as u32,
+            (size.y * ctx.pixels_per_point()) as u32,
+        );
 
         if image_size != self.image_size {
             self.image_size = image_size;

@@ -47,7 +47,7 @@ use nalgebra::{
 ///
 /// Apologies for the terrible trait bounds; they're necessary to persuade the
 /// internals to type-check, but shouldn't be noticeable to library users.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct RegionSize<const N: usize>
 where
     Const<N>: DimNameAdd<U1>,
