@@ -1,7 +1,6 @@
 use fidget::{
     context::{Context, Tree},
-    render::{BitRenderMode, RenderConfig},
-    shape::Bounds,
+    render::{BitRenderMode, Camera, ImageSize, RenderConfig, VoxelSize},
     var::Var,
     vm::{VmData, VmShape},
     Error,
@@ -84,11 +83,8 @@ pub fn render_region_2d(
         let center = corner.add_scalar(scale / 2.0);
 
         let cfg = RenderConfig::<2> {
-            image_size: image_size / workers_per_side,
-            bounds: fidget::render::Camera::from_center_and_scale(
-                center,
-                scale / 2.0,
-            ),
+            image_size: ImageSize::from((image_size / workers_per_side) as u32),
+            camera: Camera::from_center_and_scale(center, scale / 2.0),
             ..RenderConfig::default()
         };
 
@@ -196,11 +192,8 @@ fn render_3d_inner(
         let center = corner.add_scalar(scale / 2.0);
 
         let cfg = RenderConfig::<3> {
-            image_size: image_size / workers_per_side,
-            bounds: Bounds {
-                center,
-                size: scale / 2.0,
-            },
+            image_size: VoxelSize::from((image_size / workers_per_side) as u32),
+            camera: Camera::from_center_and_scale(center, scale / 2.0),
             ..RenderConfig::default()
         };
 
