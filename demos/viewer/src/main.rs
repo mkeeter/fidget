@@ -685,12 +685,14 @@ impl eframe::App for ViewerApp {
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
+                    let mouse_pos =
+                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
+                            image_size
+                                .screen_to_world()
+                                .transform_point(&Point2::new(p.x, p.y))
+                        });
                     if scroll != 0.0 {
-                        camera.zoom(
-                            (scroll / 100.0).exp2(),
-                            mouse_pos.map(|p| Point2::new(p.x, p.y)),
-                        );
+                        camera.zoom((scroll / 100.0).exp2(), mouse_pos);
                         render_changed = true;
                     }
                 }
