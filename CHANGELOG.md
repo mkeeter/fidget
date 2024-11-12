@@ -6,6 +6,16 @@
 - Add a new `TileSizes(Vec<usize>)` object representing tile sizes used during
   rendering.  Unlike the previous `Vec<usize>`, this data type checks our tile
   size invariants at construction.  It is used in the `struct RenderConfig`.
+- Rethink rendering and viewport configuration:
+    - Add a new `RegionSize<const N: usize>` type (with `ImageSize` and
+      `VoxelSize` aliases), representing a render region.  This type is
+      responsible for the screen-to-world transform
+    - Add a new `Camera<const N: usize>` type, which stores the world-to-model
+      transform (scaling, panning, etc)
+    - Image rendering uses both `RegionSize` and `Camera`; this means that we
+      can now render non-square images!
+    - Meshing uses just the `Camera`, to position the model within the ±1 bounds
+    - The previous `fidget::shape::Bounds` type is removed
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
