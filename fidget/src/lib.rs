@@ -209,16 +209,16 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::{BitRenderMode, ImageSize, RenderConfig},
+//!     render::{BitRenderMode, ImageSize, ImageRenderConfig},
 //!     vm::VmShape,
 //! };
 //!
 //! let x = Tree::x();
 //! let y = Tree::y();
 //! let tree = (x.square() + y.square()).sqrt() - 1.0;
-//! let cfg = RenderConfig::<2> {
+//! let cfg = ImageRenderConfig {
 //!     image_size: ImageSize::from(32),
-//!     ..RenderConfig::default()
+//!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
 //! let out = cfg.run::<_, BitRenderMode>(shape)?;

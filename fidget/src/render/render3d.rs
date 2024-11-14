@@ -2,12 +2,12 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{Queue, RenderConfig, Tile},
+    render::config::{Queue, ThreadCount, Tile, VoxelRenderConfig},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::{Grad, Interval},
 };
 
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,7 +46,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, F: Function> {
-    config: &'a RenderConfig<3>,
+    config: &'a VoxelRenderConfig,
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
@@ -75,7 +75,7 @@ impl<F: Function> Worker<'_, F> {
         let tile_size = self.config.tile_sizes[depth];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
-            let i = self.config.tile_to_offset(tile, 0, y);
+            let i = self.config.tile_row_offset(tile, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
         }) {
             return;
@@ -95,7 +95,7 @@ impl<F: Function> Worker<'_, F> {
         // `data_interval` to scratch memory for reuse.
         if i.upper() < 0.0 {
             for y in 0..tile_size {
-                let i = self.config.tile_to_offset(tile, 0, y);
+                let i = self.config.tile_row_offset(tile, y);
                 for x in 0..tile_size {
                     self.depth[i + x] = self.depth[i + x].max(fill_z);
                 }
@@ -157,7 +157,10 @@ impl<F: Function> Worker<'_, F> {
             let i = xy % tile_size;
             let j = xy / tile_size;
 
-            let o = self.config.tile_to_offset(tile, i, j);
+            let o = self
+                .config
+                .tile_sizes
+                .pixel_offset(tile.add(Vector2::new(i, j)));
 
             // Skip pixels which are behind the image
             let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
@@ -222,7 +225,10 @@ impl<F: Function> Worker<'_, F> {
             let k = tile_size - 1 - k;
 
             // Set the depth of the pixel
-            let o = self.config.tile_to_offset(tile, i, j);
+            let o = self
+                .config
+                .tile_sizes
+                .pixel_offset(tile.add(Vector2::new(i, j)));
             let z = (tile.corner[2] + k + 1).try_into().unwrap();
             assert!(self.depth[o] < z);
             self.depth[o] = z;
@@ -286,7 +292,7 @@ fn worker<F: Function>(
     mut shape: RenderHandle<F>,
     queues: &[Queue<3>],
     mut index: usize,
-    config: &RenderConfig<3>,
+    config: &VoxelRenderConfig,
 ) -> HashMap<[usize; 2], Image> {
     let mut out = HashMap::new();
 
@@ -354,7 +360,7 @@ fn worker<F: Function>(
 /// perform evaluation.
 pub fn render<F: Function>(
     shape: Shape<F>,
-    config: &RenderConfig<3>,
+    config: &VoxelRenderConfig,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let shape = shape.apply_transform(config.mat());
     render_inner(shape, config)
@@ -362,7 +368,7 @@ pub fn render<F: Function>(
 
 pub fn render_inner<F: Function>(
     shape: Shape<F>,
-    config: &RenderConfig<3>,
+    config: &VoxelRenderConfig,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
@@ -381,8 +387,7 @@ pub fn render_inner<F: Function>(
         }
     }
 
-    let threads = config.threads();
-
+    let threads = config.threads.get().unwrap_or(1);
     let tiles_per_thread = (tiles.len() / threads).max(1);
     let mut tile_queues = vec![];
     for ts in tiles.chunks(tiles_per_thread) {
@@ -394,20 +399,17 @@ pub fn render_inner<F: Function>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     // Special-case for single-threaded operation, to give simpler backtraces
-    let out: Vec<_> = if threads == 1 {
-        worker::<F>(rh, tile_queues.as_slice(), 0, config)
+    let out: Vec<_> = match config.threads {
+        ThreadCount::One => worker::<F>(rh, tile_queues.as_slice(), 0, config)
             .into_iter()
-            .collect()
-    } else {
-        #[cfg(target_arch = "wasm32")]
-        unreachable!("multithreaded rendering is not supported on wasm32");
+            .collect(),
 
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|s| {
+        ThreadCount::Many(threads) => std::thread::scope(|s| {
             let config = &config;
             let mut handles = vec![];
             let queues = tile_queues.as_slice();
-            for i in 0..threads {
+            for i in 0..threads.get() {
                 let rh = rh.clone();
                 handles
                     .push(s.spawn(move || worker::<F>(rh, queues, i, config)));
@@ -417,7 +419,7 @@ pub fn render_inner<F: Function>(
                 out.extend(h.join().unwrap().into_iter());
             }
             out
-        })
+        }),
     };
 
     let mut image_depth = vec![0; width * height];
@@ -454,9 +456,9 @@ mod test {
         let x = ctx.x();
         let shape = VmShape::new(&ctx, x).unwrap();
 
-        let cfg = RenderConfig::<3> {
+        let cfg = VoxelRenderConfig {
             image_size: VoxelSize::from(128), // very small!
-            ..RenderConfig::default()
+            ..Default::default()
         };
         let out = cfg.run(shape);
         assert!(out.is_ok());

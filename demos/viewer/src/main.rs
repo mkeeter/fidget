@@ -3,10 +3,11 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::render::RenderConfig;
 use log::{debug, error, info, warn};
 use nalgebra::{Point2, Vector3};
 use notify::Watcher;
+
+use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
 
 use std::{error::Error, path::Path};
 
@@ -161,12 +162,12 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     pixels: &mut [egui::Color32],
 ) {
     match mode {
-        RenderMode::TwoD { camera, mode, .. } => {
-            let config = RenderConfig {
+        RenderMode::TwoD { view, mode, .. } => {
+            let config = ImageRenderConfig {
                 image_size,
                 tile_sizes: F::tile_sizes_2d(),
-                camera: *camera,
-                ..RenderConfig::default()
+                view: *view,
+                ..Default::default()
             };
 
             match mode {
@@ -212,18 +213,18 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
         }
         RenderMode::ThreeD(camera, mode) => {
             // XXX allow selection of depth?
-            let config = RenderConfig {
+            let config = VoxelRenderConfig {
                 image_size: fidget::render::VoxelSize::new(
                     image_size.width(),
                     image_size.height(),
                     512,
                 ),
                 tile_sizes: F::tile_sizes_3d(),
-                camera: fidget::render::Camera::from_center_and_scale(
+                view: View3::from_center_and_scale(
                     Vector3::new(camera.offset.x, camera.offset.y, 0.0),
                     camera.scale,
                 ),
-                ..RenderConfig::default()
+                ..Default::default()
             };
             let (depth, color) = fidget::render::render3d(shape, &config);
             match mode {
@@ -387,7 +388,7 @@ enum ThreeDMode {
 #[derive(Copy, Clone)]
 enum RenderMode {
     TwoD {
-        camera: fidget::render::Camera<2>,
+        view: View2,
 
         /// Drag start position (in model coordinates)
         drag_start: Option<Point2<f32>>,
@@ -407,7 +408,7 @@ impl RenderMode {
             RenderMode::ThreeD(..) => {
                 *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
-                    camera: fidget::render::Camera::default(),
+                    view: Default::default(),
                     drag_start: None,
                     mode: new_mode,
                 };
@@ -465,7 +466,7 @@ impl ViewerApp {
             image_rx,
 
             mode: RenderMode::TwoD {
-                camera: fidget::render::Camera::default(),
+                view: Default::default(),
                 drag_start: None,
                 mode: Mode2D::Color,
             },
@@ -662,19 +663,18 @@ impl eframe::App for ViewerApp {
         // Handle pan and zoom
         match &mut self.mode {
             RenderMode::TwoD {
-                camera, drag_start, ..
+                view, drag_start, ..
             } => {
                 let image_size = fidget::render::ImageSize::new(
                     rect.width() as u32,
                     rect.height() as u32,
                 );
 
+                let mat = view.world_to_model() * image_size.screen_to_world();
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let mat =
-                        camera.world_to_model() * image_size.screen_to_world();
                     let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
                     if let Some(prev) = *drag_start {
-                        camera.translate(prev - pos);
+                        view.translate(prev - pos);
                         render_changed |= prev != pos;
                     } else {
                         *drag_start = Some(pos);
@@ -685,14 +685,11 @@ impl eframe::App for ViewerApp {
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos =
-                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
-                            image_size
-                                .screen_to_world()
-                                .transform_point(&Point2::new(p.x, p.y))
-                        });
+                    let mouse_pos = ctx
+                        .input(|i| i.pointer.hover_pos())
+                        .map(|p| mat.transform_point(&Point2::new(p.x, p.y)));
                     if scroll != 0.0 {
-                        camera.zoom((scroll / 100.0).exp2(), mouse_pos);
+                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
                         render_changed = true;
                     }
                 }

@@ -1,7 +1,10 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::{render::ImageSize, shape::RenderHints};
+use fidget::{
+    render::{ImageSize, ThreadCount},
+    shape::RenderHints,
+};
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
@@ -15,7 +18,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs image size (prospero, 2d) (8 threads)");
     for size in [256, 512, 768, 1024, 1280, 1546, 1792, 2048] {
-        let cfg = &fidget::render::RenderConfig {
+        let cfg = &fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(size),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
             ..Default::default()
@@ -32,7 +35,7 @@ pub fn prospero_size_sweep(c: &mut Criterion) {
 
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::render::RenderConfig {
+            let cfg = &fidget::render::ImageRenderConfig {
                 image_size: fidget::render::ImageSize::from(size),
                 tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
                 ..Default::default()
@@ -59,11 +62,13 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");
-    for threads in [1, 2, 4, 8, 16] {
-        let cfg = &fidget::render::RenderConfig {
+    for threads in std::iter::once(ThreadCount::One).chain(
+        [1, 2, 4, 8, 16].map(|i| ThreadCount::Many(i.try_into().unwrap())),
+    ) {
+        let cfg = &fidget::render::ImageRenderConfig {
             image_size: ImageSize::from(1024),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
-            threads: threads.try_into().unwrap(),
+            threads,
             ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", threads), move |b| {
@@ -77,10 +82,10 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         });
         #[cfg(feature = "jit")]
         {
-            let cfg = &fidget::render::RenderConfig {
+            let cfg = &fidget::render::ImageRenderConfig {
                 image_size: ImageSize::from(1024),
                 tile_sizes: fidget::jit::JitFunction::tile_sizes_2d(),
-                threads: threads.try_into().unwrap(),
+                threads,
                 ..Default::default()
             };
             group.bench_function(BenchmarkId::new("jit", threads), move |b| {

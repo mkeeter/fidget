@@ -119,10 +119,10 @@ fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
-    let cfg = fidget::render::RenderConfig {
+    let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
-        threads: settings.threads,
+        threads: settings.threads.into(),
         ..Default::default()
     };
     let shape = shape.apply_transform(mat.into());
@@ -197,10 +197,10 @@ fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
             .flat_map(|i| i.into_iter())
             .collect()
     } else {
-        let cfg = fidget::render::RenderConfig {
+        let cfg = fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
-            threads: settings.threads,
+            threads: settings.threads.into(),
             ..Default::default()
         };
         if sdf {
@@ -241,7 +241,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::shape::RenderHints>(
 
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
-            threads: settings.threads,
+            threads: settings.threads.into(),
             depth: settings.depth,
             ..Default::default()
         };

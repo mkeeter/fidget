@@ -39,8 +39,6 @@
 //! # Ok::<(), fidget::Error>(())
 //! ```
 
-use crate::render::Camera;
-
 mod builder;
 mod cell;
 mod dc;
@@ -49,6 +47,8 @@ mod gen;
 mod octree;
 mod output;
 mod qef;
+
+use crate::render::{ThreadCount, View3};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod mt;
@@ -83,37 +83,28 @@ pub struct Settings {
     /// Depth to recurse in the octree
     pub depth: u8,
 
-    /// Camera to provide a world-to-model transform
-    pub camera: Camera<3>,
+    /// Viewport to provide a world-to-model transform
+    pub view: View3,
 
     /// Number of threads to use
     ///
     /// 1 indicates to use the single-threaded evaluator; other values will
     /// spin up _N_ threads to perform octree construction in parallel.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub threads: std::num::NonZeroUsize,
+    pub threads: ThreadCount,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             depth: 3,
-            camera: Default::default(),
-
-            #[cfg(not(target_arch = "wasm32"))]
-            threads: std::num::NonZeroUsize::new(8).unwrap(),
+            view: Default::default(),
+            threads: ThreadCount::default(),
         }
     }
 }
 
-impl Settings {
-    #[cfg(not(target_arch = "wasm32"))]
-    fn threads(&self) -> usize {
-        self.threads.get()
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn threads(&self) -> usize {
-        1
-    }
+/// Strong type for multithreaded settings
+pub(crate) struct MultithreadedSettings {
+    pub depth: u8,
+    pub threads: std::num::NonZeroUsize,
 }

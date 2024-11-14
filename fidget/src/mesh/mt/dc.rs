@@ -7,7 +7,10 @@ use crate::mesh::{
     types::{X, Y, Z},
     Mesh, Octree,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    num::NonZeroUsize,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 #[derive(Debug)]
 enum Task {
@@ -52,7 +55,7 @@ pub struct DcWorker<'a> {
 }
 
 impl<'a> DcWorker<'a> {
-    pub fn scheduler(octree: &Octree, threads: usize) -> Mesh {
+    pub fn scheduler(octree: &Octree, threads: NonZeroUsize) -> Mesh {
         let queues = QueuePool::new(threads);
 
         let map = octree

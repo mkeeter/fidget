@@ -2,7 +2,7 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{Queue, RenderConfig, Tile},
+    render::config::{ImageRenderConfig, Queue, Tile},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::Interval,
 };
@@ -202,7 +202,7 @@ impl Scratch {
 
 /// Per-thread worker
 struct Worker<'a, F: Function, M: RenderMode> {
-    config: &'a RenderConfig<2>,
+    config: &'a ImageRenderConfig,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -247,7 +247,10 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         match M::interval(i, depth) {
             IntervalAction::Fill(fill) => {
                 for y in 0..tile_size {
-                    let start = self.config.tile_to_offset(tile, 0, y);
+                    let start = self
+                        .config
+                        .tile_sizes
+                        .pixel_offset(tile.add(Vector2::new(0, y)));
                     self.image[start..][..tile_size].fill(fill);
                 }
                 return;
@@ -268,7 +271,10 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                     let v0 = vs[0] * (1.0 - y_frac) + vs[1] * y_frac;
                     let v1 = vs[2] * (1.0 - y_frac) + vs[3] * y_frac;
 
-                    let mut i = self.config.tile_to_offset(tile, 0, y);
+                    let mut i = self
+                        .config
+                        .tile_sizes
+                        .pixel_offset(tile.add(Vector2::new(0, y)));
                     for x in 0..tile_size {
                         // X interpolation
                         let x_frac = (x as f32 - 1.0) / (tile_size as f32);
@@ -340,7 +346,10 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
         let mut index = 0;
         for j in 0..tile_size {
-            let o = self.config.tile_to_offset(tile, 0, j);
+            let o = self
+                .config
+                .tile_sizes
+                .pixel_offset(tile.add(Vector2::new(0, j)));
             for i in 0..tile_size {
                 self.image[o + i] = M::pixel(out[index]);
                 index += 1;
@@ -354,7 +363,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 fn worker<F: Function, M: RenderMode>(
     mut shape: RenderHandle<F>,
     queue: &Queue<2>,
-    config: &RenderConfig<2>,
+    config: &ImageRenderConfig,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
     let mut out = vec![];
     let scratch = Scratch::new(config.tile_sizes.last().pow(2));
@@ -391,7 +400,7 @@ fn worker<F: Function, M: RenderMode>(
 /// resulting pixels).
 pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
-    config: &RenderConfig<2>,
+    config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     // Convert to a 4x4 matrix and apply to the shape
     let mat = config.mat();
@@ -404,7 +413,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 
 fn render_inner<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
-    config: &RenderConfig<2>,
+    config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
@@ -420,14 +429,12 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     }
 
     let queue = Queue::new(tiles);
-    let threads = config.threads();
+    let threads = config.threads.get();
 
     let mut rh = RenderHandle::new(shape);
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
-    let out: Vec<_> = if threads == 1 {
-        worker::<F, M>(rh, &queue, config).into_iter().collect()
-    } else {
+    let out: Vec<_> = if let Some(threads) = threads {
         #[cfg(target_arch = "wasm32")]
         unreachable!("multithreaded rendering is not supported on wasm32");
 
@@ -444,6 +451,8 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
             }
             out
         })
+    } else {
+        worker::<F, M>(rh, &queue, config).into_iter().collect()
     };
 
     let mut image = vec![M::Output::default(); width * height];
@@ -468,7 +477,7 @@ mod test {
     use super::*;
     use crate::{
         eval::{Function, MathFunction},
-        render::{Camera, ImageSize},
+        render::{ImageSize, View2},
         shape::Shape,
         vm::{GenericVmFunction, VmFunction},
         Context,
@@ -481,17 +490,17 @@ mod test {
         "/../models/quarter.vm"
     ));
 
-    fn render_and_compare_with_camera<F: Function>(
+    fn render_and_compare_with_view<F: Function>(
         shape: Shape<F>,
         expected: &'static str,
-        camera: Camera<2>,
+        view: View2,
         wide: bool,
     ) {
         let width = if wide { 64 } else { 32 };
-        let cfg = RenderConfig::<2> {
+        let cfg = ImageRenderConfig {
             image_size: ImageSize::new(width, 32),
-            camera,
-            ..RenderConfig::default()
+            view,
+            ..Default::default()
         };
         let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
         let mut img_str = String::new();
@@ -516,19 +525,14 @@ mod test {
         shape: Shape<F>,
         expected: &'static str,
     ) {
-        render_and_compare_with_camera(
-            shape,
-            expected,
-            Camera::default(),
-            false,
-        )
+        render_and_compare_with_view(shape, expected, View2::default(), false)
     }
 
     fn render_and_compare_wide<F: Function>(
         shape: Shape<F>,
         expected: &'static str,
     ) {
-        render_and_compare_with_camera(shape, expected, Camera::default(), true)
+        render_and_compare_with_view(shape, expected, View2::default(), true)
     }
 
     fn check_hi<F: Function + MathFunction>() {
@@ -688,13 +692,10 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             ................................";
-        render_and_compare_with_camera(
+        render_and_compare_with_view(
             shape,
             EXPECTED,
-            Camera::from_center_and_scale(
-                nalgebra::Vector2::new(0.5, 0.5),
-                0.5,
-            ),
+            View2::from_center_and_scale(nalgebra::Vector2::new(0.5, 0.5), 0.5),
             false,
         );
     }

@@ -10,16 +10,16 @@ use crate::{
 };
 use std::sync::Arc;
 
-mod camera;
 mod config;
 mod region;
 mod render2d;
 mod render3d;
+mod view;
 
-pub use camera::{Camera, TransformPoint};
+pub use config::{ImageRenderConfig, ThreadCount, VoxelRenderConfig};
 pub use region::{ImageSize, RegionSize, VoxelSize};
+pub use view::{View2, View3};
 
-pub use config::RenderConfig;
 pub use render2d::render as render2d;
 pub use render3d::render as render3d;
 

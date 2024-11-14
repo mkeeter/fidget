@@ -1,119 +1,174 @@
 use crate::{
     eval::Function,
-    render::{Camera, RegionSize, RenderMode, TransformPoint},
+    render::{RegionSize, RenderMode, View2, View3},
     shape::{Shape, TileSizes},
     Error,
 };
-use nalgebra::{
-    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, OMatrix, OPoint, OVector, U1,
-};
+use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Container to store render configuration (resolution, etc)
-pub struct RenderConfig<const N: usize>
-where
-    Const<N>: DimNameAdd<U1>,
-    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
-    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
-    Camera<N>: TransformPoint<N>,
-{
-    /// Image size (provides screen-to-world transform)
-    pub image_size: RegionSize<N>,
+/// Number of threads to use during evaluation
+///
+/// In a WebAssembly build, only the [`ThreadCount::One`] variant is available.
+#[derive(Copy, Clone, Debug)]
+pub enum ThreadCount {
+    /// Perform all evaluation in the main thread, not spawning any workers
+    One,
 
-    /// Camera (provides world-to-model transform)
-    pub camera: Camera<N>,
+    /// Spawn some number of worker threads for evaluation
+    #[cfg(not(target_arch = "wasm32"))]
+    Many(std::num::NonZeroUsize),
+}
+
+impl From<std::num::NonZeroUsize> for ThreadCount {
+    fn from(v: std::num::NonZeroUsize) -> Self {
+        match v.get() {
+            0 => unreachable!(),
+            1 => ThreadCount::One,
+            _ => ThreadCount::Many(v),
+        }
+    }
+}
+
+impl std::fmt::Display for ThreadCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadCount::One => write!(f, "-"),
+            ThreadCount::Many(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl ThreadCount {
+    /// Gets the thread count
+    ///
+    /// Returns `None` if we are required to be single-threaded
+    pub fn get(&self) -> Option<usize> {
+        match self {
+            ThreadCount::One => None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ThreadCount::Many(v) => Some(v.get()),
+        }
+    }
+}
+
+impl Default for ThreadCount {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        Self::One
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn default() -> Self {
+        Self::Many(std::num::NonZeroUsize::new(8).unwrap())
+    }
+}
+
+/// Settings for 2D rendering
+pub struct ImageRenderConfig {
+    /// Render size
+    pub image_size: RegionSize<2>,
+
+    /// World-to-model transform
+    pub view: View2,
 
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
     /// [`RenderHints::tile_sizes_2d`](crate::shape::RenderHints::tile_sizes_2d)
-    /// or
-    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
-    /// Number of threads to use; 8 by default
-    #[cfg(not(target_arch = "wasm32"))]
-    pub threads: std::num::NonZeroUsize,
+    /// Number of worker threads
+    pub threads: ThreadCount,
 }
 
-impl<const N: usize> Default for RenderConfig<N>
-where
-    Const<N>: DimNameAdd<U1>,
-    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
-    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
-    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: std::marker::Copy,
-    Camera<N>: TransformPoint<N>,
-{
+impl Default for ImageRenderConfig {
     fn default() -> Self {
         Self {
             image_size: RegionSize::from(512),
-            tile_sizes: match N {
-                2 => TileSizes::new(&[128, 32, 8]).unwrap(),
-                _ => TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
-            },
-            camera: Camera::default(),
-
-            #[cfg(not(target_arch = "wasm32"))]
-            threads: std::num::NonZeroUsize::new(8).unwrap(),
+            tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
+            view: View2::default(),
+            threads: ThreadCount::default(),
         }
     }
 }
 
-impl<const N: usize> RenderConfig<N>
-where
-    Const<N>: DimNameAdd<U1>,
-    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
-    OMatrix<f32, <Const<N> as DimNameAdd<Const<1>>>::Output, <Const<N> as DimNameAdd<Const<1>>>::Output>: Copy,
-    <DefaultAllocator as Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: Copy,
-    Camera<N>: TransformPoint<N>,
-{
-    /// Returns the number of threads to use when rendering
+impl ImageRenderConfig {
+    /// High-level API for rendering shapes in 2D
     ///
-    /// This is always 1 for WebAssembly builds
-    pub fn threads(&self) -> usize {
-        #[cfg(target_arch = "wasm32")]
-        let out = 1;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let out = self.threads.get();
-
-        out
+    /// Under the hood, this delegates to
+    /// [`fidget::render::render2d`](crate::render::render2d())
+    pub fn run<F: Function, M: RenderMode + Sync>(
+        &self,
+        shape: Shape<F>,
+    ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
+        Ok(crate::render::render2d::<F, M>(shape, self))
     }
 
     /// Returns the combined screen-to-model transform matrix
-    pub fn mat(&self) -> OMatrix<
-        f32,
-        <Const<N> as DimNameAdd<Const<1>>>::Output,
-        <Const<N> as DimNameAdd<Const<1>>>::Output
-    > {
-        self.camera.world_to_model() * self.image_size.screen_to_world()
+    pub fn mat(&self) -> Matrix3<f32> {
+        self.view.world_to_model() * self.image_size.screen_to_world()
+    }
+}
+
+/// Settings for 3D rendering
+pub struct VoxelRenderConfig {
+    /// Render size
+    ///
+    /// The resulting image will have the given width and height; depth sets the
+    /// number of voxels to evaluate within each pixel of the image (stacked
+    /// into a column going into the screen).
+    pub image_size: RegionSize<3>,
+
+    /// World-to-model transform
+    pub view: View3,
+
+    /// Tile sizes to use during evaluation.
+    ///
+    /// You'll likely want to use
+    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
+    /// to select this based on evaluator type.
+    pub tile_sizes: TileSizes,
+
+    /// Number of worker threads
+    pub threads: ThreadCount,
+}
+
+impl Default for VoxelRenderConfig {
+    fn default() -> Self {
+        Self {
+            image_size: RegionSize::from(512),
+            tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
+            view: View3::default(),
+
+            threads: ThreadCount::default(),
+        }
+    }
+}
+
+impl VoxelRenderConfig {
+    /// High-level API for rendering shapes in 2D
+    ///
+    /// Under the hood, this delegates to
+    /// [`fidget::render::render3d`](crate::render::render3d())
+    ///
+    /// Returns a tuple of heightmap, RGB image.
+    pub fn run<F: Function>(
+        &self,
+        shape: Shape<F>,
+    ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
+        Ok(crate::render::render3d::<F>(shape, self))
     }
 
-    /// Returns the data offset of a position within a subtile
-    ///
-    /// The position within the subtile is given by `x` and `y`, which are
-    /// relative coordinates (in the range `0..self.tile_sizes[n]`).
-    ///
-    /// The root tile is assumed to be of size `self.tile_sizes[0]` and aligned.
-    #[inline]
-    pub(crate) fn tile_to_offset(&self, tile: Tile<N>, x: usize, y: usize) -> usize {
-        // Find the relative position within the root tile
-        let tx = tile.corner[0] % self.tile_sizes[0];
-        let ty = tile.corner[1] % self.tile_sizes[0];
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> Matrix4<f32> {
+        self.view.world_to_model() * self.image_size.screen_to_world()
+    }
 
-        // Apply the relative offset and find the data index
-        tx + x + (ty + y) * self.tile_sizes[0]
+    /// Returns the data offset of a row within a subtile
+    pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
+        self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
     }
 }
 
@@ -130,6 +185,14 @@ impl<const N: usize> Tile<N> {
     #[inline]
     pub(crate) fn new(corner: OPoint<usize, Const<N>>) -> Tile<N> {
         Tile { corner }
+    }
+
+    /// Converts a relative position within the tile into a global position
+    ///
+    /// This function operates in pixel space, using the `.xy` coordinates
+    pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
+        let corner = Point2::new(self.corner[0], self.corner[1]);
+        corner + pos
     }
 }
 
@@ -152,34 +215,6 @@ impl<const N: usize> Queue<N> {
     }
 }
 
-impl RenderConfig<2> {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render2d`](crate::render::render2d())
-    pub fn run<F: Function, M: RenderMode + Sync>(
-        &self,
-        shape: Shape<F>,
-    ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        Ok(crate::render::render2d::<F, M>(shape, self))
-    }
-}
-
-impl RenderConfig<3> {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render3d`](crate::render::render3d())
-    ///
-    /// Returns a tuple of heightmap, RGB image.
-    pub fn run<F: Function>(
-        &self,
-        shape: Shape<F>,
-    ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        Ok(crate::render::render3d::<F>(shape, self))
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
@@ -190,7 +225,7 @@ mod test {
 
     #[test]
     fn test_default_render_config() {
-        let config = RenderConfig::<2> {
+        let config = ImageRenderConfig {
             image_size: ImageSize::from(512),
             ..Default::default()
         };
@@ -208,7 +243,7 @@ mod test {
             Point2::new(1.0, -1.0)
         );
 
-        let config: RenderConfig<2> = RenderConfig {
+        let config = ImageRenderConfig {
             image_size: ImageSize::from(575),
             ..Default::default()
         };
@@ -235,13 +270,13 @@ mod test {
 
     #[test]
     fn test_camera_render_config() {
-        let config = RenderConfig::<2> {
+        let config = ImageRenderConfig {
             image_size: ImageSize::from(512),
-            camera: Camera::from_center_and_scale(
+            view: View2::from_center_and_scale(
                 nalgebra::Vector2::new(0.5, 0.5),
                 0.5,
             ),
-            ..RenderConfig::default()
+            ..Default::default()
         };
         let mat = config.mat();
         assert_eq!(
@@ -257,13 +292,13 @@ mod test {
             Point2::new(1.0, 0.0)
         );
 
-        let config = RenderConfig::<2> {
+        let config = ImageRenderConfig {
             image_size: ImageSize::from(512),
-            camera: Camera::from_center_and_scale(
+            view: View2::from_center_and_scale(
                 nalgebra::Vector2::new(0.5, 0.5),
                 0.25,
             ),
-            ..RenderConfig::default()
+            ..Default::default()
         };
         let mat = config.mat();
         assert_eq!(

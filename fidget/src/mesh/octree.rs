@@ -8,10 +8,11 @@ use super::{
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
     types::{Axis, Corner, Edge},
-    Mesh, Settings,
+    Mesh, MultithreadedSettings, Settings,
 };
 use crate::{
     eval::{BulkEvaluator, Function, TracingEvaluator},
+    render::ThreadCount,
     shape::{RenderHints, Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval},
     types::Grad,
 };
@@ -100,7 +101,7 @@ impl Octree {
         settings: Settings,
     ) -> Self {
         // Transform the shape given our world-to-model matrix
-        let t = settings.camera.world_to_model();
+        let t = settings.view.world_to_model();
         if t == nalgebra::Matrix4::identity() {
             Self::build_inner(shape, settings)
         } else {
@@ -123,16 +124,21 @@ impl Octree {
     ) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
 
-        if settings.threads() == 1 {
-            let mut out = OctreeBuilder::new();
-            out.recurse(&eval, CellIndex::default(), settings);
-            out.into()
-        } else {
-            #[cfg(target_arch = "wasm32")]
-            unreachable!("cannot use multithreaded evaluator on wasm32");
+        match settings.threads {
+            ThreadCount::One => {
+                let mut out = OctreeBuilder::new();
+                out.recurse(&eval, CellIndex::default(), settings.depth);
+                out.into()
+            }
 
             #[cfg(not(target_arch = "wasm32"))]
-            OctreeWorker::scheduler(eval.clone(), settings)
+            ThreadCount::Many(threads) => OctreeWorker::scheduler(
+                eval.clone(),
+                MultithreadedSettings {
+                    depth: settings.depth,
+                    threads,
+                },
+            ),
         }
     }
 
@@ -140,15 +146,13 @@ impl Octree {
     pub fn walk_dual(&self, settings: Settings) -> Mesh {
         let mut mesh = MeshBuilder::default();
 
-        if settings.threads() == 1 {
-            mesh.cell(self, CellIndex::default());
-            mesh.take()
-        } else {
-            #[cfg(target_arch = "wasm32")]
-            unreachable!("cannot use multithreaded evaluator on wasm32");
-
+        match settings.threads {
+            ThreadCount::One => {
+                mesh.cell(self, CellIndex::default());
+                mesh.take()
+            }
             #[cfg(not(target_arch = "wasm32"))]
-            DcWorker::scheduler(self, settings.threads())
+            ThreadCount::Many(threads) => DcWorker::scheduler(self, threads),
         }
     }
 
@@ -350,7 +354,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         &mut self,
         eval: &Arc<EvalGroup<F>>,
         cell: CellIndex,
-        settings: Settings,
+        max_depth: u8,
     ) -> CellResult<F> {
         let (i, r) = self
             .eval_interval
@@ -376,7 +380,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             } else {
                 None
             };
-            if cell.depth == settings.depth as usize {
+            if cell.depth == max_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
                 let out = CellResult::Done(self.leaf(&eval, cell));
                 if let Ok(t) = Arc::try_unwrap(eval) {
@@ -429,9 +433,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         &mut self,
         eval: &Arc<EvalGroup<F>>,
         cell: CellIndex,
-        settings: Settings,
+        max_depth: u8,
     ) {
-        match self.eval_cell(eval, cell, settings) {
+        match self.eval_cell(eval, cell, max_depth) {
             CellResult::Done(c) => self.o[cell] = c.into(),
             CellResult::Recurse(sub_eval) => {
                 let index = self.o.cells.len();
@@ -440,7 +444,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&sub_eval, cell, settings);
+                    self.recurse(&sub_eval, cell, max_depth);
                 }
 
                 if let Ok(t) = Arc::try_unwrap(sub_eval) {
@@ -1171,7 +1175,7 @@ mod test {
     use crate::{
         context::Tree,
         mesh::types::{Edge, X, Y, Z},
-        render::Camera,
+        render::{ThreadCount, View3},
         shape::EzShape,
         vm::{VmFunction, VmShape},
     };
@@ -1181,16 +1185,16 @@ mod test {
     fn depth0_single_thread() -> Settings {
         Settings {
             depth: 0,
-            camera: Camera::default(),
-            threads: std::num::NonZeroUsize::new(1).unwrap(),
+            threads: ThreadCount::One,
+            ..Default::default()
         }
     }
 
     fn depth1_single_thread() -> Settings {
         Settings {
             depth: 1,
-            camera: Camera::default(),
-            threads: std::num::NonZeroUsize::new(1).unwrap(),
+            threads: ThreadCount::One,
+            ..Default::default()
         }
     }
 
@@ -1345,20 +1349,16 @@ mod test {
     fn test_sphere_manifold() {
         let shape = VmShape::from(sphere([0.0; 3], 0.85));
 
-        for threads in [1, 8] {
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(8.try_into().unwrap())]
+        {
             let settings = Settings {
                 depth: 5,
-                threads: threads.try_into().unwrap(),
+                threads,
                 ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
             let sphere_mesh = octree.walk_dual(settings);
-            sphere_mesh
-                .write_stl(
-                    &mut std::fs::File::create(format!("sphere{threads}.stl"))
-                        .unwrap(),
-                )
-                .unwrap();
 
             if let Err(e) = check_for_vertex_dupes(&sphere_mesh) {
                 panic!("{e} (with {threads} threads)");
@@ -1478,7 +1478,7 @@ mod test {
         }
     }
 
-    fn test_mesh_manifold_inner(threads: usize, mask: u8) {
+    fn test_mesh_manifold_inner(threads: ThreadCount, mask: u8) {
         let mut shape = vec![];
         for j in Corner::iter() {
             if mask & (1 << j.index()) != 0 {
@@ -1500,7 +1500,7 @@ mod test {
         let shape = VmShape::from(shape);
         let settings = Settings {
             depth: 2,
-            threads: threads.try_into().unwrap(),
+            threads,
             ..Default::default()
         };
         let octree = Octree::build(&shape, settings);
@@ -1522,14 +1522,17 @@ mod test {
     #[test]
     fn test_mesh_manifold_single_thread() {
         for mask in 0..=255 {
-            test_mesh_manifold_inner(1, mask)
+            test_mesh_manifold_inner(ThreadCount::One, mask)
         }
     }
 
     #[test]
     fn test_mesh_manifold_multi_thread() {
         for mask in 0..=255 {
-            test_mesh_manifold_inner(8, mask)
+            test_mesh_manifold_inner(
+                ThreadCount::Many(8.try_into().unwrap()),
+                mask,
+            )
         }
     }
 
@@ -1542,7 +1545,7 @@ mod test {
             let shape = VmShape::from(shape);
             let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
-            out.recurse(&eval, CellIndex::default(), settings);
+            out.recurse(&eval, CellIndex::default(), settings.depth);
             out
         }
 
@@ -1569,17 +1572,20 @@ mod test {
     fn test_empty_collapse() {
         // Make a very smol sphere that won't be sampled
         let shape = VmShape::from(sphere([0.1; 3], 0.05));
-        for threads in [1, 4] {
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(4.try_into().unwrap())]
+        {
             let settings = Settings {
                 depth: 1,
-                threads: threads.try_into().unwrap(),
+                threads,
                 ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
+            let tc = threads.get().unwrap_or(1);
             assert_eq!(
                 octree.cells[0],
                 Cell::Empty.into(),
-                "failed to collapse octree with {threads} threads"
+                "failed to collapse octree with {tc} threads"
             );
         }
     }
@@ -1590,10 +1596,12 @@ mod test {
         let (ctx, root) =
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
-        for threads in [1, 8] {
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(8.try_into().unwrap())]
+        {
             let settings = Settings {
                 depth: 5,
-                threads: threads.try_into().unwrap(),
+                threads,
                 ..Default::default()
             };
             let octree = Octree::build(&tape, settings);
@@ -1688,7 +1696,7 @@ mod test {
 
         let settings = Settings {
             depth: 4,
-            threads: 1.try_into().unwrap(),
+            threads: ThreadCount::One,
             ..Default::default()
         };
 
@@ -1706,8 +1714,8 @@ mod test {
         let center = Vector3::new(1.0, 1.0, 1.0);
         let settings = Settings {
             depth: 4,
-            threads: 1.try_into().unwrap(),
-            camera: Camera::from_center_and_scale(center, 0.5),
+            threads: ThreadCount::One,
+            view: View3::from_center_and_scale(center, 0.5),
         };
 
         let octree = Octree::build(&shape, settings).walk_dual(settings);
