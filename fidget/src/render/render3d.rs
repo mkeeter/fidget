@@ -3,7 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::config::{Queue, ThreadCount, Tile, VoxelRenderConfig},
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
@@ -68,6 +68,7 @@ impl<F: Function> Worker<'_, F> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<3>,
     ) {
@@ -88,7 +89,7 @@ impl<F: Function> Worker<'_, F> {
 
         let (i, trace) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
+            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -126,6 +127,7 @@ impl<F: Function> Worker<'_, F> {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
                             sub_tape,
+                            vars,
                             depth + 1,
                             Tile::new(
                                 tile.corner
@@ -290,6 +292,7 @@ impl Image {
 
 fn worker<F: Function>(
     mut shape: RenderHandle<F>,
+    vars: &ShapeVars<f32>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &VoxelRenderConfig,
@@ -328,7 +331,7 @@ fn worker<F: Function>(
             // Prepare to render, allocating space for a tile
             w.depth = image.depth;
             w.color = image.color;
-            w.render_tile_recurse(&mut shape, 0, tile);
+            w.render_tile_recurse(&mut shape, vars, 0, tile);
 
             // Steal the tile, replacing it with an empty vec
             let depth = std::mem::take(&mut w.depth);
@@ -360,16 +363,11 @@ fn worker<F: Function>(
 /// perform evaluation.
 pub fn render<F: Function>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let shape = shape.apply_transform(config.mat());
-    render_inner(shape, config)
-}
 
-pub fn render_inner<F: Function>(
-    shape: Shape<F>,
-    config: &VoxelRenderConfig,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
     let width = config.image_size[0] as usize;
@@ -400,9 +398,11 @@ pub fn render_inner<F: Function>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = match config.threads {
-        ThreadCount::One => worker::<F>(rh, tile_queues.as_slice(), 0, config)
-            .into_iter()
-            .collect(),
+        ThreadCount::One => {
+            worker::<F>(rh, vars, tile_queues.as_slice(), 0, config)
+                .into_iter()
+                .collect()
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         ThreadCount::Many(threads) => std::thread::scope(|s| {
@@ -411,8 +411,9 @@ pub fn render_inner<F: Function>(
             let queues = tile_queues.as_slice();
             for i in 0..threads.get() {
                 let rh = rh.clone();
-                handles
-                    .push(s.spawn(move || worker::<F>(rh, queues, i, config)));
+                handles.push(
+                    s.spawn(move || worker::<F>(rh, vars, queues, i, config)),
+                );
             }
             let mut out = vec![];
             for h in handles {

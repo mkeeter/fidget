@@ -167,7 +167,16 @@ impl VoxelRenderConfig {
         &self,
         shape: Shape<F>,
     ) -> (Vec<u32>, Vec<[u8; 3]>) {
-        crate::render::render3d::<F>(shape, self)
+        self.run_with_vars::<F>(shape, &Default::default())
+    }
+
+    /// Render a shape in 2D using this configuration and variables
+    pub fn run_with_vars<F: Function>(
+        &self,
+        shape: Shape<F>,
+        vars: &ShapeVars<f32>,
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        crate::render::render3d::<F>(shape, vars, self)
     }
 
     /// Returns the combined screen-to-model transform matrix

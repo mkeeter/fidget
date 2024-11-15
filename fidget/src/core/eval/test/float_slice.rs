@@ -9,11 +9,10 @@ use super::{
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
-    shape::{EzShape, Shape},
-    var::{Var, VarIndex},
+    shape::{EzShape, Shape, ShapeVars},
+    var::Var,
     Error,
 };
-use std::collections::HashMap;
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestFloatSlice<F>(std::marker::PhantomData<*const F>);
@@ -126,7 +125,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         assert!(eval
             .eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0])
             .is_err());
-        let mut h: HashMap<VarIndex, &[f32]> = HashMap::new();
+        let mut h: ShapeVars<&[f32]> = ShapeVars::new();
         assert!(eval
             .eval_v(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
             .is_err());
