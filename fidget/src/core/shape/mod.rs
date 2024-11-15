@@ -33,11 +33,8 @@ use crate::{
     var::{Var, VarIndex, VarMap},
     Error,
 };
-use nalgebra::{Matrix4, Point3};
+use nalgebra::{Matrix4, Point2, Point3};
 use std::collections::HashMap;
-
-mod bounds;
-pub use bounds::Bounds;
 
 /// A shape represents an implicit surface
 ///
@@ -333,8 +330,22 @@ impl TileSizes {
     }
 
     /// Gets a tile size by index
-    pub fn get(&self, i: usize) -> Option<&usize> {
-        self.0.get(i)
+    pub fn get(&self, i: usize) -> Option<usize> {
+        self.0.get(i).copied()
+    }
+
+    /// Returns the data offset of a global pixel position within a root tile
+    ///
+    /// The root tile is implicit: it's set by the largest tile size and aligned
+    /// to multiples of that size.
+    #[inline]
+    pub(crate) fn pixel_offset(&self, pos: Point2<usize>) -> usize {
+        // Find the relative position within the root tile
+        let x = pos.x % self.0[0];
+        let y = pos.y % self.0[0];
+
+        // Apply the relative offset and find the data index
+        x + y * self.0[0]
     }
 }
 

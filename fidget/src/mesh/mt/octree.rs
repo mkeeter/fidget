@@ -1,12 +1,15 @@
 //! Multithreaded octree construction
-use super::pool::{QueuePool, ThreadContext, ThreadPool};
+use super::{
+    pool::{QueuePool, ThreadContext, ThreadPool},
+    MultithreadedSettings,
+};
 use crate::{
     eval::Function,
     mesh::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
         types::Corner,
-        Octree, Settings,
+        Octree,
     },
     shape::RenderHints,
 };
@@ -118,10 +121,14 @@ pub struct OctreeWorker<F: Function + RenderHints> {
 }
 
 impl<F: Function + RenderHints> OctreeWorker<F> {
-    pub fn scheduler(eval: Arc<EvalGroup<F>>, settings: Settings) -> Octree {
-        let task_queues = QueuePool::new(settings.threads());
+    pub fn scheduler(
+        eval: Arc<EvalGroup<F>>,
+        settings: MultithreadedSettings,
+    ) -> Octree {
+        let thread_count = settings.threads.get();
+        let task_queues = QueuePool::new(settings.threads);
         let done_queues = std::iter::repeat_with(std::sync::mpsc::channel)
-            .take(settings.threads())
+            .take(thread_count)
             .collect::<Vec<_>>();
         let friend_done =
             done_queues.iter().map(|t| t.0.clone()).collect::<Vec<_>>();
@@ -144,7 +151,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             .collect::<Vec<_>>();
 
         let root = CellIndex::default();
-        let r = workers[0].octree.eval_cell(&eval, root, settings);
+        let r = workers[0].octree.eval_cell(&eval, root, settings.depth);
         let c = match r {
             CellResult::Done(cell) => Some(cell),
             CellResult::Recurse(eval) => {
@@ -157,11 +164,11 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             workers[0].octree.record(0, c.into());
             workers.into_iter().next().unwrap().octree.into()
         } else {
-            let pool = &ThreadPool::new(settings.threads());
+            let pool = &ThreadPool::new(settings.threads);
             let out: Vec<Octree> = std::thread::scope(|s| {
                 let mut handles = vec![];
                 for w in workers {
-                    handles.push(s.spawn(move || w.run(pool, settings)));
+                    handles.push(s.spawn(move || w.run(pool, settings.depth)));
                 }
                 handles.into_iter().map(|h| h.join().unwrap()).collect()
             });
@@ -170,7 +177,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
     }
 
     /// Runs a single worker to completion as part of a worker group
-    pub fn run(mut self, threads: &ThreadPool, settings: Settings) -> Octree {
+    pub fn run(mut self, threads: &ThreadPool, max_depth: u8) -> Octree {
         let mut ctx = threads.start(self.thread_index);
         loop {
             // First, check to see if anyone has finished a task and sent us
@@ -205,7 +212,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                 for i in Corner::iter() {
                     let sub_cell = task.target_cell.child(index, i);
 
-                    match self.octree.eval_cell(&task.eval, sub_cell, settings)
+                    match self.octree.eval_cell(&task.eval, sub_cell, max_depth)
                     {
                         // If this child is finished, then record it locally.
                         // If it's a branching cell, then we'll let a caller

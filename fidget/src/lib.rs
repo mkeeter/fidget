@@ -209,22 +209,22 @@
 //! ```
 //! use fidget::{
 //!     context::{Tree, Context},
-//!     render::{BitRenderMode, RenderConfig},
+//!     render::{BitRenderMode, ImageSize, ImageRenderConfig},
 //!     vm::VmShape,
 //! };
 //!
 //! let x = Tree::x();
 //! let y = Tree::y();
 //! let tree = (x.square() + y.square()).sqrt() - 1.0;
-//! let cfg = RenderConfig::<2> {
-//!     image_size: 32,
-//!     ..RenderConfig::default()
+//! let cfg = ImageRenderConfig {
+//!     image_size: ImageSize::from(32),
+//!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
-//! let out = cfg.run::<_, BitRenderMode>(shape)?;
+//! let out = cfg.run::<_, BitRenderMode>(shape);
 //! let mut iter = out.iter();
-//! for y in 0..cfg.image_size {
-//!     for x in 0..cfg.image_size {
+//! for y in 0..cfg.image_size.height() {
+//!     for x in 0..cfg.image_size.width() {
 //!         if *iter.next().unwrap() {
 //!             print!("XX");
 //!         } else {

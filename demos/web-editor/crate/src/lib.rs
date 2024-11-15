@@ -1,7 +1,9 @@
 use fidget::{
     context::{Context, Tree},
-    render::{BitRenderMode, RenderConfig},
-    shape::Bounds,
+    render::{
+        BitRenderMode, ImageRenderConfig, ImageSize, View2, View3,
+        VoxelRenderConfig, VoxelSize,
+    },
     var::Var,
     vm::{VmData, VmShape},
     Error,
@@ -83,16 +85,13 @@ pub fn render_region_2d(
         // Tile center
         let center = corner.add_scalar(scale / 2.0);
 
-        let cfg = RenderConfig::<2> {
-            image_size: image_size / workers_per_side,
-            bounds: Bounds {
-                center,
-                size: scale / 2.0,
-            },
-            ..RenderConfig::default()
+        let cfg = ImageRenderConfig {
+            image_size: ImageSize::from((image_size / workers_per_side) as u32),
+            view: View2::from_center_and_scale(center, scale / 2.0),
+            ..Default::default()
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape)?;
+        let out = cfg.run::<_, BitRenderMode>(shape);
         Ok(out
             .into_iter()
             .flat_map(|b| {
@@ -195,17 +194,14 @@ fn render_3d_inner(
         // Tile center
         let center = corner.add_scalar(scale / 2.0);
 
-        let cfg = RenderConfig::<3> {
-            image_size: image_size / workers_per_side,
-            bounds: Bounds {
-                center,
-                size: scale / 2.0,
-            },
-            ..RenderConfig::default()
+        let cfg = VoxelRenderConfig {
+            image_size: VoxelSize::from((image_size / workers_per_side) as u32),
+            view: View3::from_center_and_scale(center, scale / 2.0),
+            ..Default::default()
         };
 
         // Special case for the first tile, which can be copied over
-        let (mut depth, norm) = cfg.run(shape.clone())?;
+        let (mut depth, norm) = cfg.run(shape.clone());
         for d in &mut depth {
             if *d > 0 {
                 *d += (z * image_size / workers_per_side) as u32;

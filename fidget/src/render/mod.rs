@@ -1,9 +1,7 @@
 //! 2D and 3D rendering
 //!
-//! The easiest way to render something is with
-//! [`RenderConfig::run`](RenderConfig::run); you can also use the lower-level
-//! functions ([`render2d`](render2d()) and [`render3d`](render3d())) for manual
-//! control over the input tape.
+//! To render something, build a configuration object then call its `run`
+//! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
 use crate::{
     eval::{BulkEvaluator, Function, Trace, TracingEvaluator},
     shape::{Shape, ShapeTape},
@@ -11,12 +9,17 @@ use crate::{
 use std::sync::Arc;
 
 mod config;
+mod region;
 mod render2d;
 mod render3d;
+mod view;
 
-pub use config::RenderConfig;
-pub use render2d::render as render2d;
-pub use render3d::render as render3d;
+pub use config::{ImageRenderConfig, ThreadCount, VoxelRenderConfig};
+pub use region::{ImageSize, RegionSize, VoxelSize};
+pub use view::{View2, View3};
+
+use render2d::render as render2d;
+use render3d::render as render3d;
 
 pub use render2d::{
     BitRenderMode, DebugRenderMode, RenderMode, SdfPixelRenderMode,

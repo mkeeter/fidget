@@ -1,184 +1,199 @@
 use crate::{
     eval::Function,
-    render::RenderMode,
-    shape::{Bounds, Shape, TileSizes},
-    Error,
+    render::{ImageSize, RenderMode, View2, View3, VoxelSize},
+    shape::{Shape, TileSizes},
 };
-use nalgebra::{
-    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, U1,
-};
+use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Container to store render configuration (resolution, etc)
-pub struct RenderConfig<const N: usize> {
-    /// Image size (for a square output image)
-    pub image_size: usize,
+/// Number of threads to use during evaluation
+///
+/// In a WebAssembly build, only the [`ThreadCount::One`] variant is available.
+#[derive(Copy, Clone, Debug)]
+pub enum ThreadCount {
+    /// Perform all evaluation in the main thread, not spawning any workers
+    One,
+
+    /// Spawn some number of worker threads for evaluation
+    ///
+    /// This can be set to `1`, in which case a single worker thread will be
+    /// spawned; this is different from doing work in the main thread, but not
+    /// particularly useful!
+    #[cfg(not(target_arch = "wasm32"))]
+    Many(std::num::NonZeroUsize),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<std::num::NonZeroUsize> for ThreadCount {
+    fn from(v: std::num::NonZeroUsize) -> Self {
+        match v.get() {
+            0 => unreachable!(),
+            1 => ThreadCount::One,
+            _ => ThreadCount::Many(v),
+        }
+    }
+}
+
+/// Single-threaded mode is shown as `-`; otherwise, an integer
+impl std::fmt::Display for ThreadCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadCount::One => write!(f, "-"),
+            #[cfg(not(target_arch = "wasm32"))]
+            ThreadCount::Many(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl ThreadCount {
+    /// Gets the thread count
+    ///
+    /// Returns `None` if we are required to be single-threaded
+    pub fn get(&self) -> Option<usize> {
+        match self {
+            ThreadCount::One => None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ThreadCount::Many(v) => Some(v.get()),
+        }
+    }
+}
+
+impl Default for ThreadCount {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        Self::One
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn default() -> Self {
+        Self::Many(std::num::NonZeroUsize::new(8).unwrap())
+    }
+}
+
+/// Settings for 2D rendering
+pub struct ImageRenderConfig {
+    /// Render size
+    pub image_size: ImageSize,
+
+    /// World-to-model transform
+    pub view: View2,
 
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
     /// [`RenderHints::tile_sizes_2d`](crate::shape::RenderHints::tile_sizes_2d)
-    /// or
-    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
-    /// Bounds of the rendered image, in shape coordinates
-    pub bounds: Bounds<N>,
-
-    /// Number of threads to use; 8 by default
-    #[cfg(not(target_arch = "wasm32"))]
-    pub threads: std::num::NonZeroUsize,
+    /// Number of worker threads
+    pub threads: ThreadCount,
 }
 
-impl<const N: usize> Default for RenderConfig<N> {
+impl Default for ImageRenderConfig {
     fn default() -> Self {
         Self {
-            image_size: 512,
-            tile_sizes: match N {
-                2 => TileSizes::new(&[128, 32, 8]).unwrap(),
-                _ => TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
-            },
-            bounds: Default::default(),
-
-            #[cfg(not(target_arch = "wasm32"))]
-            threads: std::num::NonZeroUsize::new(8).unwrap(),
+            image_size: ImageSize::from(512),
+            tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
+            view: View2::default(),
+            threads: ThreadCount::default(),
         }
     }
 }
 
-impl<const N: usize> RenderConfig<N>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator:
-        nalgebra::allocator::Allocator<
-            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
-                Const<1>,
-            >>::Output,
-        >,
-    <nalgebra::Const<N> as DimNameAdd<nalgebra::Const<1>>>::Output:
-        DimNameSub<nalgebra::Const<1>>,
-{
-    /// Returns a `RenderConfig` where the image size is padded to an even
-    /// multiple of `tile_size`, and `mat` is populated based on image size.
-    pub(crate) fn align(&self) -> (AlignedRenderConfig<N>, NPlusOneMatrix<N>) {
-        // Filter out tile sizes that are larger than our image size
-        let mut tile_sizes: Vec<usize> = self
-            .tile_sizes
-            .iter()
-            .skip_while(|t| **t > self.image_size)
-            .cloned()
-            .collect();
-        if tile_sizes.is_empty() {
-            tile_sizes.push(8);
+impl ImageRenderConfig {
+    /// Render a shape in 2D using this configuration
+    pub fn run<F: Function, M: RenderMode + Sync>(
+        &self,
+        shape: Shape<F>,
+    ) -> Vec<<M as RenderMode>::Output> {
+        crate::render::render2d::<F, M>(shape, self)
+    }
+
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> Matrix3<f32> {
+        self.view.world_to_model() * self.image_size.screen_to_world()
+    }
+}
+
+/// Settings for 3D rendering
+pub struct VoxelRenderConfig {
+    /// Render size
+    ///
+    /// The resulting image will have the given width and height; depth sets the
+    /// number of voxels to evaluate within each pixel of the image (stacked
+    /// into a column going into the screen).
+    pub image_size: VoxelSize,
+
+    /// World-to-model transform
+    pub view: View3,
+
+    /// Tile sizes to use during evaluation.
+    ///
+    /// You'll likely want to use
+    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
+    /// to select this based on evaluator type.
+    pub tile_sizes: TileSizes,
+
+    /// Number of worker threads
+    pub threads: ThreadCount,
+}
+
+impl Default for VoxelRenderConfig {
+    fn default() -> Self {
+        Self {
+            image_size: VoxelSize::from(512),
+            tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
+            view: View3::default(),
+
+            threads: ThreadCount::default(),
         }
-        let tile_sizes = TileSizes::new(&tile_sizes).unwrap();
+    }
+}
 
-        // Pad image size to an even multiple of tile size.
-        let image_size = (self.image_size + tile_sizes[0] - 1) / tile_sizes[0]
-            * tile_sizes[0];
+impl VoxelRenderConfig {
+    /// Render a shape in 3D using this configuration
+    ///
+    /// Returns a tuple of heightmap, RGB image.
+    pub fn run<F: Function>(
+        &self,
+        shape: Shape<F>,
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        crate::render::render3d::<F>(shape, self)
+    }
 
-        // Compensate for the image size change
-        let scale = image_size as f32 / self.image_size as f32;
+    /// Returns the combined screen-to-model transform matrix
+    pub fn mat(&self) -> Matrix4<f32> {
+        self.view.world_to_model() * self.image_size.screen_to_world()
+    }
 
-        // Look, I'm not any happier about this than you are.
-        let v = nalgebra::OVector::<
-            f32,
-            <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<
-                Const<1>,
-            >>::Output,
-        >::from_element(-1.0);
-
-        // Build a matrix which transforms from pixel coordinates to [-1, +1]
-        let mut mat =
-            nalgebra::Transform::<f32, nalgebra::TGeneral, N>::identity()
-                .matrix()
-                .append_scaling(2.0 / image_size as f32)
-                .append_scaling(scale)
-                .append_translation(&v);
-
-        // The bounds transform matrix goes from [-1, +1] to model coordinates
-        mat = self.bounds.transform().matrix() * mat;
-
-        (
-            AlignedRenderConfig {
-                image_size,
-                orig_image_size: self.image_size,
-                tile_sizes,
-
-                #[cfg(not(target_arch = "wasm32"))]
-                threads: self.threads,
-            },
-            mat,
-        )
+    /// Returns the data offset of a row within a subtile
+    pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
+        self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
-pub(crate) struct AlignedRenderConfig<const N: usize>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-{
-    pub image_size: usize,
-    pub orig_image_size: usize,
-
-    pub tile_sizes: TileSizes,
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub threads: std::num::NonZeroUsize,
-}
-
-/// Type for a static `f32` matrix of size `N + 1`
-type NPlusOneMatrix<const N: usize> = nalgebra::OMatrix<
-    f32,
-    <Const<N> as DimNameAdd<Const<1>>>::Output,
-    <Const<N> as DimNameAdd<Const<1>>>::Output,
->;
-
-impl<const N: usize> AlignedRenderConfig<N>
-where
-    nalgebra::Const<N>: nalgebra::DimNameAdd<nalgebra::U1>,
-    DefaultAllocator:
-        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-{
-    #[inline]
-    pub fn tile_to_offset(&self, tile: Tile<N>, x: usize, y: usize) -> usize {
-        tile.offset + x + y * self.tile_sizes[0]
-    }
-
-    #[inline]
-    pub fn new_tile(&self, corner: [usize; N]) -> Tile<N> {
-        let x = corner[0] % self.tile_sizes[0];
-        let y = corner[1] % self.tile_sizes[0];
-        Tile {
-            corner,
-            offset: x + y * self.tile_sizes[0],
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn threads(&self) -> usize {
-        1
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn threads(&self) -> usize {
-        self.threads.get()
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Tile<const N: usize> {
-    pub corner: [usize; N],
-    offset: usize,
+    /// Corner of this tile, in global screen (pixel) coordinates
+    pub corner: OPoint<usize, Const<N>>,
+}
+
+impl<const N: usize> Tile<N> {
+    /// Build a new tile from its global coordinates
+    #[inline]
+    pub(crate) fn new(corner: OPoint<usize, Const<N>>) -> Tile<N> {
+        Tile { corner }
+    }
+
+    /// Converts a relative position within the tile into a global position
+    ///
+    /// This function operates in pixel space, using the `.xy` coordinates
+    pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
+        let corner = Point2::new(self.corner[0], self.corner[1]);
+        corner + pos
+    }
 }
 
 /// Worker queue
@@ -200,150 +215,103 @@ impl<const N: usize> Queue<N> {
     }
 }
 
-impl RenderConfig<2> {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render2d`](crate::render::render2d())
-    pub fn run<F: Function, M: RenderMode + Sync>(
-        &self,
-        shape: Shape<F>,
-    ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        Ok(crate::render::render2d::<F, M>(shape, self))
-    }
-}
-
-impl RenderConfig<3> {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render3d`](crate::render::render3d())
-    ///
-    /// Returns a tuple of heightmap, RGB image.
-    pub fn run<F: Function>(
-        &self,
-        shape: Shape<F>,
-    ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        Ok(crate::render::render3d::<F>(shape, self))
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::render::ImageSize;
     use nalgebra::Point2;
 
     #[test]
-    fn test_aligned_config() {
-        // Simple alignment
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 512,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
+    fn test_default_render_config() {
+        let config = ImageRenderConfig {
+            image_size: ImageSize::from(512),
             ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.image_size, config.image_size);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(-1.0, -1.0)
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(-1.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 0.0)),
-            Point2::new(1.0, -1.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 512.0)),
+            mat.transform_point(&Point2::new(512.0, -1.0)),
             Point2::new(1.0, 1.0)
         );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 511.0)),
+            Point2::new(1.0, -1.0)
+        );
 
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 575,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
+        let config = ImageRenderConfig {
+            image_size: ImageSize::from(575),
             ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.orig_image_size, 575);
-        assert_eq!(aligned.image_size, 576);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(-1.0, -1.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
-            Point2::new(1.0, -1.0)
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(-1.0, 1.0)
         );
         assert_eq!(
             mat.transform_point(&Point2::new(
-                config.image_size as f32,
-                config.image_size as f32
+                config.image_size.width() as f32,
+                -1.0
             )),
             Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(
+                config.image_size.width() as f32,
+                config.image_size.height() as f32 - 1.0,
+            )),
+            Point2::new(1.0, -1.0)
         );
     }
 
     #[test]
-    fn test_bounded_config() {
-        // Simple alignment
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 512,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
-            bounds: Bounds {
-                center: nalgebra::Vector2::new(0.5, 0.5),
-                size: 0.5,
-            },
-            ..RenderConfig::default()
+    fn test_camera_render_config() {
+        let config = ImageRenderConfig {
+            image_size: ImageSize::from(512),
+            view: View2::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.5,
+            ),
+            ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.image_size, config.image_size);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(0.0, 0.0)
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(0.0, 1.0)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 0.0)),
-            Point2::new(1.0, 0.0)
-        );
-        assert_eq!(
-            mat.transform_point(&Point2::new(512.0, 512.0)),
+            mat.transform_point(&Point2::new(512.0, -1.0)),
             Point2::new(1.0, 1.0)
+        );
+        assert_eq!(
+            mat.transform_point(&Point2::new(512.0, 511.0)),
+            Point2::new(1.0, 0.0)
         );
 
-        let config: RenderConfig<2> = RenderConfig {
-            image_size: 575,
-            tile_sizes: TileSizes::new(&[64, 32]).unwrap(),
-            bounds: Bounds {
-                center: nalgebra::Vector2::new(0.5, 0.5),
-                size: 0.5,
-            },
-            ..RenderConfig::default()
+        let config = ImageRenderConfig {
+            image_size: ImageSize::from(512),
+            view: View2::from_center_and_scale(
+                nalgebra::Vector2::new(0.5, 0.5),
+                0.25,
+            ),
+            ..Default::default()
         };
-        let (aligned, mat) = config.align();
-        assert_eq!(aligned.orig_image_size, 575);
-        assert_eq!(aligned.image_size, 576);
-        assert_eq!(aligned.tile_sizes, config.tile_sizes);
-        assert_eq!(aligned.threads, config.threads);
+        let mat = config.mat();
         assert_eq!(
-            mat.transform_point(&Point2::new(0.0, 0.0)),
-            Point2::new(0.0, 0.0)
+            mat.transform_point(&Point2::new(0.0, -1.0)),
+            Point2::new(0.25, 0.75)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(config.image_size as f32, 0.0)),
-            Point2::new(1.0, 0.0)
+            mat.transform_point(&Point2::new(512.0, -1.0)),
+            Point2::new(0.75, 0.75)
         );
         assert_eq!(
-            mat.transform_point(&Point2::new(
-                config.image_size as f32,
-                config.image_size as f32
-            )),
-            Point2::new(1.0, 1.0)
+            mat.transform_point(&Point2::new(512.0, 511.0)),
+            Point2::new(0.75, 0.25)
         );
     }
 }

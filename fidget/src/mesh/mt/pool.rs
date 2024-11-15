@@ -1,5 +1,8 @@
 //! Minimal utilities for thread pooling
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    num::NonZeroUsize,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 /// Stores data used to synchronize a thread pool
 pub struct ThreadPool {
@@ -9,9 +12,12 @@ pub struct ThreadPool {
 
 impl ThreadPool {
     /// Builds thread pool storage for `n` threads
-    pub fn new(n: usize) -> Self {
+    pub fn new(n: NonZeroUsize) -> Self {
         Self {
-            threads: std::sync::RwLock::new(vec![std::thread::current(); n]),
+            threads: std::sync::RwLock::new(vec![
+                std::thread::current();
+                n.get()
+            ]),
             counter: AtomicUsize::new(0),
         }
     }
@@ -196,8 +202,8 @@ pub struct QueuePool<T> {
 
 impl<T> QueuePool<T> {
     /// Builds a new set of queues for `n` threads
-    pub fn new(n: usize) -> Vec<Self> {
-        let task_queues = (0..n)
+    pub fn new(n: NonZeroUsize) -> Vec<Self> {
+        let task_queues = (0..n.get())
             .map(|_| crossbeam_deque::Worker::<T>::new_lifo())
             .collect::<Vec<_>>();
 
@@ -260,7 +266,7 @@ mod test {
 
     #[test]
     fn queue_pool() {
-        let mut queues = QueuePool::new(2);
+        let mut queues = QueuePool::new(2.try_into().unwrap());
         let mut counters = [0i32; 2];
         const DEPTH: usize = 6;
         queues[0].push(DEPTH);
@@ -298,7 +304,7 @@ mod test {
     #[test]
     fn thread_ctx() {
         const N: usize = 8;
-        let pool = &ThreadPool::new(N);
+        let pool = &ThreadPool::new(N.try_into().unwrap());
         let done = &AtomicUsize::new(0);
 
         std::thread::scope(|s| {
@@ -329,8 +335,8 @@ mod test {
     #[test]
     fn queue_and_thread_pool() {
         const N: usize = 8;
-        let mut queues = QueuePool::new(N);
-        let pool = &ThreadPool::new(N);
+        let mut queues = QueuePool::new(N.try_into().unwrap());
+        let pool = &ThreadPool::new(N.try_into().unwrap());
         let mut counters = [0i32; N];
         const DEPTH: usize = 16;
         queues[0].push(DEPTH);

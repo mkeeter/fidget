@@ -3,10 +3,11 @@ use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
-use fidget::render::RenderConfig;
 use log::{debug, error, info, warn};
-use nalgebra::{Vector2, Vector3};
+use nalgebra::{Point2, Vector3};
 use notify::Watcher;
+
+use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
 
 use std::{error::Error, path::Path};
 
@@ -65,14 +66,14 @@ fn rhai_script_thread(
 }
 
 struct RenderSettings {
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
     mode: RenderMode,
 }
 
 struct RenderResult {
     dt: std::time::Duration,
     image: egui::ImageData,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
 }
 
 fn render_thread<F>(
@@ -123,7 +124,10 @@ where
         if let (Some(out), Some(render_config)) = (&script_ctx, &config) {
             debug!("Rendering...");
             let mut image = egui::ColorImage::new(
-                [render_config.image_size; 2],
+                [
+                    render_config.image_size.width() as usize,
+                    render_config.image_size.height() as usize,
+                ],
                 egui::Color32::BLACK,
             );
             let render_start = std::time::Instant::now();
@@ -153,28 +157,23 @@ where
 fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
     mode: &RenderMode,
     shape: fidget::shape::Shape<F>,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
     color: [u8; 3],
     pixels: &mut [egui::Color32],
 ) {
     match mode {
-        RenderMode::TwoD(camera, mode) => {
-            let config = RenderConfig {
+        RenderMode::TwoD { view, mode, .. } => {
+            let config = ImageRenderConfig {
                 image_size,
                 tile_sizes: F::tile_sizes_2d(),
-                bounds: fidget::shape::Bounds {
-                    center: camera.offset(),
-                    size: camera.scale(),
-                },
-                ..RenderConfig::default()
+                view: *view,
+                ..Default::default()
             };
 
             match mode {
                 Mode2D::Color => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::BitRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::BitRenderMode>(shape);
                     let c = egui::Color32::from_rgba_unmultiplied(
                         color[0],
                         color[1],
@@ -189,20 +188,16 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                 }
 
                 Mode2D::Sdf => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::SdfRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::SdfRenderMode>(shape);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
                 Mode2D::Debug => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::DebugRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::DebugRenderMode>(shape);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         let c = i.as_debug_color();
                         *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
@@ -211,16 +206,21 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
             }
         }
         RenderMode::ThreeD(camera, mode) => {
-            let config = RenderConfig {
-                image_size,
-                tile_sizes: F::tile_sizes_2d(),
-                bounds: fidget::shape::Bounds {
-                    center: Vector3::new(camera.offset.x, camera.offset.y, 0.0),
-                    size: camera.scale,
-                },
-                ..RenderConfig::default()
+            // XXX allow selection of depth?
+            let config = VoxelRenderConfig {
+                image_size: fidget::render::VoxelSize::new(
+                    image_size.width(),
+                    image_size.height(),
+                    512,
+                ),
+                tile_sizes: F::tile_sizes_3d(),
+                view: View3::from_center_and_scale(
+                    Vector3::new(camera.offset.x, camera.offset.y, 0.0),
+                    camera.scale,
+                ),
+                ..Default::default()
             };
-            let (depth, color) = fidget::render::render3d(shape, &config);
+            let (depth, color) = config.run(shape);
             match mode {
                 ThreeDMode::Color => {
                     for (p, (&d, &c)) in
@@ -381,31 +381,38 @@ enum ThreeDMode {
 
 #[derive(Copy, Clone)]
 enum RenderMode {
-    TwoD(camera::Camera2D, Mode2D),
+    TwoD {
+        view: View2,
+
+        /// Drag start position (in model coordinates)
+        drag_start: Option<Point2<f32>>,
+        mode: Mode2D,
+    },
     ThreeD(ThreeDCamera, ThreeDMode),
 }
 
 impl RenderMode {
-    fn set_2d_mode(&mut self, mode: Mode2D) -> bool {
+    fn set_2d_mode(&mut self, new_mode: Mode2D) -> bool {
         match self {
-            RenderMode::TwoD(.., m) => {
-                let changed = *m != mode;
-                *m = mode;
+            RenderMode::TwoD { mode, .. } => {
+                let changed = *mode != new_mode;
+                *mode = new_mode;
                 changed
             }
             RenderMode::ThreeD(..) => {
-                *self = RenderMode::TwoD(
+                *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
-                    camera::Camera2D::new(),
-                    mode,
-                );
+                    view: Default::default(),
+                    drag_start: None,
+                    mode: new_mode,
+                };
                 true
             }
         }
     }
     fn set_3d_mode(&mut self, mode: ThreeDMode) -> bool {
         match self {
-            RenderMode::TwoD(..) => {
+            RenderMode::TwoD { .. } => {
                 *self = RenderMode::ThreeD(ThreeDCamera::default(), mode);
                 true
             }
@@ -421,7 +428,7 @@ impl RenderMode {
 struct ViewerApp {
     // Current image
     texture: Option<egui::TextureHandle>,
-    stats: Option<(std::time::Duration, usize)>,
+    stats: Option<(std::time::Duration, fidget::render::ImageSize)>,
 
     // Most recent result, or an error string
     // TODO: this could be combined with stats as a Result
@@ -429,7 +436,7 @@ struct ViewerApp {
 
     /// Current render mode
     mode: RenderMode,
-    image_size: usize,
+    image_size: fidget::render::ImageSize,
 
     config_tx: Sender<RenderSettings>,
     image_rx: Receiver<Result<RenderResult, String>>,
@@ -447,12 +454,16 @@ impl ViewerApp {
             stats: None,
 
             err: None,
-            image_size: 0,
+            image_size: fidget::render::ImageSize::from(256),
 
             config_tx,
             image_rx,
 
-            mode: RenderMode::TwoD(camera::Camera2D::new(), Mode2D::Color),
+            mode: RenderMode::TwoD {
+                view: Default::default(),
+                drag_start: None,
+                mode: Mode2D::Color,
+            },
         }
     }
 
@@ -462,7 +473,7 @@ impl ViewerApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
-                        RenderMode::TwoD(..) => None,
+                        RenderMode::TwoD { .. } => None,
                         RenderMode::ThreeD(_camera, mode) => Some(*mode),
                     };
                     ui.radio_value(
@@ -480,7 +491,7 @@ impl ViewerApp {
                     }
                     ui.separator();
                     let mut mode_2d = match &self.mode {
-                        RenderMode::TwoD(_camera, mode) => Some(*mode),
+                        RenderMode::TwoD { mode, .. } => Some(*mode),
                         RenderMode::ThreeD(..) => None,
                     };
                     ui.radio_value(
@@ -551,18 +562,13 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        let RenderMode::TwoD(camera, ..) = &self.mode else {
+        if !matches!(self.mode, RenderMode::TwoD { .. }) {
             panic!("can't render in 3D");
-        };
-        let rect = camera.viewport();
-        let rect = egui::Rect {
-            min: egui::Pos2::new(rect.min.x, rect.min.y),
-            max: egui::Pos2::new(rect.max.x, rect.max.y),
-        };
-        let uv = camera.uv();
+        }
+        let rect = ui.ctx().available_rect();
         let uv = egui::Rect {
-            min: egui::Pos2::new(uv.min.x, uv.min.y),
-            max: egui::Pos2::new(uv.max.x, uv.max.y),
+            min: egui::Pos2::new(0.0, 0.0),
+            max: egui::Pos2::new(1.0, 1.0),
         };
 
         if let Some((dt, image_size)) = self.stats {
@@ -576,8 +582,9 @@ impl ViewerApp {
 
             let layout = painter.layout(
                 format!(
-                    "Image size: {0}x{0}\nRender time: {dt:.2?}",
-                    image_size,
+                    "Image size: {}×{}\nRender time: {dt:.2?}",
+                    image_size.width(),
+                    image_size.height(),
                 ),
                 egui::FontId::proportional(14.0),
                 egui::Color32::WHITE,
@@ -631,8 +638,10 @@ impl eframe::App for ViewerApp {
 
         let rect = ctx.available_rect();
         let size = rect.max - rect.min;
-        let max_size = size.x.max(size.y);
-        let image_size = (max_size * ctx.pixels_per_point()) as usize;
+        let image_size = fidget::render::ImageSize::new(
+            (size.x * ctx.pixels_per_point()) as u32,
+            (size.y * ctx.pixels_per_point()) as u32,
+        );
 
         if image_size != self.image_size {
             self.image_size = image_size;
@@ -647,28 +656,36 @@ impl eframe::App for ViewerApp {
 
         // Handle pan and zoom
         match &mut self.mode {
-            RenderMode::TwoD(camera, ..) => {
-                let rect = camera::Rect {
-                    min: Vector2::new(rect.min.x, rect.min.y),
-                    max: Vector2::new(rect.max.x, rect.max.y),
-                };
+            RenderMode::TwoD {
+                view, drag_start, ..
+            } => {
+                let image_size = fidget::render::ImageSize::new(
+                    rect.width() as u32,
+                    rect.height() as u32,
+                );
 
-                camera.set_viewport(rect);
-
+                let mat = view.world_to_model() * image_size.screen_to_world();
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let pos = Vector2::new(pos.x, pos.y);
-                    render_changed |= camera.drag(pos);
+                    let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
+                    if let Some(prev) = *drag_start {
+                        view.translate(prev - pos);
+                        render_changed |= prev != pos;
+                    } else {
+                        *drag_start = Some(pos);
+                    }
                 } else {
-                    camera.release();
+                    *drag_start = None;
                 }
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
-                    render_changed |= camera.scroll(
-                        mouse_pos.map(|p| Vector2::new(p.x, p.y)),
-                        scroll,
-                    );
+                    let mouse_pos = ctx
+                        .input(|i| i.pointer.hover_pos())
+                        .map(|p| mat.transform_point(&Point2::new(p.x, p.y)));
+                    if scroll != 0.0 {
+                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
+                        render_changed = true;
+                    }
                 }
             }
             RenderMode::ThreeD(..) => {
