@@ -11,27 +11,24 @@ readme = "../README.md"
 [dependencies]
 arrayvec.workspace = true
 bimap.workspace = true
+crossbeam-deque.workspace = true
 document-features.workspace = true
 ieee754.workspace = true
 nalgebra.workspace = true
 num-traits.workspace = true
 ordered-float.workspace = true
 rand.workspace = true
+serde.workspace = true
 static_assertions.workspace = true
 thiserror.workspace = true
-serde.workspace = true
+
+rhai = { workspace = true, optional = true }
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 # JIT
 dynasmrt = { workspace = true, optional = true }
 libc = { workspace = true, optional = true }
-
-# Rhai
-rhai = { workspace = true, optional = true }
-
-# Meshing
-crossbeam-deque = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows.workspace = true
@@ -40,7 +37,7 @@ windows.workspace = true
 getrandom.workspace = true
 
 [features]
-default = ["jit", "rhai", "render", "mesh", "solver"]
+default = ["jit", "rhai"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -53,16 +50,6 @@ jit = ["dep:dynasmrt", "dep:libc"]
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["dep:rhai"]
-
-## Enable 2D and 3D rendering, in the [`fidget::render`](crate::render) module
-render = []
-
-## Enable 3D meshing, in the [`fidget::mesh`](crate::mesh) module
-mesh = ["dep:crossbeam-deque"]
-
-## Enable a system-of-equations solver, in the [`fidget::solver`](crate::solver)
-## module
-solver = []
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each

@@ -26,6 +26,6 @@ jobs:
     - name: Check
       # cargo check doesn't find MIR diagnostics, so we use cargo build instead
       # (https://github.com/rust-lang/rust/issues/49292)
-      run: cargo build --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai,render,mesh"
+      run: cargo build --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai"
     - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai,render,mesh"
+      run: cargo clippy --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai"

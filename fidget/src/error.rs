@@ -81,13 +81,13 @@ pub enum Error {
     #[error("tile size list must not be empty")]
     EmptyTileSizes,
 
-    #[cfg(feature = "rhai")]
     /// Rhai error; see inner code for details
+    #[cfg(feature = "rhai")]
     #[error("Rhai evaluation error: {0}")]
     RhaiParseError(#[from] rhai::ParseError),
 
-    #[cfg(feature = "rhai")]
     /// Rhai error; see inner code for details
+    #[cfg(feature = "rhai")]
     #[error("Rhai evaluation error: {0}")]
     RhaiEvalError(#[from] rhai::EvalAltResult),
 
@@ -97,7 +97,6 @@ pub enum Error {
     DynasmError(#[from] dynasmrt::DynasmError),
 }
 
-#[cfg(feature = "rhai")]
 impl From<Box<rhai::EvalAltResult>> for Error {
     fn from(e: Box<rhai::EvalAltResult>) -> Self {
         Error::RhaiEvalError(*e)
