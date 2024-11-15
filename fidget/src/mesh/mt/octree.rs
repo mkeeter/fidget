@@ -1,12 +1,15 @@
 //! Multithreaded octree construction
-use super::pool::{QueuePool, ThreadContext, ThreadPool};
+use super::{
+    pool::{QueuePool, ThreadContext, ThreadPool},
+    MultithreadedSettings,
+};
 use crate::{
     eval::Function,
     mesh::{
         cell::{Cell, CellData, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
         types::Corner,
-        MultithreadedSettings, Octree,
+        Octree,
     },
     shape::RenderHints,
 };

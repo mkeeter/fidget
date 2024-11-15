@@ -8,7 +8,7 @@ use super::{
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
     types::{Axis, Corner, Edge},
-    Mesh, MultithreadedSettings, Settings,
+    Mesh, Settings,
 };
 use crate::{
     eval::{BulkEvaluator, Function, TracingEvaluator},
@@ -19,7 +19,7 @@ use crate::{
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
 
 #[cfg(not(target_arch = "wasm32"))]
-use super::mt::{DcWorker, OctreeWorker};
+use super::mt::{DcWorker, MultithreadedSettings, OctreeWorker};
 
 // TODO use fidget::render::RenderHandle here instead?
 /// Helper struct to contain a set of matched evaluators

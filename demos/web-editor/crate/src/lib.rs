@@ -1,6 +1,9 @@
 use fidget::{
     context::{Context, Tree},
-    render::{BitRenderMode, Camera, ImageSize, RenderConfig, VoxelSize},
+    render::{
+        BitRenderMode, ImageRenderConfig, ImageSize, View2, View3,
+        VoxelRenderConfig, VoxelSize,
+    },
     var::Var,
     vm::{VmData, VmShape},
     Error,
@@ -82,10 +85,10 @@ pub fn render_region_2d(
         // Tile center
         let center = corner.add_scalar(scale / 2.0);
 
-        let cfg = RenderConfig::<2> {
+        let cfg = ImageRenderConfig {
             image_size: ImageSize::from((image_size / workers_per_side) as u32),
-            camera: Camera::from_center_and_scale(center, scale / 2.0),
-            ..RenderConfig::default()
+            view: View2::from_center_and_scale(center, scale / 2.0),
+            ..Default::default()
         };
 
         let out = cfg.run::<_, BitRenderMode>(shape)?;
@@ -191,10 +194,10 @@ fn render_3d_inner(
         // Tile center
         let center = corner.add_scalar(scale / 2.0);
 
-        let cfg = RenderConfig::<3> {
+        let cfg = VoxelRenderConfig {
             image_size: VoxelSize::from((image_size / workers_per_side) as u32),
-            camera: Camera::from_center_and_scale(center, scale / 2.0),
-            ..RenderConfig::default()
+            view: View3::from_center_and_scale(center, scale / 2.0),
+            ..Default::default()
         };
 
         // Special case for the first tile, which can be copied over

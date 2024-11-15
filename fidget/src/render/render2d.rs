@@ -3,6 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::config::{ImageRenderConfig, Queue, Tile},
+    render::ThreadCount,
     shape::{Shape, ShapeBulkEval, ShapeTracingEval},
     types::Interval,
 };
@@ -429,19 +430,19 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     }
 
     let queue = Queue::new(tiles);
-    let threads = config.threads.get();
 
     let mut rh = RenderHandle::new(shape);
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
-    let out: Vec<_> = if let Some(threads) = threads {
-        #[cfg(target_arch = "wasm32")]
-        unreachable!("multithreaded rendering is not supported on wasm32");
+    let out: Vec<_> = match config.threads {
+        ThreadCount::One => {
+            worker::<F, M>(rh, &queue, config).into_iter().collect()
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|s| {
+        ThreadCount::Many(v) => std::thread::scope(|s| {
             let mut handles = vec![];
-            for _ in 0..threads {
+            for _ in 0..v.get() {
                 let rh = rh.clone();
                 handles.push(s.spawn(|| worker::<F, M>(rh, &queue, config)));
             }
@@ -450,9 +451,7 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
                 out.extend(h.join().unwrap().into_iter());
             }
             out
-        })
-    } else {
-        worker::<F, M>(rh, &queue, config).into_iter().collect()
+        }),
     };
 
     let mut image = vec![M::Output::default(); width * height];

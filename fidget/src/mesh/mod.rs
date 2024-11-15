@@ -102,9 +102,3 @@ impl Default for Settings {
         }
     }
 }
-
-/// Strong type for multithreaded settings
-pub(crate) struct MultithreadedSettings {
-    pub depth: u8,
-    pub threads: std::num::NonZeroUsize,
-}

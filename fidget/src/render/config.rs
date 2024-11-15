@@ -20,6 +20,7 @@ pub enum ThreadCount {
     Many(std::num::NonZeroUsize),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<std::num::NonZeroUsize> for ThreadCount {
     fn from(v: std::num::NonZeroUsize) -> Self {
         match v.get() {
@@ -34,6 +35,7 @@ impl std::fmt::Display for ThreadCount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ThreadCount::One => write!(f, "-"),
+            #[cfg(not(target_arch = "wasm32"))]
             ThreadCount::Many(n) => write!(f, "{n}"),
         }
     }
