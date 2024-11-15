@@ -12,8 +12,8 @@ use super::{
 };
 use crate::{
     eval::{BulkEvaluator, Function, TracingEvaluator},
-    render::ThreadCount,
-    shape::{RenderHints, Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval},
+    render::{RenderHints, ThreadCount},
+    shape::{Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval},
     types::Grad,
 };
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};

@@ -11,7 +11,7 @@ use crate::{
         types::Corner,
         Octree,
     },
-    shape::RenderHints,
+    render::RenderHints,
 };
 use std::sync::{mpsc::TryRecvError, Arc};
 
