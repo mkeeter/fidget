@@ -4,7 +4,7 @@ use crate::{
     eval::Function,
     render::config::{ImageRenderConfig, Queue, Tile},
     render::ThreadCount,
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
 use nalgebra::{Point2, Vector2};
@@ -187,6 +187,7 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
+    vs: ShapeVars<Vec<f32>>,
 }
 
 impl Scratch {
@@ -195,6 +196,7 @@ impl Scratch {
             x: vec![0.0; size],
             y: vec![0.0; size],
             z: vec![0.0; size],
+            vs: ShapeVars::new(),
         }
     }
 }
@@ -228,6 +230,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<2>,
     ) {
@@ -242,7 +245,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
+            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
             .unwrap();
 
         match M::interval(i, depth) {
@@ -308,6 +311,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 for i in 0..n {
                     self.render_tile_recurse(
                         sub_tape,
+                        vars,
                         depth + 1,
                         Tile::new(
                             tile.corner + Vector2::new(i, j) * next_tile_size,
@@ -337,11 +341,12 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
         let out = self
             .eval_float_slice
-            .eval(
+            .eval_v(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
+                &self.scratch.vs,
             )
             .unwrap();
 
@@ -363,6 +368,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
 fn worker<F: Function, M: RenderMode>(
     mut shape: RenderHandle<F>,
+    vars: &ShapeVars<f32>,
     queue: &Queue<2>,
     config: &ImageRenderConfig,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
@@ -379,9 +385,15 @@ fn worker<F: Function, M: RenderMode>(
         shape_storage: vec![],
         workspace: Default::default(),
     };
+
+    // Copy vars into scratch, expanding from single values to arrays
+    let last_tile_size = config.tile_sizes.last();
+    for (k, v) in vars {
+        w.scratch.vs.insert(*k, vec![*v; last_tile_size.pow(2)]);
+    }
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut shape, 0, tile);
+        w.render_tile_recurse(&mut shape, vars, 0, tile);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -401,6 +413,7 @@ fn worker<F: Function, M: RenderMode>(
 /// resulting pixels).
 pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     // Convert to a 4x4 matrix and apply to the shape
@@ -409,11 +422,12 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    render_inner::<_, M>(shape, config)
+    render_inner::<_, M>(shape, vars, config)
 }
 
 fn render_inner<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
@@ -435,16 +449,17 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = match config.threads {
-        ThreadCount::One => {
-            worker::<F, M>(rh, &queue, config).into_iter().collect()
-        }
+        ThreadCount::One => worker::<F, M>(rh, vars, &queue, config)
+            .into_iter()
+            .collect(),
 
         #[cfg(not(target_arch = "wasm32"))]
         ThreadCount::Many(v) => std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..v.get() {
                 let rh = rh.clone();
-                handles.push(s.spawn(|| worker::<F, M>(rh, &queue, config)));
+                handles
+                    .push(s.spawn(|| worker::<F, M>(rh, vars, &queue, config)));
             }
             let mut out = vec![];
             for h in handles {

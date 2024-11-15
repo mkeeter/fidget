@@ -245,6 +245,11 @@ impl<F> ShapeVars<F> {
     pub fn insert(&mut self, v: VarIndex, f: F) -> Option<F> {
         self.0.insert(v, f)
     }
+
+    /// Iterates over values
+    pub fn values(&self) -> impl Iterator<Item = &F> {
+        self.0.values()
+    }
 }
 
 impl<'a, F> IntoIterator for &'a ShapeVars<F> {
@@ -414,20 +419,20 @@ where
         y: F,
         z: F,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
-        let h = ShapeVars::default();
+        let h = ShapeVars::<f32>::default();
         self.eval_v(tape, x, y, z, &h)
     }
 
     /// Tracing evaluation of a single sample
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
-    pub fn eval_v<F: Into<E::Data> + Copy>(
+    pub fn eval_v<F: Into<E::Data> + Copy, V: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: F,
         y: F,
         z: F,
-        vars: &ShapeVars<F>,
+        vars: &ShapeVars<V>,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
         assert_eq!(
             tape.tape.output_count(),
@@ -508,20 +513,20 @@ where
         y: &[E::Data],
         z: &[E::Data],
     ) -> Result<&[E::Data], Error> {
-        let h: HashMap<VarIndex, &[E::Data]> = HashMap::default();
+        let h: ShapeVars<&[E::Data]> = Default::default();
         self.eval_v(tape, x, y, z, &h)
     }
 
     /// Bulk evaluation of many samples, with variables
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
-    pub fn eval_v<V: std::ops::Deref<Target = [E::Data]>>(
+    pub fn eval_v<V: std::ops::Deref<Target = [G]>, G: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
-        vars: &HashMap<VarIndex, V>,
+        vars: &ShapeVars<V>,
     ) -> Result<&[E::Data], Error> {
         assert_eq!(
             tape.tape.output_count(),
@@ -584,7 +589,12 @@ where
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
                 if i < self.scratch.len() {
-                    self.scratch[i].copy_from_slice(value);
+                    for (a, b) in
+                        self.scratch[i].iter_mut().zip(value.deref().iter())
+                    {
+                        *a = (*b).into();
+                    }
+                    // TODO fast path if we can use the slices directly?
                 } else {
                     return Err(Error::BadVarIndex(i, self.scratch.len()));
                 }
