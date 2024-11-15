@@ -3,7 +3,7 @@ use nalgebra::{
     DimNameSum, OMatrix, OVector, Vector2, Vector3, U1,
 };
 
-/// Image size in pixels, used to generate a screen to world matrix
+/// Image size in pixels, used to generate a screen-to-world matrix
 ///
 /// The screen coordinate space is the following:
 ///
@@ -36,17 +36,14 @@ use nalgebra::{
 ///
 /// (with `+z` pointing out of the screen)
 ///
-/// Note that the Y axis flips between screen and world coordinates: screen
-/// coordinates have `+y` pointing down, but world coordinates have it pointing
-/// up.  For both X and Y coordinates, the `+1` value is located one pixel
-/// beyond the edge of the screen region (off the right edge for X, and off the
-/// top edge for Y).
+/// Note that the Y axis is reversed between screen and world coordinates:
+/// screen coordinates have `+y` pointing down, but world coordinates have it
+/// pointing up.  For both X and Y coordinates, the `+1` value is located one
+/// pixel beyond the edge of the screen region (off the right edge for X, and
+/// off the top edge for Y).
 ///
 /// If the render region is not square, then the shorter axis is clamped to ±1
 /// and the longer axis will exceed that value.
-///
-/// Apologies for the terrible trait bounds; they're necessary to persuade the
-/// internals to type-check, but shouldn't be noticeable to library users.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct RegionSize<const N: usize>
 where
@@ -59,6 +56,8 @@ where
     size: OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
 }
 
+/// Apologies for the terrible trait bounds; they're necessary to persuade the
+/// internals to type-check, but shouldn't be noticeable to library users.
 impl<const N: usize> RegionSize<N>
 where
     Const<N>: DimNameAdd<U1>,

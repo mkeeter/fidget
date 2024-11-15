@@ -1581,11 +1581,10 @@ mod test {
                 ..Default::default()
             };
             let octree = Octree::build(&shape, settings);
-            let tc = threads.get().unwrap_or(1);
             assert_eq!(
                 octree.cells[0],
                 Cell::Empty.into(),
-                "failed to collapse octree with {tc} threads"
+                "failed to collapse octree with {threads} threads"
             );
         }
     }

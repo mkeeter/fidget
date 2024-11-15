@@ -10,11 +10,11 @@
     - Add a new `RegionSize<const N: usize>` type (with `ImageSize` and
       `VoxelSize` aliases), representing a render region.  This type is
       responsible for the screen-to-world transform
-    - Add a new `Camera<const N: usize>` type, which stores the world-to-model
+    - Add `View2` and `View3` types, which stores the world-to-model
       transform (scaling, panning, etc)
-    - Image rendering uses both `RegionSize` and `Camera`; this means that we
+    - Image rendering uses both `RegionSize` and `ViewX`; this means that we
       can now render non-square images!
-    - Meshing uses just the `Camera`, to position the model within the ±1 bounds
+    - Meshing uses just a `View3`, to position the model within the ±1 bounds
     - The previous `fidget::shape::Bounds` type is removed
     - Remove `fidget::render::render2d/3d` from the public API, as they're
       equivalent to the functions on `ImageRenderConfig` / `VoxelRenderConfig`

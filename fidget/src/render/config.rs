@@ -1,6 +1,6 @@
 use crate::{
     eval::Function,
-    render::{RegionSize, RenderMode, View2, View3},
+    render::{ImageSize, RenderMode, View2, View3, VoxelSize},
     shape::{Shape, TileSizes},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
@@ -15,6 +15,10 @@ pub enum ThreadCount {
     One,
 
     /// Spawn some number of worker threads for evaluation
+    ///
+    /// This can be set to `1`, in which case a single worker thread will be
+    /// spawned; this is different from doing work in the main thread, but not
+    /// particularly useful!
     #[cfg(not(target_arch = "wasm32"))]
     Many(std::num::NonZeroUsize),
 }
@@ -30,6 +34,7 @@ impl From<std::num::NonZeroUsize> for ThreadCount {
     }
 }
 
+/// Single-threaded mode is shown as `-`; otherwise, an integer
 impl std::fmt::Display for ThreadCount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -68,7 +73,7 @@ impl Default for ThreadCount {
 /// Settings for 2D rendering
 pub struct ImageRenderConfig {
     /// Render size
-    pub image_size: RegionSize<2>,
+    pub image_size: ImageSize,
 
     /// World-to-model transform
     pub view: View2,
@@ -87,7 +92,7 @@ pub struct ImageRenderConfig {
 impl Default for ImageRenderConfig {
     fn default() -> Self {
         Self {
-            image_size: RegionSize::from(512),
+            image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
             threads: ThreadCount::default(),
@@ -117,7 +122,7 @@ pub struct VoxelRenderConfig {
     /// The resulting image will have the given width and height; depth sets the
     /// number of voxels to evaluate within each pixel of the image (stacked
     /// into a column going into the screen).
-    pub image_size: RegionSize<3>,
+    pub image_size: VoxelSize,
 
     /// World-to-model transform
     pub view: View3,
@@ -136,7 +141,7 @@ pub struct VoxelRenderConfig {
 impl Default for VoxelRenderConfig {
     fn default() -> Self {
         Self {
-            image_size: RegionSize::from(512),
+            image_size: VoxelSize::from(512),
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             view: View3::default(),
 
