@@ -91,7 +91,7 @@ pub fn render_region_2d(
             ..Default::default()
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape)?;
+        let out = cfg.run::<_, BitRenderMode>(shape);
         Ok(out
             .into_iter()
             .flat_map(|b| {
@@ -201,7 +201,7 @@ fn render_3d_inner(
         };
 
         // Special case for the first tile, which can be copied over
-        let (mut depth, norm) = cfg.run(shape.clone())?;
+        let (mut depth, norm) = cfg.run(shape.clone());
         for d in &mut depth {
             if *d > 0 {
                 *d += (z * image_size / workers_per_side) as u32;
