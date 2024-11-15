@@ -2,7 +2,6 @@ use crate::{
     eval::Function,
     render::{RegionSize, RenderMode, View2, View3},
     shape::{Shape, TileSizes},
-    Error,
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -97,15 +96,12 @@ impl Default for ImageRenderConfig {
 }
 
 impl ImageRenderConfig {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render2d`](crate::render::render2d())
+    /// Render a shape in 2D using this configuration
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
         shape: Shape<F>,
-    ) -> Result<Vec<<M as RenderMode>::Output>, Error> {
-        Ok(crate::render::render2d::<F, M>(shape, self))
+    ) -> Vec<<M as RenderMode>::Output> {
+        crate::render::render2d::<F, M>(shape, self)
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -150,17 +146,14 @@ impl Default for VoxelRenderConfig {
 }
 
 impl VoxelRenderConfig {
-    /// High-level API for rendering shapes in 2D
-    ///
-    /// Under the hood, this delegates to
-    /// [`fidget::render::render3d`](crate::render::render3d())
+    /// Render a shape in 3D using this configuration
     ///
     /// Returns a tuple of heightmap, RGB image.
     pub fn run<F: Function>(
         &self,
         shape: Shape<F>,
-    ) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-        Ok(crate::render::render3d::<F>(shape, self))
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        crate::render::render3d::<F>(shape, self)
     }
 
     /// Returns the combined screen-to-model transform matrix

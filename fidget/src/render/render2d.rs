@@ -501,7 +501,7 @@ mod test {
             view,
             ..Default::default()
         };
-        let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
+        let out = cfg.run::<_, BitRenderMode>(shape);
         let mut img_str = String::new();
         for (i, b) in out.iter().enumerate() {
             if i % width as usize == 0 {

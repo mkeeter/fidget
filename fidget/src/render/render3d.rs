@@ -460,7 +460,8 @@ mod test {
             image_size: VoxelSize::from(128), // very small!
             ..Default::default()
         };
-        let out = cfg.run(shape);
-        assert!(out.is_ok());
+        let (depth, rgb) = cfg.run(shape);
+        assert_eq!(depth.len(), 128 * 128);
+        assert_eq!(rgb.len(), 128 * 128);
     }
 }

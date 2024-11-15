@@ -3,7 +3,7 @@ use nalgebra::{
     Matrix3, Matrix4, Point2, Vector2, Vector3,
 };
 
-/// Helper object for a camera in 2D or 3D space
+/// Object providing a view-to-model transform in 2D
 ///
 /// Rendering and meshing happen in the ±1 square or cube; these are referred to
 /// as _world_ coordinates.  A `Camera` generates a homogeneous transform matrix
@@ -98,7 +98,7 @@ impl View2 {
     }
 }
 
-/// See [`View2`] for docstrings
+/// Object providing a view-to-model transform in 2D
 #[derive(Copy, Clone, Debug)]
 pub struct View3 {
     mat: Similarity3<f32>,
@@ -113,6 +113,7 @@ impl Default for View3 {
 }
 
 #[allow(missing_docs)]
+/// See [`View2`] for docstrings
 impl View3 {
     pub fn from_center_and_scale(center: Vector3<f32>, scale: f32) -> Self {
         let mat =

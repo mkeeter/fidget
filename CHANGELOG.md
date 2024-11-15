@@ -16,6 +16,8 @@
       can now render non-square images!
     - Meshing uses just the `Camera`, to position the model within the ±1 bounds
     - The previous `fidget::shape::Bounds` type is removed
+    - Remove `fidget::render::render2d/3d` from the public API, as they're
+      equivalent to the functions on `ImageRenderConfig` / `VoxelRenderConfig`
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs

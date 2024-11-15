@@ -172,10 +172,8 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
 
             match mode {
                 Mode2D::Color => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::BitRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::BitRenderMode>(shape);
                     let c = egui::Color32::from_rgba_unmultiplied(
                         color[0],
                         color[1],
@@ -190,20 +188,16 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                 }
 
                 Mode2D::Sdf => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::SdfRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::SdfRenderMode>(shape);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
                 Mode2D::Debug => {
-                    let image = fidget::render::render2d::<
-                        _,
-                        fidget::render::DebugRenderMode,
-                    >(shape, &config);
+                    let image =
+                        config.run::<_, fidget::render::DebugRenderMode>(shape);
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         let c = i.as_debug_color();
                         *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
@@ -226,7 +220,7 @@ fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
                 ),
                 ..Default::default()
             };
-            let (depth, color) = fidget::render::render3d(shape, &config);
+            let (depth, color) = config.run(shape);
             match mode {
                 ThreeDMode::Color => {
                     for (p, (&d, &c)) in
