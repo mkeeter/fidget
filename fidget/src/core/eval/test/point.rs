@@ -9,11 +9,10 @@ use super::{
 use crate::{
     context::Context,
     eval::{Function, MathFunction, Tape, TracingEvaluator},
-    shape::{EzShape, Shape},
+    shape::{EzShape, Shape, ShapeVars},
     var::Var,
     vm::Choice,
 };
-use std::collections::HashMap;
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestPoint<F>(std::marker::PhantomData<*const F>);
@@ -369,7 +368,7 @@ where
         let tape = s.ez_point_tape();
         assert!(eval.eval(&tape, 1.0, 2.0, 0.0).is_err());
 
-        let mut h = HashMap::new();
+        let mut h = ShapeVars::new();
         assert!(eval.eval_v(&tape, 1.0, 2.0, 0.0, &h).is_err());
 
         let index = v.index().unwrap();

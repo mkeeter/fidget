@@ -213,6 +213,48 @@ impl<F> Shape<F> {
     }
 }
 
+/// Variables bound to values for shape evaluation
+///
+/// Note that this cannot store `X`, `Y`, `Z` variables (which are passed in as
+/// first-class arguments); it only stores [`Var::V`] values (identified by
+/// their inner [`VarIndex`]).
+pub struct ShapeVars<F>(HashMap<VarIndex, F>);
+
+impl<F> Default for ShapeVars<F> {
+    fn default() -> Self {
+        Self(HashMap::default())
+    }
+}
+
+impl<F> ShapeVars<F> {
+    /// Builds a new, empty variable set
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Returns the number of variables stored in the set
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Checks whether the variable set is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// Inserts a new variable
+    ///
+    /// Returns the previous value (if present)
+    pub fn insert(&mut self, v: VarIndex, f: F) -> Option<F> {
+        self.0.insert(v, f)
+    }
+}
+
+impl<'a, F> IntoIterator for &'a ShapeVars<F> {
+    type Item = (&'a VarIndex, &'a F);
+    type IntoIter = std::collections::hash_map::Iter<'a, VarIndex, F>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 /// Extension trait for working with a shape without thinking much about memory
 ///
 /// All of the [`Shape`] functions that use significant amounts of memory
@@ -372,7 +414,7 @@ where
         y: F,
         z: F,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
-        let h = HashMap::default();
+        let h = ShapeVars::default();
         self.eval_v(tape, x, y, z, &h)
     }
 
@@ -385,7 +427,7 @@ where
         x: F,
         y: F,
         z: F,
-        vars: &HashMap<VarIndex, F>,
+        vars: &ShapeVars<F>,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
         assert_eq!(
             tape.tape.output_count(),
