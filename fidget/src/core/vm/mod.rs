@@ -6,12 +6,15 @@ use crate::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape, Trace,
         TracingEvaluator,
     },
-    shape::{RenderHints, Shape, TileSizes},
+    shape::Shape,
     types::{Grad, Interval},
     var::VarMap,
     Context, Error,
 };
 use std::sync::Arc;
+
+#[cfg(feature = "render")]
+use crate::render::{RenderHints, TileSizes};
 
 mod choice;
 mod data;
@@ -189,6 +192,7 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     }
 }
 
+#[cfg(feature = "render")]
 impl<const N: usize> RenderHints for GenericVmFunction<N> {
     fn tile_sizes_3d() -> TileSizes {
         TileSizes::new(&[256, 128, 64, 32, 16, 8]).unwrap()

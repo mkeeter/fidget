@@ -109,7 +109,7 @@ struct MeshSettings {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
+fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     isometric: bool,
@@ -165,7 +165,7 @@ fn run3d<F: fidget::eval::Function + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
+fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
@@ -229,7 +229,7 @@ fn run2d<F: fidget::eval::Function + fidget::shape::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run_mesh<F: fidget::eval::Function + fidget::shape::RenderHints>(
+fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &MeshSettings,
 ) -> fidget::mesh::Mesh {

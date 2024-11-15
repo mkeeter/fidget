@@ -31,12 +31,15 @@ use crate::{
         TracingEvaluator,
     },
     jit::mmap::Mmap,
-    shape::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
     vm::{Choice, GenericVmFunction, VmData, VmTrace, VmWorkspace},
     Error,
 };
+
+#[cfg(feature = "render")]
+use crate::render::{RenderHints, TileSizes};
+
 use dynasmrt::{
     components::PatchLoc, dynasm, AssemblyOffset, DynamicLabel, DynasmApi,
     DynasmError, DynasmLabelApi, TargetKind,
@@ -921,6 +924,7 @@ impl Function for JitFunction {
     }
 }
 
+#[cfg(feature = "render")]
 impl RenderHints for JitFunction {
     fn tile_sizes_3d() -> TileSizes {
         TileSizes::new(&[64, 16, 8]).unwrap()

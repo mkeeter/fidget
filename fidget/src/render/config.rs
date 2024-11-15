@@ -1,7 +1,7 @@
 use crate::{
     eval::Function,
-    render::{ImageSize, RenderMode, View2, View3, VoxelSize},
-    shape::{Shape, TileSizes},
+    render::{ImageSize, RenderMode, TileSizes, View2, View3, VoxelSize},
+    shape::Shape,
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};

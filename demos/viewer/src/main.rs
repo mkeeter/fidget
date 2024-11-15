@@ -85,7 +85,7 @@ fn render_thread<F>(
 where
     F: fidget::eval::Function
         + fidget::eval::MathFunction
-        + fidget::shape::RenderHints,
+        + fidget::render::RenderHints,
 {
     let mut config = None;
     let mut script_ctx = None;
@@ -154,7 +154,7 @@ where
     }
 }
 
-fn render<F: fidget::eval::Function + fidget::shape::RenderHints>(
+fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
     mode: &RenderMode,
     shape: fidget::shape::Shape<F>,
     image_size: fidget::render::ImageSize,
