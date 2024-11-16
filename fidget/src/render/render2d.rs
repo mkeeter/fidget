@@ -187,7 +187,6 @@ struct Scratch {
     x: Vec<f32>,
     y: Vec<f32>,
     z: Vec<f32>,
-    vs: ShapeVars<Vec<f32>>,
 }
 
 impl Scratch {
@@ -196,7 +195,6 @@ impl Scratch {
             x: vec![0.0; size],
             y: vec![0.0; size],
             z: vec![0.0; size],
-            vs: ShapeVars::new(),
         }
     }
 }
@@ -320,13 +318,14 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile);
+            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
         }
     }
 
     fn render_tile_pixels(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<2>,
     ) {
@@ -346,7 +345,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
-                &self.scratch.vs,
+                vars,
             )
             .unwrap();
 
@@ -386,11 +385,6 @@ fn worker<F: Function, M: RenderMode>(
         workspace: Default::default(),
     };
 
-    // Copy vars into scratch, expanding from single values to arrays
-    let last_tile_size = config.tile_sizes.last();
-    for (k, v) in vars {
-        w.scratch.vs.insert(*k, vec![*v; last_tile_size.pow(2)]);
-    }
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
         w.render_tile_recurse(&mut shape, vars, 0, tile);
@@ -844,7 +838,6 @@ mod test {
         .test(shape, EXPECTED_05);
     }
 
-    #[macro_export]
     macro_rules! render_tests {
         ($i:ident) => {
             mod $i {

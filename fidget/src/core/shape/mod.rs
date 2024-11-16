@@ -514,20 +514,18 @@ where
         z: &[E::Data],
     ) -> Result<&[E::Data], Error> {
         let h: ShapeVars<&[E::Data]> = Default::default();
-        self.eval_v(tape, x, y, z, &h)
+        self.eval_vs(tape, x, y, z, &h)
     }
 
-    /// Bulk evaluation of many samples, with variables
-    ///
-    /// Before evaluation, the tape's transform matrix is applied (if present).
-    pub fn eval_v<V: std::ops::Deref<Target = [G]>, G: Into<E::Data> + Copy>(
+    /// Helper function to do common setup
+    fn setup<V>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
         vars: &ShapeVars<V>,
-    ) -> Result<&[E::Data], Error> {
+    ) -> Result<usize, Error> {
         assert_eq!(
             tape.tape.output_count(),
             1,
@@ -539,9 +537,7 @@ where
             return Err(Error::MismatchedSlices);
         }
         let n = x.len();
-        if vars.values().any(|vs| vs.len() != n) {
-            return Err(Error::MismatchedSlices);
-        }
+
         let vs = tape.vars();
         let expected_vars = vs.len()
             - vs.get(&Var::X).is_some() as usize
@@ -586,6 +582,31 @@ where
             // TODO fast path if there are no extra vars, reusing slices
         };
 
+        Ok(n)
+    }
+    /// Bulk evaluation of many samples, with slices of variables
+    ///
+    /// Each variable slice must be the same length as our x, y, z slices
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_vs<
+        V: std::ops::Deref<Target = [G]>,
+        G: Into<E::Data> + Copy,
+    >(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+        vars: &ShapeVars<V>,
+    ) -> Result<&[E::Data], Error> {
+        let n = self.setup(tape, x, y, z, vars)?;
+
+        if vars.values().any(|vs| vs.len() != n) {
+            return Err(Error::MismatchedSlices);
+        }
+
+        let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
                 if i < self.scratch.len() {
@@ -595,6 +616,35 @@ where
                         *a = (*b).into();
                     }
                     // TODO fast path if we can use the slices directly?
+                } else {
+                    return Err(Error::BadVarIndex(i, self.scratch.len()));
+                }
+            } else {
+                // Passing in Bonus Variables is allowed (for now)
+            }
+        }
+
+        let out = self.eval.eval(&tape.tape, &self.scratch)?;
+        Ok(out.borrow(0))
+    }
+
+    /// Bulk evaluation of many samples, with fixed variables
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_v<G: Into<E::Data> + Copy>(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+        vars: &ShapeVars<G>,
+    ) -> Result<&[E::Data], Error> {
+        self.setup(tape, x, y, z, vars)?;
+        let vs = tape.vars();
+        for (var, value) in vars {
+            if let Some(i) = vs.get(&Var::V(*var)) {
+                if i < self.scratch.len() {
+                    self.scratch[i].fill((*value).into());
                 } else {
                     return Err(Error::BadVarIndex(i, self.scratch.len()));
                 }

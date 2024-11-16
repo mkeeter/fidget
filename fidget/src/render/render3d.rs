@@ -29,6 +29,7 @@ impl Scratch {
     fn new(tile_size: usize) -> Self {
         let size2 = tile_size.pow(2);
         let size3 = tile_size.pow(3);
+
         Self {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
@@ -138,7 +139,7 @@ impl<F: Function> Worker<'_, F> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile);
+            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
         };
         // TODO recycle something here?
     }
@@ -146,6 +147,7 @@ impl<F: Function> Worker<'_, F> {
     fn render_tile_pixels(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<3>,
     ) {
@@ -195,11 +197,12 @@ impl<F: Function> Worker<'_, F> {
 
         let out = self
             .eval_float_slice
-            .eval(
+            .eval_v(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x[..index],
                 &self.scratch.y[..index],
                 &self.scratch.z[..index],
+                vars,
             )
             .unwrap();
 
@@ -256,11 +259,12 @@ impl<F: Function> Worker<'_, F> {
         if grad > 0 {
             let out = self
                 .eval_grad_slice
-                .eval(
+                .eval_v(
                     shape.g_tape(&mut self.tape_storage),
                     &self.scratch.xg[..grad],
                     &self.scratch.yg[..grad],
                     &self.scratch.zg[..grad],
+                    vars,
                 )
                 .unwrap();
 
@@ -448,7 +452,9 @@ pub fn render<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{render::VoxelSize, vm::VmShape, Context};
+    use crate::{
+        eval::MathFunction, render::VoxelSize, var::Var, vm::VmShape, Context,
+    };
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -465,4 +471,81 @@ mod test {
         assert_eq!(depth.len(), 128 * 128);
         assert_eq!(rgb.len(), 128 * 128);
     }
+
+    fn sphere_var<F: Function + MathFunction>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let z = ctx.z();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let z2 = ctx.square(z).unwrap();
+        let x2y2 = ctx.add(x2, y2).unwrap();
+        let r2 = ctx.add(x2y2, z2).unwrap();
+        let r = ctx.sqrt(r2).unwrap();
+        let v = Var::new();
+        let c = ctx.var(v);
+        let root = ctx.sub(r, c).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
+
+        let size = 32;
+        let cfg = VoxelRenderConfig {
+            image_size: VoxelSize::from(size),
+            ..Default::default()
+        };
+
+        for r in [0.5, 0.75] {
+            let mut vars = ShapeVars::new();
+            vars.insert(v.index().unwrap(), r);
+            let (depth, _normal) = cfg.run_with_vars::<_>(shape.clone(), &vars);
+
+            let epsilon = 0.08;
+            for (i, p) in depth.iter().enumerate() {
+                let size = size as i32;
+                let i = i as i32;
+                let x = (((i % size) - size / 2) as f32 / size as f32) * 2.0;
+                let y = (((i / size) - size / 2) as f32 / size as f32) * 2.0;
+                let z = (*p as i32 - size / 2) as f32 / size as f32 * 2.0;
+                if *p == 0 {
+                    let v = (x.powi(2) + y.powi(2)).sqrt();
+                    assert!(
+                        v + epsilon > r,
+                        "got z = 0 inside the sphere ({x}, {y}, {z}); \
+                         radius is {v}"
+                    );
+                } else {
+                    let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+                    let err = (r - v).abs();
+                    assert!(
+                        err < epsilon,
+                        "too much error {err} at ({x}, {y}, {z}); \
+                         radius is {v}, expected {r}"
+                    );
+                }
+            }
+        }
+    }
+
+    macro_rules! render_tests {
+        ($i:ident) => {
+            mod $i {
+                use super::*;
+                #[test]
+                fn vm() {
+                    $i::<$crate::vm::VmFunction>();
+                }
+                #[test]
+                fn vm3() {
+                    $i::<$crate::vm::GenericVmFunction<3>>();
+                }
+                #[cfg(feature = "jit")]
+                #[test]
+                fn jit() {
+                    $i::<$crate::jit::JitFunction>();
+                }
+            }
+        };
+    }
+
+    render_tests!(sphere_var);
 }
