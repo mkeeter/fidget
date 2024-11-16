@@ -19,6 +19,9 @@
     - Remove `fidget::render::render2d/3d` from the public API, as they're
       equivalent to the functions on `ImageRenderConfig` / `VoxelRenderConfig`
 - Move `RenderHints` into `fidget::render`
+- Remove fine-grained features from `fidget` crate, because we aren't actually
+  testing the power-set of feature combinations in CI (and some were breaking!).
+  The only remaining features are `rhai`, `jit` and `eval-tests`.
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs

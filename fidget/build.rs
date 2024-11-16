@@ -46,9 +46,7 @@ fn main() {
         }
     }
 
-    if std::env::var("CARGO_FEATURE_MESH").is_ok() {
-        build_mdc_table().unwrap();
-    }
+    build_mdc_table().unwrap();
 }
 
 /// Builds a table for Manifold Dual Contouring connectivity.

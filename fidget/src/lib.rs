@@ -271,18 +271,10 @@ pub use crate::core::*;
 
 mod error;
 pub use error::Error;
-
-#[cfg(feature = "render")]
+pub mod mesh;
 pub mod render;
-
-#[cfg(feature = "rhai")]
 pub mod rhai;
+pub mod solver;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
-
-#[cfg(feature = "mesh")]
-pub mod mesh;
-
-#[cfg(feature = "solver")]
-pub mod solver;
