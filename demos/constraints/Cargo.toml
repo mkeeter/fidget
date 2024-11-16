@@ -17,6 +17,7 @@ env_logger.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures.workspace = true
+web-sys = "0.3.70"
 
 [[bin]]
 name = "constraints"

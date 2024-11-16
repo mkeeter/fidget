@@ -322,7 +322,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 info!("wake thread is done");
             });
 
-            Box::new(ViewerApp::new(config_tx, render_rx))
+            Ok(Box::new(ViewerApp::new(config_tx, render_rx)))
         }),
     )?;
 
