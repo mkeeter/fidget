@@ -271,7 +271,7 @@ fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
     eframe::run_native(
         "Fidget",
         options,
-        Box::new(move |_cc| Box::new(ConstraintsApp::new())),
+        Box::new(move |_cc| Ok(Box::new(ConstraintsApp::new()))),
     )?;
 
     Ok(())
@@ -279,40 +279,33 @@ fn main() -> anyhow::Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+
     // Redirect `log` message to `console.log` and friends:
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
     info!("starting...");
 
-    let web_options = eframe::WebOptions {
-        max_size_points: egui::Vec2::new(SIZE, SIZE),
-        ..eframe::WebOptions::default()
-    };
+    let web_options = eframe::WebOptions::default();
 
     wasm_bindgen_futures::spawn_local(async {
+        let document = web_sys::window()
+            .expect("No window")
+            .document()
+            .expect("No document");
+
+        let canvas = document
+            .get_element_by_id("the_canvas_id")
+            .expect("Failed to find the_canvas_id")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("the_canvas_id was not a HtmlCanvasElement");
+
         eframe::WebRunner::new()
             .start(
-                "the_canvas_id", // hardcode it
+                canvas,
                 web_options,
-                Box::new(|_cc| Box::new(ConstraintsApp::new())),
+                Box::new(|_cc| Ok(Box::new(ConstraintsApp::new()))),
             )
             .await
             .expect("failed to start eframe");
     });
-
-    /*
-    let web_options = eframe::WebOptions {
-        max_size_points: egui::Vec2::new(SIZE, SIZE),
-        ..eframe::WebOptions::default()
-    };
-    wasm_bindgen_futures::spawn_local(async {
-        eframe::WebRunner::new()
-            .start(
-                "the_other_canvas_id", // hardcode it
-                web_options,
-                Box::new(|_cc| Box::new(ConstraintsApp::new())),
-            )
-            .await
-            .expect("failed to start eframe");
-    });
-    */
 }

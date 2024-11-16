@@ -50,6 +50,7 @@ memchr = { version = "2" }
 
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "0.6" }
+bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2" }
 
 [target.aarch64-apple-darwin.build-dependencies]
