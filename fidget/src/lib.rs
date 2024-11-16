@@ -262,6 +262,7 @@
 //!
 //! # Feature flags
 #![doc = document_features::document_features!()]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![warn(missing_docs)]
 
 // Re-export everything from fidget::core into the top-level namespace
