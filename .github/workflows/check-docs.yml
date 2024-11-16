@@ -1,0 +1,23 @@
+name: Check documentation
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTDOCFLAGS: '--cfg docsrs -D warnings'
+
+jobs:
+  # We test documentation using nightly to match docs.rs.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - name: Install nightly Rust
+      run: rustup default nightly
+    - name: Check docs
+      run: cargo doc --workspace --no-deps --document-private-items

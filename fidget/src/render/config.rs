@@ -81,7 +81,7 @@ pub struct ImageRenderConfig {
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
-    /// [`RenderHints::tile_sizes_2d`](crate::shape::RenderHints::tile_sizes_2d)
+    /// [`RenderHints::tile_sizes_2d`](crate::render::RenderHints::tile_sizes_2d)
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
@@ -130,7 +130,7 @@ pub struct VoxelRenderConfig {
     /// Tile sizes to use during evaluation.
     ///
     /// You'll likely want to use
-    /// [`RenderHints::tile_sizes_3d`](crate::shape::RenderHints::tile_sizes_3d)
+    /// [`RenderHints::tile_sizes_3d`](crate::render::RenderHints::tile_sizes_3d)
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
