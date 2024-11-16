@@ -25,22 +25,25 @@
             height: 100%;
             width: 100%;
         }
-
-        canvas {
-            margin-right: auto;
-            margin-left: auto;
-            display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
+        div.box {
+            outline: 1px solid #bbb;
+            margin: 20px;
             height: 300px;
             width: 300px;
+            position: relative;
+        }
+
+        canvas {
+            height: 100%;
+            width: 100%;
         }
     </style>
 </head>
 
 <body>
-    <canvas id="the_canvas_id"></canvas>
+    <div class="box">
+        <canvas id="the_canvas_id"></canvas>
+    </div>
 </body>
 
 </html>
