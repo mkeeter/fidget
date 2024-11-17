@@ -213,6 +213,53 @@ impl<F> Shape<F> {
     }
 }
 
+/// Variables bound to values for shape evaluation
+///
+/// Note that this cannot store `X`, `Y`, `Z` variables (which are passed in as
+/// first-class arguments); it only stores [`Var::V`] values (identified by
+/// their inner [`VarIndex`]).
+pub struct ShapeVars<F>(HashMap<VarIndex, F>);
+
+impl<F> Default for ShapeVars<F> {
+    fn default() -> Self {
+        Self(HashMap::default())
+    }
+}
+
+impl<F> ShapeVars<F> {
+    /// Builds a new, empty variable set
+    pub fn new() -> Self {
+        Self(HashMap::default())
+    }
+    /// Returns the number of variables stored in the set
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Checks whether the variable set is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// Inserts a new variable
+    ///
+    /// Returns the previous value (if present)
+    pub fn insert(&mut self, v: VarIndex, f: F) -> Option<F> {
+        self.0.insert(v, f)
+    }
+
+    /// Iterates over values
+    pub fn values(&self) -> impl Iterator<Item = &F> {
+        self.0.values()
+    }
+}
+
+impl<'a, F> IntoIterator for &'a ShapeVars<F> {
+    type Item = (&'a VarIndex, &'a F);
+    type IntoIter = std::collections::hash_map::Iter<'a, VarIndex, F>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 /// Extension trait for working with a shape without thinking much about memory
 ///
 /// All of the [`Shape`] functions that use significant amounts of memory
@@ -372,20 +419,20 @@ where
         y: F,
         z: F,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
-        let h = HashMap::default();
+        let h = ShapeVars::<f32>::new();
         self.eval_v(tape, x, y, z, &h)
     }
 
     /// Tracing evaluation of a single sample
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
-    pub fn eval_v<F: Into<E::Data> + Copy>(
+    pub fn eval_v<F: Into<E::Data> + Copy, V: Into<E::Data> + Copy>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: F,
         y: F,
         z: F,
-        vars: &HashMap<VarIndex, F>,
+        vars: &ShapeVars<V>,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
         assert_eq!(
             tape.tape.output_count(),
@@ -455,8 +502,8 @@ where
     /// Bulk evaluation of many samples, without any variables
     ///
     /// If the shape includes variables other than `X`, `Y`, `Z`,
-    /// [`eval_v`](Self::eval_v) should be used instead (and this function will
-    /// return an error).
+    /// [`eval_v`](Self::eval_v) or [`eval_vs`](Self::eval_vs) should be used
+    /// instead (and this function will return an error).
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval(
@@ -466,21 +513,19 @@ where
         y: &[E::Data],
         z: &[E::Data],
     ) -> Result<&[E::Data], Error> {
-        let h: HashMap<VarIndex, &[E::Data]> = HashMap::default();
-        self.eval_v(tape, x, y, z, &h)
+        let h: ShapeVars<&[E::Data]> = ShapeVars::new();
+        self.eval_vs(tape, x, y, z, &h)
     }
 
-    /// Bulk evaluation of many samples, with variables
-    ///
-    /// Before evaluation, the tape's transform matrix is applied (if present).
-    pub fn eval_v<V: std::ops::Deref<Target = [E::Data]>>(
+    /// Helper function to do common setup
+    fn setup<V>(
         &mut self,
         tape: &ShapeTape<E::Tape>,
         x: &[E::Data],
         y: &[E::Data],
         z: &[E::Data],
-        vars: &HashMap<VarIndex, V>,
-    ) -> Result<&[E::Data], Error> {
+        vars: &ShapeVars<V>,
+    ) -> Result<usize, Error> {
         assert_eq!(
             tape.tape.output_count(),
             1,
@@ -492,9 +537,7 @@ where
             return Err(Error::MismatchedSlices);
         }
         let n = x.len();
-        if vars.values().any(|vs| vs.len() != n) {
-            return Err(Error::MismatchedSlices);
-        }
+
         let vs = tape.vars();
         let expected_vars = vs.len()
             - vs.get(&Var::X).is_some() as usize
@@ -539,10 +582,78 @@ where
             // TODO fast path if there are no extra vars, reusing slices
         };
 
+        Ok(n)
+    }
+    /// Bulk evaluation of many samples, with slices of variables
+    ///
+    /// Each variable is a slice (or `Vec`) of values, which must be the same
+    /// length as the `x`, `y`, `z` slices.  This is in contrast with
+    /// [`eval_vs`](Self::eval_v), where variables have a single value used for
+    /// every position in the `x`, `y,` `z` slices.
+    ///
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_vs<
+        V: std::ops::Deref<Target = [G]>,
+        G: Into<E::Data> + Copy,
+    >(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+        vars: &ShapeVars<V>,
+    ) -> Result<&[E::Data], Error> {
+        let n = self.setup(tape, x, y, z, vars)?;
+
+        if vars.values().any(|vs| vs.len() != n) {
+            return Err(Error::MismatchedSlices);
+        }
+
+        let vs = tape.vars();
         for (var, value) in vars {
             if let Some(i) = vs.get(&Var::V(*var)) {
                 if i < self.scratch.len() {
-                    self.scratch[i].copy_from_slice(value);
+                    for (a, b) in
+                        self.scratch[i].iter_mut().zip(value.deref().iter())
+                    {
+                        *a = (*b).into();
+                    }
+                    // TODO fast path if we can use the slices directly?
+                } else {
+                    return Err(Error::BadVarIndex(i, self.scratch.len()));
+                }
+            } else {
+                // Passing in Bonus Variables is allowed (for now)
+            }
+        }
+
+        let out = self.eval.eval(&tape.tape, &self.scratch)?;
+        Ok(out.borrow(0))
+    }
+
+    /// Bulk evaluation of many samples, with fixed variables
+    ///
+    /// Each variable has a single value, which is used for every position in
+    /// the `x`, `y`, `z` slices.  This is in contrast with
+    /// [`eval_vs`](Self::eval_vs), where variables can be different for every
+    /// position in the `x`, `y,` `z` slices.
+    ///
+    /// Before evaluation, the tape's transform matrix is applied (if present).
+    pub fn eval_v<G: Into<E::Data> + Copy>(
+        &mut self,
+        tape: &ShapeTape<E::Tape>,
+        x: &[E::Data],
+        y: &[E::Data],
+        z: &[E::Data],
+        vars: &ShapeVars<G>,
+    ) -> Result<&[E::Data], Error> {
+        self.setup(tape, x, y, z, vars)?;
+        let vs = tape.vars();
+        for (var, value) in vars {
+            if let Some(i) = vs.get(&Var::V(*var)) {
+                if i < self.scratch.len() {
+                    self.scratch[i].fill((*value).into());
                 } else {
                     return Err(Error::BadVarIndex(i, self.scratch.len()));
                 }

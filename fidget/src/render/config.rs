@@ -1,7 +1,7 @@
 use crate::{
     eval::Function,
     render::{ImageSize, RenderMode, TileSizes, View2, View3, VoxelSize},
-    shape::Shape,
+    shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -106,7 +106,16 @@ impl ImageRenderConfig {
         &self,
         shape: Shape<F>,
     ) -> Vec<<M as RenderMode>::Output> {
-        crate::render::render2d::<F, M>(shape, self)
+        self.run_with_vars::<F, M>(shape, &ShapeVars::new())
+    }
+
+    /// Render a shape in 2D using this configuration and variables
+    pub fn run_with_vars<F: Function, M: RenderMode + Sync>(
+        &self,
+        shape: Shape<F>,
+        vars: &ShapeVars<f32>,
+    ) -> Vec<<M as RenderMode>::Output> {
+        crate::render::render2d::<F, M>(shape, vars, self)
     }
 
     /// Returns the combined screen-to-model transform matrix
@@ -158,7 +167,16 @@ impl VoxelRenderConfig {
         &self,
         shape: Shape<F>,
     ) -> (Vec<u32>, Vec<[u8; 3]>) {
-        crate::render::render3d::<F>(shape, self)
+        self.run_with_vars::<F>(shape, &ShapeVars::new())
+    }
+
+    /// Render a shape in 2D using this configuration and variables
+    pub fn run_with_vars<F: Function>(
+        &self,
+        shape: Shape<F>,
+        vars: &ShapeVars<f32>,
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        crate::render::render3d::<F>(shape, vars, self)
     }
 
     /// Returns the combined screen-to-model transform matrix

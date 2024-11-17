@@ -22,6 +22,15 @@
 - Remove fine-grained features from `fidget` crate, because we aren't actually
   testing the power-set of feature combinations in CI (and some were breaking!).
   The only remaining features are `rhai`, `jit` and `eval-tests`.
+- Add new `ShapeVars<T>` type, representing a map from `VarIndex -> T`.  This
+  type is used for high-level rendering and meshing of `Shape` objects that
+  include supplementary variables
+- Add `Octree::build_with_vars` and `Image/VoxelRenderConfig::run_with_vars`
+  functions for shapes with supplementary variables
+- Change `ShapeBulkEval::eval_v` to take **single** variables (i.e. `x`, `y`,
+  `z` vary but each variable has a constant value across the whole slice).  Add
+  `ShapeBulkEval::eval_vs` if `x`, `y`, `z` and variables are _all_ changing
+  through the slices.
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs

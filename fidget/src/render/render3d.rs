@@ -3,7 +3,7 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::config::{Queue, ThreadCount, Tile, VoxelRenderConfig},
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
@@ -29,6 +29,7 @@ impl Scratch {
     fn new(tile_size: usize) -> Self {
         let size2 = tile_size.pow(2);
         let size3 = tile_size.pow(3);
+
         Self {
             x: vec![0.0; size3],
             y: vec![0.0; size3],
@@ -68,6 +69,7 @@ impl<F: Function> Worker<'_, F> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<3>,
     ) {
@@ -88,7 +90,7 @@ impl<F: Function> Worker<'_, F> {
 
         let (i, trace) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
+            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
             .unwrap();
 
         // Return early if this tile is completely empty or full, returning
@@ -126,6 +128,7 @@ impl<F: Function> Worker<'_, F> {
                     for k in (0..n).rev() {
                         self.render_tile_recurse(
                             sub_tape,
+                            vars,
                             depth + 1,
                             Tile::new(
                                 tile.corner
@@ -136,7 +139,7 @@ impl<F: Function> Worker<'_, F> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile);
+            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
         };
         // TODO recycle something here?
     }
@@ -144,6 +147,7 @@ impl<F: Function> Worker<'_, F> {
     fn render_tile_pixels(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<3>,
     ) {
@@ -193,11 +197,12 @@ impl<F: Function> Worker<'_, F> {
 
         let out = self
             .eval_float_slice
-            .eval(
+            .eval_v(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x[..index],
                 &self.scratch.y[..index],
                 &self.scratch.z[..index],
+                vars,
             )
             .unwrap();
 
@@ -254,11 +259,12 @@ impl<F: Function> Worker<'_, F> {
         if grad > 0 {
             let out = self
                 .eval_grad_slice
-                .eval(
+                .eval_v(
                     shape.g_tape(&mut self.tape_storage),
                     &self.scratch.xg[..grad],
                     &self.scratch.yg[..grad],
                     &self.scratch.zg[..grad],
+                    vars,
                 )
                 .unwrap();
 
@@ -290,6 +296,7 @@ impl Image {
 
 fn worker<F: Function>(
     mut shape: RenderHandle<F>,
+    vars: &ShapeVars<f32>,
     queues: &[Queue<3>],
     mut index: usize,
     config: &VoxelRenderConfig,
@@ -328,7 +335,7 @@ fn worker<F: Function>(
             // Prepare to render, allocating space for a tile
             w.depth = image.depth;
             w.color = image.color;
-            w.render_tile_recurse(&mut shape, 0, tile);
+            w.render_tile_recurse(&mut shape, vars, 0, tile);
 
             // Steal the tile, replacing it with an empty vec
             let depth = std::mem::take(&mut w.depth);
@@ -360,16 +367,11 @@ fn worker<F: Function>(
 /// perform evaluation.
 pub fn render<F: Function>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let shape = shape.apply_transform(config.mat());
-    render_inner(shape, config)
-}
 
-pub fn render_inner<F: Function>(
-    shape: Shape<F>,
-    config: &VoxelRenderConfig,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
     let width = config.image_size[0] as usize;
@@ -400,9 +402,11 @@ pub fn render_inner<F: Function>(
 
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = match config.threads {
-        ThreadCount::One => worker::<F>(rh, tile_queues.as_slice(), 0, config)
-            .into_iter()
-            .collect(),
+        ThreadCount::One => {
+            worker::<F>(rh, vars, tile_queues.as_slice(), 0, config)
+                .into_iter()
+                .collect()
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         ThreadCount::Many(threads) => std::thread::scope(|s| {
@@ -411,8 +415,9 @@ pub fn render_inner<F: Function>(
             let queues = tile_queues.as_slice();
             for i in 0..threads.get() {
                 let rh = rh.clone();
-                handles
-                    .push(s.spawn(move || worker::<F>(rh, queues, i, config)));
+                handles.push(
+                    s.spawn(move || worker::<F>(rh, vars, queues, i, config)),
+                );
             }
             let mut out = vec![];
             for h in handles {
@@ -447,7 +452,10 @@ pub fn render_inner<F: Function>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{render::VoxelSize, vm::VmShape, Context};
+    use crate::{
+        context::Tree, eval::MathFunction, render::VoxelSize, var::Var,
+        vm::VmShape, Context,
+    };
 
     /// Make sure we don't crash if there's only a single tile
     #[test]
@@ -464,4 +472,72 @@ mod test {
         assert_eq!(depth.len(), 128 * 128);
         assert_eq!(rgb.len(), 128 * 128);
     }
+
+    fn sphere_var<F: Function + MathFunction>() {
+        let (x, y, z) = Tree::axes();
+        let v = Var::new();
+        let c = Tree::from(v);
+        let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
+        let shape = Shape::<F>::from(sphere);
+
+        let size = 32;
+        let cfg = VoxelRenderConfig {
+            image_size: VoxelSize::from(size),
+            ..Default::default()
+        };
+
+        for r in [0.5, 0.75] {
+            let mut vars = ShapeVars::new();
+            vars.insert(v.index().unwrap(), r);
+            let (depth, _normal) = cfg.run_with_vars::<_>(shape.clone(), &vars);
+
+            let epsilon = 0.08;
+            for (i, p) in depth.iter().enumerate() {
+                let size = size as i32;
+                let i = i as i32;
+                let x = (((i % size) - size / 2) as f32 / size as f32) * 2.0;
+                let y = (((i / size) - size / 2) as f32 / size as f32) * 2.0;
+                let z = (*p as i32 - size / 2) as f32 / size as f32 * 2.0;
+                if *p == 0 {
+                    let v = (x.powi(2) + y.powi(2)).sqrt();
+                    assert!(
+                        v + epsilon > r,
+                        "got z = 0 inside the sphere ({x}, {y}, {z}); \
+                         radius is {v}"
+                    );
+                } else {
+                    let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+                    let err = (r - v).abs();
+                    assert!(
+                        err < epsilon,
+                        "too much error {err} at ({x}, {y}, {z}); \
+                         radius is {v}, expected {r}"
+                    );
+                }
+            }
+        }
+    }
+
+    macro_rules! render_tests {
+        ($i:ident) => {
+            mod $i {
+                use super::*;
+                #[test]
+                fn vm() {
+                    $i::<$crate::vm::VmFunction>();
+                }
+                #[test]
+                fn vm3() {
+                    $i::<$crate::vm::GenericVmFunction<3>>();
+                }
+                #[cfg(feature = "jit")]
+                #[test]
+                fn jit() {
+                    $i::<$crate::jit::JitFunction>();
+                }
+            }
+        };
+    }
+
+    render_tests!(sphere_var);
 }

@@ -9,11 +9,10 @@ use super::{
 use crate::{
     context::Context,
     eval::{BulkEvaluator, Function, MathFunction, Tape},
-    shape::{EzShape, Shape},
-    var::{Var, VarIndex},
+    shape::{EzShape, Shape, ShapeVars},
+    var::Var,
     Error,
 };
-use std::collections::HashMap;
 
 /// Helper struct to put constrains on our `Shape` object
 pub struct TestFloatSlice<F>(std::marker::PhantomData<*const F>);
@@ -126,21 +125,22 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         assert!(eval
             .eval(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0])
             .is_err());
-        let mut h: HashMap<VarIndex, &[f32]> = HashMap::new();
+        let mut h: ShapeVars<&[f32]> = ShapeVars::new();
         assert!(eval
-            .eval_v(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
+            .eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
             .is_err());
         let index = v.index().unwrap();
         h.insert(index, &[4.0, 5.0]);
         assert_eq!(
-            eval.eval_v(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
+            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h)
                 .unwrap(),
             &[7.0, 10.0]
         );
+
         h.insert(index, &[4.0, 5.0, 6.0]);
         assert!(matches!(
-            eval.eval_v(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
-            Err(Error::MismatchedSlices)
+            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
+            Err(Error::MismatchedSlices),
         ));
 
         // Get a new var index that isn't valid for this tape
@@ -148,7 +148,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
         h.insert(index, &[4.0, 5.0]);
         h.insert(v2.index().unwrap(), &[4.0, 5.0]);
         assert!(matches!(
-            eval.eval_v(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
+            eval.eval_vs(&tape, &[1.0, 2.0], &[2.0, 3.0], &[0.0, 0.0], &h),
             Err(Error::BadVarSlice(..))
         ));
     }

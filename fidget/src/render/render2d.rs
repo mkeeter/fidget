@@ -4,7 +4,7 @@ use crate::{
     eval::Function,
     render::config::{ImageRenderConfig, Queue, Tile},
     render::ThreadCount,
-    shape::{Shape, ShapeBulkEval, ShapeTracingEval},
+    shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
 use nalgebra::{Point2, Vector2};
@@ -228,6 +228,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<2>,
     ) {
@@ -242,7 +243,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
-            .eval(shape.i_tape(&mut self.tape_storage), x, y, z)
+            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
             .unwrap();
 
         match M::interval(i, depth) {
@@ -308,6 +309,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 for i in 0..n {
                     self.render_tile_recurse(
                         sub_tape,
+                        vars,
                         depth + 1,
                         Tile::new(
                             tile.corner + Vector2::new(i, j) * next_tile_size,
@@ -316,13 +318,14 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                 }
             }
         } else {
-            self.render_tile_pixels(sub_tape, tile_size, tile);
+            self.render_tile_pixels(sub_tape, vars, tile_size, tile);
         }
     }
 
     fn render_tile_pixels(
         &mut self,
         shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
         tile_size: usize,
         tile: Tile<2>,
     ) {
@@ -337,11 +340,12 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
         let out = self
             .eval_float_slice
-            .eval(
+            .eval_v(
                 shape.f_tape(&mut self.tape_storage),
                 &self.scratch.x,
                 &self.scratch.y,
                 &self.scratch.z,
+                vars,
             )
             .unwrap();
 
@@ -363,6 +367,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
 fn worker<F: Function, M: RenderMode>(
     mut shape: RenderHandle<F>,
+    vars: &ShapeVars<f32>,
     queue: &Queue<2>,
     config: &ImageRenderConfig,
 ) -> Vec<(Tile<2>, Vec<M::Output>)> {
@@ -379,9 +384,10 @@ fn worker<F: Function, M: RenderMode>(
         shape_storage: vec![],
         workspace: Default::default(),
     };
+
     while let Some(tile) = queue.next() {
         w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut shape, 0, tile);
+        w.render_tile_recurse(&mut shape, vars, 0, tile);
         let pixels = std::mem::take(&mut w.image);
         out.push((tile, pixels))
     }
@@ -401,6 +407,7 @@ fn worker<F: Function, M: RenderMode>(
 /// resulting pixels).
 pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     // Convert to a 4x4 matrix and apply to the shape
@@ -409,11 +416,12 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    render_inner::<_, M>(shape, config)
+    render_inner::<_, M>(shape, vars, config)
 }
 
 fn render_inner<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
+    vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
     let mut tiles = vec![];
@@ -435,16 +443,17 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = match config.threads {
-        ThreadCount::One => {
-            worker::<F, M>(rh, &queue, config).into_iter().collect()
-        }
+        ThreadCount::One => worker::<F, M>(rh, vars, &queue, config)
+            .into_iter()
+            .collect(),
 
         #[cfg(not(target_arch = "wasm32"))]
         ThreadCount::Many(v) => std::thread::scope(|s| {
             let mut handles = vec![];
             for _ in 0..v.get() {
                 let rh = rh.clone();
-                handles.push(s.spawn(|| worker::<F, M>(rh, &queue, config)));
+                handles
+                    .push(s.spawn(|| worker::<F, M>(rh, vars, &queue, config)));
             }
             let mut out = vec![];
             for h in handles {
@@ -478,6 +487,7 @@ mod test {
         eval::{Function, MathFunction},
         render::{ImageSize, View2},
         shape::Shape,
+        var::Var,
         vm::{GenericVmFunction, VmFunction},
         Context,
     };
@@ -489,49 +499,39 @@ mod test {
         "/../models/quarter.vm"
     ));
 
-    fn render_and_compare_with_view<F: Function>(
-        shape: Shape<F>,
-        expected: &'static str,
+    #[derive(Default)]
+    struct Cfg {
+        vars: ShapeVars<f32>,
         view: View2,
         wide: bool,
-    ) {
-        let width = if wide { 64 } else { 32 };
-        let cfg = ImageRenderConfig {
-            image_size: ImageSize::new(width, 32),
-            view,
-            ..Default::default()
-        };
-        let out = cfg.run::<_, BitRenderMode>(shape);
-        let mut img_str = String::new();
-        for (i, b) in out.iter().enumerate() {
-            if i % width as usize == 0 {
-                img_str += "\n            ";
-            }
-            img_str.push(if *b { 'X' } else { '.' });
-        }
-        if img_str != expected {
-            println!("image mismatch detected!");
-            println!("Expected:\n{expected}\nGot:\n{img_str}");
-            println!("Diff:");
-            for (a, b) in img_str.chars().zip(expected.chars()) {
-                print!("{}", if a != b { '!' } else { a });
-            }
-            panic!("image mismatch");
-        }
     }
 
-    fn render_and_compare<F: Function>(
-        shape: Shape<F>,
-        expected: &'static str,
-    ) {
-        render_and_compare_with_view(shape, expected, View2::default(), false)
-    }
-
-    fn render_and_compare_wide<F: Function>(
-        shape: Shape<F>,
-        expected: &'static str,
-    ) {
-        render_and_compare_with_view(shape, expected, View2::default(), true)
+    impl Cfg {
+        fn test<F: Function>(&self, shape: Shape<F>, expected: &'static str) {
+            let width = if self.wide { 64 } else { 32 };
+            let cfg = ImageRenderConfig {
+                image_size: ImageSize::new(width, 32),
+                view: self.view,
+                ..Default::default()
+            };
+            let out = cfg.run_with_vars::<_, BitRenderMode>(shape, &self.vars);
+            let mut img_str = String::new();
+            for (i, b) in out.iter().enumerate() {
+                if i % width as usize == 0 {
+                    img_str += "\n            ";
+                }
+                img_str.push(if *b { 'X' } else { '.' });
+            }
+            if img_str != expected {
+                println!("image mismatch detected!");
+                println!("Expected:\n{expected}\nGot:\n{img_str}");
+                println!("Diff:");
+                for (a, b) in img_str.chars().zip(expected.chars()) {
+                    print!("{}", if a != b { '!' } else { a });
+                }
+                panic!("image mismatch");
+            }
+        }
     }
 
     fn check_hi<F: Function + MathFunction>() {
@@ -570,7 +570,7 @@ mod test {
             ................................
             ................................
             ................................";
-        render_and_compare(shape, EXPECTED);
+        Cfg::default().test(shape, EXPECTED);
     }
 
     fn check_hi_wide<F: Function + MathFunction>() {
@@ -609,7 +609,11 @@ mod test {
             ................................................................
             ................................................................
             ................................................................";
-        render_and_compare_wide(shape, EXPECTED);
+        Cfg {
+            wide: true,
+            ..Default::default()
+        }
+        .test(shape, EXPECTED);
     }
 
     fn check_hi_transformed<F: Function + MathFunction>() {
@@ -652,7 +656,7 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             ................................";
-        render_and_compare(shape, EXPECTED);
+        Cfg::default().test(shape, EXPECTED);
     }
 
     fn check_hi_bounded<F: Function + MathFunction>() {
@@ -691,12 +695,13 @@ mod test {
             .XXX...........XXX......XXX.....
             .XXX...........XXX......XXX.....
             ................................";
-        render_and_compare_with_view(
-            shape,
-            EXPECTED,
-            View2::from_center_and_scale(nalgebra::Vector2::new(0.5, 0.5), 0.5),
-            false,
-        );
+        let view =
+            View2::from_center_and_scale(nalgebra::Vector2::new(0.5, 0.5), 0.5);
+        Cfg {
+            view,
+            ..Default::default()
+        }
+        .test(shape, EXPECTED);
     }
 
     fn check_quarter<F: Function + MathFunction>() {
@@ -735,86 +740,129 @@ mod test {
             ................................
             ................................
             ................................";
-        render_and_compare(shape, EXPECTED);
+        Cfg::default().test(shape, EXPECTED);
     }
 
-    #[test]
-    fn render_hi_vm() {
-        check_hi::<VmFunction>();
+    fn check_circle_var<F: Function + MathFunction>() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let x2 = ctx.square(x).unwrap();
+        let y2 = ctx.square(y).unwrap();
+        let r2 = ctx.add(x2, y2).unwrap();
+        let r = ctx.sqrt(r2).unwrap();
+        let v = Var::new();
+        let c = ctx.var(v);
+        let root = ctx.sub(r, c).unwrap();
+        let shape = Shape::<F>::new(&ctx, root).unwrap();
+        const EXPECTED_075: &str = "
+            ................................
+            ................................
+            ................................
+            ................................
+            ............XXXXXXXXX...........
+            ..........XXXXXXXXXXXXX.........
+            .........XXXXXXXXXXXXXXX........
+            ........XXXXXXXXXXXXXXXXX.......
+            .......XXXXXXXXXXXXXXXXXXX......
+            ......XXXXXXXXXXXXXXXXXXXXX.....
+            ......XXXXXXXXXXXXXXXXXXXXX.....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            .....XXXXXXXXXXXXXXXXXXXXXXX....
+            ......XXXXXXXXXXXXXXXXXXXXX.....
+            ......XXXXXXXXXXXXXXXXXXXXX.....
+            .......XXXXXXXXXXXXXXXXXXX......
+            ........XXXXXXXXXXXXXXXXX.......
+            .........XXXXXXXXXXXXXXX........
+            ..........XXXXXXXXXXXXX.........
+            ............XXXXXXXXX...........
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................";
+        let mut vars = ShapeVars::new();
+        vars.insert(v.index().unwrap(), 0.75);
+        Cfg {
+            vars,
+            ..Default::default()
+        }
+        .test(shape.clone(), EXPECTED_075);
+
+        const EXPECTED_05: &str = "
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            .............XXXXXXX............
+            ...........XXXXXXXXXXX..........
+            ..........XXXXXXXXXXXXX.........
+            ..........XXXXXXXXXXXXX.........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            .........XXXXXXXXXXXXXXX........
+            ..........XXXXXXXXXXXXX.........
+            ..........XXXXXXXXXXXXX.........
+            ...........XXXXXXXXXXX..........
+            .............XXXXXXX............
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................
+            ................................";
+        let mut vars = ShapeVars::new();
+        vars.insert(v.index().unwrap(), 0.5);
+        Cfg {
+            vars,
+            ..Default::default()
+        }
+        .test(shape, EXPECTED_05);
     }
 
-    #[test]
-    fn render_hi_vm3() {
-        check_hi::<GenericVmFunction<3>>();
+    macro_rules! render_tests {
+        ($i:ident) => {
+            mod $i {
+                use super::*;
+                #[test]
+                fn vm() {
+                    $i::<VmFunction>();
+                }
+                #[test]
+                fn vm3() {
+                    $i::<GenericVmFunction<3>>();
+                }
+                #[cfg(feature = "jit")]
+                #[test]
+                fn jit() {
+                    $i::<$crate::jit::JitFunction>();
+                }
+            }
+        };
     }
 
-    #[cfg(feature = "jit")]
-    #[test]
-    fn render_hi_jit() {
-        check_hi::<crate::jit::JitFunction>();
-    }
-
-    #[test]
-    fn render_hi_wide_vm() {
-        check_hi_wide::<VmFunction>();
-    }
-
-    #[test]
-    fn render_hi_wide_vm3() {
-        check_hi_wide::<GenericVmFunction<3>>();
-    }
-
-    #[cfg(feature = "jit")]
-    #[test]
-    fn render_hi_wide_jit() {
-        check_hi_wide::<crate::jit::JitFunction>();
-    }
-
-    #[test]
-    fn render_hi_transformed_vm() {
-        check_hi_transformed::<VmFunction>();
-    }
-
-    #[test]
-    fn render_hi_transformed_vm3() {
-        check_hi_transformed::<GenericVmFunction<3>>();
-    }
-
-    #[cfg(feature = "jit")]
-    #[test]
-    fn render_hi_transformed_jit() {
-        check_hi_transformed::<crate::jit::JitFunction>();
-    }
-
-    #[test]
-    fn render_hi_bounded_vm() {
-        check_hi_bounded::<VmFunction>();
-    }
-
-    #[test]
-    fn render_hi_bounded_vm3() {
-        check_hi_bounded::<GenericVmFunction<3>>();
-    }
-
-    #[cfg(feature = "jit")]
-    #[test]
-    fn render_hi_bounded_jit() {
-        check_hi_bounded::<crate::jit::JitFunction>();
-    }
-
-    #[test]
-    fn render_quarter_vm() {
-        check_quarter::<VmFunction>();
-    }
-
-    #[test]
-    fn render_quarter_vm3() {
-        check_quarter::<GenericVmFunction<3>>();
-    }
-
-    #[cfg(feature = "jit")]
-    #[test]
-    fn render_quarter_jit() {
-        check_quarter::<crate::jit::JitFunction>();
-    }
+    render_tests!(check_hi);
+    render_tests!(check_hi_wide);
+    render_tests!(check_hi_transformed);
+    render_tests!(check_hi_bounded);
+    render_tests!(check_quarter);
+    render_tests!(check_circle_var);
 }

@@ -13,7 +13,7 @@ use super::{
 use crate::{
     eval::{BulkEvaluator, Function, TracingEvaluator},
     render::{RenderHints, ThreadCount},
-    shape::{Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval},
+    shape::{Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval, ShapeVars},
     types::Grad,
 };
 use std::{num::NonZeroUsize, sync::Arc, sync::OnceLock};
@@ -93,20 +93,21 @@ pub struct Octree {
 }
 
 impl Octree {
-    /// Builds an octree to the given depth
+    /// Builds an octree to the given depth, with user-provided variables
     ///
     /// The shape is evaluated on the region specified by `settings.bounds`.
-    pub fn build<F: Function + RenderHints + Clone>(
+    pub fn build_with_vars<F: Function + RenderHints + Clone>(
         shape: &Shape<F>,
+        vars: &ShapeVars<f32>,
         settings: Settings,
     ) -> Self {
         // Transform the shape given our world-to-model matrix
         let t = settings.view.world_to_model();
         if t == nalgebra::Matrix4::identity() {
-            Self::build_inner(shape, settings)
+            Self::build_inner(shape, vars, settings)
         } else {
             let shape = shape.clone().apply_transform(t);
-            let mut out = Self::build_inner(&shape, settings);
+            let mut out = Self::build_inner(&shape, vars, settings);
 
             // Apply the transform from [-1, +1] back to model space
             for v in &mut out.verts {
@@ -118,8 +119,23 @@ impl Octree {
         }
     }
 
+    /// Builds an octree to the given depth
+    ///
+    /// If the shape uses variables other than `x`, `y`, `z`, then
+    /// [`build_with_vars`](Octree::build_with_vars) should be used instead 9and
+    /// this function will return an error).
+    ///
+    /// The shape is evaluated on the region specified by `settings.bounds`.
+    pub fn build<F: Function + RenderHints + Clone>(
+        shape: &Shape<F>,
+        settings: Settings,
+    ) -> Self {
+        Self::build_with_vars(shape, &ShapeVars::new(), settings)
+    }
+
     fn build_inner<F: Function + RenderHints + Clone>(
         shape: &Shape<F>,
+        vars: &ShapeVars<f32>,
         settings: Settings,
     ) -> Self {
         let eval = Arc::new(EvalGroup::new(shape.clone()));
@@ -127,13 +143,14 @@ impl Octree {
         match settings.threads {
             ThreadCount::One => {
                 let mut out = OctreeBuilder::new();
-                out.recurse(&eval, CellIndex::default(), settings.depth);
+                out.recurse(&eval, vars, CellIndex::default(), settings.depth);
                 out.into()
             }
 
             #[cfg(not(target_arch = "wasm32"))]
             ThreadCount::Many(threads) => OctreeWorker::scheduler(
                 eval.clone(),
+                vars,
                 MultithreadedSettings {
                     depth: settings.depth,
                     threads,
@@ -353,16 +370,18 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     pub(crate) fn eval_cell(
         &mut self,
         eval: &Arc<EvalGroup<F>>,
+        vars: &ShapeVars<f32>,
         cell: CellIndex,
         max_depth: u8,
     ) -> CellResult<F> {
         let (i, r) = self
             .eval_interval
-            .eval(
+            .eval_v(
                 eval.interval_tape(&mut self.tape_storage),
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
+                vars,
             )
             .unwrap();
         if i.upper() < 0.0 {
@@ -382,7 +401,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             };
             if cell.depth == max_depth as usize {
                 let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                let out = CellResult::Done(self.leaf(&eval, cell));
+                let out = CellResult::Done(self.leaf(&eval, vars, cell));
                 if let Ok(t) = Arc::try_unwrap(eval) {
                     self.reclaim(t);
                 }
@@ -432,10 +451,11 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     fn recurse(
         &mut self,
         eval: &Arc<EvalGroup<F>>,
+        vars: &ShapeVars<f32>,
         cell: CellIndex,
         max_depth: u8,
     ) {
-        match self.eval_cell(eval, cell, max_depth) {
+        match self.eval_cell(eval, vars, cell, max_depth) {
             CellResult::Done(c) => self.o[cell] = c.into(),
             CellResult::Recurse(sub_eval) => {
                 let index = self.o.cells.len();
@@ -444,7 +464,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&sub_eval, cell, max_depth);
+                    self.recurse(&sub_eval, vars, cell, max_depth);
                 }
 
                 if let Ok(t) = Arc::try_unwrap(sub_eval) {
@@ -473,7 +493,12 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Writes the leaf vertex to `self.o.verts`, hermite data to
     /// `self.hermite`, and the leaf data to `self.leafs`.  Does **not** write
     /// anything to `self.o.cells`; the cell is returned instead.
-    fn leaf(&mut self, eval: &EvalGroup<F>, cell: CellIndex) -> Cell {
+    fn leaf(
+        &mut self,
+        eval: &EvalGroup<F>,
+        vars: &ShapeVars<f32>,
+        cell: CellIndex,
+    ) -> Cell {
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
         let mut zs = [0.0; 8];
@@ -486,7 +511,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         let out = self
             .eval_float_slice
-            .eval(eval.float_slice_tape(&mut self.tape_storage), &xs, &ys, &zs)
+            .eval_v(
+                eval.float_slice_tape(&mut self.tape_storage),
+                &xs,
+                &ys,
+                &zs,
+                vars,
+            )
             .unwrap();
         debug_assert_eq!(out.len(), 8);
 
@@ -587,7 +618,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             // Do the actual evaluation
             let out = self
                 .eval_float_slice
-                .eval(eval.float_slice_tape(&mut self.tape_storage), xs, ys, zs)
+                .eval_v(
+                    eval.float_slice_tape(&mut self.tape_storage),
+                    xs,
+                    ys,
+                    zs,
+                    vars,
+                )
                 .unwrap();
 
             // Update start and end positions based on evaluation
@@ -653,7 +690,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // TODO: special case for cells with multiple gradients ("features")
         let grads = self
             .eval_grad_slice
-            .eval(eval.grad_slice_tape(&mut self.tape_storage), xs, ys, zs)
+            .eval_v(
+                eval.grad_slice_tape(&mut self.tape_storage),
+                xs,
+                ys,
+                zs,
+                vars,
+            )
             .unwrap();
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
@@ -1177,6 +1220,7 @@ mod test {
         mesh::types::{Edge, X, Y, Z},
         render::{ThreadCount, View3},
         shape::EzShape,
+        var::Var,
         vm::{VmFunction, VmShape},
     };
     use nalgebra::Vector3;
@@ -1545,7 +1589,12 @@ mod test {
             let shape = VmShape::from(shape);
             let eval = Arc::new(EvalGroup::new(shape));
             let mut out = OctreeBuilder::new();
-            out.recurse(&eval, CellIndex::default(), settings.depth);
+            out.recurse(
+                &eval,
+                &ShapeVars::new(),
+                CellIndex::default(),
+                settings.depth,
+            );
             out
         }
 
@@ -1721,6 +1770,39 @@ mod test {
         for v in octree.vertices.iter() {
             let n = (v - center).norm();
             assert!(n > 0.2 && n < 0.3, "invalid vertex at {v:?}: {n}");
+        }
+    }
+
+    #[test]
+    fn test_mesh_vars() {
+        let (x, y, z) = Tree::axes();
+        let v = Var::new();
+        let c = Tree::from(v);
+        let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
+        let shape = VmShape::from(sphere);
+
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(4.try_into().unwrap())]
+        {
+            let settings = Settings {
+                depth: 4,
+                threads,
+                view: View3::default(),
+            };
+
+            for r in [0.5, 0.75] {
+                let mut vars = ShapeVars::new();
+                vars.insert(v.index().unwrap(), r);
+                let octree = Octree::build_with_vars(&shape, &vars, settings)
+                    .walk_dual(settings);
+                for v in octree.vertices.iter() {
+                    let n = v.norm();
+                    assert!(
+                        n > r - 0.05 && n < r + 0.05,
+                        "invalid vertex at {v:?}: {n} != {r}"
+                    );
+                }
+            }
         }
     }
 }
