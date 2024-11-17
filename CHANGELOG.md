@@ -225,7 +225,7 @@ fn intersection(a, b) {
 - Move `Interval` and `Grad` to `fidget::types` module, instead of
   `fidget::eval::types`.
 - Fix an edge case in meshing where nearly-planar surfaces could produce
-  vertexes far from the desired position.
+  vertices far from the desired position.
 - Add the `modulo` (Euclidean remainder) operation
 - Add logical operations (`and`, `or`, `not`), which can be used to build
   pseudo-conditionals which are simplified by the `TracingEvaluator`.
