@@ -106,7 +106,7 @@ impl ImageRenderConfig {
         &self,
         shape: Shape<F>,
     ) -> Vec<<M as RenderMode>::Output> {
-        self.run_with_vars::<F, M>(shape, &ShapeVars::default())
+        self.run_with_vars::<F, M>(shape, &ShapeVars::new())
     }
 
     /// Render a shape in 2D using this configuration and variables
@@ -167,7 +167,7 @@ impl VoxelRenderConfig {
         &self,
         shape: Shape<F>,
     ) -> (Vec<u32>, Vec<[u8; 3]>) {
-        self.run_with_vars::<F>(shape, &Default::default())
+        self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
     /// Render a shape in 2D using this configuration and variables

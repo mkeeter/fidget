@@ -229,7 +229,7 @@ impl<F> Default for ShapeVars<F> {
 impl<F> ShapeVars<F> {
     /// Builds a new, empty variable set
     pub fn new() -> Self {
-        Self::default()
+        Self(HashMap::default())
     }
     /// Returns the number of variables stored in the set
     pub fn len(&self) -> usize {
@@ -419,7 +419,7 @@ where
         y: F,
         z: F,
     ) -> Result<(E::Data, Option<&E::Trace>), Error> {
-        let h = ShapeVars::<f32>::default();
+        let h = ShapeVars::<f32>::new();
         self.eval_v(tape, x, y, z, &h)
     }
 
@@ -502,8 +502,8 @@ where
     /// Bulk evaluation of many samples, without any variables
     ///
     /// If the shape includes variables other than `X`, `Y`, `Z`,
-    /// [`eval_v`](Self::eval_v) should be used instead (and this function will
-    /// return an error).
+    /// [`eval_v`](Self::eval_v) or [`eval_vs`](Self::eval_vs) should be used
+    /// instead (and this function will return an error).
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval(
@@ -513,7 +513,7 @@ where
         y: &[E::Data],
         z: &[E::Data],
     ) -> Result<&[E::Data], Error> {
-        let h: ShapeVars<&[E::Data]> = Default::default();
+        let h: ShapeVars<&[E::Data]> = ShapeVars::new();
         self.eval_vs(tape, x, y, z, &h)
     }
 
@@ -586,7 +586,11 @@ where
     }
     /// Bulk evaluation of many samples, with slices of variables
     ///
-    /// Each variable slice must be the same length as our x, y, z slices
+    /// Each variable is a slice (or `Vec`) of values, which must be the same
+    /// length as the `x`, `y`, `z` slices.  This is in contrast with
+    /// [`eval_vs`](Self::eval_v), where variables have a single value used for
+    /// every position in the `x`, `y,` `z` slices.
+    ///
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval_vs<
@@ -629,6 +633,11 @@ where
     }
 
     /// Bulk evaluation of many samples, with fixed variables
+    ///
+    /// Each variable has a single value, which is used for every position in
+    /// the `x`, `y`, `z` slices.  This is in contrast with
+    /// [`eval_vs`](Self::eval_vs), where variables can be different for every
+    /// position in the `x`, `y,` `z` slices.
     ///
     /// Before evaluation, the tape's transform matrix is applied (if present).
     pub fn eval_v<G: Into<E::Data> + Copy>(

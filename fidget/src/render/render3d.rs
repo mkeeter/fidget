@@ -453,7 +453,8 @@ pub fn render<F: Function>(
 mod test {
     use super::*;
     use crate::{
-        eval::MathFunction, render::VoxelSize, var::Var, vm::VmShape, Context,
+        context::Tree, eval::MathFunction, render::VoxelSize, var::Var,
+        vm::VmShape, Context,
     };
 
     /// Make sure we don't crash if there's only a single tile
@@ -473,20 +474,11 @@ mod test {
     }
 
     fn sphere_var<F: Function + MathFunction>() {
-        let mut ctx = Context::new();
-        let x = ctx.x();
-        let y = ctx.y();
-        let z = ctx.z();
-        let x2 = ctx.square(x).unwrap();
-        let y2 = ctx.square(y).unwrap();
-        let z2 = ctx.square(z).unwrap();
-        let x2y2 = ctx.add(x2, y2).unwrap();
-        let r2 = ctx.add(x2y2, z2).unwrap();
-        let r = ctx.sqrt(r2).unwrap();
+        let (x, y, z) = Tree::axes();
         let v = Var::new();
-        let c = ctx.var(v);
-        let root = ctx.sub(r, c).unwrap();
-        let shape = Shape::<F>::new(&ctx, root).unwrap();
+        let c = Tree::from(v);
+        let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
+        let shape = Shape::<F>::from(sphere);
 
         let size = 32;
         let cfg = VoxelRenderConfig {

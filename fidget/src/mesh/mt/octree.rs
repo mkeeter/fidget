@@ -12,6 +12,7 @@ use crate::{
         Octree,
     },
     render::RenderHints,
+    shape::ShapeVars,
 };
 use std::sync::{mpsc::TryRecvError, Arc};
 
@@ -123,6 +124,7 @@ pub struct OctreeWorker<F: Function + RenderHints> {
 impl<F: Function + RenderHints> OctreeWorker<F> {
     pub fn scheduler(
         eval: Arc<EvalGroup<F>>,
+        vars: &ShapeVars<f32>,
         settings: MultithreadedSettings,
     ) -> Octree {
         let thread_count = settings.threads.get();
@@ -151,7 +153,9 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             .collect::<Vec<_>>();
 
         let root = CellIndex::default();
-        let r = workers[0].octree.eval_cell(&eval, root, settings.depth);
+        let r = workers[0]
+            .octree
+            .eval_cell(&eval, vars, root, settings.depth);
         let c = match r {
             CellResult::Done(cell) => Some(cell),
             CellResult::Recurse(eval) => {
@@ -168,7 +172,9 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             let out: Vec<Octree> = std::thread::scope(|s| {
                 let mut handles = vec![];
                 for w in workers {
-                    handles.push(s.spawn(move || w.run(pool, settings.depth)));
+                    handles.push(
+                        s.spawn(move || w.run(vars, pool, settings.depth)),
+                    );
                 }
                 handles.into_iter().map(|h| h.join().unwrap()).collect()
             });
@@ -177,7 +183,12 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
     }
 
     /// Runs a single worker to completion as part of a worker group
-    pub fn run(mut self, threads: &ThreadPool, max_depth: u8) -> Octree {
+    pub fn run(
+        mut self,
+        vars: &ShapeVars<f32>,
+        threads: &ThreadPool,
+        max_depth: u8,
+    ) -> Octree {
         let mut ctx = threads.start(self.thread_index);
         loop {
             // First, check to see if anyone has finished a task and sent us
@@ -212,7 +223,9 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                 for i in Corner::iter() {
                     let sub_cell = task.target_cell.child(index, i);
 
-                    match self.octree.eval_cell(&task.eval, sub_cell, max_depth)
+                    match self
+                        .octree
+                        .eval_cell(&task.eval, vars, sub_cell, max_depth)
                     {
                         // If this child is finished, then record it locally.
                         // If it's a branching cell, then we'll let a caller
