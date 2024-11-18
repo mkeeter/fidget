@@ -906,6 +906,7 @@ dependencies = [
  "document-features",
  "dynasmrt",
  "getrandom",
+ "heck 0.5.0",
  "ieee754",
  "libc",
  "nalgebra",

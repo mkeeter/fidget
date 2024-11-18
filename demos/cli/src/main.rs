@@ -15,10 +15,6 @@ use fidget::context::Context;
 struct Args {
     #[clap(subcommand)]
     cmd: Command,
-
-    /// Input file
-    #[clap(short, long)]
-    input: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -52,6 +48,16 @@ enum Command {
         #[clap(flatten)]
         settings: MeshSettings,
     },
+    /// Print generated shader code
+    Shader {
+        #[clap(long, value_enum)]
+        name: ShaderName,
+    },
+}
+
+#[derive(ValueEnum, Clone)]
+enum ShaderName {
+    PixelTiles,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -64,6 +70,10 @@ enum EvalMode {
 
 #[derive(Parser)]
 struct ImageSettings {
+    /// Input file
+    #[clap(short, long)]
+    input: PathBuf,
+
     /// Name of a `.png` file to write
     #[clap(short, long)]
     out: Option<PathBuf>,
@@ -93,6 +103,10 @@ struct ImageSettings {
 
 #[derive(Parser)]
 struct MeshSettings {
+    /// Input file
+    #[clap(short, long)]
+    input: PathBuf,
+
     /// Octree depth
     #[clap(short, long)]
     depth: u8,
@@ -365,7 +379,7 @@ fn run_tape(start: u32, inputs: mat4x4<f32>) -> vec4<f32> {
             case OP_Input: {
                 let imm = tape[i];
                 i = i + 1;
-                reg[op[1]] = transpose(inputs)[imm];
+                reg[op[1]] = inputs[imm];
             }
             case OP_CopyReg:    { reg[op[1]] = reg[op[2]]; }
             case OP_CopyImm:    { reg[op[1]] = read_imm_f32x4(&i); }
@@ -469,12 +483,12 @@ fn run_wgpu_brute<
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let idx = id.x;
     if (idx * 4 + 3 < arrayLength(&vars)) {
-        let vs = mat4x4<f32>(
+        let vs = transpose(mat4x4<f32>(
             vars[idx * 4],
             vars[idx * 4 + 1],
             vars[idx * 4 + 2],
             vars[idx * 4 + 3]
-        );
+        ));
         let out = run_tape(0u, vs);
         for (var i=0u; i < 4; i += 1u) {
             result[idx * 4 + i] = out[i];
@@ -1108,9 +1122,6 @@ fn main() -> Result<()> {
 
     let now = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(&args.input)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
-    info!("Loaded file in {:?}", now.elapsed());
 
     match args.cmd {
         Command::Render2d {
@@ -1118,6 +1129,10 @@ fn main() -> Result<()> {
             brute,
             sdf,
         } => {
+            let mut file = std::fs::File::open(&settings.input)?;
+            let (ctx, root) = Context::from_text(&mut file)?;
+            info!("Loaded file in {:?}", now.elapsed());
+
             let start = Instant::now();
             let buffer = if settings.wgpu {
                 match settings.eval {
@@ -1171,6 +1186,10 @@ fn main() -> Result<()> {
             color,
             isometric,
         } => {
+            let mut file = std::fs::File::open(&settings.input)?;
+            let (ctx, root) = Context::from_text(&mut file)?;
+            info!("Loaded file in {:?}", now.elapsed());
+
             let start = Instant::now();
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
@@ -1205,6 +1224,10 @@ fn main() -> Result<()> {
             }
         }
         Command::Mesh { settings } => {
+            let mut file = std::fs::File::open(&settings.input)?;
+            let (ctx, root) = Context::from_text(&mut file)?;
+            info!("Loaded file in {:?}", now.elapsed());
+
             let start = Instant::now();
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
@@ -1231,6 +1254,11 @@ fn main() -> Result<()> {
                 mesh.write_stl(&mut std::fs::File::create(out)?)?;
             }
         }
+        Command::Shader { name } => match name {
+            ShaderName::PixelTiles => {
+                println!("{}", fidget::wgpu::pixel_tiles_shader())
+            }
+        },
     }
 
     Ok(())
