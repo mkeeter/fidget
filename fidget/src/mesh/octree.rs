@@ -122,7 +122,7 @@ impl Octree {
     /// Builds an octree to the given depth
     ///
     /// If the shape uses variables other than `x`, `y`, `z`, then
-    /// [`build_with_vars`](Octree::build_with_vars) should be used instead 9and
+    /// [`build_with_vars`](Octree::build_with_vars) should be used instead (and
     /// this function will return an error).
     ///
     /// The shape is evaluated on the region specified by `settings.bounds`.
