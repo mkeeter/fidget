@@ -26,6 +26,7 @@ thiserror.workspace = true
 zerocopy.workspace = true
 
 rhai = { workspace = true, optional = true }
+heck = { workspace = true, optional = true }
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -40,7 +41,7 @@ windows.workspace = true
 getrandom.workspace = true
 
 [features]
-default = ["jit", "rhai"]
+default = ["jit", "rhai", "wgpu"]
 
 ## Enables fast evaluation via a JIT compiler.  This is exposed in the
 ## [`fidget::jit`](crate::jit) module, and is supported on macOS, Linux, and
@@ -53,6 +54,9 @@ jit = ["dep:dynasmrt", "dep:libc"]
 ## Enable [Rhai](https://rhai.rs/) bindings, in the
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["dep:rhai"]
+
+## Enable WGPU shaders in the [`fidget::wpu`](crate::wgpu) module
+wgpu = ["dep:heck"]
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each

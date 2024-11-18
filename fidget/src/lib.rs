@@ -280,5 +280,8 @@ pub mod solver;
 #[cfg(feature = "rhai")]
 pub mod rhai;
 
+#[cfg(feature = "wgpu")]
+pub mod wgpu;
+
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
