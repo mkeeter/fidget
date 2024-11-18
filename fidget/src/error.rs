@@ -97,6 +97,7 @@ pub enum Error {
     DynasmError(#[from] dynasmrt::DynasmError),
 }
 
+#[cfg(feature = "rhai")]
 impl From<Box<rhai::EvalAltResult>> for Error {
     fn from(e: Box<rhai::EvalAltResult>) -> Self {
         Error::RhaiEvalError(*e)
