@@ -273,8 +273,10 @@ mod error;
 pub use error::Error;
 pub mod mesh;
 pub mod render;
-pub mod rhai;
 pub mod solver;
+
+#[cfg(feature = "rhai")]
+pub mod rhai;
 
 #[cfg(all(feature = "jit", not(target_arch = "wasm32")))]
 pub mod jit;
