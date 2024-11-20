@@ -261,7 +261,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 }
 
-fn run_wgpu<F: fidget::eval::MathFunction + fidget::shape::RenderHints>(
+fn run_wgpu<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
@@ -429,7 +429,7 @@ fn run_tape(start: u32, inputs: mat4x4<f32>) -> vec4<f32> {
 "#;
 
 fn run_wgpu_brute<
-    F: fidget::eval::MathFunction + fidget::shape::RenderHints,
+    F: fidget::eval::MathFunction + fidget::render::RenderHints,
 >(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
@@ -681,7 +681,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 fn run_wgpu_smart<
-    F: fidget::eval::MathFunction + fidget::shape::RenderHints,
+    F: fidget::eval::MathFunction + fidget::render::RenderHints,
 >(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
