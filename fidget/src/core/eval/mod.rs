@@ -47,6 +47,9 @@ pub trait Tape: Send + Sync + Clone {
     /// don't need a map to determine the index of a particular output (unlike
     /// variables).
     fn output_count(&self) -> usize;
+
+    /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    fn vars(&self) -> &VarMap;
 }
 
 /// Represents the trace captured by a tracing evaluation
@@ -205,4 +208,7 @@ pub trait MathFunction: Function {
     ///
     /// See [bytecode](crate::bytecode) for details on the format
     fn to_bytecode(&self) -> Bytecode;
+
+    /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    fn vars(&self) -> &VarMap;
 }

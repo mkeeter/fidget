@@ -25,8 +25,13 @@ strum.workspace = true
 thiserror.workspace = true
 zerocopy.workspace = true
 
+# rhai
 rhai = { workspace = true, optional = true }
+
+# wgpu
 heck = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -56,7 +61,7 @@ jit = ["dep:dynasmrt", "dep:libc"]
 rhai = ["dep:rhai"]
 
 ## Enable WGPU shaders in the [`fidget::wpu`](crate::wgpu) module
-wgpu = ["dep:heck"]
+wgpu = ["dep:heck", "dep:wgpu", "dep:pollster"]
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each

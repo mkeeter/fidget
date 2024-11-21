@@ -20,11 +20,8 @@
 ///
 /// Variables are ordered to require no padding
 struct Config {
-    /// Screen-to-world transform matrix, converting pixels to ±1
-    screen_to_world: mat4x4<f32>,
-
-    /// World-to-model transform matrix, converting ±1 to model space
-    world_to_model: mat4x4<f32>,
+    /// Screen-to-model transform matrix, converting pixels to model space
+    mat: mat4x4<f32>,
 
     /// Mapping from X, Y, Z to input indices
     axes: vec3<u32>,
@@ -35,6 +32,8 @@ struct Config {
     /// Window size, in pixels
     window_size: vec2<u32>,
 
+    /// Number of tiles to render
+    tile_count: u32,
 }
 
 /// Per-tile render configuration
@@ -54,7 +53,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let pos_x = 4 * (id.x % (config.tile_size / 4)); // 4x SIMD
     let pos_y = (id.x / (config.tile_size / 4)) % config.tile_size;
 
-    if (tile_idx < arrayLength(&tiles)) {
+    if (tile_idx < config.tile_count) {
         let tile = tiles[tile_idx];
         if (pos_x < config.tile_size && pos_y < config.tile_size) {
             // Dummy value for inputs
@@ -67,8 +66,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 let corner_pixels = tile.corner + vec2(pos_x + i, pos_y);
 
                 let pos_pixels = vec4f(f32(corner_pixels.x), f32(corner_pixels.y), 0.0, 0.0);
-                let pos_world = config.screen_to_world * pos_pixels;
-                let pos_model = config.world_to_model * pos_world;
+                let pos_model = config.mat * pos_pixels;
 
                 var v = vec4<f32>(0.0);
                 v[config.axes.x] = pos_model.x;
