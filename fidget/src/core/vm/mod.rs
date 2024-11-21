@@ -238,6 +238,10 @@ impl<const N: usize> MathFunction for GenericVmFunction<N> {
     fn to_bytecode(&self) -> Bytecode {
         self.0.to_bytecode()
     }
+
+    fn vars(&self) -> &VarMap {
+        &self.0.vars
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

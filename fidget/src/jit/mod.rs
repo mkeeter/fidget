@@ -929,6 +929,10 @@ impl MathFunction for JitFunction {
     fn to_bytecode(&self) -> Bytecode {
         self.0.to_bytecode()
     }
+
+    fn vars(&self) -> &VarMap {
+        MathFunction::vars(&self.0)
+    }
 }
 
 impl From<GenericVmFunction<REGISTER_LIMIT>> for JitFunction {
@@ -1014,12 +1018,12 @@ impl<T: Clone> Tape for JitTracingFn<T> {
         Arc::into_inner(self.mmap)
     }
 
-    fn vars(&self) -> &VarMap {
-        &self.vars
-    }
-
     fn output_count(&self) -> usize {
         self.output_count
+    }
+
+    fn vars(&self) -> &VarMap {
+        &self.vars
     }
 }
 

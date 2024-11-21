@@ -211,6 +211,11 @@ impl<F> Shape<F> {
         }
         self
     }
+
+    /// Returns the currently-assigned transform matrix
+    pub fn transform(&self) -> Option<&Matrix4<f32>> {
+        self.transform.as_ref()
+    }
 }
 
 /// Variables bound to values for shape evaluation
