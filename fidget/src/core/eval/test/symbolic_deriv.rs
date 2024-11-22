@@ -1,7 +1,7 @@
 use super::{test_args, CanonicalBinaryOp, CanonicalUnaryOp};
 use crate::{
     context::Context,
-    eval::{BulkEvaluator, Function, MathFunction, Tape},
+    eval::{BulkEvaluator, Function, MathFunction},
     types::Grad,
     var::Var,
     vm::VmFunction,

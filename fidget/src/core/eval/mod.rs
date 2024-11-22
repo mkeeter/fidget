@@ -31,6 +31,9 @@ pub trait Tape {
     fn recycle(self) -> Self::Storage;
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
+    ///
+    /// This must be identical to [`Function::vars`] on the `Function` which
+    /// produced this tape.
     fn vars(&self) -> &VarMap;
 
     /// Returns the number of outputs written by this tape
@@ -63,6 +66,10 @@ impl<T: Copy + Clone + Default> Trace for Vec<T> {
 ///
 /// It is mostly agnostic to _how_ that something is represented; we simply
 /// require that it can generate evaluators of various kinds.
+///
+/// Inputs to the function should be represented as [`Var`](crate::var::Var)
+/// values; the [`vars()`](Function::vars) function returns the mapping from
+/// `Var` to position in the input slice.
 ///
 /// Functions are shared between threads, so they should be cheap to clone.  In
 /// most cases, they're a thin wrapper around an `Arc<..>`.
@@ -177,6 +184,9 @@ pub trait Function: Send + Sync + Clone {
     /// This is underspecified and only used for unit testing; for tape-based
     /// functions, it's typically the length of the tape,
     fn size(&self) -> usize;
+
+    /// Returns the map from [`Var`](crate::var::Var) to input index
+    fn vars(&self) -> &VarMap;
 }
 
 /// A [`Function`] which can be built from a math expression

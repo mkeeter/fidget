@@ -31,6 +31,10 @@
   `z` vary but each variable has a constant value across the whole slice).  Add
   `ShapeBulkEval::eval_vs` if `x`, `y`, `z` and variables are _all_ changing
   through the slices.
+- Add a new `GenericVmTape<N>` type, and use it for VM evaluation.  Previously,
+  the `GenericVmFunction<N>` type implemented both `Tape` and `Function`.
+- Add `vars()` to `Function` trait, because there are cases where we want to get
+  the variable map without building a tape (and it must always be the same).
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
