@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
     VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
@@ -10,13 +8,8 @@ pub struct Mmap {
     /// Pointer to a memory-mapped region, which may be uninitialized
     ptr: *mut std::ffi::c_void,
 
-    /// Total length of the region
-    len: usize,
-
-    /// Number of bytes that have been initialized
-    ///
-    /// This value is conservative and assumes that bytes are written in order
-    written: usize,
+    /// Total length of the allocation
+    capacity: usize,
 }
 
 // SAFETY: this is philosophically a `Vec<u8>`, so can be sent to other threads
@@ -32,9 +25,12 @@ impl Mmap {
     pub fn empty() -> Self {
         Self {
             ptr: std::ptr::null_mut::<std::ffi::c_void>(),
-            len: 0,
-            written: 0,
+            capacity: 0,
         }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Builds a new `Mmap` that can hold at least `len` bytes.
@@ -42,13 +38,13 @@ impl Mmap {
     /// If `len == 0`, this will return an `Mmap` of size `PAGE_SIZE`; for a
     /// empty `Mmap` (which makes no system calls), use `Mmap::empty` instead.
     #[cfg(not(target_os = "windows"))]
-    pub fn new(len: usize) -> Result<Self, std::io::Error> {
-        let len = len.max(1).next_multiple_of(Self::PAGE_SIZE);
+    pub fn new(capacity: usize) -> Result<Self, std::io::Error> {
+        let capacity = capacity.max(1).next_multiple_of(Self::PAGE_SIZE);
 
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
-                len,
+                capacity,
                 Self::MMAP_PROT,
                 Self::MMAP_FLAGS,
                 -1,
@@ -59,22 +55,18 @@ impl Mmap {
         if ptr == libc::MAP_FAILED {
             Err(std::io::Error::last_os_error())
         } else {
-            Ok(Self {
-                ptr,
-                len,
-                written: 0,
-            })
+            Ok(Self { ptr, capacity })
         }
     }
 
     #[cfg(target_os = "windows")]
-    pub fn new(len: usize) -> Result<Self, std::io::Error> {
-        let len = len.max(1).next_multiple_of(Self::PAGE_SIZE);
+    pub fn new(capacity: usize) -> Result<Self, std::io::Error> {
+        let capacity = capacity.max(1).next_multiple_of(Self::PAGE_SIZE);
 
         let ptr = unsafe {
             VirtualAlloc(
                 None,
-                len,
+                capacity,
                 MEM_COMMIT | MEM_RESERVE,
                 PAGE_EXECUTE_READWRITE,
             )
@@ -83,76 +75,12 @@ impl Mmap {
         if ptr.is_null() {
             Err(std::io::Error::last_os_error())
         } else {
-            Ok(Self {
-                ptr,
-                len,
-                written: 0,
-            })
-        }
-    }
-
-    /// Returns the size of the allocation
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns the number of bytes written
-    #[inline(always)]
-    pub fn written(&self) -> usize {
-        self.written
-    }
-
-    /// Sets our `written` length
-    ///
-    /// All bytes from `0..written` must be initialized when this is called
-    pub unsafe fn set_written(&mut self, written: usize) {
-        self.written = written;
-    }
-
-    #[inline(always)]
-    pub fn as_mut_slice<'a>(
-        &'a mut self,
-        _guard: &'a ThreadWriteGuard,
-    ) -> &'a mut [u8] {
-        unsafe {
-            std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.written)
-        }
-    }
-
-    /// Writes to the given offset in the memory map
-    ///
-    /// # Panics
-    /// If `index >= self.len`
-    #[inline(always)]
-    pub fn write(&mut self, index: usize, byte: u8, _guard: &ThreadWriteGuard) {
-        assert!(index < self.len);
-        unsafe {
-            *(self.ptr as *mut u8).add(index) = byte;
-        }
-        if index == self.written {
-            self.written += 1;
-        }
-    }
-
-    /// Treats the memory-mapped data as a slice
-    #[inline(always)]
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self.ptr as *const u8, self.written)
+            Ok(Self { ptr, capacity })
         }
     }
 
     /// Returns the inner pointer
     pub fn as_ptr(&self) -> *const std::ffi::c_void {
-        self.ptr
-    }
-
-    /// Returns the inner pointer (mutably)
-    pub fn as_mut_ptr(
-        &mut self,
-        _guard: &ThreadWriteGuard,
-    ) -> *mut std::ffi::c_void {
         self.ptr
     }
 }
@@ -223,8 +151,15 @@ impl Mmap {
     /// Note that you will still need to change the global W^X mode before
     /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
     pub fn finalize(&self, size: usize) {
+        #[link(name = "c")]
+        extern "C" {
+            pub fn sys_icache_invalidate(
+                start: *const std::ffi::c_void,
+                size: libc::size_t,
+            );
+        }
         unsafe {
-            macos::sys_icache_invalidate(self.ptr, size);
+            sys_icache_invalidate(self.ptr, size);
         }
     }
 }
@@ -257,9 +192,9 @@ impl Mmap {
 #[cfg(not(target_os = "windows"))]
 impl Drop for Mmap {
     fn drop(&mut self) {
-        if self.len > 0 {
+        if self.capacity > 0 {
             unsafe {
-                libc::munmap(self.ptr, self.len as libc::size_t);
+                libc::munmap(self.ptr, self.capacity as libc::size_t);
             }
         }
     }
@@ -268,7 +203,7 @@ impl Drop for Mmap {
 #[cfg(target_os = "windows")]
 impl Drop for Mmap {
     fn drop(&mut self) {
-        if self.len > 0 {
+        if self.capacity > 0 {
             unsafe {
                 let _ = VirtualFree(self.ptr, 0, MEM_RELEASE);
             }
@@ -276,66 +211,70 @@ impl Drop for Mmap {
     }
 }
 
-/// Marker that the given thread is allowed to write to an `Mmap`
-///
-/// This is purely a marker on Windows and Linux, but has side effects on macOS.
-pub struct ThreadWriteGuard {
-    /// Marker to make the type `!Send`
-    _marker: std::marker::PhantomData<*const ()>,
-}
-static_assertions::assert_not_impl_any!(ThreadWriteGuard: Send);
+use crate::jit::WritePermit;
 
-thread_local! {
-    pub static THREAD_WRITE_GUARD_CLAIMED: Cell<bool> = const { Cell::new(false) };
+pub struct MmapWriter {
+    mmap: Mmap,
+
+    /// Number of bytes that have been initialized
+    ///
+    /// This value is conservative and assumes that bytes are written in order
+    len: usize,
+
+    _permit: WritePermit,
 }
-impl ThreadWriteGuard {
-    /// Builds a new `ThreadWriteGuard`
-    ///
-    /// On macOS, the constructor modifies the **per-thread** W^X state to allow
-    /// writing of memory-mapped regions.
-    ///
-    /// The fact that this occurs on a per-thread (rather than per-page) basis
-    /// is _very strange_, and means this APIs must be used with caution.
-    ///
-    /// Execute mode is restored when the object is dropped.
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        #[cfg(target_os = "macos")]
+
+impl From<Mmap> for MmapWriter {
+    fn from(mmap: Mmap) -> MmapWriter {
+        MmapWriter {
+            mmap,
+            len: 0,
+            _permit: WritePermit::new(),
+        }
+    }
+}
+
+impl MmapWriter {
+    /// Pushes a byte to the memmap, resizing if necessary
+    pub fn push(&mut self, b: u8) {
+        if self.len == self.mmap.capacity {
+            let mut next = Mmap::new(self.mmap.capacity * 2).unwrap();
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    self.mmap.ptr,
+                    next.ptr,
+                    self.len(),
+                );
+            }
+            std::mem::swap(&mut self.mmap, &mut next);
+        }
         unsafe {
-            macos::pthread_jit_write_protect_np(0);
+            *(self.mmap.ptr as *mut u8).add(self.len) = b;
         }
-        let prev = THREAD_WRITE_GUARD_CLAIMED.replace(true);
-        if prev {
-            panic!("ThreadWriteGuard cannot be claimed multiple times");
-        }
-        Self {
-            _marker: std::marker::PhantomData,
-        }
+        self.len += 1;
     }
-}
 
-impl Drop for super::ThreadWriteGuard {
-    fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
+    /// Finalizes the mmap, invalidating the system icache
+    pub fn finalize(self) -> Mmap {
+        self.mmap.finalize(self.len);
+        self.mmap
+    }
+
+    /// Returns the number of bytes written
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns the written portion of memory as a mutable slice
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe {
-            macos::pthread_jit_write_protect_np(1);
+            std::slice::from_raw_parts_mut(self.mmap.ptr as *mut u8, self.len)
         }
-        THREAD_WRITE_GUARD_CLAIMED.set(false);
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod macos {
-    #[link(name = "pthread")]
-    extern "C" {
-        pub fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
     }
 
-    #[link(name = "c")]
-    extern "C" {
-        pub fn sys_icache_invalidate(
-            start: *const std::ffi::c_void,
-            size: libc::size_t,
-        );
+    /// Returns the inner pointer
+    pub fn as_ptr(&self) -> *const std::ffi::c_void {
+        self.mmap.ptr
     }
 }
