@@ -36,6 +36,11 @@
 - Add `vars()` to `Function` trait, because there are cases where we want to get
   the variable map without building a tape (and it must always be the same).
 - Fix soundness bug in `Mmap` (probably not user-visible)
+- Remove the `Send + Sync` bounds for evaluator types in `Function`, allowing
+  for thread-locked evaluators (required for soundness on macOS, where `W^X` is
+  enforced on a per-thread basis)
+- Remove `Send + Sync` from the `JitTracingEval` and `JitBulkEval` types, for
+  the same reason.
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
