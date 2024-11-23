@@ -25,10 +25,10 @@ use super::mt::{DcWorker, MultithreadedSettings, OctreeWorker};
 /// Helper struct to contain a set of matched evaluators
 ///
 /// Note that this is `Send + Sync` and can be used with shared references!
-pub struct EvalGroup<F: Function> {
+pub struct TapeGroup<F: Function> {
     pub shape: Shape<F>,
 
-    // TODO: passing around an `Arc<EvalGroup>` ends up with two layers of
+    // TODO: passing around an `Arc<TapeGroup>` ends up with two layers of
     // indirection (since the tapes also contain `Arc`); could we flatten
     // them out?  (same with the shape, which is usually an `Arc`)
     pub interval:
@@ -39,7 +39,7 @@ pub struct EvalGroup<F: Function> {
         OnceLock<ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>>,
 }
 
-impl<F: Function> EvalGroup<F> {
+impl<F: Function> TapeGroup<F> {
     fn new(shape: Shape<F>) -> Self {
         Self {
             shape,
@@ -138,18 +138,25 @@ impl Octree {
         vars: &ShapeVars<f32>,
         settings: Settings,
     ) -> Self {
-        let eval = Arc::new(EvalGroup::new(shape.clone()));
+        let tapes = Arc::new(TapeGroup::new(shape.clone()));
 
         match settings.threads {
             ThreadCount::One => {
                 let mut out = OctreeBuilder::new();
-                out.recurse(&eval, vars, CellIndex::default(), settings.depth);
+                let mut eval = OctreeEval::new();
+                out.recurse(
+                    &tapes,
+                    &mut eval,
+                    vars,
+                    CellIndex::default(),
+                    settings.depth,
+                );
                 out.into()
             }
 
             #[cfg(not(target_arch = "wasm32"))]
             ThreadCount::Many(threads) => OctreeWorker::scheduler(
-                eval.clone(),
+                tapes,
                 vars,
                 MultithreadedSettings {
                     depth: settings.depth,
@@ -284,10 +291,6 @@ pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
     /// Available slots in the `hermite` array
     hermite_slots: Vec<usize>,
 
-    eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
-    eval_interval: ShapeTracingEval<F::IntervalEval>,
-    eval_grad_slice: ShapeBulkEval<F::GradSliceEval>,
-
     pub tape_storage: Vec<F::TapeStorage>,
     pub shape_storage: Vec<F::Storage>,
     workspace: F::Workspace,
@@ -336,9 +339,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             leafs: vec![],
             hermite: vec![LeafHermiteData::default()],
             hermite_slots: vec![],
-            eval_float_slice: Shape::<F>::new_float_slice_eval(),
-            eval_grad_slice: Shape::<F>::new_grad_slice_eval(),
-            eval_interval: Shape::<F>::new_interval_eval(),
             tape_storage: vec![],
             shape_storage: vec![],
             workspace: Default::default(),
@@ -369,15 +369,16 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// octree (e.g. on another thread).
     pub(crate) fn eval_cell(
         &mut self,
-        eval: &Arc<EvalGroup<F>>,
+        tapes: &Arc<TapeGroup<F>>,
+        eval: &mut OctreeEval<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex,
         max_depth: u8,
     ) -> CellResult<F> {
-        let (i, r) = self
-            .eval_interval
+        let (i, r) = eval
+            .interval
             .eval_v(
-                eval.interval_tape(&mut self.tape_storage),
+                tapes.interval_tape(&mut self.tape_storage),
                 cell.bounds.x,
                 cell.bounds.y,
                 cell.bounds.z,
@@ -392,22 +393,25 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             let sub_tape = if F::simplify_tree_during_meshing(cell.depth) {
                 let s = self.shape_storage.pop().unwrap_or_default();
                 r.map(|r| {
-                    Arc::new(EvalGroup::new(
-                        eval.shape.simplify(r, s, &mut self.workspace).unwrap(),
+                    Arc::new(TapeGroup::new(
+                        tapes
+                            .shape
+                            .simplify(r, s, &mut self.workspace)
+                            .unwrap(),
                     ))
                 })
             } else {
                 None
             };
             if cell.depth == max_depth as usize {
-                let eval = sub_tape.unwrap_or_else(|| eval.clone());
-                let out = CellResult::Done(self.leaf(&eval, vars, cell));
-                if let Ok(t) = Arc::try_unwrap(eval) {
+                let tapes = sub_tape.unwrap_or_else(|| tapes.clone());
+                let out = CellResult::Done(self.leaf(&tapes, eval, vars, cell));
+                if let Ok(t) = Arc::try_unwrap(tapes) {
                     self.reclaim(t);
                 }
                 out
             } else {
-                CellResult::Recurse(sub_tape.unwrap_or_else(|| eval.clone()))
+                CellResult::Recurse(sub_tape.unwrap_or_else(|| tapes.clone()))
             }
         }
     }
@@ -450,24 +454,25 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Recurse down the octree, building the given cell
     fn recurse(
         &mut self,
-        eval: &Arc<EvalGroup<F>>,
+        tapes: &Arc<TapeGroup<F>>,
+        eval: &mut OctreeEval<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex,
         max_depth: u8,
     ) {
-        match self.eval_cell(eval, vars, cell, max_depth) {
+        match self.eval_cell(tapes, eval, vars, cell, max_depth) {
             CellResult::Done(c) => self.o[cell] = c.into(),
-            CellResult::Recurse(sub_eval) => {
+            CellResult::Recurse(sub_tape) => {
                 let index = self.o.cells.len();
                 for _ in Corner::iter() {
                     self.o.cells.push(Cell::Invalid.into());
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&sub_eval, vars, cell, max_depth);
+                    self.recurse(&sub_tape, eval, vars, cell, max_depth);
                 }
 
-                if let Ok(t) = Arc::try_unwrap(sub_eval) {
+                if let Ok(t) = Arc::try_unwrap(sub_tape) {
                     self.reclaim(t);
                 }
 
@@ -495,7 +500,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// anything to `self.o.cells`; the cell is returned instead.
     fn leaf(
         &mut self,
-        eval: &EvalGroup<F>,
+        tapes: &TapeGroup<F>,
+        eval: &mut OctreeEval<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex,
     ) -> Cell {
@@ -509,10 +515,10 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             zs[i.index()] = z;
         }
 
-        let out = self
-            .eval_float_slice
+        let out = eval
+            .float_slice
             .eval_v(
-                eval.float_slice_tape(&mut self.tape_storage),
+                tapes.float_slice_tape(&mut self.tape_storage),
                 &xs,
                 &ys,
                 &zs,
@@ -616,10 +622,10 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             debug_assert_eq!(i, EDGE_SEARCH_SIZE * edge_count);
 
             // Do the actual evaluation
-            let out = self
-                .eval_float_slice
+            let out = eval
+                .float_slice
                 .eval_v(
-                    eval.float_slice_tape(&mut self.tape_storage),
+                    tapes.float_slice_tape(&mut self.tape_storage),
                     xs,
                     ys,
                     zs,
@@ -688,10 +694,10 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         }
 
         // TODO: special case for cells with multiple gradients ("features")
-        let grads = self
-            .eval_grad_slice
+        let grads = eval
+            .grad_slice
             .eval_v(
-                eval.grad_slice_tape(&mut self.tape_storage),
+                tapes.grad_slice_tape(&mut self.tape_storage),
                 xs,
                 ys,
                 zs,
@@ -943,7 +949,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
     }
 
-    pub(crate) fn reclaim(&mut self, mut e: EvalGroup<F>) {
+    pub(crate) fn reclaim(&mut self, mut e: TapeGroup<F>) {
         if let Some(s) = e.shape.recycle() {
             self.shape_storage.push(s);
         }
@@ -975,10 +981,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             hermite: vec![LeafHermiteData::default()],
             hermite_slots: vec![],
 
-            eval_float_slice: Shape::<F>::new_float_slice_eval(),
-            eval_grad_slice: Shape::<F>::new_grad_slice_eval(),
-            eval_interval: Shape::<F>::new_interval_eval(),
-
             tape_storage: vec![],
             shape_storage: vec![],
             workspace: Default::default(),
@@ -1001,7 +1003,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 /// Result of a single cell evaluation
 pub enum CellResult<F: Function> {
     Done(Cell),
-    Recurse(Arc<EvalGroup<F>>),
+    Recurse(Arc<TapeGroup<F>>),
 }
 
 /// Result of a branch evaluation (8-fold division)
@@ -1207,6 +1209,25 @@ impl LeafHermiteData {
             qef += f;
         }
         qef.solve()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Default)]
+pub(crate) struct OctreeEval<F: Function> {
+    float_slice: ShapeBulkEval<F::FloatSliceEval>,
+    interval: ShapeTracingEval<F::IntervalEval>,
+    grad_slice: ShapeBulkEval<F::GradSliceEval>,
+}
+
+impl<F: Function> OctreeEval<F> {
+    pub fn new() -> Self {
+        Self {
+            float_slice: Shape::<F>::new_float_slice_eval(),
+            grad_slice: Shape::<F>::new_grad_slice_eval(),
+            interval: Shape::<F>::new_interval_eval(),
+        }
     }
 }
 
@@ -1587,10 +1608,12 @@ mod test {
             settings: Settings,
         ) -> OctreeBuilder<VmFunction> {
             let shape = VmShape::from(shape);
-            let eval = Arc::new(EvalGroup::new(shape));
+            let tapes = Arc::new(TapeGroup::new(shape));
             let mut out = OctreeBuilder::new();
+            let mut eval = OctreeEval::new();
             out.recurse(
-                &eval,
+                &tapes,
+                &mut eval,
                 &ShapeVars::new(),
                 CellIndex::default(),
                 settings.depth,

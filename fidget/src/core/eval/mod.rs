@@ -95,11 +95,10 @@ pub trait Function: Send + Sync + Clone {
 
     /// Associated type for single-point tracing evaluation
     type PointEval: TracingEvaluator<
-            Data = f32,
-            Trace = Self::Trace,
-            TapeStorage = Self::TapeStorage,
-        > + Send
-        + Sync;
+        Data = f32,
+        Trace = Self::Trace,
+        TapeStorage = Self::TapeStorage,
+    >;
 
     /// Builds a new point evaluator
     fn new_point_eval() -> Self::PointEval {
@@ -108,11 +107,10 @@ pub trait Function: Send + Sync + Clone {
 
     /// Associated type for single interval tracing evaluation
     type IntervalEval: TracingEvaluator<
-            Data = Interval,
-            Trace = Self::Trace,
-            TapeStorage = Self::TapeStorage,
-        > + Send
-        + Sync;
+        Data = Interval,
+        Trace = Self::Trace,
+        TapeStorage = Self::TapeStorage,
+    >;
 
     /// Builds a new interval evaluator
     fn new_interval_eval() -> Self::IntervalEval {

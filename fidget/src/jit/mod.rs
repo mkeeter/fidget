@@ -972,6 +972,9 @@ macro_rules! jit_fn {
 struct JitTracingEval<T> {
     choices: VmTrace,
     out: Vec<T>,
+
+    /// Permit that marks this thread valid for execution
+    _permit: ExecutePermit,
 }
 
 impl<T> Default for JitTracingEval<T> {
@@ -979,6 +982,7 @@ impl<T> Default for JitTracingEval<T> {
         Self {
             choices: VmTrace::default(),
             out: Vec::default(),
+            _permit: ExecutePermit::new(),
         }
     }
 }
@@ -1149,6 +1153,9 @@ struct JitBulkEval<T> {
 
     /// Output arrays, written to during evaluation
     out: Vec<Vec<T>>,
+
+    /// Permit that marks this thread valid for execution
+    _permit: ExecutePermit,
 }
 
 // SAFETY: the pointers in `JitBulkEval` are transient and only scoped to a
@@ -1163,6 +1170,7 @@ impl<T> Default for JitBulkEval<T> {
             scratch: vec![],
             input_ptrs: vec![],
             output_ptrs: vec![],
+            _permit: ExecutePermit::new(),
         }
     }
 }

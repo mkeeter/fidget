@@ -16,7 +16,7 @@ impl WritePermit {
     pub fn new() -> Self {
         let n = PERMIT_COUNT.get();
         if n < 0 {
-            panic!("cannot build a WritePermit while ExecPermits are present");
+            panic!("permit underflow?");
         }
         PERMIT_COUNT.set(n + 1);
 
@@ -48,6 +48,17 @@ impl Drop for WritePermit {
 }
 
 /// Holding a `ExecutePermit` allows calls to functions in memory-mapped regions
+///
+/// An `ExecutePermit` can only be constructed if no `WritePermits` are extant;
+/// the constructor will panic otherwise.
+///
+/// Note that this isn't 100% foolproof: it's possible to create an
+/// `ExecutePermit`, _then_ create a `WritePermit`, making the `ExecutePermit`
+/// invalid.  However, this shouldn't be possible from the library's public API.
+///
+/// (It's possible to fix this by making `ExecutePermit` subtract from a signed
+/// `PERMIT_COUNT`, but then you can never build tapes while an evaluator is
+/// live on that same thread, which is a heavy restriction)
 pub struct ExecutePermit {
     _marker: std::marker::PhantomData<*const ()>,
 }
@@ -59,7 +70,6 @@ impl ExecutePermit {
         if n > 0 {
             panic!("cannot build a ExecPermits while WritePermit are present");
         }
-        PERMIT_COUNT.set(n - 1);
         Self {
             _marker: std::marker::PhantomData,
         }
@@ -69,5 +79,5 @@ impl ExecutePermit {
 #[cfg(target_os = "macos")]
 #[link(name = "pthread")]
 extern "C" {
-    pub fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
+    fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
 }

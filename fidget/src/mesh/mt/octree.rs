@@ -7,7 +7,9 @@ use crate::{
     eval::Function,
     mesh::{
         cell::{Cell, CellData, CellIndex},
-        octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
+        octree::{
+            BranchResult, CellResult, OctreeBuilder, OctreeEval, TapeGroup,
+        },
         types::Corner,
         Octree,
     },
@@ -37,10 +39,10 @@ impl<F: Function> Task<F> {
     /// Builds a new root task
     ///
     /// The root task is from worker 0 with the default cell index
-    fn new(eval: Arc<EvalGroup<F>>) -> Self {
+    fn new(tapes: Arc<TapeGroup<F>>) -> Self {
         Self {
             data: Arc::new(TaskData {
-                eval,
+                tapes,
                 target_cell: CellIndex::default(),
                 assigned_by: 0,
                 parent: None,
@@ -50,13 +52,13 @@ impl<F: Function> Task<F> {
 
     fn child(
         &self,
-        eval: Arc<EvalGroup<F>>,
+        tapes: Arc<TapeGroup<F>>,
         target_cell: CellIndex,
         assigned_by: usize,
     ) -> Self {
         Self {
             data: Arc::new(TaskData {
-                eval,
+                tapes,
                 target_cell,
                 assigned_by,
                 parent: Some(self.data.clone()),
@@ -66,7 +68,7 @@ impl<F: Function> Task<F> {
 }
 
 struct TaskData<F: Function> {
-    eval: Arc<EvalGroup<F>>,
+    tapes: Arc<TapeGroup<F>>,
 
     /// Thread in which the parent cell lives
     assigned_by: usize,
@@ -123,7 +125,7 @@ pub struct OctreeWorker<F: Function + RenderHints> {
 
 impl<F: Function + RenderHints> OctreeWorker<F> {
     pub fn scheduler(
-        eval: Arc<EvalGroup<F>>,
+        tapes: Arc<TapeGroup<F>>,
         vars: &ShapeVars<f32>,
         settings: MultithreadedSettings,
     ) -> Octree {
@@ -153,14 +155,19 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             .collect::<Vec<_>>();
 
         let root = CellIndex::default();
-        let r = workers[0]
-            .octree
-            .eval_cell(&eval, vars, root, settings.depth);
+        let mut eval = OctreeEval::new();
+        let r = workers[0].octree.eval_cell(
+            &tapes,
+            &mut eval,
+            vars,
+            root,
+            settings.depth,
+        );
         let c = match r {
             CellResult::Done(cell) => Some(cell),
-            CellResult::Recurse(eval) => {
+            CellResult::Recurse(tapes) => {
                 // Inject the recursive task into worker[0]'s queue
-                workers[0].queue.push(Task::new(eval));
+                workers[0].queue.push(Task::new(tapes));
                 None
             }
         };
@@ -190,6 +197,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
         max_depth: u8,
     ) -> Octree {
         let mut ctx = threads.start(self.thread_index);
+        let mut eval = OctreeEval::new();
         loop {
             // First, check to see if anyone has finished a task and sent us
             // back the result.  Otherwise, keep going.
@@ -223,10 +231,13 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                 for i in Corner::iter() {
                     let sub_cell = task.target_cell.child(index, i);
 
-                    match self
-                        .octree
-                        .eval_cell(&task.eval, vars, sub_cell, max_depth)
-                    {
+                    match self.octree.eval_cell(
+                        &task.tapes,
+                        &mut eval,
+                        vars,
+                        sub_cell,
+                        max_depth,
+                    ) {
                         // If this child is finished, then record it locally.
                         // If it's a branching cell, then we'll let a caller
                         // fill it in eventually (via the done queue).
@@ -236,9 +247,9 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                             &task.data,
                             &mut ctx,
                         ),
-                        CellResult::Recurse(eval) => {
+                        CellResult::Recurse(tapes) => {
                             self.queue.push(task.child(
-                                eval,
+                                tapes,
                                 sub_cell,
                                 self.thread_index,
                             ));
@@ -278,7 +289,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
 
     fn reclaim_inner(&mut self, mut t: TaskData<F>) {
         // Try recycling the tapes, if no one else is using them
-        if let Ok(e) = Arc::try_unwrap(t.eval) {
+        if let Ok(e) = Arc::try_unwrap(t.tapes) {
             self.octree.reclaim(e);
         }
         if let Some(t) = t.parent.take() {
