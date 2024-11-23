@@ -72,7 +72,7 @@ fn not_4f(lhs: vec4f) -> vec4f {
 }
 
 fn read_imm_4f(i: ptr<function, u32>) -> vec4f {
-    let imm = bitcastf(tape[*i]);
+    let imm = bitcast<f32>(tape[*i]);
     *i = *i + 1;
     return vec4f(imm);
 }
