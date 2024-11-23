@@ -30,7 +30,7 @@ use crate::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
         TracingEvaluator,
     },
-    jit::mmap::Mmap,
+    jit::mmap::{Mmap, ThreadWriteGuard},
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
@@ -358,6 +358,7 @@ type Relocation = dynasmrt::aarch64::Aarch64Relocation;
 
 struct MmapAssembler {
     mmap: Mmap,
+    guard: ThreadWriteGuard,
     len: usize,
 
     global_labels: [Option<AssemblyOffset>; 26],
@@ -401,7 +402,7 @@ impl DynasmApi for MmapAssembler {
         if self.len >= self.mmap.len() {
             self.expand_mmap();
         }
-        self.mmap.write(self.len, byte);
+        self.mmap.write(self.len, byte, &self.guard);
         self.len += 1;
     }
 
@@ -421,7 +422,7 @@ impl DynasmApi for MmapAssembler {
             self.expand_mmap();
         }
         for (i, b) in value.to_le_bytes().iter().enumerate() {
-            self.mmap.write(self.len + i, *b);
+            self.mmap.write(self.len + i, *b, &self.guard);
         }
         self.len += 4;
     }
@@ -593,7 +594,7 @@ impl MmapAssembler {
         for (loc, label) in self.local_relocs.take() {
             let target =
                 self.local_labels[label as usize].expect("invalid local label");
-            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
+            let buf = &mut self.mmap.as_mut_slice(&self.guard)[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Local("oh no"),
@@ -612,7 +613,7 @@ impl MmapAssembler {
         for (loc, label) in self.global_relocs.take() {
             let target =
                 self.global_labels.get(label as usize).unwrap().unwrap();
-            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
+            let buf = &mut self.mmap.as_mut_slice(&self.guard)[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Global("oh no"),
@@ -631,7 +632,7 @@ impl MmapAssembler {
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.mmap.as_ptr(),
-                next.as_mut_ptr(),
+                next.as_mut_ptr(&self.guard),
                 self.mmap.written(),
             );
             next.set_written(self.mmap.written());
@@ -644,6 +645,7 @@ impl From<Mmap> for MmapAssembler {
     fn from(mmap: Mmap) -> Self {
         Self {
             mmap,
+            guard: ThreadWriteGuard::new(),
             len: 0,
             global_labels: [None; 26],
             local_labels: [None; 26],
@@ -659,10 +661,6 @@ fn build_asm_fn_with_storage<A: Assembler>(
     t: &VmData<REGISTER_LIMIT>,
     mut s: Mmap,
 ) -> Mmap {
-    // This guard may be a unit value on some systems
-    #[cfg(target_os = "macos")] // XXX use #[expect(unused)] here?
-    let _guard = Mmap::thread_mode_write();
-
     let size_estimate = t.len() * A::bytes_per_clause();
     if size_estimate > 2 * s.len() {
         s = Mmap::new(size_estimate).expect("failed to build mmap")
@@ -1343,9 +1341,6 @@ mod test {
 
         let mut asm = MmapAssembler::from(mmap);
         const COUNT: u32 = 23456; // larger than 1 page (4 KiB)
-
-        #[cfg(target_os = "macos")] // XXX use #[expect(unused)] here?
-        let _guard = Mmap::thread_mode_write();
 
         for i in 0..COUNT {
             asm.push_u32(i);
