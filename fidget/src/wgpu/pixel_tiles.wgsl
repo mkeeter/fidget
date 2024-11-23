@@ -34,6 +34,9 @@ struct Config {
 
     /// Number of tiles to render
     tile_count: u32,
+
+    /// Explicit padding
+    _padding: u32,
 }
 
 /// Per-tile render configuration
@@ -43,6 +46,9 @@ struct Tile {
 
     /// Starting point of this tile in the `tape` array
     start: u32,
+
+    /// Explicit padding
+    _padding: u32,
 }
 
 @compute @workgroup_size(64)

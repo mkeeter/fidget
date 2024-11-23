@@ -20,7 +20,9 @@ struct Tile {
 
     /// Start of this tile's tape, as an offset into the global tape
     start: u32,
-    // XXX do we need padding here?
+
+    /// Alignment to 16-byte boundary
+    _padding: u32,
 }
 
 #[derive(Debug, IntoBytes, Immutable)]
@@ -40,6 +42,9 @@ struct Config {
 
     /// Number of tiles to render
     tile_count: u32,
+
+    /// Alignment to 16-byte boundary
+    _padding: u32,
 }
 
 /// Context for rendering a set of 2D tiles
@@ -244,7 +249,7 @@ impl TileContext {
         shape: Shape<F>,
         _vars: &ShapeVars<f32>, // XXX TODO
         image_size: ImageSize,
-        view: &View2,
+        view: View2,
     ) -> Result<Vec<u32>, Error> {
         let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity);
 
@@ -270,6 +275,7 @@ impl TileContext {
                 tiles.push(Tile {
                     corner: [x * TILE_SIZE, y * TILE_SIZE],
                     start: 0,
+                    _padding: 0,
                 });
             }
         }
@@ -279,6 +285,7 @@ impl TileContext {
             tile_size: TILE_SIZE,
             window_size: [image_size.width(), image_size.height()],
             tile_count: tiles.len() as u32,
+            _padding: 0,
         };
         self.load_config(&config);
         self.load_tiles(&tiles);
@@ -329,6 +336,7 @@ impl TileContext {
         let pixel_count = (TILE_SIZE as usize).pow(2) * tiles.len();
         let dispatch_size = pixel_count.div_ceil(64 * 4) as u32;
         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+        drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
         encoder.copy_buffer_to_buffer(
@@ -348,8 +356,11 @@ impl TileContext {
         self.device.poll(wgpu::Maintain::Wait);
 
         let data = buffer_slice.get_mapped_range();
-        let result = <[u32]>::ref_from_bytes(&data).unwrap();
-        Ok(result.to_owned())
+        let result = <[u32]>::ref_from_bytes(&data).unwrap().to_owned();
+        drop(data);
+        self.out_buf.unmap();
+
+        Ok(result)
     }
 
     /// Loads a config into `config_buf`
