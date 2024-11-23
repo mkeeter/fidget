@@ -628,7 +628,14 @@ impl MmapAssembler {
     /// Doubles the size of the internal `Mmap` and copies over data
     fn expand_mmap(&mut self) {
         let mut next = Mmap::new(self.mmap.len() * 2).unwrap();
-        next.as_mut_slice()[0..self.len].copy_from_slice(self.mmap.as_slice());
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.mmap.as_ptr(),
+                next.as_mut_ptr(),
+                self.mmap.written(),
+            );
+            next.set_written(self.mmap.written());
+        }
         std::mem::swap(&mut self.mmap, &mut next);
     }
 }
@@ -653,7 +660,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
     mut s: Mmap,
 ) -> Mmap {
     // This guard may be a unit value on some systems
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "macos")] // XXX use #[expect(unused)] here?
     let _guard = Mmap::thread_mode_write();
 
     let size_estimate = t.len() * A::bytes_per_clause();
@@ -1329,4 +1336,26 @@ mod test {
     crate::interval_tests!(JitFunction);
     crate::float_slice_tests!(JitFunction);
     crate::point_tests!(JitFunction);
+
+    #[test]
+    fn test_mmap_expansion() {
+        let mmap = Mmap::new(0).unwrap();
+
+        let mut asm = MmapAssembler::from(mmap);
+        const COUNT: u32 = 23456; // larger than 1 page (4 KiB)
+
+        #[cfg(target_os = "macos")] // XXX use #[expect(unused)] here?
+        let _guard = Mmap::thread_mode_write();
+
+        for i in 0..COUNT {
+            asm.push_u32(i);
+        }
+        let mmap = asm.finalize().unwrap();
+        let slice = mmap.as_slice();
+        assert_eq!(slice.len(), COUNT as usize * 4);
+        for (i, c) in slice.chunks_exact(4).enumerate() {
+            let b = u32::from_le_bytes(c.try_into().unwrap());
+            assert_eq!(i as u32, b);
+        }
+    }
 }
