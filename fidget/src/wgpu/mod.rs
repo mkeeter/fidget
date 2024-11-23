@@ -1,14 +1,19 @@
 //! Shader generation and WGPU-based image rendering
 use crate::{
     bytecode,
-    eval::{Function, MathFunction},
-    render::{ImageSize, View2},
-    shape::{Shape, ShapeVars},
+    eval::{Function, MathFunction, TracingEvaluator},
+    render::{ImageRenderConfig, ImageSize, TileSizes, View2},
+    shape::{Shape, ShapeTape, ShapeTracingEval},
+    types::Interval,
     Error,
 };
 
 use heck::ToShoutySnakeCase;
-use nalgebra::Matrix4;
+use nalgebra::{Matrix4, Point2, Vector2};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 // Square tiles
@@ -247,14 +252,16 @@ impl TileContext {
     pub fn run<F: Function + MathFunction>(
         &mut self,
         shape: Shape<F>, // XXX add ShapeVars here
-        settings: ImageRenderSettings,
+        settings: ImageRenderConfig,
     ) -> Result<Vec<u32>, Error> {
-        let world_to_model = view
+        let world_to_model = settings
+            .view
             .world_to_model()
             .insert_row(2, 0.0)
             .insert_column(2, 0.0);
 
-        let screen_to_world = image_size
+        let screen_to_world = settings
+            .image_size
             .screen_to_world()
             .insert_row(2, 0.0)
             .insert_column(2, 0.0);
@@ -264,10 +271,13 @@ impl TileContext {
             * world_to_model
             * screen_to_world;
 
+        // Clear out the previous transform
+        let shape = shape.set_transform(mat);
+
         const TILE_SIZE: u32 = 64;
         let mut tiles = vec![]; // TODO
-        for x in 0..image_size.width().div_ceil(TILE_SIZE) {
-            for y in 0..image_size.height().div_ceil(TILE_SIZE) {
+        for x in 0..settings.image_size.width().div_ceil(TILE_SIZE) {
+            for y in 0..settings.image_size.height().div_ceil(TILE_SIZE) {
                 tiles.push(Tile {
                     corner: [x * TILE_SIZE, y * TILE_SIZE],
                     start: 0,
@@ -280,13 +290,16 @@ impl TileContext {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
             tile_size: TILE_SIZE,
-            window_size: [image_size.width(), image_size.height()],
+            window_size: [
+                settings.image_size.width(),
+                settings.image_size.height(),
+            ],
             tile_count: tiles.len() as u32,
             _padding: 0,
         };
         self.load_config(&config);
         self.load_tiles(&tiles);
-        self.resize_result_buf(image_size);
+        self.resize_result_buf(settings.image_size);
 
         let bytecode = shape.inner().to_bytecode();
         self.load_tape(bytecode.as_bytes());
@@ -497,6 +510,173 @@ impl TileContext {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+/// Unit of work passed to worker threads
+struct Task<F: Function> {
+    corner: Point2<u32>,
+
+    /// Index into the worker's tile size array
+    depth: usize,
+
+    /// Shape to render
+    shape: Shape<F>,
+
+    /// Precomputed interval tape (if available)
+    tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
+}
+
+enum TaskOrStop<F: Function> {
+    Task(Task<F>),
+    Stop,
+}
+
+enum WorkResult<F> {
+    Done {
+        corner: Point2<u32>,
+        depth: usize,
+        full: bool,
+    },
+    Pixels {
+        corner: Point2<u32>,
+        shape: Shape<F>,
+    },
+}
+
+struct Worker<F: Function> {
+    working: Arc<AtomicUsize>,
+
+    /// Global queue for new tasks
+    queue: Arc<crossbeam::queue::ArrayQueue<TaskOrStop<F>>>,
+
+    /// Local queue (used if the global queue is full)
+    local: std::collections::VecDeque<Task<F>>,
+
+    /// Output queue (complete tiles to evaluate on the GPU)
+    out: Arc<std::sync::mpsc::Sender<WorkResult<F>>>,
+
+    eval_interval: ShapeTracingEval<F::IntervalEval>,
+
+    /// Spare shape storage for reuse
+    shape_storage: Vec<F::Storage>,
+
+    /// Spare tape storage for reuse
+    tape_storage: Vec<F::TapeStorage>,
+
+    /// Workspace for shape simplification
+    workspace: F::Workspace,
+
+    /// Array of tiles sizes to evaluate
+    tile_sizes: TileSizes,
+}
+
+impl<F: Function> Worker<F> {
+    fn run_to_completion(&mut self) {
+        let mut live = false;
+        loop {
+            if !live {
+                self.working.fetch_add(1, Ordering::Release);
+                live = true;
+            }
+            let task = match self.local.pop_back() {
+                Some(t) => Some(t),
+                None => match self.queue.pop() {
+                    Some(TaskOrStop::Stop) => break,
+                    Some(TaskOrStop::Task(t)) => Some(t),
+                    None => None,
+                },
+            };
+            if let Some(task) = task {
+                self.run_one(task);
+            } else {
+                live = false;
+                if self.working.fetch_sub(1, Ordering::Acquire) == 1 {
+                    let r = self.queue.push(TaskOrStop::Stop); // XXX safety?
+                    assert!(r.is_ok());
+                    break;
+                }
+            }
+        }
+    }
+    fn run_one(&mut self, mut t: Task<F>) {
+        let tile_size = self.tile_sizes[t.depth] as u32;
+        let x =
+            Interval::new(t.corner.x as f32, (t.corner.x + tile_size) as f32);
+        let y =
+            Interval::new(t.corner.y as f32, (t.corner.y + tile_size) as f32);
+        let z = Interval::new(0.0, 0.0);
+
+        let tape = t.tape.get_or_insert_with(|| {
+            t.shape
+                .interval_tape(self.tape_storage.pop().unwrap_or_default())
+        });
+        let (r, trace) = self.eval_interval.eval(tape, x, y, z).unwrap();
+
+        // Early return if this region is empty / full
+        if r.lower() > 0.0 || r.upper() < 0.0 {
+            self.tape_storage.extend(t.tape.take().unwrap().recycle());
+            self.shape_storage.extend(t.shape.recycle());
+            self.out
+                .send(WorkResult::Done {
+                    corner: t.corner,
+                    depth: t.depth,
+                    full: r.upper() < 0.0,
+                })
+                .unwrap();
+            return;
+        }
+
+        let next = if let Some(trace) = trace {
+            t.shape
+                .simplify(
+                    trace,
+                    self.shape_storage.pop().unwrap_or_default(),
+                    &mut self.workspace,
+                )
+                .unwrap()
+        } else {
+            t.shape
+        };
+
+        if let Some(next_tile_size) =
+            self.tile_sizes.get(t.depth + 1).map(|t| t as u32)
+        {
+            let n = tile_size / next_tile_size;
+            for j in 0..n {
+                for i in 0..n {
+                    let task = Task {
+                        corner: t.corner + Vector2::new(i, j) * next_tile_size,
+                        depth: t.depth + 1,
+                        shape: next.clone(),
+                        tape: if trace.is_none() {
+                            t.tape.clone()
+                        } else {
+                            None
+                        },
+                    };
+                    if let Err(task) = self.queue.push(TaskOrStop::Task(task)) {
+                        let TaskOrStop::Task(task) = task else {
+                            unreachable!()
+                        };
+                        self.local.push_back(task);
+                    }
+                }
+            }
+        } else {
+            // We're done recursing, push the pixel work to the GPU
+            self.tape_storage.extend(t.tape.take().unwrap().recycle());
+            self.out
+                .send(WorkResult::Pixels {
+                    corner: t.corner,
+                    shape: next,
+                })
+                .unwrap();
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 /// Returns a set of constant definitions for each opcode
 fn opcode_constants() -> String {
     let mut out = String::new();
@@ -519,6 +699,8 @@ const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
 
 /// `main` shader function for pixel tile evaluation
 const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
+
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
