@@ -246,14 +246,9 @@ impl TileContext {
     /// Renders a single image using GPU acceleration
     pub fn run<F: Function + MathFunction>(
         &mut self,
-        shape: Shape<F>,
-        _vars: &ShapeVars<f32>, // XXX TODO
-        image_size: ImageSize,
-        view: View2,
+        shape: Shape<F>, // XXX add ShapeVars here
+        settings: ImageRenderSettings,
     ) -> Result<Vec<u32>, Error> {
-        let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity);
-        println!("got original mat\n{mat}");
-
         let world_to_model = view
             .world_to_model()
             .insert_row(2, 0.0)
@@ -265,16 +260,9 @@ impl TileContext {
             .insert_column(2, 0.0);
 
         // Build the combined transform matrix
-        let mat = mat * world_to_model * screen_to_world;
-        println!("got mat\n{mat}");
-        println!(
-            "foo: {}",
-            mat.transform_point(&nalgebra::Point3::<f32>::new(
-                256.0, 256.0, 0.0
-            ))
-        );
-
-        let vars = shape.inner().vars();
+        let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity)
+            * world_to_model
+            * screen_to_world;
 
         const TILE_SIZE: u32 = 64;
         let mut tiles = vec![]; // TODO
@@ -287,6 +275,7 @@ impl TileContext {
                 });
             }
         }
+        let vars = shape.inner().vars();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
@@ -303,29 +292,7 @@ impl TileContext {
         self.load_tape(bytecode.as_bytes());
 
         // TODO should we cache this?
-        let bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: self.tile_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.tape_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: self.result_buf.as_entire_binding(),
-                    },
-                ],
-            });
+        let bind_group = self.create_bind_group();
 
         // Create a command encoder and dispatch the compute work
         let mut encoder = self.device.create_command_encoder(
@@ -363,9 +330,105 @@ impl TileContext {
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device.poll(wgpu::Maintain::Wait);
 
-        let data = buffer_slice.get_mapped_range();
-        let result = <[u32]>::ref_from_bytes(&data).unwrap().to_owned();
-        drop(data);
+        let result = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            .unwrap()
+            .to_owned();
+        self.out_buf.unmap();
+
+        Ok(result)
+    }
+
+    /// Renders a single image using GPU acceleration
+    pub fn run_brute<F: Function + MathFunction>(
+        &mut self,
+        shape: Shape<F>, // XXX add ShapeVars here
+        image_size: ImageSize,
+        view: View2,
+    ) -> Result<Vec<u32>, Error> {
+        let world_to_model = view
+            .world_to_model()
+            .insert_row(2, 0.0)
+            .insert_column(2, 0.0);
+
+        let screen_to_world = image_size
+            .screen_to_world()
+            .insert_row(2, 0.0)
+            .insert_column(2, 0.0);
+
+        // Build the combined transform matrix
+        let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity)
+            * world_to_model
+            * screen_to_world;
+
+        const TILE_SIZE: u32 = 64;
+        let mut tiles = vec![]; // TODO
+        for x in 0..image_size.width().div_ceil(TILE_SIZE) {
+            for y in 0..image_size.height().div_ceil(TILE_SIZE) {
+                tiles.push(Tile {
+                    corner: [x * TILE_SIZE, y * TILE_SIZE],
+                    start: 0,
+                    _padding: 0,
+                });
+            }
+        }
+        let vars = shape.inner().vars();
+        let config = Config {
+            mat: mat.data.as_slice().try_into().unwrap(),
+            axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
+            tile_size: TILE_SIZE,
+            window_size: [image_size.width(), image_size.height()],
+            tile_count: tiles.len() as u32,
+            _padding: 0,
+        };
+        self.load_config(&config);
+        self.load_tiles(&tiles);
+        self.resize_result_buf(image_size);
+
+        let bytecode = shape.inner().to_bytecode();
+        self.load_tape(bytecode.as_bytes());
+
+        // TODO should we cache this?
+        let bind_group = self.create_bind_group();
+
+        // Create a command encoder and dispatch the compute work
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        // total work = tile pixels / (workgroup size * SIMD width)
+        let pixel_count = (TILE_SIZE as usize).pow(2) * tiles.len();
+        let dispatch_size = pixel_count.div_ceil(64 * 4) as u32;
+        compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+        drop(compute_pass);
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            &self.result_buf,
+            0,
+            &self.out_buf,
+            0,
+            (pixel_count * std::mem::size_of::<f32>()) as u64,
+        );
+
+        // Submit the commands and wait for the GPU to complete
+        self.queue.submit(Some(encoder.finish()));
+
+        // Map result buffer and read back the data
+        let buffer_slice = self.out_buf.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device.poll(wgpu::Maintain::Wait);
+
+        let result = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+            .unwrap()
+            .to_owned();
         self.out_buf.unmap();
 
         Ok(result)
@@ -405,6 +468,32 @@ impl TileContext {
             self.result_buf = result_buf;
             self.out_buf = out_buf;
         }
+    }
+
+    /// Builds a new bind group with the current buffers
+    fn create_bind_group(&self) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.config_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.tile_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.tape_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.result_buf.as_entire_binding(),
+                },
+            ],
+        })
     }
 }
 
