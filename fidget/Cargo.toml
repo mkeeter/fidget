@@ -32,6 +32,7 @@ rhai = { workspace = true, optional = true }
 heck = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
+crossbeam = { workspace = true, optional = true }
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
@@ -60,8 +61,8 @@ jit = ["dep:dynasmrt", "dep:libc"]
 ## [`fidget::rhai`](crate::rhai) module
 rhai = ["dep:rhai"]
 
-## Enable WGPU shaders in the [`fidget::wpu`](crate::wgpu) module
-wgpu = ["dep:heck", "dep:wgpu", "dep:pollster"]
+## Enable WGPU shaders and rendering in the [`fidget::wpu`](crate::wgpu) module
+wgpu = ["dep:heck", "dep:wgpu", "dep:pollster", "dep:crossbeam"]
 
 ## Enable `eval-tests` if you're writing your own evaluators and want to
 ## unit-test them.  When enabled, the crate exports a set of macros to test each

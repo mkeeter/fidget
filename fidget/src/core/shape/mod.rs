@@ -202,7 +202,7 @@ impl<F> Shape<F> {
             transform: None,
         }
     }
-    /// Returns a shape with the given transform applied
+    /// Returns a shape with the given transform appended
     pub fn apply_transform(mut self, mat: Matrix4<f32>) -> Self {
         if let Some(prev) = self.transform.as_mut() {
             *prev *= mat;
@@ -215,6 +215,14 @@ impl<F> Shape<F> {
     /// Returns the currently-assigned transform matrix
     pub fn transform(&self) -> Option<&Matrix4<f32>> {
         self.transform.as_ref()
+    }
+
+    /// Returns a shape with the given transform matrix
+    ///
+    /// Any previous transform is unceremoniously discarded
+    pub fn set_transform(mut self, mat: Matrix4<f32>) -> Self {
+        self.transform = Some(mat);
+        self
     }
 }
 
