@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
     VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
@@ -109,7 +111,10 @@ impl Mmap {
     }
 
     #[inline(always)]
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub fn as_mut_slice<'a>(
+        &'a mut self,
+        _guard: &'a ThreadWriteGuard,
+    ) -> &'a mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.written)
         }
@@ -120,7 +125,7 @@ impl Mmap {
     /// # Panics
     /// If `index >= self.len`
     #[inline(always)]
-    pub fn write(&mut self, index: usize, byte: u8) {
+    pub fn write(&mut self, index: usize, byte: u8, _guard: &ThreadWriteGuard) {
         assert!(index < self.len);
         unsafe {
             *(self.ptr as *mut u8).add(index) = byte;
@@ -144,7 +149,10 @@ impl Mmap {
     }
 
     /// Returns the inner pointer (mutably)
-    pub fn as_mut_ptr(&mut self) -> *mut std::ffi::c_void {
+    pub fn as_mut_ptr(
+        &mut self,
+        _guard: &ThreadWriteGuard,
+    ) -> *mut std::ffi::c_void {
         self.ptr
     }
 }
@@ -219,20 +227,6 @@ impl Mmap {
             macos::sys_icache_invalidate(self.ptr, size);
         }
     }
-
-    /// Modifies the **per-thread** W^X state to allow writing of memory-mapped
-    /// regions.
-    ///
-    /// The fact that this occurs on a per-thread (rather than per-page) basis
-    /// is _very strange_, and means this APIs must be used with caution.
-    /// Returns a [`macos::ThreadWriteGuard`], which restores execute mode when
-    /// dropped.
-    pub fn thread_mode_write() -> macos::ThreadWriteGuard {
-        unsafe {
-            macos::pthread_jit_write_protect_np(0);
-        }
-        macos::ThreadWriteGuard
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -282,18 +276,56 @@ impl Drop for Mmap {
     }
 }
 
-#[cfg(target_os = "macos")]
-mod macos {
-    /// Empty struct which switches the thread to execute mode when dropped
-    pub struct ThreadWriteGuard;
-    impl Drop for ThreadWriteGuard {
-        fn drop(&mut self) {
-            unsafe {
-                pthread_jit_write_protect_np(1);
-            }
+/// Marker that the given thread is allowed to write to an `Mmap`
+///
+/// This is purely a marker on Windows and Linux, but has side effects on macOS.
+pub struct ThreadWriteGuard {
+    /// Marker to make the type `!Send`
+    _marker: std::marker::PhantomData<*const ()>,
+}
+static_assertions::assert_not_impl_any!(ThreadWriteGuard: Send);
+
+thread_local! {
+    pub static THREAD_WRITE_GUARD_CLAIMED: Cell<bool> = const { Cell::new(false) };
+}
+impl ThreadWriteGuard {
+    /// Builds a new `ThreadWriteGuard`
+    ///
+    /// On macOS, the constructor modifies the **per-thread** W^X state to allow
+    /// writing of memory-mapped regions.
+    ///
+    /// The fact that this occurs on a per-thread (rather than per-page) basis
+    /// is _very strange_, and means this APIs must be used with caution.
+    ///
+    /// Execute mode is restored when the object is dropped.
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            macos::pthread_jit_write_protect_np(0);
+        }
+        let prev = THREAD_WRITE_GUARD_CLAIMED.replace(true);
+        if prev {
+            panic!("ThreadWriteGuard cannot be claimed multiple times");
+        }
+        Self {
+            _marker: std::marker::PhantomData,
         }
     }
+}
 
+impl Drop for super::ThreadWriteGuard {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            macos::pthread_jit_write_protect_np(1);
+        }
+        THREAD_WRITE_GUARD_CLAIMED.set(false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
     #[link(name = "pthread")]
     extern "C" {
         pub fn pthread_jit_write_protect_np(enabled: std::ffi::c_int);
