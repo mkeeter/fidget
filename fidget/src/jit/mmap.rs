@@ -29,6 +29,7 @@ impl Mmap {
         }
     }
 
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -150,7 +151,7 @@ impl Mmap {
     ///
     /// Note that you will still need to change the global W^X mode before
     /// evaluation, but that's on a per-thread (rather than per-mmap) basis.
-    pub fn finalize(&self, size: usize) {
+    pub fn flush_cache(&self, size: usize) {
         #[link(name = "c")]
         extern "C" {
             pub fn sys_icache_invalidate(
@@ -171,22 +172,11 @@ impl Mmap {
 
     pub const MMAP_FLAGS: i32 = libc::MAP_PRIVATE | libc::MAP_ANON;
     pub const PAGE_SIZE: usize = 4096;
-
-    /// Flushes caches in preparation for evaluation
-    ///
-    /// The former is a no-op on systems with coherent D/I-caches (i.e. x86).
-    pub fn finalize(&self, size: usize) {
-        self.flush_cache(size);
-    }
 }
 
 #[cfg(target_os = "windows")]
 impl Mmap {
     pub const PAGE_SIZE: usize = 4096;
-
-    pub fn finalize(&self, size: usize) {
-        self.flush_cache(size);
-    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -216,9 +206,7 @@ use crate::jit::WritePermit;
 pub struct MmapWriter {
     mmap: Mmap,
 
-    /// Number of bytes that have been initialized
-    ///
-    /// This value is conservative and assumes that bytes are written in order
+    /// Number of bytes that have been written
     len: usize,
 
     _permit: WritePermit,
@@ -235,18 +223,11 @@ impl From<Mmap> for MmapWriter {
 }
 
 impl MmapWriter {
-    /// Pushes a byte to the memmap, resizing if necessary
+    /// Writes a byte to the next uninitialized position, resizing if necessary
+    #[inline(always)]
     pub fn push(&mut self, b: u8) {
         if self.len == self.mmap.capacity {
-            let mut next = Mmap::new(self.mmap.capacity * 2).unwrap();
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    self.mmap.ptr,
-                    next.ptr,
-                    self.len(),
-                );
-            }
-            std::mem::swap(&mut self.mmap, &mut next);
+            self.double_capacity()
         }
         unsafe {
             *(self.mmap.ptr as *mut u8).add(self.len) = b;
@@ -254,9 +235,18 @@ impl MmapWriter {
         self.len += 1;
     }
 
+    #[inline(never)]
+    fn double_capacity(&mut self) {
+        let mut next = Mmap::new(self.mmap.capacity * 2).unwrap();
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.mmap.ptr, next.ptr, self.len());
+        }
+        std::mem::swap(&mut self.mmap, &mut next);
+    }
+
     /// Finalizes the mmap, invalidating the system icache
     pub fn finalize(self) -> Mmap {
-        self.mmap.finalize(self.len);
+        self.mmap.flush_cache(self.len);
         self.mmap
     }
 
@@ -267,6 +257,7 @@ impl MmapWriter {
     }
 
     /// Returns the written portion of memory as a mutable slice
+    #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut(self.mmap.ptr as *mut u8, self.len)
@@ -274,6 +265,7 @@ impl MmapWriter {
     }
 
     /// Returns the inner pointer
+    #[inline(always)]
     pub fn as_ptr(&self) -> *const std::ffi::c_void {
         self.mmap.ptr
     }

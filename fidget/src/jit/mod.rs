@@ -46,7 +46,7 @@ use std::sync::Arc;
 
 mod mmap;
 mod permit;
-pub(crate) use permit::{ExecutePermit, WritePermit};
+pub(crate) use permit::WritePermit;
 
 // Evaluators
 mod float_slice;
