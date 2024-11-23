@@ -50,6 +50,9 @@ pub struct TileContext {
     /// Compute pipeline
     pipeline: wgpu::ComputePipeline,
 
+    /// Bind group layout
+    bind_group_layout: wgpu::BindGroupLayout,
+
     /// Configuration data (fixed size)
     config_buf: wgpu::Buffer,
 
@@ -71,6 +74,7 @@ pub struct TileContext {
 }
 
 impl TileContext {
+    /// Builds a new context, creating the WGPU device, queue, and shaders
     pub fn new() -> Result<Self, Error> {
         // Initialize wgpu
         let instance = wgpu::Instance::default();
@@ -187,6 +191,7 @@ impl TileContext {
             tape_buf,
             result_buf,
             out_buf,
+            bind_group_layout,
         })
     }
 
@@ -210,36 +215,37 @@ impl TileContext {
         })
     }
 
-    /// Builds a tuple of `(result, out)` buffers
+    /// Builds a tuple of `(result, out)` buffers with a given size (in bytes)
     ///
     /// The `result` buffer can be written by a compute shader; the `out` buffer
     /// can be read back by the host.
     fn new_result_buffers(
         device: &wgpu::Device,
-        len: usize,
+        size: u64,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
         let result_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("result"),
-            size: (len * std::mem::size_of::<u32>()) as u64,
+            size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("out"),
-            size: (len * std::mem::size_of::<u32>()) as u64,
+            size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         (result_buffer, out_buffer)
     }
 
-    fn run<F: Function + MathFunction>(
+    /// Renders a single image using GPU acceleration
+    pub fn run<F: Function + MathFunction>(
         &mut self,
         shape: Shape<F>,
-        vars: &ShapeVars<f32>,
+        _vars: &ShapeVars<f32>, // XXX TODO
         image_size: ImageSize,
         view: &View2,
-    ) -> Result<Vec<f32>, Error> {
+    ) -> Result<Vec<u32>, Error> {
         let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity);
 
         let world_to_model = view
@@ -259,6 +265,14 @@ impl TileContext {
 
         const TILE_SIZE: u32 = 64;
         let mut tiles = vec![]; // TODO
+        for x in 0..image_size.width().div_ceil(TILE_SIZE) {
+            for y in 0..image_size.height().div_ceil(TILE_SIZE) {
+                tiles.push(Tile {
+                    corner: [x * TILE_SIZE, y * TILE_SIZE],
+                    start: 0,
+                });
+            }
+        }
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
@@ -268,32 +282,110 @@ impl TileContext {
         };
         self.load_config(&config);
         self.load_tiles(&tiles);
+        self.resize_result_buf(image_size);
 
         let bytecode = shape.inner().to_bytecode();
         self.load_tape(bytecode.as_bytes());
 
-        todo!()
+        // TODO should we cache this?
+        let bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.tile_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.tape_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.result_buf.as_entire_binding(),
+                    },
+                ],
+            });
+
+        // Create a command encoder and dispatch the compute work
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor { label: None },
+        );
+
+        let mut compute_pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        // total work = tile pixels / (workgroup size * SIMD width)
+        let pixel_count = (TILE_SIZE as usize).pow(2) * tiles.len();
+        let dispatch_size = pixel_count.div_ceil(64 * 4) as u32;
+        compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+
+        // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        encoder.copy_buffer_to_buffer(
+            &self.result_buf,
+            0,
+            &self.out_buf,
+            0,
+            (pixel_count * std::mem::size_of::<f32>()) as u64,
+        );
+
+        // Submit the commands and wait for the GPU to complete
+        self.queue.submit(Some(encoder.finish()));
+
+        // Map result buffer and read back the data
+        let buffer_slice = self.out_buf.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device.poll(wgpu::Maintain::Wait);
+
+        let data = buffer_slice.get_mapped_range();
+        let result = <[u32]>::ref_from_bytes(&data).unwrap();
+        Ok(result.to_owned())
     }
 
+    /// Loads a config into `config_buf`
     fn load_config(&self, config: &Config) {
         self.queue
             .write_buffer(&self.config_buf, 0, config.as_bytes());
     }
 
-    fn load_tiles(&self, tiles: &[Tile]) {
-        let required_size = tiles.len() * std::mem::size_of::<Tile>();
+    /// Loads a list of tiles into `tile_buf`, resizing as needed
+    fn load_tiles(&mut self, tiles: &[Tile]) {
+        let required_size = std::mem::size_of_val(tiles);
         if required_size > self.tile_buf.size() as usize {
             self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
         }
         self.queue.write_buffer(&self.tile_buf, 0, tiles.as_bytes());
     }
 
-    fn load_tape(&self, bytecode: &[u8]) {
-        let required_size = bytecode.len();
+    /// Loads a tape into `tape_buf`, resizing as needed
+    fn load_tape(&mut self, bytecode: &[u8]) {
+        let required_size = std::mem::size_of_val(bytecode);
         if required_size > self.tape_buf.size() as usize {
             self.tape_buf = Self::new_tape_buffer(&self.device, required_size);
         }
         self.queue.write_buffer(&self.tape_buf, 0, bytecode);
+    }
+
+    /// Resizes the result buffer to fit the given image (if necessary)
+    fn resize_result_buf(&mut self, image_size: ImageSize) {
+        let pixels = image_size.width() as u64 * image_size.height() as u64;
+        let required_size = pixels * std::mem::size_of::<u32>() as u64;
+        if required_size > self.result_buf.size() {
+            let (result_buf, out_buf) =
+                Self::new_result_buffers(&self.device, required_size);
+            self.result_buf = result_buf;
+            self.out_buf = out_buf;
+        }
     }
 }
 
