@@ -5,8 +5,16 @@ use windows::Win32::System::Memory::{
 };
 
 pub struct Mmap {
+    /// Pointer to a memory-mapped region, which may be uninitialized
     ptr: *mut std::ffi::c_void,
+
+    /// Total length of the region
     len: usize,
+
+    /// Number of bytes that have been initialized
+    ///
+    /// This value is conservative and assumes that bytes are written in order
+    written: usize,
 }
 
 // SAFETY: this is philosophically a `Vec<u8>`, so can be sent to other threads
@@ -23,6 +31,7 @@ impl Mmap {
         Self {
             ptr: std::ptr::null_mut::<std::ffi::c_void>(),
             len: 0,
+            written: 0,
         }
     }
 
@@ -48,7 +57,11 @@ impl Mmap {
         if ptr == libc::MAP_FAILED {
             Err(std::io::Error::last_os_error())
         } else {
-            Ok(Self { ptr, len })
+            Ok(Self {
+                ptr,
+                len,
+                written: 0,
+            })
         }
     }
 
@@ -68,18 +81,38 @@ impl Mmap {
         if ptr.is_null() {
             Err(std::io::Error::last_os_error())
         } else {
-            Ok(Self { ptr, len })
+            Ok(Self {
+                ptr,
+                len,
+                written: 0,
+            })
         }
     }
 
+    /// Returns the size of the allocation
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns the number of bytes written
+    #[inline(always)]
+    pub fn written(&self) -> usize {
+        self.written
+    }
+
+    /// Sets our `written` length
+    ///
+    /// All bytes from `0..written` must be initialized when this is called
+    pub unsafe fn set_written(&mut self, written: usize) {
+        self.written = written;
+    }
+
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.len) }
+        unsafe {
+            std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.written)
+        }
     }
 
     /// Writes to the given offset in the memory map
@@ -92,16 +125,26 @@ impl Mmap {
         unsafe {
             *(self.ptr as *mut u8).add(index) = byte;
         }
+        if index == self.written {
+            self.written += 1;
+        }
     }
 
     /// Treats the memory-mapped data as a slice
     #[inline(always)]
     pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
+        unsafe {
+            std::slice::from_raw_parts(self.ptr as *const u8, self.written)
+        }
     }
 
     /// Returns the inner pointer
     pub fn as_ptr(&self) -> *const std::ffi::c_void {
+        self.ptr
+    }
+
+    /// Returns the inner pointer (mutably)
+    pub fn as_mut_ptr(&mut self) -> *mut std::ffi::c_void {
         self.ptr
     }
 }

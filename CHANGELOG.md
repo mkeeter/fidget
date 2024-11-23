@@ -35,6 +35,7 @@
   the `GenericVmFunction<N>` type implemented both `Tape` and `Function`.
 - Add `vars()` to `Function` trait, because there are cases where we want to get
   the variable map without building a tape (and it must always be the same).
+- Fix soundness bug in `Mmap` (probably not user-visible)
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
