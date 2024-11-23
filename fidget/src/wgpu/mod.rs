@@ -252,6 +252,7 @@ impl TileContext {
         view: View2,
     ) -> Result<Vec<u32>, Error> {
         let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity);
+        println!("got original mat\n{mat}");
 
         let world_to_model = view
             .world_to_model()
@@ -265,6 +266,13 @@ impl TileContext {
 
         // Build the combined transform matrix
         let mat = mat * world_to_model * screen_to_world;
+        println!("got mat\n{mat}");
+        println!(
+            "foo: {}",
+            mat.transform_point(&nalgebra::Point3::<f32>::new(
+                256.0, 256.0, 0.0
+            ))
+        );
 
         let vars = shape.inner().vars();
 
