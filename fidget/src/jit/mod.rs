@@ -929,10 +929,6 @@ impl MathFunction for JitFunction {
     fn to_bytecode(&self) -> Bytecode {
         self.0.to_bytecode()
     }
-
-    fn vars(&self) -> &VarMap {
-        MathFunction::vars(&self.0)
-    }
 }
 
 impl From<GenericVmFunction<REGISTER_LIMIT>> for JitFunction {
