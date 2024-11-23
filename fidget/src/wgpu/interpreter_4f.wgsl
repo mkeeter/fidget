@@ -1,4 +1,7 @@
 /// WGSL fragment for running an interpreter on 4x floats
+//
+// `OP_*` constants are generated at runtime based on bytecode format, so this
+// shader cannot be compiled as-is.
 
 fn nan_f32() -> f32 {
     return bitcast<f32>(0x7FC00000);
@@ -16,7 +19,7 @@ fn compare_f32(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn compare_4f(lhs: vec4f, rhs: vec4<f32>) -> vec4<f32> {
+fn compare_4f(lhs: vec4f, rhs: vec4f) -> vec4f {
     var out = vec4f(0.0);
     for (var i=0; i < 4; i += 1) {
         out[i] = compare_f32(lhs[i], rhs[i]);
@@ -32,7 +35,7 @@ fn and_f32(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn and_4f(lhs: vec4f, rhs: vec4<f32>) -> vec4<f32> {
+fn and_4f(lhs: vec4f, rhs: vec4f) -> vec4f {
     var out = vec4f(0.0);
     for (var i=0; i < 4; i += 1) {
         out[i] = and_f32(lhs[i], rhs[i]);
@@ -48,7 +51,7 @@ fn or_f32(lhs: f32, rhs: f32) -> f32 {
     }
 }
 
-fn or_4f(lhs: vec4f, rhs: vec4<f32>) -> vec4<f32> {
+fn or_4f(lhs: vec4f, rhs: vec4f) -> vec4f {
     var out = vec4f(0.0);
     for (var i=0; i < 4; i += 1) {
         out[i] = or_f32(lhs[i], rhs[i]);
@@ -60,7 +63,7 @@ fn not_f32(lhs: f32) -> f32 {
     return f32(lhs != 0.0);
 }
 
-fn not_4f(lhs: vec4f) -> vec4<f32> {
+fn not_4f(lhs: vec4f) -> vec4f {
     var out = vec4f(0.0);
     for (var i=0; i < 4; i += 1) {
         out[i] = not_f32(lhs[i]);
@@ -69,7 +72,7 @@ fn not_4f(lhs: vec4f) -> vec4<f32> {
 }
 
 fn read_imm_4f(i: ptr<function, u32>) -> vec4f {
-    let imm = bitcast<f32>(tape[*i]);
+    let imm = bitcastf(tape[*i]);
     *i = *i + 1;
     return vec4f(imm);
 }
