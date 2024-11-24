@@ -20,15 +20,18 @@ pub use tracing::TracingEvaluator;
 ///
 /// It includes some kind of storage (which could be empty) and the ability to
 /// look up variable mapping.
-pub trait Tape {
+///
+/// Tapes may be shared between threads, so they should be cheap to clone (i.e.
+/// a wrapper around an `Arc<..>`).
+pub trait Tape: Send + Sync + Clone {
     /// Associated type for this tape's data storage
     type Storage: Default;
 
-    /// Retrieves the internal storage from this tape
+    /// Tries to retrieve the internal storage from this tape
     ///
     /// This matters most for JIT evaluators, whose tapes are regions of
     /// executable memory-mapped RAM (which is expensive to map and unmap).
-    fn recycle(self) -> Self::Storage;
+    fn recycle(self) -> Option<Self::Storage>;
 
     /// Returns a mapping from [`Var`](crate::var::Var) to evaluation index
     ///

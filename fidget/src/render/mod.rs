@@ -7,7 +7,6 @@ use crate::{
     shape::{Shape, ShapeTape},
     Error,
 };
-use std::sync::Arc;
 
 mod config;
 mod region;
@@ -35,9 +34,9 @@ pub use render2d::{
 pub struct RenderHandle<F: Function> {
     shape: Shape<F>,
 
-    i_tape: Option<Arc<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>>,
-    f_tape: Option<Arc<ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>>>,
-    g_tape: Option<Arc<ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>>>,
+    i_tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
+    f_tape: Option<ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape>>,
+    g_tape: Option<ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>>,
 
     next: Option<(F::Trace, Box<Self>)>,
 }
@@ -74,9 +73,7 @@ impl<F: Function> RenderHandle<F> {
         storage: &mut Vec<F::TapeStorage>,
     ) -> &ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape> {
         self.i_tape.get_or_insert_with(|| {
-            Arc::new(
-                self.shape.interval_tape(storage.pop().unwrap_or_default()),
-            )
+            self.shape.interval_tape(storage.pop().unwrap_or_default())
         })
     }
 
@@ -86,10 +83,8 @@ impl<F: Function> RenderHandle<F> {
         storage: &mut Vec<F::TapeStorage>,
     ) -> &ShapeTape<<F::FloatSliceEval as BulkEvaluator>::Tape> {
         self.f_tape.get_or_insert_with(|| {
-            Arc::new(
-                self.shape
-                    .float_slice_tape(storage.pop().unwrap_or_default()),
-            )
+            self.shape
+                .float_slice_tape(storage.pop().unwrap_or_default())
         })
     }
 
@@ -99,10 +94,8 @@ impl<F: Function> RenderHandle<F> {
         storage: &mut Vec<F::TapeStorage>,
     ) -> &ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape> {
         self.g_tape.get_or_insert_with(|| {
-            Arc::new(
-                self.shape
-                    .grad_slice_tape(storage.pop().unwrap_or_default()),
-            )
+            self.shape
+                .grad_slice_tape(storage.pop().unwrap_or_default())
         })
     }
 
@@ -178,19 +171,13 @@ impl<F: Function> RenderHandle<F> {
         }
 
         if let Some(i_tape) = self.i_tape.take() {
-            if let Ok(i_tape) = Arc::try_unwrap(i_tape) {
-                tape_storage.push(i_tape.recycle());
-            }
+            tape_storage.extend(i_tape.recycle());
         }
         if let Some(g_tape) = self.g_tape.take() {
-            if let Ok(g_tape) = Arc::try_unwrap(g_tape) {
-                tape_storage.push(g_tape.recycle());
-            }
+            tape_storage.extend(g_tape.recycle());
         }
         if let Some(f_tape) = self.f_tape.take() {
-            if let Ok(f_tape) = Arc::try_unwrap(f_tape) {
-                tape_storage.push(f_tape.recycle());
-            }
+            tape_storage.extend(f_tape.recycle());
         }
 
         // Do this step last because the evaluators may borrow the shape

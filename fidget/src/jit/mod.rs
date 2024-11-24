@@ -826,7 +826,7 @@ impl JitFunction {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitTracingFn {
-            mmap: f,
+            mmap: f.into(),
             vars: self.0.data().vars.clone(),
             choice_count: self.0.choice_count(),
             output_count: self.0.output_count(),
@@ -842,7 +842,7 @@ impl JitFunction {
         let f = build_asm_fn_with_storage::<A>(self.0.data(), storage);
         let ptr = f.as_ptr();
         JitBulkFn {
-            mmap: f,
+            mmap: f.into(),
             output_count: self.0.output_count(),
             vars: self.0.data().vars.clone(),
             fn_bulk: unsafe {
@@ -994,19 +994,19 @@ pub type JitTracingFnPointer<T> = jit_fn!(
 );
 
 /// Handle to an owned function pointer for tracing evaluation
+#[derive(Clone)]
 pub struct JitTracingFn<T> {
-    #[allow(unused)]
-    mmap: Mmap,
+    mmap: Arc<Mmap>,
     choice_count: usize,
     output_count: usize,
     vars: Arc<VarMap>,
     fn_trace: JitTracingFnPointer<T>,
 }
 
-impl<T> Tape for JitTracingFn<T> {
+impl<T: Clone> Tape for JitTracingFn<T> {
     type Storage = Mmap;
-    fn recycle(self) -> Self::Storage {
-        self.mmap
+    fn recycle(self) -> Option<Self::Storage> {
+        Arc::into_inner(self.mmap)
     }
 
     fn vars(&self) -> &VarMap {
@@ -1105,18 +1105,18 @@ pub type JitBulkFnPointer<T> = jit_fn!(
 );
 
 /// Handle to an owned function pointer for bulk evaluation
+#[derive(Clone)]
 pub struct JitBulkFn<T> {
-    #[allow(unused)]
-    mmap: Mmap,
+    mmap: Arc<Mmap>,
     vars: Arc<VarMap>,
     output_count: usize,
     fn_bulk: JitBulkFnPointer<T>,
 }
 
-impl<T> Tape for JitBulkFn<T> {
+impl<T: Clone> Tape for JitBulkFn<T> {
     type Storage = Mmap;
-    fn recycle(self) -> Self::Storage {
-        self.mmap
+    fn recycle(self) -> Option<Self::Storage> {
+        Arc::into_inner(self.mmap)
     }
 
     fn vars(&self) -> &VarMap {
