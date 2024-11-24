@@ -30,7 +30,7 @@ use crate::{
         BulkEvaluator, BulkOutput, Function, MathFunction, Tape,
         TracingEvaluator,
     },
-    jit::mmap::{Mmap, ThreadWriteGuard},
+    jit::mmap::{Mmap, MmapWriter},
     render::{RenderHints, TileSizes},
     types::{Grad, Interval},
     var::VarMap,
@@ -45,6 +45,8 @@ use dynasmrt::{
 use std::sync::Arc;
 
 mod mmap;
+mod permit;
+pub(crate) use permit::WritePermit;
 
 // Evaluators
 mod float_slice;
@@ -357,9 +359,7 @@ type Relocation = dynasmrt::x64::X64Relocation;
 type Relocation = dynasmrt::aarch64::Aarch64Relocation;
 
 struct MmapAssembler {
-    mmap: Mmap,
-    guard: ThreadWriteGuard,
-    len: usize,
+    mmap: MmapWriter,
 
     global_labels: [Option<AssemblyOffset>; 26],
     local_labels: [Option<AssemblyOffset>; 26],
@@ -393,17 +393,12 @@ impl<'a> Extend<&'a u8> for MmapAssembler {
 impl DynasmApi for MmapAssembler {
     #[inline(always)]
     fn offset(&self) -> AssemblyOffset {
-        AssemblyOffset(self.len)
+        AssemblyOffset(self.mmap.len())
     }
 
     #[inline(always)]
     fn push(&mut self, byte: u8) {
-        // Resize to fit the next byte, if needed
-        if self.len >= self.mmap.len() {
-            self.expand_mmap();
-        }
-        self.mmap.write(self.len, byte, &self.guard);
-        self.len += 1;
+        self.mmap.push(byte);
     }
 
     #[inline(always)]
@@ -418,13 +413,9 @@ impl DynasmApi for MmapAssembler {
 
     #[inline(always)]
     fn push_u32(&mut self, value: u32) {
-        if self.len + 3 >= self.mmap.len() {
-            self.expand_mmap();
+        for b in value.to_le_bytes() {
+            self.mmap.push(b);
         }
-        for (i, b) in value.to_le_bytes().iter().enumerate() {
-            self.mmap.write(self.len + i, *b, &self.guard);
-        }
-        self.len += 4;
     }
 }
 
@@ -594,7 +585,7 @@ impl MmapAssembler {
         for (loc, label) in self.local_relocs.take() {
             let target =
                 self.local_labels[label as usize].expect("invalid local label");
-            let buf = &mut self.mmap.as_mut_slice(&self.guard)[loc.range(0)];
+            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Local("oh no"),
@@ -613,7 +604,7 @@ impl MmapAssembler {
         for (loc, label) in self.global_relocs.take() {
             let target =
                 self.global_labels.get(label as usize).unwrap().unwrap();
-            let buf = &mut self.mmap.as_mut_slice(&self.guard)[loc.range(0)];
+            let buf = &mut self.mmap.as_mut_slice()[loc.range(0)];
             if loc.patch(buf, baseaddr, target.0).is_err() {
                 return Err(DynasmError::ImpossibleRelocation(
                     TargetKind::Global("oh no"),
@@ -622,31 +613,14 @@ impl MmapAssembler {
             }
         }
 
-        self.mmap.finalize(self.len);
-        Ok(self.mmap)
-    }
-
-    /// Doubles the size of the internal `Mmap` and copies over data
-    fn expand_mmap(&mut self) {
-        let mut next = Mmap::new(self.mmap.len() * 2).unwrap();
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.mmap.as_ptr(),
-                next.as_mut_ptr(&self.guard),
-                self.mmap.written(),
-            );
-            next.set_written(self.mmap.written());
-        }
-        std::mem::swap(&mut self.mmap, &mut next);
+        Ok(self.mmap.finalize())
     }
 }
 
 impl From<Mmap> for MmapAssembler {
     fn from(mmap: Mmap) -> Self {
         Self {
-            mmap,
-            guard: ThreadWriteGuard::new(),
-            len: 0,
+            mmap: MmapWriter::from(mmap),
             global_labels: [None; 26],
             local_labels: [None; 26],
             global_relocs: Default::default(),
@@ -662,7 +636,7 @@ fn build_asm_fn_with_storage<A: Assembler>(
     mut s: Mmap,
 ) -> Mmap {
     let size_estimate = t.len() * A::bytes_per_clause();
-    if size_estimate > 2 * s.len() {
+    if size_estimate > 2 * s.capacity() {
         s = Mmap::new(size_estimate).expect("failed to build mmap")
     }
 
@@ -1346,11 +1320,10 @@ mod test {
             asm.push_u32(i);
         }
         let mmap = asm.finalize().unwrap();
-        let slice = mmap.as_slice();
-        assert_eq!(slice.len(), COUNT as usize * 4);
-        for (i, c) in slice.chunks_exact(4).enumerate() {
-            let b = u32::from_le_bytes(c.try_into().unwrap());
-            assert_eq!(i as u32, b);
+        let ptr = mmap.as_ptr() as *const u32;
+        for i in 0..COUNT {
+            let v = unsafe { *ptr.add(i as usize) };
+            assert_eq!(v, i);
         }
     }
 }
