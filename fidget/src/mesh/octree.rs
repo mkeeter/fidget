@@ -948,13 +948,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             self.shape_storage.push(s);
         }
         if let Some(i_tape) = e.interval.take() {
-            self.tape_storage.push(i_tape.recycle());
+            self.tape_storage.push(i_tape.recycle().unwrap());
         }
         if let Some(f_tape) = e.float_slice.take() {
-            self.tape_storage.push(f_tape.recycle());
+            self.tape_storage.push(f_tape.recycle().unwrap());
         }
         if let Some(g_tape) = e.grad_slice.take() {
-            self.tape_storage.push(g_tape.recycle());
+            self.tape_storage.push(g_tape.recycle().unwrap());
         }
     }
 }

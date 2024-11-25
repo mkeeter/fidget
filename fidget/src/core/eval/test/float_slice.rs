@@ -36,7 +36,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
             assert_eq!(&out[0], [0.0, 1.0, 2.0, 3.0]);
 
             // TODO: reuse tape data here
-            let t = tape.recycle();
+            let t = tape.recycle().unwrap();
 
             let tape = shape_x1.float_slice_tape(t);
             let out = eval

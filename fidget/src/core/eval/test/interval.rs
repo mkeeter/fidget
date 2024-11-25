@@ -972,7 +972,7 @@ where
                 args[i_index] = lhs;
 
                 let (out, _trace) = eval.eval(&tape, &args).unwrap();
-                tape_data = Some(tape.recycle());
+                tape_data = Some(tape.recycle().unwrap());
 
                 Self::compare_interval_results(
                     lhs,
@@ -1004,7 +1004,7 @@ where
 
             let args = [lhs];
             let (out, _trace) = eval.eval(&tape, &args).unwrap();
-            tape_data = Some(tape.recycle());
+            tape_data = Some(tape.recycle().unwrap());
 
             Self::compare_interval_results(
                 lhs,
@@ -1035,7 +1035,7 @@ where
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
                 let (out, _trace) = eval.eval(&tape, &[lhs]).unwrap();
-                tape_data = Some(tape.recycle());
+                tape_data = Some(tape.recycle().unwrap());
 
                 Self::compare_interval_results(
                     lhs,
@@ -1066,7 +1066,7 @@ where
                 let tape = shape.interval_tape(tape_data.unwrap_or_default());
 
                 let (out, _trace) = eval.eval(&tape, &[rhs]).unwrap();
-                tape_data = Some(tape.recycle());
+                tape_data = Some(tape.recycle().unwrap());
 
                 Self::compare_interval_results(
                     lhs.into(),

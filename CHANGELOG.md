@@ -36,6 +36,11 @@
 - Add `vars()` to `Function` trait, because there are cases where we want to get
   the variable map without building a tape (and it must always be the same).
 - Fix soundness bug in `Mmap` (probably not user-visible)
+- Add `Send + Sync + Clone` bounds to the `trait Tape`, to make them easily
+  shared between threads.  Previously, we used an `Arc<Tape>` to share tapes
+  between threads, but tapes were _already_ using an `Arc<..>` under the hood.
+- Changed `Tape::recycle` from returning a `Storage` to returning an
+  `Option<Storage>`, as tapes may now be shared between threads.
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs

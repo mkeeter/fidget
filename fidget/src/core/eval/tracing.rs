@@ -26,7 +26,7 @@ pub trait TracingEvaluator: Default {
     ///
     /// This may be a literal instruction tape (in the case of VM evaluation),
     /// or a metaphorical instruction tape (e.g. a JIT function).
-    type Tape: Tape<Storage = Self::TapeStorage> + Send + Sync;
+    type Tape: Tape<Storage = Self::TapeStorage>;
 
     /// Associated type for tape storage
     ///

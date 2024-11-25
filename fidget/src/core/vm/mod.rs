@@ -42,6 +42,7 @@ pub struct EmptyTapeStorage;
 ///
 /// This tape type is equivalent to a [`GenericVmFunction`], but implements
 /// different traits ([`Tape`] instead of [`Function`]).
+#[derive(Clone)]
 pub struct GenericVmTape<const N: usize>(Arc<VmData<N>>);
 
 impl<const N: usize> GenericVmTape<N> {
@@ -53,8 +54,8 @@ impl<const N: usize> GenericVmTape<N> {
 
 impl<const N: usize> Tape for GenericVmTape<N> {
     type Storage = EmptyTapeStorage;
-    fn recycle(self) -> Self::Storage {
-        EmptyTapeStorage
+    fn recycle(self) -> Option<Self::Storage> {
+        Some(EmptyTapeStorage)
     }
 
     fn vars(&self) -> &VarMap {

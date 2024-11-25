@@ -361,6 +361,7 @@ impl<F: MathFunction> From<Tree> for Shape<F> {
 }
 
 /// Wrapper around a function tape, with axes and an optional transform matrix
+#[derive(Clone)]
 pub struct ShapeTape<T> {
     tape: T,
 
@@ -373,7 +374,7 @@ pub struct ShapeTape<T> {
 
 impl<T: Tape> ShapeTape<T> {
     /// Recycles the inner tape's storage for reuse
-    pub fn recycle(self) -> T::Storage {
+    pub fn recycle(self) -> Option<T::Storage> {
         self.tape.recycle()
     }
 
