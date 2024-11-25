@@ -2,7 +2,7 @@
 use crate::{
     bytecode,
     eval::{Function, MathFunction, TracingEvaluator},
-    render::{ImageRenderConfig, ImageSize, TileSizes, View2},
+    render::{ImageRenderConfig, ImageSize, View2},
     shape::{Shape, ShapeTape, ShapeTracingEval},
     types::Interval,
     Error,
@@ -10,10 +10,6 @@ use crate::{
 
 use heck::ToShoutySnakeCase;
 use nalgebra::{Matrix4, Point2, Vector2};
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 // Square tiles
@@ -275,16 +271,9 @@ impl TileContext {
         let shape = shape.set_transform(mat);
 
         const TILE_SIZE: u32 = 64;
-        let mut tiles = vec![]; // TODO
-        for x in 0..settings.image_size.width().div_ceil(TILE_SIZE) {
-            for y in 0..settings.image_size.height().div_ceil(TILE_SIZE) {
-                tiles.push(Tile {
-                    corner: [x * TILE_SIZE, y * TILE_SIZE],
-                    start: 0,
-                    _padding: 0,
-                });
-            }
-        }
+
+        let tiles = build_tiles_in_parallel(&shape, &settings);
+
         let vars = shape.inner().vars();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
@@ -544,94 +533,87 @@ enum WorkResult<F> {
 }
 
 struct Worker<F: Function> {
-    working: Arc<AtomicUsize>,
-
-    /// Global queue for new tasks
-    queue: Arc<crossbeam::queue::ArrayQueue<TaskOrStop<F>>>,
-
-    /// Local queue (used if the global queue is full)
-    local: std::collections::VecDeque<Task<F>>,
-
-    /// Output queue (complete tiles to evaluate on the GPU)
-    out: Arc<std::sync::mpsc::Sender<WorkResult<F>>>,
-
-    eval_interval: ShapeTracingEval<F::IntervalEval>,
-
-    /// Spare shape storage for reuse
     shape_storage: Vec<F::Storage>,
-
-    /// Spare tape storage for reuse
     tape_storage: Vec<F::TapeStorage>,
-
-    /// Workspace for shape simplification
     workspace: F::Workspace,
-
-    /// Array of tiles sizes to evaluate
-    tile_sizes: TileSizes,
 }
 
-impl<F: Function> Worker<F> {
-    fn run_to_completion(&mut self) {
-        let mut live = false;
-        loop {
-            if !live {
-                self.working.fetch_add(1, Ordering::Release);
-                live = true;
-            }
-            let task = match self.local.pop_back() {
-                Some(t) => Some(t),
-                None => match self.queue.pop() {
-                    Some(TaskOrStop::Stop) => break,
-                    Some(TaskOrStop::Task(t)) => Some(t),
-                    None => None,
-                },
-            };
-            if let Some(task) = task {
-                self.run_one(task);
-            } else {
-                live = false;
-                if self.working.fetch_sub(1, Ordering::Acquire) == 1 {
-                    let r = self.queue.push(TaskOrStop::Stop); // XXX safety?
-                    assert!(r.is_ok());
-                    break;
-                }
-            }
+impl<F: Function> Default for Worker<F> {
+    fn default() -> Self {
+        Self {
+            shape_storage: Default::default(),
+            tape_storage: Default::default(),
+            workspace: Default::default(),
         }
     }
-    fn run_one(&mut self, mut t: Task<F>) {
-        let tile_size = self.tile_sizes[t.depth] as u32;
+}
+
+fn build_tiles_in_parallel<F: Function>(
+    s: &Shape<F>,
+    cfg: &ImageRenderConfig,
+) -> Vec<Tile> {
+    let tile_size = cfg.tile_sizes.get(0).unwrap() as u32;
+
+    use thread_local::ThreadLocal;
+    let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
+    let eval: ThreadLocal<
+        std::cell::RefCell<ShapeTracingEval<F::IntervalEval>>,
+    > = ThreadLocal::new();
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .build()
+        .expect("failed to build thread pool");
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let mut tiles = vec![]; // TODO
+    for x in 0..cfg.image_size.width().div_ceil(tile_size) {
+        for y in 0..cfg.image_size.height().div_ceil(tile_size) {
+            tiles.push(Task {
+                corner: Point2::new(x * tile_size, y * tile_size),
+                depth: 0,
+                shape: s.clone(),
+                tape: None,
+            });
+        }
+    }
+
+    let run_one = |mut t: Task<F>| -> Vec<Task<F>> {
+        let tile_size = cfg.tile_sizes[t.depth] as u32;
         let x =
             Interval::new(t.corner.x as f32, (t.corner.x + tile_size) as f32);
         let y =
             Interval::new(t.corner.y as f32, (t.corner.y + tile_size) as f32);
         let z = Interval::new(0.0, 0.0);
 
+        let mut worker = tls.get_or_default().borrow_mut();
+        let mut eval = eval.get_or_default().borrow_mut();
+
         let tape = t.tape.get_or_insert_with(|| {
             t.shape
-                .interval_tape(self.tape_storage.pop().unwrap_or_default())
+                .interval_tape(worker.tape_storage.pop().unwrap_or_default())
         });
-        let (r, trace) = self.eval_interval.eval(tape, x, y, z).unwrap();
+        let (r, trace) = eval.eval(tape, x, y, z).unwrap();
+        let has_trace = trace.is_some();
 
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
-            self.tape_storage.extend(t.tape.take().unwrap().recycle());
-            self.shape_storage.extend(t.shape.recycle());
-            self.out
-                .send(WorkResult::Done {
-                    corner: t.corner,
-                    depth: t.depth,
-                    full: r.upper() < 0.0,
-                })
-                .unwrap();
-            return;
+            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            worker.shape_storage.extend(t.shape.recycle());
+            tx.send(WorkResult::Done {
+                corner: t.corner,
+                depth: t.depth,
+                full: r.upper() < 0.0,
+            })
+            .unwrap();
+            return vec![];
         }
 
         let next = if let Some(trace) = trace {
             t.shape
                 .simplify(
                     trace,
-                    self.shape_storage.pop().unwrap_or_default(),
-                    &mut self.workspace,
+                    worker.shape_storage.pop().unwrap_or_default(),
+                    &mut worker.workspace,
                 )
                 .unwrap()
         } else {
@@ -639,40 +621,42 @@ impl<F: Function> Worker<F> {
         };
 
         if let Some(next_tile_size) =
-            self.tile_sizes.get(t.depth + 1).map(|t| t as u32)
+            cfg.tile_sizes.get(t.depth + 1).map(|t| t as u32)
         {
             let n = tile_size / next_tile_size;
+            let mut out = Vec::with_capacity((n as usize).pow(2));
             for j in 0..n {
                 for i in 0..n {
-                    let task = Task {
+                    out.push(Task {
                         corner: t.corner + Vector2::new(i, j) * next_tile_size,
                         depth: t.depth + 1,
                         shape: next.clone(),
-                        tape: if trace.is_none() {
-                            t.tape.clone()
-                        } else {
-                            None
-                        },
-                    };
-                    if let Err(task) = self.queue.push(TaskOrStop::Task(task)) {
-                        let TaskOrStop::Task(task) = task else {
-                            unreachable!()
-                        };
-                        self.local.push_back(task);
-                    }
+                        tape: if has_trace { t.tape.clone() } else { None },
+                    });
                 }
             }
+            out
         } else {
             // We're done recursing, push the pixel work to the GPU
-            self.tape_storage.extend(t.tape.take().unwrap().recycle());
-            self.out
-                .send(WorkResult::Pixels {
-                    corner: t.corner,
-                    shape: next,
-                })
-                .unwrap();
+            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            tx.send(WorkResult::Pixels {
+                corner: t.corner,
+                shape: next,
+            })
+            .unwrap();
+            vec![]
         }
-    }
+    };
+
+    pool.install(|| {
+        for t in tiles {
+            for out in run_one(t) {
+                pool.install(|| run_one(out)); // XXX more recursion?
+            }
+        }
+    });
+
+    todo!()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
