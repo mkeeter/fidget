@@ -250,36 +250,17 @@ impl TileContext {
         shape: Shape<F>, // XXX add ShapeVars here
         settings: ImageRenderConfig,
     ) -> Result<Vec<u32>, Error> {
-        let world_to_model = settings
-            .view
-            .world_to_model()
-            .insert_row(2, 0.0)
-            .insert_column(2, 0.0);
+        let (rs, mat) = build_tiles_in_parallel(shape.clone(), &settings);
 
-        let screen_to_world = settings
-            .image_size
-            .screen_to_world()
-            .insert_row(2, 0.0)
-            .insert_column(2, 0.0);
-
-        // Build the combined transform matrix
-        let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity)
-            * world_to_model
-            * screen_to_world;
-
-        // Clear out the previous transform
-        let shape = shape.set_transform(mat);
-
-        const TILE_SIZE: u32 = 64;
-
-        let rs = build_tiles_in_parallel(&shape, &settings);
+        // TODO build tiles from rs
         let tiles = vec![]; // XXX todo
+        let tile_size = settings.tile_sizes.last() as u32;
 
         let vars = shape.inner().vars();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
             axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
-            tile_size: TILE_SIZE,
+            tile_size,
             window_size: [
                 settings.image_size.width(),
                 settings.image_size.height(),
@@ -311,7 +292,7 @@ impl TileContext {
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
         // total work = tile pixels / (workgroup size * SIMD width)
-        let pixel_count = (TILE_SIZE as usize).pow(2) * tiles.len();
+        let pixel_count = (tile_size as usize).pow(2) * tiles.len();
         let dispatch_size = pixel_count.div_ceil(64 * 4) as u32;
         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         drop(compute_pass);
@@ -549,32 +530,46 @@ impl<F: Function> Default for Worker<F> {
 }
 
 fn build_tiles_in_parallel<F: Function>(
-    s: &Shape<F>,
+    shape: Shape<F>,
     cfg: &ImageRenderConfig,
-) -> Vec<WorkResult<F>> {
-    let tile_size = cfg.tile_sizes.get(0).unwrap() as u32;
-
+) -> (Vec<WorkResult<F>>, Matrix4<f32>) {
+    use rayon::prelude::*;
     use thread_local::ThreadLocal;
-    // We need two different TLS because it's hard to do a split borrow of a
-    // RefMut (unlike a proper &mut)
-    let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .build()
-        .expect("failed to build thread pool");
+    let world_to_model = cfg
+        .view
+        .world_to_model()
+        .insert_row(2, 0.0)
+        .insert_column(2, 0.0);
 
-    let mut tiles = vec![]; // TODO
+    let screen_to_world = cfg
+        .image_size
+        .screen_to_world()
+        .insert_row(2, 0.0)
+        .insert_column(2, 0.0);
+
+    // Build the combined transform matrix
+    let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity)
+        * world_to_model
+        * screen_to_world;
+
+    // Clear out the previous transform
+    let shape = shape.set_transform(mat);
+
+    let tile_size = cfg.tile_sizes.get(0).unwrap() as u32;
+    let mut tiles = vec![];
     for x in 0..cfg.image_size.width().div_ceil(tile_size) {
         for y in 0..cfg.image_size.height().div_ceil(tile_size) {
             tiles.push(Task {
                 corner: Point2::new(x * tile_size, y * tile_size),
                 depth: 0,
-                shape: s.clone(),
+                shape: shape.clone(),
                 tape: None,
             });
         }
     }
 
+    let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
     let run_one = |mut t: Task<F>| -> Vec<Task<F>> {
         let tile_size = cfg.tile_sizes[t.depth] as u32;
         let x =
@@ -644,17 +639,30 @@ fn build_tiles_in_parallel<F: Function>(
         }
     };
 
-    pool.scope(|s| {
-        for t in tiles {
-            for out in run_one(t) {
-                s.spawn(|_s| {
-                    run_one(out); // TODO Recursion
-                });
-            }
+    // ahhhhhhhhhh
+    fn recurse<'a, F: Function + 'a>(
+        t: Task<F>,
+        s: &rayon::Scope<'a>,
+        run_one: impl Fn(Task<F>) -> Vec<Task<F>> + Send + Copy + Sync + 'a,
+    ) {
+        for t in run_one(t) {
+            s.spawn(move |s| recurse(t, s, run_one));
         }
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .build()
+        .expect("failed to build thread pool");
+    pool.scope(|s| {
+        tiles
+            .into_par_iter()
+            .for_each(|t| recurse::<F>(t, s, run_one))
     });
 
-    tls.into_iter().flat_map(|i| i.into_inner().out).collect()
+    (
+        tls.into_iter().flat_map(|i| i.into_inner().out).collect(),
+        mat,
+    )
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -687,6 +695,11 @@ const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{
+        context::Tree,
+        render::{ThreadCount, TileSizes},
+        vm::VmShape,
+    };
 
     #[test]
     fn interpreter_4f_has_all_ops() {
@@ -696,6 +709,55 @@ mod test {
                 INTERPRETER_4F.contains(&op),
                 "interpreter is missing {op}"
             );
+        }
+    }
+
+    #[test]
+    fn parallel_rendering() {
+        let t = (Tree::x().square() + Tree::y().square()).sqrt() - 1.0;
+
+        const SIZE: u32 = 64;
+        const TILE_SIZES: &[usize] = &[32, 16, 8];
+        let tile_sizes = TileSizes::new(TILE_SIZES).unwrap();
+        let (out, _mat) = build_tiles_in_parallel(
+            VmShape::from(t),
+            &ImageRenderConfig {
+                image_size: ImageSize::new(SIZE, SIZE),
+                view: View2::default(),
+                tile_sizes,
+                threads: ThreadCount::Many(4.try_into().unwrap()),
+            },
+        );
+        let mut img = vec!['-'; (SIZE as usize).pow(2)];
+        for o in out {
+            match o {
+                WorkResult::Done {
+                    corner,
+                    depth,
+                    full,
+                } => {
+                    for x in 0..TILE_SIZES[depth] as u32 {
+                        for y in 0..TILE_SIZES[depth] as u32 {
+                            img[(x + corner.x + (y + corner.y) * SIZE)
+                                as usize] = if full { 'X' } else { '.' };
+                        }
+                    }
+                }
+                WorkResult::Pixels { corner, shape: _ } => {
+                    for x in 0..*TILE_SIZES.last().unwrap() as u32 {
+                        for y in 0..*TILE_SIZES.last().unwrap() as u32 {
+                            img[(x + corner.x + (y + corner.y) * SIZE)
+                                as usize] = '?';
+                        }
+                    }
+                }
+            }
+        }
+        for row in img.chunks_exact(SIZE as usize) {
+            for c in row {
+                print!("{c}{c}");
+            }
+            println!();
         }
     }
 }
