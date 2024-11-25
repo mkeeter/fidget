@@ -272,7 +272,8 @@ impl TileContext {
 
         const TILE_SIZE: u32 = 64;
 
-        let tiles = build_tiles_in_parallel(&shape, &settings);
+        let rs = build_tiles_in_parallel(&shape, &settings);
+        let tiles = vec![]; // XXX todo
 
         let vars = shape.inner().vars();
         let config = Config {
@@ -515,11 +516,6 @@ struct Task<F: Function> {
     tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
 }
 
-enum TaskOrStop<F: Function> {
-    Task(Task<F>),
-    Stop,
-}
-
 enum WorkResult<F> {
     Done {
         corner: Point2<u32>,
@@ -533,17 +529,21 @@ enum WorkResult<F> {
 }
 
 struct Worker<F: Function> {
+    eval: ShapeTracingEval<F::IntervalEval>,
     shape_storage: Vec<F::Storage>,
     tape_storage: Vec<F::TapeStorage>,
     workspace: F::Workspace,
+    out: Vec<WorkResult<F>>,
 }
 
 impl<F: Function> Default for Worker<F> {
     fn default() -> Self {
         Self {
+            eval: Default::default(),
             shape_storage: Default::default(),
             tape_storage: Default::default(),
             workspace: Default::default(),
+            out: Default::default(),
         }
     }
 }
@@ -551,19 +551,17 @@ impl<F: Function> Default for Worker<F> {
 fn build_tiles_in_parallel<F: Function>(
     s: &Shape<F>,
     cfg: &ImageRenderConfig,
-) -> Vec<Tile> {
+) -> Vec<WorkResult<F>> {
     let tile_size = cfg.tile_sizes.get(0).unwrap() as u32;
 
     use thread_local::ThreadLocal;
+    // We need two different TLS because it's hard to do a split borrow of a
+    // RefMut (unlike a proper &mut)
     let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
-    let eval: ThreadLocal<
-        std::cell::RefCell<ShapeTracingEval<F::IntervalEval>>,
-    > = ThreadLocal::new();
 
     let pool = rayon::ThreadPoolBuilder::new()
         .build()
         .expect("failed to build thread pool");
-    let (tx, rx) = std::sync::mpsc::channel();
 
     let mut tiles = vec![]; // TODO
     for x in 0..cfg.image_size.width().div_ceil(tile_size) {
@@ -585,26 +583,25 @@ fn build_tiles_in_parallel<F: Function>(
             Interval::new(t.corner.y as f32, (t.corner.y + tile_size) as f32);
         let z = Interval::new(0.0, 0.0);
 
-        let mut worker = tls.get_or_default().borrow_mut();
-        let mut eval = eval.get_or_default().borrow_mut();
+        let mut tls = tls.get_or_default().borrow_mut();
+        let worker = &mut *tls;
 
         let tape = t.tape.get_or_insert_with(|| {
             t.shape
                 .interval_tape(worker.tape_storage.pop().unwrap_or_default())
         });
-        let (r, trace) = eval.eval(tape, x, y, z).unwrap();
+        let (r, trace) = worker.eval.eval(tape, x, y, z).unwrap();
         let has_trace = trace.is_some();
 
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
             worker.shape_storage.extend(t.shape.recycle());
-            tx.send(WorkResult::Done {
+            worker.out.push(WorkResult::Done {
                 corner: t.corner,
                 depth: t.depth,
                 full: r.upper() < 0.0,
-            })
-            .unwrap();
+            });
             return vec![];
         }
 
@@ -639,24 +636,25 @@ fn build_tiles_in_parallel<F: Function>(
         } else {
             // We're done recursing, push the pixel work to the GPU
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
-            tx.send(WorkResult::Pixels {
+            worker.out.push(WorkResult::Pixels {
                 corner: t.corner,
                 shape: next,
-            })
-            .unwrap();
+            });
             vec![]
         }
     };
 
-    pool.install(|| {
+    pool.scope(|s| {
         for t in tiles {
             for out in run_one(t) {
-                pool.install(|| run_one(out)); // XXX more recursion?
+                s.spawn(|_s| {
+                    run_one(out); // TODO Recursion
+                });
             }
         }
     });
 
-    todo!()
+    tls.into_iter().flat_map(|i| i.into_inner().out).collect()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
