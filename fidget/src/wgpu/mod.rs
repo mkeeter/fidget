@@ -253,12 +253,15 @@ impl TileContext {
     ) -> Result<Vec<u32>, Error> {
         let (rs, mat) = build_tiles_in_parallel(shape.clone(), &settings);
 
-        let mut pos = HashMap::new();
         let bytecode = shape.inner().to_bytecode();
-        let mut tiles = vec![];
         let mut max_reg = bytecode.reg_count;
         let mut max_mem = bytecode.mem_count;
-        let mut data = bytecode.data;
+
+        let mut pos = HashMap::new(); // map from shape to bytecode start
+        let mut data = bytecode.data; // address 0 is the original tape
+        pos.insert(shape.inner().id(), 0);
+
+        let mut tiles = vec![];
         for r in rs.iter().filter(|r| matches!(r.mode, TileMode::Pixels)) {
             let id = r.shape.inner().id();
             let start = pos.entry(id).or_insert_with(|| {
@@ -269,6 +272,8 @@ impl TileContext {
                 data.extend(bytecode.data.into_iter());
                 prev
             });
+            println!("pixels at {:?}, {start}", r.corner);
+            assert_eq!(r.tile_size as usize, settings.tile_sizes.last());
             tiles.push(Tile {
                 corner: [r.corner.x, r.corner.y],
                 start: u32::try_from(*start).unwrap_or(0),
@@ -292,6 +297,8 @@ impl TileContext {
             tile_count: tiles.len() as u32,
             _padding: 0,
         };
+        println!("config: {config:?}");
+        println!("tiles: {tiles:?}");
         self.load_config(&config);
         self.load_tiles(&tiles);
         self.resize_result_buf(settings.image_size);
@@ -316,18 +323,20 @@ impl TileContext {
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
         // total work = tile pixels / (workgroup size * SIMD width)
-        let pixel_count = (tile_size as usize).pow(2) * tiles.len();
-        let dispatch_size = pixel_count.div_ceil(64 * 4) as u32;
+        let dispatch_size =
+            ((tile_size as usize).pow(2) * tiles.len()).div_ceil(64 * 4) as u32;
         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
+        let image_pixels =
+            settings.image_size.width() * settings.image_size.height();
         encoder.copy_buffer_to_buffer(
             &self.result_buf,
             0,
             &self.out_buf,
             0,
-            (pixel_count * std::mem::size_of::<f32>()) as u64,
+            image_pixels as u64 * std::mem::size_of::<f32>() as u64,
         );
 
         // Submit the commands and wait for the GPU to complete
@@ -345,11 +354,16 @@ impl TileContext {
         self.out_buf.unmap();
 
         // Fill in our filled types
-        for r in rs.iter().filter(|r| matches!(r.mode, TileMode::Fill)) {
+        for r in rs.iter() {
+            let fill = match r.mode {
+                TileMode::Full => 0xFFAAAAAA,
+                TileMode::Empty => 0xFF222222,
+                TileMode::Pixels => continue,
+            };
             for j in 0..r.tile_size {
                 let o =
                     r.corner.x + (r.corner.y + j) * settings.image_size.width();
-                result[o as usize..][..r.tile_size as usize].fill(0xFFFFFFFF);
+                result[o as usize..][..r.tile_size as usize].fill(fill);
             }
         }
 
@@ -532,7 +546,8 @@ struct Task<F: Function> {
 }
 
 enum TileMode {
-    Fill,
+    Full,
+    Empty,
     Pixels,
 }
 
@@ -629,14 +644,16 @@ fn build_tiles_in_parallel<F: Function>(
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
-            if r.upper() < 0.0 {
-                worker.out.push(WorkResult {
-                    corner: t.corner,
-                    tile_size,
-                    mode: TileMode::Fill,
-                    shape: shape.clone(),
-                })
-            };
+            worker.out.push(WorkResult {
+                corner: t.corner,
+                tile_size,
+                mode: if r.upper() < 0.0 {
+                    TileMode::Full
+                } else {
+                    TileMode::Empty
+                },
+                shape: shape.clone(),
+            });
             return vec![];
         }
 
@@ -770,13 +787,14 @@ mod test {
                 threads: ThreadCount::Many(4.try_into().unwrap()),
             },
         );
-        let mut img = vec!['.'; (SIZE as usize).pow(2)];
+        let mut img = vec!['-'; (SIZE as usize).pow(2)];
         for o in out {
             for x in 0..o.tile_size {
                 for y in 0..o.tile_size {
                     let i = (x + o.corner.x + (y + o.corner.y) * SIZE) as usize;
                     img[i] = match o.mode {
-                        TileMode::Fill => 'X',
+                        TileMode::Full => 'X',
+                        TileMode::Empty => '.',
                         TileMode::Pixels => '?',
                     };
                 }
