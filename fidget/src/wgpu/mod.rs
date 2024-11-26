@@ -251,7 +251,9 @@ impl TileContext {
         shape: Shape<F>, // XXX add ShapeVars here
         settings: ImageRenderConfig,
     ) -> Result<Vec<u32>, Error> {
+        let s = std::time::Instant::now();
         let (rs, mat) = build_tiles_in_parallel(shape.clone(), &settings);
+        println!("{:?}", s.elapsed());
 
         let bytecode = shape.inner().to_bytecode();
         let mut max_reg = bytecode.reg_count;
@@ -272,7 +274,6 @@ impl TileContext {
                 data.extend(bytecode.data.into_iter());
                 prev
             });
-            println!("pixels at {:?}, {start}", r.corner);
             assert_eq!(r.tile_size as usize, settings.tile_sizes.last());
             tiles.push(Tile {
                 corner: [r.corner.x, r.corner.y],
@@ -297,14 +298,11 @@ impl TileContext {
             tile_count: tiles.len() as u32,
             _padding: 0,
         };
-        println!("config: {config:?}");
-        println!("tiles: {tiles:?}");
         self.load_config(&config);
         self.load_tiles(&tiles);
         self.resize_result_buf(settings.image_size);
 
-        let bytecode = shape.inner().to_bytecode();
-        self.load_tape(bytecode.as_bytes());
+        self.load_tape(data.as_bytes());
 
         // TODO should we cache this?
         let bind_group = self.create_bind_group();
@@ -639,8 +637,6 @@ fn build_tiles_in_parallel<F: Function>(
                 .interval_tape(worker.tape_storage.pop().unwrap_or_default())
         });
         let (r, trace) = worker.eval.eval(tape, x, y, z).unwrap();
-        let has_trace = trace.is_some();
-
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
@@ -652,26 +648,35 @@ fn build_tiles_in_parallel<F: Function>(
                 } else {
                     TileMode::Empty
                 },
-                shape: shape.clone(),
+                shape: t.shape.clone(),
             });
             return vec![];
         }
 
-        let next = if let Some(trace) = trace {
-            t.shape
+        let (next_shape, mut next_tape) = if let Some(trace) = trace {
+            let next_shape = t
+                .shape
                 .simplify(
                     trace,
                     worker.shape_storage.pop().unwrap_or_default(),
                     &mut worker.workspace,
                 )
-                .unwrap()
+                .unwrap();
+            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            worker.shape_storage.extend(t.shape.recycle());
+            (next_shape, None)
         } else {
-            t.shape
+            (t.shape, t.tape.clone())
         };
 
         if let Some(next_tile_size) =
             cfg.tile_sizes.get(t.depth + 1).map(|t| t as u32)
         {
+            next_tape.get_or_insert_with(|| {
+                next_shape.interval_tape(
+                    worker.tape_storage.pop().unwrap_or_default(),
+                )
+            });
             let n = tile_size / next_tile_size;
             let mut out = Vec::with_capacity((n as usize).pow(2));
             for j in 0..n {
@@ -679,19 +684,21 @@ fn build_tiles_in_parallel<F: Function>(
                     out.push(Task {
                         corner: t.corner + Vector2::new(i, j) * next_tile_size,
                         depth: t.depth + 1,
-                        shape: next.clone(),
-                        tape: if has_trace { None } else { t.tape.clone() },
+                        shape: next_shape.clone(),
+                        tape: next_tape.clone(),
                     });
                 }
             }
             out
         } else {
             // We're done recursing, push the pixel work to the GPU
-            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            worker
+                .tape_storage
+                .extend(t.tape.take().and_then(|t| t.recycle()));
             worker.out.push(WorkResult {
                 corner: t.corner,
                 tile_size,
-                shape: next,
+                shape: next_shape,
                 mode: TileMode::Pixels,
             });
             vec![]
@@ -710,6 +717,7 @@ fn build_tiles_in_parallel<F: Function>(
     }
 
     let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1) // XXX
         .build()
         .expect("failed to build thread pool");
     pool.scope(|s| {
