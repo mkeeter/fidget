@@ -217,6 +217,10 @@ impl<const N: usize> Function for GenericVmFunction<N> {
     fn vars(&self) -> &VarMap {
         &self.0.vars
     }
+
+    fn id(&self) -> usize {
+        self.0.as_ref() as *const _ as usize
+    }
 }
 
 impl<const N: usize> RenderHints for GenericVmFunction<N> {

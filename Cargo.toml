@@ -12,6 +12,7 @@ exclude = ["demos/web-editor/crate"]
 [profile.release]
 debug = true
 overflow-checks = true
+panic = "abort"
 
 [profile.bench]
 lto = "thin"

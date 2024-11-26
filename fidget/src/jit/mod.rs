@@ -904,6 +904,10 @@ impl Function for JitFunction {
     fn vars(&self) -> &VarMap {
         self.0.vars()
     }
+
+    fn id(&self) -> usize {
+        self.0.id()
+    }
 }
 
 impl RenderHints for JitFunction {

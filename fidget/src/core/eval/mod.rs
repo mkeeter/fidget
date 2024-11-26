@@ -192,6 +192,11 @@ pub trait Function: Send + Sync + Clone {
 
     /// Returns the map from [`Var`](crate::var::Var) to input index
     fn vars(&self) -> &VarMap;
+
+    /// Returns a stable ID for this `Function` object
+    ///
+    /// Typically, this is the address of the inner `Arc`
+    fn id(&self) -> usize;
 }
 
 /// A [`Function`] which can be built from a math expression
