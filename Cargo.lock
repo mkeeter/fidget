@@ -942,7 +942,6 @@ dependencies = [
  "pollster",
  "wgpu",
  "workspace-hack",
- "zerocopy 0.8.8",
 ]
 
 [[package]]

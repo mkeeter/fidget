@@ -10,6 +10,7 @@ use crate::{
 
 use heck::ToShoutySnakeCase;
 use nalgebra::{Matrix4, Point2, Vector2};
+use std::collections::HashMap;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 // Square tiles
@@ -252,8 +253,31 @@ impl TileContext {
     ) -> Result<Vec<u32>, Error> {
         let (rs, mat) = build_tiles_in_parallel(shape.clone(), &settings);
 
+        let mut pos = HashMap::new();
+        let bytecode = shape.inner().to_bytecode();
+        let mut tiles = vec![];
+        let mut max_reg = bytecode.reg_count;
+        let mut max_mem = bytecode.mem_count;
+        let mut data = bytecode.data;
+        for r in rs.iter().filter(|r| matches!(r.mode, TileMode::Pixels)) {
+            let id = r.shape.inner().id();
+            let start = pos.entry(id).or_insert_with(|| {
+                let prev = data.len();
+                let bytecode = r.shape.inner().to_bytecode();
+                max_reg = max_reg.max(bytecode.reg_count);
+                max_mem = max_mem.max(bytecode.mem_count);
+                data.extend(bytecode.data.into_iter());
+                prev
+            });
+            tiles.push(Tile {
+                corner: [r.corner.x, r.corner.y],
+                start: u32::try_from(*start).unwrap_or(0),
+                _padding: 0u32,
+            })
+        }
+        assert_eq!(max_mem, 0, "external memory is not yet supported");
+
         // TODO build tiles from rs
-        let tiles = vec![]; // XXX todo
         let tile_size = settings.tile_sizes.last() as u32;
 
         let vars = shape.inner().vars();
@@ -314,10 +338,20 @@ impl TileContext {
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
         self.device.poll(wgpu::Maintain::Wait);
 
-        let result = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
-            .unwrap()
-            .to_owned();
+        let mut result =
+            <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
+                .unwrap()
+                .to_owned();
         self.out_buf.unmap();
+
+        // Fill in our filled types
+        for r in rs.iter().filter(|r| matches!(r.mode, TileMode::Fill)) {
+            for j in 0..r.tile_size {
+                let o =
+                    r.corner.x + (r.corner.y + j) * settings.image_size.width();
+                result[o as usize..][..r.tile_size as usize].fill(0xFFFFFFFF);
+            }
+        }
 
         Ok(result)
     }
@@ -497,16 +531,20 @@ struct Task<F: Function> {
     tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
 }
 
-enum WorkResult<F> {
-    Done {
-        corner: Point2<u32>,
-        depth: usize,
-        full: bool,
-    },
-    Pixels {
-        corner: Point2<u32>,
-        shape: Shape<F>,
-    },
+enum TileMode {
+    Fill,
+    Pixels,
+}
+
+struct WorkResult<F> {
+    /// Tile corner (in image space)
+    corner: Point2<u32>,
+    /// Tile size, in pixels
+    tile_size: u32,
+    /// Shape at this tile
+    shape: Shape<F>,
+    /// Fill or render individual pixels
+    mode: TileMode,
 }
 
 struct Worker<F: Function> {
@@ -556,7 +594,7 @@ fn build_tiles_in_parallel<F: Function>(
     // Clear out the previous transform
     let shape = shape.set_transform(mat);
 
-    let tile_size = cfg.tile_sizes.get(0).unwrap() as u32;
+    let tile_size = cfg.tile_sizes[0] as u32;
     let mut tiles = vec![];
     for x in 0..cfg.image_size.width().div_ceil(tile_size) {
         for y in 0..cfg.image_size.height().div_ceil(tile_size) {
@@ -591,12 +629,14 @@ fn build_tiles_in_parallel<F: Function>(
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
-            worker.shape_storage.extend(t.shape.recycle());
-            worker.out.push(WorkResult::Done {
-                corner: t.corner,
-                depth: t.depth,
-                full: r.upper() < 0.0,
-            });
+            if r.upper() < 0.0 {
+                worker.out.push(WorkResult {
+                    corner: t.corner,
+                    tile_size,
+                    mode: TileMode::Fill,
+                    shape: shape.clone(),
+                })
+            };
             return vec![];
         }
 
@@ -623,7 +663,7 @@ fn build_tiles_in_parallel<F: Function>(
                         corner: t.corner + Vector2::new(i, j) * next_tile_size,
                         depth: t.depth + 1,
                         shape: next.clone(),
-                        tape: if has_trace { t.tape.clone() } else { None },
+                        tape: if has_trace { None } else { t.tape.clone() },
                     });
                 }
             }
@@ -631,9 +671,11 @@ fn build_tiles_in_parallel<F: Function>(
         } else {
             // We're done recursing, push the pixel work to the GPU
             worker.tape_storage.extend(t.tape.take().unwrap().recycle());
-            worker.out.push(WorkResult::Pixels {
+            worker.out.push(WorkResult {
                 corner: t.corner,
+                tile_size,
                 shape: next,
+                mode: TileMode::Pixels,
             });
             vec![]
         }
@@ -728,28 +770,15 @@ mod test {
                 threads: ThreadCount::Many(4.try_into().unwrap()),
             },
         );
-        let mut img = vec!['-'; (SIZE as usize).pow(2)];
+        let mut img = vec!['.'; (SIZE as usize).pow(2)];
         for o in out {
-            match o {
-                WorkResult::Done {
-                    corner,
-                    depth,
-                    full,
-                } => {
-                    for x in 0..TILE_SIZES[depth] as u32 {
-                        for y in 0..TILE_SIZES[depth] as u32 {
-                            img[(x + corner.x + (y + corner.y) * SIZE)
-                                as usize] = if full { 'X' } else { '.' };
-                        }
-                    }
-                }
-                WorkResult::Pixels { corner, shape: _ } => {
-                    for x in 0..*TILE_SIZES.last().unwrap() as u32 {
-                        for y in 0..*TILE_SIZES.last().unwrap() as u32 {
-                            img[(x + corner.x + (y + corner.y) * SIZE)
-                                as usize] = '?';
-                        }
-                    }
+            for x in 0..o.tile_size {
+                for y in 0..o.tile_size {
+                    let i = (x + o.corner.x + (y + o.corner.y) * SIZE) as usize;
+                    img[i] = match o.mode {
+                        TileMode::Fill => 'X',
+                        TileMode::Pixels => '?',
+                    };
                 }
             }
         }
