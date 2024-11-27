@@ -539,8 +539,8 @@ struct Task<F: Function> {
     /// Shape to render
     shape: Shape<F>,
 
-    /// Precomputed interval tape (if available)
-    tape: Option<ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>>,
+    /// Interval tape (if available)
+    tape: ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>,
 }
 
 enum TileMode {
@@ -606,6 +606,7 @@ fn build_tiles_in_parallel<F: Function>(
 
     // Clear out the previous transform
     let shape = shape.set_transform(mat);
+    let tape = shape.interval_tape(Default::default());
 
     let tile_size = cfg.tile_sizes[0] as u32;
     let mut tiles = vec![];
@@ -615,13 +616,13 @@ fn build_tiles_in_parallel<F: Function>(
                 corner: Point2::new(x * tile_size, y * tile_size),
                 depth: 0,
                 shape: shape.clone(),
-                tape: None,
+                tape: tape.clone(),
             });
         }
     }
 
     let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
-    let run_one = |mut t: Task<F>| -> Vec<Task<F>> {
+    let run_one = |t: Task<F>| -> Vec<Task<F>> {
         let tile_size = cfg.tile_sizes[t.depth] as u32;
         let x =
             Interval::new(t.corner.x as f32, (t.corner.x + tile_size) as f32);
@@ -632,14 +633,10 @@ fn build_tiles_in_parallel<F: Function>(
         let mut tls = tls.get_or_default().borrow_mut();
         let worker = &mut *tls;
 
-        let tape = t.tape.get_or_insert_with(|| {
-            t.shape
-                .interval_tape(worker.tape_storage.pop().unwrap_or_default())
-        });
-        let (r, trace) = worker.eval.eval(tape, x, y, z).unwrap();
+        let (r, trace) = worker.eval.eval(&t.tape, x, y, z).unwrap();
         // Early return if this region is empty / full
         if r.lower() > 0.0 || r.upper() < 0.0 {
-            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            worker.tape_storage.extend(t.tape.recycle());
             worker.out.push(WorkResult {
                 corner: t.corner,
                 tile_size,
@@ -653,7 +650,7 @@ fn build_tiles_in_parallel<F: Function>(
             return vec![];
         }
 
-        let (next_shape, mut next_tape) = if let Some(trace) = trace {
+        let (next_shape, next_tape) = if let Some(trace) = trace {
             let next_shape = t
                 .shape
                 .simplify(
@@ -662,17 +659,18 @@ fn build_tiles_in_parallel<F: Function>(
                     &mut worker.workspace,
                 )
                 .unwrap();
-            worker.tape_storage.extend(t.tape.take().unwrap().recycle());
+            worker.tape_storage.extend(t.tape.recycle());
             worker.shape_storage.extend(t.shape.recycle());
             (next_shape, None)
         } else {
-            (t.shape, t.tape.clone())
+            (t.shape, Some(t.tape))
         };
 
         if let Some(next_tile_size) =
             cfg.tile_sizes.get(t.depth + 1).map(|t| t as u32)
         {
-            next_tape.get_or_insert_with(|| {
+            // Building the tape is expensive, so do it here for all children
+            let next_tape = next_tape.unwrap_or_else(|| {
                 next_shape.interval_tape(
                     worker.tape_storage.pop().unwrap_or_default(),
                 )
@@ -694,7 +692,7 @@ fn build_tiles_in_parallel<F: Function>(
             // We're done recursing, push the pixel work to the GPU
             worker
                 .tape_storage
-                .extend(t.tape.take().and_then(|t| t.recycle()));
+                .extend(next_tape.and_then(|t| t.recycle()));
             worker.out.push(WorkResult {
                 corner: t.corner,
                 tile_size,
@@ -717,7 +715,6 @@ fn build_tiles_in_parallel<F: Function>(
     }
 
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1) // XXX
         .build()
         .expect("failed to build thread pool");
     pool.scope(|s| {

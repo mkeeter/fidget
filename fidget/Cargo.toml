@@ -31,7 +31,6 @@ rhai = { workspace = true, optional = true }
 # wgpu
 heck = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
-rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 
@@ -66,7 +65,6 @@ rhai = ["dep:rhai"]
 wgpu = [
     "dep:heck",
     "dep:pollster",
-    "dep:rayon",
     "dep:thread_local",
     "dep:wgpu",
 ]
