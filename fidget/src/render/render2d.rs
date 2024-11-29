@@ -424,6 +424,8 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
+    use rayon::prelude::*;
+
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
     let width = config.image_size.width() as usize;
@@ -437,30 +439,57 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
         }
     }
 
-    let queue = Queue::new(tiles);
-
     let mut rh = RenderHandle::new(shape);
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
     let out: Vec<_> = match config.threads {
-        ThreadCount::One => worker::<F, M>(rh, vars, &queue, config)
-            .into_iter()
-            .collect(),
+        ThreadCount::One => {
+            let queue = Queue::new(tiles);
+            worker::<F, M>(rh, vars, &queue, config)
+                .into_iter()
+                .collect()
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
-        ThreadCount::Many(v) => std::thread::scope(|s| {
-            let mut handles = vec![];
-            for _ in 0..v.get() {
-                let rh = rh.clone();
-                handles
-                    .push(s.spawn(|| worker::<F, M>(rh, vars, &queue, config)));
-            }
-            let mut out = vec![];
-            for h in handles {
-                out.extend(h.join().unwrap().into_iter());
-            }
-            out
-        }),
+        ThreadCount::Many(v) => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(v.get())
+                .build()
+                .expect("could not build thread pool");
+            pool.install(|| {
+                tiles
+                    .into_par_iter()
+                    .map_init(
+                        || {
+                            let scratch =
+                                Scratch::new(config.tile_sizes.last().pow(2));
+                            let rh = rh.clone();
+
+                            let worker = Worker::<F, M> {
+                                scratch,
+                                image: vec![],
+                                config,
+                                eval_float_slice: Default::default(),
+                                eval_interval: Default::default(),
+                                tape_storage: vec![],
+                                shape_storage: vec![],
+                                workspace: Default::default(),
+                            };
+                            (worker, rh)
+                        },
+                        |(w, rh), tile| {
+                            w.image = vec![
+                                M::Output::default();
+                                config.tile_sizes[0].pow(2)
+                            ];
+                            w.render_tile_recurse(rh, vars, 0, tile);
+                            let pixels = std::mem::take(&mut w.image);
+                            (tile, pixels)
+                        },
+                    )
+                    .collect()
+            })
+        }
     };
 
     let mut image = vec![M::Output::default(); width * height];

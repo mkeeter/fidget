@@ -83,7 +83,7 @@ pub trait Function: Send + Sync + Clone {
     /// This type must implement [`Eq`] so that traces can be compared; calling
     /// [`Function::simplify`] with traces that compare equal should produce an
     /// identical result and may be cached.
-    type Trace: Clone + Eq + Send + Trace;
+    type Trace: Clone + Eq + Send + Sync + Trace;
 
     /// Associated type for storage used by the function itself
     type Storage: Default + Send;
