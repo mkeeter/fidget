@@ -29,7 +29,11 @@ import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 var fidget: any = null;
 
 async function setup() {
-  fidget = await import("../../crate/pkg")!;
+  console.log("setup called");
+  fidget = await import("../../crate/pkg/fidget_wasm_demo.js")!;
+  await fidget.default();
+  await fidget.initThreadPool(navigator.hardwareConcurrency);
+  console.log("imported fidget");
   const app = new App();
 }
 

@@ -84,7 +84,9 @@ class Worker {
 }
 
 async function run() {
-  fidget = await import("../../crate/pkg")!;
+  fidget = await import("../../crate/pkg/fidget_wasm_demo.js")!;
+  await fidget.default();
+
   let worker: null | Worker = null;
   onmessage = function (e: any) {
     let req = e.data as WorkerRequest;

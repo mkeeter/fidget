@@ -9,8 +9,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 bincode = "1.3.3"
-wasm-bindgen = "0.2.92"
 nalgebra = "0.33"
+
+# https://github.com/rustwasm/wasm-bindgen/issues/4233#issuecomment-2463023836
+# https://github.com/rustwasm/wasm-pack/pull/1443 theoretically fixes it?
+wasm-bindgen = "=0.2.93"
+wasm-bindgen-rayon = "1.2"
 
 fidget.path = "../../../fidget"
 
