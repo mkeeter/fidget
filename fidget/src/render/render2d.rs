@@ -2,7 +2,7 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{ImageRenderConfig, Queue, Tile},
+    render::config::{ImageRenderConfig, Tile},
     render::ThreadCount,
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
@@ -225,6 +225,18 @@ struct Worker<'a, F: Function, M: RenderMode> {
 }
 
 impl<F: Function, M: RenderMode> Worker<'_, F, M> {
+    fn render_tile(
+        &mut self,
+        shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
+        tile: Tile<2>,
+    ) -> Vec<M::Output> {
+        self.image =
+            vec![M::Output::default(); self.config.tile_sizes[0].pow(2)];
+        self.render_tile_recurse(shape, vars, 0, tile);
+        std::mem::take(&mut self.image)
+    }
+
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
@@ -365,37 +377,6 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn worker<F: Function, M: RenderMode>(
-    mut shape: RenderHandle<F>,
-    vars: &ShapeVars<f32>,
-    queue: &Queue<2>,
-    config: &ImageRenderConfig,
-) -> Vec<(Tile<2>, Vec<M::Output>)> {
-    let mut out = vec![];
-    let scratch = Scratch::new(config.tile_sizes.last().pow(2));
-
-    let mut w: Worker<F, M> = Worker {
-        scratch,
-        image: vec![],
-        config,
-        eval_float_slice: Default::default(),
-        eval_interval: Default::default(),
-        tape_storage: vec![],
-        shape_storage: vec![],
-        workspace: Default::default(),
-    };
-
-    while let Some(tile) = queue.next() {
-        w.image = vec![M::Output::default(); config.tile_sizes[0].pow(2)];
-        w.render_tile_recurse(&mut shape, vars, 0, tile);
-        let pixels = std::mem::take(&mut w.image);
-        out.push((tile, pixels))
-    }
-    out
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 /// Renders the given tape into a 2D image at Z = 0 according to the provided
 /// configuration.
 ///
@@ -441,12 +422,32 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
 
     let mut rh = RenderHandle::new(shape);
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
+    let init = || {
+        let scratch = Scratch::new(config.tile_sizes.last().pow(2));
+        let rh = rh.clone();
+
+        let worker = Worker::<F, M> {
+            scratch,
+            image: vec![],
+            config,
+            eval_float_slice: Default::default(),
+            eval_interval: Default::default(),
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
+        };
+        (worker, rh)
+    };
 
     let out: Vec<_> = match config.threads {
         ThreadCount::One => {
-            let queue = Queue::new(tiles);
-            worker::<F, M>(rh, vars, &queue, config)
+            let (mut worker, mut rh) = init();
+            tiles
                 .into_iter()
+                .map(|tile| {
+                    let pixels = worker.render_tile(&mut rh, vars, tile);
+                    (tile, pixels)
+                })
                 .collect()
         }
 
@@ -459,34 +460,10 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
             pool.install(|| {
                 tiles
                     .into_par_iter()
-                    .map_init(
-                        || {
-                            let scratch =
-                                Scratch::new(config.tile_sizes.last().pow(2));
-                            let rh = rh.clone();
-
-                            let worker = Worker::<F, M> {
-                                scratch,
-                                image: vec![],
-                                config,
-                                eval_float_slice: Default::default(),
-                                eval_interval: Default::default(),
-                                tape_storage: vec![],
-                                shape_storage: vec![],
-                                workspace: Default::default(),
-                            };
-                            (worker, rh)
-                        },
-                        |(w, rh), tile| {
-                            w.image = vec![
-                                M::Output::default();
-                                config.tile_sizes[0].pow(2)
-                            ];
-                            w.render_tile_recurse(rh, vars, 0, tile);
-                            let pixels = std::mem::take(&mut w.image);
-                            (tile, pixels)
-                        },
-                    )
+                    .map_init(init, |(w, rh), tile| {
+                        let pixels = w.render_tile(rh, vars, tile);
+                        (tile, pixels)
+                    })
                     .collect()
             })
         }
