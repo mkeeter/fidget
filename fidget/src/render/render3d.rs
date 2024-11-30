@@ -2,12 +2,13 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{ThreadCount, Tile, VoxelRenderConfig},
+    render::config::{ThreadPool, Tile, VoxelRenderConfig},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
 use nalgebra::{Point2, Point3, Vector2, Vector3};
+use rayon::prelude::*;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -46,7 +47,7 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, F: Function> {
-    config: &'a VoxelRenderConfig,
+    config: &'a VoxelRenderConfig<'a>, // TODO only use some pieces of config?
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
@@ -360,8 +361,8 @@ pub fn render<F: Function>(
     };
 
     // Special-case for single-threaded operation, to give simpler backtraces
-    let out: Vec<_> = match config.threads {
-        ThreadCount::One => {
+    let out: Vec<_> = match &config.threads {
+        None => {
             let (mut worker, mut rh) = init();
             tiles
                 .into_iter()
@@ -372,14 +373,8 @@ pub fn render<F: Function>(
                 .collect()
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        ThreadCount::Many(v) => {
-            use rayon::prelude::*;
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(v.get())
-                .build()
-                .expect("could not build thread pool");
-            pool.install(|| {
+        Some(p) => {
+            let run = || {
                 tiles
                     .into_par_iter()
                     .map_init(init, |(w, rh), tile| {
@@ -387,7 +382,11 @@ pub fn render<F: Function>(
                         (tile, pixels)
                     })
                     .collect()
-            })
+            };
+            match p {
+                ThreadPool::Custom(p) => p.install(run),
+                ThreadPool::Global => run(),
+            }
         }
     };
 

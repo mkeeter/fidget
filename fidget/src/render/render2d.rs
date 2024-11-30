@@ -2,12 +2,12 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{ImageRenderConfig, Tile},
-    render::ThreadCount,
+    render::config::{ImageRenderConfig, ThreadPool, Tile},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
 use nalgebra::{Point2, Vector2};
+use rayon::prelude::*;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -203,7 +203,7 @@ impl Scratch {
 
 /// Per-thread worker
 struct Worker<'a, F: Function, M: RenderMode> {
-    config: &'a ImageRenderConfig,
+    config: &'a ImageRenderConfig<'a>,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -437,8 +437,8 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
         (worker, rh)
     };
 
-    let out: Vec<_> = match config.threads {
-        ThreadCount::One => {
+    let out: Vec<_> = match &config.threads {
+        None => {
             let (mut worker, mut rh) = init();
             tiles
                 .into_iter()
@@ -449,14 +449,8 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
                 .collect()
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        ThreadCount::Many(v) => {
-            use rayon::prelude::*;
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(v.get())
-                .build()
-                .expect("could not build thread pool");
-            pool.install(|| {
+        Some(p) => {
+            let run = || {
                 tiles
                     .into_par_iter()
                     .map_init(init, |(w, rh), tile| {
@@ -464,7 +458,11 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
                         (tile, pixels)
                     })
                     .collect()
-            })
+            };
+            match p {
+                ThreadPool::Custom(p) => p.install(run),
+                ThreadPool::Global => run(),
+            }
         }
     };
 

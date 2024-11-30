@@ -871,6 +871,7 @@ dependencies = [
  "image",
  "log",
  "nalgebra",
+ "rayon",
  "workspace-hack",
 ]
 

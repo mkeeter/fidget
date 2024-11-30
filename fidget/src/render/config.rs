@@ -69,8 +69,20 @@ impl Default for ThreadCount {
     }
 }
 
+/// Thread pool to use for multithreaded rendering
+///
+/// Most users will use the global Rayon pool, but it's possible to provide your
+/// own as well.
+#[derive(Clone)]
+pub enum ThreadPool<'a> {
+    /// User-provided pool
+    Custom(&'a rayon::ThreadPool),
+    /// Global Rayon pool
+    Global,
+}
+
 /// Settings for 2D rendering
-pub struct ImageRenderConfig {
+pub struct ImageRenderConfig<'a> {
     /// Render size
     pub image_size: ImageSize,
 
@@ -85,21 +97,21 @@ pub struct ImageRenderConfig {
     pub tile_sizes: TileSizes,
 
     /// Number of worker threads
-    pub threads: ThreadCount,
+    pub threads: Option<ThreadPool<'a>>,
 }
 
-impl Default for ImageRenderConfig {
+impl Default for ImageRenderConfig<'_> {
     fn default() -> Self {
         Self {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
-            threads: ThreadCount::default(),
+            threads: Some(ThreadPool::Global),
         }
     }
 }
 
-impl ImageRenderConfig {
+impl ImageRenderConfig<'_> {
     /// Render a shape in 2D using this configuration
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
@@ -124,7 +136,7 @@ impl ImageRenderConfig {
 }
 
 /// Settings for 3D rendering
-pub struct VoxelRenderConfig {
+pub struct VoxelRenderConfig<'a> {
     /// Render size
     ///
     /// The resulting image will have the given width and height; depth sets the
@@ -143,22 +155,22 @@ pub struct VoxelRenderConfig {
     pub tile_sizes: TileSizes,
 
     /// Number of worker threads
-    pub threads: ThreadCount,
+    pub threads: Option<ThreadPool<'a>>,
 }
 
-impl Default for VoxelRenderConfig {
+impl Default for VoxelRenderConfig<'_> {
     fn default() -> Self {
         Self {
             image_size: VoxelSize::from(512),
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             view: View3::default(),
 
-            threads: ThreadCount::default(),
+            threads: Some(ThreadPool::Global),
         }
     }
 }
 
-impl VoxelRenderConfig {
+impl VoxelRenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
     /// Returns a tuple of heightmap, RGB image.

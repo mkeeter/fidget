@@ -73,8 +73,8 @@ struct ImageSettings {
     eval: EvalMode,
 
     /// Number of threads to use
-    #[clap(short, long, default_value_t = NonZeroUsize::new(8).unwrap())]
-    threads: NonZeroUsize,
+    #[clap(short, long)]
+    threads: Option<NonZeroUsize>,
 
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
@@ -119,10 +119,24 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
+    let pool: Option<rayon::ThreadPool>;
+    let threads = match settings.threads {
+        Some(n) if n.get() == 1 => None,
+        Some(n) => {
+            pool = Some(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n.get())
+                    .build()
+                    .unwrap(),
+            );
+            pool.as_ref().map(fidget::render::ThreadPool::Custom)
+        }
+        None => Some(fidget::render::ThreadPool::Global),
+    };
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
-        threads: settings.threads.into(),
+        threads,
         ..Default::default()
     };
     let shape = shape.apply_transform(mat.into());
@@ -197,10 +211,24 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .flat_map(|i| i.into_iter())
             .collect()
     } else {
+        let pool: Option<rayon::ThreadPool>;
+        let threads = match settings.threads {
+            Some(n) if n.get() == 1 => None,
+            Some(n) => {
+                pool = Some(
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(n.get())
+                        .build()
+                        .unwrap(),
+                );
+                pool.as_ref().map(fidget::render::ThreadPool::Custom)
+            }
+            None => Some(fidget::render::ThreadPool::Global),
+        };
         let cfg = fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
-            threads: settings.threads.into(),
+            threads,
             ..Default::default()
         };
         if sdf {

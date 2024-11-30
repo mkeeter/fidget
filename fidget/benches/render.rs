@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::render::{ImageSize, RenderHints, ThreadCount};
+use fidget::render::{ImageSize, RenderHints, ThreadPool};
 
 const PROSPERO: &str = include_str!("../../models/prospero.vm");
 
@@ -53,16 +53,28 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
 
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");
-    for threads in std::iter::once(ThreadCount::One).chain(
-        [1, 2, 4, 8, 16].map(|i| ThreadCount::Many(i.try_into().unwrap())),
-    ) {
+    let pools = [1, 2, 4, 8, 16].map(|i| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(i)
+            .build()
+            .unwrap()
+    });
+    for threads in [None, Some(ThreadPool::Global)]
+        .into_iter()
+        .chain(pools.iter().map(|p| Some(ThreadPool::Custom(p))))
+    {
+        let name = match &threads {
+            None => "-".to_string(),
+            Some(ThreadPool::Custom(i)) => i.current_num_threads().to_string(),
+            Some(ThreadPool::Global) => "N".to_string(),
+        };
         let cfg = &fidget::render::ImageRenderConfig {
             image_size: ImageSize::from(1024),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
-            threads,
+            threads: threads.clone(),
             ..Default::default()
         };
-        group.bench_function(BenchmarkId::new("vm", threads), move |b| {
+        group.bench_function(BenchmarkId::new("vm", &name), move |b| {
             b.iter(|| {
                 let tape = shape_vm.clone();
                 black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
@@ -76,7 +88,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
                 threads,
                 ..Default::default()
             };
-            group.bench_function(BenchmarkId::new("jit", threads), move |b| {
+            group.bench_function(BenchmarkId::new("jit", &name), move |b| {
                 b.iter(|| {
                     let tape = shape_jit.clone();
                     black_box(cfg.run::<_, fidget::render::BitRenderMode>(tape))
