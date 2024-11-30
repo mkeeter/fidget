@@ -7,6 +7,7 @@ use crate::{
 };
 
 #[cfg(any(test, feature = "eval-tests"))]
+#[allow(missing_docs)]
 pub mod test;
 
 mod bulk;
