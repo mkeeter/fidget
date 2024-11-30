@@ -405,8 +405,6 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
     vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
 ) -> Vec<M::Output> {
-    use rayon::prelude::*;
-
     let mut tiles = vec![];
     let t = config.tile_sizes[0];
     let width = config.image_size.width() as usize;
@@ -453,6 +451,7 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
 
         #[cfg(not(target_arch = "wasm32"))]
         ThreadCount::Many(v) => {
+            use rayon::prelude::*;
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(v.get())
                 .build()

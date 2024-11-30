@@ -2,13 +2,12 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{Queue, ThreadCount, Tile, VoxelRenderConfig},
+    render::config::{ThreadCount, Tile, VoxelRenderConfig},
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
-use nalgebra::{Point3, Vector2, Vector3};
-use std::collections::HashMap;
+use nalgebra::{Point2, Point3, Vector2, Vector3};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -66,13 +65,43 @@ struct Worker<'a, F: Function> {
 }
 
 impl<F: Function> Worker<'_, F> {
+    fn render_tile(
+        &mut self,
+        shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
+        tile: Tile<2>,
+    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        // Prepare local tile data to fill out
+        self.depth = vec![0; self.config.tile_sizes[0].pow(2)];
+        self.color = vec![[0u8; 3]; self.config.tile_sizes[0].pow(2)];
+        let root_tile_size = self.config.tile_sizes[0];
+        for k in
+            (0..self.config.image_size[2].div_ceil(root_tile_size as u32)).rev()
+        {
+            let tile = Tile::new(Point3::new(
+                tile.corner.x,
+                tile.corner.y,
+                k as usize * root_tile_size,
+            ));
+            if !self.render_tile_recurse(shape, vars, 0, tile) {
+                break;
+            }
+        }
+        let depth = std::mem::take(&mut self.depth);
+        let color = std::mem::take(&mut self.color);
+        (depth, color)
+    }
+
+    /// Render a single tile
+    ///
+    /// Returns `true` if we should keep rendering, `false` otherwise
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
         depth: usize,
         tile: Tile<3>,
-    ) {
+    ) -> bool {
         // Early exit if every single pixel is filled
         let tile_size = self.config.tile_sizes[depth];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
@@ -80,7 +109,7 @@ impl<F: Function> Worker<'_, F> {
             let i = self.config.tile_row_offset(tile, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
         }) {
-            return;
+            return false;
         }
 
         let base = Point3::from(tile.corner).cast::<f32>();
@@ -102,9 +131,9 @@ impl<F: Function> Worker<'_, F> {
                     self.depth[i + x] = self.depth[i + x].max(fill_z);
                 }
             }
-            return;
+            return false; // completely full, stop rendering
         } else if i.lower() > 0.0 {
-            return;
+            return true; // complete empty, keep going
         }
 
         // Calculate a simplified tape based on the trace
@@ -142,6 +171,7 @@ impl<F: Function> Worker<'_, F> {
             self.render_tile_pixels(sub_tape, vars, tile_size, tile);
         };
         // TODO recycle something here?
+        true // keep going
     }
 
     fn render_tile_pixels(
@@ -277,86 +307,6 @@ impl<F: Function> Worker<'_, F> {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Default)]
-struct Image {
-    depth: Vec<u32>,
-    color: Vec<[u8; 3]>,
-}
-
-impl Image {
-    fn new(size: usize) -> Self {
-        Self {
-            depth: vec![0; size.pow(2)],
-            color: vec![[0; 3]; size.pow(2)],
-        }
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-fn worker<F: Function>(
-    mut shape: RenderHandle<F>,
-    vars: &ShapeVars<f32>,
-    queues: &[Queue<3>],
-    mut index: usize,
-    config: &VoxelRenderConfig,
-) -> HashMap<[usize; 2], Image> {
-    let mut out = HashMap::new();
-
-    // Calculate maximum evaluation buffer size
-    let buf_size = config.tile_sizes.last();
-    let scratch = Scratch::new(buf_size);
-    let mut w: Worker<F> = Worker {
-        scratch,
-        depth: vec![],
-        color: vec![],
-        config,
-
-        eval_float_slice: Default::default(),
-        eval_interval: Default::default(),
-        eval_grad_slice: Default::default(),
-
-        tape_storage: vec![],
-        shape_storage: vec![],
-        workspace: Default::default(),
-    };
-
-    // Every thread has a set of tiles assigned to it, which are in Z-sorted
-    // order (to encourage culling).  Once the thread finishes its tiles, it
-    // begins stealing from other thread queues; if every single thread queue is
-    // empty, then we return.
-    let start = index;
-    loop {
-        while let Some(tile) = queues[index].next() {
-            let image = out
-                .remove(&[tile.corner[0], tile.corner[1]])
-                .unwrap_or_else(|| Image::new(config.tile_sizes[0]));
-
-            // Prepare to render, allocating space for a tile
-            w.depth = image.depth;
-            w.color = image.color;
-            w.render_tile_recurse(&mut shape, vars, 0, tile);
-
-            // Steal the tile, replacing it with an empty vec
-            let depth = std::mem::take(&mut w.depth);
-            let color = std::mem::take(&mut w.color);
-            out.insert(
-                [tile.corner[0], tile.corner[1]],
-                Image { depth, color },
-            );
-        }
-        // Move on to the next thread's queue
-        index = (index + 1) % queues.len();
-        if index == start {
-            break;
-        }
-    }
-
-    out
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 /// Renders the given tape into a 3D image according to the provided
 /// configuration.
 ///
@@ -376,70 +326,84 @@ pub fn render<F: Function>(
     let t = config.tile_sizes[0];
     let width = config.image_size[0] as usize;
     let height = config.image_size[1] as usize;
-    let depth = config.image_size[2] as usize;
     for i in 0..width.div_ceil(t) {
         for j in 0..height.div_ceil(t) {
-            for k in (0..depth.div_ceil(t)).rev() {
-                tiles.push(Tile::new(Point3::new(
-                    i * config.tile_sizes[0],
-                    j * config.tile_sizes[0],
-                    k * config.tile_sizes[0],
-                )));
-            }
+            tiles.push(Tile::new(Point2::new(
+                i * config.tile_sizes[0],
+                j * config.tile_sizes[0],
+            )));
         }
     }
-
-    let threads = config.threads.get().unwrap_or(1);
-    let tiles_per_thread = (tiles.len() / threads).max(1);
-    let mut tile_queues = vec![];
-    for ts in tiles.chunks(tiles_per_thread) {
-        tile_queues.push(Queue::new(ts.to_vec()));
-    }
-    tile_queues.resize_with(threads, || Queue::new(vec![]));
 
     let mut rh = RenderHandle::new(shape);
     let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
 
+    let init = || {
+        let rh = rh.clone();
+        let buf_size = config.tile_sizes.last();
+        let scratch = Scratch::new(buf_size);
+        let worker: Worker<F> = Worker {
+            scratch,
+            depth: vec![],
+            color: vec![],
+            config,
+
+            eval_float_slice: Default::default(),
+            eval_interval: Default::default(),
+            eval_grad_slice: Default::default(),
+
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
+        };
+        (worker, rh)
+    };
+
     // Special-case for single-threaded operation, to give simpler backtraces
     let out: Vec<_> = match config.threads {
         ThreadCount::One => {
-            worker::<F>(rh, vars, tile_queues.as_slice(), 0, config)
+            let (mut worker, mut rh) = init();
+            tiles
                 .into_iter()
+                .map(|tile| {
+                    let pixels = worker.render_tile(&mut rh, vars, tile);
+                    (tile, pixels)
+                })
                 .collect()
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        ThreadCount::Many(threads) => std::thread::scope(|s| {
-            let config = &config;
-            let mut handles = vec![];
-            let queues = tile_queues.as_slice();
-            for i in 0..threads.get() {
-                let rh = rh.clone();
-                handles.push(
-                    s.spawn(move || worker::<F>(rh, vars, queues, i, config)),
-                );
-            }
-            let mut out = vec![];
-            for h in handles {
-                out.extend(h.join().unwrap().into_iter());
-            }
-            out
-        }),
+        ThreadCount::Many(v) => {
+            use rayon::prelude::*;
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(v.get())
+                .build()
+                .expect("could not build thread pool");
+            pool.install(|| {
+                tiles
+                    .into_par_iter()
+                    .map_init(init, |(w, rh), tile| {
+                        let pixels = w.render_tile(rh, vars, tile);
+                        (tile, pixels)
+                    })
+                    .collect()
+            })
+        }
     };
 
     let mut image_depth = vec![0; width * height];
     let mut image_color = vec![[0; 3]; width * height];
-    for (tile, patch) in out.iter() {
+    for (tile, (depth, color)) in out {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
-            let y = j + tile[1];
+            let y = j + tile.corner.y;
             for i in 0..config.tile_sizes[0] {
-                let x = i + tile[0];
+                let x = i + tile.corner.x;
                 if x < width && y < height {
                     let o = y * width + x;
-                    if patch.depth[index] >= image_depth[o] {
-                        image_color[o] = patch.color[index];
-                        image_depth[o] = patch.depth[index];
+                    if depth[index] >= image_depth[o] {
+                        image_color[o] = color[index];
+                        image_depth[o] = depth[index];
                     }
                 }
                 index += 1;

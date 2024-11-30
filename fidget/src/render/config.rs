@@ -4,7 +4,6 @@ use crate::{
     shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Number of threads to use during evaluation
 ///
@@ -211,25 +210,6 @@ impl<const N: usize> Tile<N> {
     pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
         let corner = Point2::new(self.corner[0], self.corner[1]);
         corner + pos
-    }
-}
-
-/// Worker queue
-pub(crate) struct Queue<const N: usize> {
-    index: AtomicUsize,
-    tiles: Vec<Tile<N>>,
-}
-
-impl<const N: usize> Queue<N> {
-    pub fn new(tiles: Vec<Tile<N>>) -> Self {
-        Self {
-            index: AtomicUsize::new(0),
-            tiles,
-        }
-    }
-    pub fn next(&self) -> Option<Tile<N>> {
-        let index = self.index.fetch_add(1, Ordering::Relaxed);
-        self.tiles.get(index).cloned()
     }
 }
 
