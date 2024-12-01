@@ -194,11 +194,6 @@ impl VoxelRenderConfig<'_> {
     pub fn mat(&self) -> Matrix4<f32> {
         self.view.world_to_model() * self.image_size.screen_to_world()
     }
-
-    /// Returns the data offset of a row within a subtile
-    pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
-        self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

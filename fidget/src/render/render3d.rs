@@ -2,7 +2,10 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{ThreadPool, Tile, VoxelRenderConfig},
+    render::{
+        config::{ThreadPool, Tile, VoxelRenderConfig},
+        TileSizes, VoxelSize,
+    },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
@@ -47,7 +50,8 @@ impl Scratch {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Worker<'a, F: Function> {
-    config: &'a VoxelRenderConfig<'a>, // TODO only use some pieces of config?
+    tile_sizes: &'a TileSizes,
+    image_size: VoxelSize,
 
     /// Reusable workspace for evaluation, to minimize allocation
     scratch: Scratch,
@@ -73,12 +77,10 @@ impl<F: Function> Worker<'_, F> {
         tile: Tile<2>,
     ) -> (Vec<u32>, Vec<[u8; 3]>) {
         // Prepare local tile data to fill out
-        self.depth = vec![0; self.config.tile_sizes[0].pow(2)];
-        self.color = vec![[0u8; 3]; self.config.tile_sizes[0].pow(2)];
-        let root_tile_size = self.config.tile_sizes[0];
-        for k in
-            (0..self.config.image_size[2].div_ceil(root_tile_size as u32)).rev()
-        {
+        self.depth = vec![0; self.tile_sizes[0].pow(2)];
+        self.color = vec![[0u8; 3]; self.tile_sizes[0].pow(2)];
+        let root_tile_size = self.tile_sizes[0];
+        for k in (0..self.image_size[2].div_ceil(root_tile_size as u32)).rev() {
             let tile = Tile::new(Point3::new(
                 tile.corner.x,
                 tile.corner.y,
@@ -93,6 +95,11 @@ impl<F: Function> Worker<'_, F> {
         (depth, color)
     }
 
+    /// Returns the data offset of a row within a subtile
+    pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
+        self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
+    }
+
     /// Render a single tile
     ///
     /// Returns `true` if we should keep rendering, `false` otherwise
@@ -104,10 +111,10 @@ impl<F: Function> Worker<'_, F> {
         tile: Tile<3>,
     ) -> bool {
         // Early exit if every single pixel is filled
-        let tile_size = self.config.tile_sizes[depth];
+        let tile_size = self.tile_sizes[depth];
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
-            let i = self.config.tile_row_offset(tile, y);
+            let i = self.tile_row_offset(tile, y);
             (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
         }) {
             return false;
@@ -127,7 +134,7 @@ impl<F: Function> Worker<'_, F> {
         // `data_interval` to scratch memory for reuse.
         if i.upper() < 0.0 {
             for y in 0..tile_size {
-                let i = self.config.tile_row_offset(tile, y);
+                let i = self.tile_row_offset(tile, y);
                 for x in 0..tile_size {
                     self.depth[i + x] = self.depth[i + x].max(fill_z);
                 }
@@ -150,7 +157,7 @@ impl<F: Function> Worker<'_, F> {
         };
 
         // Recurse!
-        if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
+        if let Some(next_tile_size) = self.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;
 
             for j in 0..n {
@@ -192,10 +199,7 @@ impl<F: Function> Worker<'_, F> {
             let i = xy % tile_size;
             let j = xy / tile_size;
 
-            let o = self
-                .config
-                .tile_sizes
-                .pixel_offset(tile.add(Vector2::new(i, j)));
+            let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
 
             // Skip pixels which are behind the image
             let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
@@ -261,10 +265,7 @@ impl<F: Function> Worker<'_, F> {
             let k = tile_size - 1 - k;
 
             // Set the depth of the pixel
-            let o = self
-                .config
-                .tile_sizes
-                .pixel_offset(tile.add(Vector2::new(i, j)));
+            let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
             let z = (tile.corner[2] + k + 1).try_into().unwrap();
             assert!(self.depth[o] < z);
             self.depth[o] = z;
@@ -347,7 +348,8 @@ pub fn render<F: Function>(
             scratch,
             depth: vec![],
             color: vec![],
-            config,
+            tile_sizes: &config.tile_sizes,
+            image_size: config.image_size,
 
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),

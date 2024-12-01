@@ -2,7 +2,10 @@
 use super::RenderHandle;
 use crate::{
     eval::Function,
-    render::config::{ImageRenderConfig, ThreadPool, Tile},
+    render::{
+        config::{ImageRenderConfig, ThreadPool, Tile},
+        TileSizes,
+    },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
@@ -203,7 +206,7 @@ impl Scratch {
 
 /// Per-thread worker
 struct Worker<'a, F: Function, M: RenderMode> {
-    config: &'a ImageRenderConfig<'a>,
+    tile_sizes: &'a TileSizes,
     scratch: Scratch,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
@@ -231,8 +234,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         vars: &ShapeVars<f32>,
         tile: Tile<2>,
     ) -> Vec<M::Output> {
-        self.image =
-            vec![M::Output::default(); self.config.tile_sizes[0].pow(2)];
+        self.image = vec![M::Output::default(); self.tile_sizes[0].pow(2)];
         self.render_tile_recurse(shape, vars, 0, tile);
         std::mem::take(&mut self.image)
     }
@@ -244,7 +246,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         depth: usize,
         tile: Tile<2>,
     ) {
-        let tile_size = self.config.tile_sizes[depth];
+        let tile_size = self.tile_sizes[depth];
 
         // Find the interval bounds of the region, in screen coordinates
         let base = Point2::from(tile.corner).cast::<f32>();
@@ -262,7 +264,6 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
             IntervalAction::Fill(fill) => {
                 for y in 0..tile_size {
                     let start = self
-                        .config
                         .tile_sizes
                         .pixel_offset(tile.add(Vector2::new(0, y)));
                     self.image[start..][..tile_size].fill(fill);
@@ -286,7 +287,6 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
                     let v1 = vs[2] * (1.0 - y_frac) + vs[3] * y_frac;
 
                     let mut i = self
-                        .config
                         .tile_sizes
                         .pixel_offset(tile.add(Vector2::new(0, y)));
                     for x in 0..tile_size {
@@ -315,7 +315,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
             shape
         };
 
-        if let Some(next_tile_size) = self.config.tile_sizes.get(depth + 1) {
+        if let Some(next_tile_size) = self.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;
             for j in 0..n {
                 for i in 0..n {
@@ -363,10 +363,7 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 
         let mut index = 0;
         for j in 0..tile_size {
-            let o = self
-                .config
-                .tile_sizes
-                .pixel_offset(tile.add(Vector2::new(0, j)));
+            let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, j)));
             for i in 0..tile_size {
                 self.image[o + i] = M::pixel(out[index]);
                 index += 1;
@@ -427,7 +424,7 @@ fn render_inner<F: Function, M: RenderMode + Sync>(
         let worker = Worker::<F, M> {
             scratch,
             image: vec![],
-            config,
+            tile_sizes: &config.tile_sizes,
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),
             tape_storage: vec![],
