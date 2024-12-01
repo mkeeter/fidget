@@ -8,11 +8,11 @@ use super::{
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
     types::{Axis, Corner, Edge},
-    Mesh, Settings,
+    Mesh, Settings, ThreadCount,
 };
 use crate::{
     eval::{BulkEvaluator, Function, TracingEvaluator},
-    render::{RenderHints, ThreadCount},
+    render::RenderHints,
     shape::{Shape, ShapeBulkEval, ShapeTape, ShapeTracingEval, ShapeVars},
     types::Grad,
 };
@@ -1218,7 +1218,7 @@ mod test {
     use crate::{
         context::Tree,
         mesh::types::{Edge, X, Y, Z},
-        render::{ThreadCount, View3},
+        render::View3,
         shape::EzShape,
         var::Var,
         vm::{VmFunction, VmShape},

@@ -41,6 +41,16 @@
   between threads, but tapes were _already_ using an `Arc<..>` under the hood.
 - Changed `Tape::recycle` from returning a `Storage` to returning an
   `Option<Storage>`, as tapes may now be shared between threads.
+- Use Rayon for 2D and 3D rasterization
+    - The `threads` member of `VoxelRenderConfig` and `ImageRenderConfig` is now
+      a `Option<ThreadPool>`, which can be `None` (use a single thread),
+      `Some(ThreadPool::Global)` (use the global Rayon pool), or
+      `Some(ThreadPool::Custom(..))` (use a user-provided pool)
+    - This is a step towards WebAssembly multithreading, using
+      `wasm-bindgen-rayon`.
+    - `ThreadCount` is moved to `fidget::mesh`, because that's the only place
+      it's now used
+        - The plan is to switch to Rayon for meshing as well, eventually
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
