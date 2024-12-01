@@ -3,14 +3,13 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        config::{ImageRenderConfig, ThreadPool, Tile},
-        TileSizes,
+        config::{ImageRenderConfig, Tile},
+        RenderWorker, TileSizes,
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
 };
 use nalgebra::{Point2, Vector2};
-use rayon::prelude::*;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -227,18 +226,35 @@ struct Worker<'a, F: Function, M: RenderMode> {
     image: Vec<M::Output>,
 }
 
-impl<F: Function, M: RenderMode> Worker<'_, F, M> {
+impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
+    type Config = ImageRenderConfig<'a>;
+    type Output = Vec<M::Output>;
+    fn new(cfg: &'a Self::Config) -> Self {
+        Worker::<F, M> {
+            scratch: Scratch::new(cfg.tile_sizes.last().pow(2)),
+            image: vec![],
+            tile_sizes: &cfg.tile_sizes,
+            eval_float_slice: Default::default(),
+            eval_interval: Default::default(),
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
+        }
+    }
+
     fn render_tile(
         &mut self,
         shape: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
-        tile: Tile<2>,
-    ) -> Vec<M::Output> {
+        tile: super::config::Tile<2>,
+    ) -> Self::Output {
         self.image = vec![M::Output::default(); self.tile_sizes[0].pow(2)];
         self.render_tile_recurse(shape, vars, 0, tile);
         std::mem::take(&mut self.image)
     }
+}
 
+impl<F: Function, M: RenderMode> Worker<'_, F, M> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
@@ -394,77 +410,12 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    render_inner::<_, M>(shape, vars, config)
-}
+    let tiles = super::render_tiles::<F, Worker<F, M>>(shape, vars, config);
 
-fn render_inner<F: Function, M: RenderMode + Sync>(
-    shape: Shape<F>,
-    vars: &ShapeVars<f32>,
-    config: &ImageRenderConfig,
-) -> Vec<M::Output> {
-    let mut tiles = vec![];
-    let t = config.tile_sizes[0];
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    for i in 0..width.div_ceil(t) {
-        for j in 0..height.div_ceil(t) {
-            tiles.push(Tile::new(Point2::new(
-                i * config.tile_sizes[0],
-                j * config.tile_sizes[0],
-            )));
-        }
-    }
-
-    let mut rh = RenderHandle::new(shape);
-    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
-    let init = || {
-        let scratch = Scratch::new(config.tile_sizes.last().pow(2));
-        let rh = rh.clone();
-
-        let worker = Worker::<F, M> {
-            scratch,
-            image: vec![],
-            tile_sizes: &config.tile_sizes,
-            eval_float_slice: Default::default(),
-            eval_interval: Default::default(),
-            tape_storage: vec![],
-            shape_storage: vec![],
-            workspace: Default::default(),
-        };
-        (worker, rh)
-    };
-
-    let out: Vec<_> = match &config.threads {
-        None => {
-            let (mut worker, mut rh) = init();
-            tiles
-                .into_iter()
-                .map(|tile| {
-                    let pixels = worker.render_tile(&mut rh, vars, tile);
-                    (tile, pixels)
-                })
-                .collect()
-        }
-
-        Some(p) => {
-            let run = || {
-                tiles
-                    .into_par_iter()
-                    .map_init(init, |(w, rh), tile| {
-                        let pixels = w.render_tile(rh, vars, tile);
-                        (tile, pixels)
-                    })
-                    .collect()
-            };
-            match p {
-                ThreadPool::Custom(p) => p.install(run),
-                ThreadPool::Global => run(),
-            }
-        }
-    };
-
     let mut image = vec![M::Output::default(); width * height];
-    for (tile, data) in out.iter() {
+    for (tile, data) in tiles.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner.y;

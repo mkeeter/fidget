@@ -4,9 +4,10 @@
 //! function, e.g. [`ImageRenderConfig::run`] and [`VoxelRenderConfig::run`].
 use crate::{
     eval::{BulkEvaluator, Function, Trace, TracingEvaluator},
-    shape::{Shape, ShapeTape},
+    shape::{Shape, ShapeTape, ShapeVars},
     Error,
 };
+use nalgebra::Point2;
 
 mod config;
 mod region;
@@ -14,6 +15,7 @@ mod render2d;
 mod render3d;
 mod view;
 
+use config::Tile;
 pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use view::{View2, View3};
@@ -271,4 +273,103 @@ pub trait RenderHints {
     fn simplify_tree_during_meshing(_d: usize) -> bool {
         true
     }
+}
+
+/// Grand unified render function
+///
+/// This handles tile generation and building + calling render workers in
+/// parallel (using [`rayon`] for parallelism at the tile level).
+///
+/// It returns a set of output tiles
+pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>>(
+    shape: Shape<F>,
+    vars: &ShapeVars<f32>,
+    config: &'a W::Config,
+) -> Vec<(Tile<2>, W::Output)>
+where
+    W::Config: Send + Sync,
+{
+    use rayon::prelude::*;
+
+    let tile_sizes = config.tile_sizes();
+
+    let mut tiles = vec![];
+    let t = tile_sizes[0];
+    let width = config.width() as usize;
+    let height = config.height() as usize;
+    for i in 0..width.div_ceil(t) {
+        for j in 0..height.div_ceil(t) {
+            tiles.push(Tile::new(Point2::new(
+                i * tile_sizes[0],
+                j * tile_sizes[0],
+            )));
+        }
+    }
+
+    let mut rh = RenderHandle::new(shape);
+
+    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
+    let init = || {
+        let rh = rh.clone();
+        let worker = W::new(config);
+        (worker, rh)
+    };
+
+    let out: Vec<_> = match config.threads() {
+        None => {
+            let mut worker = W::new(config);
+            tiles
+                .into_iter()
+                .map(|tile| {
+                    let pixels = worker.render_tile(&mut rh, vars, tile);
+                    (tile, pixels)
+                })
+                .collect()
+        }
+
+        Some(p) => {
+            let run = || {
+                tiles
+                    .into_par_iter()
+                    .map_init(init, |(w, rh), tile| {
+                        let pixels = w.render_tile(rh, vars, tile);
+                        (tile, pixels)
+                    })
+                    .collect()
+            };
+            match p {
+                ThreadPool::Custom(p) => p.install(run),
+                ThreadPool::Global => run(),
+            }
+        }
+    };
+
+    out
+}
+
+/// Helper trait for tiled rendering configuration
+pub(crate) trait RenderConfig {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn tile_sizes(&self) -> &TileSizes;
+    fn threads(&self) -> Option<&ThreadPool>;
+}
+
+/// Helper trait for a tiled renderer worker
+pub(crate) trait RenderWorker<'a, F: Function> {
+    type Config: RenderConfig;
+    type Output: Send;
+
+    /// Build a new worker
+    ///
+    /// Workers are typically built on a per-thread basis
+    fn new(cfg: &'a Self::Config) -> Self;
+
+    /// Render a single tile, returning a worker-dependent output
+    fn render_tile(
+        &mut self,
+        shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
+        tile: config::Tile<2>,
+    ) -> Self::Output;
 }

@@ -3,15 +3,14 @@ use super::RenderHandle;
 use crate::{
     eval::Function,
     render::{
-        config::{ThreadPool, Tile, VoxelRenderConfig},
-        TileSizes, VoxelSize,
+        config::{Tile, VoxelRenderConfig},
+        RenderWorker, TileSizes, VoxelSize,
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
 };
 
-use nalgebra::{Point2, Point3, Vector2, Vector3};
-use rayon::prelude::*;
+use nalgebra::{Point3, Vector2, Vector3};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -69,13 +68,36 @@ struct Worker<'a, F: Function> {
     color: Vec<[u8; 3]>,
 }
 
-impl<F: Function> Worker<'_, F> {
+impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
+    type Config = VoxelRenderConfig<'a>;
+    type Output = (Vec<u32>, Vec<[u8; 3]>);
+
+    fn new(cfg: &'a Self::Config) -> Self {
+        let buf_size = cfg.tile_sizes.last();
+        let scratch = Scratch::new(buf_size);
+        Worker {
+            scratch,
+            depth: vec![],
+            color: vec![],
+            tile_sizes: &cfg.tile_sizes,
+            image_size: cfg.image_size,
+
+            eval_float_slice: Default::default(),
+            eval_interval: Default::default(),
+            eval_grad_slice: Default::default(),
+
+            tape_storage: vec![],
+            shape_storage: vec![],
+            workspace: Default::default(),
+        }
+    }
+
     fn render_tile(
         &mut self,
         shape: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
-        tile: Tile<2>,
-    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+        tile: super::config::Tile<2>,
+    ) -> Self::Output {
         // Prepare local tile data to fill out
         self.depth = vec![0; self.tile_sizes[0].pow(2)];
         self.color = vec![[0u8; 3]; self.tile_sizes[0].pow(2)];
@@ -94,7 +116,9 @@ impl<F: Function> Worker<'_, F> {
         let color = std::mem::take(&mut self.color);
         (depth, color)
     }
+}
 
+impl<F: Function> Worker<'_, F> {
     /// Returns the data offset of a row within a subtile
     pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
         self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
@@ -324,77 +348,13 @@ pub fn render<F: Function>(
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let shape = shape.apply_transform(config.mat());
 
-    let mut tiles = vec![];
-    let t = config.tile_sizes[0];
-    let width = config.image_size[0] as usize;
-    let height = config.image_size[1] as usize;
-    for i in 0..width.div_ceil(t) {
-        for j in 0..height.div_ceil(t) {
-            tiles.push(Tile::new(Point2::new(
-                i * config.tile_sizes[0],
-                j * config.tile_sizes[0],
-            )));
-        }
-    }
+    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config);
 
-    let mut rh = RenderHandle::new(shape);
-    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
-
-    let init = || {
-        let rh = rh.clone();
-        let buf_size = config.tile_sizes.last();
-        let scratch = Scratch::new(buf_size);
-        let worker: Worker<F> = Worker {
-            scratch,
-            depth: vec![],
-            color: vec![],
-            tile_sizes: &config.tile_sizes,
-            image_size: config.image_size,
-
-            eval_float_slice: Default::default(),
-            eval_interval: Default::default(),
-            eval_grad_slice: Default::default(),
-
-            tape_storage: vec![],
-            shape_storage: vec![],
-            workspace: Default::default(),
-        };
-        (worker, rh)
-    };
-
-    // Special-case for single-threaded operation, to give simpler backtraces
-    let out: Vec<_> = match &config.threads {
-        None => {
-            let (mut worker, mut rh) = init();
-            tiles
-                .into_iter()
-                .map(|tile| {
-                    let pixels = worker.render_tile(&mut rh, vars, tile);
-                    (tile, pixels)
-                })
-                .collect()
-        }
-
-        Some(p) => {
-            let run = || {
-                tiles
-                    .into_par_iter()
-                    .map_init(init, |(w, rh), tile| {
-                        let pixels = w.render_tile(rh, vars, tile);
-                        (tile, pixels)
-                    })
-                    .collect()
-            };
-            match p {
-                ThreadPool::Custom(p) => p.install(run),
-                ThreadPool::Global => run(),
-            }
-        }
-    };
-
+    let width = config.image_size.width() as usize;
+    let height = config.image_size.height() as usize;
     let mut image_depth = vec![0; width * height];
     let mut image_color = vec![[0; 3]; width * height];
-    for (tile, (depth, color)) in out {
+    for (tile, (depth, color)) in tiles {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner.y;
