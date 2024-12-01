@@ -1,6 +1,8 @@
 use crate::{
     eval::Function,
-    render::{ImageSize, RenderMode, TileSizes, View2, View3, VoxelSize},
+    render::{
+        ImageSize, RenderConfig, RenderMode, TileSizes, View2, View3, VoxelSize,
+    },
     shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
@@ -47,6 +49,21 @@ impl Default for ImageRenderConfig<'_> {
             view: View2::default(),
             threads: Some(ThreadPool::Global),
         }
+    }
+}
+
+impl RenderConfig for ImageRenderConfig<'_> {
+    fn width(&self) -> u32 {
+        self.image_size.width()
+    }
+    fn height(&self) -> u32 {
+        self.image_size.height()
+    }
+    fn threads(&self) -> Option<&ThreadPool> {
+        self.threads.as_ref()
+    }
+    fn tile_sizes(&self) -> &TileSizes {
+        &self.tile_sizes
     }
 }
 
@@ -109,6 +126,21 @@ impl Default for VoxelRenderConfig<'_> {
 
             threads: Some(ThreadPool::Global),
         }
+    }
+}
+
+impl RenderConfig for VoxelRenderConfig<'_> {
+    fn width(&self) -> u32 {
+        self.image_size.width()
+    }
+    fn height(&self) -> u32 {
+        self.image_size.height()
+    }
+    fn threads(&self) -> Option<&ThreadPool> {
+        self.threads.as_ref()
+    }
+    fn tile_sizes(&self) -> &TileSizes {
+        &self.tile_sizes
     }
 }
 
