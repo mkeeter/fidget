@@ -48,7 +48,71 @@ mod octree;
 mod output;
 mod qef;
 
-use crate::render::{ThreadCount, View3};
+use crate::render::View3;
+
+/// Number of threads to use during evaluation
+///
+/// In a WebAssembly build, only the [`ThreadCount::One`] variant is available.
+#[derive(Copy, Clone, Debug)]
+pub enum ThreadCount {
+    /// Perform all evaluation in the main thread, not spawning any workers
+    One,
+
+    /// Spawn some number of worker threads for evaluation
+    ///
+    /// This can be set to `1`, in which case a single worker thread will be
+    /// spawned; this is different from doing work in the main thread, but not
+    /// particularly useful!
+    #[cfg(not(target_arch = "wasm32"))]
+    Many(std::num::NonZeroUsize),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<std::num::NonZeroUsize> for ThreadCount {
+    fn from(v: std::num::NonZeroUsize) -> Self {
+        match v.get() {
+            0 => unreachable!(),
+            1 => ThreadCount::One,
+            _ => ThreadCount::Many(v),
+        }
+    }
+}
+
+/// Single-threaded mode is shown as `-`; otherwise, an integer
+impl std::fmt::Display for ThreadCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadCount::One => write!(f, "-"),
+            #[cfg(not(target_arch = "wasm32"))]
+            ThreadCount::Many(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl ThreadCount {
+    /// Gets the thread count
+    ///
+    /// Returns `None` if we are required to be single-threaded
+    pub fn get(&self) -> Option<usize> {
+        match self {
+            ThreadCount::One => None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ThreadCount::Many(v) => Some(v.get()),
+        }
+    }
+}
+
+impl Default for ThreadCount {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        Self::One
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn default() -> Self {
+        Self::Many(std::num::NonZeroUsize::new(8).unwrap())
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 mod mt;

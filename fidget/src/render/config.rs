@@ -4,74 +4,21 @@ use crate::{
     shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Number of threads to use during evaluation
+/// Thread pool to use for multithreaded rendering
 ///
-/// In a WebAssembly build, only the [`ThreadCount::One`] variant is available.
-#[derive(Copy, Clone, Debug)]
-pub enum ThreadCount {
-    /// Perform all evaluation in the main thread, not spawning any workers
-    One,
-
-    /// Spawn some number of worker threads for evaluation
-    ///
-    /// This can be set to `1`, in which case a single worker thread will be
-    /// spawned; this is different from doing work in the main thread, but not
-    /// particularly useful!
-    #[cfg(not(target_arch = "wasm32"))]
-    Many(std::num::NonZeroUsize),
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl From<std::num::NonZeroUsize> for ThreadCount {
-    fn from(v: std::num::NonZeroUsize) -> Self {
-        match v.get() {
-            0 => unreachable!(),
-            1 => ThreadCount::One,
-            _ => ThreadCount::Many(v),
-        }
-    }
-}
-
-/// Single-threaded mode is shown as `-`; otherwise, an integer
-impl std::fmt::Display for ThreadCount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ThreadCount::One => write!(f, "-"),
-            #[cfg(not(target_arch = "wasm32"))]
-            ThreadCount::Many(n) => write!(f, "{n}"),
-        }
-    }
-}
-
-impl ThreadCount {
-    /// Gets the thread count
-    ///
-    /// Returns `None` if we are required to be single-threaded
-    pub fn get(&self) -> Option<usize> {
-        match self {
-            ThreadCount::One => None,
-            #[cfg(not(target_arch = "wasm32"))]
-            ThreadCount::Many(v) => Some(v.get()),
-        }
-    }
-}
-
-impl Default for ThreadCount {
-    #[cfg(target_arch = "wasm32")]
-    fn default() -> Self {
-        Self::One
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn default() -> Self {
-        Self::Many(std::num::NonZeroUsize::new(8).unwrap())
-    }
+/// Most users will use the global Rayon pool, but it's possible to provide your
+/// own as well.
+#[derive(Clone)]
+pub enum ThreadPool<'a> {
+    /// User-provided pool
+    Custom(&'a rayon::ThreadPool),
+    /// Global Rayon pool
+    Global,
 }
 
 /// Settings for 2D rendering
-pub struct ImageRenderConfig {
+pub struct ImageRenderConfig<'a> {
     /// Render size
     pub image_size: ImageSize,
 
@@ -85,22 +32,25 @@ pub struct ImageRenderConfig {
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
-    /// Number of worker threads
-    pub threads: ThreadCount,
+    /// Thread pool to use for rendering
+    ///
+    /// If this is `None`, then rendering is done in a single thread; otherwise,
+    /// the provided pool is used.
+    pub threads: Option<ThreadPool<'a>>,
 }
 
-impl Default for ImageRenderConfig {
+impl Default for ImageRenderConfig<'_> {
     fn default() -> Self {
         Self {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
-            threads: ThreadCount::default(),
+            threads: Some(ThreadPool::Global),
         }
     }
 }
 
-impl ImageRenderConfig {
+impl ImageRenderConfig<'_> {
     /// Render a shape in 2D using this configuration
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
@@ -125,7 +75,7 @@ impl ImageRenderConfig {
 }
 
 /// Settings for 3D rendering
-pub struct VoxelRenderConfig {
+pub struct VoxelRenderConfig<'a> {
     /// Render size
     ///
     /// The resulting image will have the given width and height; depth sets the
@@ -143,23 +93,26 @@ pub struct VoxelRenderConfig {
     /// to select this based on evaluator type.
     pub tile_sizes: TileSizes,
 
-    /// Number of worker threads
-    pub threads: ThreadCount,
+    /// Thread pool to use for rendering
+    ///
+    /// If this is `None`, then rendering is done in a single thread; otherwise,
+    /// the provided pool is used.
+    pub threads: Option<ThreadPool<'a>>,
 }
 
-impl Default for VoxelRenderConfig {
+impl Default for VoxelRenderConfig<'_> {
     fn default() -> Self {
         Self {
             image_size: VoxelSize::from(512),
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             view: View3::default(),
 
-            threads: ThreadCount::default(),
+            threads: Some(ThreadPool::Global),
         }
     }
 }
 
-impl VoxelRenderConfig {
+impl VoxelRenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
     /// Returns a tuple of heightmap, RGB image.
@@ -182,11 +135,6 @@ impl VoxelRenderConfig {
     /// Returns the combined screen-to-model transform matrix
     pub fn mat(&self) -> Matrix4<f32> {
         self.view.world_to_model() * self.image_size.screen_to_world()
-    }
-
-    /// Returns the data offset of a row within a subtile
-    pub(crate) fn tile_row_offset(&self, tile: Tile<3>, row: usize) -> usize {
-        self.tile_sizes.pixel_offset(tile.add(Vector2::new(0, row)))
     }
 }
 
@@ -211,25 +159,6 @@ impl<const N: usize> Tile<N> {
     pub(crate) fn add(&self, pos: Vector2<usize>) -> Point2<usize> {
         let corner = Point2::new(self.corner[0], self.corner[1]);
         corner + pos
-    }
-}
-
-/// Worker queue
-pub(crate) struct Queue<const N: usize> {
-    index: AtomicUsize,
-    tiles: Vec<Tile<N>>,
-}
-
-impl<const N: usize> Queue<N> {
-    pub fn new(tiles: Vec<Tile<N>>) -> Self {
-        Self {
-            index: AtomicUsize::new(0),
-            tiles,
-        }
-    }
-    pub fn next(&self) -> Option<Tile<N>> {
-        let index = self.index.fetch_add(1, Ordering::Relaxed);
-        self.tiles.get(index).cloned()
     }
 }
 

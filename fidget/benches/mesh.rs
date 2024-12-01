@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::render::ThreadCount;
+use fidget::mesh::ThreadCount;
 
 const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 

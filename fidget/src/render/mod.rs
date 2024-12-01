@@ -14,7 +14,7 @@ mod render2d;
 mod render3d;
 mod view;
 
-pub use config::{ImageRenderConfig, ThreadCount, VoxelRenderConfig};
+pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use view::{View2, View3};
 

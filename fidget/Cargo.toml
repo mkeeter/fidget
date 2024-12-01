@@ -18,6 +18,7 @@ nalgebra.workspace = true
 num-traits.workspace = true
 ordered-float.workspace = true
 rand.workspace = true
+rayon.workspace = true
 serde.workspace = true
 static_assertions.workspace = true
 thiserror.workspace = true

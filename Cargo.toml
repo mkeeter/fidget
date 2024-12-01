@@ -46,6 +46,7 @@ notify = "7.0"
 num-traits = "0.2"
 ordered-float = "4"
 rand = "0.8.5"
+rayon = "1.10"
 rhai = { version = "1.17", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
