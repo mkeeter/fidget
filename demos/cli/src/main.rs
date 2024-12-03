@@ -324,7 +324,21 @@ fn run_wgpu_smart<
     // Send over our image pixels
     // (TODO: generate this in the shader instead?)
     let mut image = vec![];
+    let pool = match settings.threads {
+        Some(n) if n.get() > 1 => Some(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n.get())
+                .build()
+                .unwrap(),
+        ),
+        _ => None,
+    };
     for _i in 0..settings.n {
+        let threads = match settings.threads {
+            Some(n) if n.get() == 1 => None,
+            Some(_) => pool.as_ref().map(fidget::render::ThreadPool::Custom),
+            None => Some(fidget::render::ThreadPool::Global),
+        };
         // Note that this copies the bytecode each time
         image = ctx
             .run(
@@ -332,11 +346,9 @@ fn run_wgpu_smart<
                 fidget::render::ImageRenderConfig {
                     image_size: fidget::render::ImageSize::from(settings.size),
                     view: Default::default(),
-                    tile_sizes: fidget::render::TileSizes::new(&[128, 16])
+                    tile_sizes: fidget::render::TileSizes::new(&[128, 32])
                         .unwrap(),
-                    threads: fidget::render::ThreadCount::Many(
-                        8.try_into().unwrap(), // ignored
-                    ),
+                    threads,
                 },
             )
             .unwrap();
