@@ -1,9 +1,12 @@
 //! Shader generation and WGPU-based image rendering
 use crate::{
     bytecode,
-    eval::{Function, MathFunction, TracingEvaluator},
-    render::{ImageRenderConfig, ImageSize, View2},
-    shape::{Shape, ShapeTape, ShapeTracingEval},
+    eval::{Function, MathFunction},
+    render::{
+        ImageRenderConfig, ImageSize, RenderHandle, RenderWorker,
+        Tile as RenderTile, TileSizes, View2,
+    },
+    shape::{Shape, ShapeTracingEval, ShapeVars},
     types::Interval,
     Error,
 };
@@ -252,7 +255,18 @@ impl TileContext {
         settings: ImageRenderConfig,
     ) -> Result<Vec<u32>, Error> {
         let s = std::time::Instant::now();
-        let (rs, mat) = build_tiles_in_parallel(shape.clone(), &settings);
+
+        // Convert to a 4x4 matrix and apply to the shape
+        let mat = settings.mat();
+        let mat = mat.insert_row(2, 0.0);
+        let mat = mat.insert_column(2, 0.0);
+        let shape = shape.apply_transform(mat);
+
+        let rs = crate::render::render_tiles::<F, Worker<F>>(
+            shape.clone(),
+            &ShapeVars::new(),
+            &settings,
+        );
         println!("{:?}", s.elapsed());
 
         let bytecode = shape.inner().to_bytecode();
@@ -264,7 +278,11 @@ impl TileContext {
         pos.insert(shape.inner().id(), 0);
 
         let mut tiles = vec![];
-        for r in rs.iter().filter(|r| matches!(r.mode, TileMode::Pixels)) {
+        for r in rs
+            .iter()
+            .flat_map(|(_t, r)| r.iter())
+            .filter(|r| matches!(r.mode, TileMode::Pixels))
+        {
             let id = r.shape.inner().id();
             let start = pos.entry(id).or_insert_with(|| {
                 let prev = data.len();
@@ -352,7 +370,7 @@ impl TileContext {
         self.out_buf.unmap();
 
         // Fill in our filled types
-        for r in rs.iter() {
+        for r in rs.iter().flat_map(|(_t, r)| r.iter()) {
             let fill = match r.mode {
                 TileMode::Full => 0xFFAAAAAA,
                 TileMode::Empty => 0xFF222222,
@@ -529,20 +547,6 @@ impl TileContext {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Unit of work passed to worker threads
-struct Task<F: Function> {
-    corner: Point2<u32>,
-
-    /// Index into the worker's tile size array
-    depth: usize,
-
-    /// Shape to render
-    shape: Shape<F>,
-
-    /// Interval tape (if available)
-    tape: ShapeTape<<F::IntervalEval as TracingEvaluator>::Tape>,
-}
-
 enum TileMode {
     Full,
     Empty,
@@ -560,173 +564,126 @@ struct WorkResult<F> {
     mode: TileMode,
 }
 
-struct Worker<F: Function> {
-    eval: ShapeTracingEval<F::IntervalEval>,
-    shape_storage: Vec<F::Storage>,
+/// Per-thread worker
+struct Worker<'a, F: Function> {
+    tile_sizes: &'a TileSizes,
+
+    eval_interval: ShapeTracingEval<F::IntervalEval>,
+
+    /// Spare tape storage for reuse
     tape_storage: Vec<F::TapeStorage>,
+
+    /// Spare shape storage for reuse
+    shape_storage: Vec<F::Storage>,
+
+    /// Workspace for shape simplification
     workspace: F::Workspace,
-    out: Vec<WorkResult<F>>,
+
+    /// Tiles to render using the compute shader
+    result: Vec<WorkResult<F>>,
 }
 
-impl<F: Function> Default for Worker<F> {
-    fn default() -> Self {
-        Self {
-            eval: Default::default(),
-            shape_storage: Default::default(),
-            tape_storage: Default::default(),
+impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
+    type Config = ImageRenderConfig<'a>;
+    type Output = Vec<WorkResult<F>>;
+    fn new(cfg: &'a Self::Config) -> Self {
+        Worker::<F> {
+            tile_sizes: &cfg.tile_sizes,
+            eval_interval: Default::default(),
+            tape_storage: vec![],
+            shape_storage: vec![],
             workspace: Default::default(),
-            out: Default::default(),
+            result: vec![],
         }
+    }
+
+    fn render_tile(
+        &mut self,
+        shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
+        tile: RenderTile<2>,
+    ) -> Self::Output {
+        self.result = vec![];
+        self.render_tile_recurse(shape, vars, 0, tile);
+        std::mem::take(&mut self.result)
     }
 }
 
-fn build_tiles_in_parallel<F: Function>(
-    shape: Shape<F>,
-    cfg: &ImageRenderConfig,
-) -> (Vec<WorkResult<F>>, Matrix4<f32>) {
-    use rayon::prelude::*;
-    use thread_local::ThreadLocal;
+impl<F: Function> Worker<'_, F> {
+    fn render_tile_recurse(
+        &mut self,
+        shape: &mut RenderHandle<F>,
+        vars: &ShapeVars<f32>,
+        depth: usize,
+        tile: RenderTile<2>,
+    ) {
+        let tile_size = self.tile_sizes[depth];
 
-    let world_to_model = cfg
-        .view
-        .world_to_model()
-        .insert_row(2, 0.0)
-        .insert_column(2, 0.0);
-
-    let screen_to_world = cfg
-        .image_size
-        .screen_to_world()
-        .insert_row(2, 0.0)
-        .insert_column(2, 0.0);
-
-    // Build the combined transform matrix
-    let mat = shape.transform().cloned().unwrap_or_else(Matrix4::identity)
-        * world_to_model
-        * screen_to_world;
-
-    // Clear out the previous transform
-    let shape = shape.set_transform(mat);
-    let tape = shape.interval_tape(Default::default());
-
-    let tile_size = cfg.tile_sizes[0] as u32;
-    let mut tiles = vec![];
-    for x in 0..cfg.image_size.width().div_ceil(tile_size) {
-        for y in 0..cfg.image_size.height().div_ceil(tile_size) {
-            tiles.push(Task {
-                corner: Point2::new(x * tile_size, y * tile_size),
-                depth: 0,
-                shape: shape.clone(),
-                tape: tape.clone(),
-            });
-        }
-    }
-
-    let tls: ThreadLocal<std::cell::RefCell<Worker<F>>> = ThreadLocal::new();
-    let run_one = |t: Task<F>| -> Vec<Task<F>> {
-        let tile_size = cfg.tile_sizes[t.depth] as u32;
-        let x =
-            Interval::new(t.corner.x as f32, (t.corner.x + tile_size) as f32);
-        let y =
-            Interval::new(t.corner.y as f32, (t.corner.y + tile_size) as f32);
+        // Find the interval bounds of the region, in screen coordinates
+        let base = Point2::from(tile.corner).cast::<f32>();
+        let x = Interval::new(base.x, base.x + tile_size as f32);
+        let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(0.0, 0.0);
 
-        let mut tls = tls.get_or_default().borrow_mut();
-        let worker = &mut *tls;
+        // The shape applies the screen-to-model transform
+        let (i, simplify) = self
+            .eval_interval
+            .eval_v(shape.i_tape(&mut self.tape_storage), x, y, z, vars)
+            .unwrap();
 
-        let (r, trace) = worker.eval.eval(&t.tape, x, y, z).unwrap();
-        // Early return if this region is empty / full
-        if r.lower() > 0.0 || r.upper() < 0.0 {
-            worker.tape_storage.extend(t.tape.recycle());
-            worker.out.push(WorkResult {
-                corner: t.corner,
-                tile_size,
-                mode: if r.upper() < 0.0 {
-                    TileMode::Full
-                } else {
-                    TileMode::Empty
-                },
-                shape: t.shape.clone(),
+        if i.upper() < 0.0 {
+            self.result.push(WorkResult {
+                corner: tile.corner.map(|i| i as u32),
+                tile_size: tile_size as u32,
+                shape: shape.shape(),
+                mode: TileMode::Full,
             });
-            return vec![];
+            return;
+        } else if i.lower() > 0.0 {
+            self.result.push(WorkResult {
+                corner: tile.corner.map(|i| i as u32),
+                tile_size: tile_size as u32,
+                shape: shape.shape(),
+                mode: TileMode::Empty,
+            });
+            return;
         }
 
-        let (next_shape, next_tape) = if let Some(trace) = trace {
-            let next_shape = t
-                .shape
-                .simplify(
-                    trace,
-                    worker.shape_storage.pop().unwrap_or_default(),
-                    &mut worker.workspace,
-                )
-                .unwrap();
-            worker.tape_storage.extend(t.tape.recycle());
-            worker.shape_storage.extend(t.shape.recycle());
-            (next_shape, None)
+        let sub_tape = if let Some(trace) = simplify.as_ref() {
+            shape.simplify(
+                trace,
+                &mut self.workspace,
+                &mut self.shape_storage,
+                &mut self.tape_storage,
+            )
         } else {
-            (t.shape, Some(t.tape))
+            shape
         };
 
-        if let Some(next_tile_size) =
-            cfg.tile_sizes.get(t.depth + 1).map(|t| t as u32)
-        {
-            // Building the tape is expensive, so do it here for all children
-            let next_tape = next_tape.unwrap_or_else(|| {
-                next_shape.interval_tape(
-                    worker.tape_storage.pop().unwrap_or_default(),
-                )
-            });
+        if let Some(next_tile_size) = self.tile_sizes.get(depth + 1) {
             let n = tile_size / next_tile_size;
-            let mut out = Vec::with_capacity((n as usize).pow(2));
             for j in 0..n {
                 for i in 0..n {
-                    out.push(Task {
-                        corner: t.corner + Vector2::new(i, j) * next_tile_size,
-                        depth: t.depth + 1,
-                        shape: next_shape.clone(),
-                        tape: next_tape.clone(),
-                    });
+                    self.render_tile_recurse(
+                        sub_tape,
+                        vars,
+                        depth + 1,
+                        RenderTile::new(
+                            tile.corner + Vector2::new(i, j) * next_tile_size,
+                        ),
+                    );
                 }
             }
-            out
         } else {
-            // We're done recursing, push the pixel work to the GPU
-            worker
-                .tape_storage
-                .extend(next_tape.and_then(|t| t.recycle()));
-            worker.out.push(WorkResult {
-                corner: t.corner,
-                tile_size,
-                shape: next_shape,
+            self.result.push(WorkResult {
+                corner: tile.corner.map(|p| p as u32),
+                tile_size: tile_size as u32,
+                shape: sub_tape.shape(),
                 mode: TileMode::Pixels,
-            });
-            vec![]
-        }
-    };
-
-    // ahhhhhhhhhh
-    fn recurse<'a, F: Function + 'a>(
-        t: Task<F>,
-        s: &rayon::Scope<'a>,
-        run_one: impl Fn(Task<F>) -> Vec<Task<F>> + Send + Copy + Sync + 'a,
-    ) {
-        for t in run_one(t) {
-            s.spawn(move |s| recurse(t, s, run_one));
+            })
+            // TODO recycle things here?
         }
     }
-
-    let pool = rayon::ThreadPoolBuilder::new()
-        .build()
-        .expect("failed to build thread pool");
-    pool.scope(|s| {
-        tiles
-            .into_par_iter()
-            .for_each(|t| recurse::<F>(t, s, run_one))
-    });
-
-    (
-        tls.into_iter().flat_map(|i| i.into_inner().out).collect(),
-        mat,
-    )
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -759,11 +716,6 @@ const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        context::Tree,
-        render::{ThreadCount, TileSizes},
-        vm::VmShape,
-    };
 
     #[test]
     fn interpreter_4f_has_all_ops() {
@@ -773,43 +725,6 @@ mod test {
                 INTERPRETER_4F.contains(&op),
                 "interpreter is missing {op}"
             );
-        }
-    }
-
-    #[test]
-    fn parallel_rendering() {
-        let t = (Tree::x().square() + Tree::y().square()).sqrt() - 1.0;
-
-        const SIZE: u32 = 64;
-        const TILE_SIZES: &[usize] = &[32, 16, 8];
-        let tile_sizes = TileSizes::new(TILE_SIZES).unwrap();
-        let (out, _mat) = build_tiles_in_parallel(
-            VmShape::from(t),
-            &ImageRenderConfig {
-                image_size: ImageSize::new(SIZE, SIZE),
-                view: View2::default(),
-                tile_sizes,
-                threads: ThreadCount::Many(4.try_into().unwrap()),
-            },
-        );
-        let mut img = vec!['-'; (SIZE as usize).pow(2)];
-        for o in out {
-            for x in 0..o.tile_size {
-                for y in 0..o.tile_size {
-                    let i = (x + o.corner.x + (y + o.corner.y) * SIZE) as usize;
-                    img[i] = match o.mode {
-                        TileMode::Full => 'X',
-                        TileMode::Empty => '.',
-                        TileMode::Pixels => '?',
-                    };
-                }
-            }
-        }
-        for row in img.chunks_exact(SIZE as usize) {
-            for c in row {
-                print!("{c}{c}");
-            }
-            println!();
         }
     }
 }

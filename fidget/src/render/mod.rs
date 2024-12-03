@@ -15,7 +15,8 @@ mod render2d;
 mod render3d;
 mod view;
 
-use config::Tile;
+pub(crate) use config::Tile;
+
 pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use view::{View2, View3};
@@ -184,6 +185,11 @@ impl<F: Function> RenderHandle<F> {
 
         // Do this step last because the evaluators may borrow the shape
         shape_storage.extend(self.shape.recycle());
+    }
+
+    /// Returns the inner shape
+    pub fn shape(&self) -> Shape<F> {
+        self.shape.clone()
     }
 }
 
