@@ -346,7 +346,7 @@ fn run_wgpu_smart<
                 fidget::render::ImageRenderConfig {
                     image_size: fidget::render::ImageSize::from(settings.size),
                     view: Default::default(),
-                    tile_sizes: fidget::render::TileSizes::new(&[128, 32])
+                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
                         .unwrap(),
                     threads,
                 },
