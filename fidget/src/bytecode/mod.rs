@@ -93,10 +93,17 @@ impl Bytecode {
 
 impl RegTape {
     /// Converts to bytecode using the format specified in [`bytecode`](crate::bytecode)
-    pub fn to_bytecode(&self) -> Bytecode {
+    ///
+    /// If `reg_limit` is less than `u8::MAX` (i.e. the tape was planned for a
+    /// limited set of registers), the first `u8::MAX - reg_limit` memory slots
+    /// are instead mapped to registers in the range `reg_limit + 1..=u8::MAX`;
+    /// the [`RegOp::Load`] and [`Store`](RegOp::Store) opcodes are replaced
+    /// by [`CopyReg`](RegOp::CopyReg).
+    pub fn to_bytecode(&self, reg_limit: usize) -> Bytecode {
         let mut data = vec![];
 
         let mut reg_count = 0u8;
+        let slot_to_reg = |slot| slot as usize + reg_limit + 1;
         for op in self.iter().rev() {
             let r = RegOpDiscriminants::from(op);
             let mut word = [r as u8, 0xFF, 0xFF, 0xFF];
@@ -106,13 +113,33 @@ impl RegTape {
                 word[i] = r;
             };
             match *op {
-                RegOp::Input(reg, slot)
-                | RegOp::Output(reg, slot)
-                | RegOp::Load(reg, slot)
-                | RegOp::Store(reg, slot) => {
+                RegOp::Input(reg, slot) | RegOp::Output(reg, slot) => {
                     store_reg(1, reg);
                     imm = Some(slot);
                 }
+
+                // Patch Load and Store operators if we can use registers intead
+                // XXX could we do this without explicit copies, by remapping?
+                RegOp::Load(reg, slot)
+                    if slot_to_reg(slot) <= u8::MAX as usize =>
+                {
+                    store_reg(1, reg);
+                    store_reg(2, u8::try_from(slot_to_reg(slot)).unwrap());
+                    word[0] = RegOpDiscriminants::CopyReg as u8;
+                }
+                RegOp::Store(reg, slot)
+                    if slot_to_reg(slot) <= u8::MAX as usize =>
+                {
+                    store_reg(1, u8::try_from(slot_to_reg(slot)).unwrap());
+                    store_reg(2, reg);
+                    word[0] = RegOpDiscriminants::CopyReg as u8;
+                }
+
+                RegOp::Load(reg, slot) | RegOp::Store(reg, slot) => {
+                    store_reg(1, reg);
+                    imm = Some(slot - reg_limit as u32);
+                }
+
                 RegOp::CopyImm(out, imm_f32) => {
                     store_reg(1, out);
                     imm = Some(imm_f32.to_bits());
@@ -180,12 +207,10 @@ impl RegTape {
             data.extend(imm);
         }
 
-        let mem_count = (self.slot_count() as u32)
-            .checked_sub(u32::from(reg_count + 1))
-            .unwrap();
+        let mem_count = self.slot_count().saturating_sub(u8::MAX as usize);
         Bytecode {
             data,
-            mem_count,
+            mem_count: mem_count as u32,
             reg_count,
         }
     }

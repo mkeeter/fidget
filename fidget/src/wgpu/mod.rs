@@ -254,8 +254,6 @@ impl TileContext {
         shape: Shape<F>, // XXX add ShapeVars here
         settings: ImageRenderConfig,
     ) -> Result<Vec<u32>, Error> {
-        let s = std::time::Instant::now();
-
         // Convert to a 4x4 matrix and apply to the shape
         let mat = settings.mat();
         let mat = mat.insert_row(2, 0.0);
@@ -267,7 +265,6 @@ impl TileContext {
             &ShapeVars::new(),
             &settings,
         );
-        println!("{:?}", s.elapsed());
 
         let bytecode = shape.inner().to_bytecode();
         let mut max_reg = bytecode.reg_count;
@@ -301,7 +298,6 @@ impl TileContext {
         }
         assert_eq!(max_mem, 0, "external memory is not yet supported");
 
-        // TODO build tiles from rs
         let tile_size = settings.tile_sizes.last() as u32;
 
         let vars = shape.inner().vars();
