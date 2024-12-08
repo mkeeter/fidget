@@ -200,6 +200,7 @@ impl<F: Function> RenderHandle<F> {
 /// - There must be at least one tile size
 /// - Tiles must be ordered from largest to smallest
 /// - Each tile size must be exactly divisible by subsequent tile sizes
+/// - The smallest tile size must be evenly divisible by 4
 #[derive(Debug, Eq, PartialEq)]
 pub struct TileSizes(Vec<usize>);
 
@@ -216,6 +217,8 @@ impl TileSizes {
     pub fn new(sizes: &[usize]) -> Result<Self, Error> {
         if sizes.is_empty() {
             return Err(Error::EmptyTileSizes);
+        } else if sizes.last().unwrap() % 4 != 0 {
+            return Err(Error::BadLastTile(*sizes.last().unwrap()));
         }
         for i in 1..sizes.len() {
             if sizes[i - 1] <= sizes[i] {

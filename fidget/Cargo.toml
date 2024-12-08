@@ -75,8 +75,9 @@ wgpu = [
 eval-tests = []
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-approx = "0.5.1"
+approx.workspace = true
+criterion.workspace = true
+naga.workspace = true # unfortunately, this can't be optional
 
 [[bench]]
 name = "render"

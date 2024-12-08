@@ -77,6 +77,10 @@ pub enum Error {
     #[error("bad tile order; {0} is not larger than {1}")]
     BadTileOrder(usize, usize),
 
+    /// Last tile size must be divisible by 4
+    #[error("bad tile size; {0} must be divisible by 4")]
+    BadLastTile(usize),
+
     /// Tile size list must not be empty
     #[error("tile size list must not be empty")]
     EmptyTileSizes,

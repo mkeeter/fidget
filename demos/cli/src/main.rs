@@ -58,6 +58,7 @@ enum Command {
 #[derive(ValueEnum, Clone)]
 enum ShaderName {
     PixelTiles,
+    VoxelTiles,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -518,6 +519,9 @@ fn main() -> Result<()> {
         Command::Shader { name } => match name {
             ShaderName::PixelTiles => {
                 println!("{}", fidget::wgpu::pixel_tiles_shader())
+            }
+            ShaderName::VoxelTiles => {
+                println!("{}", fidget::wgpu::voxel_tiles_shader())
             }
         },
     }
