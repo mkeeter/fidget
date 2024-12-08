@@ -21,13 +21,10 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 #[repr(C)]
 struct Tile {
     /// Corner of this tile, in pixel units
-    corner: [u32; 2],
+    corner: [u32; 3],
 
     /// Start of this tile's tape, as an offset into the global tape
     start: u32,
-
-    /// Alignment to 16-byte boundary
-    _padding: u32,
 }
 
 #[derive(Debug, IntoBytes, Immutable)]
@@ -249,7 +246,7 @@ impl TileContext {
     }
 
     /// Renders a single image using GPU acceleration
-    pub fn run<F: Function + MathFunction>(
+    pub fn run_2d<F: Function + MathFunction>(
         &mut self,
         shape: Shape<F>, // XXX add ShapeVars here
         settings: ImageRenderConfig,
@@ -260,7 +257,7 @@ impl TileContext {
         let mat = mat.insert_column(2, 0.0);
         let shape = shape.apply_transform(mat);
 
-        let rs = crate::render::render_tiles::<F, Worker<F>>(
+        let rs = crate::render::render_tiles::<F, Worker2D<F>>(
             shape.clone(),
             &ShapeVars::new(),
             &settings,
@@ -291,9 +288,8 @@ impl TileContext {
             });
             assert_eq!(r.tile_size as usize, settings.tile_sizes.last());
             tiles.push(Tile {
-                corner: [r.corner.x, r.corner.y],
+                corner: [r.corner.x, r.corner.y, 0],
                 start: u32::try_from(*start).unwrap_or(0),
-                _padding: 0u32,
             })
         }
         assert_eq!(max_mem, 0, "external memory is not yet supported");
@@ -383,7 +379,7 @@ impl TileContext {
     }
 
     /// Renders a single image using GPU acceleration
-    pub fn run_brute<F: Function + MathFunction>(
+    pub fn run_2d_brute<F: Function + MathFunction>(
         &mut self,
         shape: Shape<F>, // XXX add ShapeVars here
         image_size: ImageSize,
@@ -409,9 +405,8 @@ impl TileContext {
         for x in 0..image_size.width().div_ceil(TILE_SIZE) {
             for y in 0..image_size.height().div_ceil(TILE_SIZE) {
                 tiles.push(Tile {
-                    corner: [x * TILE_SIZE, y * TILE_SIZE],
+                    corner: [x * TILE_SIZE, y * TILE_SIZE, 0],
                     start: 0,
-                    _padding: 0,
                 });
             }
         }
@@ -561,7 +556,7 @@ struct WorkResult<F> {
 }
 
 /// Per-thread worker
-struct Worker<'a, F: Function> {
+struct Worker2D<'a, F: Function> {
     tile_sizes: &'a TileSizes,
 
     eval_interval: ShapeTracingEval<F::IntervalEval>,
@@ -579,11 +574,11 @@ struct Worker<'a, F: Function> {
     result: Vec<WorkResult<F>>,
 }
 
-impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
+impl<'a, F: Function> RenderWorker<'a, F> for Worker2D<'a, F> {
     type Config = ImageRenderConfig<'a>;
     type Output = Vec<WorkResult<F>>;
     fn new(cfg: &'a Self::Config) -> Self {
-        Worker::<F> {
+        Worker2D::<F> {
             tile_sizes: &cfg.tile_sizes,
             eval_interval: Default::default(),
             tape_storage: vec![],
@@ -605,7 +600,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     }
 }
 
-impl<F: Function> Worker<'_, F> {
+impl<F: Function> Worker2D<'_, F> {
     fn render_tile_recurse(
         &mut self,
         shape: &mut RenderHandle<F>,
@@ -697,7 +692,17 @@ fn opcode_constants() -> String {
 pub fn pixel_tiles_shader() -> String {
     let mut shader_code = opcode_constants();
     shader_code += INTERPRETER_4F;
+    shader_code += COMMON_SHADER;
     shader_code += PIXEL_TILES_SHADER;
+    shader_code
+}
+
+/// Returns a shader string to evaluate voxel tiles (3D)
+pub fn voxel_tiles_shader() -> String {
+    let mut shader_code = opcode_constants();
+    shader_code += INTERPRETER_4F;
+    shader_code += COMMON_SHADER;
+    shader_code += VOXEL_TILES_SHADER;
     shader_code
 }
 
@@ -706,6 +711,12 @@ const INTERPRETER_4F: &str = include_str!("interpreter_4f.wgsl");
 
 /// `main` shader function for pixel tile evaluation
 const PIXEL_TILES_SHADER: &str = include_str!("pixel_tiles.wgsl");
+
+/// `main` shader function for pixel tile evaluation
+const VOXEL_TILES_SHADER: &str = include_str!("voxel_tiles.wgsl");
+
+/// Common data types for shaders
+const COMMON_SHADER: &str = include_str!("common.wgsl");
 
 ////////////////////////////////////////////////////////////////////////////////
 

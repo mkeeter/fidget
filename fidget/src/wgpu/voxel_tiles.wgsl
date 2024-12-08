@@ -1,8 +1,11 @@
-// VM interpreter for floating-point values, using tiled rendering
+// VM interpreter for floating-point values, using voxel tiles
 //
 // This shader must also be concatenated with `interpreter_4f.wgsl`, which
 // provides the `run_tape` function, and `common.wgsl`, which provides common
 // bindings (0-2) and types.
+
+/// Tiles to render
+@group(0) @binding(3) var<storage, read> tiles: array<Tile3D>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -22,9 +25,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
         for (var i=0u; i < 4; i += 1u) {
             // Absolute pixel position
-            let corner_pixels = vec3f(tile.corner + vec3(pos_x + i, pos_y, 0));
+            let corner_pixels = vec2f(tile.corner + vec2(pos_x + i, pos_y));
 
-            let pos_pixels = vec4f(corner_pixels, 1.0);
+            let pos_pixels = vec4f(corner_pixels, 0.0, 1.0);
             let pos_model = config.mat * pos_pixels;
 
             m[config.axes.x][i] = pos_model.x;
@@ -44,8 +47,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             }
 
             // Write to absolute position in the image
-            let pos_pixels = tile.corner + vec3(pos_x + i, pos_y, 0);
+            let pos_pixels = tile.corner + vec2(pos_x + i, pos_y);
             result[pos_pixels.x + pos_pixels.y * config.window_size.x] = p;
         }
     }
 }
+

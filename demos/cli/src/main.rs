@@ -302,7 +302,7 @@ fn run_wgpu_brute<
     for _i in 0..settings.n {
         // Note that this copies the bytecode each time
         image = ctx
-            .run_brute(
+            .run_2d_brute(
                 shape.clone(),
                 fidget::render::ImageSize::from(settings.size),
                 Default::default(),
@@ -341,7 +341,7 @@ fn run_wgpu_smart<
         };
         // Note that this copies the bytecode each time
         image = ctx
-            .run(
+            .run_2d(
                 shape.clone(),
                 fidget::render::ImageRenderConfig {
                     image_size: fidget::render::ImageSize::from(settings.size),
