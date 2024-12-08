@@ -734,4 +734,34 @@ mod test {
             );
         }
     }
+
+    #[test]
+    fn compile_shaders() {
+        let mut v = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+        for (src, desc) in [
+            (pixel_tiles_shader(), "pixel tiles"),
+            (voxel_tiles_shader(), "voxel tiles"),
+        ] {
+            // This isn't the best formatting, but it will at least include the
+            // relevant text.
+            let m = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| {
+                let i = e.location(&src).unwrap();
+                let pos = i.offset as usize..(i.offset + i.length) as usize;
+                panic!("{}", e.emit_to_string_with_path(&src[pos], desc));
+            });
+            if let Err(e) = v.validate(&m) {
+                let (pos, desc) = e.spans().next().unwrap();
+                panic!(
+                    "{}",
+                    e.emit_to_string_with_path(
+                        &src[pos.to_range().unwrap()],
+                        desc
+                    )
+                );
+            }
+        }
+    }
 }

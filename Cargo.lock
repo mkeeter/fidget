@@ -909,6 +909,7 @@ dependencies = [
  "heck",
  "ieee754",
  "libc",
+ "naga",
  "nalgebra",
  "num-traits",
  "ordered-float",

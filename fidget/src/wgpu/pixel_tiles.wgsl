@@ -2,7 +2,7 @@
 //
 // This shader must also be concatenated with `interpreter_4f.wgsl`, which
 // provides the `run_tape` function, and `common.wgsl`, which provides common
-// bindings (0-2) and types.
+// bindings and types.
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {

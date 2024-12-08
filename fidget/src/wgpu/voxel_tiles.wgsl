@@ -2,18 +2,17 @@
 //
 // This shader must also be concatenated with `interpreter_4f.wgsl`, which
 // provides the `run_tape` function, and `common.wgsl`, which provides common
-// bindings (0-2) and types.
+// bindings and types.
 
-/// Tiles to render
-@group(0) @binding(3) var<storage, read> tiles: array<Tile3D>;
-
+// Each shader invocation evalutes 4 voxels, which only differ in X position
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
-    let tile_idx = id.x / (config.tile_size * config.tile_size / 4);
+    let tile_idx = id.x / (config.tile_size * config.tile_size * config.tile_size / 4);
 
     // Position within the tile
     let pos_x = 4 * (id.x % (config.tile_size / 4)); // 4x SIMD
     let pos_y = (id.x / (config.tile_size / 4)) % config.tile_size;
+    let pos_z = (id.x / (config.tile_size * config.tile_size / 4)) % config.tile_size;
 
     if (tile_idx < config.tile_count) {
         let tile = tiles[tile_idx];
@@ -25,9 +24,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
         for (var i=0u; i < 4; i += 1u) {
             // Absolute pixel position
-            let corner_pixels = vec2f(tile.corner + vec2(pos_x + i, pos_y));
+            let corner_pixels = vec3f(tile.corner + vec3(pos_x + i, pos_y, pos_z));
 
-            let pos_pixels = vec4f(corner_pixels, 0.0, 1.0);
+            let pos_pixels = vec4f(corner_pixels, 1.0);
             let pos_model = config.mat * pos_pixels;
 
             m[config.axes.x][i] = pos_model.x;
@@ -46,9 +45,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 p = 0xFF000000u;
             }
 
-            // Write to absolute position in the image
-            let pos_pixels = tile.corner + vec2(pos_x + i, pos_y);
-            result[pos_pixels.x + pos_pixels.y * config.window_size.x] = p;
+            // Accumulate max height to absolute position in the tile
+            let pos_pixels = tile.corner + vec3(pos_x + i, pos_y, pos_z);
+            let i = pos_pixels.x + pos_pixels.y * config.window_size.x;
+            result[i] = atomicMax(&result[i], p );
         }
     }
 }
