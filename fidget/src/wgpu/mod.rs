@@ -6,6 +6,8 @@ use heck::ToShoutySnakeCase;
 
 mod pixel;
 pub use pixel::PixelContext;
+mod voxel;
+pub use voxel::VoxelContext;
 
 // Square tiles
 #[derive(Debug, IntoBytes, Immutable)]
