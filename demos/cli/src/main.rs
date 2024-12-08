@@ -295,7 +295,7 @@ fn run_wgpu_brute<
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
 ) -> Vec<u8> {
-    let mut ctx = fidget::wgpu::TileContext::new().unwrap();
+    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
 
     // Send over our image pixels
     // (TODO: generate this in the shader instead?)
@@ -320,7 +320,7 @@ fn run_wgpu_smart<
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
 ) -> Vec<u8> {
-    let mut ctx = fidget::wgpu::TileContext::new().unwrap();
+    let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
 
     // Send over our image pixels
     // (TODO: generate this in the shader instead?)

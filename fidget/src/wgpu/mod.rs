@@ -50,15 +50,9 @@ struct Config {
 }
 
 /// Context for rendering a set of 2D tiles
-pub struct TileContext {
+struct TileContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
-
-    /// Compute pipeline
-    pipeline: wgpu::ComputePipeline,
-
-    /// Bind group layout
-    bind_group_layout: wgpu::BindGroupLayout,
 
     /// Configuration data (fixed size)
     config_buf: wgpu::Buffer,
@@ -68,11 +62,6 @@ pub struct TileContext {
 
     /// Tape (flexible size)
     tape_buf: wgpu::Buffer,
-
-    /// Result buffer written by the compute shader
-    ///
-    /// (dynamic size, implicit from image size in config)
-    result_buf: wgpu::Buffer,
 
     /// Result buffer that can be read back from the host
     ///
@@ -96,15 +85,6 @@ impl TileContext {
                 .map_err(Error::NoDevice)
         })?;
 
-        let shader_code = pixel_tiles_shader();
-
-        // Compile the shader
-        let shader_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-            });
-
         // Create buffers for the input and output data
         let config_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("config"),
@@ -115,11 +95,109 @@ impl TileContext {
 
         let tape_buf = Self::new_tape_buffer(&device, 512);
         let tile_buf = Self::new_tile_buffer(&device, 512);
-        let (result_buf, out_buf) = Self::new_result_buffers(&device, 512);
+        let out_buf = Self::new_out_buffer(&device, 512);
+
+        Ok(Self {
+            device,
+            queue,
+            config_buf,
+            tile_buf,
+            tape_buf,
+            out_buf,
+        })
+    }
+
+    /// Helper function to build a tape buffer
+    fn new_tape_buffer(device: &wgpu::Device, len: usize) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tape"),
+            size: (len * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// Helper function to build a tile buffer
+    fn new_tile_buffer(device: &wgpu::Device, len: usize) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile"),
+            size: (len * std::mem::size_of::<Tile>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// Builds an `out` buffer that can be read back by the host
+    fn new_out_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("out"),
+            size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// Loads a config into `config_buf`
+    fn load_config(&self, config: &Config) {
+        self.queue
+            .write_buffer(&self.config_buf, 0, config.as_bytes());
+    }
+
+    /// Loads a list of tiles into `tile_buf`, resizing as needed
+    fn load_tiles(&mut self, tiles: &[Tile]) {
+        let required_size = std::mem::size_of_val(tiles);
+        if required_size > self.tile_buf.size() as usize {
+            self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
+        }
+        self.queue.write_buffer(&self.tile_buf, 0, tiles.as_bytes());
+    }
+
+    /// Loads a tape into `tape_buf`, resizing as needed
+    fn load_tape(&mut self, bytecode: &[u8]) {
+        let required_size = std::mem::size_of_val(bytecode);
+        if required_size > self.tape_buf.size() as usize {
+            self.tape_buf = Self::new_tape_buffer(&self.device, required_size);
+        }
+        self.queue.write_buffer(&self.tape_buf, 0, bytecode);
+    }
+
+    /// Resizes the `out` buffer to fit the given image (if necessary)
+    fn resize_out_buf(&mut self, image_size: ImageSize) {
+        let pixels = image_size.width() as u64 * image_size.height() as u64;
+        let required_size = pixels * std::mem::size_of::<u32>() as u64;
+        if required_size > self.out_buf.size() {
+            self.out_buf = Self::new_out_buffer(&self.device, required_size);
+        }
+    }
+}
+
+/// Context for 2D (pixel) rendering
+pub struct PixelContext {
+    /// Common context
+    ctx: TileContext,
+
+    /// Compute pipeline
+    pipeline: wgpu::ComputePipeline,
+
+    /// Bind group layout
+    bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Result buffer written by the compute shader
+    ///
+    /// (dynamic size, implicit from image size in config)
+    result_buf: wgpu::Buffer,
+}
+
+impl PixelContext {
+    /// Build a new 2D (pixel) rendering context
+    pub fn new() -> Result<Self, Error> {
+        let ctx = TileContext::new()?;
+
+        let shader_code = pixel_tiles_shader();
 
         // Create bind group layout and bind group
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bind_group_layout = ctx.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -169,80 +247,55 @@ impl TileContext {
                         count: None,
                     },
                 ],
-            });
+            },
+        );
 
         // Create the compute pipeline
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = ctx.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
-            });
+            },
+        );
 
-        let pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        // Compile the shader
+        let shader_module =
+            ctx.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: None,
+                    source: wgpu::ShaderSource::Wgsl(shader_code.into()),
+                });
+
+        let pipeline = ctx.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
                 label: None,
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("main"),
                 compilation_options: Default::default(),
                 cache: None,
-            });
+            },
+        );
+
+        let result_buf = Self::new_result_buffer(&ctx.device, 512);
 
         Ok(Self {
-            device,
-            queue,
+            ctx,
             pipeline,
-            config_buf,
-            tile_buf,
-            tape_buf,
             result_buf,
-            out_buf,
             bind_group_layout,
         })
     }
 
-    /// Helper function to build a tape buffer
-    fn new_tape_buffer(device: &wgpu::Device, len: usize) -> wgpu::Buffer {
+    /// Builds a `result` buffer that can be written by a compute shader
+    fn new_result_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tape"),
-            size: (len * std::mem::size_of::<u32>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
-    /// Helper function to build a tile buffer
-    fn new_tile_buffer(device: &wgpu::Device, len: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tile"),
-            size: (len * std::mem::size_of::<Tile>()) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
-    /// Builds a tuple of `(result, out)` buffers with a given size (in bytes)
-    ///
-    /// The `result` buffer can be written by a compute shader; the `out` buffer
-    /// can be read back by the host.
-    fn new_result_buffers(
-        device: &wgpu::Device,
-        size: u64,
-    ) -> (wgpu::Buffer, wgpu::Buffer) {
-        let result_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("result"),
             size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
-        });
-        let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("out"),
-            size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        (result_buffer, out_buffer)
+        })
     }
 
     /// Renders a single image using GPU acceleration
@@ -308,17 +361,18 @@ impl TileContext {
             tile_count: tiles.len() as u32,
             _padding: 0,
         };
-        self.load_config(&config);
-        self.load_tiles(&tiles);
+        self.ctx.load_config(&config);
+        self.ctx.load_tiles(&tiles);
+        self.ctx.resize_out_buf(settings.image_size);
         self.resize_result_buf(settings.image_size);
 
-        self.load_tape(data.as_bytes());
+        self.ctx.load_tape(data.as_bytes());
 
         // TODO should we cache this?
         let bind_group = self.create_bind_group();
 
         // Create a command encoder and dispatch the compute work
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.ctx.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
@@ -342,24 +396,24 @@ impl TileContext {
         encoder.copy_buffer_to_buffer(
             &self.result_buf,
             0,
-            &self.out_buf,
+            &self.ctx.out_buf,
             0,
             image_pixels as u64 * std::mem::size_of::<f32>() as u64,
         );
 
         // Submit the commands and wait for the GPU to complete
-        self.queue.submit(Some(encoder.finish()));
+        self.ctx.queue.submit(Some(encoder.finish()));
 
         // Map result buffer and read back the data
-        let buffer_slice = self.out_buf.slice(..);
+        let buffer_slice = self.ctx.out_buf.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
+        self.ctx.device.poll(wgpu::Maintain::Wait);
 
         let mut result =
             <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
                 .unwrap()
                 .to_owned();
-        self.out_buf.unmap();
+        self.ctx.out_buf.unmap();
 
         // Fill in our filled types
         for r in rs.iter().flat_map(|(_t, r)| r.iter()) {
@@ -419,18 +473,18 @@ impl TileContext {
             tile_count: tiles.len() as u32,
             _padding: 0,
         };
-        self.load_config(&config);
-        self.load_tiles(&tiles);
-        self.resize_result_buf(image_size);
+        self.ctx.load_config(&config);
+        self.ctx.load_tiles(&tiles);
+        self.ctx.resize_out_buf(image_size);
 
         let bytecode = shape.inner().to_bytecode();
-        self.load_tape(bytecode.as_bytes());
+        self.ctx.load_tape(bytecode.as_bytes());
 
         // TODO should we cache this?
         let bind_group = self.create_bind_group();
 
         // Create a command encoder and dispatch the compute work
-        let mut encoder = self.device.create_command_encoder(
+        let mut encoder = self.ctx.device.create_command_encoder(
             &wgpu::CommandEncoderDescriptor { label: None },
         );
 
@@ -452,87 +506,63 @@ impl TileContext {
         encoder.copy_buffer_to_buffer(
             &self.result_buf,
             0,
-            &self.out_buf,
+            &self.ctx.out_buf,
             0,
             (pixel_count * std::mem::size_of::<f32>()) as u64,
         );
 
         // Submit the commands and wait for the GPU to complete
-        self.queue.submit(Some(encoder.finish()));
+        self.ctx.queue.submit(Some(encoder.finish()));
 
         // Map result buffer and read back the data
-        let buffer_slice = self.out_buf.slice(..);
+        let buffer_slice = self.ctx.out_buf.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
+        self.ctx.device.poll(wgpu::Maintain::Wait);
 
         let result = <[u32]>::ref_from_bytes(&buffer_slice.get_mapped_range())
             .unwrap()
             .to_owned();
-        self.out_buf.unmap();
+        self.ctx.out_buf.unmap();
 
         Ok(result)
     }
 
-    /// Loads a config into `config_buf`
-    fn load_config(&self, config: &Config) {
-        self.queue
-            .write_buffer(&self.config_buf, 0, config.as_bytes());
+    /// Builds a new bind group with the current buffers
+    fn create_bind_group(&self) -> wgpu::BindGroup {
+        self.ctx
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.ctx.config_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.ctx.tile_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.ctx.tape_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.result_buf.as_entire_binding(),
+                    },
+                ],
+            })
     }
 
-    /// Loads a list of tiles into `tile_buf`, resizing as needed
-    fn load_tiles(&mut self, tiles: &[Tile]) {
-        let required_size = std::mem::size_of_val(tiles);
-        if required_size > self.tile_buf.size() as usize {
-            self.tile_buf = Self::new_tile_buffer(&self.device, required_size);
-        }
-        self.queue.write_buffer(&self.tile_buf, 0, tiles.as_bytes());
-    }
-
-    /// Loads a tape into `tape_buf`, resizing as needed
-    fn load_tape(&mut self, bytecode: &[u8]) {
-        let required_size = std::mem::size_of_val(bytecode);
-        if required_size > self.tape_buf.size() as usize {
-            self.tape_buf = Self::new_tape_buffer(&self.device, required_size);
-        }
-        self.queue.write_buffer(&self.tape_buf, 0, bytecode);
-    }
-
-    /// Resizes the result buffer to fit the given image (if necessary)
+    /// Resizes the `out` buffer to fit the given image (if necessary)
     fn resize_result_buf(&mut self, image_size: ImageSize) {
         let pixels = image_size.width() as u64 * image_size.height() as u64;
         let required_size = pixels * std::mem::size_of::<u32>() as u64;
         if required_size > self.result_buf.size() {
-            let (result_buf, out_buf) =
-                Self::new_result_buffers(&self.device, required_size);
-            self.result_buf = result_buf;
-            self.out_buf = out_buf;
+            self.result_buf =
+                Self::new_result_buffer(&self.ctx.device, required_size);
         }
-    }
-
-    /// Builds a new bind group with the current buffers
-    fn create_bind_group(&self) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.config_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.tile_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.tape_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.result_buf.as_entire_binding(),
-                },
-            ],
-        })
     }
 }
 
