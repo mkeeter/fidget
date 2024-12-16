@@ -28,4 +28,4 @@ jobs:
     - name: Check Prettier
       run: npx prettier . --check
     - name: Build wasm-demo
-      run: npm run build
+      run: npm run dist

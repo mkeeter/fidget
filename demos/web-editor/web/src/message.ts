@@ -14,16 +14,6 @@ export class ScriptRequest {
   }
 }
 
-export class StartRequest {
-  kind: RequestKind.Start;
-  index: number;
-
-  constructor(index: number) {
-    this.index = index;
-    this.kind = RequestKind.Start;
-  }
-}
-
 export enum RenderMode {
   Bitmap,
   Heightmap,
@@ -42,7 +32,7 @@ export class ShapeRequest {
   }
 }
 
-export type WorkerRequest = ScriptRequest | ShapeRequest | StartRequest;
+export type WorkerRequest = ScriptRequest | ShapeRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 

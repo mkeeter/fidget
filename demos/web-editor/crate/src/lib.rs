@@ -1,7 +1,7 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, ImageRenderConfig, ImageSize, View2, View3,
+        BitRenderMode, ImageRenderConfig, ImageSize, ThreadPool, TileSizes,
         VoxelRenderConfig, VoxelSize,
     },
     var::Var,
@@ -9,6 +9,7 @@ use fidget::{
     Error,
 };
 use wasm_bindgen::prelude::*;
+pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[derive(Clone)]
 #[wasm_bindgen]
@@ -45,49 +46,17 @@ pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
     Ok(JsVmShape(VmShape::new_raw(d.into(), axes)))
 }
 
-/// Renders a subregion of an image, for webworker-based multithreading
-///
-/// The image has a total size of `image_size` (on each side) and is divided
-/// into `0 <= pos < workers_per_side^2` tiles.
+/// Renders the image in 2D
 #[wasm_bindgen]
 pub fn render_region_2d(
     shape: JsVmShape,
     image_size: usize,
-    index: usize,
-    workers_per_side: usize,
 ) -> Result<Vec<u8>, String> {
-    if index >= workers_per_side.pow(2) {
-        return Err("invalid index".to_owned());
-    }
-    if image_size % workers_per_side != 0 {
-        return Err(
-            "image_size must be divisible by workers_per_side".to_owned()
-        );
-    }
-    fn inner(
-        shape: VmShape,
-        image_size: usize,
-        index: usize,
-        workers_per_side: usize,
-    ) -> Result<Vec<u8>, Error> {
-        // Corner position in [0, workers_per_side] coordinates
-        let mut corner = nalgebra::Vector2::new(
-            index / workers_per_side,
-            index % workers_per_side,
-        )
-        .cast::<f32>();
-        // Corner position in [-1, 1] coordinates
-        corner = (corner * 2.0 / workers_per_side as f32).add_scalar(-1.0);
-
-        // Scale of each tile
-        let scale = 2.0 / workers_per_side as f32;
-
-        // Tile center
-        let center = corner.add_scalar(scale / 2.0);
-
+    fn inner(shape: VmShape, image_size: usize) -> Result<Vec<u8>, Error> {
         let cfg = ImageRenderConfig {
-            image_size: ImageSize::from((image_size / workers_per_side) as u32),
-            view: View2::from_center_and_scale(center, scale / 2.0),
+            image_size: ImageSize::from(image_size as u32),
+            threads: Some(ThreadPool::Global),
+            tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             ..Default::default()
         };
 
@@ -100,32 +69,16 @@ pub fn render_region_2d(
             })
             .collect())
     }
-    inner(shape.0, image_size, index, workers_per_side)
-        .map_err(|e| format!("{e}"))
+    inner(shape.0, image_size).map_err(|e| format!("{e}"))
 }
 
-/// Renders a subregion of a heightmap, for webworker-based multithreading
-///
-/// The image has a total size of `image_size` (on each side) and is divided
-/// into `0 <= pos < workers_per_side^2` tiles.
+/// Renders a heightmap image
 #[wasm_bindgen]
 pub fn render_region_heightmap(
     shape: JsVmShape,
     image_size: usize,
-    index: usize,
-    workers_per_side: usize,
 ) -> Result<Vec<u8>, String> {
-    if index >= workers_per_side.pow(2) {
-        return Err("invalid index".to_owned());
-    }
-    if image_size % workers_per_side != 0 {
-        return Err(
-            "image_size must be divisible by workers_per_side".to_owned()
-        );
-    }
-    let (depth, _norm) =
-        render_3d_inner(shape.0, image_size, index, workers_per_side)
-            .map_err(|e| format!("{e}"))?;
+    let (depth, _norm) = render_3d_inner(shape.0, image_size);
 
     // Convert into an image
     Ok(depth
@@ -137,28 +90,13 @@ pub fn render_region_heightmap(
         .collect())
 }
 
-/// Renders a subregion with normals, for webworker-based multithreading
-///
-/// The image has a total size of `image_size` (on each side) and is divided
-/// into `0 <= pos < workers_per_side^2` tiles.
+/// Renders a shaded image
 #[wasm_bindgen]
 pub fn render_region_normals(
     shape: JsVmShape,
     image_size: usize,
-    index: usize,
-    workers_per_side: usize,
 ) -> Result<Vec<u8>, String> {
-    if index >= workers_per_side.pow(2) {
-        return Err("invalid index".to_owned());
-    }
-    if image_size % workers_per_side != 0 {
-        return Err(
-            "image_size must be divisible by workers_per_side".to_owned()
-        );
-    }
-    let (_depth, norm) =
-        render_3d_inner(shape.0, image_size, index, workers_per_side)
-            .map_err(|e| format!("{e}"))?;
+    let (_depth, norm) = render_3d_inner(shape.0, image_size);
 
     // Convert into an image
     Ok(norm
@@ -170,59 +108,12 @@ pub fn render_region_normals(
 fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
-    index: usize,
-    workers_per_side: usize,
-) -> Result<(Vec<u32>, Vec<[u8; 3]>), Error> {
-    let mut current_depth = vec![];
-    let mut current_norm = vec![];
-
-    // Work from front to back, so we can bail out early if the image is full
-    for z in (0..workers_per_side).rev() {
-        // Corner position in [0, workers_per_side] coordinates
-        let mut corner = nalgebra::Vector3::new(
-            index / workers_per_side,
-            index % workers_per_side,
-            z,
-        )
-        .cast::<f32>();
-        // Corner position in [-1, 1] coordinates
-        corner = (corner * 2.0 / workers_per_side as f32).add_scalar(-1.0);
-
-        // Scale of each tile
-        let scale = 2.0 / workers_per_side as f32;
-
-        // Tile center
-        let center = corner.add_scalar(scale / 2.0);
-
-        let cfg = VoxelRenderConfig {
-            image_size: VoxelSize::from((image_size / workers_per_side) as u32),
-            view: View3::from_center_and_scale(center, scale / 2.0),
-            ..Default::default()
-        };
-
-        // Special case for the first tile, which can be copied over
-        let (mut depth, norm) = cfg.run(shape.clone());
-        for d in &mut depth {
-            if *d > 0 {
-                *d += (z * image_size / workers_per_side) as u32;
-            }
-        }
-        if current_depth.is_empty() {
-            current_depth = depth;
-            current_norm = norm;
-        } else {
-            let mut all = true;
-            for i in 0..depth.len() {
-                if depth[i] > current_depth[i] {
-                    current_depth[i] = depth[i];
-                    current_norm[i] = norm[i];
-                }
-                all &= current_depth[i] == 0;
-            }
-            if all {
-                break;
-            }
-        }
-    }
-    Ok((current_depth, current_norm))
+) -> (Vec<u32>, Vec<[u8; 3]>) {
+    let cfg = VoxelRenderConfig {
+        image_size: VoxelSize::from(image_size as u32),
+        threads: Some(ThreadPool::Global),
+        tile_sizes: TileSizes::new(&[64, 32, 16, 8]).unwrap(),
+        ..Default::default()
+    };
+    cfg.run(shape.clone())
 }
