@@ -21,8 +21,8 @@ module.exports = {
         test: /\.js$/,
         resolve: {
           // https://github.com/RReverser/wasm-bindgen-rayon/issues/9
-          fullySpecified: false
-        }
+          fullySpecified: false,
+        },
       },
     ],
   },
