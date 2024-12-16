@@ -15,25 +15,17 @@ import {
   ScriptRequest,
   ScriptResponse,
   ShapeRequest,
-  StartRequest,
   WorkerRequest,
   WorkerResponse,
 } from "./message";
 
 import { rhai } from "./rhai";
 
-import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
+import { RENDER_SIZE } from "./constants";
 
 import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
-var fidget: any = null;
-
 async function setup() {
-  console.log("setup called");
-  fidget = await import("../../crate/pkg/fidget_wasm_demo.js")!;
-  await fidget.default();
-  await fidget.initThreadPool(navigator.hardwareConcurrency);
-  console.log("imported fidget");
   const app = new App();
 }
 
@@ -41,9 +33,7 @@ class App {
   editor: Editor;
   output: Output;
   scene: Scene;
-  workers: Array<Worker>;
-  workers_started: number;
-  workers_done: number;
+  worker: Worker;
   start_time: number;
 
   constructor() {
@@ -69,17 +59,10 @@ class App {
       this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
-    this.workers = [];
-    this.workers_started = 0;
-    this.workers_done = 0;
-
-    for (let i = 0; i < WORKER_COUNT; ++i) {
-      const worker = new Worker(new URL("./worker.ts", import.meta.url));
-      worker.onmessage = (m) => {
-        this.onWorkerMessage(i, m.data as WorkerResponse);
-      };
-      this.workers.push(worker);
-    }
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.onmessage = (m) => {
+      this.onWorkerMessage(m.data as WorkerResponse);
+    };
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
@@ -93,7 +76,8 @@ class App {
 
   onScriptChanged(text: string) {
     document.getElementById("status").textContent = "Evaluating...";
-    this.workers[0].postMessage(new ScriptRequest(text));
+    console.log("script changed");
+    this.worker.postMessage(new ScriptRequest(text));
   }
 
   getMode() {
@@ -114,31 +98,21 @@ class App {
     }
   }
 
-  onWorkerMessage(i: number, req: WorkerResponse) {
+  onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
-      case ResponseKind.Image: {
-        const region_size = RENDER_SIZE / WORKERS_PER_SIDE;
-        const x = Math.trunc(i / WORKERS_PER_SIDE) * region_size;
-        const y = (WORKERS_PER_SIDE - (i % WORKERS_PER_SIDE) - 1) * region_size;
-        this.scene.setTextureRegion(x, y, region_size, req.data);
-        this.scene.draw();
-
-        this.workers_done += 1;
-        if (this.workers_done == WORKER_COUNT) {
-          const endTime = performance.now();
-          document.getElementById("status").textContent =
-            `Rendered in ${endTime - this.start_time} ms`;
-        }
+      case ResponseKind.Started: {
+        // Once the worker has started, do an initial render
+        const text = this.editor.view.state.doc.toString();
+        this.onScriptChanged(text);
         break;
       }
-      case ResponseKind.Started: {
-        // Once all of the workers have started, do an initial render
-        this.workers[i].postMessage(new StartRequest(i));
-        this.workers_started += 1;
-        if (this.workers_started == WORKER_COUNT) {
-          const text = this.editor.view.state.doc.toString();
-          this.onScriptChanged(text);
-        }
+      case ResponseKind.Image: {
+        this.scene.setTextureRegion(req.data);
+        this.scene.draw();
+
+        const endTime = performance.now();
+        document.getElementById("status").textContent =
+          `Rendered in ${endTime - this.start_time} ms`;
         break;
       }
       case ResponseKind.Script: {
@@ -147,11 +121,8 @@ class App {
         if (r.tape) {
           document.getElementById("status").textContent = "Rendering...";
           this.start_time = performance.now();
-          this.workers_done = 0;
           const mode = this.getMode();
-          this.workers.forEach((w) => {
-            w.postMessage(new ShapeRequest(r.tape, mode));
-          });
+          this.worker.postMessage(new ShapeRequest(r.tape, mode));
         } else {
           document.getElementById("status").textContent = "";
         }
@@ -320,15 +291,15 @@ class Scene {
     this.gl.generateMipmap(this.gl.TEXTURE_2D);
   }
 
-  setTextureRegion(x: number, y: number, size: number, data: Uint8Array) {
+  setTextureRegion(data: Uint8Array) {
     this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-    this.gl.texSubImage2D(
+    this.gl.texImage2D(
       this.gl.TEXTURE_2D,
       0,
-      x,
-      y,
-      size,
-      size,
+      this.gl.RGBA,
+      RENDER_SIZE,
+      RENDER_SIZE,
+      0, // border
       this.gl.RGBA,
       this.gl.UNSIGNED_BYTE,
       data,

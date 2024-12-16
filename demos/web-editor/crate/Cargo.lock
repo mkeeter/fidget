@@ -1064,7 +1064,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "clap_builder",
- "crossbeam-utils",
+ "either",
  "getrandom",
  "libc",
  "log",

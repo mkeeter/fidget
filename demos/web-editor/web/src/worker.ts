@@ -5,52 +5,29 @@ import {
   ScriptRequest,
   ScriptResponse,
   ShapeRequest,
-  StartRequest,
   StartedResponse,
   WorkerRequest,
 } from "./message";
 
-import { RENDER_SIZE, WORKERS_PER_SIDE, WORKER_COUNT } from "./constants";
+import { RENDER_SIZE } from "./constants";
 
 var fidget: any = null;
 
 class Worker {
-  /// Index of this worker, between 0 and workers_per_side
-  index: number;
-
-  constructor(req: StartRequest) {
-    this.index = req.index;
-  }
-
   render(s: ShapeRequest) {
     const shape = fidget.deserialize_tape(s.tape);
     let out: Uint8Array;
     switch (s.mode) {
       case RenderMode.Bitmap: {
-        out = fidget.render_region_2d(
-          shape,
-          RENDER_SIZE,
-          this.index,
-          WORKERS_PER_SIDE,
-        );
+        out = fidget.render_region_2d(shape, RENDER_SIZE);
         break;
       }
       case RenderMode.Heightmap: {
-        out = fidget.render_region_heightmap(
-          shape,
-          RENDER_SIZE,
-          this.index,
-          WORKERS_PER_SIDE,
-        );
+        out = fidget.render_region_heightmap(shape, RENDER_SIZE);
         break;
       }
       case RenderMode.Normals: {
-        out = fidget.render_region_normals(
-          shape,
-          RENDER_SIZE,
-          this.index,
-          WORKERS_PER_SIDE,
-        );
+        out = fidget.render_region_normals(shape, RENDER_SIZE);
         break;
       }
     }
@@ -86,16 +63,12 @@ class Worker {
 async function run() {
   fidget = await import("../../crate/pkg/fidget_wasm_demo.js")!;
   await fidget.default();
+  await fidget.initThreadPool(navigator.hardwareConcurrency);
 
-  let worker: null | Worker = null;
+  let worker = new Worker();
   onmessage = function (e: any) {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
-      case RequestKind.Start: {
-        let r = req as StartRequest;
-        worker = new Worker(req as StartRequest);
-        break;
-      }
       case RequestKind.Shape: {
         worker!.render(req as ShapeRequest);
         break;

@@ -3,7 +3,9 @@
     "build-wasm": "cd ../crate && wasm-pack build --target web --release",
     "build-web": "webpack --mode production",
     "build-static": "cp src/index.html serve.json dist/",
-    "serve": "npm run build-wasm && npm run build-web && npm run build-static && serve -c serve.json dist"
+    "dist": "npm run build-wasm && npm run build-web && npm run build-static",
+    "serve": "npm run dist && serve -c serve.json dist",
+    "format": "prettier . --write"
   },
   "dependencies": {
     "@lezer/lr": "^1.0.0",

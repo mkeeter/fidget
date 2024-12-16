@@ -26,9 +26,4 @@ module.exports = {
     path: path.resolve(__dirname, "dist"),
     filename: "index.js",
   },
-  mode: "development",
-  devServer: {
-    watchFiles: ["./src/index.html", "./src/worker.ts"],
-    hot: true,
-  },
 };
