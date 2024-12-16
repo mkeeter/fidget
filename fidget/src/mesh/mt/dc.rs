@@ -54,7 +54,7 @@ pub struct DcWorker<'a> {
     queue: QueuePool<Task>,
 }
 
-impl<'a> DcWorker<'a> {
+impl DcWorker<'_> {
     pub fn scheduler(octree: &Octree, threads: NonZeroUsize) -> Mesh {
         let queues = QueuePool::new(threads);
 
