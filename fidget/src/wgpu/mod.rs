@@ -27,6 +27,8 @@ struct Config {
     mat: [f32; 16],
 
     /// Input index of X, Y, Z axes
+    ///
+    /// `u32::MAX` is used as a marker if an axis is unused
     axes: [u32; 3],
 
     /// Tile size to use when rendering

@@ -310,7 +310,9 @@ impl PixelContext {
         let vars = shape.inner().vars();
         let config = Config {
             mat: mat.data.as_slice().try_into().unwrap(),
-            axes: shape.axes().map(|a| vars.get(&a).unwrap_or(0) as u32),
+            axes: shape
+                .axes()
+                .map(|a| vars.get(&a).map(|v| v as u32).unwrap_or(u32::MAX)),
             tile_size: TILE_SIZE,
             window_size: [image_size.width(), image_size.height()],
             tile_count: tiles.len() as u32,

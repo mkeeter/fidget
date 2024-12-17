@@ -29,9 +29,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             let pos_pixels = vec4f(corner_pixels, 1.0);
             let pos_model = config.mat * pos_pixels;
 
-            m[config.axes.x][i] = pos_model.x;
-            m[config.axes.y][i] = pos_model.y;
-            m[config.axes.z][i] = pos_model.z;
+            if (config.axes.x < 4) {
+                m[config.axes.x][i] = pos_model.x;
+            }
+            if (config.axes.y < 4) {
+                m[config.axes.y][i] = pos_model.y;
+            }
+            if (config.axes.z < 4) {
+                m[config.axes.z][i] = pos_model.z;
+            }
         }
 
         // Do the actual interpreter work
