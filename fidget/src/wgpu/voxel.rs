@@ -142,6 +142,8 @@ impl VoxelContext {
     }
 
     /// Renders a single image using GPU acceleration
+    ///
+    /// Returns a heightmap
     pub fn run_3d<F: Function + MathFunction>(
         &mut self,
         shape: Shape<F>, // XXX add ShapeVars here
@@ -275,6 +277,7 @@ impl VoxelContext {
         }
 
         // Convert from absolute heightmap to greyscale
+        // XXX normals?
         let m = result.iter().max().cloned().unwrap_or(1).max(1);
         for r in &mut result {
             let i = ((*r as u64) * 255 / m as u64) as u8 as u32;

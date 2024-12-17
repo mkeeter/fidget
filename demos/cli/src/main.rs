@@ -276,29 +276,26 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 }
 
-fn run_wgpu<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
+fn run_wgpu_2d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
     _sdf: bool,
 ) -> Vec<u8> {
     if brute {
-        run_wgpu_brute(shape, settings)
+        run_wgpu_2d_brute(shape, settings)
     } else {
-        run_wgpu_smart(shape, settings)
+        run_wgpu_2d_smart(shape, settings)
     }
 }
 
-fn run_wgpu_brute<
+fn run_wgpu_2d_brute<
     F: fidget::eval::MathFunction + fidget::render::RenderHints,
 >(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
 ) -> Vec<u8> {
     let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
-
-    // Send over our image pixels
-    // (TODO: generate this in the shader instead?)
     let mut image = vec![];
     for _i in 0..settings.n {
         // Note that this copies the bytecode each time
@@ -314,16 +311,13 @@ fn run_wgpu_brute<
     image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
 }
 
-fn run_wgpu_smart<
+fn run_wgpu_2d_smart<
     F: fidget::eval::MathFunction + fidget::render::RenderHints,
 >(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
 ) -> Vec<u8> {
     let mut ctx = fidget::wgpu::PixelContext::new().unwrap();
-
-    // Send over our image pixels
-    // (TODO: generate this in the shader instead?)
     let mut image = vec![];
     let pool = match settings.threads {
         Some(n) if n.get() > 1 => Some(
@@ -346,6 +340,47 @@ fn run_wgpu_smart<
                 shape.clone(),
                 fidget::render::ImageRenderConfig {
                     image_size: fidget::render::ImageSize::from(settings.size),
+                    view: Default::default(),
+                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
+                        .unwrap(),
+                    threads,
+                },
+            )
+            .unwrap();
+    }
+
+    image.into_iter().flat_map(|b| b.to_le_bytes()).collect()
+}
+
+fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
+    shape: fidget::shape::Shape<F>,
+    settings: &ImageSettings,
+) -> Vec<u8> {
+    let mut ctx = fidget::wgpu::VoxelContext::new().unwrap();
+
+    // Send over our image pixels
+    let mut image = vec![];
+    let pool = match settings.threads {
+        Some(n) if n.get() > 1 => Some(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n.get())
+                .build()
+                .unwrap(),
+        ),
+        _ => None,
+    };
+    for _i in 0..settings.n {
+        let threads = match settings.threads {
+            Some(n) if n.get() == 1 => None,
+            Some(_) => pool.as_ref().map(fidget::render::ThreadPool::Custom),
+            None => Some(fidget::render::ThreadPool::Global),
+        };
+        // Note that this copies the bytecode each time
+        image = ctx
+            .run_3d(
+                shape.clone(),
+                fidget::render::VoxelRenderConfig {
+                    image_size: fidget::render::VoxelSize::from(settings.size),
                     view: Default::default(),
                     tile_sizes: fidget::render::TileSizes::new(&[64, 8])
                         .unwrap(),
@@ -402,12 +437,12 @@ fn main() -> Result<()> {
                     EvalMode::Jit => {
                         let shape = fidget::jit::JitShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run_wgpu(shape, &settings, brute, sdf)
+                        run_wgpu_2d(shape, &settings, brute, sdf)
                     }
                     EvalMode::Vm => {
                         let shape = fidget::vm::VmShape::new(&ctx, root)?;
                         info!("Built shape in {:?}", start.elapsed());
-                        run_wgpu(shape, &settings, brute, sdf)
+                        run_wgpu_2d(shape, &settings, brute, sdf)
                     }
                 }
             } else {
@@ -453,17 +488,36 @@ fn main() -> Result<()> {
             info!("Loaded file in {:?}", now.elapsed());
 
             let start = Instant::now();
-            let buffer = match settings.eval {
-                #[cfg(feature = "jit")]
-                EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+            let buffer = if settings.wgpu {
+                if color {
+                    panic!("Rendering with color + WGPU is not yet supported");
                 }
-                EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_3d(shape, &settings)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run_wgpu_3d(shape, &settings)
+                    }
+                }
+            } else {
+                match settings.eval {
+                    #[cfg(feature = "jit")]
+                    EvalMode::Jit => {
+                        let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, &settings, isometric, color)
+                    }
+                    EvalMode::Vm => {
+                        let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                        info!("Built shape in {:?}", start.elapsed());
+                        run3d(shape, &settings, isometric, color)
+                    }
                 }
             };
             info!(
