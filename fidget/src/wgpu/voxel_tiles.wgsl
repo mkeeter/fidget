@@ -31,6 +31,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
             m[config.axes.x][i] = pos_model.x;
             m[config.axes.y][i] = pos_model.y;
+            m[config.axes.z][i] = pos_model.z;
         }
 
         // Do the actual interpreter work

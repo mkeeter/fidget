@@ -184,7 +184,7 @@ impl VoxelContext {
             });
             assert_eq!(r.tile_size as usize, settings.tile_sizes.last());
             tiles.push(Tile {
-                corner: [r.corner.x, r.corner.y, 0],
+                corner: [r.corner.x, r.corner.y, r.corner.z],
                 start: u32::try_from(*start).unwrap_or(0),
             })
         }
@@ -229,7 +229,7 @@ impl VoxelContext {
 
         // total work = tile pixels / (workgroup size * SIMD width)
         let dispatch_size =
-            ((tile_size as usize).pow(2) * tiles.len()).div_ceil(64 * 4) as u32;
+            ((tile_size as usize).pow(3) * tiles.len()).div_ceil(64 * 4) as u32;
         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         drop(compute_pass);
 

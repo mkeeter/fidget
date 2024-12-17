@@ -7,7 +7,7 @@
 /// Input tape(s), serialized to bytecode
 @group(0) @binding(2) var<storage, read> tape: array<u32>;
 
-/// Output array (single values), of same length as `vars`
+/// Output array, image size
 @group(0) @binding(3) var<storage, read_write> result: array<atomic<u32>>;
 
 /// Global render configuration
