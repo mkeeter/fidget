@@ -167,6 +167,8 @@ impl VoxelContext {
         let mut data = bytecode.data; // address 0 is the original tape
         pos.insert(shape.inner().id(), 0);
 
+        // TODO: promote the topmost Full tile in each column into one more more
+        // Pixel tile, to make sure it gets rendered with normals, etc.
         let mut tiles = vec![];
         for r in rs
             .iter()
@@ -261,29 +263,14 @@ impl VoxelContext {
                 .to_owned();
         self.ctx.out_buf.unmap();
 
-        // Fill in our filled tiles, if they're in front
-        for r in rs.iter().flat_map(|(_t, r)| r.iter()) {
-            let fill = match r.mode {
-                // XXX is this right, or off by one?
-                TileMode::Full => r.corner.z + r.tile_size,
-                TileMode::Empty => continue,
-                TileMode::Voxels => continue,
-            };
-            for j in 0..r.tile_size {
-                let o =
-                    r.corner.x + (r.corner.y + j) * settings.image_size.width();
-                result[o as usize..][..r.tile_size as usize]
-                    .iter_mut()
-                    .for_each(|p| *p = (*p).max(fill));
-            }
-        }
-
         // Convert from absolute heightmap to greyscale
         // XXX normals?
         let m = result.iter().max().cloned().unwrap_or(1).max(1);
         for r in &mut result {
-            let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
-            *r = 0xFF | i << 8 | i << 16 | i << 24;
+            if *r > 0 {
+                let i = ((*r as u64) * 255 / m as u64) as u8 as u32;
+                *r = 0xFF << 24 | i << 8 | i << 16 | i;
+            }
         }
 
         Ok(result)

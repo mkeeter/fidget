@@ -45,12 +45,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
         // Unpack the 4x results into pixels
         for (var i = 0u; i < 4; i += 1u) {
-            var p = 0u;
             if (out[i] < 0.0) {
                 // Accumulate max height to absolute position in the tile
                 let pos_pixels = tile.corner + vec3(pos_x + i, pos_y, pos_z);
-                let i = pos_pixels.x + pos_pixels.y * config.window_size.x;
-                atomicMax(&result[i], p);
+                let j = pos_pixels.x + pos_pixels.y * config.window_size.x;
+                atomicMax(&result[j], pos_pixels.z);
             }
         }
     }
