@@ -231,10 +231,13 @@ impl VoxelContext {
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        // total work = tile pixels / (workgroup size * SIMD width)
-        let dispatch_size =
-            ((tile_size as usize).pow(3) * tiles.len()).div_ceil(64 * 4) as u32;
-        compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+        // We want per-tile threads to be within the same warp / wavefront, so
+        // we'll dispatch per-tile threads in X, and total tiles in Y.
+        compute_pass.dispatch_workgroups(
+            (tile_size as usize).pow(3).div_ceil(64 * 4) as u32,
+            tiles.len() as u32,
+            1,
+        );
         drop(compute_pass);
 
         // Copy from the STORAGE | COPY_SRC -> COPY_DST | MAP_READ buffer
