@@ -7,7 +7,7 @@
 // Each shader invocation evalutes 4 voxels, which only differ in X position
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
-    let tile_idx = id.y;
+    let tile_idx = id.y + id.z * 65536;
 
     // Position within the tile
     let pos_x = 4 * (id.x % (config.tile_size / 4)); // 4x SIMD

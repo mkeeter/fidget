@@ -235,8 +235,8 @@ impl VoxelContext {
         // we'll dispatch per-tile threads in X, and total tiles in Y.
         compute_pass.dispatch_workgroups(
             (tile_size as usize).pow(3).div_ceil(64 * 4) as u32,
-            tiles.len() as u32,
-            1,
+            (tiles.len() % 65536) as u32,
+            (tiles.len() / 65536) as u32,
         );
         drop(compute_pass);
 
@@ -474,7 +474,7 @@ impl<F: Function> Worker3D<'_, F> {
                 mode: TileMode::Voxels,
             });
             // TODO recycle things here?
-            false
+            true // keep going down the stack
         }
     }
 }

@@ -382,8 +382,10 @@ fn run_wgpu_3d<F: fidget::eval::MathFunction + fidget::render::RenderHints>(
                 fidget::render::VoxelRenderConfig {
                     image_size: fidget::render::VoxelSize::from(settings.size),
                     view: Default::default(),
-                    tile_sizes: fidget::render::TileSizes::new(&[64, 8])
-                        .unwrap(),
+                    tile_sizes: fidget::render::TileSizes::new(&[
+                        128, 64, 32, 16, 8,
+                    ])
+                    .unwrap(),
                     threads,
                 },
             )
