@@ -235,8 +235,8 @@ impl VoxelContext {
         // we'll dispatch per-tile threads in X, and total tiles in Y.
         compute_pass.dispatch_workgroups(
             (tile_size as usize).pow(3).div_ceil(64 * 4) as u32,
-            (tiles.len() % 65536) as u32,
-            (tiles.len() / 65536) as u32,
+            tiles.len().min(65535) as u32,
+            (tiles.len() + 1).div_ceil(65536) as u32,
         );
         drop(compute_pass);
 
