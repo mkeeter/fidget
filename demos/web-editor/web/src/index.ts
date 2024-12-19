@@ -112,7 +112,7 @@ class App {
 
         const endTime = performance.now();
         document.getElementById("status").textContent =
-          `Rendered in ${endTime - this.start_time} ms`;
+          `Rendered in ${(endTime - this.start_time).toFixed(2)} ms`;
         break;
       }
       case ResponseKind.Script: {
