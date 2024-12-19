@@ -1,14 +1,17 @@
 use nalgebra::{
     geometry::{Similarity2, Similarity3},
-    Matrix3, Matrix4, Point2, Vector2, Vector3,
+    Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
 };
 
-/// Object providing a view-to-model transform in 2D
+/// Object providing a world-to-model transform in 2D
 ///
 /// Rendering and meshing happen in the ±1 square or cube; these are referred to
-/// as _world_ coordinates.  A `Camera` generates a homogeneous transform matrix
+/// as _world_ coordinates.  A `View` generates a homogeneous transform matrix
 /// that maps from positions in world coordinates to _model_ coordinates, which
 /// can be whatever you want.
+///
+/// For example, the world-to-model transform could map the ±1 region onto the
+/// ±0.5 region, which would be a zoom transform.
 ///
 /// Here's an example of using a `View2` to focus on the region `[4, 6]`:
 ///
@@ -66,6 +69,7 @@ impl View2 {
             Similarity2::from_parts(center.into(), Default::default(), scale);
         Self { mat }
     }
+
     /// Returns the world-to-model transform matrix
     pub fn world_to_model(&self) -> Matrix3<f32> {
         self.mat.into()
@@ -112,15 +116,49 @@ impl Default for View3 {
     }
 }
 
-#[allow(missing_docs)]
-/// See [`View2`] for docstrings
+/// Object providing a world-to-model transform in 3D
+///
+/// See [`View2`] for a diagram of coordinate spaces
 impl View3 {
+    /// Builds a camera from a center (in world coordinates) and a scale
+    ///
+    /// The resulting camera will point at the center, and the viewport will be
+    /// ± `scale` in size.
     pub fn from_center_and_scale(center: Vector3<f32>, scale: f32) -> Self {
         let mat =
             Similarity3::from_parts(center.into(), Default::default(), scale);
         Self { mat }
     }
+
+    /// Returns the world-to-model transform matrix
     pub fn world_to_model(&self) -> Matrix4<f32> {
         self.mat.into()
+    }
+
+    /// Transform a point from world to model space
+    pub fn transform_point(&self, p: &Point3<f32>) -> Point3<f32> {
+        self.mat.transform_point(p)
+    }
+
+    /// Applies a translation (in model units) to the current camera position
+    pub fn translate(&mut self, dt: Vector3<f32>) {
+        self.mat.append_translation_mut(&dt.into());
+    }
+
+    /// Zooms the camera about a particular position (in model space)
+    pub fn zoom(&mut self, amount: f32, pos: Option<Point3<f32>>) {
+        match pos {
+            Some(before) => {
+                // Convert to world space before scaling
+                let p = self.mat.inverse_transform_point(&before);
+                self.mat.append_scaling_mut(amount);
+                let pos_after = self.transform_point(&p);
+                self.mat
+                    .append_translation_mut(&(before - pos_after).into());
+            }
+            None => {
+                self.mat.append_scaling_mut(amount);
+            }
+        }
     }
 }

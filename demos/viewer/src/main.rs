@@ -4,7 +4,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
 use log::{debug, error, info, warn};
-use nalgebra::{Point2, Vector3};
+use nalgebra::Point2;
 use notify::Watcher;
 
 use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
@@ -205,7 +205,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 }
             }
         }
-        RenderMode::ThreeD(camera, mode) => {
+        RenderMode::ThreeD { view, mode, .. } => {
             // XXX allow selection of depth?
             let config = VoxelRenderConfig {
                 image_size: fidget::render::VoxelSize::new(
@@ -214,15 +214,12 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                     512,
                 ),
                 tile_sizes: F::tile_sizes_3d(),
-                view: View3::from_center_and_scale(
-                    Vector3::new(camera.offset.x, camera.offset.y, 0.0),
-                    camera.scale,
-                ),
+                view: *view,
                 ..Default::default()
             };
             let (depth, color) = config.run(shape);
             match mode {
-                ThreeDMode::Color => {
+                Mode3D::Color => {
                     for (p, (&d, &c)) in
                         pixels.iter_mut().zip(depth.iter().zip(&color))
                     {
@@ -232,7 +229,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                     }
                 }
 
-                ThreeDMode::Heightmap => {
+                Mode3D::Heightmap => {
                     let max_depth =
                         depth.iter().max().cloned().unwrap_or(1).max(1);
                     for (p, &d) in pixels.iter_mut().zip(&depth) {
@@ -338,41 +335,8 @@ enum Mode2D {
     Debug,
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Copy, Clone)]
-struct ThreeDCamera {
-    // 2D camera parameters
-    scale: f32,
-    offset: nalgebra::Vector3<f32>,
-    #[allow(unused)]
-    drag_start: Option<egui::Vec2>,
-}
-
-impl ThreeDCamera {
-    #[allow(unused)]
-    fn mouse_to_uv(
-        &self,
-        rect: egui::Rect,
-        uv: egui::Rect,
-        p: egui::Pos2,
-    ) -> egui::Vec2 {
-        panic!()
-    }
-}
-
-impl Default for ThreeDCamera {
-    fn default() -> Self {
-        ThreeDCamera {
-            drag_start: None,
-            scale: 1.0,
-            offset: nalgebra::Vector3::zeros(),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum ThreeDMode {
+enum Mode3D {
     Color,
     Heightmap,
 }
@@ -388,7 +352,14 @@ enum RenderMode {
         drag_start: Option<Point2<f32>>,
         mode: Mode2D,
     },
-    ThreeD(ThreeDCamera, ThreeDMode),
+    ThreeD {
+        view: View3,
+
+        /// Drag start position (in model coordinates)
+        drag_start: Option<Point2<f32>>,
+
+        mode: Mode3D,
+    },
 }
 
 impl RenderMode {
@@ -399,7 +370,7 @@ impl RenderMode {
                 *mode = new_mode;
                 changed
             }
-            RenderMode::ThreeD(..) => {
+            RenderMode::ThreeD { .. } => {
                 *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
                     view: Default::default(),
@@ -410,15 +381,19 @@ impl RenderMode {
             }
         }
     }
-    fn set_3d_mode(&mut self, mode: ThreeDMode) -> bool {
+    fn set_3d_mode(&mut self, new_mode: Mode3D) -> bool {
         match self {
             RenderMode::TwoD { .. } => {
-                *self = RenderMode::ThreeD(ThreeDCamera::default(), mode);
+                *self = RenderMode::ThreeD {
+                    view: View3::default(),
+                    drag_start: None,
+                    mode: new_mode,
+                };
                 true
             }
-            RenderMode::ThreeD(_camera, m) => {
-                let changed = *m != mode;
-                *m = mode;
+            RenderMode::ThreeD { mode, .. } => {
+                let changed = *mode != new_mode;
+                *mode = new_mode;
                 changed
             }
         }
@@ -474,16 +449,16 @@ impl ViewerApp {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
                         RenderMode::TwoD { .. } => None,
-                        RenderMode::ThreeD(_camera, mode) => Some(*mode),
+                        RenderMode::ThreeD { mode, .. } => Some(*mode),
                     };
                     ui.radio_value(
                         &mut mode_3d,
-                        Some(ThreeDMode::Heightmap),
+                        Some(Mode3D::Heightmap),
                         "3D heightmap",
                     );
                     ui.radio_value(
                         &mut mode_3d,
-                        Some(ThreeDMode::Color),
+                        Some(Mode3D::Color),
                         "3D color",
                     );
                     if let Some(m) = mode_3d {
@@ -492,7 +467,7 @@ impl ViewerApp {
                     ui.separator();
                     let mut mode_2d = match &self.mode {
                         RenderMode::TwoD { mode, .. } => Some(*mode),
-                        RenderMode::ThreeD(..) => None,
+                        RenderMode::ThreeD { .. } => None,
                     };
                     ui.radio_value(
                         &mut mode_2d,
@@ -688,7 +663,7 @@ impl eframe::App for ViewerApp {
                     }
                 }
             }
-            RenderMode::ThreeD(..) => {
+            RenderMode::ThreeD { .. } => {
                 unimplemented!()
             }
         }
