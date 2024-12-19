@@ -4,7 +4,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
 use log::{debug, error, info, warn};
-use nalgebra::Point2;
+use nalgebra::{Point2, Point3};
 use notify::Watcher;
 
 use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
@@ -211,7 +211,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 image_size: fidget::render::VoxelSize::new(
                     image_size.width(),
                     image_size.height(),
-                    512,
+                    image_size.width().max(image_size.height()) as u32,
                 ),
                 tile_sizes: F::tile_sizes_3d(),
                 view: *view,
@@ -356,7 +356,7 @@ enum RenderMode {
         view: View3,
 
         /// Drag start position (in model coordinates)
-        drag_start: Option<Point2<f32>>,
+        drag_start: Option<Point3<f32>>,
 
         mode: Mode3D,
     },
@@ -537,9 +537,6 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        if !matches!(self.mode, RenderMode::TwoD { .. }) {
-            panic!("can't render in 3D");
-        }
         let rect = ui.ctx().available_rect();
         let uv = egui::Rect {
             min: egui::Pos2::new(0.0, 0.0),
@@ -663,8 +660,40 @@ impl eframe::App for ViewerApp {
                     }
                 }
             }
-            RenderMode::ThreeD { .. } => {
-                unimplemented!()
+            RenderMode::ThreeD {
+                view, drag_start, ..
+            } => {
+                let image_size = fidget::render::VoxelSize::new(
+                    rect.width() as u32,
+                    rect.height() as u32,
+                    rect.width().max(rect.height()) as u32,
+                );
+
+                let mat = view.world_to_model() * image_size.screen_to_world();
+                if let Some(pos) = r.interact_pointer_pos() {
+                    let pos =
+                        mat.transform_point(&Point3::new(pos.x, pos.y, 0.0));
+                    if let Some(prev) = *drag_start {
+                        view.translate(prev - pos);
+                        render_changed |= prev != pos;
+                    } else {
+                        *drag_start = Some(pos);
+                    }
+                } else {
+                    *drag_start = None;
+                }
+
+                if r.hovered() {
+                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
+                    let mouse_pos =
+                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
+                            mat.transform_point(&Point3::new(p.x, p.y, 0.0))
+                        });
+                    if scroll != 0.0 {
+                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
+                        render_changed = true;
+                    }
+                }
             }
         }
 

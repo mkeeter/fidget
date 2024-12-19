@@ -74,6 +74,7 @@ impl View2 {
     pub fn world_to_model(&self) -> Matrix3<f32> {
         self.mat.into()
     }
+
     /// Transform a point from world to model space
     pub fn transform_point(&self, p: &Point2<f32>) -> Point2<f32> {
         self.mat.transform_point(p)
