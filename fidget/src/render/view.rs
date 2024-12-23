@@ -1,6 +1,5 @@
 use nalgebra::{
-    geometry::{Similarity2, Similarity3},
-    Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
+    geometry::Similarity2, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
 };
 
 /// Object providing a world-to-model transform in 2D
@@ -106,13 +105,19 @@ impl View2 {
 /// Object providing a view-to-model transform in 2D
 #[derive(Copy, Clone, Debug)]
 pub struct View3 {
-    mat: Similarity3<f32>,
+    center: Vector3<f32>,
+    scale: f32,
+    yaw: f32,
+    pitch: f32,
 }
 
 impl Default for View3 {
     fn default() -> Self {
         Self {
-            mat: Similarity3::identity(),
+            center: Vector3::new(0.0, 0.0, 0.0),
+            scale: 1.0,
+            yaw: 0.0,
+            pitch: 0.0,
         }
     }
 }
@@ -126,24 +131,37 @@ impl View3 {
     /// The resulting camera will point at the center, and the viewport will be
     /// ± `scale` in size.
     pub fn from_center_and_scale(center: Vector3<f32>, scale: f32) -> Self {
-        let mat =
-            Similarity3::from_parts(center.into(), Default::default(), scale);
-        Self { mat }
+        Self {
+            center,
+            scale,
+            yaw: 0.0,
+            pitch: 0.0,
+        }
     }
 
     /// Returns the world-to-model transform matrix
     pub fn world_to_model(&self) -> Matrix4<f32> {
-        self.mat.into()
+        let scale = Matrix4::new_scaling(self.scale);
+        let rot = Matrix4::from_axis_angle(
+            &nalgebra::Unit::new_normalize(Vector3::new(0.0, 0.0, 1.0)),
+            self.yaw,
+        ) * Matrix4::from_axis_angle(
+            &nalgebra::Unit::new_normalize(Vector3::new(1.0, 0.0, 0.0)),
+            self.pitch,
+        );
+        let translation = Matrix4::new_translation(&self.center);
+
+        translation * rot * scale
     }
 
     /// Transform a point from world to model space
     pub fn transform_point(&self, p: &Point3<f32>) -> Point3<f32> {
-        self.mat.transform_point(p)
+        self.world_to_model().transform_point(p)
     }
 
     /// Applies a translation (in model units) to the current camera position
     pub fn translate(&mut self, dt: Vector3<f32>) {
-        self.mat.append_translation_mut(&dt.into());
+        self.center += dt;
     }
 
     /// Zooms the camera about a particular position (in model space)
@@ -151,15 +169,25 @@ impl View3 {
         match pos {
             Some(before) => {
                 // Convert to world space before scaling
-                let p = self.mat.inverse_transform_point(&before);
-                self.mat.append_scaling_mut(amount);
+                let p = self
+                    .world_to_model()
+                    .try_inverse()
+                    .unwrap()
+                    .transform_point(&before);
+                self.scale *= amount;
                 let pos_after = self.transform_point(&p);
-                self.mat
-                    .append_translation_mut(&(before - pos_after).into());
+                self.center += before - pos_after;
             }
             None => {
-                self.mat.append_scaling_mut(amount);
+                self.scale *= amount;
             }
         }
+    }
+
+    /// Rotates the camera, given a start and end drag (in world space)
+    pub fn rotate(&mut self, start: Point2<f32>, end: Point2<f32>) {
+        let d = end - start;
+        self.yaw = d.x;
+        self.pitch = d.y;
     }
 }

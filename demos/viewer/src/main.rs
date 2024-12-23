@@ -211,7 +211,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 image_size: fidget::render::VoxelSize::new(
                     image_size.width(),
                     image_size.height(),
-                    image_size.width().max(image_size.height()) as u32,
+                    image_size.width().max(image_size.height()),
                 ),
                 tile_sizes: F::tile_sizes_3d(),
                 view: *view,

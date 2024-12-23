@@ -378,8 +378,12 @@ pub fn render<F: Function>(
 mod test {
     use super::*;
     use crate::{
-        context::Tree, eval::MathFunction, render::VoxelSize, var::Var,
-        vm::VmShape, Context,
+        context::Tree,
+        eval::MathFunction,
+        render::{View3, VoxelSize},
+        var::Var,
+        vm::VmShape,
+        Context,
     };
 
     /// Make sure we don't crash if there's only a single tile
@@ -406,38 +410,48 @@ mod test {
         let shape = Shape::<F>::from(sphere);
 
         let size = 32;
-        let cfg = VoxelRenderConfig {
-            image_size: VoxelSize::from(size),
-            ..Default::default()
-        };
+        for scale in [1.0, 0.5] {
+            let cfg = VoxelRenderConfig {
+                image_size: VoxelSize::from(size),
+                view: View3::from_center_and_scale(Vector3::zeros(), scale),
+                ..Default::default()
+            };
 
-        for r in [0.5, 0.75] {
-            let mut vars = ShapeVars::new();
-            vars.insert(v.index().unwrap(), r);
-            let (depth, _normal) = cfg.run_with_vars::<_>(shape.clone(), &vars);
+            for r in [0.5, 0.75] {
+                let mut vars = ShapeVars::new();
+                vars.insert(v.index().unwrap(), r);
+                let (depth, _normal) =
+                    cfg.run_with_vars::<_>(shape.clone(), &vars);
 
-            let epsilon = 0.08;
-            for (i, p) in depth.iter().enumerate() {
-                let size = size as i32;
-                let i = i as i32;
-                let x = (((i % size) - size / 2) as f32 / size as f32) * 2.0;
-                let y = (((i / size) - size / 2) as f32 / size as f32) * 2.0;
-                let z = (*p as i32 - size / 2) as f32 / size as f32 * 2.0;
-                if *p == 0 {
-                    let v = (x.powi(2) + y.powi(2)).sqrt();
-                    assert!(
-                        v + epsilon > r,
-                        "got z = 0 inside the sphere ({x}, {y}, {z}); \
+                let epsilon = 0.08;
+                for (i, p) in depth.iter().enumerate() {
+                    let size = size as i32;
+                    let i = i as i32;
+                    let x = (((i % size) - size / 2) as f32 / size as f32)
+                        * 2.0
+                        * scale;
+                    let y = (((i / size) - size / 2) as f32 / size as f32)
+                        * 2.0
+                        * scale;
+                    let z = (*p as i32 - size / 2) as f32 / size as f32
+                        * 2.0
+                        * scale;
+                    if *p == 0 {
+                        let v = (x.powi(2) + y.powi(2)).sqrt();
+                        assert!(
+                            v + epsilon > r,
+                            "got z = 0 inside the sphere ({x}, {y}, {z}); \
                          radius is {v}"
-                    );
-                } else {
-                    let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
-                    let err = (r - v).abs();
-                    assert!(
-                        err < epsilon,
-                        "too much error {err} at ({x}, {y}, {z}); \
+                        );
+                    } else {
+                        let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+                        let err = (r - v).abs();
+                        assert!(
+                            err < epsilon,
+                            "too much error {err} at ({x}, {y}, {z}); \
                          radius is {v}, expected {r}"
-                    );
+                        );
+                    }
                 }
             }
         }
