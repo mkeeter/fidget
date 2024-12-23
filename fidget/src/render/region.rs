@@ -1,6 +1,6 @@
 use nalgebra::{
     allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSub,
-    DimNameSum, OMatrix, OVector, Vector2, Vector3, U1,
+    DimNameSum, OMatrix, OVector, Point2, Point3, Vector2, Vector3, U1,
 };
 
 /// Image size in pixels, used to generate a screen-to-world matrix
@@ -133,6 +133,11 @@ impl ImageSize {
             size: Vector2::new(width, height),
         }
     }
+
+    /// Transforms a point from screen to world coordinates
+    pub fn transform_point(&self, p: Point2<f32>) -> Point2<f32> {
+        self.screen_to_world().transform_point(&p)
+    }
 }
 
 /// Size for 3D rendering of an image
@@ -148,6 +153,11 @@ impl VoxelSize {
     /// Returns the depth of the image (in voxels)
     pub fn depth(&self) -> u32 {
         self.size.z
+    }
+
+    /// Transforms a point from screen to world coordinates
+    pub fn transform_point(&self, p: Point3<f32>) -> Point3<f32> {
+        self.screen_to_world().transform_point(&p)
     }
 }
 

@@ -81,19 +81,19 @@ impl View2 {
 
     /// Applies a translation (in model units) to the current camera position
     pub fn translate(&mut self, dt: Vector2<f32>) {
+        // TODO make this world space for consistency?
         self.mat.append_translation_mut(&dt.into());
     }
 
-    /// Zooms the camera about a particular position (in model space)
+    /// Zooms the camera about a particular position (in world space)
     pub fn zoom(&mut self, amount: f32, pos: Option<Point2<f32>>) {
         match pos {
             Some(before) => {
-                // Convert to world space before scaling
-                let p = self.mat.inverse_transform_point(&before);
+                let pos_before = self.transform_point(&before);
                 self.mat.append_scaling_mut(amount);
-                let pos_after = self.transform_point(&p);
+                let pos_after = self.transform_point(&before);
                 self.mat
-                    .append_translation_mut(&(before - pos_after).into());
+                    .append_translation_mut(&(pos_before - pos_after).into());
             }
             None => {
                 self.mat.append_scaling_mut(amount);
@@ -161,22 +161,18 @@ impl View3 {
 
     /// Applies a translation (in model units) to the current camera position
     pub fn translate(&mut self, dt: Vector3<f32>) {
+        // TODO for consistency, make this screen units?
         self.center += dt;
     }
 
-    /// Zooms the camera about a particular position (in model space)
+    /// Zooms the camera about a particular position (in screen space)
     pub fn zoom(&mut self, amount: f32, pos: Option<Point3<f32>>) {
         match pos {
             Some(before) => {
-                // Convert to world space before scaling
-                let p = self
-                    .world_to_model()
-                    .try_inverse()
-                    .unwrap()
-                    .transform_point(&before);
+                let pos_before = self.transform_point(&before);
                 self.scale *= amount;
-                let pos_after = self.transform_point(&p);
-                self.center += before - pos_after;
+                let pos_after = self.transform_point(&before);
+                self.center += pos_before - pos_after;
             }
             None => {
                 self.scale *= amount;

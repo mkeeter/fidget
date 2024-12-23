@@ -642,8 +642,9 @@ impl eframe::App for ViewerApp {
                     rect.height() as u32,
                 );
 
-                let mat = view.world_to_model() * image_size.screen_to_world();
                 if let Some(pos) = r.interact_pointer_pos() {
+                    let mat =
+                        view.world_to_model() * image_size.screen_to_world();
                     let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
                     if let Some(prev) = *drag_start {
                         view.translate(prev - pos);
@@ -657,9 +658,10 @@ impl eframe::App for ViewerApp {
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos = ctx
-                        .input(|i| i.pointer.hover_pos())
-                        .map(|p| mat.transform_point(&Point2::new(p.x, p.y)));
+                    let mouse_pos =
+                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
+                            image_size.transform_point(Point2::new(p.x, p.y))
+                        });
                     if scroll != 0.0 {
                         view.zoom((scroll / 100.0).exp2(), mouse_pos);
                         render_changed = true;
@@ -677,10 +679,8 @@ impl eframe::App for ViewerApp {
 
                 if let Some(pos) = r.interact_pointer_pos() {
                     let pos_world = image_size
-                        .screen_to_world()
-                        .transform_point(&Point3::new(pos.x, pos.y, 0.0));
-                    let pos_model =
-                        view.world_to_model().transform_point(&pos_world);
+                        .transform_point(Point3::new(pos.x, pos.y, 0.0));
+                    let pos_model = view.transform_point(&pos_world);
                     match *drag_start {
                         Some(Drag3D::Pan(prev)) => {
                             view.translate(prev - pos_model);
@@ -706,12 +706,11 @@ impl eframe::App for ViewerApp {
                 }
 
                 if r.hovered() {
-                    let mat =
-                        view.world_to_model() * image_size.screen_to_world();
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     let mouse_pos =
                         ctx.input(|i| i.pointer.hover_pos()).map(|p| {
-                            mat.transform_point(&Point3::new(p.x, p.y, 0.0))
+                            image_size
+                                .transform_point(Point3::new(p.x, p.y, 0.0))
                         });
                     if scroll != 0.0 {
                         view.zoom((scroll / 100.0).exp2(), mouse_pos);
