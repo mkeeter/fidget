@@ -341,6 +341,12 @@ enum Mode3D {
     Heightmap,
 }
 
+#[derive(Copy, Clone)]
+enum Drag3D {
+    Pan(Point3<f32>),
+    Rotate(fidget::render::RotateHandle),
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone)]
@@ -356,7 +362,7 @@ enum RenderMode {
         view: View3,
 
         /// Drag start position (in model coordinates)
-        drag_start: Option<Point3<f32>>,
+        drag_start: Option<Drag3D>,
 
         mode: Mode3D,
     },
@@ -669,21 +675,39 @@ impl eframe::App for ViewerApp {
                     rect.width().max(rect.height()) as u32,
                 );
 
-                let mat = view.world_to_model() * image_size.screen_to_world();
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let pos =
-                        mat.transform_point(&Point3::new(pos.x, pos.y, 0.0));
-                    if let Some(prev) = *drag_start {
-                        view.translate(prev - pos);
-                        render_changed |= prev != pos;
-                    } else {
-                        *drag_start = Some(pos);
+                    let pos_world = image_size
+                        .screen_to_world()
+                        .transform_point(&Point3::new(pos.x, pos.y, 0.0));
+                    let pos_model =
+                        view.world_to_model().transform_point(&pos_world);
+                    match *drag_start {
+                        Some(Drag3D::Pan(prev)) => {
+                            view.translate(prev - pos_model);
+                            render_changed |= prev != pos_model;
+                        }
+                        Some(Drag3D::Rotate(prev)) => {
+                            render_changed |= view.rotate(prev, pos_world.xy());
+                        }
+                        None => {
+                            if r.dragged_by(egui::PointerButton::Primary) {
+                                *drag_start = Some(Drag3D::Pan(pos_model));
+                            } else if r
+                                .dragged_by(egui::PointerButton::Secondary)
+                            {
+                                *drag_start = Some(Drag3D::Rotate(
+                                    view.begin_rotate(pos_world.xy()),
+                                ));
+                            }
+                        }
                     }
                 } else {
                     *drag_start = None;
                 }
 
                 if r.hovered() {
+                    let mat =
+                        view.world_to_model() * image_size.screen_to_world();
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     let mouse_pos =
                         ctx.input(|i| i.pointer.hover_pos()).map(|p| {

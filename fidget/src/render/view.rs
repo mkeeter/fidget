@@ -184,10 +184,43 @@ impl View3 {
         }
     }
 
-    /// Rotates the camera, given a start and end drag (in world space)
-    pub fn rotate(&mut self, start: Point2<f32>, end: Point2<f32>) {
-        let d = end - start;
-        self.yaw = d.x;
-        self.pitch = d.y;
+    /// Begins a rotation operation, given a point in world space
+    pub fn begin_rotate(&self, start: Point2<f32>) -> RotateHandle {
+        RotateHandle {
+            start,
+            initial_yaw: self.yaw,
+            initial_pitch: self.pitch,
+        }
+    }
+
+    /// Rotates the camera, given a cursor end position in world space
+    ///
+    /// Returns `true` if the view has changed, `false` otherwise
+    pub fn rotate(&mut self, h: RotateHandle, pos: Point2<f32>) -> bool {
+        let next_yaw = h.yaw(pos.x);
+        let next_pitch = h.pitch(pos.y);
+        let changed = (next_yaw != self.yaw) || (next_pitch != self.pitch);
+        self.yaw = next_yaw;
+        self.pitch = next_pitch;
+        changed
+    }
+}
+
+/// Handle to perform rotations on a [`View3`]
+#[derive(Copy, Clone)]
+pub struct RotateHandle {
+    /// Position of the initial click in world space
+    start: Point2<f32>,
+    initial_yaw: f32,
+    initial_pitch: f32,
+}
+
+impl RotateHandle {
+    fn yaw(&self, x: f32) -> f32 {
+        (self.initial_yaw + (self.start.x - x) * 2.0) % std::f32::consts::TAU
+    }
+    fn pitch(&self, y: f32) -> f32 {
+        (self.initial_pitch + (y - self.start.y) * 2.0)
+            .clamp(0.0, std::f32::consts::PI)
     }
 }
