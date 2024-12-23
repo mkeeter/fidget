@@ -86,7 +86,9 @@ impl View2 {
     }
 
     /// Zooms the camera about a particular position (in world space)
-    pub fn zoom(&mut self, amount: f32, pos: Option<Point2<f32>>) {
+    ///
+    /// Returns `true` if the view has changed, `false` otherwise
+    pub fn zoom(&mut self, amount: f32, pos: Option<Point2<f32>>) -> bool {
         match pos {
             Some(before) => {
                 let pos_before = self.transform_point(&before);
@@ -99,6 +101,7 @@ impl View2 {
                 self.mat.append_scaling_mut(amount);
             }
         }
+        amount != 1.0
     }
 }
 
@@ -165,8 +168,10 @@ impl View3 {
         self.center += dt;
     }
 
-    /// Zooms the camera about a particular position (in screen space)
-    pub fn zoom(&mut self, amount: f32, pos: Option<Point3<f32>>) {
+    /// Zooms the camera about a particular position (in world space)
+    ///
+    /// Returns `true` if the view has changed, `false` otherwise
+    pub fn zoom(&mut self, amount: f32, pos: Option<Point3<f32>>) -> bool {
         match pos {
             Some(before) => {
                 let pos_before = self.transform_point(&before);
@@ -178,6 +183,7 @@ impl View3 {
                 self.scale *= amount;
             }
         }
+        amount != 1.0
     }
 
     /// Begins a rotation operation, given a point in world space

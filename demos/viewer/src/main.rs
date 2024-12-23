@@ -658,14 +658,12 @@ impl eframe::App for ViewerApp {
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos =
-                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
-                            image_size.transform_point(Point2::new(p.x, p.y))
-                        });
-                    if scroll != 0.0 {
+                    let mouse_pos = r.hover_pos().map(|p| {
+                        let p = p - rect.min;
+                        image_size.transform_point(Point2::new(p.x, p.y))
+                    });
+                    render_changed |=
                         view.zoom((scroll / 100.0).exp2(), mouse_pos);
-                        render_changed = true;
-                    }
                 }
             }
             RenderMode::ThreeD {
@@ -709,6 +707,7 @@ impl eframe::App for ViewerApp {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
                     let mouse_pos =
                         ctx.input(|i| i.pointer.hover_pos()).map(|p| {
+                            let p = p - rect.min;
                             image_size
                                 .transform_point(Point3::new(p.x, p.y, 0.0))
                         });
