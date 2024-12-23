@@ -215,12 +215,16 @@ pub struct RotateHandle {
     initial_pitch: f32,
 }
 
+/// Eyeballed for pleasant UI
+const ROTATE_SPEED: f32 = 2.0;
+
 impl RotateHandle {
     fn yaw(&self, x: f32) -> f32 {
-        (self.initial_yaw + (self.start.x - x) * 2.0) % std::f32::consts::TAU
+        (self.initial_yaw + (self.start.x - x) * ROTATE_SPEED)
+            % std::f32::consts::TAU
     }
     fn pitch(&self, y: f32) -> f32 {
-        (self.initial_pitch + (y - self.start.y) * 2.0)
+        (self.initial_pitch + (y - self.start.y) * ROTATE_SPEED)
             .clamp(0.0, std::f32::consts::PI)
     }
 }
