@@ -1,5 +1,5 @@
 # 0.3.5 (unreleased)
-Nothing here yet!
+- Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function

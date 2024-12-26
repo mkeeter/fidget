@@ -22,10 +22,13 @@ import {
 import { rhai } from "./rhai";
 
 import { RENDER_SIZE } from "./constants";
+import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
 async function setup() {
+  await fidget.default();
+  (window as any).fidget = fidget; // for easy of poking
   const app = new App();
 }
 
@@ -34,10 +37,27 @@ class App {
   output: Output;
   scene: Scene;
   worker: Worker;
+
+  tape: Uint8Array | null; // current tape to render
+  rerender: boolean;  // should we rerender?
+  rendering: boolean; // are we currently rendering?
+
   start_time: number;
 
   constructor() {
-    this.scene = new Scene();
+    let scene = new Scene();
+
+    let requestRedraw = this.requestRedraw.bind(this); // TODO cache object
+    scene.canvas.addEventListener("wheel", (event) => {
+      scene.zoomAbout(event);
+      event.preventDefault();
+      requestRedraw();
+    });
+    scene.canvas.addEventListener("contextmenu", (event) =>
+      event.preventDefault(),
+    );
+
+    this.scene = scene;
 
     // Hot-patch the gyroid script to be eval (instead of exec) flavored
     const re = /draw\((.*)\);/;
@@ -64,9 +84,20 @@ class App {
       this.onWorkerMessage(m.data as WorkerResponse);
     };
 
+    this.tape = null;
+    this.rerender = false;
+
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
+  }
+
+  requestRedraw() {
+    if (this.rendering) {
+      this.rerender = true;
+    } else {
+      this.beginRender(this.tape);
+    }
   }
 
   onModeChanged() {
@@ -75,6 +106,7 @@ class App {
   }
 
   onScriptChanged(text: string) {
+    console.log("ON SCRIPT CHANGED");
     document.getElementById("status").textContent = "Evaluating...";
     console.log("script changed");
     this.worker.postMessage(new ScriptRequest(text));
@@ -98,6 +130,18 @@ class App {
     }
   }
 
+  beginRender(tape: Uint8Array) {
+    document.getElementById("status").textContent = "Rendering...";
+    this.start_time = performance.now();
+    const mode = this.getMode();
+    console.log(`${this.scene.camera} camera!`);
+    this.worker.postMessage(
+      new ShapeRequest(tape, this.scene.camera, mode),
+    );
+    this.rerender = false;
+    this.rendering = true;
+  }
+
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
       case ResponseKind.Started: {
@@ -113,16 +157,20 @@ class App {
         const endTime = performance.now();
         document.getElementById("status").textContent =
           `Rendered in ${(endTime - this.start_time).toFixed(2)} ms`;
+        this.rendering = false;
+
+        // Immediately start rendering again if pending
+        if (this.rerender) {
+          this.beginRender(this.tape)
+        }
         break;
       }
       case ResponseKind.Script: {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
-          document.getElementById("status").textContent = "Rendering...";
-          this.start_time = performance.now();
-          const mode = this.getMode();
-          this.worker.postMessage(new ShapeRequest(r.tape, mode));
+          this.tape = r.tape;
+          this.beginRender(r.tape);
         } else {
           document.getElementById("status").textContent = "";
         }
@@ -257,14 +305,18 @@ class ProgramInfo {
 }
 
 class Scene {
+  canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
   programInfo: ProgramInfo;
   buffers: Buffers;
   texture: WebGLTexture;
+  camera: fidget.JsCamera3;
 
   constructor() {
-    const canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-    this.gl = canvas.getContext("webgl");
+    this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
+    this.camera = new fidget.JsCamera3();
+
+    this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
       alert(
         "Unable to initialize WebGL. Your browser or machine may not support it.",
@@ -289,6 +341,16 @@ class Scene {
       new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
     );
     this.gl.generateMipmap(this.gl.TEXTURE_2D);
+  }
+
+  zoomAbout(event: any) {
+    let rect = this.canvas.getBoundingClientRect();
+    let x = ((event.clientX - rect.left) / RENDER_SIZE - 0.5) * 2.0;
+    let y = ((event.clientY - rect.top) / RENDER_SIZE - 0.5) * 2.0;
+    console.log(`ZOOMING ABOUT ${event.deltaY} (${x}, ${y})`);
+    this.camera.zoom_about(
+      Math.pow(2, event.deltaY / 100.0), x, y
+    );
   }
 
   setTextureRegion(data: Uint8Array) {

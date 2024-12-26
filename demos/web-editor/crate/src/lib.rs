@@ -1,13 +1,15 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, ImageRenderConfig, ImageSize, ThreadPool, TileSizes,
-        VoxelRenderConfig, VoxelSize,
+        BitRenderMode, ImageRenderConfig, ImageSize, RotateHandle, ThreadPool,
+        TileSizes, TranslateHandle, View2, View3, VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
     Error,
 };
+use nalgebra::Point3;
+
 use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 
@@ -77,8 +79,9 @@ pub fn render_region_2d(
 pub fn render_region_heightmap(
     shape: JsVmShape,
     image_size: usize,
+    camera: JsCamera3,
 ) -> Result<Vec<u8>, String> {
-    let (depth, _norm) = render_3d_inner(shape.0, image_size);
+    let (depth, _norm) = render_3d_inner(shape.0, image_size, camera.0);
 
     // Convert into an image
     Ok(depth
@@ -95,8 +98,9 @@ pub fn render_region_heightmap(
 pub fn render_region_normals(
     shape: JsVmShape,
     image_size: usize,
+    camera: JsCamera3,
 ) -> Result<Vec<u8>, String> {
-    let (_depth, norm) = render_3d_inner(shape.0, image_size);
+    let (_depth, norm) = render_3d_inner(shape.0, image_size, camera.0);
 
     // Convert into an image
     Ok(norm
@@ -108,12 +112,68 @@ pub fn render_region_normals(
 fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
+    view: View3,
 ) -> (Vec<u32>, Vec<[u8; 3]>) {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(ThreadPool::Global),
         tile_sizes: TileSizes::new(&[64, 32, 16, 8]).unwrap(),
+        view,
         ..Default::default()
     };
     cfg.run(shape.clone())
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub struct JsCamera3(View3);
+
+#[wasm_bindgen]
+impl JsCamera3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(View3::default())
+    }
+
+    #[wasm_bindgen]
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self.0).unwrap()
+    }
+
+    #[wasm_bindgen]
+    pub fn deserialize(data: &[u8]) -> Self {
+        Self(bincode::deserialize::<View3>(data).unwrap())
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_translate(&self, x: f32, y: f32) -> JsTranslateHandle {
+        JsTranslateHandle(self.0.begin_translate(Point3::new(x, y, 0.0)))
+    }
+
+    #[wasm_bindgen]
+    pub fn translate(&mut self, h: JsTranslateHandle, x: f32, y: f32) -> bool {
+        self.0.translate(h.0, Point3::new(x, y, 0.0))
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_rotate(&self, x: f32, y: f32) -> JsRotateHandle {
+        JsRotateHandle(self.0.begin_rotate(Point3::new(x, y, 0.0)))
+    }
+
+    #[wasm_bindgen]
+    pub fn rotate(&mut self, h: JsRotateHandle, x: f32, y: f32) -> bool {
+        self.0.rotate(h.0, Point3::new(x, y, 0.0))
+    }
+
+    #[wasm_bindgen]
+    pub fn zoom_about(&mut self, amount: f32, x: f32, y: f32) -> bool {
+        self.0.zoom(amount, Some(Point3::new(x, y, 0.0)))
+    }
+}
+
+#[wasm_bindgen]
+pub struct JsRotateHandle(RotateHandle);
+
+#[wasm_bindgen]
+pub struct JsTranslateHandle(TranslateHandle);

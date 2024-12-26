@@ -11,11 +11,13 @@ import {
 
 import { RENDER_SIZE } from "./constants";
 
-var fidget: any = null;
+import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 class Worker {
   render(s: ShapeRequest) {
+    console.log(s);
     const shape = fidget.deserialize_tape(s.tape);
+    const camera = fidget.JsCamera3.deserialize(s.camera);
     let out: Uint8Array;
     switch (s.mode) {
       case RenderMode.Bitmap: {
@@ -23,11 +25,11 @@ class Worker {
         break;
       }
       case RenderMode.Heightmap: {
-        out = fidget.render_region_heightmap(shape, RENDER_SIZE);
+        out = fidget.render_region_heightmap(shape, RENDER_SIZE, camera);
         break;
       }
       case RenderMode.Normals: {
-        out = fidget.render_region_normals(shape, RENDER_SIZE);
+        out = fidget.render_region_normals(shape, RENDER_SIZE, camera);
         break;
       }
     }
@@ -61,7 +63,6 @@ class Worker {
 }
 
 async function run() {
-  fidget = await import("../../crate/pkg/fidget_wasm_demo.js")!;
   await fidget.default();
   await fidget.initThreadPool(navigator.hardwareConcurrency);
 

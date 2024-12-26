@@ -1,6 +1,7 @@
 use nalgebra::{
     geometry::Similarity2, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
 };
+use serde::{Deserialize, Serialize};
 
 /// Object providing a world-to-model transform in 2D
 ///
@@ -45,7 +46,7 @@ use nalgebra::{
 /// See also
 /// [`RegionSize::screen_to_world`](crate::render::RegionSize::screen_to_world),
 /// which converts from screen to world coordinates.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct View2 {
     mat: Similarity2<f32>,
 }
@@ -106,7 +107,7 @@ impl View2 {
 }
 
 /// Object providing a view-to-model transform in 2D
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct View3 {
     center: Vector3<f32>,
     scale: f32,
