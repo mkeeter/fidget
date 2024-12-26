@@ -9,14 +9,13 @@ use log::info;
 
 use fidget::context::Context;
 
-/*
-
 /// Simple test program
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    /// Subcommand
     #[clap(subcommand)]
-    cmd: Command,
+    action: ActionCommand,
 
     /// Input file
     #[clap(short, long)]
@@ -24,7 +23,8 @@ struct Args {
 }
 
 #[derive(Subcommand)]
-enum Command {
+enum ActionCommand {
+    /*
     Render2d {
         #[clap(flatten)]
         settings: ImageSettings,
@@ -50,6 +50,7 @@ enum Command {
         #[clap(long)]
         isometric: bool,
     },
+    */
     Mesh {
         #[clap(flatten)]
         settings: MeshSettings,
@@ -58,11 +59,16 @@ enum Command {
 
 #[derive(ValueEnum, Clone)]
 enum EvalMode {
-    Vm,
-
     #[cfg(feature = "jit")]
     Jit,
+
+    Vm,
 }
+
+/*
+
+
+
 
 #[derive(Parser)]
 struct ImageSettings {
@@ -87,29 +93,32 @@ struct ImageSettings {
     size: u32,
 }
 
+*/
+
 #[derive(Parser)]
 struct MeshSettings {
     /// Octree depth
-    #[clap(short, long)]
+    #[clap(short, long, default_value_t = 6)]
     depth: u8,
 
     /// Name of a `.stl` file to write
     #[clap(short, long)]
-    out: Option<PathBuf>,
+    output: Option<PathBuf>,
 
     /// Evaluator flavor
     #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
     eval: EvalMode,
 
-    /// Number of threads to use
-    #[clap(short, long, default_value_t = NonZeroUsize::new(8).unwrap())]
-    threads: NonZeroUsize,
-
     /// Number of times to render (for benchmarking)
-    #[clap(short = 'N', default_value_t = 1)]
-    n: usize,
+    #[clap(short = 't', default_value_t = 1)]
+    num_repeats: usize,
+
+    /// Number of threads to use
+    #[clap(short = 'n', long, default_value_t = NonZeroUsize::new(8).unwrap())]
+    num_threads: NonZeroUsize,
 }
 
+/*
 ////////////////////////////////////////////////////////////////////////////////
 fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
@@ -259,37 +268,39 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+*/
+
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &MeshSettings,
 ) -> fidget::mesh::Mesh {
     let mut mesh = fidget::mesh::Mesh::new();
 
-    for _ in 0..settings.n {
+    for _ in 0..settings.num_repeats {
         let settings = fidget::mesh::Settings {
-            threads: settings.threads.into(),
+            threads: settings.num_threads.into(),
             depth: settings.depth,
             ..Default::default()
         };
         let octree = fidget::mesh::Octree::build(&shape, settings);
         mesh = octree.walk_dual(settings);
     }
+
     mesh
 }
-*/
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
 
-    let now = Instant::now();
-    /*
+    let top_load = Instant::now();
     let args = Args::parse();
     let mut file = std::fs::File::open(&args.input)?;
     let (ctx, root) = Context::from_text(&mut file)?;
-    info!("Loaded file in {:?}", now.elapsed());
+    info!("Loaded file in {:?}", top_load.elapsed());
 
-    match args.cmd {
+    match args.action {
+        /*
         Command::Render2d {
             settings,
             brute,
@@ -365,35 +376,37 @@ fn main() -> Result<()> {
                 )?;
             }
         }
-        Command::Mesh { settings } => {
-            let start = Instant::now();
+        */
+        ActionCommand::Mesh { settings } => {
+            let mut top = Instant::now();
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run_mesh(shape, &settings)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run_mesh(shape, &settings)
                 }
             };
             info!(
                 "Rendered {}x at {:?} ms/iter",
-                settings.n,
-                start.elapsed().as_micros() as f64
+                settings.num_repeats,
+                top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.n as f64)
+                    / (settings.num_repeats as f64)
             );
-            if let Some(out) = settings.out {
-                info!("Writing STL to {out:?}");
-                mesh.write_stl(&mut std::fs::File::create(out)?)?;
+            if let Some(path) = settings.output {
+                info!("Writing STL to {path:?}");
+                mesh.write_stl(&mut std::fs::File::create(path)?)?;
             }
         }
     }
-    */
 
     Ok(())
 }
