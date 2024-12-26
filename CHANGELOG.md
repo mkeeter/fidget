@@ -1,3 +1,6 @@
+# 0.3.5 (unreleased)
+Nothing here yet!
+
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
   and pick a new register count for the resulting tape
