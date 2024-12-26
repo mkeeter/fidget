@@ -5,6 +5,7 @@ members = [
     "demos/constraints",
     "demos/cli",
     "demos/viewer",
+    "demos/basic",
     "workspace-hack",
 ]
 exclude = ["demos/web-editor/crate"]
