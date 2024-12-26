@@ -283,11 +283,16 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
 
-    let top_load = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(&args.input).unwrap();
-    let (ctx, root) = Context::from_text(&mut file).unwrap();
-    info!("Loaded file in {:?}", top_load.elapsed());
+
+    let (ctx, root) = {
+        info!("Loading model from {:?}", &args.input);
+        let top = Instant::now();
+        let mut handle = std::fs::File::open(&args.input).unwrap();
+        let ret = Context::from_text(&mut handle).unwrap();
+        info!("Loaded model in {:?}", top.elapsed());
+        ret
+    };
 
     let mut top = Instant::now();
     match args.action {
@@ -300,7 +305,7 @@ fn main() -> Result<()> {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (JIT)", top.elapsed());
                     top = Instant::now();
                     run_3d(
                         shape,
@@ -313,7 +318,7 @@ fn main() -> Result<()> {
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (VM)", top.elapsed());
                     top = Instant::now();
                     run_3d(
                         shape,
@@ -333,9 +338,9 @@ fn main() -> Result<()> {
                     / (args.num_repeats as f64)
             );
             if let Some(path) = settings.output {
-                info!("Writing PNG to {path:?}");
+                info!("Writing PNG to {:?}", &path);
                 image::save_buffer(
-                    path,
+                    &path,
                     &buffer,
                     settings.size,
                     settings.size,
@@ -352,7 +357,7 @@ fn main() -> Result<()> {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (JIT)", top.elapsed());
                     top = Instant::now();
                     run_2d(
                         shape,
@@ -365,7 +370,7 @@ fn main() -> Result<()> {
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (VM)", top.elapsed());
                     top = Instant::now();
                     run_2d(
                         shape,
@@ -429,8 +434,8 @@ fn main() -> Result<()> {
                     / (args.num_repeats as f64)
             );
             if let Some(path) = settings.output {
-                info!("Writing STL to {path:?}");
-                let mut handle = std::fs::File::create(path)?;
+                info!("Writing STL to {:?}", &path);
+                let mut handle = std::fs::File::create(&path)?;
                 mesh.write_stl(&mut handle)?;
             }
         }
