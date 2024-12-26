@@ -15,20 +15,23 @@ import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 class Worker {
   render(s: ShapeRequest) {
+    console.log("WORKER RENDER");
     console.log(s);
     const shape = fidget.deserialize_tape(s.tape);
-    const camera = fidget.JsCamera3.deserialize(s.camera);
     let out: Uint8Array;
     switch (s.mode) {
       case RenderMode.Bitmap: {
-        out = fidget.render_region_2d(shape, RENDER_SIZE);
+        const camera = fidget.JsCamera2.deserialize(s.camera);
+        out = fidget.render_region_2d(shape, RENDER_SIZE, camera);
         break;
       }
       case RenderMode.Heightmap: {
+        const camera = fidget.JsCamera3.deserialize(s.camera);
         out = fidget.render_region_heightmap(shape, RENDER_SIZE, camera);
         break;
       }
       case RenderMode.Normals: {
+        const camera = fidget.JsCamera3.deserialize(s.camera);
         out = fidget.render_region_normals(shape, RENDER_SIZE, camera);
         break;
       }

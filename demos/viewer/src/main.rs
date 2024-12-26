@@ -7,7 +7,10 @@ use log::{debug, error, info, warn};
 use nalgebra::{Point2, Point3};
 use notify::Watcher;
 
-use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
+use fidget::render::{
+    ImageRenderConfig, RotateHandle, TranslateHandle, View2, View3,
+    VoxelRenderConfig,
+};
 
 use std::{error::Error, path::Path};
 
@@ -343,8 +346,8 @@ enum Mode3D {
 
 #[derive(Copy, Clone)]
 enum Drag3D {
-    Pan(fidget::render::TranslateHandle),
-    Rotate(fidget::render::RotateHandle),
+    Pan(TranslateHandle<3>),
+    Rotate(RotateHandle),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -355,7 +358,7 @@ enum RenderMode {
         view: View2,
 
         /// Drag start position (in model coordinates)
-        drag_start: Option<Point2<f32>>,
+        drag_start: Option<TranslateHandle<2>>,
         mode: Mode2D,
     },
     ThreeD {
@@ -643,14 +646,12 @@ impl eframe::App for ViewerApp {
                 );
 
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let mat =
-                        view.world_to_model() * image_size.screen_to_world();
-                    let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
-                    if let Some(prev) = *drag_start {
-                        view.translate(prev - pos);
-                        render_changed |= prev != pos;
+                    let pos =
+                        image_size.transform_point(Point2::new(pos.x, pos.y));
+                    if let Some(prev) = drag_start {
+                        render_changed |= view.translate(prev, pos);
                     } else {
-                        *drag_start = Some(pos);
+                        *drag_start = Some(view.begin_translate(pos));
                     }
                 } else {
                     *drag_start = None;

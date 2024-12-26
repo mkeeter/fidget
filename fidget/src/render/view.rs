@@ -1,5 +1,7 @@
 use nalgebra::{
-    geometry::Similarity2, Matrix3, Matrix4, Point2, Point3, Vector2, Vector3,
+    Const, DimNameAdd, Matrix3, Matrix4, OMatrix,
+    OPoint, OVector, Point2, Point3, Vector2, Vector3,
+    U1, DefaultAllocator, allocator::Allocator, DimNameSub, DimNameSum
 };
 use serde::{Deserialize, Serialize};
 
@@ -48,13 +50,15 @@ use serde::{Deserialize, Serialize};
 /// which converts from screen to world coordinates.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct View2 {
-    mat: Similarity2<f32>,
+    center: Vector2<f32>,
+    scale: f32,
 }
 
 impl Default for View2 {
     fn default() -> Self {
         Self {
-            mat: Similarity2::identity(),
+            scale: 1.0,
+            center: Vector2::new(0.0, 0.0),
         }
     }
 }
@@ -65,25 +69,49 @@ impl View2 {
     /// The resulting camera will point at the center, and the viewport will be
     /// ± `scale` in size.
     pub fn from_center_and_scale(center: Vector2<f32>, scale: f32) -> Self {
-        let mat =
-            Similarity2::from_parts(center.into(), Default::default(), scale);
-        Self { mat }
+        Self { center, scale }
+    }
+
+    /// Returns the scaling matrix for this view
+    fn scale_mat(&self) -> Matrix3<f32> {
+        Matrix3::new_scaling(self.scale)
+    }
+
+    /// Returns the translation matrix for this view
+    fn translation_mat(&self) -> Matrix3<f32> {
+        Matrix3::new_translation(&self.center)
     }
 
     /// Returns the world-to-model transform matrix
     pub fn world_to_model(&self) -> Matrix3<f32> {
-        self.mat.into()
+        self.translation_mat() * self.scale_mat()
     }
 
     /// Transform a point from world to model space
     pub fn transform_point(&self, p: &Point2<f32>) -> Point2<f32> {
-        self.mat.transform_point(p)
+        self.world_to_model().transform_point(p)
     }
 
-    /// Applies a translation (in model units) to the current camera position
-    pub fn translate(&mut self, dt: Vector2<f32>) {
-        // TODO make this world space for consistency?
-        self.mat.append_translation_mut(&dt.into());
+    /// Begins a translation operation, given a point in world space
+    pub fn begin_translate(&self, start: Point2<f32>) -> TranslateHandle<2> {
+        let initial_mat = self.world_to_model();
+        TranslateHandle {
+            start: initial_mat.transform_point(&start),
+            initial_mat,
+            initial_center: self.center,
+        }
+    }
+
+    /// Applies a translation (in world units) to the current camera position
+    pub fn translate(
+        &mut self,
+        h: &TranslateHandle<2>,
+        pos: Point2<f32>,
+    ) -> bool {
+        let next_center = h.center(pos);
+        let changed = next_center != self.center;
+        self.center = next_center;
+        changed
     }
 
     /// Zooms the camera about a particular position (in world space)
@@ -93,13 +121,12 @@ impl View2 {
         match pos {
             Some(before) => {
                 let pos_before = self.transform_point(&before);
-                self.mat.append_scaling_mut(amount);
+                self.scale *= amount;
                 let pos_after = self.transform_point(&before);
-                self.mat
-                    .append_translation_mut(&(pos_before - pos_after).into());
+                self.center += pos_before - pos_after;
             }
             None => {
-                self.mat.append_scaling_mut(amount);
+                self.scale *= amount;
             }
         }
         amount != 1.0
@@ -157,7 +184,7 @@ impl View3 {
     }
 
     /// Begins a translation operation, given a point in world space
-    pub fn begin_translate(&self, start: Point3<f32>) -> TranslateHandle {
+    pub fn begin_translate(&self, start: Point3<f32>) -> TranslateHandle<3> {
         let initial_mat = self.world_to_model();
         TranslateHandle {
             start: initial_mat.transform_point(&start),
@@ -188,7 +215,11 @@ impl View3 {
     }
 
     /// Applies a translation (in world units) to the current camera position
-    pub fn translate(&mut self, h: &TranslateHandle, pos: Point3<f32>) -> bool {
+    pub fn translate(
+        &mut self,
+        h: &TranslateHandle<3>,
+        pos: Point3<f32>,
+    ) -> bool {
         let next_center = h.center(pos);
         let changed = next_center != self.center;
         self.center = next_center;
@@ -258,18 +289,44 @@ impl RotateHandle {
     }
 }
 
-/// Handle to perform translation on a [`View3`]
+/// Handle to perform translation on a [`View2`] or [`View3`]
 #[derive(Copy, Clone)]
-pub struct TranslateHandle {
+pub struct TranslateHandle<const N: usize> 
+where
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+    <DefaultAllocator as nalgebra::allocator::Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: std::marker::Copy,
+    OMatrix<
+        f32,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+    >: Copy,
+
+{
     /// Position of the initial click, in model space
-    start: Point3<f32>,
+    start: OPoint<f32, Const<N>>,
     /// Initial world-to-model transform matrix
-    initial_mat: Matrix4<f32>,
-    /// Initial value for [`View3::center`]
-    initial_center: Vector3<f32>,
+    initial_mat: OMatrix<
+        f32,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+        <Const<N> as DimNameAdd<Const<1>>>::Output,
+    >,
+    /// Initial value of [`View2::center`] or [`View3::center`]
+    initial_center: OVector<f32, Const<N>>,
 }
 
-impl TranslateHandle {
+impl TranslateHandle<2> 
+{
+    fn center(&self, pos: Point2<f32>) -> Vector2<f32> {
+        let pos_model = self.initial_mat.transform_point(&pos);
+        self.initial_center - (pos_model - self.start)
+    }
+}
+
+impl TranslateHandle<3> 
+{
     fn center(&self, pos: Point3<f32>) -> Vector3<f32> {
         let pos_model = self.initial_mat.transform_point(&pos);
         self.initial_center - (pos_model - self.start)

@@ -63,7 +63,7 @@ class App {
         scene.beginRotate(event);
       }
     });
-    window.canvas.addEventListener("mouseup", (event) => {
+    window.addEventListener("mouseup", (event) => {
       scene.endDrag();
     });
     window.addEventListener("mousemove", (event) => {
@@ -121,9 +121,7 @@ class App {
   }
 
   onScriptChanged(text: string) {
-    console.log("ON SCRIPT CHANGED");
     document.getElementById("status").textContent = "Evaluating...";
-    console.log("script changed");
     this.worker.postMessage(new ScriptRequest(text));
   }
 
@@ -149,8 +147,9 @@ class App {
     document.getElementById("status").textContent = "Rendering...";
     this.start_time = performance.now();
     const mode = this.getMode();
-    console.log(`${this.scene.camera} camera!`);
-    this.worker.postMessage(new ShapeRequest(tape, this.scene.camera, mode));
+    this.worker.postMessage(
+      new ShapeRequest(tape, this.scene.camera2, this.scene.camera3, mode),
+    );
     this.rerender = false;
     this.rendering = true;
   }
@@ -317,6 +316,11 @@ class ProgramInfo {
   }
 }
 
+export enum CameraKind {
+  TwoD,
+  ThreeD,
+}
+
 class Scene {
   canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
@@ -324,15 +328,20 @@ class Scene {
   buffers: Buffers;
   texture: WebGLTexture;
 
-  camera: fidget.JsCamera3;
-  translateHandle: fidget.JsTranslateHandle | null;
-  rotateHandle: fidget.JsRotateHandle | null;
+  camera2: fidget.JsCamera2;
+  translateHandle2: fidget.JsTranslateHandle2 | null;
+
+  camera3: fidget.JsCamera3;
+  translateHandle3: fidget.JsTranslateHandle3 | null;
+  rotateHandle3: fidget.JsRotateHandle | null;
 
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-    this.camera = new fidget.JsCamera3();
-    this.rotateHandle = null;
-    this.translateHandle = null;
+    this.camera2 = new fidget.JsCamera2();
+    this.camera3 = new fidget.JsCamera3();
+    this.rotateHandle3 = null;
+    this.translateHandle3 = null;
+    this.translateHandle2 = null;
 
     this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
@@ -363,7 +372,8 @@ class Scene {
 
   zoomAbout(event: WheelEvent) {
     let [x, y] = this.screenToWorld(event);
-    this.camera.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
+    this.camera2.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
+    this.camera3.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
   }
 
   screenToWorld(event: MouseEvent): readonly [number, number] {
@@ -375,30 +385,35 @@ class Scene {
 
   beginTranslate(event: MouseEvent) {
     let [x, y] = this.screenToWorld(event);
-    this.translateHandle = this.camera.begin_translate(x, y);
+    this.translateHandle2 = this.camera2.begin_translate(x, y);
+    this.translateHandle3 = this.camera3.begin_translate(x, y);
   }
 
   beginRotate(event: MouseEvent) {
     let [x, y] = this.screenToWorld(event);
-    this.rotateHandle = this.camera.begin_rotate(x, y);
+    this.rotateHandle3 = this.camera3.begin_rotate(x, y);
   }
 
   drag(event: MouseEvent): boolean {
     let [x, y] = this.screenToWorld(event);
-    if (this.rotateHandle) {
-      console.log(this.rotateHandle);
-      return this.camera.rotate(this.rotateHandle!, x, y);
-    } else if (this.translateHandle) {
-      console.log(this.translateHandle);
-      return this.camera.translate(this.translateHandle!, x, y);
-    } else {
-      return false;
+    let changed = false;
+    if (this.rotateHandle3) {
+      changed = changed || this.camera3.rotate(this.rotateHandle3, x, y);
     }
+    if (this.translateHandle3) {
+      changed = changed || this.camera3.translate(this.translateHandle3, x, y);
+    }
+    if (this.translateHandle2) {
+      changed = changed || this.camera2.translate(this.translateHandle2, x, y);
+    }
+
+    return changed;
   }
 
   endDrag() {
-    this.rotateHandle = null;
-    this.translateHandle = null;
+    this.translateHandle2 = null;
+    this.rotateHandle3 = null;
+    this.translateHandle3 = null;
   }
 
   setTextureRegion(data: Uint8Array) {

@@ -28,10 +28,25 @@ export class ShapeRequest {
   camera: Uint8Array;
   mode: RenderMode;
 
-  constructor(tape: Uint8Array, camera: fidget.JsCamera3, mode: RenderMode) {
+  constructor(
+    tape: Uint8Array,
+    camera2: fidget.JsCamera2,
+    camera3: fidget.JsCamera3,
+    mode: RenderMode,
+  ) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
-    this.camera = camera.serialize();
+    switch (mode) {
+      case RenderMode.Bitmap: {
+        this.camera = camera2.serialize();
+        break;
+      }
+      case RenderMode.Heightmap:
+      case RenderMode.Normals: {
+        this.camera = camera3.serialize();
+        break;
+      }
+    }
     this.mode = mode;
   }
 }
