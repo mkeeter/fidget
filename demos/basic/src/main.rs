@@ -98,7 +98,7 @@ struct ImageSettings {
 #[derive(Parser)]
 struct MeshSettings {
     /// Octree depth
-    #[clap(short, long, default_value_t = 6)]
+    #[clap(short, long, default_value_t = 7)]
     depth: u8,
 
     /// Name of a `.stl` file to write
@@ -106,7 +106,7 @@ struct MeshSettings {
     output: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
     eval: EvalMode,
 
     /// Number of times to render (for benchmarking)
