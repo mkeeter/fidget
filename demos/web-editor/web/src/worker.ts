@@ -15,8 +15,6 @@ import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 class Worker {
   render(s: ShapeRequest) {
-    console.log("WORKER RENDER");
-    console.log(s);
     const shape = fidget.deserialize_tape(s.tape);
     let out: Uint8Array;
     switch (s.mode) {

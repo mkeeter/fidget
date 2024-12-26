@@ -165,7 +165,7 @@ class App {
       }
       case ResponseKind.Image: {
         this.scene.setTextureRegion(req.data);
-        this.scene.draw();
+        requestAnimationFrame((event) => this.scene.draw());
 
         const endTime = performance.now();
         document.getElementById("status").textContent =
@@ -406,14 +406,14 @@ class Scene {
   drag(event: MouseEvent): boolean {
     let [x, y] = this.screenToWorld(event);
     let changed = false;
+    if (this.translateHandle2) {
+      changed = this.camera2.translate(this.translateHandle2, x, y) || changed;
+    }
     if (this.rotateHandle3) {
-      changed = changed || this.camera3.rotate(this.rotateHandle3, x, y);
+      changed = this.camera3.rotate(this.rotateHandle3, x, y) || changed;
     }
     if (this.translateHandle3) {
-      changed = changed || this.camera3.translate(this.translateHandle3, x, y);
-    }
-    if (this.translateHandle2) {
-      changed = changed || this.camera2.translate(this.translateHandle2, x, y);
+      changed = this.camera3.translate(this.translateHandle3, x, y) || changed;
     }
 
     return changed;
