@@ -1,4 +1,4 @@
-# 0.3.4 (unreleased)
+# 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
   and pick a new register count for the resulting tape
 - Add bidirectional conversions between `JitFunction` and `GenericVmFunction`
