@@ -24,7 +24,6 @@ struct Args {
 
 #[derive(Subcommand)]
 enum ActionCommand {
-    /*
     Render2d {
         #[clap(flatten)]
         settings: ImageSettings,
@@ -37,6 +36,8 @@ enum ActionCommand {
         #[clap(long)]
         sdf: bool,
     },
+
+    /*
 
     Render3d {
         #[clap(flatten)]
@@ -65,35 +66,28 @@ enum EvalMode {
     Vm,
 }
 
-/*
-
-
-
-
 #[derive(Parser)]
 struct ImageSettings {
+    /// Image size
+    #[clap(short, long, default_value_t = 1024)]
+    size: u32,
+
     /// Name of a `.png` file to write
     #[clap(short, long)]
-    out: Option<PathBuf>,
+    output: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
     eval: EvalMode,
 
-    /// Number of threads to use
-    #[clap(short, long)]
-    threads: Option<NonZeroUsize>,
-
     /// Number of times to render (for benchmarking)
-    #[clap(short = 'N', default_value_t = 1)]
-    n: usize,
+    #[clap(short = 't', default_value_t = 1)]
+    num_repeats: usize,
 
-    /// Image size
-    #[clap(short, long, default_value_t = 128)]
-    size: u32,
+    /// Number of threads to use
+    #[clap(short = 'n', long)]
+    num_threads: Option<NonZeroUsize>,
 }
-
-*/
 
 #[derive(Parser)]
 struct MeshSettings {
@@ -190,6 +184,8 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+*/
+
 fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
@@ -200,7 +196,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         let tape = shape.float_slice_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
-        for _ in 0..settings.n {
+        for _ in 0..settings.num_repeats {
             let mut xs = vec![];
             let mut ys = vec![];
             let div = (settings.size - 1) as f64;
@@ -223,7 +219,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .collect()
     } else {
         let pool: Option<rayon::ThreadPool>;
-        let threads = match settings.threads {
+        let threads = match settings.num_threads {
             Some(n) if n.get() == 1 => None,
             Some(n) => {
                 pool = Some(
@@ -244,7 +240,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         };
         if sdf {
             let mut image = vec![];
-            for _ in 0..settings.n {
+            for _ in 0..settings.num_repeats {
                 image =
                     cfg.run::<_, fidget::render::SdfRenderMode>(shape.clone());
             }
@@ -254,7 +250,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         } else {
             let mut image = vec![];
-            for _ in 0..settings.n {
+            for _ in 0..settings.num_repeats {
                 image = cfg
                     .run::<_, fidget::render::DebugRenderMode>(shape.clone());
             }
@@ -267,8 +263,6 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-*/
 
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
@@ -295,42 +289,44 @@ fn main() -> Result<()> {
 
     let top_load = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(&args.input)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
+    let mut file = std::fs::File::open(&args.input).unwrap();
+    let (ctx, root) = Context::from_text(&mut file).unwrap();
     info!("Loaded file in {:?}", top_load.elapsed());
 
+    let mut top = Instant::now();
     match args.action {
-        /*
-        Command::Render2d {
+        ActionCommand::Render2d {
             settings,
             brute,
             sdf,
         } => {
-            let start = Instant::now();
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run2d(shape, &settings, brute, sdf)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run2d(shape, &settings, brute, sdf)
                 }
             };
 
             info!(
                 "Rendered {}x at {:?} ms/frame",
-                settings.n,
-                start.elapsed().as_micros() as f64
+                settings.num_repeats,
+                top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.n as f64)
+                    / (settings.num_repeats as f64)
             );
-            if let Some(out) = settings.out {
+            if let Some(path) = settings.output {
+                info!("Writing PNG to {path:?}");
                 image::save_buffer(
-                    out,
+                    path,
                     &buffer,
                     settings.size,
                     settings.size,
@@ -338,6 +334,7 @@ fn main() -> Result<()> {
                 )?;
             }
         }
+        /*
         Command::Render3d {
             settings,
             color,
@@ -378,7 +375,6 @@ fn main() -> Result<()> {
         }
         */
         ActionCommand::Mesh { settings } => {
-            let mut top = Instant::now();
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
@@ -403,7 +399,8 @@ fn main() -> Result<()> {
             );
             if let Some(path) = settings.output {
                 info!("Writing STL to {path:?}");
-                mesh.write_stl(&mut std::fs::File::create(path)?)?;
+                let mut handle = std::fs::File::create(path)?;
+                mesh.write_stl(&mut handle)?;
             }
         }
     }
