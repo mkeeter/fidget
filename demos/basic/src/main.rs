@@ -7,8 +7,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::{context::Context, mesh::ThreadCount};
-
 /// Simple test program
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -19,7 +17,7 @@ struct Args {
 
     /// Input file
     #[clap(short, long)]
-    input: PathBuf,
+    input: Option<PathBuf>,
 
     /// Evaluator flavor
     #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
@@ -89,7 +87,7 @@ struct ImageSettings {
 #[derive(Parser)]
 struct MeshSettings {
     /// Octree depth
-    #[clap(short, long, default_value_t = 7)]
+    #[clap(short, long, default_value_t = 6)]
     depth: u8,
 
     /// Name of a `.stl` file to write
@@ -257,6 +255,8 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     num_repeats: usize,
     num_threads: usize,
 ) -> fidget::mesh::Mesh {
+    use fidget::mesh::ThreadCount;
+
     let mut mesh = fidget::mesh::Mesh::new();
 
     let threads = match num_threads {
@@ -277,23 +277,11 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     mesh
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
-        .init();
-
-    let args = Args::parse();
-
-    let (ctx, root) = {
-        info!("Loading model from {:?}", &args.input);
-        let top = Instant::now();
-        let mut handle = std::fs::File::open(&args.input).unwrap();
-        let ret = Context::from_text(&mut handle).unwrap();
-        info!("Loaded model in {:?}", top.elapsed());
-        ret
-    };
-
+fn run_dispatch(
+    ctx: fidget::context::Context,
+    root: fidget::context::Node,
+    args: Args,
+) -> Result<()> {
     let mut top = Instant::now();
     match args.action {
         ActionCommand::Render3d {
@@ -433,6 +421,11 @@ fn main() -> Result<()> {
                     / 1000.0
                     / (args.num_repeats as f64)
             );
+            info!(
+                "Mesh has {} vertices {} triangles",
+                mesh.vertices.len(),
+                mesh.triangles.len()
+            );
             if let Some(path) = settings.output {
                 info!("Writing STL to {:?}", &path);
                 let mut handle = std::fs::File::create(&path)?;
@@ -442,4 +435,56 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+fn main() -> Result<()> {
+    use fidget::context::Context;
+
+    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+        .init();
+
+    let sphere_text = "
+# This is a comment!
+0x600000b90000 var-x
+0x600000b900a0 square 0x600000b90000
+0x600000b90050 var-y
+0x600000b900f0 square 0x600000b90050
+0x600000b90140 add 0x600000b900a0 0x600000b900f0
+0x600000b90190 sqrt 0x600000b90140
+0x600000b901e0 const .5
+";
+
+    let args = Args::parse();
+
+    let (ctx, root) = match &args.input {
+        None => {
+            let top = Instant::now();
+            // , Tree};
+
+            // let t = Tree::x() + Tree::y();
+            // let mut ctx = Context::new();
+            // let sum = ctx.import(&t);
+
+            // let ret = Context::from_text(&mut handle).unwrap();
+
+            let ret = Context::from_text(&mut sphere_text.as_bytes()).unwrap();
+            info!("Created sphere model in {:?}", top.elapsed());
+            ret
+        }
+        Some(path) => {
+            info!("Loading model from {:?}", path);
+            let top = Instant::now();
+            let mut handle = std::fs::File::open(&path).unwrap();
+            let ret = Context::from_text(&mut handle).unwrap();
+            info!("Loaded model in {:?}", top.elapsed());
+            ret
+        }
+    };
+
+    info!("Context has {} items", ctx.len());
+    info!("Root is {:?}", root);
+
+    run_dispatch(ctx, root, args)
 }
