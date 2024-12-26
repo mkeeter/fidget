@@ -18,7 +18,7 @@ mod view;
 use config::Tile;
 pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
 pub use region::{ImageSize, RegionSize, VoxelSize};
-pub use view::{RotateHandle, View2, View3};
+pub use view::{RotateHandle, TranslateHandle, View2, View3};
 
 use render2d::render as render2d;
 use render3d::render as render3d;

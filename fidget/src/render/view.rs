@@ -127,12 +127,15 @@ impl Default for View3 {
 
 /// Object providing a world-to-model transform in 3D
 ///
+/// This is implemented as a uniform scaling operation, followed by rotation
+/// (pitch / yaw, i.e. turntable rotation), followed by translation.
+///
 /// See [`View2`] for a diagram of coordinate spaces
 impl View3 {
     /// Builds a camera from a center (in world coordinates) and a scale
     ///
-    /// The resulting camera will point at the center, and the viewport will be
-    /// ± `scale` in size.
+    /// The resulting camera will point at the center along the `-Z` axis, and
+    /// the viewport will be ± `scale` in size.
     pub fn from_center_and_scale(center: Vector3<f32>, scale: f32) -> Self {
         Self {
             center,
@@ -144,17 +147,7 @@ impl View3 {
 
     /// Returns the world-to-model transform matrix
     pub fn world_to_model(&self) -> Matrix4<f32> {
-        let scale = Matrix4::new_scaling(self.scale);
-        let rot = Matrix4::from_axis_angle(
-            &nalgebra::Unit::new_normalize(Vector3::new(0.0, 0.0, 1.0)),
-            self.yaw,
-        ) * Matrix4::from_axis_angle(
-            &nalgebra::Unit::new_normalize(Vector3::new(1.0, 0.0, 0.0)),
-            self.pitch,
-        );
-        let translation = Matrix4::new_translation(&self.center);
-
-        translation * rot * scale
+        self.translation_mat() * self.rot_mat() * self.scale_mat()
     }
 
     /// Transform a point from world to model space
@@ -162,10 +155,43 @@ impl View3 {
         self.world_to_model().transform_point(p)
     }
 
-    /// Applies a translation (in model units) to the current camera position
-    pub fn translate(&mut self, dt: Vector3<f32>) {
-        // TODO for consistency, make this screen units?
-        self.center += dt;
+    /// Begins a translation operation, given a point in world space
+    pub fn begin_translate(&self, start: Point3<f32>) -> TranslateHandle {
+        let initial_mat = self.world_to_model();
+        TranslateHandle {
+            start: initial_mat.transform_point(&start),
+            initial_mat,
+            initial_center: self.center,
+        }
+    }
+
+    /// Returns the scaling matrix for this view
+    fn scale_mat(&self) -> Matrix4<f32> {
+        Matrix4::new_scaling(self.scale)
+    }
+
+    /// Returns the rotation matrix for this view
+    fn rot_mat(&self) -> Matrix4<f32> {
+        Matrix4::from_axis_angle(
+            &nalgebra::Unit::new_normalize(Vector3::new(0.0, 0.0, 1.0)),
+            self.yaw,
+        ) * Matrix4::from_axis_angle(
+            &nalgebra::Unit::new_normalize(Vector3::new(1.0, 0.0, 0.0)),
+            self.pitch,
+        )
+    }
+
+    /// Returns the translation matrix for this view
+    fn translation_mat(&self) -> Matrix4<f32> {
+        Matrix4::new_translation(&self.center)
+    }
+
+    /// Applies a translation (in world units) to the current camera position
+    pub fn translate(&mut self, h: TranslateHandle, pos: Point3<f32>) -> bool {
+        let next_center = h.center(pos);
+        let changed = next_center != self.center;
+        self.center = next_center;
+        changed
     }
 
     /// Zooms the camera about a particular position (in world space)
@@ -187,7 +213,7 @@ impl View3 {
     }
 
     /// Begins a rotation operation, given a point in world space
-    pub fn begin_rotate(&self, start: Point2<f32>) -> RotateHandle {
+    pub fn begin_rotate(&self, start: Point3<f32>) -> RotateHandle {
         RotateHandle {
             start,
             initial_yaw: self.yaw,
@@ -198,7 +224,7 @@ impl View3 {
     /// Rotates the camera, given a cursor end position in world space
     ///
     /// Returns `true` if the view has changed, `false` otherwise
-    pub fn rotate(&mut self, h: RotateHandle, pos: Point2<f32>) -> bool {
+    pub fn rotate(&mut self, h: RotateHandle, pos: Point3<f32>) -> bool {
         let next_yaw = h.yaw(pos.x);
         let next_pitch = h.pitch(pos.y);
         let changed = (next_yaw != self.yaw) || (next_pitch != self.pitch);
@@ -212,7 +238,7 @@ impl View3 {
 #[derive(Copy, Clone)]
 pub struct RotateHandle {
     /// Position of the initial click in world space
-    start: Point2<f32>,
+    start: Point3<f32>,
     initial_yaw: f32,
     initial_pitch: f32,
 }
@@ -228,5 +254,23 @@ impl RotateHandle {
     fn pitch(&self, y: f32) -> f32 {
         (self.initial_pitch + (y - self.start.y) * ROTATE_SPEED)
             .clamp(0.0, std::f32::consts::PI)
+    }
+}
+
+/// Handle to perform translation on a [`View3`]
+#[derive(Copy, Clone)]
+pub struct TranslateHandle {
+    /// Position of the initial click, in model space
+    start: Point3<f32>,
+    /// Initial world-to-model transform matrix
+    initial_mat: Matrix4<f32>,
+    /// Initial value for [`View3::center`]
+    initial_center: Vector3<f32>,
+}
+
+impl TranslateHandle {
+    fn center(&self, pos: Point3<f32>) -> Vector3<f32> {
+        let pos_model = self.initial_mat.transform_point(&pos);
+        self.initial_center - (pos_model - self.start)
     }
 }

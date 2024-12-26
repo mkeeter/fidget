@@ -343,7 +343,7 @@ enum Mode3D {
 
 #[derive(Copy, Clone)]
 enum Drag3D {
-    Pan(Point3<f32>),
+    Pan(fidget::render::TranslateHandle),
     Rotate(fidget::render::RotateHandle),
 }
 
@@ -678,23 +678,23 @@ impl eframe::App for ViewerApp {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let pos_world = image_size
                         .transform_point(Point3::new(pos.x, pos.y, 0.0));
-                    let pos_model = view.transform_point(&pos_world);
                     match *drag_start {
                         Some(Drag3D::Pan(prev)) => {
-                            view.translate(prev - pos_model);
-                            render_changed |= prev != pos_model;
+                            render_changed |= view.translate(prev, pos_world);
                         }
                         Some(Drag3D::Rotate(prev)) => {
-                            render_changed |= view.rotate(prev, pos_world.xy());
+                            render_changed |= view.rotate(prev, pos_world);
                         }
                         None => {
                             if r.dragged_by(egui::PointerButton::Primary) {
-                                *drag_start = Some(Drag3D::Pan(pos_model));
+                                *drag_start = Some(Drag3D::Pan(
+                                    view.begin_translate(pos_world),
+                                ));
                             } else if r
                                 .dragged_by(egui::PointerButton::Secondary)
                             {
                                 *drag_start = Some(Drag3D::Rotate(
-                                    view.begin_rotate(pos_world.xy()),
+                                    view.begin_rotate(pos_world),
                                 ));
                             }
                         }
