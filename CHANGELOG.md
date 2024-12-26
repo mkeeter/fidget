@@ -1,5 +1,9 @@
 # 0.3.5 (unreleased)
-Nothing here yet!
+- Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
+- Make `TranslateHandle` take a `const N: usize` parameter
+- Use `TranslateHandle` in `View2` (previously, it was only used in `View3`)
+- Make `translate` and `rotate` functions borrow their respective handle,
+  instead of taking it by value.
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function

@@ -41,7 +41,7 @@ ieee754 = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
-nalgebra = "0.33"
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
 notify = "7.0"
 num-traits = "0.2"
 ordered-float = "4"

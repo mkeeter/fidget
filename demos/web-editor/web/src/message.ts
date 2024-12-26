@@ -1,3 +1,5 @@
+import * as fidget from "../../crate/pkg/fidget_wasm_demo";
+
 export enum RequestKind {
   Script,
   Start,
@@ -23,11 +25,28 @@ export enum RenderMode {
 export class ShapeRequest {
   kind: RequestKind.Shape;
   tape: Uint8Array;
+  camera: Uint8Array;
   mode: RenderMode;
 
-  constructor(tape: Uint8Array, mode: RenderMode) {
+  constructor(
+    tape: Uint8Array,
+    camera2: fidget.JsCamera2,
+    camera3: fidget.JsCamera3,
+    mode: RenderMode,
+  ) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
+    switch (mode) {
+      case RenderMode.Bitmap: {
+        this.camera = camera2.serialize();
+        break;
+      }
+      case RenderMode.Heightmap:
+      case RenderMode.Normals: {
+        this.camera = camera3.serialize();
+        break;
+      }
+    }
     this.mode = mode;
   }
 }
