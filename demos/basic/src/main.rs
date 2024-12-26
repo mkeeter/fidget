@@ -451,9 +451,13 @@ fn main() -> Result<()> {
 0x600000b900a0 square 0x600000b90000
 0x600000b90050 var-y
 0x600000b900f0 square 0x600000b90050
+0x600000b90300 var-z
+0x600000b90350 square 0x600000b90300
 0x600000b90140 add 0x600000b900a0 0x600000b900f0
-0x600000b90190 sqrt 0x600000b90140
-0x600000b901e0 const .5
+0x600000b90150 add 0x600000b90140 0x600000b90350
+0x600000b90190 sqrt 0x600000b90150
+0x600000b901e0 const 1
+0x600000b90200 sub 0x600000b90190 0x600000b901e0
 ";
 
     let args = Args::parse();
@@ -461,15 +465,15 @@ fn main() -> Result<()> {
     let (ctx, root) = match &args.input {
         None => {
             let top = Instant::now();
-            // , Tree};
 
-            // let t = Tree::x() + Tree::y();
+            // use fidget::context::Tree;
+            // let tree = (Tree::x().square() + Tree::y().square()).sqrt() - 1;
             // let mut ctx = Context::new();
-            // let sum = ctx.import(&t);
-
-            // let ret = Context::from_text(&mut handle).unwrap();
+            // let root = ctx.import(&tree);
+            // let ret = (ctx, root);
 
             let ret = Context::from_text(&mut sphere_text.as_bytes()).unwrap();
+
             info!("Created sphere model in {:?}", top.elapsed());
             ret
         }
