@@ -11,7 +11,7 @@ use log::info;
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Subcommand
+    /// Main action
     #[clap(subcommand)]
     action: ActionCommand,
 
@@ -19,17 +19,21 @@ struct Args {
     #[clap(short, long)]
     input: Option<PathBuf>,
 
+    /// Input file
+    #[clap(short = 's', long, value_enum, default_value_t = HardcodedShape::SphereAsm)]
+    hardcoded_shape: HardcodedShape,
+
     /// Evaluator flavor
     #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
     eval: EvalMode,
 
-    /// Number of times to render (for benchmarking)
-    #[clap(short = 't', default_value_t = 1)]
-    num_repeats: usize,
-
     /// Number of threads to use
-    #[clap(short = 'n', long, default_value_t = 0)]
+    #[clap(long, default_value_t = 0)]
     num_threads: usize,
+
+    /// Number of times to render (for benchmarking)
+    #[clap(long, default_value_t = 1)]
+    num_repeats: usize,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -37,6 +41,12 @@ enum EvalMode {
     #[cfg(feature = "jit")]
     Jit,
     Vm,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum HardcodedShape {
+    SphereAsm,
+    SphereTree,
 }
 
 #[derive(Subcommand)]
@@ -277,7 +287,7 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     mesh
 }
 
-fn run_dispatch(
+fn run_action(
     ctx: fidget::context::Context,
     root: fidget::context::Node,
     args: Args,
@@ -465,16 +475,26 @@ fn main() -> Result<()> {
     let (ctx, root) = match &args.input {
         None => {
             let top = Instant::now();
-
-            // use fidget::context::Tree;
-            // let tree = (Tree::x().square() + Tree::y().square()).sqrt() - 1;
-            // let mut ctx = Context::new();
-            // let root = ctx.import(&tree);
-            // let ret = (ctx, root);
-
-            let ret = Context::from_text(&mut sphere_text.as_bytes()).unwrap();
-
-            info!("Created sphere model in {:?}", top.elapsed());
+            let ret = match args.hardcoded_shape {
+                HardcodedShape::SphereAsm => {
+                    Context::from_text(&mut sphere_text.as_bytes()).unwrap()
+                }
+                HardcodedShape::SphereTree => {
+                    use fidget::context::Tree;
+                    let mut tree = Tree::x().square();
+                    tree += Tree::y().square();
+                    tree += Tree::z().square();
+                    tree = tree.sqrt() - 1;
+                    let mut ctx = Context::new();
+                    let root = ctx.import(&tree);
+                    (ctx, root)
+                }
+            };
+            info!(
+                "Created hardcoded model {:?} in {:?}",
+                args.hardcoded_shape,
+                top.elapsed()
+            );
             ret
         }
         Some(path) => {
@@ -490,5 +510,5 @@ fn main() -> Result<()> {
     info!("Context has {} items", ctx.len());
     info!("Root is {:?}", root);
 
-    run_dispatch(ctx, root, args)
+    run_action(ctx, root, args)
 }
