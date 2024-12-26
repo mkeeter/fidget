@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::NonZero;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::context::Context;
+use fidget::{context::Context, mesh::ThreadCount};
 
 /// Simple test program
 #[derive(Parser)]
@@ -20,6 +20,25 @@ struct Args {
     /// Input file
     #[clap(short, long)]
     input: PathBuf,
+
+    /// Evaluator flavor
+    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
+    eval: EvalMode,
+
+    /// Number of times to render (for benchmarking)
+    #[clap(short = 't', default_value_t = 1)]
+    num_repeats: usize,
+
+    /// Number of threads to use
+    #[clap(short = 'n', long, default_value_t = 0)]
+    num_threads: usize,
+}
+
+#[derive(ValueEnum, Clone)]
+enum EvalMode {
+    #[cfg(feature = "jit")]
+    Jit,
+    Vm,
 }
 
 #[derive(Subcommand)]
@@ -56,14 +75,6 @@ enum ActionCommand {
     },
 }
 
-#[derive(ValueEnum, Clone)]
-enum EvalMode {
-    #[cfg(feature = "jit")]
-    Jit,
-
-    Vm,
-}
-
 #[derive(Parser)]
 struct ImageSettings {
     /// Image size
@@ -73,18 +84,6 @@ struct ImageSettings {
     /// Name of a `.png` file to write
     #[clap(short, long)]
     output: Option<PathBuf>,
-
-    /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
-    eval: EvalMode,
-
-    /// Number of times to render (for benchmarking)
-    #[clap(short = 't', default_value_t = 1)]
-    num_repeats: usize,
-
-    /// Number of threads to use
-    #[clap(short = 'n', long)]
-    num_threads: Option<NonZeroUsize>,
 }
 
 #[derive(Parser)]
@@ -96,45 +95,35 @@ struct MeshSettings {
     /// Name of a `.stl` file to write
     #[clap(short, long)]
     output: Option<PathBuf>,
-
-    /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
-    eval: EvalMode,
-
-    /// Number of times to render (for benchmarking)
-    #[clap(short = 't', default_value_t = 1)]
-    num_repeats: usize,
-
-    /// Number of threads to use
-    #[clap(short = 'n', long, default_value_t = NonZeroUsize::new(8).unwrap())]
-    num_threads: NonZeroUsize,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
+fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     isometric: bool,
-    mode_color: bool,
+    color_mode: bool,
+    num_repeats: usize,
+    num_threads: usize,
 ) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
     let pool: Option<rayon::ThreadPool>;
-    let threads = match settings.num_threads {
-        Some(n) if n.get() == 1 => None,
-        Some(n) => {
+    let threads = match num_threads {
+        0 => Some(fidget::render::ThreadPool::Global),
+        1 => None,
+        nn => {
             pool = Some(
                 rayon::ThreadPoolBuilder::new()
-                    .num_threads(n.get())
+                    .num_threads(nn)
                     .build()
                     .unwrap(),
             );
             pool.as_ref().map(fidget::render::ThreadPool::Custom)
         }
-        None => Some(fidget::render::ThreadPool::Global),
     };
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
@@ -146,11 +135,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let mut depth = vec![];
     let mut color = vec![];
-    for _ in 0..settings.num_repeats {
+    for _ in 0..num_repeats {
         (depth, color) = cfg.run(shape.clone());
     }
 
-    let out = if mode_color {
+    let out = if color_mode {
         depth
             .into_iter()
             .zip(color)
@@ -182,17 +171,19 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
+fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     brute: bool,
     sdf: bool,
+    num_repeats: usize,
+    num_threads: usize,
 ) -> Vec<u8> {
     if brute {
         let tape = shape.float_slice_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
-        for _ in 0..settings.num_repeats {
+        for _ in 0..num_repeats {
             let mut xs = vec![];
             let mut ys = vec![];
             let div = (settings.size - 1) as f64;
@@ -215,18 +206,18 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .collect()
     } else {
         let pool: Option<rayon::ThreadPool>;
-        let threads = match settings.num_threads {
-            Some(n) if n.get() == 1 => None,
-            Some(n) => {
+        let threads = match num_threads {
+            0 => Some(fidget::render::ThreadPool::Global),
+            1 => None,
+            nn => {
                 pool = Some(
                     rayon::ThreadPoolBuilder::new()
-                        .num_threads(n.get())
+                        .num_threads(nn)
                         .build()
                         .unwrap(),
                 );
                 pool.as_ref().map(fidget::render::ThreadPool::Custom)
             }
-            None => Some(fidget::render::ThreadPool::Global),
         };
         let cfg = fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
@@ -236,7 +227,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         };
         if sdf {
             let mut image = vec![];
-            for _ in 0..settings.num_repeats {
+            for _ in 0..num_repeats {
                 image =
                     cfg.run::<_, fidget::render::SdfRenderMode>(shape.clone());
             }
@@ -246,7 +237,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         } else {
             let mut image = vec![];
-            for _ in 0..settings.num_repeats {
+            for _ in 0..num_repeats {
                 image = cfg
                     .run::<_, fidget::render::DebugRenderMode>(shape.clone());
             }
@@ -263,12 +254,19 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &MeshSettings,
+    num_repeats: usize,
+    num_threads: usize,
 ) -> fidget::mesh::Mesh {
     let mut mesh = fidget::mesh::Mesh::new();
 
-    for _ in 0..settings.num_repeats {
+    let threads = match num_threads {
+        0 => ThreadCount::Many(NonZero::new(8).unwrap()),
+        1 => ThreadCount::One,
+        nn => ThreadCount::Many(NonZero::new(nn).unwrap()),
+    };
+    for _ in 0..num_repeats {
         let settings = fidget::mesh::Settings {
-            threads: settings.num_threads.into(),
+            threads,
             depth: settings.depth,
             ..Default::default()
         };
@@ -293,33 +291,46 @@ fn main() -> Result<()> {
 
     let mut top = Instant::now();
     match args.action {
-        ActionCommand::Render2d {
+        ActionCommand::Render3d {
             settings,
-            brute,
-            sdf,
+            color,
+            isometric,
         } => {
-            let buffer = match settings.eval {
+            let buffer = match args.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", top.elapsed());
                     top = Instant::now();
-                    run2d(shape, &settings, brute, sdf)
+                    run_3d(
+                        shape,
+                        &settings,
+                        isometric,
+                        color,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", top.elapsed());
                     top = Instant::now();
-                    run2d(shape, &settings, brute, sdf)
+                    run_3d(
+                        shape,
+                        &settings,
+                        isometric,
+                        color,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
             };
-
             info!(
                 "Rendered {}x at {:?} ms/frame",
-                settings.num_repeats,
+                args.num_repeats,
                 top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.num_repeats as f64)
+                    / (args.num_repeats as f64)
             );
             if let Some(path) = settings.output {
                 info!("Writing PNG to {path:?}");
@@ -332,35 +343,49 @@ fn main() -> Result<()> {
                 )?;
             }
         }
-        ActionCommand::Render3d {
+        ActionCommand::Render2d {
             settings,
-            color,
-            isometric,
+            brute,
+            sdf,
         } => {
-            let buffer = match settings.eval {
+            let buffer = match args.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", top.elapsed());
                     top = Instant::now();
-                    run3d(shape, &settings, isometric, color)
+                    run_2d(
+                        shape,
+                        &settings,
+                        brute,
+                        sdf,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?}", top.elapsed());
                     top = Instant::now();
-                    run3d(shape, &settings, isometric, color)
+                    run_2d(
+                        shape,
+                        &settings,
+                        brute,
+                        sdf,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
             };
             info!(
                 "Rendered {}x at {:?} ms/frame",
-                settings.num_repeats,
+                args.num_repeats,
                 top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.num_repeats as f64)
+                    / (args.num_repeats as f64)
             );
             if let Some(path) = settings.output {
-                info!("Writing image to {path:?}");
+                info!("Writing PNG to {path:?}");
                 image::save_buffer(
                     path,
                     &buffer,
@@ -371,27 +396,37 @@ fn main() -> Result<()> {
             }
         }
         ActionCommand::Mesh { settings } => {
-            let mesh = match settings.eval {
+            let mesh = match args.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (JIT)", top.elapsed());
                     top = Instant::now();
-                    run_mesh(shape, &settings)
+                    run_mesh(
+                        shape,
+                        &settings,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", top.elapsed());
+                    info!("Built shape in {:?} (VM)", top.elapsed());
                     top = Instant::now();
-                    run_mesh(shape, &settings)
+                    run_mesh(
+                        shape,
+                        &settings,
+                        args.num_repeats,
+                        args.num_threads,
+                    )
                 }
             };
             info!(
                 "Rendered {}x at {:?} ms/iter",
-                settings.num_repeats,
+                args.num_repeats,
                 top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.num_repeats as f64)
+                    / (args.num_repeats as f64)
             );
             if let Some(path) = settings.output {
                 info!("Writing STL to {path:?}");
