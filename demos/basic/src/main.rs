@@ -37,8 +37,6 @@ enum ActionCommand {
         sdf: bool,
     },
 
-    /*
-
     Render3d {
         #[clap(flatten)]
         settings: ImageSettings,
@@ -51,7 +49,7 @@ enum ActionCommand {
         #[clap(long)]
         isometric: bool,
     },
-    */
+
     Mesh {
         #[clap(flatten)]
         settings: MeshSettings,
@@ -112,8 +110,8 @@ struct MeshSettings {
     num_threads: NonZeroUsize,
 }
 
-/*
 ////////////////////////////////////////////////////////////////////////////////
+
 fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
@@ -125,7 +123,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
     let pool: Option<rayon::ThreadPool>;
-    let threads = match settings.threads {
+    let threads = match settings.num_threads {
         Some(n) if n.get() == 1 => None,
         Some(n) => {
             pool = Some(
@@ -148,7 +146,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let mut depth = vec![];
     let mut color = vec![];
-    for _ in 0..settings.n {
+    for _ in 0..settings.num_repeats {
         (depth, color) = cfg.run(shape.clone());
     }
 
@@ -183,8 +181,6 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-*/
 
 fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
@@ -283,6 +279,8 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     mesh
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
@@ -334,38 +332,37 @@ fn main() -> Result<()> {
                 )?;
             }
         }
-        /*
-        Command::Render3d {
+        ActionCommand::Render3d {
             settings,
             color,
             isometric,
         } => {
-            let start = Instant::now();
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run3d(shape, &settings, isometric, color)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
-                    info!("Built shape in {:?}", start.elapsed());
+                    info!("Built shape in {:?}", top.elapsed());
+                    top = Instant::now();
                     run3d(shape, &settings, isometric, color)
                 }
             };
             info!(
                 "Rendered {}x at {:?} ms/frame",
-                settings.n,
-                start.elapsed().as_micros() as f64
+                settings.num_repeats,
+                top.elapsed().as_micros() as f64
                     / 1000.0
-                    / (settings.n as f64)
+                    / (settings.num_repeats as f64)
             );
-
-            if let Some(out) = settings.out {
-                info!("Writing image to {out:?}");
+            if let Some(path) = settings.output {
+                info!("Writing image to {path:?}");
                 image::save_buffer(
-                    out,
+                    path,
                     &buffer,
                     settings.size,
                     settings.size,
@@ -373,7 +370,6 @@ fn main() -> Result<()> {
                 )?;
             }
         }
-        */
         ActionCommand::Mesh { settings } => {
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
