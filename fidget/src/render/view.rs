@@ -188,7 +188,7 @@ impl View3 {
     }
 
     /// Applies a translation (in world units) to the current camera position
-    pub fn translate(&mut self, h: TranslateHandle, pos: Point3<f32>) -> bool {
+    pub fn translate(&mut self, h: &TranslateHandle, pos: Point3<f32>) -> bool {
         let next_center = h.center(pos);
         let changed = next_center != self.center;
         self.center = next_center;
@@ -225,7 +225,7 @@ impl View3 {
     /// Rotates the camera, given a cursor end position in world space
     ///
     /// Returns `true` if the view has changed, `false` otherwise
-    pub fn rotate(&mut self, h: RotateHandle, pos: Point3<f32>) -> bool {
+    pub fn rotate(&mut self, h: &RotateHandle, pos: Point3<f32>) -> bool {
         let next_yaw = h.yaw(pos.x);
         let next_pitch = h.pitch(pos.y);
         let changed = (next_yaw != self.yaw) || (next_pitch != self.pitch);

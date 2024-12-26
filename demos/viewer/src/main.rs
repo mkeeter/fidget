@@ -678,7 +678,7 @@ impl eframe::App for ViewerApp {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let pos_world = image_size
                         .transform_point(Point3::new(pos.x, pos.y, 0.0));
-                    match *drag_start {
+                    match drag_start {
                         Some(Drag3D::Pan(prev)) => {
                             render_changed |= view.translate(prev, pos_world);
                         }

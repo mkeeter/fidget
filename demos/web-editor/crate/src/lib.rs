@@ -152,8 +152,8 @@ impl JsCamera3 {
     }
 
     #[wasm_bindgen]
-    pub fn translate(&mut self, h: JsTranslateHandle, x: f32, y: f32) -> bool {
-        self.0.translate(h.0, Point3::new(x, y, 0.0))
+    pub fn translate(&mut self, h: &JsTranslateHandle, x: f32, y: f32) -> bool {
+        self.0.translate(&h.0, Point3::new(x, y, 0.0))
     }
 
     #[wasm_bindgen]
@@ -162,8 +162,8 @@ impl JsCamera3 {
     }
 
     #[wasm_bindgen]
-    pub fn rotate(&mut self, h: JsRotateHandle, x: f32, y: f32) -> bool {
-        self.0.rotate(h.0, Point3::new(x, y, 0.0))
+    pub fn rotate(&mut self, h: &JsRotateHandle, x: f32, y: f32) -> bool {
+        self.0.rotate(&h.0, Point3::new(x, y, 0.0))
     }
 
     #[wasm_bindgen]

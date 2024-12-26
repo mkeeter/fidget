@@ -39,7 +39,7 @@ class App {
   worker: Worker;
 
   tape: Uint8Array | null; // current tape to render
-  rerender: boolean;  // should we rerender?
+  rerender: boolean; // should we rerender?
   rendering: boolean; // are we currently rendering?
 
   start_time: number;
@@ -47,15 +47,30 @@ class App {
   constructor() {
     let scene = new Scene();
 
-    let requestRedraw = this.requestRedraw.bind(this); // TODO cache object
+    let requestRedraw = this.requestRedraw.bind(this);
     scene.canvas.addEventListener("wheel", (event) => {
       scene.zoomAbout(event);
       event.preventDefault();
       requestRedraw();
     });
-    scene.canvas.addEventListener("contextmenu", (event) =>
-      event.preventDefault(),
-    );
+    scene.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+    scene.canvas.addEventListener("mousedown", (event) => {
+      if (event.button === 0) {
+        scene.beginTranslate(event);
+      } else if (event.button === 2) {
+        scene.beginRotate(event);
+      }
+    });
+    window.canvas.addEventListener("mouseup", (event) => {
+      scene.endDrag();
+    });
+    window.addEventListener("mousemove", (event) => {
+      if (scene.drag(event)) {
+        requestRedraw();
+      }
+    });
 
     this.scene = scene;
 
@@ -135,9 +150,7 @@ class App {
     this.start_time = performance.now();
     const mode = this.getMode();
     console.log(`${this.scene.camera} camera!`);
-    this.worker.postMessage(
-      new ShapeRequest(tape, this.scene.camera, mode),
-    );
+    this.worker.postMessage(new ShapeRequest(tape, this.scene.camera, mode));
     this.rerender = false;
     this.rendering = true;
   }
@@ -161,7 +174,7 @@ class App {
 
         // Immediately start rendering again if pending
         if (this.rerender) {
-          this.beginRender(this.tape)
+          this.beginRender(this.tape);
         }
         break;
       }
@@ -310,11 +323,16 @@ class Scene {
   programInfo: ProgramInfo;
   buffers: Buffers;
   texture: WebGLTexture;
+
   camera: fidget.JsCamera3;
+  translateHandle: fidget.JsTranslateHandle | null;
+  rotateHandle: fidget.JsRotateHandle | null;
 
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
     this.camera = new fidget.JsCamera3();
+    this.rotateHandle = null;
+    this.translateHandle = null;
 
     this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
@@ -343,14 +361,44 @@ class Scene {
     this.gl.generateMipmap(this.gl.TEXTURE_2D);
   }
 
-  zoomAbout(event: any) {
+  zoomAbout(event: WheelEvent) {
+    let [x, y] = this.screenToWorld(event);
+    this.camera.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
+  }
+
+  screenToWorld(event: MouseEvent): readonly [number, number] {
     let rect = this.canvas.getBoundingClientRect();
     let x = ((event.clientX - rect.left) / RENDER_SIZE - 0.5) * 2.0;
     let y = ((event.clientY - rect.top) / RENDER_SIZE - 0.5) * 2.0;
-    console.log(`ZOOMING ABOUT ${event.deltaY} (${x}, ${y})`);
-    this.camera.zoom_about(
-      Math.pow(2, event.deltaY / 100.0), x, y
-    );
+    return [x, y];
+  }
+
+  beginTranslate(event: MouseEvent) {
+    let [x, y] = this.screenToWorld(event);
+    this.translateHandle = this.camera.begin_translate(x, y);
+  }
+
+  beginRotate(event: MouseEvent) {
+    let [x, y] = this.screenToWorld(event);
+    this.rotateHandle = this.camera.begin_rotate(x, y);
+  }
+
+  drag(event: MouseEvent): boolean {
+    let [x, y] = this.screenToWorld(event);
+    if (this.rotateHandle) {
+      console.log(this.rotateHandle);
+      return this.camera.rotate(this.rotateHandle!, x, y);
+    } else if (this.translateHandle) {
+      console.log(this.translateHandle);
+      return this.camera.translate(this.translateHandle!, x, y);
+    } else {
+      return false;
+    }
+  }
+
+  endDrag() {
+    this.rotateHandle = null;
+    this.translateHandle = null;
   }
 
   setTextureRegion(data: Uint8Array) {
