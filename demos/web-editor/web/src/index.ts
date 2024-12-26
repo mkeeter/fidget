@@ -117,6 +117,7 @@ class App {
 
   onModeChanged() {
     const text = this.editor.view.state.doc.toString();
+    this.scene.resetCameras();
     this.onScriptChanged(text);
   }
 
@@ -368,6 +369,14 @@ class Scene {
       new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
     );
     this.gl.generateMipmap(this.gl.TEXTURE_2D);
+  }
+
+  resetCameras() {
+    this.camera2 = new fidget.JsCamera2();
+    this.camera3 = new fidget.JsCamera3();
+    this.rotateHandle3 = null;
+    this.translateHandle3 = null;
+    this.translateHandle2 = null;
   }
 
   zoomAbout(event: WheelEvent) {
