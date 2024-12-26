@@ -51,6 +51,7 @@
     - `ThreadCount` is moved to `fidget::mesh`, because that's the only place
       it's now used
         - The plan is to switch to Rayon for meshing as well, eventually
+- Tweak `View2` and `View3` APIs to make them more useful as camera types
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs
