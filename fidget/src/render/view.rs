@@ -1,7 +1,7 @@
 use nalgebra::{
-    Const, DimNameAdd, Matrix3, Matrix4, OMatrix,
-    OPoint, OVector, Point2, Point3, Vector2, Vector3,
-    U1, DefaultAllocator, allocator::Allocator, DimNameSub, DimNameSum
+    allocator::Allocator, Const, DefaultAllocator, DimNameAdd, DimNameSum,
+    Matrix3, Matrix4, OMatrix, OPoint, OVector, Point2, Point3, Vector2,
+    Vector3, U1,
 };
 use serde::{Deserialize, Serialize};
 
@@ -291,19 +291,16 @@ impl RotateHandle {
 
 /// Handle to perform translation on a [`View2`] or [`View3`]
 #[derive(Copy, Clone)]
-pub struct TranslateHandle<const N: usize> 
+pub struct TranslateHandle<const N: usize>
 where
     Const<N>: DimNameAdd<U1>,
-    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
-    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
-    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
-    <DefaultAllocator as nalgebra::allocator::Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>>::Buffer<u32>: std::marker::Copy,
+    DefaultAllocator:
+        Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
     OMatrix<
         f32,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
         <Const<N> as DimNameAdd<Const<1>>>::Output,
     >: Copy,
-
 {
     /// Position of the initial click, in model space
     start: OPoint<f32, Const<N>>,
@@ -317,16 +314,16 @@ where
     initial_center: OVector<f32, Const<N>>,
 }
 
-impl TranslateHandle<2> 
-{
+impl TranslateHandle<2> {
+    /// Returns the new value for [`View2::center`]
     fn center(&self, pos: Point2<f32>) -> Vector2<f32> {
         let pos_model = self.initial_mat.transform_point(&pos);
         self.initial_center - (pos_model - self.start)
     }
 }
 
-impl TranslateHandle<3> 
-{
+impl TranslateHandle<3> {
+    /// Returns the new value for [`View3::center`]
     fn center(&self, pos: Point3<f32>) -> Vector3<f32> {
         let pos_model = self.initial_mat.transform_point(&pos);
         self.initial_center - (pos_model - self.start)
