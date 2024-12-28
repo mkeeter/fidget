@@ -66,7 +66,7 @@ macro_rules! opcodes {
             ExpReg($t, $t),
             #[doc = "Computes the natural log of the given register"]
             LnReg($t, $t),
-            #[doc = "Computes the logical negation of the given register"]
+            #[doc = "Computes the logical negation of the given register\n\nEquivalent to `if arg == 0 { 1 } else { 0 }`"]
             NotReg($t, $t),
 
             // RegImm opcodes (without a choice)
@@ -96,9 +96,9 @@ macro_rules! opcodes {
             MinRegImm($t, $t, f32),
             #[doc = "Compute the maximum of a register and an immediate"]
             MaxRegImm($t, $t, f32),
-            #[doc = "Multiplies the two values, short-circuiting if either is 0"]
+            #[doc = "Logical `AND` (short-circuiting)\n\nThis is equivalent to `if lhs == 0 { lhs } else { imm }`"]
             AndRegImm($t, $t, f32),
-            #[doc = "Add two values, short-circuiting if either is 0"]
+            #[doc = "Logical `OR` (short-circuiting)\n\nThis is equivalent to `if lhs != 0 { lhs } else { imm }`"]
             OrRegImm($t, $t, f32),
 
             // ImmReg opcodes (without a choice)
@@ -128,9 +128,9 @@ macro_rules! opcodes {
             MinRegReg($t, $t, $t),
             #[doc = "Take the maximum of two registers"]
             MaxRegReg($t, $t, $t),
-            #[doc = "Multiply two values, short-circuiting if either is 0"]
+            #[doc = "Logical `AND` (short-circuiting)\n\nThis is equivalent to `if lhs == 0 { lhs } else { rhs }`"]
             AndRegReg($t, $t, $t),
-            #[doc = "Add two values, short-circuiting if either is 0"]
+            #[doc = "Logical `OR` (short-circuiting)\n\nThis is equivalent to `if lhs != 0 { lhs } else { rhs }`"]
             OrRegReg($t, $t, $t),
 
             $(
