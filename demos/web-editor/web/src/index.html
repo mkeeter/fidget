@@ -39,6 +39,9 @@
         flex: 50%;
         max-width: calc(min(100%, 512px));
       }
+      div#version {
+        font-family: monospace;
+      }
     </style>
   </head>
   <body>
@@ -56,6 +59,13 @@
           <option value="heightmap">3D (heightmap)</option>
         </select>
       </div>
+    </div>
+    <div id="version">
+        <p>
+          <a href="https://github.com/mkeeter/fidget">Github</a> |
+          <a href="https://mattkeeter.com/projects/fidget">Writeup</a>
+        <p>Version: <a href="https://github.com/mkeeter/fidget/commit/VERSION">
+        VERSIONMOD</a>
     </div>
     <script src="index.js"></script>
   </body>
