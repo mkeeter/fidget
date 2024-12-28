@@ -18,10 +18,10 @@ import {
   WorkerRequest,
   WorkerResponse,
 } from "./message";
-
+import { Camera, CameraKind } from "./camera";
 import { rhai } from "./rhai";
-
 import { RENDER_SIZE } from "./constants";
+
 import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
@@ -105,6 +105,9 @@ class App {
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
+
+    // Initial redraw
+    requestAnimationFrame(this.onModeChanged.bind(this));
   }
 
   requestRedraw() {
@@ -117,7 +120,17 @@ class App {
 
   onModeChanged() {
     const text = this.editor.view.state.doc.toString();
-    this.scene.resetCameras();
+    switch (this.getMode()) {
+      case RenderMode.Heightmap:
+      case RenderMode.Normals: {
+        this.scene.resetCamera(CameraKind.ThreeD);
+        break;
+      }
+      case RenderMode.Bitmap: {
+        this.scene.resetCamera(CameraKind.TwoD);
+        break;
+      }
+    }
     this.onScriptChanged(text);
   }
 
@@ -148,9 +161,7 @@ class App {
     document.getElementById("status").textContent = "Rendering...";
     this.start_time = performance.now();
     const mode = this.getMode();
-    this.worker.postMessage(
-      new ShapeRequest(tape, this.scene.camera2, this.scene.camera3, mode),
-    );
+    this.worker.postMessage(new ShapeRequest(tape, this.scene.camera, mode));
     this.rerender = false;
     this.rendering = true;
   }
@@ -317,32 +328,22 @@ class ProgramInfo {
   }
 }
 
-export enum CameraKind {
-  TwoD,
-  ThreeD,
-}
-
 class Scene {
   canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
   programInfo: ProgramInfo;
   buffers: Buffers;
   texture: WebGLTexture;
-
-  camera2: fidget.JsCamera2;
-  translateHandle2: fidget.JsTranslateHandle2 | null;
-
-  camera3: fidget.JsCamera3;
-  translateHandle3: fidget.JsTranslateHandle3 | null;
-  rotateHandle3: fidget.JsRotateHandle | null;
+  camera: Camera;
 
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-    this.camera2 = new fidget.JsCamera2();
-    this.camera3 = new fidget.JsCamera3();
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
-    this.translateHandle2 = null;
+    this.camera = {
+      kind: CameraKind.ThreeD,
+      camera: new fidget.JsCamera3(),
+      translateHandle: null,
+      rotateHandle: null,
+    };
 
     this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
@@ -371,18 +372,32 @@ class Scene {
     this.gl.generateMipmap(this.gl.TEXTURE_2D);
   }
 
-  resetCameras() {
-    this.camera2 = new fidget.JsCamera2();
-    this.camera3 = new fidget.JsCamera3();
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
-    this.translateHandle2 = null;
+  resetCamera(kind: CameraKind) {
+    switch (kind) {
+      case CameraKind.TwoD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera2(),
+          translateHandle: null,
+        };
+        break;
+      }
+      case CameraKind.ThreeD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera3(),
+          translateHandle: null,
+          rotateHandle: null,
+        };
+        break;
+      }
+    }
   }
 
   zoomAbout(event: WheelEvent) {
     let [x, y] = this.screenToWorld(event);
-    this.camera2.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
-    this.camera3.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
+    const zoomFactor = Math.pow(2, event.deltaY / 100.0);
+    this.camera.camera.zoom_about(zoomFactor, x, y);
   }
 
   screenToWorld(event: MouseEvent): readonly [number, number] {
@@ -393,36 +408,49 @@ class Scene {
   }
 
   beginTranslate(event: MouseEvent) {
-    let [x, y] = this.screenToWorld(event);
-    this.translateHandle2 = this.camera2.begin_translate(x, y);
-    this.translateHandle3 = this.camera3.begin_translate(x, y);
+    const [x, y] = this.screenToWorld(event);
+    this.camera.translateHandle = this.camera.camera.begin_translate(x, y) as
+      | fidget.JsTranslateHandle2
+      | fidget.JsTranslateHandle3;
   }
 
   beginRotate(event: MouseEvent) {
-    let [x, y] = this.screenToWorld(event);
-    this.rotateHandle3 = this.camera3.begin_rotate(x, y);
+    if (this.camera.kind === CameraKind.ThreeD) {
+      const [x, y] = this.screenToWorld(event);
+      this.camera.rotateHandle = this.camera.camera.begin_rotate(
+        x,
+        y,
+      ) as fidget.JsRotateHandle;
+    }
   }
 
   drag(event: MouseEvent): boolean {
-    let [x, y] = this.screenToWorld(event);
+    const [x, y] = this.screenToWorld(event);
     let changed = false;
-    if (this.translateHandle2) {
-      changed = this.camera2.translate(this.translateHandle2, x, y) || changed;
+
+    if (this.camera.translateHandle) {
+      changed =
+        this.camera.camera.translate(this.camera.translateHandle, x, y) ||
+        changed;
     }
-    if (this.rotateHandle3) {
-      changed = this.camera3.rotate(this.rotateHandle3, x, y) || changed;
-    }
-    if (this.translateHandle3) {
-      changed = this.camera3.translate(this.translateHandle3, x, y) || changed;
+
+    if (this.camera.kind === CameraKind.ThreeD && this.camera.rotateHandle) {
+      changed =
+        (this.camera.camera as fidget.JsCamera3).rotate(
+          this.camera.rotateHandle,
+          x,
+          y,
+        ) || changed;
     }
 
     return changed;
   }
 
   endDrag() {
-    this.translateHandle2 = null;
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
+    this.camera.translateHandle = null;
+    if (this.camera.kind === CameraKind.ThreeD) {
+      this.camera.rotateHandle = null;
+    }
   }
 
   setTextureRegion(data: Uint8Array) {
