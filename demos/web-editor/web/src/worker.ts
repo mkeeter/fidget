@@ -17,24 +17,25 @@ class Worker {
   render(s: ShapeRequest) {
     const shape = fidget.deserialize_tape(s.tape);
     let out: Uint8Array;
+    const size = Math.round(RENDER_SIZE / Math.pow(2, s.depth));
     switch (s.mode) {
       case RenderMode.Bitmap: {
         const camera = fidget.JsCamera2.deserialize(s.camera);
-        out = fidget.render_region_2d(shape, RENDER_SIZE, camera);
+        out = fidget.render_region_2d(shape, size, camera);
         break;
       }
       case RenderMode.Heightmap: {
         const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_heightmap(shape, RENDER_SIZE, camera);
+        out = fidget.render_region_heightmap(shape, size, camera);
         break;
       }
       case RenderMode.Normals: {
         const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_normals(shape, RENDER_SIZE, camera);
+        out = fidget.render_region_normals(shape, size, camera);
         break;
       }
     }
-    postMessage(new ImageResponse(out), { transfer: [out.buffer] });
+    postMessage(new ImageResponse(out, s.depth), { transfer: [out.buffer] });
   }
 
   run(s: ScriptRequest) {

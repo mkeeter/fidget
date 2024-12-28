@@ -27,12 +27,19 @@ export class ShapeRequest {
   kind: RequestKind.Shape;
   tape: Uint8Array;
   camera: Uint8Array;
+  depth: number;
   mode: RenderMode;
 
-  constructor(tape: Uint8Array, camera: Camera, mode: RenderMode) {
+  constructor(
+    tape: Uint8Array,
+    camera: Camera,
+    depth: number,
+    mode: RenderMode,
+  ) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
     this.camera = camera.camera.serialize();
+    this.depth = depth;
     this.mode = mode;
   }
 }
@@ -70,9 +77,11 @@ export class ScriptResponse {
 export class ImageResponse {
   kind: ResponseKind.Image;
   data: Uint8Array;
+  depth: number;
 
-  constructor(data: Uint8Array) {
+  constructor(data: Uint8Array, depth: number) {
     this.data = data;
+    this.depth = depth;
     this.kind = ResponseKind.Image;
   }
 }

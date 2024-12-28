@@ -20,7 +20,7 @@ import {
 } from "./message";
 import { Camera, CameraKind } from "./camera";
 import { rhai } from "./rhai";
-import { RENDER_SIZE } from "./constants";
+import { RENDER_SIZE, MAX_DEPTH } from "./constants";
 
 import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
@@ -41,8 +41,10 @@ class App {
   tape: Uint8Array | null; // current tape to render
   rerender: boolean; // should we rerender?
   rendering: boolean; // are we currently rendering?
+  startDepth: number; // starting render depth
+  currentDepth: number; // current render depth
 
-  start_time: number;
+  startTime: number;
 
   constructor() {
     let scene = new Scene();
@@ -101,6 +103,8 @@ class App {
 
     this.tape = null;
     this.rerender = false;
+    this.startDepth = 0;
+    this.currentDepth = 0;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
@@ -114,12 +118,12 @@ class App {
     if (this.rendering) {
       this.rerender = true;
     } else {
+      this.currentDepth = this.startDepth;
       this.beginRender(this.tape);
     }
   }
 
   onModeChanged() {
-    const text = this.editor.view.state.doc.toString();
     switch (this.getMode()) {
       case RenderMode.Heightmap:
       case RenderMode.Normals: {
@@ -131,7 +135,7 @@ class App {
         break;
       }
     }
-    this.onScriptChanged(text);
+    this.requestRedraw();
   }
 
   onScriptChanged(text: string) {
@@ -159,9 +163,11 @@ class App {
 
   beginRender(tape: Uint8Array) {
     document.getElementById("status").textContent = "Rendering...";
-    this.start_time = performance.now();
+    this.startTime = performance.now();
     const mode = this.getMode();
-    this.worker.postMessage(new ShapeRequest(tape, this.scene.camera, mode));
+    this.worker.postMessage(
+      new ShapeRequest(tape, this.scene.camera, this.currentDepth, mode),
+    );
     this.rerender = false;
     this.rendering = true;
   }
@@ -175,16 +181,35 @@ class App {
         break;
       }
       case ResponseKind.Image: {
-        this.scene.setTextureRegion(req.data);
-        requestAnimationFrame((event) => this.scene.draw());
+        this.scene.setTextureRegion(req.data, req.depth);
+        this.scene.draw(req.depth);
 
         const endTime = performance.now();
-        document.getElementById("status").textContent =
-          `Rendered in ${(endTime - this.start_time).toFixed(2)} ms`;
+        const dt = endTime - this.startTime;
+        if (this.currentDepth == 0) {
+          document.getElementById("status").textContent =
+            `Rendered in ${dt.toFixed(2)} ms`;
+        }
+        console.log(`rendered depth ${req.depth} in ${dt}`);
         this.rendering = false;
+
+        // If this is our initial render resolution, adjust our max depth to hit
+        // a target framerate.
+        if (this.currentDepth == this.startDepth) {
+          if (dt > 50 && this.startDepth != MAX_DEPTH) {
+            this.startDepth += 1;
+          } else if (dt < 10 && this.startDepth > 0) {
+            this.startDepth -= 1;
+          }
+        }
 
         // Immediately start rendering again if pending
         if (this.rerender) {
+          this.currentDepth = this.startDepth;
+          this.beginRender(this.tape);
+        } else if (this.currentDepth > 0) {
+          // Render again at the next resolution
+          this.currentDepth -= 1;
           this.beginRender(this.tape);
         }
         break;
@@ -333,7 +358,7 @@ class Scene {
   gl: WebGLRenderingContext;
   programInfo: ProgramInfo;
   buffers: Buffers;
-  texture: WebGLTexture;
+  textures: WebGLTexture[];
   camera: Camera;
 
   constructor() {
@@ -354,22 +379,29 @@ class Scene {
     }
     this.buffers = new Buffers(this.gl);
     this.programInfo = new ProgramInfo(this.gl);
-    this.texture = this.gl.createTexture();
 
-    // Bind an initial texture of the correct size
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-    this.gl.texImage2D(
-      this.gl.TEXTURE_2D,
-      0,
-      this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
-      0, // border
-      this.gl.RGBA,
-      this.gl.UNSIGNED_BYTE,
-      new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
-    );
-    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+    // XXX use mipmap levels instead?
+    this.textures = [];
+    for (var depth=0; depth <= MAX_DEPTH; ++depth) {
+      const texture = this.gl.createTexture();
+      const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+
+      // Bind an initial texture of the correct size
+      this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.UNSIGNED_BYTE,
+        new Uint8Array(size * size * 4),
+      );
+      this.gl.generateMipmap(this.gl.TEXTURE_2D);
+      this.textures.push(texture);
+    }
   }
 
   resetCamera(kind: CameraKind) {
@@ -453,14 +485,15 @@ class Scene {
     }
   }
 
-  setTextureRegion(data: Uint8Array) {
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+  setTextureRegion(data: Uint8Array, depth: number) {
+    const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.texImage2D(
       this.gl.TEXTURE_2D,
       0,
       this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
+      size,
+      size,
       0, // border
       this.gl.RGBA,
       this.gl.UNSIGNED_BYTE,
@@ -468,7 +501,7 @@ class Scene {
     );
   }
 
-  draw() {
+  draw(depth: number) {
     this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     this.setPositionAttribute();
@@ -480,7 +513,7 @@ class Scene {
     this.gl.activeTexture(this.gl.TEXTURE0);
 
     // Bind the texture to texture unit 0
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.uniform1i(this.programInfo.uSampler, 0);
 
     const offset = 0;
