@@ -18,10 +18,10 @@ import {
   WorkerRequest,
   WorkerResponse,
 } from "./message";
-
+import { Camera, CameraKind } from "./camera";
 import { rhai } from "./rhai";
+import { RENDER_SIZE, MAX_DEPTH } from "./constants";
 
-import { RENDER_SIZE } from "./constants";
 import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
@@ -41,8 +41,10 @@ class App {
   tape: Uint8Array | null; // current tape to render
   rerender: boolean; // should we rerender?
   rendering: boolean; // are we currently rendering?
+  startDepth: number; // starting render depth
+  currentDepth: number; // current render depth
 
-  start_time: number;
+  startTime: number;
 
   constructor() {
     let scene = new Scene();
@@ -101,24 +103,39 @@ class App {
 
     this.tape = null;
     this.rerender = false;
+    this.startDepth = 0;
+    this.currentDepth = 0;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
+
+    // Initial redraw
+    requestAnimationFrame(this.onModeChanged.bind(this));
   }
 
   requestRedraw() {
     if (this.rendering) {
       this.rerender = true;
     } else {
+      this.currentDepth = this.startDepth;
       this.beginRender(this.tape);
     }
   }
 
   onModeChanged() {
-    const text = this.editor.view.state.doc.toString();
-    this.scene.resetCameras();
-    this.onScriptChanged(text);
+    switch (this.getMode()) {
+      case RenderMode.Heightmap:
+      case RenderMode.Normals: {
+        this.scene.resetCamera(CameraKind.ThreeD);
+        break;
+      }
+      case RenderMode.Bitmap: {
+        this.scene.resetCamera(CameraKind.TwoD);
+        break;
+      }
+    }
+    this.requestRedraw();
   }
 
   onScriptChanged(text: string) {
@@ -146,10 +163,10 @@ class App {
 
   beginRender(tape: Uint8Array) {
     document.getElementById("status").textContent = "Rendering...";
-    this.start_time = performance.now();
+    this.startTime = performance.now();
     const mode = this.getMode();
     this.worker.postMessage(
-      new ShapeRequest(tape, this.scene.camera2, this.scene.camera3, mode),
+      new ShapeRequest(tape, this.scene.camera, this.currentDepth, mode),
     );
     this.rerender = false;
     this.rendering = true;
@@ -164,16 +181,35 @@ class App {
         break;
       }
       case ResponseKind.Image: {
-        this.scene.setTextureRegion(req.data);
-        requestAnimationFrame((event) => this.scene.draw());
+        this.scene.setTextureRegion(req.data, req.depth);
+        this.scene.draw(req.depth);
 
         const endTime = performance.now();
-        document.getElementById("status").textContent =
-          `Rendered in ${(endTime - this.start_time).toFixed(2)} ms`;
+        const dt = endTime - this.startTime;
+        if (this.currentDepth == 0) {
+          document.getElementById("status").textContent =
+            `Rendered in ${dt.toFixed(2)} ms`;
+        }
+        console.log(`rendered depth ${req.depth} in ${dt}`);
         this.rendering = false;
+
+        // If this is our initial render resolution, adjust our max depth to hit
+        // a target framerate.
+        if (this.currentDepth == this.startDepth) {
+          if (dt > 50 && this.startDepth != MAX_DEPTH) {
+            this.startDepth += 1;
+          } else if (dt < 10 && this.startDepth > 0) {
+            this.startDepth -= 1;
+          }
+        }
 
         // Immediately start rendering again if pending
         if (this.rerender) {
+          this.currentDepth = this.startDepth;
+          this.beginRender(this.tape);
+        } else if (this.currentDepth > 0) {
+          // Render again at the next resolution
+          this.currentDepth -= 1;
           this.beginRender(this.tape);
         }
         break;
@@ -317,32 +353,22 @@ class ProgramInfo {
   }
 }
 
-export enum CameraKind {
-  TwoD,
-  ThreeD,
-}
-
 class Scene {
   canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
   programInfo: ProgramInfo;
   buffers: Buffers;
-  texture: WebGLTexture;
-
-  camera2: fidget.JsCamera2;
-  translateHandle2: fidget.JsTranslateHandle2 | null;
-
-  camera3: fidget.JsCamera3;
-  translateHandle3: fidget.JsTranslateHandle3 | null;
-  rotateHandle3: fidget.JsRotateHandle | null;
+  textures: WebGLTexture[];
+  camera: Camera;
 
   constructor() {
     this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-    this.camera2 = new fidget.JsCamera2();
-    this.camera3 = new fidget.JsCamera3();
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
-    this.translateHandle2 = null;
+    this.camera = {
+      kind: CameraKind.ThreeD,
+      camera: new fidget.JsCamera3(),
+      translateHandle: null,
+      rotateHandle: null,
+    };
 
     this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
@@ -353,36 +379,77 @@ class Scene {
     }
     this.buffers = new Buffers(this.gl);
     this.programInfo = new ProgramInfo(this.gl);
-    this.texture = this.gl.createTexture();
 
-    // Bind an initial texture of the correct size
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-    this.gl.texImage2D(
-      this.gl.TEXTURE_2D,
-      0,
-      this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
-      0, // border
-      this.gl.RGBA,
-      this.gl.UNSIGNED_BYTE,
-      new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
-    );
-    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+    // XXX use mipmap levels instead?
+    this.textures = [];
+    for (var depth = 0; depth <= MAX_DEPTH; ++depth) {
+      const texture = this.gl.createTexture();
+      const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+
+      // Bind an initial texture of the correct size
+      this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_S,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_T,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MIN_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MAG_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.UNSIGNED_BYTE,
+        new Uint8Array(size * size * 4),
+      );
+      this.gl.generateMipmap(this.gl.TEXTURE_2D);
+      this.textures.push(texture);
+    }
   }
 
-  resetCameras() {
-    this.camera2 = new fidget.JsCamera2();
-    this.camera3 = new fidget.JsCamera3();
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
-    this.translateHandle2 = null;
+  resetCamera(kind: CameraKind) {
+    switch (kind) {
+      case CameraKind.TwoD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera2(),
+          translateHandle: null,
+        };
+        break;
+      }
+      case CameraKind.ThreeD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera3(),
+          translateHandle: null,
+          rotateHandle: null,
+        };
+        break;
+      }
+    }
   }
 
   zoomAbout(event: WheelEvent) {
     let [x, y] = this.screenToWorld(event);
-    this.camera2.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
-    this.camera3.zoom_about(Math.pow(2, event.deltaY / 100.0), x, y);
+    const zoomFactor = Math.pow(2, event.deltaY / 100.0);
+    this.camera.camera.zoom_about(zoomFactor, x, y);
   }
 
   screenToWorld(event: MouseEvent): readonly [number, number] {
@@ -393,46 +460,60 @@ class Scene {
   }
 
   beginTranslate(event: MouseEvent) {
-    let [x, y] = this.screenToWorld(event);
-    this.translateHandle2 = this.camera2.begin_translate(x, y);
-    this.translateHandle3 = this.camera3.begin_translate(x, y);
+    const [x, y] = this.screenToWorld(event);
+    this.camera.translateHandle = this.camera.camera.begin_translate(x, y) as
+      | fidget.JsTranslateHandle2
+      | fidget.JsTranslateHandle3;
   }
 
   beginRotate(event: MouseEvent) {
-    let [x, y] = this.screenToWorld(event);
-    this.rotateHandle3 = this.camera3.begin_rotate(x, y);
+    if (this.camera.kind === CameraKind.ThreeD) {
+      const [x, y] = this.screenToWorld(event);
+      this.camera.rotateHandle = this.camera.camera.begin_rotate(
+        x,
+        y,
+      ) as fidget.JsRotateHandle;
+    }
   }
 
   drag(event: MouseEvent): boolean {
-    let [x, y] = this.screenToWorld(event);
+    const [x, y] = this.screenToWorld(event);
     let changed = false;
-    if (this.translateHandle2) {
-      changed = this.camera2.translate(this.translateHandle2, x, y) || changed;
+
+    if (this.camera.translateHandle) {
+      changed =
+        this.camera.camera.translate(this.camera.translateHandle, x, y) ||
+        changed;
     }
-    if (this.rotateHandle3) {
-      changed = this.camera3.rotate(this.rotateHandle3, x, y) || changed;
-    }
-    if (this.translateHandle3) {
-      changed = this.camera3.translate(this.translateHandle3, x, y) || changed;
+
+    if (this.camera.kind === CameraKind.ThreeD && this.camera.rotateHandle) {
+      changed =
+        (this.camera.camera as fidget.JsCamera3).rotate(
+          this.camera.rotateHandle,
+          x,
+          y,
+        ) || changed;
     }
 
     return changed;
   }
 
   endDrag() {
-    this.translateHandle2 = null;
-    this.rotateHandle3 = null;
-    this.translateHandle3 = null;
+    this.camera.translateHandle = null;
+    if (this.camera.kind === CameraKind.ThreeD) {
+      this.camera.rotateHandle = null;
+    }
   }
 
-  setTextureRegion(data: Uint8Array) {
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+  setTextureRegion(data: Uint8Array, depth: number) {
+    const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.texImage2D(
       this.gl.TEXTURE_2D,
       0,
       this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
+      size,
+      size,
       0, // border
       this.gl.RGBA,
       this.gl.UNSIGNED_BYTE,
@@ -440,7 +521,7 @@ class Scene {
     );
   }
 
-  draw() {
+  draw(depth: number) {
     this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     this.setPositionAttribute();
@@ -452,7 +533,7 @@ class Scene {
     this.gl.activeTexture(this.gl.TEXTURE0);
 
     // Bind the texture to texture unit 0
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.uniform1i(this.programInfo.uSampler, 0);
 
     const offset = 0;
