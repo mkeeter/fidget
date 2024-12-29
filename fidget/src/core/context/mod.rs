@@ -275,8 +275,8 @@ impl Context {
             self.mul(a, two)
         } else {
             match (self.get_const(a), self.get_const(b)) {
-                (Ok(zero), _) if zero == 0.0 => Ok(b),
-                (_, Ok(zero)) if zero == 0.0 => Ok(a),
+                (Ok(0.0), _) => Ok(b),
+                (_, Ok(0.0)) => Ok(a),
                 _ => self.op_binary_commutative(a, b, BinaryOpcode::Add),
             }
         }
@@ -301,10 +301,10 @@ impl Context {
             self.square(a)
         } else {
             match (self.get_const(a), self.get_const(b)) {
-                (Ok(one), _) if one == 1.0 => Ok(b),
-                (_, Ok(one)) if one == 1.0 => Ok(a),
-                (Ok(zero), _) if zero == 0.0 => Ok(a),
-                (_, Ok(zero)) if zero == 0.0 => Ok(b),
+                (Ok(1.0), _) => Ok(b),
+                (_, Ok(1.0)) => Ok(a),
+                (Ok(0.0), _) => Ok(a),
+                (_, Ok(0.0)) => Ok(b),
                 _ => self.op_binary_commutative(a, b, BinaryOpcode::Mul),
             }
         }
@@ -628,8 +628,8 @@ impl Context {
         let b = b.into_node(self)?;
 
         match (self.get_const(a), self.get_const(b)) {
-            (Ok(zero), _) if zero == 0.0 => self.neg(b),
-            (_, Ok(zero)) if zero == 0.0 => Ok(a),
+            (Ok(0.0), _) => self.neg(b),
+            (_, Ok(0.0)) => Ok(a),
             _ => self.op_binary(a, b, BinaryOpcode::Sub),
         }
     }
@@ -652,8 +652,8 @@ impl Context {
         let b = b.into_node(self)?;
 
         match (self.get_const(a), self.get_const(b)) {
-            (Ok(zero), _) if zero == 0.0 => Ok(a),
-            (_, Ok(one)) if one == 1.0 => Ok(a),
+            (Ok(0.0), _) => Ok(a),
+            (_, Ok(1.0)) => Ok(a),
             _ => self.op_binary(a, b, BinaryOpcode::Div),
         }
     }
