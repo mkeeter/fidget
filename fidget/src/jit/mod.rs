@@ -1130,7 +1130,7 @@ impl<T: Clone> Tape for JitBulkFn<T> {
 
 /// Maximum SIMD width for any type, checked at runtime (alas)
 ///
-/// We can't use T::SIMD_SIZE directly here due to Rust limitations. Instead we
+/// We can't use `T::SIMD_SIZE` directly here due to Rust limitations. Instead we
 /// hard-code a maximum SIMD size along with an assertion that should be
 /// optimized out; we can't use a constant assertion here due to the same
 /// compiler limitations.
