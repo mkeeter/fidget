@@ -8,7 +8,7 @@ use std::collections::HashMap;
 ///
 /// The index type `I` should be a wrapper around a `usize` and be convertible
 /// in both directions using the `Index` trait; it is typically passed around
-/// using `Copy`.  A suitable index type can be constructed with [define_index].
+/// using `Copy`.  A suitable index type can be constructed with [`define_index`].
 ///
 /// The `V` type may be larger and is passed around by reference. However,
 /// it must be `Clone`, because it is stored twice in the data structure (once
@@ -89,7 +89,7 @@ where
 ///
 /// The `Index` type should be a wrapper around a `usize` and be convertible
 /// in both directions; it is typically passed around using `Copy`.  A suitable
-/// index type can be constructed with [define_index].
+/// index type can be constructed with [`define_index`].
 #[derive(Clone, Debug)]
 pub struct IndexVec<V, I> {
     data: Vec<V>,
