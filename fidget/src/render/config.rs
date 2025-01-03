@@ -6,6 +6,10 @@ use crate::{
     shape::{Shape, ShapeVars},
 };
 use nalgebra::{Const, Matrix3, Matrix4, OPoint, Point2, Vector2};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Thread pool to use for multithreaded rendering
 ///
@@ -17,6 +21,27 @@ pub enum ThreadPool<'a> {
     Custom(&'a rayon::ThreadPool),
     /// Global Rayon pool
     Global,
+}
+
+/// Token to cancel an in-progress operation
+#[derive(Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    /// Build a new token, which is not cancelled
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mark this token as cancelled
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Check if the token is cancelled
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 /// Settings for 2D rendering
@@ -39,6 +64,9 @@ pub struct ImageRenderConfig<'a> {
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
     pub threads: Option<ThreadPool<'a>>,
+
+    /// Token to cancel rendering
+    pub cancel: CancelToken,
 }
 
 impl Default for ImageRenderConfig<'_> {
@@ -48,6 +76,7 @@ impl Default for ImageRenderConfig<'_> {
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
             threads: Some(ThreadPool::Global),
+            cancel: CancelToken::new(),
         }
     }
 }
@@ -65,6 +94,9 @@ impl RenderConfig for ImageRenderConfig<'_> {
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes
     }
+    fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
 }
 
 impl ImageRenderConfig<'_> {
@@ -72,7 +104,7 @@ impl ImageRenderConfig<'_> {
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
         shape: Shape<F>,
-    ) -> Vec<<M as RenderMode>::Output> {
+    ) -> Option<Vec<<M as RenderMode>::Output>> {
         self.run_with_vars::<F, M>(shape, &ShapeVars::new())
     }
 
@@ -81,7 +113,7 @@ impl ImageRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Vec<<M as RenderMode>::Output> {
+    ) -> Option<Vec<<M as RenderMode>::Output>> {
         crate::render::render2d::<F, M>(shape, vars, self)
     }
 
@@ -115,6 +147,9 @@ pub struct VoxelRenderConfig<'a> {
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
     pub threads: Option<ThreadPool<'a>>,
+
+    /// Token to cancel rendering
+    pub cancel: CancelToken,
 }
 
 impl Default for VoxelRenderConfig<'_> {
@@ -125,6 +160,7 @@ impl Default for VoxelRenderConfig<'_> {
             view: View3::default(),
 
             threads: Some(ThreadPool::Global),
+            cancel: CancelToken::new(),
         }
     }
 }
@@ -142,25 +178,29 @@ impl RenderConfig for VoxelRenderConfig<'_> {
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes
     }
+    fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
 }
 
 impl VoxelRenderConfig<'_> {
     /// Render a shape in 3D using this configuration
     ///
-    /// Returns a tuple of heightmap, RGB image.
+    /// Returns a tuple of `(heightmap, RGB image)` or `None` if rendering was
+    /// cancelled.
     pub fn run<F: Function>(
         &self,
         shape: Shape<F>,
-    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
-    /// Render a shape in 2D using this configuration and variables
+    /// Render a shape in 3D using this configuration and variables
     pub fn run_with_vars<F: Function>(
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> (Vec<u32>, Vec<[u8; 3]>) {
+    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
         crate::render::render3d::<F>(shape, vars, self)
     }
 
