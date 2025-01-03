@@ -15,7 +15,7 @@ import {
   ScriptRequest,
   ScriptResponse,
   StartRequest,
-  ShapeRequest,
+  RenderRequest,
   WorkerRequest,
   WorkerResponse,
 } from "./message";
@@ -46,6 +46,7 @@ class App {
   rendering: boolean; // are we currently rendering?
   startDepth: number; // starting render depth
   currentDepth: number; // current render depth
+  cancel: fidget.JsCancelToken | null;
 
   startTime: number;
 
@@ -90,7 +91,6 @@ class App {
         requestRedraw();
       }
     });
-
     this.scene = scene;
 
     // Hot-patch the gyroid script to be eval (instead of exec) flavored
@@ -116,8 +116,10 @@ class App {
 
     this.tape = null;
     this.rerender = false;
+    this.rendering = false;
     this.startDepth = 0;
     this.currentDepth = MAX_DEPTH;
+    this.cancel = null;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
@@ -126,6 +128,10 @@ class App {
 
   requestRedraw() {
     if (this.rendering) {
+      if (this.cancel && this.currentDepth != this.startDepth) {
+        this.cancel.cancel();
+        this.cancel = null;
+      }
       this.rerender = true;
     } else {
       this.currentDepth = this.startDepth;
@@ -175,8 +181,15 @@ class App {
     document.getElementById("status").textContent = "Rendering...";
     this.startTime = performance.now();
     const mode = this.getMode();
+    this.cancel = new fidget.JsCancelToken();
     this.worker.postMessage(
-      new ShapeRequest(tape, this.scene.camera, this.currentDepth, mode),
+      new RenderRequest(
+        tape,
+        this.scene.camera,
+        this.currentDepth,
+        mode,
+        this.cancel.get_ptr(),
+      ),
     );
     this.rerender = false;
     this.rendering = true;
@@ -213,8 +226,6 @@ class App {
             this.startDepth -= 1;
           }
         }
-
-        // Immediately start rendering again if pending
         if (this.rerender) {
           this.currentDepth = this.startDepth;
           this.beginRender(this.tape);
@@ -223,6 +234,12 @@ class App {
           this.currentDepth -= 1;
           this.beginRender(this.tape);
         }
+        break;
+      }
+      case ResponseKind.Cancelled: {
+        // Cancellation always implies a rerender
+        this.currentDepth = this.startDepth;
+        this.beginRender(this.tape);
         break;
       }
       case ResponseKind.Script: {

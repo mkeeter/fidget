@@ -23,24 +23,27 @@ export enum RenderMode {
   Normals,
 }
 
-export class ShapeRequest {
+export class RenderRequest {
   kind: RequestKind.Shape;
   tape: Uint8Array;
   camera: Uint8Array;
   depth: number;
   mode: RenderMode;
+  cancel_token_ptr: number; // pointer
 
   constructor(
     tape: Uint8Array,
     camera: Camera,
     depth: number,
     mode: RenderMode,
+    cancel_token_ptr: number,
   ) {
     this.tape = tape;
     this.kind = RequestKind.Shape;
     this.camera = camera.camera.serialize();
     this.depth = depth;
     this.mode = mode;
+    this.cancel_token_ptr = cancel_token_ptr;
   }
 }
 
@@ -54,10 +57,7 @@ export class StartRequest {
   }
 }
 
-export type WorkerRequest =
-  | StartRequest
-  | ScriptRequest
-  | ShapeRequest;
+export type WorkerRequest = StartRequest | ScriptRequest | RenderRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -65,6 +65,7 @@ export enum ResponseKind {
   Started,
   Script,
   Image,
+  Cancelled,
 }
 
 export class StartedResponse {
@@ -99,4 +100,16 @@ export class ImageResponse {
   }
 }
 
-export type WorkerResponse = StartedResponse | ScriptResponse | ImageResponse;
+export class CancelledResponse {
+  kind: ResponseKind.Cancelled;
+
+  constructor() {
+    this.kind = ResponseKind.Cancelled;
+  }
+}
+
+export type WorkerResponse =
+  | StartedResponse
+  | ScriptResponse
+  | ImageResponse
+  | CancelledResponse;

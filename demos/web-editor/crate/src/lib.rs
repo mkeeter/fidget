@@ -54,18 +54,20 @@ pub fn render_2d(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera2,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
     fn inner(
         shape: VmShape,
         image_size: usize,
         view: View2,
+        cancel: CancelToken,
     ) -> Option<Vec<u8>> {
         let cfg = ImageRenderConfig {
             image_size: ImageSize::from(image_size as u32),
             threads: Some(ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             view,
-            ..Default::default()
+            cancel,
         };
 
         let out = cfg.run::<_, BitRenderMode>(shape)?;
@@ -78,7 +80,8 @@ pub fn render_2d(
                 .collect(),
         )
     }
-    inner(shape.0, image_size, camera.0).ok_or_else(|| "cancelled".to_owned())
+    inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_owned())
 }
 
 /// Renders a heightmap image
@@ -87,9 +90,11 @@ pub fn render_heightmap(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (depth, _norm) = render_3d_inner(shape.0, image_size, camera.0)
-        .ok_or_else(|| "cancelled".to_string())?;
+    let (depth, _norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(depth
@@ -107,9 +112,11 @@ pub fn render_normals(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (_depth, norm) = render_3d_inner(shape.0, image_size, camera.0)
-        .ok_or_else(|| "cancelled".to_string())?;
+    let (_depth, norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(norm
@@ -122,13 +129,14 @@ fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
     view: View3,
+    cancel: CancelToken,
 ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(ThreadPool::Global),
         tile_sizes: TileSizes::new(&[64, 32, 16, 8]).unwrap(),
         view,
-        ..Default::default()
+        cancel,
     };
     cfg.run(shape.clone())
 }
