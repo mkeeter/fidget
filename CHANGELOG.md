@@ -5,6 +5,10 @@
 - Make `translate` and `rotate` functions borrow their respective handle,
   instead of taking it by value.
 - Fix docstring for `AndRegImm`, `AndRegReg`, `OrRegImm`, and `OrRegReg`
+- Add `cancel: CancelToken` to 2D and 3D rendering configuration objects; this
+  is a shared `Arc<AtomicBool>` which can be used to stop rendering.  The
+  returned type is now an `Option<...>`, where `None` indicates that rendering
+  was cancelled.
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
