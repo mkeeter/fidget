@@ -1,7 +1,9 @@
 import {
   ImageResponse,
+  CancelTestRequest,
   RenderMode,
   RequestKind,
+  StartRequest,
   ScriptRequest,
   ScriptResponse,
   ShapeRequest,
@@ -21,17 +23,17 @@ class Worker {
     switch (s.mode) {
       case RenderMode.Bitmap: {
         const camera = fidget.JsCamera2.deserialize(s.camera);
-        out = fidget.render_region_2d(shape, size, camera);
+        out = fidget.render_2d(shape, size, camera);
         break;
       }
       case RenderMode.Heightmap: {
         const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_heightmap(shape, size, camera);
+        out = fidget.render_heightmap(shape, size, camera);
         break;
       }
       case RenderMode.Normals: {
         const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_normals(shape, size, camera);
+        out = fidget.render_normals(shape, size, camera);
         break;
       }
     }
@@ -65,13 +67,16 @@ class Worker {
 }
 
 async function run() {
-  await fidget.default();
-  await fidget.initThreadPool(navigator.hardwareConcurrency);
-
   let worker = new Worker();
-  onmessage = function (e: any) {
+  onmessage = async function (e: any) {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
+      case RequestKind.Start: {
+        fidget.initSync((req as StartRequest).init);
+        await fidget.initThreadPool(navigator.hardwareConcurrency);
+        postMessage(new StartedResponse());
+        break;
+      }
       case RequestKind.Shape: {
         worker!.render(req as ShapeRequest);
         break;
@@ -80,10 +85,19 @@ async function run() {
         worker!.run(req as ScriptRequest);
         break;
       }
+      case RequestKind.CancelTest: {
+        let token = fidget.JsCancelToken.from_ptr(
+          (req as CancelTestRequest).token_ptr,
+        );
+        console.log("NEW TOKEN");
+        console.log((req as CancelTestRequest).token_ptr);
+        console.log(token);
+        console.log(token.is_cancelled());
+        break;
+      }
       default:
         console.error(`unknown worker request ${req}`);
     }
   };
-  postMessage(new StartedResponse());
 }
 run();

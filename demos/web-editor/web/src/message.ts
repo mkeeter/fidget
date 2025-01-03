@@ -2,9 +2,10 @@ import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 import { Camera } from "./camera";
 
 export enum RequestKind {
-  Script,
   Start,
+  Script,
   Shape,
+  CancelTest,
 }
 
 export class ScriptRequest {
@@ -44,7 +45,31 @@ export class ShapeRequest {
   }
 }
 
-export type WorkerRequest = ScriptRequest | ShapeRequest;
+export class StartRequest {
+  kind: RequestKind.Start;
+  init: object;
+
+  constructor(init: object) {
+    this.init = init;
+    this.kind = RequestKind.Start;
+  }
+}
+
+export class CancelTestRequest {
+  kind: RequestKind.CancelTest;
+  token_ptr: number;
+
+  constructor(ptr: number) {
+    this.token_ptr = ptr;
+    this.kind = RequestKind.CancelTest;
+  }
+}
+
+export type WorkerRequest =
+  | StartRequest
+  | ScriptRequest
+  | ShapeRequest
+  | CancelTestRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 

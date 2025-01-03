@@ -39,8 +39,25 @@ impl CancelToken {
     }
 
     /// Check if the token is cancelled
-    pub(crate) fn is_cancelled(&self) -> bool {
+    pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Relaxed)
+    }
+
+    /// Returns a raw pointer to the inner flag
+    ///
+    /// To avoid a memory leak the pointer must be converted back to an
+    /// `CancelToken` using [`CancelToken::from_raw`].
+    pub fn into_raw(self) -> *const AtomicBool {
+        Arc::into_raw(self.0)
+    }
+
+    /// Reclaims a pointer released by [`CancelToken::into_raw`]
+    ///
+    /// # Safety
+    /// The pointer must have been previously returned by a call to
+    /// [`CancelToken::into_raw`].
+    pub unsafe fn from_raw(ptr: *const AtomicBool) -> Self {
+        Self(Arc::from_raw(ptr))
     }
 }
 

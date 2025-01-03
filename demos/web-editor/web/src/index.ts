@@ -14,6 +14,8 @@ import {
   ResponseKind,
   ScriptRequest,
   ScriptResponse,
+  StartRequest,
+  CancelTestRequest,
   ShapeRequest,
   WorkerRequest,
   WorkerResponse,
@@ -100,6 +102,12 @@ class App {
     this.worker.onmessage = (m) => {
       this.onWorkerMessage(m.data as WorkerResponse);
     };
+    this.worker.postMessage(
+      new StartRequest({
+        module: fidget.get_module(),
+        memory: fidget.get_memory(),
+      }),
+    );
 
     this.tape = null;
     this.rerender = false;
@@ -109,9 +117,6 @@ class App {
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
-
-    // Initial redraw
-    requestAnimationFrame(this.onModeChanged.bind(this));
   }
 
   requestRedraw() {
@@ -178,6 +183,15 @@ class App {
         // Once the worker has started, do an initial render
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
+
+        let cancel_token = new fidget.JsCancelToken();
+        console.log("cancel:");
+        console.log(cancel_token);
+        console.log(cancel_token.is_cancelled());
+        let ptr = cancel_token.get_ptr();
+        console.log(ptr);
+        cancel_token.cancel();
+        this.worker.postMessage(new CancelTestRequest(ptr));
         break;
       }
       case ResponseKind.Image: {

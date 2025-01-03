@@ -16,7 +16,9 @@ mod render3d;
 mod view;
 
 use config::Tile;
-pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
+pub use config::{
+    CancelToken, ImageRenderConfig, ThreadPool, VoxelRenderConfig,
+};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use view::{RotateHandle, TranslateHandle, View2, View3};
 
