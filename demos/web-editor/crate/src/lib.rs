@@ -1,12 +1,12 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, ImageRenderConfig, ImageSize, RotateHandle, ThreadPool,
-        TileSizes, TranslateHandle, View2, View3, VoxelRenderConfig, VoxelSize,
+        BitRenderMode, CancelToken, ImageRenderConfig, ImageSize, RotateHandle,
+        ThreadPool, TileSizes, TranslateHandle, View2, View3,
+        VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
-    Error,
 };
 use nalgebra::{Point2, Point3};
 
@@ -50,44 +50,51 @@ pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
 
 /// Renders the image in 2D
 #[wasm_bindgen]
-pub fn render_region_2d(
+pub fn render_2d(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera2,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
     fn inner(
         shape: VmShape,
         image_size: usize,
         view: View2,
-    ) -> Result<Vec<u8>, Error> {
+        cancel: CancelToken,
+    ) -> Option<Vec<u8>> {
         let cfg = ImageRenderConfig {
             image_size: ImageSize::from(image_size as u32),
             threads: Some(ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             view,
-            ..Default::default()
+            cancel,
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape);
-        Ok(out
-            .into_iter()
-            .flat_map(|b| {
-                let b = b as u8 * u8::MAX;
-                [b, b, b, 255]
-            })
-            .collect())
+        let out = cfg.run::<_, BitRenderMode>(shape)?;
+        Some(
+            out.into_iter()
+                .flat_map(|b| {
+                    let b = b as u8 * u8::MAX;
+                    [b, b, b, 255]
+                })
+                .collect(),
+        )
     }
-    inner(shape.0, image_size, camera.0).map_err(|e| format!("{e}"))
+    inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_owned())
 }
 
 /// Renders a heightmap image
 #[wasm_bindgen]
-pub fn render_region_heightmap(
+pub fn render_heightmap(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (depth, _norm) = render_3d_inner(shape.0, image_size, camera.0);
+    let (depth, _norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(depth
@@ -101,12 +108,15 @@ pub fn render_region_heightmap(
 
 /// Renders a shaded image
 #[wasm_bindgen]
-pub fn render_region_normals(
+pub fn render_normals(
     shape: JsVmShape,
     image_size: usize,
     camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (_depth, norm) = render_3d_inner(shape.0, image_size, camera.0);
+    let (_depth, norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(norm
@@ -119,13 +129,14 @@ fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
     view: View3,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
+    cancel: CancelToken,
+) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(ThreadPool::Global),
-        tile_sizes: TileSizes::new(&[64, 32, 16, 8]).unwrap(),
+        tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
         view,
-        ..Default::default()
+        cancel,
     };
     cfg.run(shape.clone())
 }
@@ -234,3 +245,43 @@ impl JsCamera2 {
 
 #[wasm_bindgen]
 pub struct JsTranslateHandle2(TranslateHandle<2>);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub struct JsCancelToken(CancelToken);
+
+#[wasm_bindgen]
+impl JsCancelToken {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(CancelToken::new())
+    }
+
+    #[wasm_bindgen]
+    pub fn cancel(&self) {
+        self.0.cancel()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_ptr(&self) -> *const std::sync::atomic::AtomicBool {
+        self.0.clone().into_raw()
+    }
+
+    #[wasm_bindgen]
+    pub unsafe fn from_ptr(ptr: *const std::sync::atomic::AtomicBool) -> Self {
+        Self(CancelToken::from_raw(ptr))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub fn get_module() -> wasm_bindgen::JsValue {
+    wasm_bindgen::module()
+}
+
+#[wasm_bindgen]
+pub fn get_memory() -> wasm_bindgen::JsValue {
+    wasm_bindgen::memory()
+}

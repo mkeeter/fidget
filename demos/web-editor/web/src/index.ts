@@ -14,7 +14,8 @@ import {
   ResponseKind,
   ScriptRequest,
   ScriptResponse,
-  ShapeRequest,
+  StartRequest,
+  RenderRequest,
   WorkerRequest,
   WorkerResponse,
 } from "./message";
@@ -28,6 +29,8 @@ import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
 async function setup() {
   await fidget.default();
+  await fidget.initThreadPool(navigator.hardwareConcurrency);
+
   (window as any).fidget = fidget; // for easy of poking
   const app = new App();
 }
@@ -43,10 +46,25 @@ class App {
   rendering: boolean; // are we currently rendering?
   startDepth: number; // starting render depth
   currentDepth: number; // current render depth
+  cancel: fidget.JsCancelToken | null;
 
   startTime: number;
 
   constructor() {
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.onmessage = (m) => {
+      this.onWorkerMessage(m.data as WorkerResponse);
+    };
+    this.worker.postMessage(
+      new StartRequest({
+        module: fidget.get_module(),
+        memory: fidget.get_memory(),
+      }),
+    );
+    // everything else is handled in this.init() once the worker starts
+  }
+
+  init() {
     let scene = new Scene();
 
     let requestRedraw = this.requestRedraw.bind(this);
@@ -73,7 +91,6 @@ class App {
         requestRedraw();
       }
     });
-
     this.scene = scene;
 
     // Hot-patch the gyroid script to be eval (instead of exec) flavored
@@ -96,26 +113,25 @@ class App {
       this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
-    this.worker.onmessage = (m) => {
-      this.onWorkerMessage(m.data as WorkerResponse);
-    };
 
     this.tape = null;
     this.rerender = false;
+    this.rendering = false;
     this.startDepth = 0;
-    this.currentDepth = 0;
+    this.currentDepth = MAX_DEPTH;
+    this.cancel = null;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
-
-    // Initial redraw
-    requestAnimationFrame(this.onModeChanged.bind(this));
   }
 
   requestRedraw() {
     if (this.rendering) {
+      if (this.cancel && this.currentDepth != this.startDepth) {
+        this.cancel.cancel();
+        this.cancel = null;
+      }
       this.rerender = true;
     } else {
       this.currentDepth = this.startDepth;
@@ -165,8 +181,15 @@ class App {
     document.getElementById("status").textContent = "Rendering...";
     this.startTime = performance.now();
     const mode = this.getMode();
+    this.cancel = new fidget.JsCancelToken();
     this.worker.postMessage(
-      new ShapeRequest(tape, this.scene.camera, this.currentDepth, mode),
+      new RenderRequest(
+        tape,
+        this.scene.camera,
+        this.currentDepth,
+        mode,
+        this.cancel.get_ptr(),
+      ),
     );
     this.rerender = false;
     this.rendering = true;
@@ -175,7 +198,8 @@ class App {
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
       case ResponseKind.Started: {
-        // Once the worker has started, do an initial render
+        // Initialize the rest of the app, and do an initial render
+        this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
@@ -202,8 +226,6 @@ class App {
             this.startDepth -= 1;
           }
         }
-
-        // Immediately start rendering again if pending
         if (this.rerender) {
           this.currentDepth = this.startDepth;
           this.beginRender(this.tape);
@@ -212,6 +234,12 @@ class App {
           this.currentDepth -= 1;
           this.beginRender(this.tape);
         }
+        break;
+      }
+      case ResponseKind.Cancelled: {
+        // Cancellation always implies a rerender
+        this.currentDepth = this.startDepth;
+        this.beginRender(this.tape);
         break;
       }
       case ResponseKind.Script: {

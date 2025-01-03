@@ -341,14 +341,18 @@ impl<F: Function> Worker<'_, F> {
 ///
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
+///
+/// Returns two `Vec` of pixel data (color, normals) if rendering succeeds, or
+/// `None` if rendering was cancelled (using the [`VoxelRenderConfig::cancel`]
+/// token)
 pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
+) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
     let shape = shape.apply_transform(config.mat());
 
-    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config);
+    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -371,7 +375,7 @@ pub fn render<F: Function>(
             }
         }
     }
-    (image_depth, image_color)
+    Some((image_depth, image_color))
 }
 
 #[cfg(test)]
@@ -397,7 +401,7 @@ mod test {
             image_size: VoxelSize::from(128), // very small!
             ..Default::default()
         };
-        let (depth, rgb) = cfg.run(shape);
+        let (depth, rgb) = cfg.run(shape).unwrap();
         assert_eq!(depth.len(), 128 * 128);
         assert_eq!(rgb.len(), 128 * 128);
     }
@@ -421,7 +425,7 @@ mod test {
                 let mut vars = ShapeVars::new();
                 vars.insert(v.index().unwrap(), r);
                 let (depth, _normal) =
-                    cfg.run_with_vars::<_>(shape.clone(), &vars);
+                    cfg.run_with_vars::<_>(shape.clone(), &vars).unwrap();
 
                 let epsilon = 0.08;
                 for (i, p) in depth.iter().enumerate() {
@@ -479,4 +483,20 @@ mod test {
     }
 
     render_tests!(sphere_var);
+
+    #[test]
+    fn cancel_render() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let shape = VmShape::new(&ctx, x).unwrap();
+
+        let cfg = VoxelRenderConfig {
+            image_size: VoxelSize::new(64, 64, 64),
+            ..Default::default()
+        };
+        let cancel = cfg.cancel.clone();
+        cancel.cancel();
+        let out = cfg.run::<_>(shape);
+        assert!(out.is_none());
+    }
 }

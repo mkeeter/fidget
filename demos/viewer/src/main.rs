@@ -175,8 +175,9 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
 
             match mode {
                 Mode2D::Color => {
-                    let image =
-                        config.run::<_, fidget::render::BitRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::BitRenderMode>(shape)
+                        .unwrap();
                     let c = egui::Color32::from_rgba_unmultiplied(
                         color[0],
                         color[1],
@@ -191,16 +192,18 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 }
 
                 Mode2D::Sdf => {
-                    let image =
-                        config.run::<_, fidget::render::SdfRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::SdfRenderMode>(shape)
+                        .unwrap();
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
                 Mode2D::Debug => {
-                    let image =
-                        config.run::<_, fidget::render::DebugRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::DebugRenderMode>(shape)
+                        .unwrap();
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         let c = i.as_debug_color();
                         *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
@@ -220,7 +223,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 view: *view,
                 ..Default::default()
             };
-            let (depth, color) = config.run(shape);
+            let (depth, color) = config.run(shape).unwrap();
             match mode {
                 Mode3D::Color => {
                     for (p, (&d, &c)) in

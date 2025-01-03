@@ -16,7 +16,9 @@ mod render3d;
 mod view;
 
 use config::Tile;
-pub use config::{ImageRenderConfig, ThreadPool, VoxelRenderConfig};
+pub use config::{
+    CancelToken, ImageRenderConfig, ThreadPool, VoxelRenderConfig,
+};
 pub use region::{ImageSize, RegionSize, VoxelSize};
 pub use view::{RotateHandle, TranslateHandle, View2, View3};
 
@@ -280,12 +282,12 @@ pub trait RenderHints {
 /// This handles tile generation and building + calling render workers in
 /// parallel (using [`rayon`] for parallelism at the tile level).
 ///
-/// It returns a set of output tiles
+/// It returns a set of output tiles, or `None` if rendering has been cancelled
 pub(crate) fn render_tiles<'a, F: Function, W: RenderWorker<'a, F>>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &'a W::Config,
-) -> Vec<(Tile<2>, W::Output)>
+) -> Option<Vec<(Tile<2>, W::Output)>>
 where
     W::Config: Send + Sync,
 {
@@ -315,16 +317,21 @@ where
         (worker, rh)
     };
 
-    let out: Vec<_> = match config.threads() {
+    let out = match config.threads() {
         None => {
             let mut worker = W::new(config);
             tiles
                 .into_iter()
                 .map(|tile| {
-                    let pixels = worker.render_tile(&mut rh, vars, tile);
-                    (tile, pixels)
+                    if config.is_cancelled() {
+                        Err(())
+                    } else {
+                        let pixels = worker.render_tile(&mut rh, vars, tile);
+                        Ok((tile, pixels))
+                    }
                 })
-                .collect()
+                .collect::<Result<Vec<_>, ()>>()
+                .ok()
         }
 
         Some(p) => {
@@ -332,10 +339,15 @@ where
                 tiles
                     .into_par_iter()
                     .map_init(init, |(w, rh), tile| {
-                        let pixels = w.render_tile(rh, vars, tile);
-                        (tile, pixels)
+                        if config.is_cancelled() {
+                            Err(())
+                        } else {
+                            let pixels = w.render_tile(rh, vars, tile);
+                            Ok((tile, pixels))
+                        }
                     })
-                    .collect()
+                    .collect::<Result<Vec<_>, ()>>()
+                    .ok()
             };
             match p {
                 ThreadPool::Custom(p) => p.install(run),
@@ -353,6 +365,7 @@ pub(crate) trait RenderConfig {
     fn height(&self) -> u32;
     fn tile_sizes(&self) -> &TileSizes;
     fn threads(&self) -> Option<&ThreadPool>;
+    fn is_cancelled(&self) -> bool;
 }
 
 /// Helper trait for a tiled renderer worker

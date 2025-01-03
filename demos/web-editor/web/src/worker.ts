@@ -2,9 +2,11 @@ import {
   ImageResponse,
   RenderMode,
   RequestKind,
+  CancelledResponse,
+  StartRequest,
   ScriptRequest,
   ScriptResponse,
-  ShapeRequest,
+  RenderRequest,
   StartedResponse,
   WorkerRequest,
 } from "./message";
@@ -14,28 +16,33 @@ import { RENDER_SIZE } from "./constants";
 import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 class Worker {
-  render(s: ShapeRequest) {
+  render(s: RenderRequest) {
     const shape = fidget.deserialize_tape(s.tape);
+    const cancel = fidget.JsCancelToken.from_ptr(s.cancel_token_ptr);
     let out: Uint8Array;
     const size = Math.round(RENDER_SIZE / Math.pow(2, s.depth));
-    switch (s.mode) {
-      case RenderMode.Bitmap: {
-        const camera = fidget.JsCamera2.deserialize(s.camera);
-        out = fidget.render_region_2d(shape, size, camera);
-        break;
+    try {
+      switch (s.mode) {
+        case RenderMode.Bitmap: {
+          const camera = fidget.JsCamera2.deserialize(s.camera);
+          out = fidget.render_2d(shape, size, camera, cancel);
+          break;
+        }
+        case RenderMode.Heightmap: {
+          const camera = fidget.JsCamera3.deserialize(s.camera);
+          out = fidget.render_heightmap(shape, size, camera, cancel);
+          break;
+        }
+        case RenderMode.Normals: {
+          const camera = fidget.JsCamera3.deserialize(s.camera);
+          out = fidget.render_normals(shape, size, camera, cancel);
+          break;
+        }
       }
-      case RenderMode.Heightmap: {
-        const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_heightmap(shape, size, camera);
-        break;
-      }
-      case RenderMode.Normals: {
-        const camera = fidget.JsCamera3.deserialize(s.camera);
-        out = fidget.render_region_normals(shape, size, camera);
-        break;
-      }
+      postMessage(new ImageResponse(out, s.depth), { transfer: [out.buffer] });
+    } catch (e) {
+      postMessage(new CancelledResponse());
     }
-    postMessage(new ImageResponse(out, s.depth), { transfer: [out.buffer] });
   }
 
   run(s: ScriptRequest) {
@@ -65,15 +72,17 @@ class Worker {
 }
 
 async function run() {
-  await fidget.default();
-  await fidget.initThreadPool(navigator.hardwareConcurrency);
-
   let worker = new Worker();
   onmessage = function (e: any) {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
+      case RequestKind.Start: {
+        fidget.initSync((req as StartRequest).init);
+        postMessage(new StartedResponse());
+        break;
+      }
       case RequestKind.Shape: {
-        worker!.render(req as ShapeRequest);
+        worker!.render(req as RenderRequest);
         break;
       }
       case RequestKind.Script: {
@@ -84,6 +93,5 @@ async function run() {
         console.error(`unknown worker request ${req}`);
     }
   };
-  postMessage(new StartedResponse());
 }
 run();

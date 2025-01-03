@@ -399,18 +399,21 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
 /// This function is parameterized by both shape type (which determines how we
 /// perform evaluation) and render mode (which tells us how to color in the
 /// resulting pixels).
+///
+/// Returns a `Vec` of pixel data if rendering succeeds, or `None` if rendering
+/// was cancelled (using the [`ImageRenderConfig::cancel`] token)
 pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
-) -> Vec<M::Output> {
+) -> Option<Vec<M::Output>> {
     // Convert to a 4x4 matrix and apply to the shape
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
     let mat = mat.insert_column(2, 0.0);
     let shape = shape.apply_transform(mat);
 
-    let tiles = super::render_tiles::<F, Worker<F, M>>(shape, vars, config);
+    let tiles = super::render_tiles::<F, Worker<F, M>>(shape, vars, config)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -428,7 +431,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
             }
         }
     }
-    image
+    Some(image)
 }
 
 #[cfg(test)]
@@ -465,7 +468,9 @@ mod test {
                 view: self.view,
                 ..Default::default()
             };
-            let out = cfg.run_with_vars::<_, BitRenderMode>(shape, &self.vars);
+            let out = cfg
+                .run_with_vars::<_, BitRenderMode>(shape, &self.vars)
+                .expect("rendering should not be cancelled");
             let mut img_str = String::new();
             for (i, b) in out.iter().enumerate() {
                 if i % width as usize == 0 {
@@ -816,4 +821,19 @@ mod test {
     render_tests!(check_hi_bounded);
     render_tests!(check_quarter);
     render_tests!(check_circle_var);
+
+    #[test]
+    fn render2d_cancel() {
+        let (ctx, root) = Context::from_text(HI.as_bytes()).unwrap();
+        let shape = Shape::<VmFunction>::new(&ctx, root).unwrap();
+
+        let cfg = ImageRenderConfig {
+            image_size: ImageSize::new(64, 64),
+            ..Default::default()
+        };
+        let cancel = cfg.cancel.clone();
+        cancel.cancel();
+        let out = cfg.run::<_, BitRenderMode>(shape);
+        assert!(out.is_none());
+    }
 }
