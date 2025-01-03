@@ -50,7 +50,8 @@ impl CancelToken {
     /// a web worker.
     ///
     /// To avoid a memory leak, the pointer must be converted back to a
-    /// `CancelToken` using [`CancelToken::from_raw`].
+    /// `CancelToken` using [`CancelToken::from_raw`].  In the meantime, users
+    /// should refrain from writing to the raw pointer.
     #[doc(hidden)]
     pub fn into_raw(self) -> *const AtomicBool {
         Arc::into_raw(self.0)
