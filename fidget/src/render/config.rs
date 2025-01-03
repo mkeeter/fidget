@@ -28,7 +28,7 @@ pub enum ThreadPool<'a> {
 pub struct CancelToken(Arc<AtomicBool>);
 
 impl CancelToken {
-    /// Build a new token, which is not cancelled
+    /// Build a new token, which is initialize as "not cancelled"
     pub fn new() -> Self {
         Self::default()
     }
@@ -45,17 +45,23 @@ impl CancelToken {
 
     /// Returns a raw pointer to the inner flag
     ///
-    /// To avoid a memory leak the pointer must be converted back to an
+    /// This is used in shared memory environments where the `CancelToken`
+    /// itself cannot be passed between threads, i.e. to send a cancel token to
+    /// a web worker.
+    ///
+    /// To avoid a memory leak, the pointer must be converted back to a
     /// `CancelToken` using [`CancelToken::from_raw`].
+    #[doc(hidden)]
     pub fn into_raw(self) -> *const AtomicBool {
         Arc::into_raw(self.0)
     }
 
-    /// Reclaims a pointer released by [`CancelToken::into_raw`]
+    /// Reclaims a released cancel token pointer
     ///
     /// # Safety
     /// The pointer must have been previously returned by a call to
     /// [`CancelToken::into_raw`].
+    #[doc(hidden)]
     pub unsafe fn from_raw(ptr: *const AtomicBool) -> Self {
         Self(Arc::from_raw(ptr))
     }
