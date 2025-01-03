@@ -67,12 +67,11 @@ class Worker {
 
 async function run() {
   let worker = new Worker();
-  onmessage = async function (e: any) {
+  onmessage = function (e: any) {
     let req = e.data as WorkerRequest;
     switch (req.kind) {
       case RequestKind.Start: {
         fidget.initSync((req as StartRequest).init);
-        await fidget.initThreadPool(navigator.hardwareConcurrency);
         postMessage(new StartedResponse());
         break;
       }

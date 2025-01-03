@@ -29,6 +29,8 @@ import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
 async function setup() {
   await fidget.default();
+  await fidget.initThreadPool(navigator.hardwareConcurrency);
+
   (window as any).fidget = fidget; // for easy of poking
   const app = new App();
 }
@@ -48,6 +50,20 @@ class App {
   startTime: number;
 
   constructor() {
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.onmessage = (m) => {
+      this.onWorkerMessage(m.data as WorkerResponse);
+    };
+    this.worker.postMessage(
+      new StartRequest({
+        module: fidget.get_module(),
+        memory: fidget.get_memory(),
+      }),
+    );
+    // everything else is handled in this.init() once the worker starts
+  }
+
+  init() {
     let scene = new Scene();
 
     let requestRedraw = this.requestRedraw.bind(this);
@@ -97,21 +113,11 @@ class App {
       this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
-    this.worker.onmessage = (m) => {
-      this.onWorkerMessage(m.data as WorkerResponse);
-    };
-    this.worker.postMessage(
-      new StartRequest({
-        module: fidget.get_module(),
-        memory: fidget.get_memory(),
-      }),
-    );
 
     this.tape = null;
     this.rerender = false;
     this.startDepth = 0;
-    this.currentDepth = 0;
+    this.currentDepth = MAX_DEPTH;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
@@ -179,7 +185,8 @@ class App {
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
       case ResponseKind.Started: {
-        // Once the worker has started, do an initial render
+        // Initialize the rest of the app, and do an initial render
+        this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
