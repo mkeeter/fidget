@@ -1,6 +1,5 @@
 import {
   ImageResponse,
-  CancelTestRequest,
   RenderMode,
   RequestKind,
   StartRequest,
@@ -83,16 +82,6 @@ async function run() {
       }
       case RequestKind.Script: {
         worker!.run(req as ScriptRequest);
-        break;
-      }
-      case RequestKind.CancelTest: {
-        let token = fidget.JsCancelToken.from_ptr(
-          (req as CancelTestRequest).token_ptr,
-        );
-        console.log("NEW TOKEN");
-        console.log((req as CancelTestRequest).token_ptr);
-        console.log(token);
-        console.log(token.is_cancelled());
         break;
       }
       default:

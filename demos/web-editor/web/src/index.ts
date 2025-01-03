@@ -15,7 +15,6 @@ import {
   ScriptRequest,
   ScriptResponse,
   StartRequest,
-  CancelTestRequest,
   ShapeRequest,
   WorkerRequest,
   WorkerResponse,
@@ -183,15 +182,6 @@ class App {
         // Once the worker has started, do an initial render
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
-
-        let cancel_token = new fidget.JsCancelToken();
-        console.log("cancel:");
-        console.log(cancel_token);
-        console.log(cancel_token.is_cancelled());
-        let ptr = cancel_token.get_ptr();
-        console.log(ptr);
-        cancel_token.cancel();
-        this.worker.postMessage(new CancelTestRequest(ptr));
         break;
       }
       case ResponseKind.Image: {

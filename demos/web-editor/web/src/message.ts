@@ -5,7 +5,6 @@ export enum RequestKind {
   Start,
   Script,
   Shape,
-  CancelTest,
 }
 
 export class ScriptRequest {
@@ -55,21 +54,10 @@ export class StartRequest {
   }
 }
 
-export class CancelTestRequest {
-  kind: RequestKind.CancelTest;
-  token_ptr: number;
-
-  constructor(ptr: number) {
-    this.token_ptr = ptr;
-    this.kind = RequestKind.CancelTest;
-  }
-}
-
 export type WorkerRequest =
   | StartRequest
   | ScriptRequest
-  | ShapeRequest
-  | CancelTestRequest;
+  | ShapeRequest;
 
 ////////////////////////////////////////////////////////////////////////////////
 
