@@ -276,8 +276,11 @@ class Editor {
       { tag: tags.definitionKeyword, color: "#C62828" },
       { tag: tags.controlKeyword, color: "#6A1B9A" },
       { tag: tags.function(tags.name), color: "#0277BD" },
+      { tag: tags.name },
       { tag: tags.number, color: "#2E7D32" },
       { tag: tags.string, color: "#AD1457", fontStyle: "italic" },
+      { tag: tags.definitionKeyword, color: "#C62828" },
+      { tag: tags.comment, color: "#bbbbbb" },
     ]);
 
     this.view = new EditorView({
