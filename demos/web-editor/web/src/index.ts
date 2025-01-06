@@ -76,21 +76,24 @@ class App {
     scene.canvas.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
-    scene.canvas.addEventListener("mousedown", (event) => {
+    scene.canvas.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       if (event.button === 0) {
         scene.beginTranslate(event);
       } else if (event.button === 2) {
         scene.beginRotate(event);
       }
-    });
-    window.addEventListener("mouseup", (event) => {
+    }, { passive: false });
+    window.addEventListener("pointerup", (event) => {
+      event.preventDefault();
       scene.endDrag();
-    });
-    window.addEventListener("mousemove", (event) => {
+    }, { passive: false });
+    window.addEventListener("pointermove", (event) => {
+      event.preventDefault();
       if (scene.drag(event)) {
         requestRedraw();
       }
-    });
+    }, { passive: false });
     this.scene = scene;
 
     // Hot-patch the gyroid script to be eval (instead of exec) flavored
