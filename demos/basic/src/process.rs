@@ -75,8 +75,6 @@ fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     out
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
@@ -155,8 +153,6 @@ fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::MeshSettings,
@@ -188,11 +184,11 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
 pub fn run_action(
     ctx: fidget::context::Context,
     root: fidget::context::Node,
-    args: options::Options,
+    args: &options::Options,
 ) -> Result<()> {
     use options::{ActionCommand, EvalMode};
     let mut top = Instant::now();
-    match args.action {
+    match &args.action {
         ActionCommand::Render3d {
             settings,
             color,
@@ -206,9 +202,9 @@ pub fn run_action(
                     top = Instant::now();
                     run_3d(
                         shape,
-                        &settings,
-                        isometric,
-                        color,
+                        settings,
+                        *isometric,
+                        *color,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -219,9 +215,9 @@ pub fn run_action(
                     top = Instant::now();
                     run_3d(
                         shape,
-                        &settings,
-                        isometric,
-                        color,
+                        settings,
+                        *isometric,
+                        *color,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -234,10 +230,10 @@ pub fn run_action(
                     / 1000.0
                     / (args.num_repeats as f64)
             );
-            if let Some(path) = settings.output {
-                info!("Writing PNG to {:?}", &path);
+            if let Some(path) = &settings.output {
+                info!("Writing PNG to {:?}", path);
                 image::save_buffer(
-                    &path,
+                    path,
                     &buffer,
                     settings.size,
                     settings.size,
@@ -258,9 +254,9 @@ pub fn run_action(
                     top = Instant::now();
                     run_2d(
                         shape,
-                        &settings,
-                        brute,
-                        sdf,
+                        settings,
+                        *brute,
+                        *sdf,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -271,9 +267,9 @@ pub fn run_action(
                     top = Instant::now();
                     run_2d(
                         shape,
-                        &settings,
-                        brute,
-                        sdf,
+                        settings,
+                        *brute,
+                        *sdf,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -286,8 +282,8 @@ pub fn run_action(
                     / 1000.0
                     / (args.num_repeats as f64)
             );
-            if let Some(path) = settings.output {
-                info!("Writing PNG to {path:?}");
+            if let Some(path) = &settings.output {
+                info!("Writing PNG to {:?}", path);
                 image::save_buffer(
                     path,
                     &buffer,
@@ -306,7 +302,7 @@ pub fn run_action(
                     top = Instant::now();
                     run_mesh(
                         shape,
-                        &settings,
+                        settings,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -317,7 +313,7 @@ pub fn run_action(
                     top = Instant::now();
                     run_mesh(
                         shape,
-                        &settings,
+                        settings,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -335,9 +331,9 @@ pub fn run_action(
                 mesh.vertices.len(),
                 mesh.triangles.len()
             );
-            if let Some(path) = settings.output {
-                info!("Writing STL to {:?}", &path);
-                let mut handle = std::fs::File::create(&path)?;
+            if let Some(path) = &settings.output {
+                info!("Writing STL to {:?}", path);
+                let mut handle = std::fs::File::create(path).unwrap();
                 mesh.write_stl(&mut handle)?;
             }
         }
