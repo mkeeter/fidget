@@ -1,115 +1,17 @@
 use std::num::NonZero;
-use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-/// Simple test program
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// Main action
-    #[clap(subcommand)]
-    action: ActionCommand,
-
-    /// Input file
-    #[clap(short, long)]
-    input: Option<PathBuf>,
-
-    /// Input file
-    #[clap(short = 's', long, value_enum, default_value_t = HardcodedShape::SphereAsm)]
-    hardcoded_shape: HardcodedShape,
-
-    /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Jit)]
-    eval: EvalMode,
-
-    /// Number of threads to use
-    #[clap(long, default_value_t = 0)]
-    num_threads: usize,
-
-    /// Number of times to render (for benchmarking)
-    #[clap(long, default_value_t = 1)]
-    num_repeats: usize,
-}
-
-#[derive(ValueEnum, Clone)]
-enum EvalMode {
-    #[cfg(feature = "jit")]
-    Jit,
-    Vm,
-}
-
-#[derive(ValueEnum, Clone, Debug)]
-enum HardcodedShape {
-    SphereAsm,
-    SphereTree,
-}
-
-#[derive(Subcommand)]
-enum ActionCommand {
-    Render2d {
-        #[clap(flatten)]
-        settings: ImageSettings,
-
-        /// Use brute-force (pixel-by-pixel) evaluation
-        #[clap(short, long)]
-        brute: bool,
-
-        /// Render as a color-gradient SDF
-        #[clap(long)]
-        sdf: bool,
-    },
-
-    Render3d {
-        #[clap(flatten)]
-        settings: ImageSettings,
-
-        /// Render in color
-        #[clap(long)]
-        color: bool,
-
-        /// Render using an isometric perspective
-        #[clap(long)]
-        isometric: bool,
-    },
-
-    Mesh {
-        #[clap(flatten)]
-        settings: MeshSettings,
-    },
-}
-
-#[derive(Parser)]
-struct ImageSettings {
-    /// Image size
-    #[clap(short, long, default_value_t = 1024)]
-    size: u32,
-
-    /// Name of a `.png` file to write
-    #[clap(short, long)]
-    output: Option<PathBuf>,
-}
-
-#[derive(Parser)]
-struct MeshSettings {
-    /// Octree depth
-    #[clap(short, long, default_value_t = 6)]
-    depth: u8,
-
-    /// Name of a `.stl` file to write
-    #[clap(short, long)]
-    output: Option<PathBuf>,
-}
+mod options;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
-    settings: &ImageSettings,
+    settings: &options::ImageSettings,
     isometric: bool,
     color_mode: bool,
     num_repeats: usize,
@@ -181,7 +83,7 @@ fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
-    settings: &ImageSettings,
+    settings: &options::ImageSettings,
     brute: bool,
     sdf: bool,
     num_repeats: usize,
@@ -261,7 +163,7 @@ fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
-    settings: &MeshSettings,
+    settings: &options::MeshSettings,
     num_repeats: usize,
     num_threads: usize,
 ) -> fidget::mesh::Mesh {
@@ -290,8 +192,9 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
 fn run_action(
     ctx: fidget::context::Context,
     root: fidget::context::Node,
-    args: Args,
+    args: options::Options,
 ) -> Result<()> {
+    use options::{ActionCommand, EvalMode};
     let mut top = Instant::now();
     match args.action {
         ActionCommand::Render3d {
@@ -470,8 +373,9 @@ fn main() -> Result<()> {
 0x600000b90200 sub 0x600000b90190 0x600000b901e0
 ";
 
-    let args = Args::parse();
+    let args = options::parse_options();
 
+    use options::HardcodedShape;
     let (ctx, root) = match &args.input {
         None => {
             let top = Instant::now();
