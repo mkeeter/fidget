@@ -10,10 +10,26 @@ fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &options::ImageSettings,
     isometric: bool,
     color_mode: bool,
+    rotate: bool,
+    scale: f32,
     num_repeats: usize,
     num_threads: usize,
 ) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
+    for ii in 0..3 {
+        *mat.matrix_mut().get_mut((ii, ii)).unwrap() = 1.0 / scale;
+    }
+    if rotate {
+        let mat_aa = nalgebra::Rotation3::from_axis_angle(
+            &nalgebra::Vector3::y_axis(),
+            std::f32::consts::PI / -4.0,
+        );
+        let mat_bb = nalgebra::Rotation3::from_axis_angle(
+            &nalgebra::Vector3::x_axis(),
+            std::f32::consts::PI / -6.0,
+        );
+        mat = mat_aa * mat_bb * mat;
+    }
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
@@ -193,6 +209,8 @@ pub fn run_action(
             settings,
             color,
             isometric,
+            rotate,
+            scale,
         } => {
             let buffer = match args.eval {
                 #[cfg(feature = "jit")]
@@ -205,6 +223,8 @@ pub fn run_action(
                         settings,
                         *isometric,
                         *color,
+                        *rotate,
+                        *scale,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -218,6 +238,8 @@ pub fn run_action(
                         settings,
                         *isometric,
                         *color,
+                        *rotate,
+                        *scale,
                         args.num_repeats,
                         args.num_threads,
                     )

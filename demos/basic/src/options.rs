@@ -68,6 +68,14 @@ pub enum ActionCommand {
         /// Render using an isometric perspective
         #[clap(long)]
         isometric: bool,
+
+        /// Rotate camera
+        #[clap(long)]
+        rotate: bool,
+
+        /// Rotate camera
+        #[clap(long, default_value_t = 1.0)]
+        scale: f32,
     },
 
     Mesh {
