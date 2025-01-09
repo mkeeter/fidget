@@ -77,9 +77,9 @@ fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         let z_max = depth.iter().max().cloned().unwrap_or(1);
         depth
             .into_iter()
-            .flat_map(|p| {
-                if p > 0 {
-                    let z = (p * 255 / z_max) as u8;
+            .flat_map(|d| {
+                if d > 0 {
+                    let z = (d * 255 / z_max) as u8;
                     [z, z, z, 255]
                 } else {
                     [0, 0, 0, 0]
