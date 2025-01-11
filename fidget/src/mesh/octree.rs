@@ -1661,6 +1661,66 @@ mod test {
         }
     }
 
+    #[test]
+    fn colonnade_bounds() {
+        const COLONNADE: &str = include_str!("../../../models/colonnade.vm");
+        let (ctx, root) =
+            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        let tape = VmShape::new(&ctx, root).unwrap();
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(8.try_into().unwrap())]
+        {
+            let settings = Settings {
+                depth: 8,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            for v in mesh.vertices.iter() {
+                assert!(
+                    v.x < 1.0
+                        && v.x > -1.0
+                        && v.y < 1.0
+                        && v.y > -1.0
+                        && v.z < 1.0
+                        && v.z > -0.5,
+                    "invalid vertex {v:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bear_bounds() {
+        const COLONNADE: &str = include_str!("../../../models/bear.vm");
+        let (ctx, root) =
+            crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
+        let tape = VmShape::new(&ctx, root).unwrap();
+        for threads in
+            [ThreadCount::One, ThreadCount::Many(8.try_into().unwrap())]
+        {
+            let settings = Settings {
+                depth: 5,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            for v in mesh.vertices.iter() {
+                assert!(
+                    v.x < 1.0
+                        && v.x > -0.75
+                        && v.y < 1.0
+                        && v.y > -0.75
+                        && v.z < 0.75
+                        && v.z > -0.75,
+                    "invalid vertex {v:?}"
+                );
+            }
+        }
+    }
+
     fn check_for_vertex_dupes(mesh: &Mesh) -> Result<(), String> {
         let mut verts = mesh.vertices.clone();
         verts.sort_by_key(|k| (k.x.to_bits(), k.y.to_bits(), k.z.to_bits()));
