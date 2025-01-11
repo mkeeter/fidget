@@ -73,47 +73,97 @@ impl QuadraticErrorSolver {
 
         let svd = nalgebra::linalg::SVD::new(self.ata, true, true);
 
-        // Skip any eigenvalues that are **extremely** small relative to the
-        // maximum eigenvalue.  Without this filter, we can see failures in
-        // near-planar situations.
-        const EIGENVALUE_CUTOFF_RELATIVE: f32 = 1e-12;
-        let cutoff = svd.singular_values[0].abs() * EIGENVALUE_CUTOFF_RELATIVE;
-        let start = (0..3)
-            .filter(|i| svd.singular_values[*i].abs() < cutoff)
-            .last()
-            .unwrap_or(0);
+        // nalgebra doesn't always actually order singular values (?!?)
+        // https://github.com/dimforge/nalgebra/issues/1215
+        let mut singular_values =
+            svd.singular_values.data.0[0].map(ordered_float::OrderedFloat);
+        singular_values.sort();
+        singular_values.reverse();
+        let singular_values = singular_values.map(|o| o.0);
 
-        // "Dual Contouring: The Secret Sauce" recommends a threshold of 0.1
-        // when using normalized gradients, but I've found that fails on
-        // things like the cone model.  Instead, we'll be a little more
-        // clever: we'll pick the smallest epsilon that keeps the feature in
-        // the cell without dramatically increasing QEF error.
-        let mut prev = None;
-        for i in start..4 {
-            // i is the number of singular values to ignore
-            let epsilon = if i == 3 {
-                f32::INFINITY
-            } else {
-                use ieee754::Ieee754;
-                svd.singular_values[2 - i].prev()
-            };
-            let sol = svd.solve(&atb, epsilon);
-            let pos = sol.map(|c| c + center).unwrap_or(center);
-            // We'll clamp the error to a small > 0 value for ease of comparison
-            let err = ((pos.transpose() * self.ata * pos
-                - 2.0 * pos.transpose() * self.atb)[0]
-                + self.btb)
-                .max(1e-6);
+        // Skip any eigenvalues that are small relative to the maximum
+        // eigenvalue.  This is very much a tuned value (alas!).  If the value
+        // is too small, then we incorrectly pick high-rank solutions, which may
+        // shoot vertices out of their cells in near-planar situations.  If the
+        // value is too large, then we incorrectly pick low-rank solutions,
+        // which makes us less likely to snap to sharp features.
+        //
+        // For example, our cone test needs to use a rank-3 solver for
+        // eigenvalues of [1.5633028, 1.430821, 0.0058764853] (a dynamic range
+        // of 2e3); while the bear model needs to use a rank-2 solver for
+        // eigenvalues of [2.87, 0.13, 5.64e-7] (a dynamic range of 10^7).  We
+        // pick 10^3 here somewhat arbitrarily to be within that range.
+        const EIGENVALUE_CUTOFF_RELATIVE: f32 = 1e-3;
+        let cutoff = singular_values[0].abs() * EIGENVALUE_CUTOFF_RELATIVE;
 
-            // If this epsilon dramatically increases the error, then we'll
-            // assume that the previous (possibly out-of-cell) vertex was
-            // genuine and use it.
-            if let Some(p) = prev.filter(|(_, prev_err)| err > prev_err * 2.0) {
-                return p;
-            }
+        // Intuition about `rank`:
+        // 0 => all eigenvalues are invalid (?!), use the center point
+        // 1 => the first eigenvalue is valid, this must be planar
+        // 2 => the first two eigenvalues are valid, this is a planar or an edge
+        // 3 => all eigenvalues are valid, this is a planar, edge, or corner
+        let rank = (0..3)
+            .find(|i| singular_values[*i].abs() < cutoff)
+            .unwrap_or(3);
 
-            prev = Some((CellVertex { pos }, err));
-        }
-        prev.unwrap()
+        let epsilon = singular_values.get(rank).cloned().unwrap_or(0.0);
+        let sol = svd.solve(&atb, epsilon);
+        let pos = sol.map(|c| c + center).unwrap_or(center);
+        // We'll clamp the error to a small > 0 value for ease of comparison
+        let err = ((pos.transpose() * self.ata * pos
+            - 2.0 * pos.transpose() * self.atb)[0]
+            + self.btb)
+            .max(1e-6);
+
+        (CellVertex { pos }, err)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use nalgebra::{Vector3, Vector4};
+
+    #[test]
+    fn qef_rank2() {
+        let mut q = QuadraticErrorSolver::new();
+        q.add_intersection(
+            Vector3::new(-0.5, -0.75, -0.75),
+            Vector4::new(0.24, 0.12, 0.0, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.75, -1.0, -0.6),
+            Vector4::new(0.0, 0.0, 0.31, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.50, -1.0, -0.6),
+            Vector4::new(0.0, 0.0, 0.31, 0.0),
+        );
+        let (_out, err) = q.solve();
+        assert_eq!(err, 1e-6);
+    }
+
+    #[test]
+    fn qef_near_planar() {
+        let mut q = QuadraticErrorSolver::new();
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.4999981),
+            Vector4::new(-0.66666776, -0.33333388, 0.66666526, -1.2516975e-6),
+        );
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.50),
+            Vector4::new(-0.6666667, -0.33333334, 0.6666667, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.50),
+            Vector4::new(-0.6666667, -0.33333334, 0.6666667, 0.0),
+        );
+        let (out, err) = q.solve();
+        assert_eq!(err, 1e-6);
+        let expected = Vector3::new(-0.5, -0.25, 0.5);
+        assert!(
+            (out.pos - expected).norm() < 1e-3,
+            "expected {expected:?}, got {:?}",
+            out.pos
+        );
     }
 }
