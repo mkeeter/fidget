@@ -73,30 +73,40 @@ impl QuadraticErrorSolver {
 
         let svd = nalgebra::linalg::SVD::new(self.ata, true, true);
 
-        // Skip any eigenvalues that are **extremely** small relative to the
-        // maximum eigenvalue.  Without this filter, we can see failures in
-        // near-planar situations.
-        const EIGENVALUE_CUTOFF_RELATIVE: f32 = 1e-12;
-        let cutoff = svd.singular_values[0].abs() * EIGENVALUE_CUTOFF_RELATIVE;
-        let start = (0..3)
-            .filter(|i| svd.singular_values[*i].abs() < cutoff)
-            .last()
-            .unwrap_or(0);
+        // nalgebra doesn't always actually order singular values (?!?)
+        // https://github.com/dimforge/nalgebra/issues/1215
+        let mut singular_values =
+            svd.singular_values.data.0[0].map(ordered_float::OrderedFloat);
+        singular_values.sort();
+        singular_values.reverse();
+        let singular_values = singular_values.map(|o| o.0);
+
+        // Skip any eigenvalues that are small relative to the maximum
+        // eigenvalue.  Without this filter, we can see failures in near-planar
+        // situations.  This is very much a tuned value: our cone test needs all
+        // three eigenvalues in [1.5633028, 1.430821, 0.0058764853] to succeed,
+        // while the bear needs to use a rank-2 solver for [2.87, 0.13, 5.64e-7]
+        const EIGENVALUE_CUTOFF_RELATIVE: f32 = 1e-3;
+        let cutoff = singular_values[0].abs() * EIGENVALUE_CUTOFF_RELATIVE;
+        let first_invalid_eigenvalue = (0..3)
+            .find(|i| singular_values[*i].abs() < cutoff)
+            .unwrap_or(3);
+
+        // Brief guide to the value of `first_invalid_eigenvalue`:
+        // 0 => all eigenvalues are invalid, use the center point
+        // 1 => the first eigenvalue is valid, this must be planar
+        // 2 => the first two eigenvalues are valid, this is a planar or an edge
+        // 3 => all eigenvalues are valid, this is a planar, edge, or corner
 
         // "Dual Contouring: The Secret Sauce" recommends a threshold of 0.1
         // when using normalized gradients, but I've found that fails on
         // things like the cone model.  Instead, we'll be a little more
         // clever: we'll pick the smallest epsilon that keeps the feature in
         // the cell without dramatically increasing QEF error.
-        let mut prev = None;
-        for i in start..4 {
-            // i is the number of singular values to ignore
-            let epsilon = if i == 3 {
-                f32::INFINITY
-            } else {
-                use ieee754::Ieee754;
-                svd.singular_values[2 - i].prev()
-            };
+        let mut prev: Option<(CellVertex, f32)> = None;
+        for i in 0..first_invalid_eigenvalue {
+            let rank = first_invalid_eigenvalue - i;
+            let epsilon = singular_values.get(rank).cloned().unwrap_or(0.0);
             let sol = svd.solve(&atb, epsilon);
             let pos = sol.map(|c| c + center).unwrap_or(center);
             // We'll clamp the error to a small > 0 value for ease of comparison
@@ -114,6 +124,57 @@ impl QuadraticErrorSolver {
 
             prev = Some((CellVertex { pos }, err));
         }
+
         prev.unwrap()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use nalgebra::{Vector3, Vector4};
+
+    #[test]
+    fn qef_rank2() {
+        let mut q = QuadraticErrorSolver::new();
+        q.add_intersection(
+            Vector3::new(-0.5, -0.75, -0.75),
+            Vector4::new(0.24, 0.12, 0.0, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.75, -1.0, -0.6),
+            Vector4::new(0.0, 0.0, 0.31, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.50, -1.0, -0.6),
+            Vector4::new(0.0, 0.0, 0.31, 0.0),
+        );
+        let (_out, err) = q.solve();
+        assert_eq!(err, 1e-6);
+    }
+
+    #[test]
+    fn qef_near_planar() {
+        let mut q = QuadraticErrorSolver::new();
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.4999981),
+            Vector4::new(-0.66666776, -0.33333388, 0.66666526, -1.2516975e-6),
+        );
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.50),
+            Vector4::new(-0.6666667, -0.33333334, 0.6666667, 0.0),
+        );
+        q.add_intersection(
+            Vector3::new(-0.5, -0.25, 0.50),
+            Vector4::new(-0.6666667, -0.33333334, 0.6666667, 0.0),
+        );
+        let (out, err) = q.solve();
+        assert_eq!(err, 1e-6);
+        let expected = Vector3::new(-0.5, -0.25, 0.5);
+        assert!(
+            (out.pos - expected).norm() < 1e-3,
+            "expected {expected:?}, got {:?}",
+            out.pos
+        );
     }
 }
