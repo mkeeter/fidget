@@ -63,7 +63,7 @@ pub enum ActionCommand {
 
         /// Render in color
         #[clap(long)]
-        color: bool,
+        color_mode: bool,
 
         /// Render using an isometric perspective
         #[clap(long)]
@@ -71,11 +71,15 @@ pub enum ActionCommand {
 
         /// Rotate camera
         #[clap(long, default_value_t = true)]
-        rotate: bool,
+        use_default_camera: bool,
+
+        /// Rotate model
+        #[clap(short = 'a', long, default_value_t = 0.0)]
+        model_angle: f32,
 
         /// Rotate camera
-        #[clap(short, long, default_value_t = 1.0)]
-        scale: f32,
+        #[clap(short = 's', long, default_value_t = 1.0)]
+        model_scale: f32,
     },
 
     Mesh {

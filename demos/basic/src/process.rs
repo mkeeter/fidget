@@ -10,16 +10,18 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &options::ImageSettings,
     isometric: bool,
     color_mode: bool,
-    rotate: bool,
-    scale: f32,
+    use_default_camera: bool,
+    model_angle: f32,
+    model_scale: f32,
     num_repeats: usize,
     num_threads: usize,
 ) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
     for ii in 0..3 {
-        *mat.matrix_mut().get_mut((ii, ii)).unwrap() = 1.0 / scale;
+        *mat.matrix_mut().get_mut((ii, ii)).unwrap() = 1.0 / model_scale;
     }
-    if rotate {
+
+    if use_default_camera {
         let mat_aa = nalgebra::Rotation3::from_axis_angle(
             &nalgebra::Vector3::y_axis(),
             std::f32::consts::PI / -4.0,
@@ -30,9 +32,20 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         );
         mat = mat_aa * mat_bb * mat;
     }
+
+    {
+        // apply model rotation
+        let mat_rot = nalgebra::Rotation3::from_axis_angle(
+            &nalgebra::Vector3::y_axis(),
+            std::f32::consts::PI / 180.0 * model_angle,
+        );
+        mat = mat_rot * mat;
+    }
+
     if !isometric {
         *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
     }
+
     let pool: Option<rayon::ThreadPool>;
     let threads = match num_threads {
         0 => Some(fidget::render::ThreadPool::Global),
@@ -209,10 +222,11 @@ pub fn run_action(
     match &args.action {
         ActionCommand::Render3d {
             settings,
-            color,
+            color_mode,
             isometric,
-            rotate,
-            scale,
+            use_default_camera,
+            model_angle,
+            model_scale,
         } => {
             let buffer = match args.eval {
                 #[cfg(feature = "jit")]
@@ -224,9 +238,10 @@ pub fn run_action(
                         shape,
                         settings,
                         *isometric,
-                        *color,
-                        *rotate,
-                        *scale,
+                        *color_mode,
+                        *use_default_camera,
+                        *model_angle,
+                        *model_scale,
                         args.num_repeats,
                         args.num_threads,
                     )
@@ -239,9 +254,10 @@ pub fn run_action(
                         shape,
                         settings,
                         *isometric,
-                        *color,
-                        *rotate,
-                        *scale,
+                        *color_mode,
+                        *use_default_camera,
+                        *model_angle,
+                        *model_scale,
                         args.num_repeats,
                         args.num_threads,
                     )
