@@ -58,7 +58,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let mut depth = vec![];
     let mut color = vec![];
     for _ in 0..num_repeats {
-        (depth, color) = cfg.run(shape.clone());
+        (depth, color) = cfg.run(shape.clone()).unwrap();
     }
 
     let out = if color_mode {
@@ -148,8 +148,9 @@ fn run_render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
         if sdf {
             let mut image = vec![];
             for _ in 0..num_repeats {
-                image =
-                    cfg.run::<_, fidget::render::SdfRenderMode>(shape.clone());
+                image = cfg
+                    .run::<_, fidget::render::SdfRenderMode>(shape.clone())
+                    .unwrap();
             }
             image
                 .into_iter()
@@ -159,7 +160,8 @@ fn run_render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             let mut image = vec![];
             for _ in 0..num_repeats {
                 image = cfg
-                    .run::<_, fidget::render::DebugRenderMode>(shape.clone());
+                    .run::<_, fidget::render::DebugRenderMode>(shape.clone())
+                    .unwrap();
             }
             image
                 .into_iter()
