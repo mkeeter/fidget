@@ -5,7 +5,7 @@ use log::info;
 use std::num::NonZero;
 use std::time::Instant;
 
-fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
+fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
     isometric: bool,
@@ -75,7 +75,7 @@ fn run_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     out
 }
 
-fn run_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
+fn run_render_2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
     brute: bool,
@@ -200,7 +200,7 @@ pub fn run_action(
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (JIT)", top.elapsed());
                     top = Instant::now();
-                    run_3d(
+                    run_render_3d(
                         shape,
                         settings,
                         *isometric,
@@ -213,7 +213,7 @@ pub fn run_action(
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (VM)", top.elapsed());
                     top = Instant::now();
-                    run_3d(
+                    run_render_3d(
                         shape,
                         settings,
                         *isometric,
@@ -252,7 +252,7 @@ pub fn run_action(
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (JIT)", top.elapsed());
                     top = Instant::now();
-                    run_2d(
+                    run_render_2d(
                         shape,
                         settings,
                         *brute,
@@ -265,7 +265,7 @@ pub fn run_action(
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (VM)", top.elapsed());
                     top = Instant::now();
-                    run_2d(
+                    run_render_2d(
                         shape,
                         settings,
                         *brute,
