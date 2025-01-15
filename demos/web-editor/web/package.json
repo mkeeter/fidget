@@ -2,10 +2,11 @@
   "scripts": {
     "build-wasm": "cd ../crate && wasm-pack build --target web --release",
     "build-web": "webpack --mode production",
-    "build-static": "cp src/index.html serve.json dist/",
+    "build-static": "sed \"s/VERSION/$(git log --pretty=format:'%h' -n 1)/g;s/MOD/$(git diff --quiet --exit-code || echo +)/g\" src/index.html > dist/index.html && grep 'Header add' ../README.md > dist/.htaccess",
     "dist": "npm run build-wasm && npm run build-web && npm run build-static",
-    "serve": "npm run dist && serve -c serve.json dist",
-    "format": "prettier . --write"
+    "serve": "npm run dist && serve -c ../serve.json dist",
+    "format": "prettier . --write",
+    "deploy": "rm dist/* && npm run dist && rsync -avz --delete -e ssh ./dist/ mkeeter@mattkeeter.com:mattkeeter.com/projects/fidget/demo"
   },
   "dependencies": {
     "@lezer/lr": "^1.0.0",
@@ -18,7 +19,7 @@
     "serve": "^14.2.4",
     "ts-loader": "^9.5.1",
     "typescript": "^5.4.5",
-    "webpack": "^5.49.0",
+    "webpack": ">=5.94.0",
     "webpack-cli": "^4.7.2"
   },
   "private": true

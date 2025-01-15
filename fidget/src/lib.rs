@@ -221,7 +221,7 @@
 //!     ..Default::default()
 //! };
 //! let shape = VmShape::from(tree);
-//! let out = cfg.run::<_, BitRenderMode>(shape);
+//! let out = cfg.run::<_, BitRenderMode>(shape).unwrap();
 //! let mut iter = out.iter();
 //! for y in 0..cfg.image_size.height() {
 //!     for x in 0..cfg.image_size.width() {

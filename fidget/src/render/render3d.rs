@@ -341,14 +341,18 @@ impl<F: Function> Worker<'_, F> {
 ///
 /// This function is parameterized by shape type, which determines how we
 /// perform evaluation.
+///
+/// Returns two `Vec` of pixel data (color, normals) if rendering succeeds, or
+/// `None` if rendering was cancelled (using the [`VoxelRenderConfig::cancel`]
+/// token)
 pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
+) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
     let shape = shape.apply_transform(config.mat());
 
-    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config);
+    let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
@@ -371,15 +375,19 @@ pub fn render<F: Function>(
             }
         }
     }
-    (image_depth, image_color)
+    Some((image_depth, image_color))
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::{
-        context::Tree, eval::MathFunction, render::VoxelSize, var::Var,
-        vm::VmShape, Context,
+        context::Tree,
+        eval::MathFunction,
+        render::{View3, VoxelSize},
+        var::Var,
+        vm::VmShape,
+        Context,
     };
 
     /// Make sure we don't crash if there's only a single tile
@@ -393,7 +401,7 @@ mod test {
             image_size: VoxelSize::from(128), // very small!
             ..Default::default()
         };
-        let (depth, rgb) = cfg.run(shape);
+        let (depth, rgb) = cfg.run(shape).unwrap();
         assert_eq!(depth.len(), 128 * 128);
         assert_eq!(rgb.len(), 128 * 128);
     }
@@ -406,38 +414,48 @@ mod test {
         let shape = Shape::<F>::from(sphere);
 
         let size = 32;
-        let cfg = VoxelRenderConfig {
-            image_size: VoxelSize::from(size),
-            ..Default::default()
-        };
+        for scale in [1.0, 0.5] {
+            let cfg = VoxelRenderConfig {
+                image_size: VoxelSize::from(size),
+                view: View3::from_center_and_scale(Vector3::zeros(), scale),
+                ..Default::default()
+            };
 
-        for r in [0.5, 0.75] {
-            let mut vars = ShapeVars::new();
-            vars.insert(v.index().unwrap(), r);
-            let (depth, _normal) = cfg.run_with_vars::<_>(shape.clone(), &vars);
+            for r in [0.5, 0.75] {
+                let mut vars = ShapeVars::new();
+                vars.insert(v.index().unwrap(), r);
+                let (depth, _normal) =
+                    cfg.run_with_vars::<_>(shape.clone(), &vars).unwrap();
 
-            let epsilon = 0.08;
-            for (i, p) in depth.iter().enumerate() {
-                let size = size as i32;
-                let i = i as i32;
-                let x = (((i % size) - size / 2) as f32 / size as f32) * 2.0;
-                let y = (((i / size) - size / 2) as f32 / size as f32) * 2.0;
-                let z = (*p as i32 - size / 2) as f32 / size as f32 * 2.0;
-                if *p == 0 {
-                    let v = (x.powi(2) + y.powi(2)).sqrt();
-                    assert!(
-                        v + epsilon > r,
-                        "got z = 0 inside the sphere ({x}, {y}, {z}); \
+                let epsilon = 0.08;
+                for (i, p) in depth.iter().enumerate() {
+                    let size = size as i32;
+                    let i = i as i32;
+                    let x = (((i % size) - size / 2) as f32 / size as f32)
+                        * 2.0
+                        * scale;
+                    let y = (((i / size) - size / 2) as f32 / size as f32)
+                        * 2.0
+                        * scale;
+                    let z = (*p as i32 - size / 2) as f32 / size as f32
+                        * 2.0
+                        * scale;
+                    if *p == 0 {
+                        let v = (x.powi(2) + y.powi(2)).sqrt();
+                        assert!(
+                            v + epsilon > r,
+                            "got z = 0 inside the sphere ({x}, {y}, {z}); \
                          radius is {v}"
-                    );
-                } else {
-                    let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
-                    let err = (r - v).abs();
-                    assert!(
-                        err < epsilon,
-                        "too much error {err} at ({x}, {y}, {z}); \
+                        );
+                    } else {
+                        let v = (x.powi(2) + y.powi(2) + z.powi(2)).sqrt();
+                        let err = (r - v).abs();
+                        assert!(
+                            err < epsilon,
+                            "too much error {err} at ({x}, {y}, {z}); \
                          radius is {v}, expected {r}"
-                    );
+                        );
+                    }
                 }
             }
         }
@@ -465,4 +483,20 @@ mod test {
     }
 
     render_tests!(sphere_var);
+
+    #[test]
+    fn cancel_render() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let shape = VmShape::new(&ctx, x).unwrap();
+
+        let cfg = VoxelRenderConfig {
+            image_size: VoxelSize::new(64, 64, 64),
+            ..Default::default()
+        };
+        let cancel = cfg.cancel.clone();
+        cancel.cancel();
+        let out = cfg.run::<_>(shape);
+        assert!(out.is_none());
+    }
 }

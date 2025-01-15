@@ -4,14 +4,11 @@
 [![» CI](https://badgen.net/github/checks/mkeeter/fidget/main)](https://github.com/mkeeter/fidget/actions/)
 [![» MPL-2.0](https://badgen.net/github/license/mkeeter/fidget)](LICENSE.txt)
 
+[Project writeup](https://mattkeeter.com/projects/fidget) | [Demo](https://mattkeeter.com/projects/fidget/demo)
+
 Fidget is experimental infrastructure for complex closed-form implicit surfaces.
 
-At the moment, it is **quietly public**: it's available on Github and published
-to [crates.io](https://crates.io/crates.fidget), but I'd appreciate if you
-refrain from posting it to Hacker News / Twitter / etc; I'm planning to write an
-overview blog post and put together a few demo applications before making a
-larger announcement. If you have an overwhelming urge to talk about it,
-[feel free to reach out directly](https://mattkeeter.com/about)!
+[![screenshot of web editor](demos/web-editor/screenshot.png)](https://mattkeeter.com/projects/fidget/demo)
 
 The library contains a variety of data structures and algorithms, e.g.
 
@@ -146,5 +143,5 @@ For example, it only includes a debug GUI, and its meshing is much less
 battle-tested than `libfive`.
 
 ## License
-© 2022-2024 Matthew Keeter  
+© 2022-2025 Matthew Keeter  
 Released under the [Mozilla Public License 2.0](https://github.com/mkeeter/fidget/blob/main/LICENSE.txt)

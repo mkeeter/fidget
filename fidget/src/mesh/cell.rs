@@ -21,7 +21,7 @@ impl From<Cell> for CellData {
             Cell::Branch { index, thread } => {
                 #[cfg(not(target_arch = "wasm32"))]
                 debug_assert!(index < (1 << 54));
-                0b10 << 62 | ((thread as u64) << 54) | index as u64
+                (0b10 << 62) | ((thread as u64) << 54) | index as u64
             }
             Cell::Leaf(Leaf { mask, index }) => {
                 #[cfg(not(target_arch = "wasm32"))]

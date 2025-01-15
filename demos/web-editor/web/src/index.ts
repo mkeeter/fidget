@@ -14,18 +14,24 @@ import {
   ResponseKind,
   ScriptRequest,
   ScriptResponse,
-  ShapeRequest,
+  StartRequest,
+  RenderRequest,
   WorkerRequest,
   WorkerResponse,
 } from "./message";
-
+import { Camera, CameraKind } from "./camera";
 import { rhai } from "./rhai";
+import { RENDER_SIZE, MAX_DEPTH } from "./constants";
 
-import { RENDER_SIZE } from "./constants";
+import * as fidget from "../../crate/pkg/fidget_wasm_demo";
 
 import GYROID_SCRIPT from "../../../../models/gyroid-sphere.rhai";
 
 async function setup() {
+  await fidget.default();
+  await fidget.initThreadPool(navigator.hardwareConcurrency);
+
+  (window as any).fidget = fidget; // for easy of poking
   const app = new App();
 }
 
@@ -34,10 +40,73 @@ class App {
   output: Output;
   scene: Scene;
   worker: Worker;
-  start_time: number;
+
+  tape: Uint8Array | null; // current tape to render
+  rerender: boolean; // should we rerender?
+  rendering: boolean; // are we currently rendering?
+  startDepth: number; // starting render depth
+  currentDepth: number; // current render depth
+  cancel: fidget.JsCancelToken | null;
+
+  startTime: number;
 
   constructor() {
-    this.scene = new Scene();
+    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
+    this.worker.onmessage = (m) => {
+      this.onWorkerMessage(m.data as WorkerResponse);
+    };
+    this.worker.postMessage(
+      new StartRequest({
+        module: fidget.get_module(),
+        memory: fidget.get_memory(),
+      }),
+    );
+    // everything else is handled in this.init() once the worker starts
+  }
+
+  init() {
+    let scene = new Scene();
+
+    let requestRedraw = this.requestRedraw.bind(this);
+    scene.canvas.addEventListener("wheel", (event) => {
+      scene.zoomAbout(event);
+      event.preventDefault();
+      requestRedraw();
+    });
+    scene.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+    scene.canvas.addEventListener(
+      "pointerdown",
+      (event) => {
+        event.preventDefault();
+        if (event.button === 0) {
+          scene.beginTranslate(event);
+        } else if (event.button === 2) {
+          scene.beginRotate(event);
+        }
+      },
+      { passive: false },
+    );
+    window.addEventListener(
+      "pointerup",
+      (event) => {
+        event.preventDefault();
+        scene.endDrag();
+      },
+      { passive: false },
+    );
+    window.addEventListener(
+      "pointermove",
+      (event) => {
+        event.preventDefault();
+        if (scene.drag(event)) {
+          requestRedraw();
+        }
+      },
+      { passive: false },
+    );
+    this.scene = scene;
 
     // Hot-patch the gyroid script to be eval (instead of exec) flavored
     const re = /draw\((.*)\);/;
@@ -59,24 +128,49 @@ class App {
       this.onScriptChanged.bind(this),
     );
     this.output = new Output(document.getElementById("output-outer"));
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url));
-    this.worker.onmessage = (m) => {
-      this.onWorkerMessage(m.data as WorkerResponse);
-    };
+
+    this.tape = null;
+    this.rerender = false;
+    this.rendering = false;
+    this.startDepth = 0;
+    this.currentDepth = MAX_DEPTH;
+    this.cancel = null;
 
     // Also re-render if the mode changes
     const select = document.getElementById("mode");
     select.addEventListener("change", this.onModeChanged.bind(this), false);
   }
 
+  requestRedraw() {
+    if (this.rendering) {
+      if (this.cancel && this.currentDepth != this.startDepth) {
+        this.cancel.cancel();
+        this.cancel = null;
+      }
+      this.rerender = true;
+    } else {
+      this.currentDepth = this.startDepth;
+      this.beginRender(this.tape);
+    }
+  }
+
   onModeChanged() {
-    const text = this.editor.view.state.doc.toString();
-    this.onScriptChanged(text);
+    switch (this.getMode()) {
+      case RenderMode.Heightmap:
+      case RenderMode.Normals: {
+        this.scene.resetCamera(CameraKind.ThreeD);
+        break;
+      }
+      case RenderMode.Bitmap: {
+        this.scene.resetCamera(CameraKind.TwoD);
+        break;
+      }
+    }
+    this.requestRedraw();
   }
 
   onScriptChanged(text: string) {
     document.getElementById("status").textContent = "Evaluating...";
-    console.log("script changed");
     this.worker.postMessage(new ScriptRequest(text));
   }
 
@@ -98,31 +192,77 @@ class App {
     }
   }
 
+  beginRender(tape: Uint8Array) {
+    document.getElementById("status").textContent = "Rendering...";
+    this.startTime = performance.now();
+    const mode = this.getMode();
+    this.cancel = new fidget.JsCancelToken();
+    this.worker.postMessage(
+      new RenderRequest(
+        tape,
+        this.scene.camera,
+        this.currentDepth,
+        mode,
+        this.cancel.get_ptr(),
+      ),
+    );
+    this.rerender = false;
+    this.rendering = true;
+  }
+
   onWorkerMessage(req: WorkerResponse) {
     switch (req.kind) {
       case ResponseKind.Started: {
-        // Once the worker has started, do an initial render
+        // Initialize the rest of the app, and do an initial render
+        this.init();
         const text = this.editor.view.state.doc.toString();
         this.onScriptChanged(text);
         break;
       }
       case ResponseKind.Image: {
-        this.scene.setTextureRegion(req.data);
-        this.scene.draw();
+        this.scene.setTextureRegion(req.data, req.depth);
+        this.scene.draw(req.depth);
 
         const endTime = performance.now();
-        document.getElementById("status").textContent =
-          `Rendered in ${(endTime - this.start_time).toFixed(2)} ms`;
+        const dt = endTime - this.startTime;
+        if (this.currentDepth == 0) {
+          document.getElementById("status").textContent =
+            `Rendered in ${dt.toFixed(2)} ms`;
+        }
+        console.log(`rendered depth ${req.depth} in ${dt}`);
+        this.rendering = false;
+
+        // If this is our initial render resolution, adjust our max depth to hit
+        // a target framerate.
+        if (this.currentDepth == this.startDepth) {
+          if (dt > 50 && this.startDepth != MAX_DEPTH) {
+            this.startDepth += 1;
+          } else if (dt < 10 && this.startDepth > 0) {
+            this.startDepth -= 1;
+          }
+        }
+        if (this.rerender) {
+          this.currentDepth = this.startDepth;
+          this.beginRender(this.tape);
+        } else if (this.currentDepth > 0) {
+          // Render again at the next resolution
+          this.currentDepth -= 1;
+          this.beginRender(this.tape);
+        }
+        break;
+      }
+      case ResponseKind.Cancelled: {
+        // Cancellation always implies a rerender
+        this.currentDepth = this.startDepth;
+        this.beginRender(this.tape);
         break;
       }
       case ResponseKind.Script: {
         let r = req as ScriptResponse;
         this.output.setText(r.output);
         if (r.tape) {
-          document.getElementById("status").textContent = "Rendering...";
-          this.start_time = performance.now();
-          const mode = this.getMode();
-          this.worker.postMessage(new ShapeRequest(r.tape, mode));
+          this.tape = r.tape;
+          this.beginRender(r.tape);
         } else {
           document.getElementById("status").textContent = "";
         }
@@ -151,8 +291,11 @@ class Editor {
       { tag: tags.definitionKeyword, color: "#C62828" },
       { tag: tags.controlKeyword, color: "#6A1B9A" },
       { tag: tags.function(tags.name), color: "#0277BD" },
+      { tag: tags.name },
       { tag: tags.number, color: "#2E7D32" },
       { tag: tags.string, color: "#AD1457", fontStyle: "italic" },
+      { tag: tags.definitionKeyword, color: "#C62828" },
+      { tag: tags.comment, color: "#bbbbbb" },
     ]);
 
     this.view = new EditorView({
@@ -257,14 +400,23 @@ class ProgramInfo {
 }
 
 class Scene {
+  canvas: HTMLCanvasElement;
   gl: WebGLRenderingContext;
   programInfo: ProgramInfo;
   buffers: Buffers;
-  texture: WebGLTexture;
+  textures: WebGLTexture[];
+  camera: Camera;
 
   constructor() {
-    const canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
-    this.gl = canvas.getContext("webgl");
+    this.canvas = document.querySelector<HTMLCanvasElement>("#glcanvas");
+    this.camera = {
+      kind: CameraKind.ThreeD,
+      camera: new fidget.JsCamera3(),
+      translateHandle: null,
+      rotateHandle: null,
+    };
+
+    this.gl = this.canvas.getContext("webgl");
     if (this.gl === null) {
       alert(
         "Unable to initialize WebGL. Your browser or machine may not support it.",
@@ -273,32 +425,141 @@ class Scene {
     }
     this.buffers = new Buffers(this.gl);
     this.programInfo = new ProgramInfo(this.gl);
-    this.texture = this.gl.createTexture();
 
-    // Bind an initial texture of the correct size
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-    this.gl.texImage2D(
-      this.gl.TEXTURE_2D,
-      0,
-      this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
-      0, // border
-      this.gl.RGBA,
-      this.gl.UNSIGNED_BYTE,
-      new Uint8Array(RENDER_SIZE * RENDER_SIZE * 4),
-    );
-    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+    // XXX use mipmap levels instead?
+    this.textures = [];
+    for (var depth = 0; depth <= MAX_DEPTH; ++depth) {
+      const texture = this.gl.createTexture();
+      const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+
+      // Bind an initial texture of the correct size
+      this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_S,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_WRAP_T,
+        this.gl.CLAMP_TO_EDGE,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MIN_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texParameteri(
+        this.gl.TEXTURE_2D,
+        this.gl.TEXTURE_MAG_FILTER,
+        this.gl.NEAREST,
+      );
+      this.gl.texImage2D(
+        this.gl.TEXTURE_2D,
+        0,
+        this.gl.RGBA,
+        size,
+        size,
+        0, // border
+        this.gl.RGBA,
+        this.gl.UNSIGNED_BYTE,
+        new Uint8Array(size * size * 4),
+      );
+      this.gl.generateMipmap(this.gl.TEXTURE_2D);
+      this.textures.push(texture);
+    }
   }
 
-  setTextureRegion(data: Uint8Array) {
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+  resetCamera(kind: CameraKind) {
+    switch (kind) {
+      case CameraKind.TwoD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera2(),
+          translateHandle: null,
+        };
+        break;
+      }
+      case CameraKind.ThreeD: {
+        this.camera = {
+          kind,
+          camera: new fidget.JsCamera3(),
+          translateHandle: null,
+          rotateHandle: null,
+        };
+        break;
+      }
+    }
+  }
+
+  zoomAbout(event: WheelEvent) {
+    let [x, y] = this.screenToWorld(event);
+    const zoomFactor = Math.pow(2, event.deltaY / 100.0);
+    this.camera.camera.zoom_about(zoomFactor, x, y);
+  }
+
+  screenToWorld(event: MouseEvent): readonly [number, number] {
+    let rect = this.canvas.getBoundingClientRect();
+    let x = ((event.clientX - rect.left) / RENDER_SIZE - 0.5) * 2.0;
+    let y = ((event.clientY - rect.top) / RENDER_SIZE - 0.5) * 2.0;
+    return [x, y];
+  }
+
+  beginTranslate(event: MouseEvent) {
+    const [x, y] = this.screenToWorld(event);
+    this.camera.translateHandle = this.camera.camera.begin_translate(x, y) as
+      | fidget.JsTranslateHandle2
+      | fidget.JsTranslateHandle3;
+  }
+
+  beginRotate(event: MouseEvent) {
+    if (this.camera.kind === CameraKind.ThreeD) {
+      const [x, y] = this.screenToWorld(event);
+      this.camera.rotateHandle = this.camera.camera.begin_rotate(
+        x,
+        y,
+      ) as fidget.JsRotateHandle;
+    }
+  }
+
+  drag(event: MouseEvent): boolean {
+    const [x, y] = this.screenToWorld(event);
+    let changed = false;
+
+    if (this.camera.translateHandle) {
+      changed =
+        this.camera.camera.translate(this.camera.translateHandle, x, y) ||
+        changed;
+    }
+
+    if (this.camera.kind === CameraKind.ThreeD && this.camera.rotateHandle) {
+      changed =
+        (this.camera.camera as fidget.JsCamera3).rotate(
+          this.camera.rotateHandle,
+          x,
+          y,
+        ) || changed;
+    }
+
+    return changed;
+  }
+
+  endDrag() {
+    this.camera.translateHandle = null;
+    if (this.camera.kind === CameraKind.ThreeD) {
+      this.camera.rotateHandle = null;
+    }
+  }
+
+  setTextureRegion(data: Uint8Array, depth: number) {
+    const size = Math.round(RENDER_SIZE / Math.pow(2, depth));
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.texImage2D(
       this.gl.TEXTURE_2D,
       0,
       this.gl.RGBA,
-      RENDER_SIZE,
-      RENDER_SIZE,
+      size,
+      size,
       0, // border
       this.gl.RGBA,
       this.gl.UNSIGNED_BYTE,
@@ -306,7 +567,7 @@ class Scene {
     );
   }
 
-  draw() {
+  draw(depth: number) {
     this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     this.setPositionAttribute();
@@ -318,7 +579,7 @@ class Scene {
     this.gl.activeTexture(this.gl.TEXTURE0);
 
     // Bind the texture to texture unit 0
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[depth]);
     this.gl.uniform1i(this.programInfo.uSampler, 0);
 
     const offset = 0;

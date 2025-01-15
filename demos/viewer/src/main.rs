@@ -4,10 +4,13 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 use env_logger::Env;
 use log::{debug, error, info, warn};
-use nalgebra::{Point2, Vector3};
+use nalgebra::{Point2, Point3};
 use notify::Watcher;
 
-use fidget::render::{ImageRenderConfig, View2, View3, VoxelRenderConfig};
+use fidget::render::{
+    ImageRenderConfig, RotateHandle, TranslateHandle, View2, View3,
+    VoxelRenderConfig,
+};
 
 use std::{error::Error, path::Path};
 
@@ -172,8 +175,9 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
 
             match mode {
                 Mode2D::Color => {
-                    let image =
-                        config.run::<_, fidget::render::BitRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::BitRenderMode>(shape)
+                        .unwrap();
                     let c = egui::Color32::from_rgba_unmultiplied(
                         color[0],
                         color[1],
@@ -188,16 +192,18 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 }
 
                 Mode2D::Sdf => {
-                    let image =
-                        config.run::<_, fidget::render::SdfRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::SdfRenderMode>(shape)
+                        .unwrap();
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
                     }
                 }
 
                 Mode2D::Debug => {
-                    let image =
-                        config.run::<_, fidget::render::DebugRenderMode>(shape);
+                    let image = config
+                        .run::<_, fidget::render::DebugRenderMode>(shape)
+                        .unwrap();
                     for (p, i) in pixels.iter_mut().zip(&image) {
                         let c = i.as_debug_color();
                         *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
@@ -205,24 +211,21 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 }
             }
         }
-        RenderMode::ThreeD(camera, mode) => {
+        RenderMode::ThreeD { view, mode, .. } => {
             // XXX allow selection of depth?
             let config = VoxelRenderConfig {
                 image_size: fidget::render::VoxelSize::new(
                     image_size.width(),
                     image_size.height(),
-                    512,
+                    image_size.width().max(image_size.height()),
                 ),
                 tile_sizes: F::tile_sizes_3d(),
-                view: View3::from_center_and_scale(
-                    Vector3::new(camera.offset.x, camera.offset.y, 0.0),
-                    camera.scale,
-                ),
+                view: *view,
                 ..Default::default()
             };
-            let (depth, color) = config.run(shape);
+            let (depth, color) = config.run(shape).unwrap();
             match mode {
-                ThreeDMode::Color => {
+                Mode3D::Color => {
                     for (p, (&d, &c)) in
                         pixels.iter_mut().zip(depth.iter().zip(&color))
                     {
@@ -232,7 +235,7 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                     }
                 }
 
-                ThreeDMode::Heightmap => {
+                Mode3D::Heightmap => {
                     let max_depth =
                         depth.iter().max().cloned().unwrap_or(1).max(1);
                     for (p, &d) in pixels.iter_mut().zip(&depth) {
@@ -338,43 +341,16 @@ enum Mode2D {
     Debug,
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Copy, Clone)]
-struct ThreeDCamera {
-    // 2D camera parameters
-    scale: f32,
-    offset: nalgebra::Vector3<f32>,
-    #[allow(unused)]
-    drag_start: Option<egui::Vec2>,
-}
-
-impl ThreeDCamera {
-    #[allow(unused)]
-    fn mouse_to_uv(
-        &self,
-        rect: egui::Rect,
-        uv: egui::Rect,
-        p: egui::Pos2,
-    ) -> egui::Vec2 {
-        panic!()
-    }
-}
-
-impl Default for ThreeDCamera {
-    fn default() -> Self {
-        ThreeDCamera {
-            drag_start: None,
-            scale: 1.0,
-            offset: nalgebra::Vector3::zeros(),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum ThreeDMode {
+enum Mode3D {
     Color,
     Heightmap,
+}
+
+#[derive(Copy, Clone)]
+enum Drag3D {
+    Pan(TranslateHandle<3>),
+    Rotate(RotateHandle),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -385,10 +361,17 @@ enum RenderMode {
         view: View2,
 
         /// Drag start position (in model coordinates)
-        drag_start: Option<Point2<f32>>,
+        drag_start: Option<TranslateHandle<2>>,
         mode: Mode2D,
     },
-    ThreeD(ThreeDCamera, ThreeDMode),
+    ThreeD {
+        view: View3,
+
+        /// Drag start position (in model coordinates)
+        drag_start: Option<Drag3D>,
+
+        mode: Mode3D,
+    },
 }
 
 impl RenderMode {
@@ -399,7 +382,7 @@ impl RenderMode {
                 *mode = new_mode;
                 changed
             }
-            RenderMode::ThreeD(..) => {
+            RenderMode::ThreeD { .. } => {
                 *self = RenderMode::TwoD {
                     // TODO get parameters from 3D camera here?
                     view: Default::default(),
@@ -410,15 +393,19 @@ impl RenderMode {
             }
         }
     }
-    fn set_3d_mode(&mut self, mode: ThreeDMode) -> bool {
+    fn set_3d_mode(&mut self, new_mode: Mode3D) -> bool {
         match self {
             RenderMode::TwoD { .. } => {
-                *self = RenderMode::ThreeD(ThreeDCamera::default(), mode);
+                *self = RenderMode::ThreeD {
+                    view: View3::default(),
+                    drag_start: None,
+                    mode: new_mode,
+                };
                 true
             }
-            RenderMode::ThreeD(_camera, m) => {
-                let changed = *m != mode;
-                *m = mode;
+            RenderMode::ThreeD { mode, .. } => {
+                let changed = *mode != new_mode;
+                *mode = new_mode;
                 changed
             }
         }
@@ -474,16 +461,16 @@ impl ViewerApp {
                 ui.menu_button("Config", |ui| {
                     let mut mode_3d = match &self.mode {
                         RenderMode::TwoD { .. } => None,
-                        RenderMode::ThreeD(_camera, mode) => Some(*mode),
+                        RenderMode::ThreeD { mode, .. } => Some(*mode),
                     };
                     ui.radio_value(
                         &mut mode_3d,
-                        Some(ThreeDMode::Heightmap),
+                        Some(Mode3D::Heightmap),
                         "3D heightmap",
                     );
                     ui.radio_value(
                         &mut mode_3d,
-                        Some(ThreeDMode::Color),
+                        Some(Mode3D::Color),
                         "3D color",
                     );
                     if let Some(m) = mode_3d {
@@ -492,7 +479,7 @@ impl ViewerApp {
                     ui.separator();
                     let mut mode_2d = match &self.mode {
                         RenderMode::TwoD { mode, .. } => Some(*mode),
-                        RenderMode::ThreeD(..) => None,
+                        RenderMode::ThreeD { .. } => None,
                     };
                     ui.radio_value(
                         &mut mode_2d,
@@ -562,9 +549,6 @@ impl ViewerApp {
         });
         const PADDING: egui::Vec2 = egui::Vec2 { x: 10.0, y: 10.0 };
 
-        if !matches!(self.mode, RenderMode::TwoD { .. }) {
-            panic!("can't render in 3D");
-        }
         let rect = ui.ctx().available_rect();
         let uv = egui::Rect {
             min: egui::Pos2::new(0.0, 0.0),
@@ -664,14 +648,13 @@ impl eframe::App for ViewerApp {
                     rect.height() as u32,
                 );
 
-                let mat = view.world_to_model() * image_size.screen_to_world();
                 if let Some(pos) = r.interact_pointer_pos() {
-                    let pos = mat.transform_point(&Point2::new(pos.x, pos.y));
-                    if let Some(prev) = *drag_start {
-                        view.translate(prev - pos);
-                        render_changed |= prev != pos;
+                    let pos =
+                        image_size.transform_point(Point2::new(pos.x, pos.y));
+                    if let Some(prev) = drag_start {
+                        render_changed |= view.translate(prev, pos);
                     } else {
-                        *drag_start = Some(pos);
+                        *drag_start = Some(view.begin_translate(pos));
                     }
                 } else {
                     *drag_start = None;
@@ -679,17 +662,64 @@ impl eframe::App for ViewerApp {
 
                 if r.hovered() {
                     let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-                    let mouse_pos = ctx
-                        .input(|i| i.pointer.hover_pos())
-                        .map(|p| mat.transform_point(&Point2::new(p.x, p.y)));
+                    let mouse_pos = r.hover_pos().map(|p| {
+                        let p = p - rect.min;
+                        image_size.transform_point(Point2::new(p.x, p.y))
+                    });
+                    render_changed |=
+                        view.zoom((scroll / 100.0).exp2(), mouse_pos);
+                }
+            }
+            RenderMode::ThreeD {
+                view, drag_start, ..
+            } => {
+                let image_size = fidget::render::VoxelSize::new(
+                    rect.width() as u32,
+                    rect.height() as u32,
+                    rect.width().max(rect.height()) as u32,
+                );
+
+                if let Some(pos) = r.interact_pointer_pos() {
+                    let pos_world = image_size
+                        .transform_point(Point3::new(pos.x, pos.y, 0.0));
+                    match drag_start {
+                        Some(Drag3D::Pan(prev)) => {
+                            render_changed |= view.translate(prev, pos_world);
+                        }
+                        Some(Drag3D::Rotate(prev)) => {
+                            render_changed |= view.rotate(prev, pos_world);
+                        }
+                        None => {
+                            if r.dragged_by(egui::PointerButton::Primary) {
+                                *drag_start = Some(Drag3D::Pan(
+                                    view.begin_translate(pos_world),
+                                ));
+                            } else if r
+                                .dragged_by(egui::PointerButton::Secondary)
+                            {
+                                *drag_start = Some(Drag3D::Rotate(
+                                    view.begin_rotate(pos_world),
+                                ));
+                            }
+                        }
+                    }
+                } else {
+                    *drag_start = None;
+                }
+
+                if r.hovered() {
+                    let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
+                    let mouse_pos =
+                        ctx.input(|i| i.pointer.hover_pos()).map(|p| {
+                            let p = p - rect.min;
+                            image_size
+                                .transform_point(Point3::new(p.x, p.y, 0.0))
+                        });
                     if scroll != 0.0 {
                         view.zoom((scroll / 100.0).exp2(), mouse_pos);
                         render_changed = true;
                     }
                 }
-            }
-            RenderMode::ThreeD(..) => {
-                unimplemented!()
             }
         }
 

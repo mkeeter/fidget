@@ -6,11 +6,12 @@ let parserWithMetadata = parser.configure({
   props: [
     styleTags({
       DefinitionKeyword: tags.definitionKeyword,
-      ControlKeyword: tags.controlKeyword,
       "Call/Identifier": tags.function(tags.name),
+      ControlKeyword: tags.controlKeyword,
       Identifier: tags.name,
       Number: tags.number,
       String: tags.string,
+      LineComment: tags.comment,
     }),
   ],
 });

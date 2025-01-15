@@ -1,6 +1,6 @@
 [package]
 name = "fidget"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 license = "MPL-2.0"
 repository = "https://github.com/mkeeter/fidget"
@@ -13,7 +13,6 @@ arrayvec.workspace = true
 bimap.workspace = true
 crossbeam-deque.workspace = true
 document-features.workspace = true
-ieee754.workspace = true
 nalgebra.workspace = true
 num-traits.workspace = true
 ordered-float.workspace = true

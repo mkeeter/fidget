@@ -1,4 +1,16 @@
-# 0.3.4 (unreleased)
+# 0.3.5 (unreleased)
+- Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
+- Make `TranslateHandle` take a `const N: usize` parameter
+- Use `TranslateHandle` in `View2` (previously, it was only used in `View3`)
+- Make `translate` and `rotate` functions borrow their respective handle,
+  instead of taking it by value.
+- Fix docstring for `AndRegImm`, `AndRegReg`, `OrRegImm`, and `OrRegReg`
+- Add `cancel: CancelToken` to 2D and 3D rendering configuration objects; this
+  is a shared `Arc<AtomicBool>` which can be used to stop rendering.  The
+  returned type is now an `Option<...>`, where `None` indicates that rendering
+  was cancelled.
+
+# 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
   and pick a new register count for the resulting tape
 - Add bidirectional conversions between `JitFunction` and `GenericVmFunction`
@@ -51,6 +63,7 @@
     - `ThreadCount` is moved to `fidget::mesh`, because that's the only place
       it's now used
         - The plan is to switch to Rayon for meshing as well, eventually
+- Tweak `View2` and `View3` APIs to make them more useful as camera types
 
 # 0.3.3
 - `Function` and evaluator types now produce multiple outputs

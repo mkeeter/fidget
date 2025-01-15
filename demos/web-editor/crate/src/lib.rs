@@ -1,13 +1,15 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, ImageRenderConfig, ImageSize, ThreadPool, TileSizes,
+        BitRenderMode, CancelToken, ImageRenderConfig, ImageSize, RotateHandle,
+        ThreadPool, TileSizes, TranslateHandle, View2, View3,
         VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
-    Error,
 };
+use nalgebra::{Point2, Point3};
+
 use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 
@@ -48,37 +50,51 @@ pub fn deserialize_tape(data: Vec<u8>) -> Result<JsVmShape, String> {
 
 /// Renders the image in 2D
 #[wasm_bindgen]
-pub fn render_region_2d(
+pub fn render_2d(
     shape: JsVmShape,
     image_size: usize,
+    camera: JsCamera2,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    fn inner(shape: VmShape, image_size: usize) -> Result<Vec<u8>, Error> {
+    fn inner(
+        shape: VmShape,
+        image_size: usize,
+        view: View2,
+        cancel: CancelToken,
+    ) -> Option<Vec<u8>> {
         let cfg = ImageRenderConfig {
             image_size: ImageSize::from(image_size as u32),
             threads: Some(ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
-            ..Default::default()
+            view,
+            cancel,
         };
 
-        let out = cfg.run::<_, BitRenderMode>(shape);
-        Ok(out
-            .into_iter()
-            .flat_map(|b| {
-                let b = b as u8 * u8::MAX;
-                [b, b, b, 255]
-            })
-            .collect())
+        let out = cfg.run::<_, BitRenderMode>(shape)?;
+        Some(
+            out.into_iter()
+                .flat_map(|b| {
+                    let b = b as u8 * u8::MAX;
+                    [b, b, b, 255]
+                })
+                .collect(),
+        )
     }
-    inner(shape.0, image_size).map_err(|e| format!("{e}"))
+    inner(shape.0, image_size, camera.0, cancel.0)
+        .ok_or_else(|| "cancelled".to_owned())
 }
 
 /// Renders a heightmap image
 #[wasm_bindgen]
-pub fn render_region_heightmap(
+pub fn render_heightmap(
     shape: JsVmShape,
     image_size: usize,
+    camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (depth, _norm) = render_3d_inner(shape.0, image_size);
+    let (depth, _norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(depth
@@ -92,11 +108,15 @@ pub fn render_region_heightmap(
 
 /// Renders a shaded image
 #[wasm_bindgen]
-pub fn render_region_normals(
+pub fn render_normals(
     shape: JsVmShape,
     image_size: usize,
+    camera: JsCamera3,
+    cancel: JsCancelToken,
 ) -> Result<Vec<u8>, String> {
-    let (_depth, norm) = render_3d_inner(shape.0, image_size);
+    let (_depth, norm) =
+        render_3d_inner(shape.0, image_size, camera.0, cancel.0)
+            .ok_or_else(|| "cancelled".to_string())?;
 
     // Convert into an image
     Ok(norm
@@ -108,12 +128,160 @@ pub fn render_region_normals(
 fn render_3d_inner(
     shape: VmShape,
     image_size: usize,
-) -> (Vec<u32>, Vec<[u8; 3]>) {
+    view: View3,
+    cancel: CancelToken,
+) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(ThreadPool::Global),
-        tile_sizes: TileSizes::new(&[64, 32, 16, 8]).unwrap(),
-        ..Default::default()
+        tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
+        view,
+        cancel,
     };
     cfg.run(shape.clone())
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub struct JsCamera3(View3);
+
+#[wasm_bindgen]
+impl JsCamera3 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(View3::default())
+    }
+
+    #[wasm_bindgen]
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self.0).unwrap()
+    }
+
+    #[wasm_bindgen]
+    pub fn deserialize(data: &[u8]) -> Self {
+        Self(bincode::deserialize::<View3>(data).unwrap())
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_translate(&self, x: f32, y: f32) -> JsTranslateHandle3 {
+        JsTranslateHandle3(self.0.begin_translate(Point3::new(x, y, 0.0)))
+    }
+
+    #[wasm_bindgen]
+    pub fn translate(
+        &mut self,
+        h: &JsTranslateHandle3,
+        x: f32,
+        y: f32,
+    ) -> bool {
+        self.0.translate(&h.0, Point3::new(x, y, 0.0))
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_rotate(&self, x: f32, y: f32) -> JsRotateHandle {
+        JsRotateHandle(self.0.begin_rotate(Point3::new(x, y, 0.0)))
+    }
+
+    #[wasm_bindgen]
+    pub fn rotate(&mut self, h: &JsRotateHandle, x: f32, y: f32) -> bool {
+        self.0.rotate(&h.0, Point3::new(x, y, 0.0))
+    }
+
+    #[wasm_bindgen]
+    pub fn zoom_about(&mut self, amount: f32, x: f32, y: f32) -> bool {
+        self.0.zoom(amount, Some(Point3::new(x, y, 0.0)))
+    }
+}
+
+#[wasm_bindgen]
+pub struct JsRotateHandle(RotateHandle);
+
+#[wasm_bindgen]
+pub struct JsTranslateHandle3(TranslateHandle<3>);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub struct JsCamera2(View2);
+
+#[wasm_bindgen]
+impl JsCamera2 {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(View2::default())
+    }
+
+    #[wasm_bindgen]
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self.0).unwrap()
+    }
+
+    #[wasm_bindgen]
+    pub fn deserialize(data: &[u8]) -> Self {
+        Self(bincode::deserialize::<View2>(data).unwrap())
+    }
+
+    #[wasm_bindgen]
+    pub fn begin_translate(&self, x: f32, y: f32) -> JsTranslateHandle2 {
+        JsTranslateHandle2(self.0.begin_translate(Point2::new(x, y)))
+    }
+
+    #[wasm_bindgen]
+    pub fn translate(
+        &mut self,
+        h: &JsTranslateHandle2,
+        x: f32,
+        y: f32,
+    ) -> bool {
+        self.0.translate(&h.0, Point2::new(x, y))
+    }
+
+    #[wasm_bindgen]
+    pub fn zoom_about(&mut self, amount: f32, x: f32, y: f32) -> bool {
+        self.0.zoom(amount, Some(Point2::new(x, y)))
+    }
+}
+
+#[wasm_bindgen]
+pub struct JsTranslateHandle2(TranslateHandle<2>);
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub struct JsCancelToken(CancelToken);
+
+#[wasm_bindgen]
+impl JsCancelToken {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(CancelToken::new())
+    }
+
+    #[wasm_bindgen]
+    pub fn cancel(&self) {
+        self.0.cancel()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_ptr(&self) -> *const std::sync::atomic::AtomicBool {
+        self.0.clone().into_raw()
+    }
+
+    #[wasm_bindgen]
+    pub unsafe fn from_ptr(ptr: *const std::sync::atomic::AtomicBool) -> Self {
+        Self(CancelToken::from_raw(ptr))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[wasm_bindgen]
+pub fn get_module() -> wasm_bindgen::JsValue {
+    wasm_bindgen::module()
+}
+
+#[wasm_bindgen]
+pub fn get_memory() -> wasm_bindgen::JsValue {
+    wasm_bindgen::memory()
 }
