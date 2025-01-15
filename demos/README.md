@@ -1,4 +1,8 @@
 # Fidget demos
+## Custom command-line demo ([`basic`](basic/))
+
+Same as cli but with added camera controls and a bit of refactoring.
+
 ## Command-line demo ([`cli`](cli/))
 
 Bitmap rendering and meshing from the command line
