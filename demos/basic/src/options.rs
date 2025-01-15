@@ -70,11 +70,11 @@ pub enum ActionCommand {
         isometric: bool,
 
         /// Rotate camera
-        #[clap(long)]
+        #[clap(long, default_value_t = true)]
         rotate: bool,
 
         /// Rotate camera
-        #[clap(long, default_value_t = 1.0)]
+        #[clap(short, long, default_value_t = 1.0)]
         scale: f32,
     },
 
@@ -87,7 +87,7 @@ pub enum ActionCommand {
 #[derive(Parser)]
 pub struct ImageSettings {
     /// Image size
-    #[clap(short, long, default_value_t = 1024)]
+    #[clap(long = "image-size", default_value_t = 1024)]
     pub size: u32,
 
     /// Name of a `.png` file to write
