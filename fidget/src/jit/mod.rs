@@ -331,10 +331,16 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "aarch64")]
     fn push_stack(&mut self) {
-        assert!(self.mem_offset < 4096);
-        dynasm!(self.ops
-            ; sub sp, sp, self.mem_offset as u32
-        );
+        if self.mem_offset < 4096 {    
+            dynasm!(self.ops
+                ; sub sp, sp, self.mem_offset as u32
+            );
+        } else {
+            dynasm!(self.ops
+                ; mov w28, self.mem_offset as u64
+                ; sub sp, sp, w28
+            );
+      }
     }
 
     #[cfg(target_arch = "x86_64")]
