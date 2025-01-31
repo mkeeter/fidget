@@ -2,7 +2,9 @@ use crate::options;
 
 use anyhow::Result;
 use log::info;
-use log::warn;
+use rand::Rng;
+use std::fs::File;
+use std::io::Write;
 use std::num::NonZero;
 use std::time::Instant;
 
@@ -73,28 +75,61 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
-    { // simple advection
+    {
+        // simple advection
+        let mut rng = rand::rng();
         let tape = shape.point_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_point_eval();
-        let mut pos = nalgebra::Vector3::new(0.1, 0.05, 0.2);
+
+        let mut positions = vec![];
         let eps = 1e-3;
-        for _ in 0..100 {
-            let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
-            let value_dx =
-                eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
-            let value_dy =
-                eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
-            let value_dz =
-                eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
-            let grad = nalgebra::Vector3::new(
-                (value_dx - value) / eps,
-                (value_dy - value) / eps,
-                (value_dz - value) / eps,
+
+        for _ in 0..1024 {
+            let mut pos = nalgebra::Vector3::new(
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
             );
-            warn!("value {:0.3e}", value);
-            pos -= 0.5 * value * grad;
+            for _ in 0..32 {
+                let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
+                let value_dx =
+                    eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
+                let value_dy =
+                    eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
+                let value_dz =
+                    eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
+                let grad = nalgebra::Vector3::new(
+                    (value_dx - value) / eps,
+                    (value_dy - value) / eps,
+                    (value_dz - value) / eps,
+                );
+                pos -= 0.5 * value * grad;
+            }
+            // warn!("final pos {:?} norm {}", pos, pos.norm());
+            positions.push(pos);
         }
-        warn!("final pos {:?} norm {}", pos, pos.norm());
+
+        let mut text = format!(
+            "ply
+format ascii 1.0
+comment Created in Blender version 4.0.2
+element vertex {}
+property float x
+property float y
+property float z
+end_header
+",
+            positions.len()
+        );
+
+        for pos in positions {
+            text = format!("{}{} {} {}\n", text, pos[0], pos[1], pos[2]);
+        }
+
+        let path = "points.ply";
+        info!("Writing PLY to \"{}\"", path);
+        let mut output = File::create(path).unwrap();
+        write!(output, "{}", text).ok();
     }
 
     let shape = shape.apply_transform(mat.into());

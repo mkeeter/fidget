@@ -12,6 +12,7 @@ image.workspace = true
 log.workspace = true
 nalgebra.workspace = true
 rayon.workspace = true
+rand.workspace = true
 
 fidget.path = "../../fidget"
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
