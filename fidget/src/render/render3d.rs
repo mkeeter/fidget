@@ -213,6 +213,8 @@ impl<F: Function> Worker<'_, F> {
         tile_size: usize,
         tile: Tile<3>,
     ) {
+        // println!("[render_tile_pixels] {:?} {}", tile, tile_size);
+
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
         assert!(self.scratch.x.len() >= tile_size.pow(3));
@@ -264,6 +266,19 @@ impl<F: Function> Worker<'_, F> {
                 vars,
             )
             .unwrap();
+
+        // println!(
+        //     "num_values {} {}",
+        //     index,
+        //     self.scratch.columns.len() * tile_size,
+        // );
+        assert!(out.len() == index);
+        assert!(self.scratch.columns.len() * tile_size == index);
+
+        // println!("num_columns {}", self.scratch.columns.len());
+        assert!(self.scratch.xg.len() >= self.scratch.columns.len());
+        assert!(self.scratch.yg.len() >= self.scratch.columns.len());
+        assert!(self.scratch.zg.len() >= self.scratch.columns.len());
 
         // We're iterating over a few things simultaneously
         // - col refers to the xy position in the tile

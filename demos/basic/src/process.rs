@@ -1,7 +1,7 @@
 use crate::options;
 
 use anyhow::Result;
-use log::{info, warn};
+use log::info;
 use std::num::NonZero;
 use std::time::Instant;
 
@@ -80,7 +80,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 
     let out = match color_mode {
-        options::ColorMode::NativeColor => depth
+        options::ColorMode::Color => depth
             .into_iter()
             .zip(color)
             .flat_map(|(d, c)| {
@@ -92,23 +92,9 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
             })
             .collect(),
         options::ColorMode::Depth => {
-            let z_max = depth.iter().max().cloned().unwrap_or(1);
-            depth
-                .into_iter()
-                .flat_map(|d| {
-                    if d > 0 {
-                        let z = (d * 255 / z_max) as u8;
-                        [z, z, z, 255]
-                    } else {
-                        [0, 0, 0, 0]
-                    }
-                })
-                .collect()
-        }
-        options::ColorMode::Kikou => {
             let z_min = depth.iter().min().cloned().unwrap_or(0);
             let z_max = depth.iter().max().cloned().unwrap_or(1);
-            warn!("kikou {} {}", z_min, z_max);
+            info!("Depth min {} max {}", z_min, z_max);
             depth
                 .into_iter()
                 .flat_map(|d| {

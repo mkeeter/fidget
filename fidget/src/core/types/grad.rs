@@ -41,11 +41,16 @@ impl Grad {
     pub fn to_rgb(&self) -> Option<[u8; 3]> {
         let s = (self.dx.powi(2) + self.dy.powi(2) + self.dz.powi(2)).sqrt();
         if s != 0.0 {
-            let scale = u8::MAX as f32 / s;
+            // let scale = u8::MAX as f32 / s;
+            // Some([
+            //     (self.dx.abs() * scale) as u8,
+            //     (self.dy.abs() * scale) as u8,
+            //     (self.dz.abs() * scale) as u8,
+            // ])
             Some([
-                (self.dx.abs() * scale) as u8,
-                (self.dy.abs() * scale) as u8,
-                (self.dz.abs() * scale) as u8,
+                (u8::MAX as f32 * (self.dx / s + 1.0) / 2.0) as u8,
+                (u8::MAX as f32 * (self.dy / s + 1.0) / 2.0) as u8,
+                (u8::MAX as f32 * (self.dz / s + 1.0) / 2.0) as u8,
             ])
         } else {
             None

@@ -45,8 +45,7 @@ pub enum HardcodedShape {
 #[derive(ValueEnum, Clone)]
 pub enum ColorMode {
     Depth,
-    NativeColor,
-    Kikou,
+    Color,
 }
 
 #[derive(Subcommand)]
