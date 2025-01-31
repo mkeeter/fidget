@@ -42,6 +42,13 @@ pub enum HardcodedShape {
     SphereTree,
 }
 
+#[derive(ValueEnum, Clone)]
+pub enum ColorMode {
+    Depth,
+    NativeColor,
+    Kikou,
+}
+
 #[derive(Subcommand)]
 pub enum ActionCommand {
     Render2d {
@@ -62,8 +69,8 @@ pub enum ActionCommand {
         settings: ImageSettings,
 
         /// Render in color
-        #[clap(long)]
-        color_mode: bool,
+        #[clap(long, value_enum, default_value_t = ColorMode::Depth)]
+        color_mode: ColorMode,
 
         /// Render using an isometric perspective
         #[clap(long)]

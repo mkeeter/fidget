@@ -1,15 +1,15 @@
 use crate::options;
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use std::num::NonZero;
 use std::time::Instant;
 
 fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
+    color_mode: &options::ColorMode,
     isometric: bool,
-    color_mode: bool,
     use_default_camera: bool,
     model_angle: f32,
     model_scale: f32,
@@ -74,31 +74,48 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         (depth, color) = cfg.run(shape.clone()).unwrap();
     }
 
-    let out = if color_mode {
-        depth
+    let out = match color_mode {
+        options::ColorMode::NativeColor => depth
             .into_iter()
             .zip(color)
-            .flat_map(|(d, p)| {
+            .flat_map(|(d, c)| {
                 if d > 0 {
-                    [p[0], p[1], p[2], 255]
+                    [c[0], c[1], c[2], 255]
                 } else {
                     [0, 0, 0, 0]
                 }
             })
-            .collect()
-    } else {
-        let z_max = depth.iter().max().cloned().unwrap_or(1);
-        depth
-            .into_iter()
-            .flat_map(|d| {
-                if d > 0 {
-                    let z = (d * 255 / z_max) as u8;
-                    [z, z, z, 255]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
+            .collect(),
+        options::ColorMode::Depth => {
+            let z_max = depth.iter().max().cloned().unwrap_or(1);
+            depth
+                .into_iter()
+                .flat_map(|d| {
+                    if d > 0 {
+                        let z = (d * 255 / z_max) as u8;
+                        [z, z, z, 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        options::ColorMode::Kikou => {
+            let z_min = depth.iter().min().cloned().unwrap_or(0);
+            let z_max = depth.iter().max().cloned().unwrap_or(1);
+            warn!("kikou {} {}", z_min, z_max);
+            depth
+                .into_iter()
+                .flat_map(|d| {
+                    if d > 0 {
+                        let z = (d * 255 / z_max) as u8;
+                        [z, z, z, 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
     };
 
     out
@@ -237,8 +254,8 @@ pub fn run_action(
                     run_render_3d(
                         shape,
                         settings,
+                        color_mode,
                         *isometric,
-                        *color_mode,
                         *use_default_camera,
                         *model_angle,
                         *model_scale,
@@ -253,8 +270,8 @@ pub fn run_action(
                     run_render_3d(
                         shape,
                         settings,
+                        color_mode,
                         *isometric,
-                        *color_mode,
                         *use_default_camera,
                         *model_angle,
                         *model_scale,
