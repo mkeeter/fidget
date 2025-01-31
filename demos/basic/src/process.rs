@@ -60,9 +60,14 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
             pool.as_ref().map(fidget::render::ThreadPool::Custom)
         }
     };
+    let view = fidget::render::View3::from_center_and_scale(
+        nalgebra::Vector3::new(0.0, 0.0, 0.0),
+        1.0,
+    );
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
+        view,
         threads,
         ..Default::default()
     };
