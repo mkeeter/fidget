@@ -72,6 +72,31 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         threads,
         ..Default::default()
     };
+
+    { // simple advection
+        let tape = shape.point_tape(Default::default());
+        let mut eval = fidget::shape::Shape::<F>::new_point_eval();
+        let mut pos = nalgebra::Vector3::new(0.1, 0.05, 0.2);
+        let eps = 1e-3;
+        for _ in 0..100 {
+            let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
+            let value_dx =
+                eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
+            let value_dy =
+                eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
+            let value_dz =
+                eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
+            let grad = nalgebra::Vector3::new(
+                (value_dx - value) / eps,
+                (value_dy - value) / eps,
+                (value_dz - value) / eps,
+            );
+            warn!("value {:0.3e}", value);
+            pos -= 0.5 * value * grad;
+        }
+        warn!("final pos {:?} norm {}", pos, pos.norm());
+    }
+
     let shape = shape.apply_transform(mat.into());
 
     let mut depth = vec![];
@@ -113,7 +138,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
             let world_to_model: nalgebra::Matrix4<f32> = mat.into();
             let screen_to_world: nalgebra::Matrix4<f32> = cfg.mat();
             let screen_to_model = world_to_model * screen_to_world;
-            warn!("Model position");
+            info!("Model position");
             depth
                 .into_iter()
                 .enumerate()
