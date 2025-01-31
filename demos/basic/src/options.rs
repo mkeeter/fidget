@@ -45,7 +45,8 @@ pub enum HardcodedShape {
 #[derive(ValueEnum, Clone)]
 pub enum ColorMode {
     Depth,
-    Color,
+    CameraNormalMap,
+    ModelPosition,
 }
 
 #[derive(Subcommand)]

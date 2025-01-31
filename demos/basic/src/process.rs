@@ -2,6 +2,7 @@ use crate::options;
 
 use anyhow::Result;
 use log::info;
+use log::warn;
 use std::num::NonZero;
 use std::time::Instant;
 
@@ -80,7 +81,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 
     let out = match color_mode {
-        options::ColorMode::Color => depth
+        options::ColorMode::CameraNormalMap => depth
             .into_iter()
             .zip(color)
             .flat_map(|(d, c)| {
@@ -101,6 +102,36 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                     if d > 0 {
                         let z = (d * 255 / z_max) as u8;
                         [z, z, z, 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        options::ColorMode::ModelPosition => {
+            let img_size = settings.size;
+            let world_to_model: nalgebra::Matrix4<f32> = mat.into();
+            let screen_to_world: nalgebra::Matrix4<f32> = cfg.mat();
+            let screen_to_model = world_to_model * screen_to_world;
+            warn!("Model position");
+            depth
+                .into_iter()
+                .enumerate()
+                .flat_map(|(xy_, d)| {
+                    let xy = xy_ as u32;
+                    if d > 0 {
+                        let x_ = (xy % img_size) as f32;
+                        let y_ = (xy / img_size) as f32;
+                        let z_ = d as f32;
+                        let p_ = nalgebra::Vector4::new(x_, y_, z_, 1.0);
+                        let p = screen_to_model * p_;
+                        let red =
+                            if p[0] > 0.0 { (p[0] * 255.0) as u8 } else { 0 };
+                        let green =
+                            if p[1] > 0.0 { (p[1] * 255.0) as u8 } else { 0 };
+                        let blue =
+                            if p[2] > 0.0 { (p[2] * 255.0) as u8 } else { 0 };
+                        [red, green, blue, 255]
                     } else {
                         [0, 0, 0, 0]
                     }
