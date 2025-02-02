@@ -383,14 +383,8 @@ impl Assembler for FloatSliceAssembler {
 
             // Finalization code, which happens after all evaluation is complete
             ; ->X:
-            ; add rsp, self.0.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; vzeroall
-            ; ret
         );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 

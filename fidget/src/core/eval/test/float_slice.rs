@@ -209,7 +209,7 @@ impl<F: Function + MathFunction> TestFloatSlice<F> {
     }
 
     pub fn test_f_stress() {
-        for n in [4, 8, 12, 16, 32] {
+        for n in [4, 8, 12, 16, 32, 256, 512] {
             Self::test_f_stress_n(n);
         }
     }

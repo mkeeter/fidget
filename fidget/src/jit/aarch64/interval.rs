@@ -753,7 +753,6 @@ impl Assembler for IntervalAssembler {
     }
 
     fn finalize(mut self) -> Result<Mmap, Error> {
-        assert!(self.0.mem_offset < 4096);
         if self.0.saved_callee_regs {
             dynasm!(self.0.ops
                 // Restore callee-saved registers
@@ -762,6 +761,7 @@ impl Assembler for IntervalAssembler {
                 ; ldr x23, [sp, 0xf0]
             )
         }
+
         dynasm!(self.0.ops
             // Restore frame and link register
             ; ldp   x29, x30, [sp, 0x0]
@@ -771,14 +771,8 @@ impl Assembler for IntervalAssembler {
             ; ldp   d10, d11, [sp, 0x20]
             ; ldp   d12, d13, [sp, 0x30]
             ; ldp   d14, d15, [sp, 0x40]
-
-            // Fix up the stack
-            ; add sp, sp, self.0.mem_offset as u32
-
-            ; ret
         );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 
