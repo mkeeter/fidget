@@ -331,16 +331,18 @@ impl<T> AssemblerData<T> {
 
     #[cfg(target_arch = "aarch64")]
     fn push_stack(&mut self) {
-        if self.mem_offset < 4096 {    
+        if self.mem_offset < 4096 {
             dynasm!(self.ops
                 ; sub sp, sp, self.mem_offset as u32
             );
-        } else {
+        } else if self.mem_offset < 65536 {
             dynasm!(self.ops
                 ; mov w28, self.mem_offset as u64
                 ; sub sp, sp, w28
             );
-      }
+        } else {
+            panic!("invalid mem offset: {} is too large", self.mem_offset);
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -353,6 +355,40 @@ impl<T> AssemblerData<T> {
     fn stack_pos(&self, slot: u32) -> u32 {
         assert!(slot >= REGISTER_LIMIT as u32);
         (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn finalize(mut self) -> Result<Mmap, Error> {
+        // Fix up the stack
+        if self.mem_offset < 4096 {
+            dynasm!(self.ops
+                ; add sp, sp, self.mem_offset as u32
+            );
+        } else if self.mem_offset < 65536 {
+            dynasm!(self.ops
+                ; mov w9, self.mem_offset as u64
+                ; add sp, sp, w9
+            );
+        } else {
+            panic!("invalid mem offset: {}", self.mem_offset);
+        }
+
+        dynasm!(self.ops
+            ; ret
+        );
+        self.ops.finalize()
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn finalize(mut self) -> Result<Mmap, Error> {
+        dynasm!(self.ops
+            ; add rsp, self.mem_offset as i32
+            ; pop rbp
+            ; emms
+            ; vzeroall
+            ; ret
+        );
+        self.ops.finalize()
     }
 }
 

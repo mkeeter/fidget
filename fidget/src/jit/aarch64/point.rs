@@ -472,14 +472,8 @@ impl Assembler for PointAssembler {
             ; ldp   d10, d11, [sp, 0x20]
             ; ldp   d12, d13, [sp, 0x30]
             ; ldp   d14, d15, [sp, 0x40]
-
-            // Fix up the stack
-            ; add sp, sp, (self.0.mem_offset as u32)
-
-            ; ret
         );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 

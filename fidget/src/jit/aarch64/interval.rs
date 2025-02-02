@@ -772,24 +772,7 @@ impl Assembler for IntervalAssembler {
             ; ldp   d12, d13, [sp, 0x30]
             ; ldp   d14, d15, [sp, 0x40]
         );
-
-        // Fix up the stack
-        if self.0.mem_offset < 4096 {
-            dynasm!(self.0.ops
-                ; add sp, sp, self.0.mem_offset as u32
-            );
-        } else {
-            dynasm!(self.0.ops
-                ; mov w28, self.0.mem_offset as u64
-                ; add sp, sp, w28
-            );
-        }
-
-        dynasm!(self.0.ops
-            ; ret
-        );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 

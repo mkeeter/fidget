@@ -454,13 +454,8 @@ impl Assembler for FloatSliceAssembler {
             ; ldr x22, [sp, 0x210]
             ; ldr x23, [sp, 0x218]
             ; ldr x24, [sp, 0x220]
-
-            // Fix up the stack
-            ; add sp, sp, self.0.mem_offset as u32
-            ; ret
         );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 

@@ -482,13 +482,8 @@ impl Assembler for GradSliceAssembler {
 
             // Finalization code, which happens after all evaluation is complete
             ; -> X:
-            ; add rsp, self.0.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; ret
         );
-
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 
