@@ -2,6 +2,7 @@ use crate::options;
 
 use anyhow::Result;
 use log::info;
+use nalgebra::clamp;
 use rand::Rng;
 use std::fs::File;
 use std::io::Write;
@@ -159,6 +160,47 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     }
 
     let out = match color_mode {
+        options::ColorMode::NearestSite => {
+            let img_size = settings.size;
+            let world_to_model: nalgebra::Matrix4<f32> = mat.into();
+            let screen_to_world: nalgebra::Matrix4<f32> = cfg.mat();
+            let screen_to_model = world_to_model * screen_to_world;
+            let foo = depth
+                .into_iter()
+                .zip(color)
+                .enumerate()
+                .flat_map(|(xy_, (d, c))| {
+                    if d > 0 {
+                        let xy = xy_ as u32;
+                        let x_ = (xy % img_size) as f32;
+                        let y_ = (xy / img_size) as f32;
+                        let z_ = d as f32;
+                        let p_ = nalgebra::Vector4::new(x_, y_, z_, 1.0);
+                        let p = screen_to_model * p_;
+
+                        let gx_ = c[0] as f32 / 255.0 - 0.5;
+                        let gy_ = c[1] as f32 / 255.0 - 0.5;
+                        let gz_ = c[2] as f32 / 255.0 - 0.5;
+                        let g_ = nalgebra::Vector4::new(gx_, gy_, gz_, 0.0);
+
+                        let dir = nalgebra::Vector4::new(1.0, -1.0, 1.0, 0.0);
+                        let mut aa = dir.normalize().dot(&g_);
+                        aa = clamp(aa, 0.0, 1.0);
+                        aa = 32.0 + (255.0 - 32.0) * aa;
+
+                        [
+                            if p[0] > 0.0 { aa as u8 } else { 0 },
+                            if p[1] > 0.0 { aa as u8 } else { 0 },
+                            if p[2] > 0.0 { aa as u8 } else { 0 },
+                            255,
+                        ]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect();
+            foo
+        }
         options::ColorMode::CameraNormalMap => depth
             .into_iter()
             .zip(color)
@@ -196,8 +238,8 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .into_iter()
                 .enumerate()
                 .flat_map(|(xy_, d)| {
-                    let xy = xy_ as u32;
                     if d > 0 {
+                        let xy = xy_ as u32;
                         let x_ = (xy % img_size) as f32;
                         let y_ = (xy / img_size) as f32;
                         let z_ = d as f32;

@@ -47,6 +47,7 @@ pub enum ColorMode {
     Depth,
     CameraNormalMap,
     ModelPosition,
+    NearestSite,
 }
 
 #[derive(Subcommand)]
