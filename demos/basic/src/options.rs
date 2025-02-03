@@ -52,14 +52,14 @@ pub enum ColorMode {
 
 #[derive(Subcommand)]
 pub enum ActionCommand {
-    Sampling {
+    Sample {
         #[clap(short, long)]
         output: Option<PathBuf>,
 
-        #[clap(short, long, default_value_t = 1024)]
+        #[clap(short, long, default_value_t = 16 * 1024)]
         num_samples: u32,
 
-        #[clap(short, long, default_value_t = 32)]
+        #[clap(short, long, default_value_t = 64)]
         num_steps: u32,
     },
 

@@ -2,6 +2,7 @@ use crate::options;
 
 use anyhow::Result;
 use log::info;
+use log::warn;
 use nalgebra::clamp;
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -25,7 +26,7 @@ fn make_positions<F: fidget::eval::Function>(
     let tape = shape.point_tape(Default::default());
     let mut eval = fidget::shape::Shape::<F>::new_point_eval();
 
-    let eps = 1e-3;
+    let eps = 1e-4;
 
     for _ in 0..num_samples {
         let mut pos = nalgebra::Vector3::new(
@@ -164,7 +165,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let out = match color_mode {
         options::ColorMode::NearestSite => {
-            let sites = make_positions(shape.clone(), 128, 32);
+            let sites = make_positions(shape.clone(), 128, 16);
             let img_size = settings.size;
             let world_to_model: nalgebra::Matrix4<f32> = mat.into();
             let screen_to_world: nalgebra::Matrix4<f32> = cfg.mat();
@@ -238,6 +239,11 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                     }
                 })
                 .collect();
+            warn!(
+                "Contibuting sites {}/{}",
+                site_id_to_colors.len(),
+                sites.len()
+            );
             foo
         }
         options::ColorMode::CameraNormalMap => depth
@@ -418,7 +424,7 @@ pub fn run_action(
     use options::{ActionCommand, EvalMode};
     let mut top = Instant::now();
     match &args.action {
-        ActionCommand::Sampling {
+        ActionCommand::Sample {
             num_samples,
             num_steps,
             output,
