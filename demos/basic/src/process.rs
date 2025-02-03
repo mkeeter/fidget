@@ -26,7 +26,7 @@ fn make_positions<F: fidget::eval::Function>(
     let tape = shape.point_tape(Default::default());
     let mut eval = fidget::shape::Shape::<F>::new_point_eval();
 
-    let eps = 1e-4;
+    let eps = 1e-3;
 
     for _ in 0..num_samples {
         let mut pos = nalgebra::Vector3::new(
