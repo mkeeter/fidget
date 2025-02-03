@@ -3,7 +3,10 @@ use crate::options;
 use anyhow::Result;
 use log::info;
 use nalgebra::clamp;
+use rand::rngs::StdRng;
 use rand::Rng;
+use rand::SeedableRng;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::num::NonZero;
@@ -18,7 +21,7 @@ fn make_positions<F: fidget::eval::Function>(
     let mut positions = vec![];
 
     // simple advection
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(42);
     let tape = shape.point_tape(Default::default());
     let mut eval = fidget::shape::Shape::<F>::new_point_eval();
 
@@ -151,25 +154,30 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
-    let shape = shape.apply_transform(mat.into());
+    let shape_ = shape.clone().apply_transform(mat.into());
 
     let mut depth = vec![];
     let mut color = vec![];
     for _ in 0..num_repeats {
-        (depth, color) = cfg.run(shape.clone()).unwrap();
+        (depth, color) = cfg.run(shape_.clone()).unwrap();
     }
 
     let out = match color_mode {
         options::ColorMode::NearestSite => {
+            let sites = make_positions(shape.clone(), 128, 32);
             let img_size = settings.size;
             let world_to_model: nalgebra::Matrix4<f32> = mat.into();
             let screen_to_world: nalgebra::Matrix4<f32> = cfg.mat();
             let screen_to_model = world_to_model * screen_to_world;
+            let mut site_id_to_colors: HashMap<usize, [f32; 3]> =
+                HashMap::new();
+            // let mut rng = StdRng::seed_from_u64(42);
+            let mut rng = rand::rng();
             let foo = depth
                 .into_iter()
                 .zip(color)
                 .enumerate()
-                .flat_map(|(xy_, (d, c))| {
+                .flat_map(|(xy_, (d, c))| -> [u8; 4] {
                     if d > 0 {
                         let xy = xy_ as u32;
                         let x_ = (xy % img_size) as f32;
@@ -177,6 +185,37 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                         let z_ = d as f32;
                         let p_ = nalgebra::Vector4::new(x_, y_, z_, 1.0);
                         let p = screen_to_model * p_;
+
+                        let mut min_data: Option<(f32, usize)> = None;
+                        for (site_id, site_pos) in sites.iter().enumerate() {
+                            let pos = p.xyz();
+                            let dist = (site_pos - pos).norm();
+                            match min_data {
+                                None => {
+                                    min_data = Some((dist, site_id));
+                                }
+                                Some((dist_, _)) => {
+                                    if dist < dist_ {
+                                        min_data = Some((dist, site_id));
+                                    }
+                                }
+                            }
+                        }
+
+                        let mut color: [f32; 3] = [
+                            rng.random_range(0.0..=1.0),
+                            rng.random_range(0.0..=1.0),
+                            rng.random_range(0.0..=1.0),
+                        ];
+                        if let Some((_, site_id)) = min_data {
+                            if !site_id_to_colors.contains_key(&site_id) {
+                                site_id_to_colors.insert(site_id, color);
+                            }
+                            color = site_id_to_colors
+                                .get(&site_id)
+                                .unwrap()
+                                .clone();
+                        }
 
                         let gx_ = c[0] as f32 / 255.0 - 0.5;
                         let gy_ = c[1] as f32 / 255.0 - 0.5;
@@ -189,9 +228,9 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                         aa = 32.0 + (255.0 - 32.0) * aa;
 
                         [
-                            if p[0] > 0.0 { aa as u8 } else { 0 },
-                            if p[1] > 0.0 { aa as u8 } else { 0 },
-                            if p[2] > 0.0 { aa as u8 } else { 0 },
+                            (aa * color[0]) as u8,
+                            (aa * color[1]) as u8,
+                            (aa * color[2]) as u8,
                             255,
                         ]
                     } else {
