@@ -6,8 +6,76 @@ use rand::Rng;
 use std::fs::File;
 use std::io::Write;
 use std::num::NonZero;
+use std::path::PathBuf;
 use std::time::Instant;
 
+fn run_sample<F: fidget::eval::Function + fidget::render::RenderHints>(
+    shape: fidget::shape::Shape<F>,
+    num_samples: u32,
+    output: &Option<PathBuf>,
+) -> () {
+    let make_positions = || -> Vec<nalgebra::Vector3<f32>> {
+        let mut positions = vec![];
+
+        // simple advection
+        let mut rng = rand::rng();
+        let tape = shape.point_tape(Default::default());
+        let mut eval = fidget::shape::Shape::<F>::new_point_eval();
+
+        let eps = 1e-3;
+
+        for _ in 0..num_samples {
+            let mut pos = nalgebra::Vector3::new(
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+            );
+            for _ in 0..32 {
+                let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
+                let value_dx =
+                    eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
+                let value_dy =
+                    eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
+                let value_dz =
+                    eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
+                let grad = nalgebra::Vector3::new(
+                    (value_dx - value) / eps,
+                    (value_dy - value) / eps,
+                    (value_dz - value) / eps,
+                );
+                pos -= 0.5 * value * grad;
+            }
+            // warn!("final pos {:?} norm {}", pos, pos.norm());
+            positions.push(pos);
+        }
+
+        positions
+    };
+
+    if let Some(path) = output {
+        let initial_positions = make_positions();
+
+        let mut text = format!(
+            "ply
+format ascii 1.0
+comment Created in Blender version 4.0.2
+element vertex {}
+property float x
+property float y
+property float z
+end_header
+",
+            initial_positions.len()
+        );
+        for pos in initial_positions {
+            text = format!("{}{} {} {}\n", text, pos[0], pos[1], pos[2]);
+        }
+
+        info!("Writing PLY to {:?}", path);
+        let mut output = File::create(path).unwrap();
+        write!(output, "{}", text).ok();
+    }
+}
 fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
@@ -74,63 +142,6 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         threads,
         ..Default::default()
     };
-
-    {
-        // simple advection
-        let mut rng = rand::rng();
-        let tape = shape.point_tape(Default::default());
-        let mut eval = fidget::shape::Shape::<F>::new_point_eval();
-
-        let mut positions = vec![];
-        let eps = 1e-3;
-
-        for _ in 0..1024 {
-            let mut pos = nalgebra::Vector3::new(
-                rng.random_range(-1.0..=1.0),
-                rng.random_range(-1.0..=1.0),
-                rng.random_range(-1.0..=1.0),
-            );
-            for _ in 0..32 {
-                let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
-                let value_dx =
-                    eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
-                let value_dy =
-                    eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
-                let value_dz =
-                    eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
-                let grad = nalgebra::Vector3::new(
-                    (value_dx - value) / eps,
-                    (value_dy - value) / eps,
-                    (value_dz - value) / eps,
-                );
-                pos -= 0.5 * value * grad;
-            }
-            // warn!("final pos {:?} norm {}", pos, pos.norm());
-            positions.push(pos);
-        }
-
-        let mut text = format!(
-            "ply
-format ascii 1.0
-comment Created in Blender version 4.0.2
-element vertex {}
-property float x
-property float y
-property float z
-end_header
-",
-            positions.len()
-        );
-
-        for pos in positions {
-            text = format!("{}{} {} {}\n", text, pos[0], pos[1], pos[2]);
-        }
-
-        let path = "points.ply";
-        info!("Writing PLY to \"{}\"", path);
-        let mut output = File::create(path).unwrap();
-        write!(output, "{}", text).ok();
-    }
 
     let shape = shape.apply_transform(mat.into());
 
@@ -319,6 +330,32 @@ pub fn run_action(
     use options::{ActionCommand, EvalMode};
     let mut top = Instant::now();
     match &args.action {
+        ActionCommand::Sampling {
+            num_samples,
+            output,
+        } => {
+            match args.eval {
+                #[cfg(feature = "jit")]
+                EvalMode::Jit => {
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    info!("Built shape in {:?} (JIT)", top.elapsed());
+                    run_sample(
+                        shape,
+                        *num_samples,
+                        output,
+                    )
+                }
+                EvalMode::Vm => {
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    info!("Built shape in {:?} (VM)", top.elapsed());
+                    run_sample(
+                        shape,
+                        *num_samples,
+                        output,
+                    )
+                }
+            };
+        }
         ActionCommand::Render3d {
             settings,
             color_mode,

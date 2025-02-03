@@ -51,6 +51,14 @@ pub enum ColorMode {
 
 #[derive(Subcommand)]
 pub enum ActionCommand {
+    Sampling {
+        #[clap(short, long)]
+        output: Option<PathBuf>,
+
+        #[clap(short, long, default_value_t = 1024)]
+        num_samples: u32,
+    },
+
     Render2d {
         #[clap(flatten)]
         settings: ImageSettings,
