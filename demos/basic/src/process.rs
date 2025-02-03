@@ -9,52 +9,57 @@ use std::num::NonZero;
 use std::path::PathBuf;
 use std::time::Instant;
 
+fn make_positions<F: fidget::eval::Function>(
+    shape: fidget::shape::Shape<F>,
+    num_samples: u32,
+    num_steps: u32,
+) -> Vec<nalgebra::Vector3<f32>> {
+    let mut positions = vec![];
+
+    // simple advection
+    let mut rng = rand::rng();
+    let tape = shape.point_tape(Default::default());
+    let mut eval = fidget::shape::Shape::<F>::new_point_eval();
+
+    let eps = 1e-3;
+
+    for _ in 0..num_samples {
+        let mut pos = nalgebra::Vector3::new(
+            rng.random_range(-1.0..=1.0),
+            rng.random_range(-1.0..=1.0),
+            rng.random_range(-1.0..=1.0),
+        );
+        for _ in 0..num_steps {
+            let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
+            let value_dx =
+                eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
+            let value_dy =
+                eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
+            let value_dz =
+                eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
+            let grad = nalgebra::Vector3::new(
+                (value_dx - value) / eps,
+                (value_dy - value) / eps,
+                (value_dz - value) / eps,
+            );
+            pos -= 0.5 * value * grad;
+        }
+        // warn!("final pos {:?} norm {}", pos, pos.norm());
+        positions.push(pos);
+    }
+
+    positions
+}
+
 fn run_sample<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     num_samples: u32,
+    num_steps: u32,
     output: &Option<PathBuf>,
 ) -> () {
-    let make_positions = || -> Vec<nalgebra::Vector3<f32>> {
-        let mut positions = vec![];
-
-        // simple advection
-        let mut rng = rand::rng();
-        let tape = shape.point_tape(Default::default());
-        let mut eval = fidget::shape::Shape::<F>::new_point_eval();
-
-        let eps = 1e-3;
-
-        for _ in 0..num_samples {
-            let mut pos = nalgebra::Vector3::new(
-                rng.random_range(-1.0..=1.0),
-                rng.random_range(-1.0..=1.0),
-                rng.random_range(-1.0..=1.0),
-            );
-            for _ in 0..32 {
-                let value = eval.eval(&tape, pos[0], pos[1], pos[2]).unwrap().0;
-                let value_dx =
-                    eval.eval(&tape, pos[0] + eps, pos[1], pos[2]).unwrap().0;
-                let value_dy =
-                    eval.eval(&tape, pos[0], pos[1] + eps, pos[2]).unwrap().0;
-                let value_dz =
-                    eval.eval(&tape, pos[0], pos[1], pos[2] + eps).unwrap().0;
-                let grad = nalgebra::Vector3::new(
-                    (value_dx - value) / eps,
-                    (value_dy - value) / eps,
-                    (value_dz - value) / eps,
-                );
-                pos -= 0.5 * value * grad;
-            }
-            // warn!("final pos {:?} norm {}", pos, pos.norm());
-            positions.push(pos);
-        }
-
-        positions
-    };
+    let positions = make_positions(shape, num_samples, num_steps);
 
     if let Some(path) = output {
-        let initial_positions = make_positions();
-
         let mut text = format!(
             "ply
 format ascii 1.0
@@ -65,9 +70,10 @@ property float y
 property float z
 end_header
 ",
-            initial_positions.len()
+            positions.len(),
         );
-        for pos in initial_positions {
+
+        for pos in positions {
             text = format!("{}{} {} {}\n", text, pos[0], pos[1], pos[2]);
         }
 
@@ -76,6 +82,7 @@ end_header
         write!(output, "{}", text).ok();
     }
 }
+
 fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &options::ImageSettings,
@@ -332,6 +339,7 @@ pub fn run_action(
     match &args.action {
         ActionCommand::Sampling {
             num_samples,
+            num_steps,
             output,
         } => {
             match args.eval {
@@ -339,20 +347,12 @@ pub fn run_action(
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (JIT)", top.elapsed());
-                    run_sample(
-                        shape,
-                        *num_samples,
-                        output,
-                    )
+                    run_sample(shape, *num_samples, *num_steps, output)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?;
                     info!("Built shape in {:?} (VM)", top.elapsed());
-                    run_sample(
-                        shape,
-                        *num_samples,
-                        output,
-                    )
+                    run_sample(shape, *num_samples, *num_steps, output)
                 }
             };
         }

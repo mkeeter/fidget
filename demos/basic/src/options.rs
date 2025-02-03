@@ -57,6 +57,9 @@ pub enum ActionCommand {
 
         #[clap(short, long, default_value_t = 1024)]
         num_samples: u32,
+
+        #[clap(short, long, default_value_t = 32)]
+        num_steps: u32,
     },
 
     Render2d {
