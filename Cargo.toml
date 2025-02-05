@@ -36,7 +36,7 @@ document-features = "0.2"
 dynasmrt = { version = "2.0" }
 eframe = { version = "0.29", default-features = false, features = [ "default_fonts", "glow"] }
 env_logger = "0.11.2"
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2"
 log = "0.4"
@@ -44,12 +44,12 @@ nalgebra = { version = "0.33", features = ["serde-serialize"] }
 notify = "7.0"
 num-traits = "0.2"
 ordered-float = "4"
-rand = "0.8.5"
+rand = "0.9.0"
 rayon = "1.10"
 rhai = { version = "1.17", features = ["sync"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 static_assertions = "1"
 thiserror = "1"
-wasm-bindgen = "0.2.92"
+wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4"
 windows = { version = "0.54.0", features = ["Win32_Foundation", "Win32_System_Memory"] }
