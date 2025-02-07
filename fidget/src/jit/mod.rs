@@ -325,7 +325,7 @@ impl<T> AssemblerData<T> {
             + stack_size;
 
         // Round up to the nearest multiple of 16 bytes, for alignment
-        self.mem_offset = ((mem + 15) / 16) * 16;
+        self.mem_offset = mem.next_multiple_of(16);
         self.push_stack();
     }
 
