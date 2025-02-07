@@ -368,7 +368,7 @@ impl<const N: usize> TracingEvaluator for VmIntervalEval<N> {
                     v[out] = v[arg].ln();
                 }
                 RegOp::NotReg(out, arg) => {
-                    v[out] = if !v[arg].contains(0.0) {
+                    v[out] = if !v[arg].contains(0.0) && !v[arg].has_nan() {
                         Interval::new(0.0, 0.0)
                     } else if v[arg].lower() == 0.0 && v[arg].upper() == 0.0 {
                         Interval::new(1.0, 1.0)

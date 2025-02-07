@@ -267,6 +267,18 @@ where
             eval.eval(&tape, &[[-5.0, 0.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
+        assert_eq!(
+            eval.eval(&tape, &[[-5.0, -1.0].into()]).unwrap().0[0],
+            [0.0, 0.0].into()
+        );
+        assert_eq!(
+            eval.eval(&tape, &[[0.0, 0.0].into()]).unwrap().0[0],
+            [1.0, 1.0].into()
+        );
+        assert_eq!(
+            eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0],
+            [0.0, 1.0].into()
+        );
     }
 
     pub fn test_i_mul() {
