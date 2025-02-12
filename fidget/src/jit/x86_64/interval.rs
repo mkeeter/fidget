@@ -572,6 +572,24 @@ impl Assembler for IntervalAssembler {
         assert_ne!(reg(lhs_reg), IMM_REG);
         dynasm!(self.0.ops
             ; mov ax, [rsi] // load the choice flag
+
+            // check for NANs in RHS
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+            ; jp >N
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jnp >M
+            // otherwise, fallthrough into nan handling
+
+            // Load NAN into out_reg (TODO is this the easiest way?)
+            ; N:
+            ; or ax, CHOICE_BOTH as i16
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+            ; jmp >E
+
+            // otherwise, keep going
+            ; M:
             ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
 
             // xmm2 = !arg.contains(0.0)
@@ -596,7 +614,7 @@ impl Assembler for IntervalAssembler {
             ; vcmpeqss xmm2, xmm2, xmm1
             ; vandps xmm3, xmm2, xmm3
             ; vcomiss xmm1, xmm3
-            ; jnp >B // skip this branch
+            ; jnp >C // skip this branch
 
             // (lhs.lower == 0) && (lhs.upper == 0) -> LHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(lhs_reg))
@@ -605,22 +623,9 @@ impl Assembler for IntervalAssembler {
             ; mov [rdx], r8w
             ; jmp >E
 
-            // We have to combine the outputs
-            ; B:
-            ; or ax, CHOICE_BOTH as i16
-
-            // check for NANs in RHS
-            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
-            ; jnp >C
-
-            // Load NAN into out_reg (TODO is this the easiest way?)
-            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
-            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
-            ; jmp >E
-
-            // Normal case!
+            // Normal case, we have to combine the outputs
             ; C:
+            ; or ax, CHOICE_BOTH as i16
             ; vpshufd xmm2, Rx(reg(rhs_reg)), 0b11111101u8 as i8 // lhs.upper
             ; vmaxss xmm2, xmm2, xmm1 // xmm1 = max(rhs.upper, 0.0)
             ; vminss xmm1, Rx(reg(rhs_reg)), xmm1 // xmm1 = min(rhs.lower, 0.0)
@@ -636,6 +641,23 @@ impl Assembler for IntervalAssembler {
         assert_ne!(reg(lhs_reg), IMM_REG);
         dynasm!(self.0.ops
             ; mov ax, [rsi] // load the choice flag
+
+            // check for NANs in RHS
+            ; vcomiss Rx(reg(lhs_reg)), Rx(reg(lhs_reg))
+            ; jp >N
+            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
+            ; jnp >M
+            // otherwise, fallthrough into nan handling
+
+            // Load NAN into out_reg (TODO is this the easiest way?)
+            ; N:
+            ; or ax, CHOICE_BOTH as i16
+            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
+            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
+            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
+            ; jmp >E
+
+            ; M:
             ; vpxor xmm1, xmm1, xmm1 // xmm1 = 0.0
 
             // xmm2 = !arg.contains(0.0)
@@ -660,7 +682,7 @@ impl Assembler for IntervalAssembler {
             ; vcmpeqss xmm2, xmm2, xmm1
             ; vandps xmm3, xmm2, xmm3
             ; vcomiss xmm1, xmm3
-            ; jnp >B // skip this branch
+            ; jnp >C // skip this branch
 
             // (lhs.lower == 0) && (lhs.upper == 0) -> RHS
             ; vmovq Rx(reg(out_reg)), Rx(reg(rhs_reg))
@@ -669,22 +691,9 @@ impl Assembler for IntervalAssembler {
             ; mov [rdx], r8w
             ; jmp >E
 
-            // We have to combine the outputs
-            ; B:
-            ; or ax, CHOICE_BOTH as i16
-
-            // check for NANs in RHS
-            ; vcomiss Rx(reg(rhs_reg)), Rx(reg(rhs_reg))
-            ; jnp >C
-
-            // Load NAN into out_reg (TODO is this the easiest way?)
-            ; vpcmpeqw Rx(reg(out_reg)), Rx(reg(out_reg)), Rx(reg(out_reg))
-            ; vpslld Rx(reg(out_reg)), Rx(reg(out_reg)), 23
-            ; vpsrld Rx(reg(out_reg)), Rx(reg(out_reg)), 1
-            ; jmp >E
-
-            // Normal case!
+            // Normal case, combining the outputs
             ; C:
+            ; or ax, CHOICE_BOTH as i16
             ; vpshufd xmm2, Rx(reg(lhs_reg)), 0b11111101u8 as i8 // lhs.upper
             ; vpshufd xmm1, Rx(reg(rhs_reg)), 0b11111101u8 as i8 // rhs.upper
             ; vmaxss xmm1, xmm1, xmm2 // xmm1 = max(lhs.upper, rhs.upper)
