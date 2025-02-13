@@ -44,6 +44,14 @@ enum Command {
         #[clap(long)]
         color: bool,
 
+        /// Rotation about the Y axis (in degrees)
+        #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        pitch: f32,
+
+        /// Rotation about the X axis (in degrees)
+        #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        yaw: f32,
+
         /// Render using an isometric perspective
         #[clap(long)]
         isometric: bool,
@@ -83,6 +91,10 @@ struct ImageSettings {
     /// Image size
     #[clap(short, long, default_value_t = 128)]
     size: u32,
+
+    /// Scale applied to the model before rendering
+    #[clap(long, default_value_t = 1.0)]
+    scale: f32,
 }
 
 #[derive(Parser)]
@@ -294,15 +306,20 @@ fn main() -> Result<()> {
             sdf,
         } => {
             let start = Instant::now();
+            let s = 1.0 / settings.scale;
+            let scale = nalgebra::Scale3::new(s, s, s);
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?
+                        .apply_transform(scale.into());
+
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?
+                        .apply_transform(scale.into());
                     info!("Built shape in {:?}", start.elapsed());
                     run2d(shape, &settings, brute, sdf)
                 }
@@ -329,17 +346,34 @@ fn main() -> Result<()> {
             settings,
             color,
             isometric,
+            pitch,
+            yaw,
         } => {
             let start = Instant::now();
+            let s = 1.0 / settings.scale;
+            let scale = nalgebra::Scale3::new(s, s, s);
+            let pitch = nalgebra::Rotation3::new(
+                nalgebra::Vector3::x() * pitch * std::f32::consts::PI / 180.0,
+            );
+            let yaw = nalgebra::Rotation3::new(
+                nalgebra::Vector3::y() * yaw * std::f32::consts::PI / 180.0,
+            );
+
+            let t = yaw.to_homogeneous()
+                * pitch.to_homogeneous()
+                * scale.to_homogeneous();
+
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
-                    let shape = fidget::jit::JitShape::new(&ctx, root)?;
+                    let shape = fidget::jit::JitShape::new(&ctx, root)?
+                        .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
                 EvalMode::Vm => {
-                    let shape = fidget::vm::VmShape::new(&ctx, root)?;
+                    let shape = fidget::vm::VmShape::new(&ctx, root)?
+                        .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
                     run3d(shape, &settings, isometric, color)
                 }
