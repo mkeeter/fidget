@@ -235,7 +235,9 @@ impl Interval {
     /// always selected.  An unambiguous 0 in `self` selects itself; an
     /// unambiguous 1 selects the opposite branch.
     pub fn and_choice(self, rhs: Self) -> (Self, Choice) {
-        if self.lower == 0.0 && self.upper == 0.0 {
+        if self.has_nan() || rhs.has_nan() {
+            (f32::NAN.into(), Choice::Both)
+        } else if self.lower == 0.0 && self.upper == 0.0 {
             (0.0.into(), Choice::Left)
         } else if !self.contains(0.0) {
             (rhs, Choice::Right)
@@ -243,11 +245,7 @@ impl Interval {
             // The output will either be the RHS or zero, so extend the interval
             // to include zero in it.
             (
-                if rhs.has_nan() {
-                    f32::NAN.into()
-                } else {
-                    Interval::new(rhs.lower.min(0.0), rhs.upper.max(0.0))
-                },
+                Interval::new(rhs.lower.min(0.0), rhs.upper.max(0.0)),
                 Choice::Both,
             )
         }
@@ -259,21 +257,19 @@ impl Interval {
     /// always selected.  An unambiguous 0 in `self` selects the opposite
     /// branch; an unambiguous 1 selects itself.
     pub fn or_choice(self, rhs: Self) -> (Self, Choice) {
-        if !self.contains(0.0) {
+        if self.has_nan() || rhs.has_nan() {
+            (f32::NAN.into(), Choice::Both)
+        } else if !self.contains(0.0) {
             (self, Choice::Left)
         } else if self.lower == 0.0 && self.upper == 0.0 {
             (rhs, Choice::Right)
         } else {
             // The output could be anywhere in either interval
             (
-                if rhs.has_nan() {
-                    f32::NAN.into()
-                } else {
-                    Interval::new(
-                        self.lower.min(rhs.lower),
-                        self.upper.max(rhs.upper),
-                    )
-                },
+                Interval::new(
+                    self.lower.min(rhs.lower),
+                    self.upper.max(rhs.upper),
+                ),
                 Choice::Both,
             )
         }
