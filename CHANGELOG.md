@@ -11,6 +11,7 @@
   was cancelled.
 - Fix inconsistency between JIT and VM evaluator when performing interval
   evaluation of `not([NAN, NAN])`.
+- Propagate `NAN` values through `and` and `or` operations on intervals.
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
