@@ -21,4 +21,4 @@ let rescale = manhattan / radius;
 let blend = 1.0; // adjust the sphere-ness of the sponge
 let r = (rescale * blend) + (1.0 - blend);
 
-draw(sponge.remap_xyz(x / r, y / r, z / r));
+draw(intersection(sponge, x + y + z - 2))

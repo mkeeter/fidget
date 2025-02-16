@@ -4,7 +4,7 @@ use crate::{
     eval::Function,
     render::{
         config::{ImageRenderConfig, Tile},
-        RenderWorker, TileSizes,
+        Image, RenderWorker, TileSizes,
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Interval,
@@ -223,16 +223,16 @@ struct Worker<'a, F: Function, M: RenderMode> {
     /// Tile being rendered
     ///
     /// This is a root tile, i.e. width and height of `config.tile_sizes[0]`
-    image: Vec<M::Output>,
+    image: Image<M::Output>,
 }
 
 impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
     type Config = ImageRenderConfig<'a>;
-    type Output = Vec<M::Output>;
+    type Output = Image<M::Output>;
     fn new(cfg: &'a Self::Config) -> Self {
         Worker::<F, M> {
             scratch: Scratch::new(cfg.tile_sizes.last().pow(2)),
-            image: vec![],
+            image: Image::default(),
             tile_sizes: &cfg.tile_sizes,
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),
@@ -248,7 +248,7 @@ impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
         vars: &ShapeVars<f32>,
         tile: super::config::Tile<2>,
     ) -> Self::Output {
-        self.image = vec![M::Output::default(); self.tile_sizes[0].pow(2)];
+        self.image = Image::new(self.tile_sizes[0], self.tile_sizes[0]);
         self.render_tile_recurse(shape, vars, 0, tile);
         std::mem::take(&mut self.image)
     }
@@ -406,7 +406,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &ImageRenderConfig,
-) -> Option<Vec<M::Output>> {
+) -> Option<Image<M::Output>> {
     // Convert to a 4x4 matrix and apply to the shape
     let mat = config.mat();
     let mat = mat.insert_row(2, 0.0);
@@ -417,7 +417,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image = vec![M::Output::default(); width * height];
+    let mut image = Image::new(width, height);
     for (tile, data) in tiles.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
@@ -425,7 +425,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
             for i in 0..config.tile_sizes[0] {
                 let x = i + tile.corner.x;
                 if y < height && x < width {
-                    image[y * width + x] = data[index];
+                    image[(y, x)] = data[index];
                 }
                 index += 1;
             }

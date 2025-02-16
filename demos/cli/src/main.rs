@@ -269,7 +269,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             ..Default::default()
         };
         if sdf {
-            let mut image = vec![];
+            let mut image = fidget::render::Image::default();
             for _ in 0..settings.n {
                 image = cfg
                     .run::<_, fidget::render::SdfRenderMode>(shape.clone())
@@ -280,7 +280,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
                 .collect()
         } else {
-            let mut image = vec![];
+            let mut image = fidget::render::Image::default();
             for _ in 0..settings.n {
                 image = cfg
                     .run::<_, fidget::render::DebugRenderMode>(shape.clone())

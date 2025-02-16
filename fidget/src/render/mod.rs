@@ -386,3 +386,127 @@ pub(crate) trait RenderWorker<'a, F: Function> {
         tile: config::Tile<2>,
     ) -> Self::Output;
 }
+
+/// Generic image type
+pub struct Image<P> {
+    data: Vec<P>,
+    width: usize, // XXX use ImageSize instead?
+    height: usize,
+}
+
+impl<P: Default + Clone> Image<P> {
+    /// Builds a new image filled with `P::default()`
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            data: vec![P::default(); width * height],
+            width,
+            height,
+        }
+    }
+}
+
+impl<P> Default for Image<P> {
+    fn default() -> Self {
+        Image {
+            data: vec![],
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
+impl<P> Image<P> {
+    /// Returns the image width
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Returns the image height
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Checks a `(row, column)` position
+    ///
+    /// Returns the input position in the 1D array if valid; panics otherwise
+    fn decode_position(&self, pos: (usize, usize)) -> usize {
+        let (row, col) = pos;
+        assert!(
+            row < self.height,
+            "row ({row}) must be less than image height ({})",
+            self.height
+        );
+        assert!(
+            col < self.width,
+            "column ({row}) must be less than image width ({})",
+            self.width
+        );
+        row * self.width + col
+    }
+
+    /// Iterates over pixel values
+    pub fn iter(&self) -> impl Iterator<Item = &P> + '_ {
+        self.data.iter()
+    }
+}
+
+impl<'a, P: 'a> IntoIterator for &'a Image<P> {
+    type Item = &'a P;
+    type IntoIter = std::slice::Iter<'a, P>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
+}
+
+impl<P> std::ops::Index<usize> for Image<P> {
+    type Output = P;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
+    }
+}
+
+impl<P> std::ops::IndexMut<usize> for Image<P> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.data[index]
+    }
+}
+
+macro_rules! define_image_index {
+    ($ty:ty) => {
+        impl<P> std::ops::Index<$ty> for Image<P> {
+            type Output = [P];
+            fn index(&self, index: $ty) -> &Self::Output {
+                &self.data[index]
+            }
+        }
+
+        impl<P> std::ops::IndexMut<$ty> for Image<P> {
+            fn index_mut(&mut self, index: $ty) -> &mut Self::Output {
+                &mut self.data[index]
+            }
+        }
+    };
+}
+
+define_image_index!(std::ops::Range<usize>);
+define_image_index!(std::ops::RangeTo<usize>);
+define_image_index!(std::ops::RangeFrom<usize>);
+define_image_index!(std::ops::RangeInclusive<usize>);
+define_image_index!(std::ops::RangeToInclusive<usize>);
+define_image_index!(std::ops::RangeFull);
+
+/// Indexes an image with `(row, col)`
+impl<P> std::ops::Index<(usize, usize)> for Image<P> {
+    type Output = P;
+    fn index(&self, pos: (usize, usize)) -> &Self::Output {
+        let index = self.decode_position(pos);
+        &self.data[index]
+    }
+}
+
+impl<P> std::ops::IndexMut<(usize, usize)> for Image<P> {
+    fn index_mut(&mut self, pos: (usize, usize)) -> &mut Self::Output {
+        let index = self.decode_position(pos);
+        &mut self.data[index]
+    }
+}
