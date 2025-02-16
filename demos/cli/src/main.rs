@@ -1,13 +1,14 @@
+use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{bail, Context as _, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
-use fidget::context::Context;
+use fidget::context::{Context, Node};
 
 /// Simple test program
 #[derive(Parser)]
@@ -15,10 +16,6 @@ use fidget::context::Context;
 struct Args {
     #[clap(subcommand)]
     cmd: Command,
-
-    /// Input file
-    #[clap(short, long)]
-    input: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -72,6 +69,9 @@ enum EvalMode {
 
 #[derive(Parser)]
 struct ImageSettings {
+    #[clap(flatten)]
+    script: ScriptSettings,
+
     /// Name of a `.png` file to write
     #[clap(short, long)]
     out: Option<PathBuf>,
@@ -99,6 +99,9 @@ struct ImageSettings {
 
 #[derive(Parser)]
 struct MeshSettings {
+    #[clap(flatten)]
+    script: ScriptSettings,
+
     /// Octree depth
     #[clap(short, long)]
     depth: u8,
@@ -118,6 +121,28 @@ struct MeshSettings {
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
     n: usize,
+}
+
+#[derive(Parser)]
+struct ScriptSettings {
+    /// Input file
+    #[clap(short, long)]
+    input: PathBuf,
+
+    /// Input file type
+    #[clap(short, long, default_value_t, value_enum)]
+    r#type: ScriptType,
+}
+
+#[derive(clap::ValueEnum, Copy, Clone, Default, Debug)]
+enum ScriptType {
+    /// Select based on file extension
+    #[default]
+    Auto,
+    /// Rhai script
+    Rhai,
+    /// Raw VM instructions
+    Vm,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -289,15 +314,53 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     mesh
 }
 
+fn load_script(settings: &ScriptSettings) -> Result<(Context, Node)> {
+    let now = Instant::now();
+    let mut file = std::fs::File::open(&settings.input)?;
+    let ty = match settings.r#type {
+        ScriptType::Auto => {
+            let ext = settings
+                .input
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_ascii_lowercase());
+            match ext.as_deref() {
+                Some("rhai") => ScriptType::Rhai,
+                Some("vm") => ScriptType::Vm,
+                Some(s) => {
+                    bail!("Unknown extension '{s}', should be '.rhai' or '.vm'")
+                }
+                None => bail!("cannot detect script type without extension"),
+            }
+        }
+        s => s,
+    };
+    let (ctx, root) = match ty {
+        ScriptType::Vm => Context::from_text(&mut file)?,
+        ScriptType::Rhai => {
+            let mut engine = fidget::rhai::Engine::new();
+            let mut script = String::new();
+            file.read_to_string(&mut script)
+                .context("failed to read script to string")?;
+            let out = engine.run(&script)?;
+            if out.shapes.len() > 1 {
+                bail!("can only render 1 shape");
+            }
+            let mut ctx = Context::new();
+            let node = ctx.import(&out.shapes[0].tree);
+            (ctx, node)
+        }
+        ScriptType::Auto => unreachable!(),
+    };
+    info!("Loaded file in {:?}", now.elapsed());
+    Ok((ctx, root))
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
 
-    let now = Instant::now();
     let args = Args::parse();
-    let mut file = std::fs::File::open(&args.input)?;
-    let (ctx, root) = Context::from_text(&mut file)?;
-    info!("Loaded file in {:?}", now.elapsed());
 
     match args.cmd {
         Command::Render2d {
@@ -305,6 +368,7 @@ fn main() -> Result<()> {
             brute,
             sdf,
         } => {
+            let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
             let scale = nalgebra::Scale3::new(s, s, s);
@@ -349,6 +413,7 @@ fn main() -> Result<()> {
             pitch,
             yaw,
         } => {
+            let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
             let scale = nalgebra::Scale3::new(s, s, s);
@@ -398,6 +463,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Mesh { settings } => {
+            let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let mesh = match settings.eval {
                 #[cfg(feature = "jit")]
