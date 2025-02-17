@@ -130,7 +130,7 @@ struct ScriptSettings {
     input: PathBuf,
 
     /// Input file type
-    #[clap(short, long, default_value_t, value_enum)]
+    #[clap(long, default_value_t, value_enum)]
     r#type: ScriptType,
 }
 
