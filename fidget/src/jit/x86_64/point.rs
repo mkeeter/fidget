@@ -419,13 +419,7 @@ impl Assembler for PointAssembler {
                 ; mov r15, [rbp - 0x20]
             );
         }
-        dynasm!(self.0.ops
-            ; add rsp, self.0.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; ret
-        );
-        self.0.ops.finalize()
+        self.0.finalize()
     }
 }
 

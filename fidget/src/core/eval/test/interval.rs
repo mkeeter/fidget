@@ -267,6 +267,18 @@ where
             eval.eval(&tape, &[[-5.0, 0.0].into()]).unwrap().0[0],
             [0.0, 1.0].into()
         );
+        assert_eq!(
+            eval.eval(&tape, &[[-5.0, -1.0].into()]).unwrap().0[0],
+            [0.0, 0.0].into()
+        );
+        assert_eq!(
+            eval.eval(&tape, &[[0.0, 0.0].into()]).unwrap().0[0],
+            [1.0, 1.0].into()
+        );
+        assert_eq!(
+            eval.eval(&tape, &[[f32::NAN; 2].into()]).unwrap().0[0],
+            [0.0, 1.0].into()
+        );
     }
 
     pub fn test_i_mul() {
@@ -621,6 +633,24 @@ where
             eval.eval(&tape, &vs([-0.2, 1.3], [1.0, 3.0])).unwrap();
         assert_eq!(r[0], [0.0, 3.0].into());
         assert!(trace.is_none()); // can't simplify
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([f32::NAN; 2], [f32::NAN; 2])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
+        assert!(trace.is_none());
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
+        assert!(trace.is_none());
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
+        assert!(trace.is_none());
     }
 
     pub fn test_i_or() {
@@ -651,6 +681,24 @@ where
         let (r, trace) =
             eval.eval(&tape, &vs([-0.2, 1.3], [1.0, 3.0])).unwrap();
         assert_eq!(r[0], [-0.2, 3.0].into());
+        assert!(trace.is_none());
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([f32::NAN; 2], [f32::NAN; 2])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
+        assert!(trace.is_none());
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([f32::NAN; 2], [0.0, 1.0])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
+        assert!(trace.is_none());
+
+        let (r, trace) =
+            eval.eval(&tape, &vs([0.0, 1.0], [f32::NAN; 2])).unwrap();
+        assert!(r[0].lower().is_nan());
+        assert!(r[0].upper().is_nan());
         assert!(trace.is_none());
     }
 
