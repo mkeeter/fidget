@@ -1,7 +1,8 @@
 use crate::{
     eval::Function,
     render::{
-        ImageSize, RenderConfig, RenderMode, TileSizes, View2, View3, VoxelSize,
+        DepthImage, Image, ImageSize, NormalImage, RenderConfig, RenderMode,
+        TileSizes, View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -128,7 +129,7 @@ impl ImageRenderConfig<'_> {
     pub fn run<F: Function, M: RenderMode + Sync>(
         &self,
         shape: Shape<F>,
-    ) -> Option<Vec<<M as RenderMode>::Output>> {
+    ) -> Option<Image<<M as RenderMode>::Output>> {
         self.run_with_vars::<F, M>(shape, &ShapeVars::new())
     }
 
@@ -137,7 +138,7 @@ impl ImageRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<Vec<<M as RenderMode>::Output>> {
+    ) -> Option<Image<<M as RenderMode>::Output>> {
         crate::render::render2d::<F, M>(shape, vars, self)
     }
 
@@ -215,7 +216,7 @@ impl VoxelRenderConfig<'_> {
     pub fn run<F: Function>(
         &self,
         shape: Shape<F>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    ) -> Option<(DepthImage, NormalImage)> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -224,7 +225,7 @@ impl VoxelRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    ) -> Option<(DepthImage, NormalImage)> {
         crate::render::render3d::<F>(shape, vars, self)
     }
 

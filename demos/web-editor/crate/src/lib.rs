@@ -1,9 +1,9 @@
 use fidget::{
     context::{Context, Tree},
     render::{
-        BitRenderMode, CancelToken, ImageRenderConfig, ImageSize, RotateHandle,
-        ThreadPool, TileSizes, TranslateHandle, View2, View3,
-        VoxelRenderConfig, VoxelSize,
+        BitRenderMode, CancelToken, DepthImage, ImageRenderConfig, ImageSize,
+        NormalImage, RotateHandle, ThreadPool, TileSizes, TranslateHandle,
+        View2, View3, VoxelRenderConfig, VoxelSize,
     },
     var::Var,
     vm::{VmData, VmShape},
@@ -120,6 +120,7 @@ pub fn render_normals(
 
     // Convert into an image
     Ok(norm
+        .to_color()
         .into_iter()
         .flat_map(|[r, g, b]| [r, g, b, 255])
         .collect())
@@ -130,7 +131,7 @@ fn render_3d_inner(
     image_size: usize,
     view: View3,
     cancel: CancelToken,
-) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+) -> Option<(DepthImage, NormalImage)> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
         threads: Some(ThreadPool::Global),

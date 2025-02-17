@@ -12,6 +12,11 @@
 - Fix inconsistency between JIT and VM evaluator when performing interval
   evaluation of `not([NAN, NAN])`.
 - Propagate `NAN` values through `and` and `or` operations on intervals.
+- Add a new `Image<P>` generic image type (wrapping a `Vec<P>`, `width`, and
+  `height`).
+    - Define `DepthImage`, `NormalImage`, and `ColorImage` specializations
+    - Use these types in 2D and 3D rendering
+- Remove `Grad::to_rgb` in favor of handling it at the image level
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function

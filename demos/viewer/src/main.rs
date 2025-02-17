@@ -223,9 +223,10 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 view: *view,
                 ..Default::default()
             };
-            let (depth, color) = config.run(shape).unwrap();
+            let (depth, norm) = config.run(shape).unwrap();
             match mode {
                 Mode3D::Color => {
+                    let color = norm.to_color();
                     for (p, (&d, &c)) in
                         pixels.iter_mut().zip(depth.iter().zip(&color))
                     {
