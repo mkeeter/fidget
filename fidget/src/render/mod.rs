@@ -388,6 +388,18 @@ pub(crate) trait RenderWorker<'a, F: Function> {
 }
 
 /// Generic image type
+///
+/// The image is laid out in row-major order, and can be indexed either by a
+/// `usize` index or a `(row, column)` tuple.
+///
+/// ```text
+///        0 ------------> width (columns)
+///        |             |
+///        |             |
+///        |             |
+///        V--------------
+///   height (rows)
+/// ```
 pub struct Image<P> {
     data: Vec<P>,
     width: usize, // XXX use ImageSize instead?
