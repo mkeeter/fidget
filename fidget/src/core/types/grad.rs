@@ -37,21 +37,6 @@ impl Grad {
         }
     }
 
-    /// Returns a normalized RGB color, or `None` if the gradient is 0
-    pub fn to_rgb(&self) -> Option<[u8; 3]> {
-        let s = (self.dx.powi(2) + self.dy.powi(2) + self.dz.powi(2)).sqrt();
-        if s != 0.0 {
-            let scale = u8::MAX as f32 / s;
-            Some([
-                (self.dx.abs() * scale) as u8,
-                (self.dy.abs() * scale) as u8,
-                (self.dz.abs() * scale) as u8,
-            ])
-        } else {
-            None
-        }
-    }
-
     /// Absolute value
     pub fn abs(self) -> Self {
         if self.v < 0.0 {

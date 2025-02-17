@@ -448,6 +448,16 @@ impl<P> Image<P> {
     pub fn iter(&self) -> impl Iterator<Item = &P> + '_ {
         self.data.iter()
     }
+
+    /// Returns the number of pixels in the image
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Checks whether the image is empty
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
 }
 
 impl<'a, P: 'a> IntoIterator for &'a Image<P> {
@@ -455,6 +465,14 @@ impl<'a, P: 'a> IntoIterator for &'a Image<P> {
     type IntoIter = std::slice::Iter<'a, P>;
     fn into_iter(self) -> Self::IntoIter {
         self.data.iter()
+    }
+}
+
+impl<P> IntoIterator for Image<P> {
+    type Item = P;
+    type IntoIter = std::vec::IntoIter<P>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
     }
 }
 
@@ -510,3 +528,38 @@ impl<P> std::ops::IndexMut<(usize, usize)> for Image<P> {
         &mut self.data[index]
     }
 }
+
+/// Single-channel depth image
+pub type DepthImage = Image<u32>;
+
+/// Three-channel normal image
+pub type NormalImage = Image<[f32; 3]>;
+
+impl NormalImage {
+    /// Converts from floating-point normals to RGB colors
+    pub fn to_color(&self) -> ColorImage {
+        let mut data = Vec::with_capacity(self.width * self.height);
+        for [dx, dy, dz] in self.data.iter() {
+            let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
+            let rgb = if s != 0.0 {
+                let scale = u8::MAX as f32 / s;
+                [
+                    (dx.abs() * scale) as u8,
+                    (dy.abs() * scale) as u8,
+                    (dz.abs() * scale) as u8,
+                ]
+            } else {
+                [0; 3]
+            };
+            data.push(rgb);
+        }
+        ColorImage {
+            data,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
+/// Three-channel color image
+pub type ColorImage = Image<[u8; 3]>;

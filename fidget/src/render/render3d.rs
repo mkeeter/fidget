@@ -4,7 +4,7 @@ use crate::{
     eval::Function,
     render::{
         config::{Tile, VoxelRenderConfig},
-        RenderWorker, TileSizes, VoxelSize,
+        DepthImage, NormalImage, RenderWorker, TileSizes, VoxelSize,
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
@@ -64,21 +64,21 @@ struct Worker<'a, F: Function> {
     workspace: F::Workspace,
 
     /// Output images for this specific tile
-    depth: Vec<u32>,
-    color: Vec<[u8; 3]>,
+    depth: DepthImage,
+    color: NormalImage,
 }
 
 impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = VoxelRenderConfig<'a>;
-    type Output = (Vec<u32>, Vec<[u8; 3]>);
+    type Output = (DepthImage, NormalImage);
 
     fn new(cfg: &'a Self::Config) -> Self {
         let buf_size = cfg.tile_sizes.last();
         let scratch = Scratch::new(buf_size);
         Worker {
             scratch,
-            depth: vec![],
-            color: vec![],
+            depth: Default::default(),
+            color: Default::default(),
             tile_sizes: &cfg.tile_sizes,
             image_size: cfg.image_size,
 
@@ -99,9 +99,9 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
         tile: super::config::Tile<2>,
     ) -> Self::Output {
         // Prepare local tile data to fill out
-        self.depth = vec![0; self.tile_sizes[0].pow(2)];
-        self.color = vec![[0u8; 3]; self.tile_sizes[0].pow(2)];
         let root_tile_size = self.tile_sizes[0];
+        self.depth = DepthImage::new(root_tile_size, root_tile_size);
+        self.color = NormalImage::new(root_tile_size, root_tile_size);
         for k in (0..self.image_size[2].div_ceil(root_tile_size as u32)).rev() {
             let tile = Tile::new(Point3::new(
                 tile.corner.x,
@@ -325,7 +325,8 @@ impl<F: Function> Worker<'_, F> {
                 .unwrap();
 
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
-                self.color[*o] = out[index].to_rgb().unwrap_or([255, 0, 0]);
+                let g = out[index];
+                self.color[*o] = [g.dx, g.dy, g.dz];
             }
         }
     }
@@ -349,15 +350,15 @@ pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
-) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+) -> Option<(DepthImage, NormalImage)> {
     let shape = shape.apply_transform(config.mat());
 
     let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image_depth = vec![0; width * height];
-    let mut image_color = vec![[0; 3]; width * height];
+    let mut image_depth = DepthImage::new(width, height);
+    let mut image_color = NormalImage::new(width, height);
     for (tile, (depth, color)) in tiles {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {

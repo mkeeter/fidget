@@ -232,7 +232,7 @@ impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
     fn new(cfg: &'a Self::Config) -> Self {
         Worker::<F, M> {
             scratch: Scratch::new(cfg.tile_sizes.last().pow(2)),
-            image: Image::default(),
+            image: Default::default(),
             tile_sizes: &cfg.tile_sizes,
             eval_float_slice: Default::default(),
             eval_interval: Default::default(),

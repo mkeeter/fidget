@@ -1,8 +1,8 @@
 use crate::{
     eval::Function,
     render::{
-        Image, ImageSize, RenderConfig, RenderMode, TileSizes, View2, View3,
-        VoxelSize,
+        DepthImage, Image, ImageSize, NormalImage, RenderConfig, RenderMode,
+        TileSizes, View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -216,7 +216,7 @@ impl VoxelRenderConfig<'_> {
     pub fn run<F: Function>(
         &self,
         shape: Shape<F>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    ) -> Option<(DepthImage, NormalImage)> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -225,7 +225,7 @@ impl VoxelRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<(Vec<u32>, Vec<[u8; 3]>)> {
+    ) -> Option<(DepthImage, NormalImage)> {
         crate::render::render3d::<F>(shape, vars, self)
     }
 

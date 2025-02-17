@@ -178,13 +178,14 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     };
     let shape = shape.apply_transform(mat.into());
 
-    let mut depth = vec![];
-    let mut color = vec![];
+    let mut depth = Default::default();
+    let mut norm = Default::default();
     for _ in 0..settings.n {
-        (depth, color) = cfg.run(shape.clone()).unwrap();
+        (depth, norm) = cfg.run(shape.clone()).unwrap();
     }
 
     let out = if mode_color {
+        let color = norm.to_color();
         depth
             .into_iter()
             .zip(color)
