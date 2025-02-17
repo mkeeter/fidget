@@ -17,6 +17,7 @@
     - Define `DepthImage`, `NormalImage`, and `ColorImage` specializations
     - Use these types in 2D and 3D rendering
 - Remove `Grad::to_rgb` in favor of handling it at the image level
+- Add `fidget::render::effects` module for post-processing rendered images
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function

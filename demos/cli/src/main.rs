@@ -38,8 +38,8 @@ enum Command {
         settings: ImageSettings,
 
         /// Render in color
-        #[clap(long)]
-        color: bool,
+        #[clap(long, value_enum, default_value_t)]
+        mode: RenderMode,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -59,12 +59,24 @@ enum Command {
     },
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Default, Clone)]
 enum EvalMode {
+    #[default]
     Vm,
 
     #[cfg(feature = "jit")]
     Jit,
+}
+
+#[derive(ValueEnum, Default, Clone)]
+enum RenderMode {
+    /// Pixels are colored based on height
+    #[default]
+    Heightmap,
+    /// Pixels are colored based on normals
+    Normals,
+    /// Pixels are shaded
+    Shaded,
 }
 
 #[derive(Parser)]
@@ -77,7 +89,7 @@ struct ImageSettings {
     out: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t)]
     eval: EvalMode,
 
     /// Number of threads to use
@@ -111,7 +123,7 @@ struct MeshSettings {
     out: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t)]
     eval: EvalMode,
 
     /// Number of threads to use
@@ -150,7 +162,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     isometric: bool,
-    mode_color: bool,
+    mode: RenderMode,
 ) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
     if !isometric {
@@ -184,32 +196,49 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         (depth, norm) = cfg.run(shape.clone()).unwrap();
     }
 
-    let out = if mode_color {
-        let color = norm.to_color();
-        depth
-            .into_iter()
-            .zip(color)
-            .flat_map(|(d, p)| {
-                if d > 0 {
-                    [p[0], p[1], p[2], 255]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
-    } else {
-        let z_max = depth.iter().max().cloned().unwrap_or(1);
-        depth
-            .into_iter()
-            .flat_map(|p| {
-                if p > 0 {
-                    let z = (p * 255 / z_max) as u8;
-                    [z, z, z, 255]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
+    let out = match mode {
+        RenderMode::Normals => {
+            let color = norm.to_color();
+            depth
+                .into_iter()
+                .zip(color)
+                .flat_map(|(d, p)| {
+                    if d > 0 {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode::Shaded => {
+            let color = fidget::render::effects::apply_shading(&depth, &norm);
+            depth
+                .into_iter()
+                .zip(color)
+                .flat_map(|(d, p)| {
+                    if d > 0 {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode::Heightmap => {
+            let z_max = depth.iter().max().cloned().unwrap_or(1);
+            depth
+                .into_iter()
+                .flat_map(|p| {
+                    if p > 0 {
+                        let z = (p * 255 / z_max) as u8;
+                        [z, z, z, 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
     };
 
     out
@@ -409,7 +438,7 @@ fn main() -> Result<()> {
         }
         Command::Render3d {
             settings,
-            color,
+            mode,
             isometric,
             pitch,
             yaw,
@@ -435,13 +464,13 @@ fn main() -> Result<()> {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+                    run3d(shape, &settings, isometric, mode)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+                    run3d(shape, &settings, isometric, mode)
                 }
             };
             info!(
