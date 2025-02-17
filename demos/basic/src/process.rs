@@ -226,7 +226,7 @@ fn run_render_3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                         let dir = nalgebra::Vector4::new(1.0, -1.0, 1.0, 0.0);
                         let mut aa = dir.normalize().dot(&g_);
                         aa = clamp(aa, 0.0, 1.0);
-                        aa = 32.0 + (255.0 - 32.0) * aa;
+                        aa = 64.0 + (255.0 - 64.0) * aa;
 
                         [
                             (aa * color[0]) as u8,
