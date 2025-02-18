@@ -9,6 +9,8 @@ use crate::{
 };
 use nalgebra::Point2;
 
+pub mod effects;
+
 mod config;
 mod region;
 mod render2d;

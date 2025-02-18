@@ -38,8 +38,8 @@ enum Command {
         settings: ImageSettings,
 
         /// Render in color
-        #[clap(long)]
-        color: bool,
+        #[clap(long, value_enum, default_value_t)]
+        mode: RenderMode,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -48,6 +48,10 @@ enum Command {
         /// Rotation about the X axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
         yaw: f32,
+
+        /// Rotation about the Z axis (in degrees)
+        #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        roll: f32,
 
         /// Render using an isometric perspective
         #[clap(long)]
@@ -59,12 +63,24 @@ enum Command {
     },
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Default, Clone)]
 enum EvalMode {
+    #[default]
     Vm,
 
     #[cfg(feature = "jit")]
     Jit,
+}
+
+#[derive(ValueEnum, Default, Clone)]
+enum RenderMode {
+    /// Pixels are colored based on height
+    #[default]
+    Heightmap,
+    /// Pixels are colored based on normals
+    Normals,
+    /// Pixels are shaded
+    Shaded,
 }
 
 #[derive(Parser)]
@@ -77,7 +93,7 @@ struct ImageSettings {
     out: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t)]
     eval: EvalMode,
 
     /// Number of threads to use
@@ -111,7 +127,7 @@ struct MeshSettings {
     out: Option<PathBuf>,
 
     /// Evaluator flavor
-    #[clap(short, long, value_enum, default_value_t = EvalMode::Vm)]
+    #[clap(short, long, value_enum, default_value_t)]
     eval: EvalMode,
 
     /// Number of threads to use
@@ -150,7 +166,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
     isometric: bool,
-    mode_color: bool,
+    mode: RenderMode,
 ) -> Vec<u8> {
     let mut mat = nalgebra::Transform3::identity();
     if !isometric {
@@ -180,37 +196,63 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let mut depth = Default::default();
     let mut norm = Default::default();
+
+    let start = std::time::Instant::now();
     for _ in 0..settings.n {
         (depth, norm) = cfg.run(shape.clone()).unwrap();
     }
+    info!(
+        "Rendered {}x at {:?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
 
-    let out = if mode_color {
-        let color = norm.to_color();
-        depth
-            .into_iter()
-            .zip(color)
-            .flat_map(|(d, p)| {
-                if d > 0 {
-                    [p[0], p[1], p[2], 255]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
-    } else {
-        let z_max = depth.iter().max().cloned().unwrap_or(1);
-        depth
-            .into_iter()
-            .flat_map(|p| {
-                if p > 0 {
-                    let z = (p * 255 / z_max) as u8;
-                    [z, z, z, 255]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
+    let start = std::time::Instant::now();
+    let out = match mode {
+        RenderMode::Normals => {
+            let color = norm.to_color();
+            depth
+                .into_iter()
+                .zip(color)
+                .flat_map(|(d, p)| {
+                    if d > 0 {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode::Shaded => {
+            let color = fidget::render::effects::apply_shading(&depth, &norm);
+            depth
+                .into_iter()
+                .zip(color)
+                .flat_map(|(d, p)| {
+                    if d > 0 {
+                        [p[0], p[1], p[2], 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode::Heightmap => {
+            let z_max = depth.iter().max().cloned().unwrap_or(1);
+            depth
+                .into_iter()
+                .flat_map(|p| {
+                    if p > 0 {
+                        let z = (p * 255 / z_max) as u8;
+                        [z, z, z, 255]
+                    } else {
+                        [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
     };
+    info!("Post-processed image in {:?}", start.elapsed());
 
     out
 }
@@ -409,10 +451,11 @@ fn main() -> Result<()> {
         }
         Command::Render3d {
             settings,
-            color,
+            mode,
             isometric,
             pitch,
             yaw,
+            roll,
         } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
@@ -424,8 +467,12 @@ fn main() -> Result<()> {
             let yaw = nalgebra::Rotation3::new(
                 nalgebra::Vector3::y() * yaw * std::f32::consts::PI / 180.0,
             );
+            let roll = nalgebra::Rotation3::new(
+                nalgebra::Vector3::z() * roll * std::f32::consts::PI / 180.0,
+            );
 
             let t = yaw.to_homogeneous()
+                * roll.to_homogeneous()
                 * pitch.to_homogeneous()
                 * scale.to_homogeneous();
 
@@ -435,22 +482,15 @@ fn main() -> Result<()> {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+                    run3d(shape, &settings, isometric, mode)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, color)
+                    run3d(shape, &settings, isometric, mode)
                 }
             };
-            info!(
-                "Rendered {}x at {:?} ms/frame",
-                settings.n,
-                start.elapsed().as_micros() as f64
-                    / 1000.0
-                    / (settings.n as f64)
-            );
 
             if let Some(out) = settings.out {
                 info!("Writing image to {out:?}");
