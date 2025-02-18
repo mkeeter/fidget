@@ -49,6 +49,10 @@ enum Command {
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
         yaw: f32,
 
+        /// Rotation about the Z axis (in degrees)
+        #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        roll: f32,
+
         /// Render using an isometric perspective
         #[clap(long)]
         isometric: bool,
@@ -192,10 +196,18 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let mut depth = Default::default();
     let mut norm = Default::default();
+
+    let start = std::time::Instant::now();
     for _ in 0..settings.n {
         (depth, norm) = cfg.run(shape.clone()).unwrap();
     }
+    info!(
+        "Rendered {}x at {:?} ms/frame",
+        settings.n,
+        start.elapsed().as_micros() as f64 / 1000.0 / (settings.n as f64)
+    );
 
+    let start = std::time::Instant::now();
     let out = match mode {
         RenderMode::Normals => {
             let color = norm.to_color();
@@ -240,6 +252,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
     };
+    info!("Post-processed image in {:?}", start.elapsed());
 
     out
 }
@@ -442,6 +455,7 @@ fn main() -> Result<()> {
             isometric,
             pitch,
             yaw,
+            roll,
         } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
@@ -453,8 +467,12 @@ fn main() -> Result<()> {
             let yaw = nalgebra::Rotation3::new(
                 nalgebra::Vector3::y() * yaw * std::f32::consts::PI / 180.0,
             );
+            let roll = nalgebra::Rotation3::new(
+                nalgebra::Vector3::z() * roll * std::f32::consts::PI / 180.0,
+            );
 
             let t = yaw.to_homogeneous()
+                * roll.to_homogeneous()
                 * pitch.to_homogeneous()
                 * scale.to_homogeneous();
 
@@ -473,13 +491,6 @@ fn main() -> Result<()> {
                     run3d(shape, &settings, isometric, mode)
                 }
             };
-            info!(
-                "Rendered {}x at {:?} ms/frame",
-                settings.n,
-                start.elapsed().as_micros() as f64
-                    / 1000.0
-                    / (settings.n as f64)
-            );
 
             if let Some(out) = settings.out {
                 info!("Writing image to {out:?}");

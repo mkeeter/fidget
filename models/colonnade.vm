@@ -1,4 +1,5 @@
 # Model of a colonnade with a balcony and outside staircase
+# Recommended render settings: --scale 0.7 --pitch 60 --roll 30
 _0 var-y
 _1 const 10
 _2 mul _0 _1
