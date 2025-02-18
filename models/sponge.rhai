@@ -1,4 +1,5 @@
 // Menger sponge, with optional sphere-ification
+// Recommended render settings: --scale 0.75 --pitch -25 --yaw -30
 fn recurse(x, y, z, depth) {
     let r = ((x + 1) % 2 - 1).abs();
     let base = intersection(r, r.remap_xyz(y, x, z)) - 1/3.;

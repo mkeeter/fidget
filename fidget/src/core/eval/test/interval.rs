@@ -702,6 +702,30 @@ where
         assert!(trace.is_none());
     }
 
+    pub fn test_i_modulo() {
+        let mut ctx = Context::new();
+        let x = ctx.x();
+        let y = ctx.y();
+        let out = ctx.modulo(x, y).unwrap();
+
+        let shape = F::new(&ctx, &[out]).unwrap();
+        let tape = shape.interval_tape(Default::default());
+        let vs = bind_xy(&tape);
+        let mut eval = F::new_interval_eval();
+
+        let (out, _trace) =
+            eval.eval(&tape, &vs([-5.0, 0.0], [1.0, 1.0])).unwrap();
+        assert_eq!(out[0], Interval::new(0.0, 1.0));
+
+        let (out, _trace) =
+            eval.eval(&tape, &vs([4.5, 4.75], [1.0, 1.0])).unwrap();
+        assert_eq!(out[0], Interval::new(0.5, 0.75));
+
+        let (out, _trace) =
+            eval.eval(&tape, &vs([-4.75, -4.5], [1.0, 1.0])).unwrap();
+        assert_eq!(out[0], Interval::new(0.25, 0.5));
+    }
+
     pub fn test_i_simplify() {
         let mut ctx = Context::new();
         let x = ctx.x();
@@ -1168,6 +1192,7 @@ macro_rules! interval_tests {
         $crate::interval_test!(test_i_and, $t);
         $crate::interval_test!(test_i_or, $t);
         $crate::interval_test!(test_i_compare, $t);
+        $crate::interval_test!(test_i_modulo, $t);
         $crate::interval_test!(test_i_simplify, $t);
         $crate::interval_test!(test_i_simplify_conditional, $t);
         $crate::interval_test!(test_i_stress, $t);
