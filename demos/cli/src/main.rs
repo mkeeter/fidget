@@ -315,7 +315,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             let mut image = fidget::render::Image::default();
             for _ in 0..settings.n {
                 image = cfg
-                    .run::<_, fidget::render::SdfRenderMode>(shape.clone())
+                    .run::<_, fidget::render::SdfPixelRenderMode>(shape.clone())
                     .unwrap();
             }
             image

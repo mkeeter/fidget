@@ -270,6 +270,8 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(0.0, 0.0);
 
+        println!("int: {x} {y} => {}", shape.shape.size());
+
         // The shape applies the screen-to-model transform
         let (i, simplify) = self
             .eval_interval
@@ -357,6 +359,15 @@ impl<F: Function, M: RenderMode> Worker<'_, F, M> {
         tile_size: usize,
         tile: Tile<2>,
     ) {
+        println!(
+            "pix: [{}, {}] [{}, {}] => {}",
+            tile.corner[0],
+            tile.corner[0] + tile_size,
+            tile.corner[1],
+            tile.corner[1] + tile_size,
+            shape.shape.size()
+        );
+
         let mut index = 0;
         for j in 0..tile_size {
             for i in 0..tile_size {

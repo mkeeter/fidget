@@ -148,6 +148,7 @@ impl<F: Function> Worker<'_, F> {
         let x = Interval::new(base.x, base.x + tile_size as f32);
         let y = Interval::new(base.y, base.y + tile_size as f32);
         let z = Interval::new(base.z, base.z + tile_size as f32);
+        println!("int: {x} {y} => {}", shape.shape.size());
 
         let (i, trace) = self
             .eval_interval
@@ -213,6 +214,15 @@ impl<F: Function> Worker<'_, F> {
         tile_size: usize,
         tile: Tile<3>,
     ) {
+        println!(
+            "pix: [{}, {}] [{}, {}] => {}",
+            tile.corner[0],
+            tile.corner[0] + tile_size,
+            tile.corner[1],
+            tile.corner[1] + tile_size,
+            shape.shape.size()
+        );
+
         // Prepare for pixel-by-pixel evaluation
         let mut index = 0;
         assert!(self.scratch.x.len() >= tile_size.pow(3));
