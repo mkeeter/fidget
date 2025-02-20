@@ -3032,13 +3032,14 @@ name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
  "ahash",
- "anstream",
  "approx",
  "bitflags 2.6.0",
  "bytemuck",
  "clap",
  "clap_builder",
  "either",
+ "env_filter",
+ "env_logger",
  "getrandom",
  "libc",
  "log",
