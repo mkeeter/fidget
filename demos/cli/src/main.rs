@@ -374,7 +374,10 @@ fn load_script(settings: &ScriptSettings) -> Result<(Context, Node)> {
                 Some("rhai") => ScriptType::Rhai,
                 Some("vm") => ScriptType::Vm,
                 Some(s) => {
-                    bail!("Unknown extension '{s}', should be '.rhai' or '.vm'")
+                    bail!(
+                        "Unknown extension '{s}', should be '.rhai' or '.vm' \
+                         (or specify --type)"
+                    )
                 }
                 None => bail!("cannot detect script type without extension"),
             }
