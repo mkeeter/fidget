@@ -1359,6 +1359,7 @@ dependencies = [
  "nalgebra",
  "num-traits",
  "ordered-float 5.0.0",
+ "paste",
  "rand 0.9.0",
  "rayon",
  "rhai",

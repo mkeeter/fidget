@@ -83,6 +83,7 @@ impl Engine {
         engine.register_fn("axes", axes);
         engine.register_fn("draw", draw);
         engine.register_fn("draw_rgb", draw_rgb);
+        crate::shapes::register_types(&mut engine);
 
         macro_rules! register_binary_fns {
             ($op:literal, $name:ident, $engine:ident) => {

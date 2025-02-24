@@ -43,6 +43,7 @@ nalgebra = { version = "0.33", features = ["serde-serialize"] }
 notify = "8.0"
 num-traits = "0.2"
 ordered-float = "5"
+paste = "1.0"
 rand = "0.9"
 rayon = "1.10"
 rhai = { version = "1.17", features = ["sync"] }
