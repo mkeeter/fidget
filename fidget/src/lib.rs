@@ -273,6 +273,7 @@ mod error;
 pub use error::Error;
 pub mod mesh;
 pub mod render;
+pub mod shapes;
 pub mod solver;
 
 #[cfg(feature = "rhai")]
