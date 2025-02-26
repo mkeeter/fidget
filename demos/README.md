@@ -3,9 +3,9 @@
 
 Bitmap rendering and meshing from the command line
 ```shell
-$ cargo run -pfidget-cli --release -- -i models/prospero.vm render2d -s 512 --eval=vm -o out.png
+$ cargo run -pfidget-cli --release render2d -i models/prospero.vm -s 512 --eval=vm -o out.png
     Finished release [optimized + debuginfo] target(s) in 0.07s
-     Running `target/release/fidget-cli -i models/prospero.vm render2d -s 512 --eval=vm -o out.png`
+     Running `target/release/fidget-cli render2d -i models/prospero.vm -s 512 --eval=vm -o out.png`
 [2024-06-06T16:08:12Z INFO  fidget_cli] Loaded file in 4.528208ms
 [2024-06-06T16:08:12Z INFO  fidget_cli] Built shape in 2.375208ms
 [2024-06-06T16:08:12Z INFO  fidget_cli] Rendered 1x at 14.489 ms/frame
