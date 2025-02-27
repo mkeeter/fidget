@@ -200,6 +200,15 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                     }
                 }
 
+                Mode2D::ExactSdf => {
+                    let image = config
+                        .run::<_, fidget::render::SdfPixelRenderMode>(shape)
+                        .unwrap();
+                    for (p, i) in pixels.iter_mut().zip(&image) {
+                        *p = egui::Color32::from_rgb(i[0], i[1], i[2]);
+                    }
+                }
+
                 Mode2D::Debug => {
                     let image = config
                         .run::<_, fidget::render::DebugRenderMode>(shape)
@@ -339,6 +348,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 enum Mode2D {
     Color,
     Sdf,
+    ExactSdf,
     Debug,
 }
 
@@ -487,7 +497,16 @@ impl ViewerApp {
                         Some(Mode2D::Debug),
                         "2D debug",
                     );
-                    ui.radio_value(&mut mode_2d, Some(Mode2D::Sdf), "2D SDF");
+                    ui.radio_value(
+                        &mut mode_2d,
+                        Some(Mode2D::Sdf),
+                        "2D SDF (approx)",
+                    );
+                    ui.radio_value(
+                        &mut mode_2d,
+                        Some(Mode2D::ExactSdf),
+                        "2D SDF (exact)",
+                    );
                     ui.radio_value(
                         &mut mode_2d,
                         Some(Mode2D::Color),

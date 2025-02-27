@@ -24,22 +24,18 @@ enum Command {
         #[clap(flatten)]
         settings: ImageSettings,
 
-        /// Use brute-force (pixel-by-pixel) evaluation
-        #[clap(short, long)]
-        brute: bool,
-
-        /// Render as a color-gradient SDF
-        #[clap(long)]
-        sdf: bool,
+        /// Render mode
+        #[clap(long, value_enum, default_value_t)]
+        mode: RenderMode2D,
     },
 
     Render3d {
         #[clap(flatten)]
         settings: ImageSettings,
 
-        /// Render in color
+        /// Render mode
         #[clap(long, value_enum, default_value_t)]
-        mode: RenderMode,
+        mode: RenderMode3D,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -88,7 +84,7 @@ enum EvalMode {
 }
 
 #[derive(ValueEnum, Default, Clone)]
-enum RenderMode {
+enum RenderMode3D {
     /// Pixels are colored based on height
     #[default]
     Heightmap,
@@ -96,6 +92,21 @@ enum RenderMode {
     Normals,
     /// Pixels are shaded
     Shaded,
+}
+
+#[derive(ValueEnum, Default, Clone)]
+enum RenderMode2D {
+    /// Pixels are colored based on interval results
+    #[default]
+    Debug,
+    /// Monochrome rendering (white-on-black)
+    Mono,
+    /// Approximate signed distance field visualization
+    SdfApprox,
+    /// Exact signed distance field visualization (more expensive)
+    SdfExact,
+    /// Brute-force (pixel-by-pixel) evaluation
+    Brute,
 }
 
 #[derive(Parser)]
@@ -209,7 +220,7 @@ fn parse_vec3(s: &str) -> Result<[f32; 3]> {
 fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
-    mode: RenderMode,
+    mode: RenderMode3D,
 ) -> Vec<u8> {
     let pool: Option<rayon::ThreadPool>;
     let threads = match settings.threads {
@@ -247,7 +258,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let start = std::time::Instant::now();
     let out = match mode {
-        RenderMode::Normals => {
+        RenderMode3D::Normals => {
             let color = norm.to_color();
             depth
                 .into_iter()
@@ -261,7 +272,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 })
                 .collect()
         }
-        RenderMode::Shaded => {
+        RenderMode3D::Shaded => {
             let color = fidget::render::effects::apply_shading(&depth, &norm);
             depth
                 .into_iter()
@@ -275,7 +286,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 })
                 .collect()
         }
-        RenderMode::Heightmap => {
+        RenderMode3D::Heightmap => {
             let z_max = depth.iter().max().cloned().unwrap_or(1);
             depth
                 .into_iter()
@@ -300,10 +311,9 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
-    brute: bool,
-    sdf: bool,
+    mode: RenderMode2D,
 ) -> Vec<u8> {
-    if brute {
+    if matches!(mode, RenderMode2D::Brute) {
         let tape = shape.float_slice_tape(Default::default());
         let mut eval = fidget::shape::Shape::<F>::new_float_slice_eval();
         let mut out: Vec<bool> = vec![];
@@ -349,28 +359,60 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             threads,
             ..Default::default()
         };
-        if sdf {
-            let mut image = fidget::render::Image::default();
-            for _ in 0..settings.n {
-                image = cfg
-                    .run::<_, fidget::render::SdfPixelRenderMode>(shape.clone())
-                    .unwrap();
+        match mode {
+            RenderMode2D::Mono => {
+                let mut image = fidget::render::Image::default();
+                for _ in 0..settings.n {
+                    image = cfg
+                        .run::<_, fidget::render::BitRenderMode>(shape.clone())
+                        .unwrap();
+                }
+                image
+                    .into_iter()
+                    .flat_map(|a| if a { [255; 4] } else { [0, 0, 0, 255] })
+                    .collect()
             }
-            image
-                .into_iter()
-                .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
-                .collect()
-        } else {
-            let mut image = fidget::render::Image::default();
-            for _ in 0..settings.n {
-                image = cfg
-                    .run::<_, fidget::render::DebugRenderMode>(shape.clone())
-                    .unwrap();
+            RenderMode2D::SdfExact => {
+                let mut image = fidget::render::Image::default();
+                for _ in 0..settings.n {
+                    image = cfg
+                        .run::<_, fidget::render::SdfPixelRenderMode>(
+                            shape.clone(),
+                        )
+                        .unwrap();
+                }
+                image
+                    .into_iter()
+                    .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
+                    .collect()
             }
-            image
-                .into_iter()
-                .flat_map(|p| p.as_debug_color().into_iter())
-                .collect()
+            RenderMode2D::SdfApprox => {
+                let mut image = fidget::render::Image::default();
+                for _ in 0..settings.n {
+                    image = cfg
+                        .run::<_, fidget::render::SdfRenderMode>(shape.clone())
+                        .unwrap();
+                }
+                image
+                    .into_iter()
+                    .flat_map(|a| [a[0], a[1], a[2], 255].into_iter())
+                    .collect()
+            }
+            RenderMode2D::Debug => {
+                let mut image = fidget::render::Image::default();
+                for _ in 0..settings.n {
+                    image = cfg
+                        .run::<_, fidget::render::DebugRenderMode>(
+                            shape.clone(),
+                        )
+                        .unwrap();
+                }
+                image
+                    .into_iter()
+                    .flat_map(|p| p.as_debug_color().into_iter())
+                    .collect()
+            }
+            RenderMode2D::Brute => unreachable!(),
         }
     }
 }
@@ -461,11 +503,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.cmd {
-        Command::Render2d {
-            settings,
-            brute,
-            sdf,
-        } => {
+        Command::Render2d { settings, mode } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
@@ -477,13 +515,13 @@ fn main() -> Result<()> {
                         .apply_transform(scale.into());
 
                     info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, brute, sdf)
+                    run2d(shape, &settings, mode)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?
                         .apply_transform(scale.into());
                     info!("Built shape in {:?}", start.elapsed());
-                    run2d(shape, &settings, brute, sdf)
+                    run2d(shape, &settings, mode)
                 }
             };
 
