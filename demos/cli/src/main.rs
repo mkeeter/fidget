@@ -53,9 +53,24 @@ enum Command {
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
         roll: f32,
 
+        /// Center point of the render
+        #[clap(
+            long, default_value = "0,0,0", allow_hyphen_values = true,
+            value_parser = parse_vec3
+        )]
+        center: [f32; 3],
+
+        /// Flatten values on the Z axis to prevent screen clipping
+        #[clap(long, default_value_t = 1.0)]
+        zflatten: f32,
+
         /// Render using an isometric perspective
-        #[clap(long)]
+        #[clap(long, conflicts_with = "perspective")]
         isometric: bool,
+
+        /// Strength of perspective transform
+        #[clap(long)]
+        perspective: Option<f32>,
     },
     Mesh {
         #[clap(flatten)]
@@ -137,6 +152,17 @@ struct MeshSettings {
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
     n: usize,
+
+    /// Scale applied to the model before rendering
+    #[clap(long, default_value_t = 1.0)]
+    scale: f32,
+
+    /// Center point of the render
+    #[clap(
+        long, default_value = "0,0,0", allow_hyphen_values = true,
+        value_parser = parse_vec3
+    )]
+    center: [f32; 3],
 }
 
 #[derive(Parser)]
@@ -161,17 +187,30 @@ enum ScriptType {
     Vm,
 }
 
+fn parse_vec3(s: &str) -> Result<[f32; 3]> {
+    let parts: Vec<f32> = s
+        .split(',')
+        .map(str::trim)
+        .map(|num| num.parse::<f32>())
+        .collect::<Result<Vec<f32>, _>>()
+        .with_context(|| format!("failed to parse vec3 from '{s}'"))?;
+
+    if parts.len() == 3 {
+        Ok([parts[0], parts[1], parts[2]])
+    } else {
+        bail!(
+            "expected 3 comma-separated floating point numbers, got {}",
+            parts.len()
+        )
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &ImageSettings,
-    isometric: bool,
     mode: RenderMode,
 ) -> Vec<u8> {
-    let mut mat = nalgebra::Transform3::identity();
-    if !isometric {
-        *mat.matrix_mut().get_mut((3, 2)).unwrap() = 0.3;
-    }
     let pool: Option<rayon::ThreadPool>;
     let threads = match settings.threads {
         Some(n) if n.get() == 1 => None,
@@ -192,7 +231,6 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         threads,
         ..Default::default()
     };
-    let shape = shape.apply_transform(mat.into());
 
     let mut depth = Default::default();
     let mut norm = Default::default();
@@ -315,7 +353,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             let mut image = fidget::render::Image::default();
             for _ in 0..settings.n {
                 image = cfg
-                    .run::<_, fidget::render::SdfRenderMode>(shape.clone())
+                    .run::<_, fidget::render::SdfPixelRenderMode>(shape.clone())
                     .unwrap();
             }
             image
@@ -344,6 +382,17 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &MeshSettings,
 ) -> fidget::mesh::Mesh {
     let mut mesh = fidget::mesh::Mesh::new();
+
+    // Transform the shape based on our render settings
+    let s = 1.0 / settings.scale;
+    let scale = nalgebra::Scale3::new(s, s, s);
+    let center = nalgebra::Translation3::new(
+        -settings.center[0],
+        -settings.center[1],
+        -settings.center[2],
+    );
+    let t = center.to_homogeneous() * scale.to_homogeneous();
+    let shape = shape.apply_transform(t);
 
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
@@ -460,8 +509,11 @@ fn main() -> Result<()> {
             mode,
             isometric,
             pitch,
+            zflatten,
             yaw,
             roll,
+            center,
+            perspective,
         } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
@@ -476,11 +528,24 @@ fn main() -> Result<()> {
             let roll = nalgebra::Rotation3::new(
                 nalgebra::Vector3::z() * roll * std::f32::consts::PI / 180.0,
             );
+            let center =
+                nalgebra::Translation3::new(-center[0], -center[1], -center[2]);
+            println!("got center {center:?}");
 
-            let t = yaw.to_homogeneous()
+            let perspective =
+                perspective.unwrap_or(if isometric { 0.0 } else { 0.3 });
+            let mut camera = nalgebra::Transform3::identity();
+            *camera.matrix_mut().get_mut((3, 2)).unwrap() = perspective;
+
+            let zflatten = nalgebra::Scale3::new(1.0, 1.0, zflatten);
+
+            let t = center.to_homogeneous()
+                * yaw.to_homogeneous()
                 * roll.to_homogeneous()
                 * pitch.to_homogeneous()
-                * scale.to_homogeneous();
+                * scale.to_homogeneous()
+                * camera.to_homogeneous()
+                * zflatten.to_homogeneous();
 
             let buffer = match settings.eval {
                 #[cfg(feature = "jit")]
@@ -488,13 +553,13 @@ fn main() -> Result<()> {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, mode)
+                    run3d(shape, &settings, mode)
                 }
                 EvalMode::Vm => {
                     let shape = fidget::vm::VmShape::new(&ctx, root)?
                         .apply_transform(t);
                     info!("Built shape in {:?}", start.elapsed());
-                    run3d(shape, &settings, isometric, mode)
+                    run3d(shape, &settings, mode)
                 }
             };
 
