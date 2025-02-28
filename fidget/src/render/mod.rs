@@ -414,6 +414,13 @@ impl<P: Default + Clone> Image<P> {
     }
 }
 
+impl<P> Image<P> {
+    /// Returns a mutable row in the image
+    pub fn row_mut(&mut self, row: usize) -> &mut [P] {
+        &mut self.data[row * self.height..][..self.width]
+    }
+}
+
 impl<P: Send> Image<P> {
     /// Returns a parallel mutable iterator over rows
     ///
@@ -422,6 +429,29 @@ impl<P: Send> Image<P> {
         &mut self,
     ) -> impl IndexedParallelIterator<Item = &mut [P]> {
         self.data.par_chunks_mut(self.width)
+    }
+
+    /// Generates an image by computing a per-pixel function
+    pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
+        &mut self,
+        f: F,
+        threads: Option<ThreadPool>,
+    ) {
+        if let Some(threads) = threads {
+            threads.run(|| {
+                self.par_rows_mut().enumerate().for_each(|(y, row)| {
+                    for (x, v) in row.iter_mut().enumerate() {
+                        *v = f(x, y);
+                    }
+                })
+            });
+        } else {
+            for y in 0..self.height {
+                for x in 0..self.width {
+                    self[(y, x)] = f(x, y);
+                }
+            }
+        }
     }
 }
 
