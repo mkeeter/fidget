@@ -18,6 +18,9 @@
     - Use these types in 2D and 3D rendering
 - Remove `Grad::to_rgb` in favor of handling it at the image level
 - Add `fidget::render::effects` module for post-processing rendered images
+- Optimize implementation of interval `modulo` for cases where the right-hand
+  argument is a positive constant value (which is the most common when using it
+  for domain repetition)
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
