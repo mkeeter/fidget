@@ -24,6 +24,16 @@ pub enum ThreadPool<'a> {
     Global,
 }
 
+impl ThreadPool<'_> {
+    /// Runs a function across the thread pool
+    pub fn run<F: FnOnce() -> V + Send, V: Send>(&self, f: F) -> V {
+        match self {
+            ThreadPool::Custom(p) => p.install(f),
+            ThreadPool::Global => f(),
+        }
+    }
+}
+
 /// Token to cancel an in-progress operation
 #[derive(Clone, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
