@@ -8,6 +8,7 @@ use crate::{
     Error,
 };
 use nalgebra::Point2;
+use rayon::prelude::*;
 
 pub mod effects;
 
@@ -336,26 +337,20 @@ where
                 .ok()
         }
 
-        Some(p) => {
-            let run = || {
-                tiles
-                    .into_par_iter()
-                    .map_init(init, |(w, rh), tile| {
-                        if config.is_cancelled() {
-                            Err(())
-                        } else {
-                            let pixels = w.render_tile(rh, vars, tile);
-                            Ok((tile, pixels))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, ()>>()
-                    .ok()
-            };
-            match p {
-                ThreadPool::Custom(p) => p.install(run),
-                ThreadPool::Global => run(),
-            }
-        }
+        Some(p) => p.run(|| {
+            tiles
+                .into_par_iter()
+                .map_init(init, |(w, rh), tile| {
+                    if config.is_cancelled() {
+                        Err(())
+                    } else {
+                        let pixels = w.render_tile(rh, vars, tile);
+                        Ok((tile, pixels))
+                    }
+                })
+                .collect::<Result<Vec<_>, ()>>()
+                .ok()
+        }),
     };
 
     out
@@ -416,6 +411,17 @@ impl<P: Default + Clone> Image<P> {
             width,
             height,
         }
+    }
+}
+
+impl<P: Send> Image<P> {
+    /// Returns a parallel mutable iterator over rows
+    ///
+    /// This is useful for processing pixels in parallel, e.g. for shading
+    pub fn par_rows_mut(
+        &mut self,
+    ) -> impl IndexedParallelIterator<Item = &mut [P]> {
+        self.data.par_chunks_mut(self.width)
     }
 }
 

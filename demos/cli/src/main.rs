@@ -239,7 +239,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
-        threads,
+        threads: threads.clone(),
         ..Default::default()
     };
 
@@ -273,7 +273,8 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::Shaded => {
-            let color = fidget::render::effects::apply_shading(&depth, &norm);
+            let color =
+                fidget::render::effects::apply_shading(&depth, &norm, threads);
             depth
                 .into_iter()
                 .zip(color)

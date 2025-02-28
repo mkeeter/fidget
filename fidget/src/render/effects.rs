@@ -1,22 +1,40 @@
 //! Post-processing effects for rendered images
 
-use super::{ColorImage, DepthImage, NormalImage};
+use super::{ColorImage, DepthImage, NormalImage, ThreadPool};
 use nalgebra::{Vector3, Vector4};
+use rayon::prelude::*;
 
 /// Combines two images with shading
 ///
 /// # Panics
 /// If the images have different widths or heights
-pub fn apply_shading(depth: &DepthImage, norm: &NormalImage) -> ColorImage {
+pub fn apply_shading(
+    depth: &DepthImage,
+    norm: &NormalImage,
+    threads: Option<ThreadPool>,
+) -> ColorImage {
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
 
     let mut out = ColorImage::new(depth.width(), depth.height());
-    for y in 0..depth.height() {
-        for x in 0..depth.width() {
-            let pos = (y, x);
-            if depth[pos] > 0 {
-                out[pos] = shade_pixel(depth, norm, pos);
+    if let Some(threads) = threads {
+        threads.run(|| {
+            out.par_rows_mut().enumerate().for_each(move |(y, row)| {
+                for (x, v) in row.iter_mut().enumerate() {
+                    let pos = (y, x);
+                    if depth[pos] > 0 {
+                        *v = shade_pixel(depth, norm, pos);
+                    }
+                }
+            })
+        });
+    } else {
+        for y in 0..depth.height() {
+            for x in 0..depth.width() {
+                let pos = (y, x);
+                if depth[pos] > 0 {
+                    out[pos] = shade_pixel(depth, norm, pos);
+                }
             }
         }
     }
