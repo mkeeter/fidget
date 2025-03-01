@@ -7,6 +7,29 @@ use nalgebra::{
 };
 use rand::prelude::*;
 
+pub fn denoise_normals(
+    depth: &DepthImage,
+    norm: &NormalImage,
+    threads: Option<ThreadPool>,
+) -> NormalImage {
+    assert_eq!(depth.width(), norm.width());
+    assert_eq!(depth.height(), norm.height());
+
+    let radius = (depth.width() / 256).max(2) as isize;
+    let mut out = NormalImage::new(depth.width(), depth.height());
+    out.apply_effect(
+        |x, y| {
+            if depth[(y, x)] > 0 {
+                denoise_pixel(depth, norm, x, y, radius)
+            } else {
+                [0.0f32; 3]
+            }
+        },
+        threads,
+    );
+    out
+}
+
 /// Combines two images with shading
 ///
 /// # Panics
@@ -204,6 +227,76 @@ fn compute_pixel_ssao(
     1.0 - (occlusion / kernel.nrows() as f32)
 }
 
+/// If the pixel has a back-facing normal, then pick a normal from neighbors
+fn denoise_pixel(
+    depth: &DepthImage,
+    norm: &NormalImage,
+    x: usize,
+    y: usize,
+    denoise_radius: isize,
+) -> [f32; 3] {
+    // Only
+    let n = norm[(y, x)];
+    if n[2] > 0.0 {
+        return n;
+    }
+    let x = x as isize;
+    let y = y as isize;
+    [
+        (0, 0),
+        (-denoise_radius, 0),
+        (0, -denoise_radius),
+        (-denoise_radius, -denoise_radius),
+    ]
+    .into_iter()
+    .map(|(xmin, ymin)| {
+        let mut sum = Vector3::zeros();
+        let mut count = 0;
+        for i in 0..=denoise_radius {
+            for j in 0..=denoise_radius {
+                let tx = x + xmin + i;
+                let ty = y + ymin + j;
+                if tx >= 0
+                    && ty >= 0
+                    && (tx as usize) < norm.width()
+                    && (ty as usize) < norm.height()
+                {
+                    let pos = (ty as usize, tx as usize);
+                    if depth[pos] != 0 {
+                        let n = norm[pos];
+                        sum += Vector3::new(n[0], n[1], n[2]);
+                        count += 1;
+                    }
+                }
+            }
+        }
+        let mean = sum / count as f32;
+        let mut score = 0.0;
+        for i in 0..=denoise_radius {
+            for j in 0..=denoise_radius {
+                let tx = x + xmin + i;
+                let ty = y + ymin + j;
+                if tx >= 0
+                    && ty >= 0
+                    && (tx as usize) < norm.width()
+                    && (ty as usize) < norm.height()
+                {
+                    let pos = (ty as usize, tx as usize);
+                    if depth[pos] != 0 {
+                        let n = norm[pos];
+                        score += Vector3::new(n[0], n[1], n[2]).dot(&mean);
+                    }
+                }
+            }
+        }
+        (score, mean)
+    })
+    .max_by_key(|(score, _mean)| ordered_float::OrderedFloat(*score))
+    .unwrap()
+    .1
+    .into()
+}
+
 /// Computes a single blurred pixel
 fn compute_pixel_blur(
     ssao: &Image<f32>,
@@ -261,8 +354,9 @@ fn compute_pixel_blur(
         let stdev = ((stdev / count as f32) - 1.0).sqrt();
         (stdev, mean)
     })
+    .filter(|(stdev, _mean)| !stdev.is_nan())
     .min_by_key(|(stdev, _mean)| ordered_float::OrderedFloat(*stdev))
-    .unwrap()
+    .unwrap_or_else(|| (0.0, ssao[(y as usize, x as usize)]))
     .1
 }
 
