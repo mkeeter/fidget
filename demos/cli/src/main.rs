@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{bail, Context as _, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
@@ -35,7 +35,7 @@ enum Command {
 
         /// Render mode
         #[clap(long, value_enum, default_value_t)]
-        mode: RenderMode3D,
+        mode: RenderMode3DArg,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -64,6 +64,12 @@ enum Command {
         #[clap(long, conflicts_with = "perspective")]
         isometric: bool,
 
+        /// Apply SSAO to a shaded image
+        ///
+        /// Only compatible with `--mode=shaded`
+        #[clap(long)]
+        ssao: bool,
+
         /// Strength of perspective transform
         #[clap(long)]
         perspective: Option<f32>,
@@ -83,19 +89,25 @@ enum EvalMode {
     Jit,
 }
 
-#[derive(ValueEnum, Default, Clone)]
+#[derive(strum::EnumDiscriminants, Clone)]
+#[strum_discriminants(name(RenderMode3DArg), derive(ValueEnum))]
 enum RenderMode3D {
     /// Pixels are colored based on height
-    #[default]
     Heightmap,
     /// Pixels are colored based on normals
     Normals,
     /// Pixels are shaded
-    Shaded,
+    Shaded { ssao: bool },
     /// Raw (unblurred) SSAO occlusion, for debugging
     RawOcclusion,
     /// Blurred SSAO occlusion, for debugging
     BlurredOcclusion,
+}
+
+impl Default for RenderMode3DArg {
+    fn default() -> Self {
+        Self::Heightmap
+    }
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -276,9 +288,10 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 })
                 .collect()
         }
-        RenderMode3D::Shaded => {
-            let color =
-                fidget::render::effects::apply_shading(&depth, &norm, threads);
+        RenderMode3D::Shaded { ssao } => {
+            let color = fidget::render::effects::apply_shading(
+                &depth, &norm, ssao, threads,
+            );
             depth
                 .into_iter()
                 .zip(color)
@@ -590,7 +603,28 @@ fn main() -> Result<()> {
             roll,
             center,
             perspective,
+            ssao,
         } => {
+            // Manual checking of arguments
+            // TODO this isn't printed in color
+            if ssao && !matches!(mode, RenderMode3DArg::Shaded) {
+                let mut cmd = Args::command();
+                let sub = cmd.find_subcommand_mut("render3d").unwrap();
+                let error = sub.error(
+                    clap::error::ErrorKind::ArgumentConflict,
+                    "`--ssao` is only allowed when `--mode=shaded`",
+                );
+                error.exit();
+            }
+            let mode = match mode {
+                RenderMode3DArg::Shaded => RenderMode3D::Shaded { ssao },
+                RenderMode3DArg::Heightmap => RenderMode3D::Heightmap,
+                RenderMode3DArg::BlurredOcclusion => {
+                    RenderMode3D::BlurredOcclusion
+                }
+                RenderMode3DArg::RawOcclusion => RenderMode3D::RawOcclusion,
+                RenderMode3DArg::Normals => RenderMode3D::Normals,
+            };
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;

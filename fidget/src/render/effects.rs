@@ -5,6 +5,7 @@ use nalgebra::{
     Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
     Vector3, Vector4,
 };
+use rand::prelude::*;
 
 /// Combines two images with shading
 ///
@@ -13,16 +14,24 @@ use nalgebra::{
 pub fn apply_shading(
     depth: &DepthImage,
     norm: &NormalImage,
+    ssao: bool,
     threads: Option<ThreadPool>,
 ) -> ColorImage {
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
 
+    let ssao = if ssao {
+        let ssao = compute_ssao(depth, norm, threads.clone());
+        Some(blur_ssao(&ssao, threads.clone()))
+    } else {
+        None
+    };
+
     let mut out = ColorImage::new(depth.width(), depth.height());
     out.apply_effect(
         |x, y| {
             if depth[(y, x)] > 0 {
-                shade_pixel(depth, norm, x, y)
+                shade_pixel(depth, norm, ssao.as_ref(), x, y)
             } else {
                 [0u8; 3]
             }
@@ -45,7 +54,8 @@ pub fn compute_ssao(
     // already checked, maybe GBuffer?
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
-    let (ssao_kernel, ssao_noise) = ssao_kernel(32);
+    let ssao_kernel = ssao_kernel(64);
+    let ssao_noise = ssao_noise(16 * 16);
 
     let mut out = Image::<f32>::new(depth.width(), depth.height());
     out.apply_effect(
@@ -83,6 +93,7 @@ pub fn blur_ssao(ssao: &Image<f32>, threads: Option<ThreadPool>) -> Image<f32> {
 fn shade_pixel(
     depth: &DepthImage,
     norm: &NormalImage,
+    ssao: Option<&Image<f32>>,
     x: usize,
     y: usize,
 ) -> [u8; 3] {
@@ -102,12 +113,16 @@ fn shade_pixel(
         Vector4::new(-5.0, 0.0, 10.0, 0.15),
         Vector4::new(0.0, -5.0, 10.0, 0.15),
     ];
-    let mut accum = 0.2; // ambient
+    let mut accum = 0.0; // ambient
     for light in lights {
         let light_dir = (light.xyz() - p).normalize();
         accum += light_dir.dot(&n).max(0.0) * light.w;
     }
+    if let Some(ssao) = ssao {
+        accum *= ssao[(y, x)] * 0.8;
+    }
 
+    accum += 0.2;
     accum = accum.clamp(0.0, 1.0);
 
     let c = (accum * 255.0) as u8;
@@ -251,23 +266,17 @@ fn compute_pixel_blur(
     .1
 }
 
-/// Returns a tuple of `(kernel, noise)` matrices for SSAO
+/// Returns a SSAO kernel matrix
 ///
-/// - `kernel` is a set of points in a hemisphere, used for sampling the depth
-///   buffer; it should be oriented based on surface normal
-/// - `noise` is a list of random XY rotations, which can be applied to the
-///   kernel to reduce banding
-pub fn ssao_kernel(
-    n: usize,
-) -> (
-    OMatrix<f32, nalgebra::Dyn, Const<3>>,
-    OMatrix<f32, nalgebra::Dyn, Const<2>>,
-) {
+/// The resulting matrix is a list of row vectors representing points in a
+/// hemisphere with a maximum radius of 1.0, used for sampling the depth buffer.
+///
+/// It should be reoriented based on the surface normal.
+pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
     // Based on http://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
     use rand::prelude::*;
 
     let mut kernel = MatrixXx3::<f32>::zeros(n);
-    let mut noise = MatrixXx2::<f32>::zeros(n);
     let mut rng = thread_rng();
     let xy_range = rand::distributions::Uniform::new_inclusive(-1.0, 1.0);
     let z_range = rand::distributions::Uniform::new_inclusive(0.0, 1.0);
@@ -282,10 +291,22 @@ pub fn ssao_kernel(
         let scale =
             ((i as f32) / (kernel.nrows() as f32 - 1.0)).powi(2) * 0.9 + 0.1;
         kernel.set_row(i, &(row * scale / row.norm()));
+    }
+    kernel
+}
 
+/// Returns an SSAO noise matrix
+///
+/// The noise matrix is a list of row vectors representing random XY rotations,
+/// which can be applied to the kernel vectors to reduce banding.
+pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
+    let mut noise = MatrixXx2::<f32>::zeros(n);
+    let mut rng = thread_rng();
+    let xy_range = rand::distributions::Uniform::new_inclusive(-1.0, 1.0);
+    for i in 0..n {
         let row =
             RowVector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
         noise.set_row(i, &(row / row.norm()));
     }
-    (kernel, noise)
+    noise
 }
