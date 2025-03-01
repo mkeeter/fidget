@@ -415,13 +415,25 @@ impl<P: Default + Clone> Image<P> {
 }
 
 impl<P: Send> Image<P> {
-    /// Returns a parallel mutable iterator over rows
-    ///
-    /// This is useful for processing pixels in parallel, e.g. for shading
-    pub fn par_rows_mut(
+    /// Generates an image by computing a per-pixel function
+    pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
         &mut self,
-    ) -> impl IndexedParallelIterator<Item = &mut [P]> {
-        self.data.par_chunks_mut(self.width)
+        f: F,
+        threads: Option<ThreadPool>,
+    ) {
+        let r = |(y, row): (usize, &mut [P])| {
+            for (x, v) in row.iter_mut().enumerate() {
+                *v = f(x, y);
+            }
+        };
+
+        if let Some(threads) = threads {
+            threads.run(|| {
+                self.data.par_chunks_mut(self.width).enumerate().for_each(r)
+            })
+        } else {
+            self.data.chunks_mut(self.width).enumerate().for_each(r)
+        }
     }
 }
 

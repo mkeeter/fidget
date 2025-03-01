@@ -17,7 +17,10 @@
     - Define `DepthImage`, `NormalImage`, and `ColorImage` specializations
     - Use these types in 2D and 3D rendering
 - Remove `Grad::to_rgb` in favor of handling it at the image level
-- Add `fidget::render::effects` module for post-processing rendered images
+- Add `fidget::render::effects` module for post-processing rendered images:
+    - Combining depth and normal images into a shaded image
+    - Denoising normals to fix back-facing samples
+    - Computing and applying screen-space ambient occlusion
 - Optimize implementation of interval `modulo` for cases where the right-hand
   argument is a positive constant value (which is the most common when using it
   for domain repetition)

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{bail, Context as _, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use env_logger::Env;
 use log::info;
 
@@ -35,7 +35,7 @@ enum Command {
 
         /// Render mode
         #[clap(long, value_enum, default_value_t)]
-        mode: RenderMode3D,
+        mode: RenderMode3DArg,
 
         /// Rotation about the Y axis (in degrees)
         #[clap(long, default_value_t = 0.0, allow_hyphen_values = true)]
@@ -64,6 +64,18 @@ enum Command {
         #[clap(long, conflicts_with = "perspective")]
         isometric: bool,
 
+        /// Apply SSAO to a shaded image
+        ///
+        /// Only compatible with `--mode=shaded`
+        #[clap(long)]
+        ssao: bool,
+
+        /// Skip denoising of normals
+        ///
+        /// Incompatible with `--mode=heightmap`
+        #[clap(long)]
+        no_denoise: bool,
+
         /// Strength of perspective transform
         #[clap(long)]
         perspective: Option<f32>,
@@ -83,15 +95,25 @@ enum EvalMode {
     Jit,
 }
 
-#[derive(ValueEnum, Default, Clone)]
+#[derive(strum::EnumDiscriminants, Clone)]
+#[strum_discriminants(name(RenderMode3DArg), derive(ValueEnum))]
 enum RenderMode3D {
     /// Pixels are colored based on height
-    #[default]
     Heightmap,
     /// Pixels are colored based on normals
-    Normals,
+    Normals { denoise: bool },
     /// Pixels are shaded
-    Shaded,
+    Shaded { denoise: bool, ssao: bool },
+    /// Raw (unblurred) SSAO occlusion, for debugging
+    RawOcclusion { denoise: bool },
+    /// Blurred SSAO occlusion, for debugging
+    BlurredOcclusion { denoise: bool },
+}
+
+impl Default for RenderMode3DArg {
+    fn default() -> Self {
+        Self::Heightmap
+    }
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -258,7 +280,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
 
     let start = std::time::Instant::now();
     let out = match mode {
-        RenderMode3D::Normals => {
+        RenderMode3D::Normals { denoise } => {
+            let norm = if denoise {
+                fidget::render::effects::denoise_normals(&depth, &norm, threads)
+            } else {
+                norm
+            };
             let color = norm.to_color();
             depth
                 .into_iter()
@@ -272,9 +299,19 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 })
                 .collect()
         }
-        RenderMode3D::Shaded => {
-            let color =
-                fidget::render::effects::apply_shading(&depth, &norm, threads);
+        RenderMode3D::Shaded { ssao, denoise } => {
+            let norm = if denoise {
+                fidget::render::effects::denoise_normals(
+                    &depth,
+                    &norm,
+                    threads.clone(),
+                )
+            } else {
+                norm
+            };
+            let color = fidget::render::effects::apply_shading(
+                &depth, &norm, ssao, threads,
+            );
             depth
                 .into_iter()
                 .zip(color)
@@ -283,6 +320,57 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                         [p[0], p[1], p[2], 255]
                     } else {
                         [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode3D::RawOcclusion { denoise } => {
+            let norm = if denoise {
+                fidget::render::effects::denoise_normals(
+                    &depth,
+                    &norm,
+                    threads.clone(),
+                )
+            } else {
+                norm
+            };
+            let ssao =
+                fidget::render::effects::compute_ssao(&depth, &norm, threads);
+            ssao.into_iter()
+                .flat_map(|p| {
+                    if p.is_nan() {
+                        [255; 4]
+                    } else {
+                        let v = (p * 255.0).min(255.0) as u8;
+                        [v, v, v, 255]
+                    }
+                })
+                .collect()
+        }
+        RenderMode3D::BlurredOcclusion { denoise } => {
+            let norm = if denoise {
+                fidget::render::effects::denoise_normals(
+                    &depth,
+                    &norm,
+                    threads.clone(),
+                )
+            } else {
+                norm
+            };
+            let ssao = fidget::render::effects::compute_ssao(
+                &depth,
+                &norm,
+                threads.clone(),
+            );
+            let blurred = fidget::render::effects::blur_ssao(&ssao, threads);
+            blurred
+                .into_iter()
+                .flat_map(|p| {
+                    if p.is_nan() {
+                        [255; 4]
+                    } else {
+                        let v = (p * 255.0).min(255.0) as u8;
+                        [v, v, v, 255]
                     }
                 })
                 .collect()
@@ -553,7 +641,43 @@ fn main() -> Result<()> {
             roll,
             center,
             perspective,
+            ssao,
+            no_denoise,
         } => {
+            // Manual checking of arguments
+            // TODO this isn't printed in color
+            if ssao && !matches!(mode, RenderMode3DArg::Shaded) {
+                let mut cmd = Args::command();
+                let sub = cmd.find_subcommand_mut("render3d").unwrap();
+                let error = sub.error(
+                    clap::error::ErrorKind::ArgumentConflict,
+                    "`--ssao` is only allowed when `--mode=shaded`",
+                );
+                error.exit();
+            }
+            if no_denoise && matches!(mode, RenderMode3DArg::Heightmap) {
+                let mut cmd = Args::command();
+                let sub = cmd.find_subcommand_mut("render3d").unwrap();
+                let error = sub.error(
+                    clap::error::ErrorKind::ArgumentConflict,
+                    "`--no-denoise` is not allowed when `--mode=heightmap`",
+                );
+                error.exit();
+            }
+            let denoise = !no_denoise;
+            let mode = match mode {
+                RenderMode3DArg::Shaded => {
+                    RenderMode3D::Shaded { ssao, denoise }
+                }
+                RenderMode3DArg::Heightmap => RenderMode3D::Heightmap,
+                RenderMode3DArg::BlurredOcclusion => {
+                    RenderMode3D::BlurredOcclusion { denoise }
+                }
+                RenderMode3DArg::RawOcclusion => {
+                    RenderMode3D::RawOcclusion { denoise }
+                }
+                RenderMode3DArg::Normals => RenderMode3D::Normals { denoise },
+            };
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
             let s = 1.0 / settings.scale;
