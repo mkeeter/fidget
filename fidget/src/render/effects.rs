@@ -7,6 +7,10 @@ use nalgebra::{
 };
 use rand::prelude::*;
 
+/// Denoise normals by replacing back-facing normals with their average neighbor
+///
+/// # Panics
+/// If the images have different widths or heights
 pub fn denoise_normals(
     depth: &DepthImage,
     norm: &NormalImage,
@@ -15,7 +19,7 @@ pub fn denoise_normals(
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
 
-    let radius = (depth.width() / 256).max(2) as isize;
+    let radius = 2;
     let mut out = NormalImage::new(depth.width(), depth.height());
     out.apply_effect(
         |x, y| {
@@ -98,7 +102,7 @@ pub fn compute_ssao(
 /// Blurs the given image, which is expected to be an SSAO occlusion map
 pub fn blur_ssao(ssao: &Image<f32>, threads: Option<ThreadPool>) -> Image<f32> {
     let mut out = Image::<f32>::new(ssao.width(), ssao.height());
-    let blur_radius = (ssao.width() / 256).max(2) as isize;
+    let blur_radius = 2;
     out.apply_effect(
         |x, y| {
             if ssao[(y, x)].is_nan() {
@@ -136,16 +140,15 @@ fn shade_pixel(
         Vector4::new(-5.0, 0.0, 10.0, 0.15),
         Vector4::new(0.0, -5.0, 10.0, 0.15),
     ];
-    let mut accum = 0.0; // ambient
+    let mut accum = 0.2; // ambient
     for light in lights {
         let light_dir = (light.xyz() - p).normalize();
         accum += light_dir.dot(&n).max(0.0) * light.w;
     }
     if let Some(ssao) = ssao {
-        accum *= ssao[(y, x)] * 0.8;
+        accum *= ssao[(y, x)] * 0.6 + 0.4;
     }
 
-    accum += 0.2;
     accum = accum.clamp(0.0, 1.0);
 
     let c = (accum * 255.0) as u8;
@@ -171,7 +174,7 @@ fn compute_pixel_ssao(
         return f32::NAN;
     }
 
-    // XXX this is guessing at the depth
+    // XXX this is guessing at the image depth
     // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
         (((x as f32) / depth.width() as f32) - 0.5) * 2.0,
@@ -184,7 +187,7 @@ fn compute_pixel_ssao(
 
     // Get a rotation vector based on pixel index, and add a Z coordinate
     let idx = pos.0 + pos.1 * depth.width();
-    let rvec = noise.row(idx % noise.nrows()).transpose();
+    let rvec = noise.row((idx * 19) % noise.nrows()).transpose();
     let rvec = Vector3::new(rvec.x, rvec.y, 0.0);
 
     // Build our transform matrix, using the Gram-Schmidt process
@@ -249,7 +252,7 @@ fn denoise_pixel(
         (-denoise_radius, -denoise_radius),
     ]
     .into_iter()
-    .map(|(xmin, ymin)| {
+    .flat_map(|(xmin, ymin)| {
         let mut sum = Vector3::zeros();
         let mut count = 0;
         for i in 0..=denoise_radius {
@@ -270,6 +273,9 @@ fn denoise_pixel(
                 }
             }
         }
+        if count == 0 {
+            return None;
+        }
         let mean = sum / count as f32;
         let mut score = 0.0;
         for i in 0..=denoise_radius {
@@ -289,12 +295,11 @@ fn denoise_pixel(
                 }
             }
         }
-        (score, mean)
+        Some((score, mean.into()))
     })
     .max_by_key(|(score, _mean)| ordered_float::OrderedFloat(*score))
-    .unwrap()
+    .unwrap_or((0.0, n))
     .1
-    .into()
 }
 
 /// Computes a single blurred pixel
@@ -313,7 +318,7 @@ fn compute_pixel_blur(
         (-blur_radius, -blur_radius),
     ]
     .into_iter()
-    .map(|(xmin, ymin)| {
+    .flat_map(|(xmin, ymin)| {
         let mut sum = 0.0;
         let mut count = 0;
         for i in 0..=blur_radius {
@@ -333,6 +338,9 @@ fn compute_pixel_blur(
                 }
             }
         }
+        if count == 0 {
+            return None;
+        }
         let mean = sum / count as f32;
         let mut stdev = 0.0;
         for i in 0..=blur_radius {
@@ -351,10 +359,8 @@ fn compute_pixel_blur(
                 }
             }
         }
-        let stdev = ((stdev / count as f32) - 1.0).sqrt();
-        (stdev, mean)
+        Some((stdev / count as f32, mean))
     })
-    .filter(|(stdev, _mean)| !stdev.is_nan())
     .min_by_key(|(stdev, _mean)| ordered_float::OrderedFloat(*stdev))
     .unwrap_or_else(|| (0.0, ssao[(y as usize, x as usize)]))
     .1
