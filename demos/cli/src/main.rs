@@ -92,6 +92,10 @@ enum RenderMode3D {
     Normals,
     /// Pixels are shaded
     Shaded,
+    /// Raw (unblurred) SSAO occlusion, for debugging
+    RawOcclusion,
+    /// Blurred SSAO occlusion, for debugging
+    BlurredOcclusion,
 }
 
 #[derive(ValueEnum, Default, Clone)]
@@ -283,6 +287,39 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                         [p[0], p[1], p[2], 255]
                     } else {
                         [0, 0, 0, 0]
+                    }
+                })
+                .collect()
+        }
+        RenderMode3D::RawOcclusion => {
+            let ssao =
+                fidget::render::effects::compute_ssao(&depth, &norm, threads);
+            ssao.into_iter()
+                .flat_map(|p| {
+                    if p.is_nan() {
+                        [255; 4]
+                    } else {
+                        let v = (p * 255.0).min(255.0) as u8;
+                        [v, v, v, 255]
+                    }
+                })
+                .collect()
+        }
+        RenderMode3D::BlurredOcclusion => {
+            let ssao = fidget::render::effects::compute_ssao(
+                &depth,
+                &norm,
+                threads.clone(),
+            );
+            let blurred = fidget::render::effects::blur_ssao(&ssao, threads);
+            blurred
+                .into_iter()
+                .flat_map(|p| {
+                    if p.is_nan() {
+                        [255; 4]
+                    } else {
+                        let v = (p * 255.0).min(255.0) as u8;
+                        [v, v, v, 255]
                     }
                 })
                 .collect()

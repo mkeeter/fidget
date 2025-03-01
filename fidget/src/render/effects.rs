@@ -62,18 +62,16 @@ pub fn compute_ssao(
     out
 }
 
-/// Blurs the given image
-pub fn compute_blur(
-    ssao: &Image<f32>,
-    threads: Option<ThreadPool>,
-) -> Image<f32> {
+/// Blurs the given image, which is expected to be an SSAO occlusion map
+pub fn blur_ssao(ssao: &Image<f32>, threads: Option<ThreadPool>) -> Image<f32> {
     let mut out = Image::<f32>::new(ssao.width(), ssao.height());
+    let blur_radius = (ssao.width() / 256).max(2) as isize;
     out.apply_effect(
         |x, y| {
             if ssao[(y, x)].is_nan() {
                 f32::NAN
             } else {
-                compute_pixel_blur(ssao, x, y)
+                compute_pixel_blur(ssao, x, y, blur_radius)
             }
         },
         threads,
@@ -136,10 +134,11 @@ fn compute_pixel_ssao(
     }
 
     // XXX this is guessing at the depth
+    // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
-        (((x as f32) / depth.width() as f32) + 0.5) * 2.0,
-        (((y as f32) / depth.height() as f32) + 0.5) * 2.0,
-        (((d as f32) / depth.width() as f32) + 0.5) * 2.0,
+        (((x as f32) / depth.width() as f32) - 0.5) * 2.0,
+        (((y as f32) / depth.height() as f32) - 0.5) * 2.0,
+        (((d as f32) / depth.width() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
@@ -158,7 +157,10 @@ fn compute_pixel_ssao(
     const RADIUS: f32 = 0.1;
     let mut occlusion = 0.0;
     for i in 0..kernel.nrows() {
+        // position in world coordinates
         let sample_pos = tbn * kernel.row(i).transpose() * RADIUS + p;
+
+        // convert to pixel coordinates
         // XXX this distorts samples for non-square images
         let px = ((sample_pos.x / 2.0) + 0.5) * depth.width() as f32;
         let py = ((sample_pos.y / 2.0) + 0.5) * depth.height() as f32;
@@ -175,7 +177,7 @@ fn compute_pixel_ssao(
         };
 
         // XXX same caveat about image depth here
-        let actual_z = (((actual_h as f32) / depth.width() as f32) + 0.5) * 2.0;
+        let actual_z = (((actual_h as f32) / depth.width() as f32) - 0.5) * 2.0;
 
         let dz = sample_pos.z - actual_z;
         if dz < RADIUS {
@@ -188,17 +190,26 @@ fn compute_pixel_ssao(
 }
 
 /// Computes a single blurred pixel
-fn compute_pixel_blur(ssao: &Image<f32>, x: usize, y: usize) -> f32 {
-    let mut best = 1000000.0;
-    let mut value = 0.0;
-    const BLUR_RADIUS: isize = 2;
+fn compute_pixel_blur(
+    ssao: &Image<f32>,
+    x: usize,
+    y: usize,
+    blur_radius: isize,
+) -> f32 {
     let x = x as isize;
     let y = y as isize;
-    let mut run = |xmin, ymin| {
+    [
+        (0, 0),
+        (-blur_radius, 0),
+        (0, -blur_radius),
+        (-blur_radius, -blur_radius),
+    ]
+    .into_iter()
+    .map(|(xmin, ymin)| {
         let mut sum = 0.0;
         let mut count = 0;
-        for i in 0..=BLUR_RADIUS {
-            for j in 0..=BLUR_RADIUS {
+        for i in 0..=blur_radius {
+            for j in 0..=blur_radius {
                 let tx = x + xmin + i;
                 let ty = y + ymin + j;
                 if tx >= 0
@@ -216,8 +227,8 @@ fn compute_pixel_blur(ssao: &Image<f32>, x: usize, y: usize) -> f32 {
         }
         let mean = sum / count as f32;
         let mut stdev = 0.0;
-        for i in 0..=BLUR_RADIUS {
-            for j in 0..=BLUR_RADIUS {
+        for i in 0..=blur_radius {
+            for j in 0..=blur_radius {
                 let tx = x + xmin + i;
                 let ty = y + ymin + j;
                 if tx >= 0
@@ -233,17 +244,11 @@ fn compute_pixel_blur(ssao: &Image<f32>, x: usize, y: usize) -> f32 {
             }
         }
         let stdev = ((stdev / count as f32) - 1.0).sqrt();
-        if stdev < best {
-            best = stdev;
-            value = mean;
-        }
-    };
-    run(0, 0);
-    run(-BLUR_RADIUS, 0);
-    run(0, -BLUR_RADIUS);
-    run(-BLUR_RADIUS, -BLUR_RADIUS);
-
-    value
+        (stdev, mean)
+    })
+    .min_by_key(|(stdev, _mean)| ordered_float::OrderedFloat(*stdev))
+    .unwrap()
+    .1
 }
 
 /// Returns a tuple of `(kernel, noise)` matrices for SSAO
@@ -267,7 +272,7 @@ pub fn ssao_kernel(
     let xy_range = rand::distributions::Uniform::new_inclusive(-1.0, 1.0);
     let z_range = rand::distributions::Uniform::new_inclusive(0.0, 1.0);
 
-    for i in 0..64 {
+    for i in 0..n {
         let row = RowVector3::<f32>::new(
             rng.sample(xy_range),
             rng.sample(xy_range),
