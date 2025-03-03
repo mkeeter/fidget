@@ -40,6 +40,7 @@ impl RegTape {
         self.tape.clear();
         self.slot_count = 0;
     }
+
     /// Returns the number of unique register and memory locations that are used
     /// by this tape.
     #[inline]
