@@ -1,6 +1,6 @@
 // Isometric render:   --scale 0.05 --pitch 80 --roll 130 --center=0,0,-14 --isometric
 // Perspective render: --scale 0.05 --pitch 80 --roll 130 --center=0,0,-14 --perspective=0.2 --zflatten 2
-let logs = x.abs() - 10 -  (1.0 - (y % 2 - 1).square()).sqrt();
+let logs = x.abs() - 10 -  max(0.05, 1.0 - (y % 2 - 1).square()).sqrt();
 let cabin = max(
     logs.remap_xyz(x, z, y),
     logs.remap_xyz(y, z, x)
