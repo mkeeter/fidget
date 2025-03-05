@@ -600,7 +600,7 @@ impl ViewerApp {
                     min: text_corner - 2.0 * PADDING,
                     max: rect.max,
                 },
-                egui::Rounding::default(),
+                egui::CornerRadius::default(),
                 egui::Color32::from_black_alpha(128),
             );
             painter.galley(text_corner - PADDING, layout, egui::Color32::BLACK);
@@ -620,7 +620,7 @@ impl ViewerApp {
                     min: rect.min,
                     max: text_corner + 2.0 * PADDING,
                 },
-                egui::Rounding::default(),
+                egui::CornerRadius::default(),
                 egui::Color32::from_black_alpha(128),
             );
             painter.galley(rect.min + PADDING, layout, egui::Color32::BLACK);
@@ -654,7 +654,7 @@ impl eframe::App for ViewerApp {
 
         // Draw the current image and/or error
         let r = egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::BLACK))
+            .frame(egui::Frame::new().fill(egui::Color32::BLACK))
             .show(ctx, |ui| self.paint_image(ui))
             .inner;
 

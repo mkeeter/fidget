@@ -34,7 +34,7 @@ libc = { workspace = true, optional = true }
 windows.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom.workspace = true
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [features]
 default = ["jit", "rhai"]

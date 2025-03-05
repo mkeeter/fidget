@@ -86,6 +86,7 @@ use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 /// ```
 const STACK_SIZE: u32 = 0x220;
 
+#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
 impl Assembler for GradSliceAssembler {
     type Data = Grad;
 
@@ -389,7 +390,7 @@ impl Assembler for GradSliceAssembler {
             ; b 12 // -> end
 
             // NaN handler
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; fmov  S(reg(out_reg)), w9
             // end:
         )
@@ -409,7 +410,7 @@ impl Assembler for GradSliceAssembler {
             ; b 12 // -> end
 
             // NaN handler
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; fmov  S(reg(out_reg)), w9
             // end:
         )
@@ -476,7 +477,7 @@ impl Assembler for GradSliceAssembler {
             ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
 
             // Build NAN mask
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; fmov s7, w9
             ; and v7.b16, v7.b16, v6.b16
 
@@ -578,10 +579,10 @@ impl GradSliceAssembler {
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it can be overwritten, because we're only ever calling it
             // once)
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(arg_reg)).s[0]
@@ -656,10 +657,10 @@ impl GradSliceAssembler {
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it could be thrashed by the call, since we're only calling
             // it once).
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             // Prepare to call our stuff!
             ; mov s0, V(reg(lhs_reg)).s[0]

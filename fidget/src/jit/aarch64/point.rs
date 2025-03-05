@@ -78,6 +78,8 @@ use dynasmrt::{dynasm, DynasmApi};
 /// | 0x0      | `fp` (`x29`) | [current value for sp]                      |
 /// ```
 const STACK_SIZE: u32 = 0xb0;
+
+#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
 impl Assembler for PointAssembler {
     type Data = f32;
 
@@ -348,11 +350,11 @@ impl Assembler for PointAssembler {
         dynasm!(self.0.ops
             ; fcmeq s6, S(reg(lhs_reg)), 0.0
             ; fmov w10, s6 // s6 = w10 = (lhs == 0)
-            ; mov w9, CHOICE_LEFT.into()
+            ; mov w9, CHOICE_LEFT
             ; and w9, w9, w10 // w9 = (lhs == 0) ? CHOICE_LEFT : 0
 
             ; mvn w10, w10
-            ; mov w11, CHOICE_RIGHT.into()
+            ; mov w11, CHOICE_RIGHT
             ; and w11, w11, w10 // w11 = (lhs != 0) ? CHOICE_RIGHT : 0
             ; orr w11, w11, w9  // w11 = choice to write
 
@@ -375,11 +377,11 @@ impl Assembler for PointAssembler {
             ; mvn v6.b8, v6.b8
 
             ; fmov w10, s6 // s6 = w10 = (lhs != 0)
-            ; mov w9, CHOICE_LEFT.into()
+            ; mov w9, CHOICE_LEFT
             ; and w9, w9, w10 // w9 = (lhs != 0) ? CHOICE_LEFT : 0
 
             ; mvn w10, w10
-            ; mov w11, CHOICE_RIGHT.into()
+            ; mov w11, CHOICE_RIGHT
             ; and w11, w11, w10 // w11 = (lhs == 0) ? CHOICE_RIGHT : 0
             ; orr w11, w11, w9  // w11 = choice to write
 
@@ -422,7 +424,7 @@ impl Assembler for PointAssembler {
             ; orr V(reg(out_reg)).B8, V(reg(out_reg)).B8, v5.B8
 
             // Apply NAN value
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; fmov s7, w9
             ; and v7.b8, v7.b8, v6.b8
 
@@ -517,10 +519,10 @@ impl PointAssembler {
 
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it's about to be overwritten, because we only call it once)
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             ; fmov s0, S(reg(arg_reg))
             ; blr x0
@@ -577,10 +579,10 @@ impl PointAssembler {
 
             // Load the function address, awkwardly, into x0 (it doesn't matter
             // that it's about to be overwritten, because we only call it once)
-            ; movz x0, ((addr >> 48) as u32), lsl 48
-            ; movk x0, ((addr >> 32) as u32), lsl 32
-            ; movk x0, ((addr >> 16) as u32), lsl 16
-            ; movk x0, addr as u32
+            ; movz x0, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x0, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x0, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x0, addr as u32 & 0xFFFF
 
             ; fmov s0, S(reg(lhs_reg))
             ; fmov s1, S(reg(rhs_reg))
