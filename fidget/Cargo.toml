@@ -34,7 +34,9 @@ libc = { workspace = true, optional = true }
 windows.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { workspace = true, features = ["wasm_js"] }
+# Feature unification hacks to get webassembly working
+getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
 
 [features]
 default = ["jit", "rhai"]
