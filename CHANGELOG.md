@@ -1,3 +1,6 @@
+# 0.3.6 (unreleased)
+(nothing yet)
+
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
 - Make `TranslateHandle` take a `const N: usize` parameter
