@@ -329,7 +329,35 @@ impl<T> AssemblerData<T> {
         self.push_stack();
     }
 
-    #[cfg(target_arch = "aarch64")]
+    fn stack_pos(&self, slot: u32) -> u32 {
+        assert!(slot >= REGISTER_LIMIT as u32);
+        (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<T> AssemblerData<T> {
+    fn push_stack(&mut self) {
+        dynasm!(self.ops
+            ; sub rsp, self.mem_offset as i32
+        );
+    }
+
+    fn finalize(mut self) -> Result<Mmap, Error> {
+        dynasm!(self.ops
+            ; add rsp, self.mem_offset as i32
+            ; pop rbp
+            ; emms
+            ; vzeroall
+            ; ret
+        );
+        self.ops.finalize()
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
+impl<T> AssemblerData<T> {
     fn push_stack(&mut self) {
         if self.mem_offset < 4096 {
             dynasm!(self.ops
@@ -337,7 +365,7 @@ impl<T> AssemblerData<T> {
             );
         } else if self.mem_offset < 65536 {
             dynasm!(self.ops
-                ; mov w28, self.mem_offset as u64
+                ; mov w28, self.mem_offset as u32
                 ; sub sp, sp, w28
             );
         } else {
@@ -345,19 +373,6 @@ impl<T> AssemblerData<T> {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn push_stack(&mut self) {
-        dynasm!(self.ops
-            ; sub rsp, self.mem_offset as i32
-        );
-    }
-
-    fn stack_pos(&self, slot: u32) -> u32 {
-        assert!(slot >= REGISTER_LIMIT as u32);
-        (slot - REGISTER_LIMIT as u32) * std::mem::size_of::<T>() as u32
-    }
-
-    #[cfg(target_arch = "aarch64")]
     fn finalize(mut self) -> Result<Mmap, Error> {
         // Fix up the stack
         if self.mem_offset < 4096 {
@@ -366,7 +381,7 @@ impl<T> AssemblerData<T> {
             );
         } else if self.mem_offset < 65536 {
             dynasm!(self.ops
-                ; mov w9, self.mem_offset as u64
+                ; mov w9, self.mem_offset as u32
                 ; add sp, sp, w9
             );
         } else {
@@ -374,18 +389,6 @@ impl<T> AssemblerData<T> {
         }
 
         dynasm!(self.ops
-            ; ret
-        );
-        self.ops.finalize()
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn finalize(mut self) -> Result<Mmap, Error> {
-        dynasm!(self.ops
-            ; add rsp, self.mem_offset as i32
-            ; pop rbp
-            ; emms
-            ; vzeroall
             ; ret
         );
         self.ops.finalize()

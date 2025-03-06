@@ -83,6 +83,7 @@ pub const SIMD_WIDTH: usize = 4;
 /// ```
 const STACK_SIZE: u32 = 0x230;
 
+#[allow(clippy::unnecessary_cast)] // dynasm-rs#106
 impl Assembler for FloatSliceAssembler {
     type Data = f32;
 
@@ -390,7 +391,7 @@ impl Assembler for FloatSliceAssembler {
             ; orr V(reg(out_reg)).B16, V(reg(out_reg)).B16, v5.B16
 
             // Build a NAN mask
-            ; mov w9, f32::NAN.to_bits().into()
+            ; mov w9, f32::NAN.to_bits()
             ; dup v7.s4, w9
             ; and v7.b16, v7.b16, v6.b16
 
@@ -492,10 +493,10 @@ impl FloatSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x24, ((addr >> 48) as u32), lsl 48
-            ; movk x24, ((addr >> 32) as u32), lsl 32
-            ; movk x24, ((addr >> 16) as u32), lsl 16
-            ; movk x24, addr as u32
+            ; movz x24, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x24, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x24, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x24, addr as u32 & 0xFFFF
 
             // We're going to back up our argument into d8/d9 (since the callee
             // only saves the bottom 64 bits).  Note that d8/d9 may be our input
@@ -581,10 +582,10 @@ impl FloatSliceAssembler {
 
             // Load the function address, awkwardly, into a callee-saved
             // register (so we only need to do this once)
-            ; movz x24, ((addr >> 48) as u32), lsl 48
-            ; movk x24, ((addr >> 32) as u32), lsl 32
-            ; movk x24, ((addr >> 16) as u32), lsl 16
-            ; movk x24, addr as u32
+            ; movz x24, (addr >> 48) as u32 & 0xFFFF, lsl 48
+            ; movk x24, (addr >> 32) as u32 & 0xFFFF, lsl 32
+            ; movk x24, (addr >> 16) as u32 & 0xFFFF, lsl 16
+            ; movk x24, addr as u32 & 0xFFFF
 
             // We're going to back up our argument into d8/d9/d10/d11 (since the
             // callee only saves the bottom 64 bits).  Note that d8/d9/d10/d11

@@ -8,15 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
 
 jobs:
   check:
-    strategy:
-      matrix:
-        target: [
-          "wasm32-unknown-unknown",
-        ]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -30,10 +24,12 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check
     - name: Install wasm target
-      run: rustup target add ${{ matrix.target }}
+      run: rustup target add wasm32-unknown-unknown
     - name: Check
-      # cargo check doesn't find MIR diagnostics, so we use cargo build instead
-      # (https://github.com/rust-lang/rust/issues/49292)
-      run: cargo build --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai"
+      # `cargo check` doesn't find MIR diagnostics (rust#49292), so we have to
+      # compile instead.  We're using `cargo rustc` instead of `cargo build` to
+      # pass `-Dwarnings`; we don't want to use `RUSTFLAGS` because that will
+      # override customization in `.cargo/config.toml`
+      run: cargo rustc --target=wasm32-unknown-unknown -pfidget --no-default-features --features="rhai" -- -Dwarnings
     - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} -pfidget --no-default-features --features="rhai"
+      run: cargo clippy --target=wasm32-unknown-unknown -pfidget --no-default-features --features="rhai" -- -Dwarnings

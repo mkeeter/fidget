@@ -377,9 +377,9 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
     use rand::prelude::*;
 
     let mut kernel = MatrixXx3::<f32>::zeros(n);
-    let mut rng = thread_rng();
-    let xy_range = rand::distributions::Uniform::new_inclusive(-1.0, 1.0);
-    let z_range = rand::distributions::Uniform::new_inclusive(0.0, 1.0);
+    let mut rng = rand::rng();
+    let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
+    let z_range = rand::distr::Uniform::new_inclusive(0.0, 1.0).unwrap();
 
     for i in 0..n {
         let row = RowVector3::<f32>::new(
@@ -401,8 +401,8 @@ pub fn ssao_kernel(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<3>> {
 /// which can be applied to the kernel vectors to reduce banding.
 pub fn ssao_noise(n: usize) -> OMatrix<f32, nalgebra::Dyn, Const<2>> {
     let mut noise = MatrixXx2::<f32>::zeros(n);
-    let mut rng = thread_rng();
-    let xy_range = rand::distributions::Uniform::new_inclusive(-1.0, 1.0);
+    let mut rng = rand::rng();
+    let xy_range = rand::distr::Uniform::new_inclusive(-1.0, 1.0).unwrap();
     for i in 0..n {
         let row =
             RowVector2::<f32>::new(rng.sample(xy_range), rng.sample(xy_range));
