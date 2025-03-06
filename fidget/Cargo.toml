@@ -37,6 +37,7 @@ windows.workspace = true
 # Feature unification hacks to get webassembly working
 getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
+rhai = { workspace = true, optional = true, features = ["wasm-bindgen"] }
 
 [features]
 default = ["jit", "rhai"]

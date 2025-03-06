@@ -1,4 +1,4 @@
-# 0.3.5 (unreleased)
+# 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
 - Make `TranslateHandle` take a `const N: usize` parameter
 - Use `TranslateHandle` in `View2` (previously, it was only used in `View3`)
@@ -24,6 +24,19 @@
 - Optimize implementation of interval `modulo` for cases where the right-hand
   argument is a positive constant value (which is the most common when using it
   for domain repetition)
+- Update many dependencies to their latest versions
+
+## WebAssembly building notes
+Due to [`getrandom#504`](https://github.com/rust-random/getrandom/pull/504),
+crates which use Fidget as a library **and** compile to WebAssembly must
+select a `getrandom` backend.  This can be done either on the command line
+(`RUSTFLAGS='--cfg getrandom_backend="wasm_js"'`) or in a `.cargo/config.toml`
+configuration file (e.g. [this file](https://github.com/mkeeter/fidget/tree/main/.cargo/config.toml)
+in Fidget itself).
+
+See
+[the `getrandom` docs](https://docs.rs/getrandom/latest/getrandom/#webassembly-support)
+for more details on why this is necessary.
 
 # 0.3.4
 - Add `GenericVmFunction::simplify_with` to simultaneously simplify a function
