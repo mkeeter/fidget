@@ -260,6 +260,17 @@
 //!
 //! This is documented in the [`fidget::mesh`](mesh) module.
 //!
+//! # WebAssembly notes
+//! The `getrandom` backend must be selected with `RUSTFLAGS`, e.g.
+//! `RUSTFLAGS='--cfg getrandom_backend="wasm_js"'`.  This can be specified on
+//! the command line or in a `.cargo/config.toml` configuration file (e.g.
+//! [this file](https://github.com/mkeeter/fidget/tree/main/.cargo/config.toml)
+//! in Fidget itself).
+//!
+//! See
+//! [the `getrandom` docs](https://docs.rs/getrandom/latest/getrandom/#webassembly-support)
+//! for more details on why this is necessary.
+//!
 //! # Feature flags
 #![doc = document_features::document_features!()]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
