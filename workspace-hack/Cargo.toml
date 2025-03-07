@@ -22,11 +22,8 @@ byteorder = { version = "1" }
 clap = { version = "4", features = ["derive"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
-half = { version = "2" }
-num-rational = { version = "0.4" }
 num-traits = { version = "0.2", features = ["i128"] }
 once_cell = { version = "1", features = ["portable-atomic"] }
-profiling = { version = "1" }
 regex = { version = "1", default-features = false, features = ["perf", "std"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -46,11 +43,9 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
-image = { version = "0.25" }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
-smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -65,10 +60,8 @@ syn = { version = "2", default-features = false, features = ["fold", "visit", "v
 [target.aarch64-apple-darwin.dependencies]
 anstream = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
-image = { version = "0.25" }
+image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 libc = { version = "0.2" }
-log = { version = "0.4", default-features = false, features = ["std"] }
-smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -82,11 +75,9 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 bytemuck = { version = "1", default-features = false, features = ["aarch64_simd"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
-image = { version = "0.25" }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
-smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
