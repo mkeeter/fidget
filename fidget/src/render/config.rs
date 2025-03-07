@@ -16,15 +16,14 @@ use std::sync::{
 ///
 /// Most users will use the global Rayon pool, but it's possible to provide your
 /// own as well.
-#[derive(Clone)]
-pub enum ThreadPool<'a> {
+pub enum ThreadPool {
     /// User-provided pool
-    Custom(&'a rayon::ThreadPool),
+    Custom(rayon::ThreadPool),
     /// Global Rayon pool
     Global,
 }
 
-impl ThreadPool<'_> {
+impl ThreadPool {
     /// Runs a function across the thread pool
     pub fn run<F: FnOnce() -> V + Send, V: Send>(&self, f: F) -> V {
         match self {
@@ -98,7 +97,7 @@ pub struct ImageRenderConfig<'a> {
     ///
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
-    pub threads: Option<ThreadPool<'a>>,
+    pub threads: Option<&'a ThreadPool>,
 
     /// Token to cancel rendering
     pub cancel: CancelToken,
@@ -110,7 +109,7 @@ impl Default for ImageRenderConfig<'_> {
             image_size: ImageSize::from(512),
             tile_sizes: TileSizes::new(&[128, 32, 8]).unwrap(),
             view: View2::default(),
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
     }
@@ -124,7 +123,7 @@ impl RenderConfig for ImageRenderConfig<'_> {
         self.image_size.height()
     }
     fn threads(&self) -> Option<&ThreadPool> {
-        self.threads.as_ref()
+        self.threads
     }
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes
@@ -181,7 +180,7 @@ pub struct VoxelRenderConfig<'a> {
     ///
     /// If this is `None`, then rendering is done in a single thread; otherwise,
     /// the provided pool is used.
-    pub threads: Option<ThreadPool<'a>>,
+    pub threads: Option<&'a ThreadPool>,
 
     /// Token to cancel rendering
     pub cancel: CancelToken,
@@ -194,7 +193,7 @@ impl Default for VoxelRenderConfig<'_> {
             tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
             view: View3::default(),
 
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             cancel: CancelToken::new(),
         }
     }
@@ -208,7 +207,7 @@ impl RenderConfig for VoxelRenderConfig<'_> {
         self.image_size.height()
     }
     fn threads(&self) -> Option<&ThreadPool> {
-        self.threads.as_ref()
+        self.threads
     }
     fn tile_sizes(&self) -> &TileSizes {
         &self.tile_sizes

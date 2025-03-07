@@ -64,7 +64,7 @@ pub fn render_2d(
     ) -> Option<Vec<u8>> {
         let cfg = ImageRenderConfig {
             image_size: ImageSize::from(image_size as u32),
-            threads: Some(ThreadPool::Global),
+            threads: Some(&ThreadPool::Global),
             tile_sizes: TileSizes::new(&[64, 16, 8]).unwrap(),
             view,
             cancel,
@@ -134,7 +134,7 @@ fn render_3d_inner(
 ) -> Option<(DepthImage, NormalImage)> {
     let cfg = VoxelRenderConfig {
         image_size: VoxelSize::from(image_size as u32),
-        threads: Some(ThreadPool::Global),
+        threads: Some(&ThreadPool::Global),
         tile_sizes: TileSizes::new(&[128, 64, 32, 16, 8]).unwrap(),
         view,
         cancel,

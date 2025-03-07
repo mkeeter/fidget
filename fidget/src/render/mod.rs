@@ -419,7 +419,7 @@ impl<P: Send> Image<P> {
     pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
         &mut self,
         f: F,
-        threads: Option<ThreadPool>,
+        threads: Option<&ThreadPool>,
     ) {
         let r = |(y, row): (usize, &mut [P])| {
             for (x, v) in row.iter_mut().enumerate() {

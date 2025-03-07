@@ -54,15 +54,15 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs threads (prospero, 2d) (1024 x 1024)");
     let pools = [1, 2, 4, 8, 16].map(|i| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(i)
-            .build()
-            .unwrap()
+        Some(ThreadPool::Custom(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(i)
+                .build()
+                .unwrap(),
+        ))
     });
-    for threads in [None, Some(ThreadPool::Global)]
-        .into_iter()
-        .chain(pools.iter().map(|p| Some(ThreadPool::Custom(p))))
-    {
+    for threads in [None, Some(ThreadPool::Global)].into_iter().chain(pools) {
+        let threads = threads.as_ref();
         let name = match &threads {
             None => "-".to_string(),
             Some(ThreadPool::Custom(i)) => i.current_num_threads().to_string(),
@@ -71,7 +71,7 @@ pub fn prospero_thread_sweep(c: &mut Criterion) {
         let cfg = &fidget::render::ImageRenderConfig {
             image_size: ImageSize::from(1024),
             tile_sizes: fidget::vm::VmFunction::tile_sizes_2d(),
-            threads: threads.clone(),
+            threads,
             ..Default::default()
         };
         group.bench_function(BenchmarkId::new("vm", &name), move |b| {

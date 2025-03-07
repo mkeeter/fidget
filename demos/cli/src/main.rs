@@ -244,24 +244,21 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     settings: &ImageSettings,
     mode: RenderMode3D,
 ) -> Vec<u8> {
-    let pool: Option<rayon::ThreadPool>;
     let threads = match settings.threads {
         Some(n) if n.get() == 1 => None,
-        Some(n) => {
-            pool = Some(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(n.get())
-                    .build()
-                    .unwrap(),
-            );
-            pool.as_ref().map(fidget::render::ThreadPool::Custom)
-        }
+        Some(n) => Some(fidget::render::ThreadPool::Custom(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n.get())
+                .build()
+                .unwrap(),
+        )),
         None => Some(fidget::render::ThreadPool::Global),
     };
+    let threads = threads.as_ref();
     let cfg = fidget::render::VoxelRenderConfig {
         image_size: fidget::render::VoxelSize::from(settings.size),
         tile_sizes: F::tile_sizes_3d(),
-        threads: threads.clone(),
+        threads,
         ..Default::default()
     };
 
@@ -301,11 +298,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::Shaded { ssao, denoise } => {
             let norm = if denoise {
-                fidget::render::effects::denoise_normals(
-                    &depth,
-                    &norm,
-                    threads.clone(),
-                )
+                fidget::render::effects::denoise_normals(&depth, &norm, threads)
             } else {
                 norm
             };
@@ -326,11 +319,7 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::RawOcclusion { denoise } => {
             let norm = if denoise {
-                fidget::render::effects::denoise_normals(
-                    &depth,
-                    &norm,
-                    threads.clone(),
-                )
+                fidget::render::effects::denoise_normals(&depth, &norm, threads)
             } else {
                 norm
             };
@@ -349,19 +338,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
             let norm = if denoise {
-                fidget::render::effects::denoise_normals(
-                    &depth,
-                    &norm,
-                    threads.clone(),
-                )
+                fidget::render::effects::denoise_normals(&depth, &norm, threads)
             } else {
                 norm
             };
-            let ssao = fidget::render::effects::compute_ssao(
-                &depth,
-                &norm,
-                threads.clone(),
-            );
+            let ssao =
+                fidget::render::effects::compute_ssao(&depth, &norm, threads);
             let blurred = fidget::render::effects::blur_ssao(&ssao, threads);
             blurred
                 .into_iter()
@@ -428,24 +410,20 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
             .flat_map(|i| i.into_iter())
             .collect()
     } else {
-        let pool: Option<rayon::ThreadPool>;
         let threads = match settings.threads {
             Some(n) if n.get() == 1 => None,
-            Some(n) => {
-                pool = Some(
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(n.get())
-                        .build()
-                        .unwrap(),
-                );
-                pool.as_ref().map(fidget::render::ThreadPool::Custom)
-            }
+            Some(n) => Some(fidget::render::ThreadPool::Custom(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n.get())
+                    .build()
+                    .unwrap(),
+            )),
             None => Some(fidget::render::ThreadPool::Global),
         };
         let cfg = fidget::render::ImageRenderConfig {
             image_size: fidget::render::ImageSize::from(settings.size),
             tile_sizes: F::tile_sizes_2d(),
-            threads,
+            threads: threads.as_ref(),
             ..Default::default()
         };
         match mode {
