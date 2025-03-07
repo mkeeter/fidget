@@ -159,7 +159,7 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
         // There are two maps associated with this cell:
         // - A list of vertices, each of which has a list of transition edges
         // - A map from transition edge to vertex in the previous list
-        let mut edge_map = [(u8::MAX, u8::MAX); 12];
+        let mut edge_map: [Option<(u8, u8)>; 12] = [None; 12];
         let mut intersection_count = 0;
         let vert_count = verts.len();
         #[allow(clippy::identity_op)]
@@ -184,10 +184,10 @@ fn build_mdc_table() -> Result<(), std::io::Error> {
                     + (((start & u) != 0) as usize) * 1
                     + (((start & v) != 0) as usize) * 2;
 
-                edge_map[edge] = (
+                edge_map[edge] = Some((
                     vert.try_into().unwrap(),
                     (vert_count + intersection_count).try_into().unwrap(),
-                );
+                ));
                 intersection_count += 1;
             }
             vert_table_entry.push(vert_entry);
@@ -238,17 +238,21 @@ pub const CELL_TO_VERT_TO_EDGES: [&[&[DirectedEdge]]; 256] = ["
 /// Given a cell index `i` (as an 8-bit value) and an edge index `e` (as a
 /// packed undirected value in the range 0-12), returns an [`Intersection`]
 /// that encodes the vertex offsets for that edge.
-pub const CELL_TO_EDGE_TO_VERT: [[Intersection; 12]; 256] = ["
+pub const CELL_TO_EDGE_TO_VERT: [[Option<Intersection>; 12]; 256] = ["
     )?;
 
     for e in edge_table {
         writeln!(&mut file, "    [")?;
-        for (vert, edge) in e {
-            writeln!(
-                &mut file,
-                "        Intersection {{ vert: Offset({vert}), \
-                                         edge: Offset({edge}) }},"
-            )?;
+        for i in e {
+            if let Some((vert, edge)) = i {
+                writeln!(
+                    &mut file,
+                    "        Some(Intersection {{ vert: Offset({vert}), \
+                                                  edge: Offset({edge}) }}),"
+                )?;
+            } else {
+                writeln!(&mut file, "        None,")?;
+            }
         }
         writeln!(&mut file, "    ],")?;
     }

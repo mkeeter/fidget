@@ -101,13 +101,9 @@ pub struct Leaf {
 }
 
 impl Leaf {
+    /// Returns the edge intersection for the given edge (if present)
     pub fn edge(&self, e: Edge) -> Option<Intersection> {
-        let out = CELL_TO_EDGE_TO_VERT[self.mask as usize][e.index()];
-        if out.vert.0 == u8::MAX || out.edge.0 == u8::MAX {
-            None
-        } else {
-            Some(out)
-        }
+        CELL_TO_EDGE_TO_VERT[self.mask as usize][e.index()]
     }
 }
 

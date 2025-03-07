@@ -30,25 +30,6 @@ pub trait DcBuilder {
         d: CellIndex,
     );
 
-    /// Callback for an invalid leaf vertex
-    ///
-    /// This occurs if a non-manifold (multi-vertex) cell is a **larger**
-    /// neighbor of a small cell during meshing, because we can't decide which
-    /// of the vertices to choose.  It indicates that the larger cell should be
-    /// subdivided.
-    fn invalid_leaf_vert(&mut self, a: CellIndex) {
-        panic!("invalid leaf vertex at {a:?}");
-    }
-
-    /// Callback when a triangle fan is finished
-    ///
-    /// The default implementation does nothing; `DcFixup` uses this to forget
-    /// the most recent batch of vertices, since it only needs them for local
-    /// checking.
-    fn fan_done(&mut self) {
-        // Nothing to do here
-    }
-
     /// Record the given triangle
     ///
     /// Vertices are indices given by calls to [`Self::vertex`]
@@ -231,7 +212,6 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
 
         // Iterate over each of the edges, assigning a vertex if the sign change
         // lines up.
-        let mut failed = false;
         let mut verts = [None; 4];
         for i in 0..4 {
             if cs[i].depth == cs[deepest].depth {
@@ -249,21 +229,9 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
                     (0..12).filter_map(|j| leafs[i].edge(Edge::new(j)));
                 verts[i] = iter.next();
                 if iter.any(|other| other.vert != verts[i].unwrap().vert) {
-                    // This panics in normal meshing, and records the vertex
-                    // otherwise.
-                    out.invalid_leaf_vert(cs[i]);
-
-                    // Accumulate a flag so that we have time to check every
-                    // leaf, but we're going to return early.
-                    failed = true;
+                    panic!("invalid leaf vertex at {a:?}");
                 }
             }
-        }
-
-        // If any of the leafs are invalid due to their neighbors, then return
-        // immediately; we'll retry once they have been subdivided.
-        if failed {
-            return;
         }
 
         let verts = verts.map(Option::unwrap);
@@ -294,11 +262,6 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
                 out.triangle(vs[j], vs[(j + winding) % 4], i)
             }
         }
-
-        // Note that we have completed a triangle fan.  This is used by the
-        // DcFixup to forget its triangles, since it doesn't need to preserve
-        // them on a long-term basis.
-        out.fan_done();
     } else {
         let (t, u, v) = T::frame();
 
