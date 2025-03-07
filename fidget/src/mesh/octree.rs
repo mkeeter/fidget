@@ -84,9 +84,6 @@ pub struct Octree {
 
     /// Cell vertices, given as positions within the cell
     ///
-    /// The `bool` in the tuple indicates whether the vertex was clamped to fit
-    /// into the cell's bounding box.
-    ///
     /// This is indexed by cell leaf index; the exact shape depends heavily on
     /// the number of intersections and vertices within each leaf.
     pub(crate) verts: Vec<CellVertex>,
