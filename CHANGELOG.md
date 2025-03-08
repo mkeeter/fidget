@@ -1,5 +1,7 @@
 # 0.3.6 (unreleased)
-(nothing yet)
+- Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the
+  codebase; moving the reference out of the `ThreadPool` eliminates the need for
+  a separate `rayon::ThreadPool` object on the stack.
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`

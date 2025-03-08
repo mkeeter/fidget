@@ -14,7 +14,7 @@ use rand::prelude::*;
 pub fn denoise_normals(
     depth: &DepthImage,
     norm: &NormalImage,
-    threads: Option<ThreadPool>,
+    threads: Option<&ThreadPool>,
 ) -> NormalImage {
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
@@ -42,14 +42,14 @@ pub fn apply_shading(
     depth: &DepthImage,
     norm: &NormalImage,
     ssao: bool,
-    threads: Option<ThreadPool>,
+    threads: Option<&ThreadPool>,
 ) -> ColorImage {
     assert_eq!(depth.width(), norm.width());
     assert_eq!(depth.height(), norm.height());
 
     let ssao = if ssao {
-        let ssao = compute_ssao(depth, norm, threads.clone());
-        Some(blur_ssao(&ssao, threads.clone()))
+        let ssao = compute_ssao(depth, norm, threads);
+        Some(blur_ssao(&ssao, threads))
     } else {
         None
     };
@@ -75,7 +75,7 @@ pub fn apply_shading(
 pub fn compute_ssao(
     depth: &DepthImage,
     norm: &NormalImage,
-    threads: Option<ThreadPool>,
+    threads: Option<&ThreadPool>,
 ) -> Image<f32> {
     // TODO make an object that is a bound Depth + Normal image with conditions
     // already checked, maybe GBuffer?
@@ -100,7 +100,10 @@ pub fn compute_ssao(
 }
 
 /// Blurs the given image, which is expected to be an SSAO occlusion map
-pub fn blur_ssao(ssao: &Image<f32>, threads: Option<ThreadPool>) -> Image<f32> {
+pub fn blur_ssao(
+    ssao: &Image<f32>,
+    threads: Option<&ThreadPool>,
+) -> Image<f32> {
     let mut out = Image::<f32>::new(ssao.width(), ssao.height());
     let blur_radius = 2;
     out.apply_effect(
