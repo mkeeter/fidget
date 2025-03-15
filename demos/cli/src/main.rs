@@ -507,10 +507,6 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     let mut mesh_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
-            #[cfg(not(target_arch = "wasm32"))]
-            threads: settings.threads.into(),
-            #[cfg(target_arch = "wasm32")]
-            threads: Default::default(),
             depth: settings.depth,
             ..Default::default()
         };

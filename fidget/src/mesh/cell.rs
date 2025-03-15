@@ -11,7 +11,7 @@ pub enum Cell {
     Invalid,
     Empty,
     Full,
-    Branch { index: usize, thread: u8 },
+    Branch { index: usize },
     Leaf(Leaf),
 }
 

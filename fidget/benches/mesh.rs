@@ -1,7 +1,6 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
 };
-use fidget::mesh::ThreadCount;
 
 const COLONNADE: &str = include_str!("../../models/colonnade.vm");
 
@@ -13,29 +12,26 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
-    for threads in std::iter::once(ThreadCount::One)
-        .chain([1, 4, 8].map(|i| ThreadCount::Many(i.try_into().unwrap())))
-    {
-        let cfg = &fidget::mesh::Settings {
-            depth: 6,
-            threads,
-            ..Default::default()
-        };
 
-        #[cfg(feature = "jit")]
-        group.bench_function(BenchmarkId::new("jit", threads), move |b| {
-            b.iter(|| {
-                let cfg = *cfg;
-                black_box(fidget::mesh::Octree::build(shape_jit, cfg))
-            })
-        });
-        group.bench_function(BenchmarkId::new("vm", threads), move |b| {
-            b.iter(|| {
-                let cfg = *cfg;
-                black_box(fidget::mesh::Octree::build(shape_vm, cfg))
-            })
-        });
-    }
+    // TODO multiple threads
+    let cfg = &fidget::mesh::Settings {
+        depth: 6,
+        ..Default::default()
+    };
+
+    #[cfg(feature = "jit")]
+    group.bench_function(BenchmarkId::new("jit", 1), move |b| {
+        b.iter(|| {
+            let cfg = *cfg;
+            black_box(fidget::mesh::Octree::build(shape_jit, cfg))
+        })
+    });
+    group.bench_function(BenchmarkId::new("vm", 1), move |b| {
+        b.iter(|| {
+            let cfg = *cfg;
+            black_box(fidget::mesh::Octree::build(shape_vm, cfg))
+        })
+    });
 }
 
 pub fn colonnade_mesh(c: &mut Criterion) {
@@ -49,18 +45,13 @@ pub fn colonnade_mesh(c: &mut Criterion) {
 
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, meshing) (depth 8)");
-    for threads in std::iter::once(ThreadCount::One)
-        .chain([1, 4, 8].map(|i| ThreadCount::Many(i.try_into().unwrap())))
-    {
-        let cfg = &fidget::mesh::Settings { threads, ..cfg };
-        group.bench_function(
-            BenchmarkId::new("walk_dual", threads),
-            move |b| {
-                let cfg = *cfg;
-                b.iter(|| black_box(octree.walk_dual(cfg)))
-            },
-        );
-    }
+
+    // TODO multiple threads
+    let cfg = &fidget::mesh::Settings { ..cfg };
+    group.bench_function(BenchmarkId::new("walk_dual", 1), move |b| {
+        let cfg = *cfg;
+        b.iter(|| black_box(octree.walk_dual(cfg)))
+    });
 }
 
 criterion_group!(benches, colonnade_octree_thread_sweep, colonnade_mesh);
