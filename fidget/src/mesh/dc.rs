@@ -56,7 +56,7 @@ pub trait DcBuilder {
 }
 
 pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
-    if let Cell::Branch { index, .. } = octree[cell].into() {
+    if let Cell::Branch { index, .. } = octree[cell] {
         debug_assert_eq!(index % 8, 0);
         for i in Corner::iter() {
             out.cell(octree, octree.child(cell, i));
@@ -170,7 +170,7 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // If any of the leafs are Empty or Full, then this edge can't
         // include a sign change.  TODO: can we make this any -> all if we
         // collapse empty / filled leafs into Empty / Full cells?
-        let leafs = cs.map(|cell| match octree[cell].into() {
+        let leafs = cs.map(|cell| match octree[cell] {
             Cell::Leaf(leaf) => Some(leaf),
             Cell::Empty | Cell::Full => None,
             Cell::Branch { .. } => unreachable!(),

@@ -6,42 +6,6 @@ use super::{
     types::{Axis, Corner, Edge, Intersection, X, Y, Z},
 };
 
-/// Raw cell data
-///
-/// Unpack to a [`Cell`] to actually use it
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct CellData(u64);
-
-impl From<Cell> for CellData {
-    fn from(c: Cell) -> Self {
-        let i = match c {
-            Cell::Invalid => 0,
-            Cell::Empty => 1,
-            Cell::Full => 2,
-            Cell::Branch { index, thread } => {
-                debug_assert!((index as u64) < (1 << 54));
-                (0b10 << 62) | ((thread as u64) << 54) | index as u64
-            }
-            Cell::Leaf(Leaf { mask, index }) => {
-                debug_assert!((index as u64) < (1 << 54));
-                (0b11 << 62) | ((mask as u64) << 54) | index as u64
-            }
-        };
-        CellData(i)
-    }
-}
-
-impl std::fmt::Debug for CellData {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> Result<(), std::fmt::Error> {
-        let c: Cell = (*self).into();
-        c.fmt(f)
-    }
-}
-
-/// Unpacked form of [`CellData`]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Cell {
     Invalid,
@@ -63,31 +27,6 @@ impl Cell {
             Cell::Empty => false,
             Cell::Full => true,
             Cell::Branch { .. } | Cell::Invalid => panic!(),
-        }
-    }
-}
-
-impl From<CellData> for Cell {
-    fn from(c: CellData) -> Self {
-        let i = c.0;
-        match i {
-            0 => Cell::Invalid,
-            1 => Cell::Empty,
-            2 => Cell::Full,
-            _ => {
-                let index = (i & ((1 << 54) - 1)).try_into().unwrap();
-                match (i >> 62) & 0b11 {
-                    0b10 => Cell::Branch {
-                        thread: (i >> 54) as u8,
-                        index,
-                    },
-                    0b11 => Cell::Leaf(Leaf {
-                        mask: (i >> 54) as u8,
-                        index,
-                    }),
-                    _ => panic!("invalid cell encoding"),
-                }
-            }
         }
     }
 }
@@ -292,37 +231,6 @@ impl CellBounds {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_cell_encode_decode() {
-        for c in [
-            Cell::Empty,
-            Cell::Invalid,
-            Cell::Full,
-            Cell::Branch {
-                index: 12345,
-                thread: 17,
-            },
-            Cell::Branch {
-                index: 0x12340054322345,
-                thread: 128,
-            },
-            Cell::Leaf(Leaf {
-                index: 12345,
-                mask: 0b101,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x123400005432,
-                mask: 0b11011010,
-            }),
-            Cell::Leaf(Leaf {
-                index: 0x12123400005432,
-                mask: 0b11011010,
-            }),
-        ] {
-            assert_eq!(c, Cell::from(CellData::from(c)));
-        }
-    }
 
     #[test]
     fn test_cell_corner() {

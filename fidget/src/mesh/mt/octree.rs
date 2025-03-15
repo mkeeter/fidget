@@ -6,7 +6,7 @@ use super::{
 use crate::{
     eval::Function,
     mesh::{
-        cell::{Cell, CellData, CellIndex},
+        cell::{Cell, CellIndex},
         octree::{BranchResult, CellResult, EvalGroup, OctreeBuilder},
         types::Corner,
         Octree,
@@ -165,7 +165,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
             }
         };
         if let Some(c) = c {
-            workers[0].octree.record(0, c.into());
+            workers[0].octree.record(0, c);
             workers.into_iter().next().unwrap().octree.into()
         } else {
             let pool = &ThreadPool::new(settings.threads);
@@ -217,7 +217,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                 // Prepare a set of 8x cells for storage
                 let index = self.octree.o.cells.len();
                 for _ in Corner::iter() {
-                    self.octree.o.cells.push(Cell::Invalid.into());
+                    self.octree.o.cells.push(Cell::Invalid);
                 }
 
                 for i in Corner::iter() {
@@ -232,7 +232,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
                         // fill it in eventually (via the done queue).
                         CellResult::Done(cell) => self.record(
                             sub_cell.index,
-                            cell.into(),
+                            cell,
                             &task.data,
                             &mut ctx,
                         ),
@@ -308,11 +308,11 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
         };
         if let Some(parent) = task.parent.as_ref() {
             // Store the result locally, recursing up
-            self.record(task.target_cell.index, r.into(), parent, ctx);
+            self.record(task.target_cell.index, r, parent, ctx);
         } else {
             // Store the result locally, but don't recurse (because this is a
             // root task and has nowhere to go)
-            self.octree.record(task.target_cell.index, r.into());
+            self.octree.record(task.target_cell.index, r);
         }
     }
 
@@ -325,7 +325,7 @@ impl<F: Function + RenderHints> OctreeWorker<F> {
     fn record(
         &mut self,
         index: usize,
-        cell: CellData,
+        cell: Cell,
         parent_task: &Arc<TaskData<F>>,
         ctx: &mut ThreadContext,
     ) {
