@@ -335,9 +335,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     let cell = cell.child(index, i);
                     self.recurse(&mut sub_eval, vars, cell, max_depth);
                 }
-                sub_eval
-                    .recycle(&mut self.shape_storage, &mut self.tape_storage);
-
                 let r = self.check_done(cell, index).unwrap();
 
                 self.o[cell] = match r {
