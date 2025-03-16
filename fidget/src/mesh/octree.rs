@@ -237,7 +237,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
     /// Recurse down the octree, building the given cell
     ///
-    /// Writes to `self.cells[cell.index]`
+    /// Writes to `self.o.cells[cell]`, which must be reserved
     fn recurse(
         &mut self,
         eval: &mut RenderHandle<F>,
@@ -489,7 +489,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         let mut hermite_cell = LeafHermiteData::new();
-        hermite_cell.mask = mask;
         for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
@@ -547,22 +546,19 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // Check out the children
         let mut full_count = 0;
         let mut empty_count = 0;
-        let mut has_branch = false;
         let mut hermite_data = [LeafHermiteData::default(); 8];
-        for (i, h) in hermite_data.iter_mut().enumerate() {
+        for i in 0..8 {
             match self.o.cells[index + i] {
                 Cell::Invalid => {
                     panic!("found invalid cell during meshing")
                 }
                 Cell::Full => {
                     full_count += 1;
-                    h.mask = 255;
                 }
                 Cell::Empty => {
                     empty_count += 1;
-                    h.mask = 0;
                 }
-                Cell::Branch { .. } => has_branch = true,
+                Cell::Branch { .. } => return Cell::Branch { index },
                 Cell::Leaf(Leaf { .. }) => {
                     // Nothing to here because we don't want to take the
                     // hermite index early; we could exit this loop if
@@ -607,7 +603,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             Cell::Full
         } else if empty_count == 8 {
             Cell::Empty
-        } else if !has_branch && self.collapsible(index) {
+        } else if let Some(mask) = self.collapsible(index) {
             let mut hermite = LeafHermiteData::merge(hermite_data);
 
             // Empty / full cells should never be produced here.  The
@@ -619,8 +615,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             //   have been collapsed into a single empty / full cell
             // - The interior vertices *do not* match, in which case the
             //   cell should not be marked as collapsible.
-            debug_assert!(hermite.mask != 0);
-            debug_assert!(hermite.mask != 255);
             let (pos, new_err) = hermite.solve();
             if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
                 // Record the newly-collapsed leaf
@@ -632,7 +626,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
                 // Install cell intersections, of which there must only
                 // be one (since we only collapse manifold cells)
-                let edges = &CELL_TO_VERT_TO_EDGES[hermite.mask as usize];
+                let edges = &CELL_TO_VERT_TO_EDGES[mask as usize];
                 debug_assert_eq!(edges.len(), 1);
                 for e in edges[0] {
                     let i = hermite.intersections[e.to_undirected().index()];
@@ -646,7 +640,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 });
 
                 Cell::Leaf(Leaf {
-                    mask: hermite.mask,
+                    mask,
                     index: leaf_index,
                 })
             } else {
@@ -665,7 +659,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// # Panics
     /// `root` must be a multiple of 8, because it points at the root of a
     /// cluster of 8 cells.
-    pub(crate) fn collapsible(&self, root: usize) -> bool {
+    pub(crate) fn collapsible(&self, root: usize) -> Option<u8> {
         assert_eq!(root % 8, 0);
 
         // Unpack cells into a friendlier data type
@@ -682,13 +676,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             let b = match c {
                 Cell::Leaf(Leaf { mask, .. }) => {
                     if CELL_TO_VERT_TO_EDGES[mask as usize].len() > 1 {
-                        return false;
+                        return None;
                     }
                     (mask & (1 << i) != 0) as u8
                 }
                 Cell::Empty => 0,
                 Cell::Full => 1,
-                Cell::Branch { .. } => return false,
+                Cell::Branch { .. } => return None,
                 Cell::Invalid => panic!(),
             };
             mask |= b << i;
@@ -707,7 +701,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     .iter()
                     .all(|v| ((mask & (1 << v.index())) != 0) != center)
                 {
-                    return false;
+                    return None;
                 }
             }
 
@@ -725,7 +719,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     .iter()
                     .all(|v| ((mask & (1 << v.index())) != 0) != center)
                 {
-                    return false;
+                    return None;
                 }
             }
             //  - The sign in the middle of a coarse cube must agree with the
@@ -735,7 +729,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 // preserves the structure nicely.
                 let center = cells[0].corner(t | u | v);
                 if (0..8).all(|v| ((mask & (1 << v)) != 0) != center) {
-                    return false;
+                    return None;
                 }
             }
         }
@@ -748,7 +742,11 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
-        CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
+        if CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1 {
+            Some(mask)
+        } else {
+            None
+        }
     }
 }
 
@@ -803,7 +801,6 @@ pub(crate) struct LeafHermiteData {
     face_qefs: [QuadraticErrorSolver; 6],
     center_qef: QuadraticErrorSolver,
     qef_err: f32,
-    mask: u8,
 }
 
 impl Default for LeafHermiteData {
@@ -813,7 +810,6 @@ impl Default for LeafHermiteData {
             face_qefs: Default::default(),
             center_qef: Default::default(),
             qef_err: -1.0,
-            mask: 0,
         }
     }
 }
@@ -916,11 +912,6 @@ impl LeafHermiteData {
         out.qef_err = f32::INFINITY;
         for e in leafs.iter().map(|q| q.qef_err).filter(|&e| e >= 0.0) {
             out.qef_err = out.qef_err.min(e);
-        }
-
-        // Build mask
-        for (i, leaf) in leafs.iter().enumerate() {
-            out.mask |= leaf.mask & (1 << i);
         }
 
         out
@@ -1311,21 +1302,21 @@ mod test {
 
         let shape = sphere([0.0; 3], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(!octree.collapsible(8));
+        assert!(octree.collapsible(8).is_none());
 
         let shape = sphere([-1.0; 3], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(octree.collapsible(8));
+        assert!(octree.collapsible(8).is_some());
 
         let shape = sphere([-1.0, 0.0, 1.0], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(!octree.collapsible(8));
+        assert!(octree.collapsible(8).is_none());
 
         let a = sphere([-1.0; 3], 0.1);
         let b = sphere([1.0; 3], 0.1);
         let shape = a.min(b);
         let octree = builder(shape, depth1_single_thread());
-        assert!(!octree.collapsible(8));
+        assert!(octree.collapsible(8).is_none());
     }
 
     #[test]
