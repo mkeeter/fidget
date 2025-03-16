@@ -162,8 +162,8 @@ pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
     eval_interval: ShapeTracingEval<F::IntervalEval>,
     eval_grad_slice: ShapeBulkEval<F::GradSliceEval>,
 
-    pub tape_storage: Vec<F::TapeStorage>,
-    pub shape_storage: Vec<F::Storage>,
+    tape_storage: Vec<F::TapeStorage>,
+    shape_storage: Vec<F::Storage>,
     workspace: F::Workspace,
 }
 
