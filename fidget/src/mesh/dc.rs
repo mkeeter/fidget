@@ -9,7 +9,7 @@ use crate::mesh::{
 };
 
 pub fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
-    if let Cell::Branch { index, .. } = octree[cell] {
+    if let Cell::Branch { index } = octree[cell] {
         debug_assert_eq!(index % 8, 0);
         for i in Corner::iter() {
             out.cell(octree, octree.child(cell, i));
@@ -192,16 +192,11 @@ pub fn dc_edge<T: Frame>(
         // Pick the intersection vertex based on the deepest cell
         let i = out.vertex(
             leafs[deepest].index + verts[deepest].edge.0 as usize,
-            cs[deepest],
             &octree.verts,
         );
         // Helper function to extract other vertices
         let mut vert = |i: usize| {
-            out.vertex(
-                leafs[i].index + verts[i].vert.0 as usize,
-                cs[i],
-                &octree.verts,
-            )
+            out.vertex(leafs[i].index + verts[i].vert.0 as usize, &octree.verts)
         };
         let vs = [vert(0), vert(1), vert(2), vert(3)];
 

@@ -165,7 +165,7 @@ impl Octree {
 
         match self[cell] {
             Cell::Leaf { .. } | Cell::Full | Cell::Empty => cell,
-            Cell::Branch { index, .. } => cell.child(index, child),
+            Cell::Branch { index } => cell.child(index, child),
             Cell::Invalid => panic!(),
         }
     }
