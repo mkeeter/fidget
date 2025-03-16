@@ -232,55 +232,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         self.hermite_slots.push(i);
     }
 
-    /// Evaluates a single cell in the octree
-    ///
-    /// Leaf data is stored in `self.verts`; cell results are **not** written
-    /// back to the `cells` array, because the cell may be rooted in a different
-    /// octree (e.g. on another thread).
-    pub(crate) fn eval_cell(
-        &mut self,
-        eval: &mut RenderHandle<F>,
-        vars: &ShapeVars<f32>,
-        cell: CellIndex,
-        max_depth: u8,
-    ) -> CellResult<F> {
-        let (i, r) = self
-            .eval_interval
-            .eval_v(
-                eval.i_tape(&mut self.tape_storage),
-                cell.bounds.x,
-                cell.bounds.y,
-                cell.bounds.z,
-                vars,
-            )
-            .unwrap();
-        if i.upper() < 0.0 {
-            CellResult::Done(Cell::Full)
-        } else if i.lower() > 0.0 {
-            CellResult::Done(Cell::Empty)
-        } else {
-            let sub_tape = if F::simplify_tree_during_meshing(cell.depth) {
-                if let Some(trace) = r.as_ref() {
-                    eval.simplify(
-                        trace,
-                        &mut self.workspace,
-                        &mut self.shape_storage,
-                        &mut self.tape_storage,
-                    )
-                } else {
-                    eval
-                }
-            } else {
-                eval
-            };
-            if cell.depth == max_depth as usize {
-                CellResult::Done(self.leaf(sub_tape, vars, cell))
-            } else {
-                CellResult::Recurse(sub_tape.clone())
-            }
-        }
-    }
-
     /// Records the vertex and hermite data for the given leaf
     ///
     /// Does not record the leaf cell itself; it's returned for the caller to
@@ -324,29 +275,57 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         cell: CellIndex,
         max_depth: u8,
     ) {
-        match self.eval_cell(eval, vars, cell, max_depth) {
-            CellResult::Done(c) => self.o[cell] = c,
-            CellResult::Recurse(mut sub_eval) => {
+        let (i, r) = self
+            .eval_interval
+            .eval_v(
+                eval.i_tape(&mut self.tape_storage),
+                cell.bounds.x,
+                cell.bounds.y,
+                cell.bounds.z,
+                vars,
+            )
+            .unwrap();
+        self.o[cell] = if i.upper() < 0.0 {
+            Cell::Full
+        } else if i.lower() > 0.0 {
+            Cell::Empty
+        } else {
+            let sub_tape = if F::simplify_tree_during_meshing(cell.depth) {
+                if let Some(trace) = r.as_ref() {
+                    eval.simplify(
+                        trace,
+                        &mut self.workspace,
+                        &mut self.shape_storage,
+                        &mut self.tape_storage,
+                    )
+                } else {
+                    eval
+                }
+            } else {
+                eval
+            };
+            if cell.depth == max_depth as usize {
+                self.leaf(sub_tape, vars, cell)
+            } else {
+                // Reserve new cells for the 8x children
                 let index = self.o.cells.len();
                 for _ in Corner::iter() {
                     self.o.cells.push(Cell::Invalid);
                 }
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(&mut sub_eval, vars, cell, max_depth);
+                    self.recurse(sub_tape, vars, cell, max_depth);
                 }
-                let r = self.check_done(cell, index).unwrap();
-
-                self.o[cell] = match r {
+                match self.check_done(cell, index) {
                     BranchResult::Empty => Cell::Empty,
                     BranchResult::Full => Cell::Full,
                     BranchResult::Branch(index) => Cell::Branch { index },
                     BranchResult::Leaf(pos, hermite) => {
                         self.record_leaf(pos, hermite)
                     }
-                };
+                }
             }
-        }
+        };
     }
 
     /// Evaluates the given leaf
@@ -597,15 +576,13 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
     /// Checks the set of 8 children starting at the given index for completion
     ///
-    /// Bails out early if any of them are `Invalid` (indicating that they
-    /// haven't been fully populated).  If all are empty or full, then
-    /// pro-actively collapses the cells (freeing them if they're at the tail
-    /// end of the array).
+    /// If all are empty or full, then pro-actively collapses the cells (freeing
+    /// them if they're at the tail end of the array).
     pub(crate) fn check_done(
         &mut self,
         cell: CellIndex,
         index: usize,
-    ) -> Option<BranchResult> {
+    ) -> BranchResult {
         assert_eq!(index % 8, 0);
         let mut full_count = 0;
         let mut empty_count = 0;
@@ -614,7 +591,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         for (i, h) in hermite_data.iter_mut().enumerate() {
             match self.o.cells[index + i] {
                 Cell::Invalid => {
-                    return None;
+                    panic!("found invalid cell during meshing")
                 }
                 Cell::Full => {
                     full_count += 1;
@@ -687,7 +664,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             }
         }
 
-        Some(r)
+        r
     }
 
     /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
@@ -784,12 +761,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1
     }
 }
-/// Result of a single cell evaluation
-pub enum CellResult<F: Function> {
-    Done(Cell),
-    Recurse(RenderHandle<F>),
-}
-
 /// Result of a branch evaluation (8-fold division)
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum BranchResult {
