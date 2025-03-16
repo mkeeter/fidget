@@ -15,7 +15,6 @@ use crate::{
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::Grad,
 };
-use std::num::NonZeroUsize;
 
 /// Octree storing occupancy and vertex positions for Manifold Dual Contouring
 #[derive(Debug)]
@@ -77,7 +76,14 @@ impl Octree {
     ) -> Self {
         let mut eval = RenderHandle::new(shape.clone());
         let mut out = OctreeBuilder::new();
-        out.recurse(&mut eval, vars, CellIndex::default(), settings.depth);
+        let mut hermite = LeafHermiteData::default();
+        out.recurse(
+            &mut eval,
+            vars,
+            CellIndex::default(),
+            settings.depth,
+            &mut hermite,
+        );
         out.into()
     }
 
@@ -143,21 +149,6 @@ pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
     /// and one (optional) index into `hermite`.
     pub(crate) o: Octree,
 
-    /// Leaf data contains indexes into `verts` and `hermite`
-    leafs: Vec<LeafData>,
-
-    /// Hermite cell data for active leafs
-    ///
-    /// This should be kept small; we don't need to save it for leafs that are
-    /// no longer active (i.e. no longer in contention for merging)
-    ///
-    /// Slot 0 is reserved and should always be populated with a dummy value, so
-    /// that we can use an `Option<NonZeroUsize>` elsewhere.
-    hermite: Vec<LeafHermiteData>,
-
-    /// Available slots in the `hermite` array
-    hermite_slots: Vec<usize>,
-
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
     eval_interval: ShapeTracingEval<F::IntervalEval>,
     eval_grad_slice: ShapeBulkEval<F::GradSliceEval>,
@@ -175,26 +166,7 @@ impl<F: Function + RenderHints> Default for OctreeBuilder<F> {
 
 impl<F: Function + RenderHints> From<OctreeBuilder<F>> for Octree {
     fn from(o: OctreeBuilder<F>) -> Self {
-        // Convert from "leaf index into self.leafs" (in the builder) to
-        // "leaf index into self.verts" (in the resulting Octree)
-        let cells =
-            o.o.cells
-                .into_iter()
-                .map(|c| {
-                    if let Cell::Leaf(Leaf { mask, index }) = c {
-                        Cell::Leaf(Leaf {
-                            mask,
-                            index: o.leafs[index].vert_index,
-                        })
-                    } else {
-                        c
-                    }
-                })
-                .collect();
-        Self {
-            cells,
-            verts: o.o.verts,
-        }
+        o.o // spooky
     }
 }
 
@@ -206,9 +178,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 cells: vec![Cell::Invalid; 8],
                 verts: vec![],
             },
-            leafs: vec![],
-            hermite: vec![LeafHermiteData::default()],
-            hermite_slots: vec![],
             eval_float_slice: Shape::<F>::new_float_slice_eval(),
             eval_grad_slice: Shape::<F>::new_grad_slice_eval(),
             eval_interval: Shape::<F>::new_interval_eval(),
@@ -218,32 +187,18 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         }
     }
 
-    /// Stores hermite data in the local array
-    fn push_hermite(&mut self, d: LeafHermiteData) -> usize {
-        if let Some(s) = self.hermite_slots.pop() {
-            self.hermite[s] = d;
-            s
-        } else {
-            let s = self.hermite.len();
-            self.hermite.push(d);
-            s
-        }
-    }
-
-    /// Releases hermite data from the local array
-    fn pop_hermite(&mut self, i: usize) {
-        self.hermite_slots.push(i);
-    }
-
     /// Recurse down the octree, building the given cell
     ///
     /// Writes to `self.o.cells[cell]`, which must be reserved
+    ///
+    /// If a leaf is written, then `hermite` is populated
     fn recurse(
         &mut self,
         eval: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex,
         max_depth: u8,
+        hermite: &mut LeafHermiteData,
     ) {
         let (i, r) = self
             .eval_interval
@@ -282,13 +237,20 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 for _ in Corner::iter() {
                     self.o.cells.push(Cell::Invalid);
                 }
+                let mut hermite_child = [LeafHermiteData::default(); 8];
                 for i in Corner::iter() {
                     let cell = cell.child(index, i);
-                    self.recurse(sub_tape, vars, cell, max_depth);
+                    self.recurse(
+                        sub_tape,
+                        vars,
+                        cell,
+                        max_depth,
+                        &mut hermite_child[i.index()],
+                    );
                 }
 
                 // Figure out whether the children can be collapsed
-                self.check_done(cell, index)
+                self.check_done(cell, index, hermite_child, hermite)
             }
         };
     }
@@ -516,7 +478,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         }
 
         // TODO: use self.record_leaf here?
-        let vert_index = self.o.verts.len();
+        let index = self.o.verts.len();
         self.o.verts.extend(verts);
         self.o.verts.extend(
             intersections
@@ -524,29 +486,23 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 .map(|pos| CellVertex { pos: cell.pos(pos) }),
         );
 
-        let hermite_index = self.push_hermite(hermite_cell);
-        debug_assert!(hermite_index > 0);
-
-        let leaf_index = self.leafs.len();
-        self.leafs.push(LeafData::new(
-            vert_index,
-            NonZeroUsize::new(hermite_index).unwrap(),
-        ));
-        Cell::Leaf(Leaf {
-            mask,
-            index: leaf_index,
-        })
+        Cell::Leaf(Leaf { mask, index })
     }
 
     /// Checks the set of 8 children starting at the given index for completion
     ///
     /// If all are empty or full, then pro-actively collapses the cells (freeing
     /// them if they're at the tail end of the array).
-    fn check_done(&mut self, cell: CellIndex, index: usize) -> Cell {
+    fn check_done(
+        &mut self,
+        cell: CellIndex,
+        index: usize,
+        hermite_data: [LeafHermiteData; 8],
+        hermite: &mut LeafHermiteData, // output
+    ) -> Cell {
         // Check out the children
         let mut full_count = 0;
         let mut empty_count = 0;
-        let mut hermite_data = [LeafHermiteData::default(); 8];
         for i in 0..8 {
             match self.o.cells[index + i] {
                 Cell::Invalid => {
@@ -559,23 +515,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     empty_count += 1;
                 }
                 Cell::Branch { .. } => return Cell::Branch { index },
-                Cell::Leaf(Leaf { .. }) => {
-                    // Nothing to here because we don't want to take the
-                    // hermite index early; we could exit this loop if
-                    // any cells are Invalid and don't want to disturb
-                    // the leaf in that case.
-                }
-            }
-        }
-
-        // If we haven't returned early due to having an invalid cell,
-        // then we can proceed with removing hermite data from the leaf
-        // cells, since they won't need it anymore (one way or another).
-        for (i, h) in hermite_data.iter_mut().enumerate() {
-            if let Cell::Leaf(Leaf { index, .. }) = self.o.cells[index + i] {
-                let j = self.leafs[index].hermite_index.take().unwrap().get();
-                *h = self.hermite[j];
-                self.pop_hermite(j);
+                Cell::Leaf(Leaf { .. }) => (),
             }
         }
 
@@ -604,7 +544,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         } else if empty_count == 8 {
             Cell::Empty
         } else if let Some(mask) = self.collapsible(index) {
-            let mut hermite = LeafHermiteData::merge(hermite_data);
+            *hermite = LeafHermiteData::merge(hermite_data);
 
             // Empty / full cells should never be produced here.  The
             // only way to get an empty / full cell is for all eight
@@ -619,9 +559,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
                 // Record the newly-collapsed leaf
                 hermite.qef_err = new_err;
-                let hermite_index = self.push_hermite(hermite);
 
-                let vert_index = self.o.verts.len();
+                let index = self.o.verts.len();
                 self.o.verts.push(pos);
 
                 // Install cell intersections, of which there must only
@@ -633,16 +572,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     self.o.verts.push(CellVertex { pos: i.pos.xyz() });
                 }
 
-                let leaf_index = self.leafs.len();
-                self.leafs.push(LeafData {
-                    vert_index,
-                    hermite_index: NonZeroUsize::new(hermite_index),
-                });
-
-                Cell::Leaf(Leaf {
-                    mask,
-                    index: leaf_index,
-                })
+                Cell::Leaf(Leaf { mask, index })
             } else {
                 Cell::Branch { index }
             }
@@ -751,31 +681,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Copy, Clone, Debug)]
-struct LeafData {
-    /// Starting index of vertices within `Octree::verts`
-    ///
-    /// The total vertex count depends on the leaf mask
-    vert_index: usize,
-
-    /// Index of hermite data, if this leaf is still active
-    hermite_index: Option<NonZeroUsize>,
-}
-
-impl LeafData {
-    /// Builds a new leaf data object
-    ///
-    /// When a leaf is first created, it **must** have hermite data associated
-    /// with it; the hermite data may be deleted later in
-    /// [`OctreeBuilder::check_done`].
-    fn new(vert_index: usize, hermite_index: NonZeroUsize) -> Self {
-        Self {
-            vert_index,
-            hermite_index: Some(hermite_index),
-        }
-    }
-}
 
 #[derive(Copy, Clone, Default, Debug)]
 struct LeafIntersection {
@@ -1291,11 +1196,13 @@ mod test {
             let shape = VmShape::from(shape);
             let mut eval = RenderHandle::new(shape);
             let mut out = OctreeBuilder::new();
+            let mut hermite = LeafHermiteData::default();
             out.recurse(
                 &mut eval,
                 &ShapeVars::new(),
                 CellIndex::default(),
                 settings.depth,
+                &mut hermite, // unused
             );
             out
         }
