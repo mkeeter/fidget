@@ -3,7 +3,6 @@
 use super::{
     builder::MeshBuilder,
     cell::{Cell, CellIndex, CellVertex, Leaf},
-    dc::DcBuilder,
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
