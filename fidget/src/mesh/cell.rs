@@ -11,7 +11,11 @@ pub enum Cell {
     Invalid,
     Empty,
     Full,
-    Branch { index: usize },
+    Branch {
+        /// Index of the next cell in
+        /// [`Octree::cells`](super::octree::Octree::cells)
+        index: usize,
+    },
     Leaf(Leaf),
 }
 
@@ -33,7 +37,10 @@ impl Cell {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Leaf {
+    /// Mask of corner occupancy
     pub mask: u8, // TODO make this a stronger type, e.g. CellMask?
+
+    /// Index of first vertex in [`Octree::verts`](super::octree::Octree::verts)
     pub index: usize,
 }
 

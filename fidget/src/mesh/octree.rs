@@ -100,6 +100,9 @@ impl Octree {
     /// Looks up the given child of a cell.
     ///
     /// If the cell is a leaf node, returns that cell instead.
+    ///
+    /// # Panics
+    /// If the cell is [`Invalid`](Cell::Invalid)
     pub(crate) fn child<C: Into<Corner>>(
         &self,
         cell: CellIndex,
@@ -268,6 +271,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     }
 
     /// Recurse down the octree, building the given cell
+    ///
+    /// Writes to `self.cells[cell]`
     fn recurse(
         &mut self,
         eval: &mut RenderHandle<F>,
@@ -316,7 +321,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                     let cell = cell.child(index, i);
                     self.recurse(sub_tape, vars, cell, max_depth);
                 }
-                match self.check_done(cell, index) {
+                match self.check_done(cell) {
                     BranchResult::Empty => Cell::Empty,
                     BranchResult::Full => Cell::Full,
                     BranchResult::Branch(index) => Cell::Branch { index },
@@ -574,16 +579,14 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         })
     }
 
-    /// Checks the set of 8 children starting at the given index for completion
+    /// Checks the set of 8 children at the end of the `cells` array
     ///
-    /// If all are empty or full, then pro-actively collapses the cells (freeing
-    /// them if they're at the tail end of the array).
-    pub(crate) fn check_done(
-        &mut self,
-        cell: CellIndex,
-        index: usize,
-    ) -> BranchResult {
+    /// If all are empty or full, then pro-actively collapses the cells and free
+    /// them from the array
+    pub(crate) fn check_done(&mut self, cell: CellIndex) -> BranchResult {
+        let index = self.o.cells.len() - 8;
         assert_eq!(index % 8, 0);
+
         let mut full_count = 0;
         let mut empty_count = 0;
         let mut has_branch = false;
@@ -651,17 +654,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         // If all of the branches are empty or full, then we're going to
         // record an Empty or Full cell in the parent and don't need the 8x
-        // children.
-        //
-        // We can drop them if they happen to be at the tail end of the
-        // octree; otherwise, we'll satisfy ourselves with setting them to
-        // invalid.
+        // children.  Drop them by resizing the array
         if matches!(r, BranchResult::Empty | BranchResult::Full) {
-            if index == self.o.cells.len() - 8 {
-                self.o.cells.resize(index, Cell::Invalid);
-            } else {
-                self.o.cells[index..index + 8].fill(Cell::Invalid)
-            }
+            self.o.cells.resize(index, Cell::Invalid);
         }
 
         r
