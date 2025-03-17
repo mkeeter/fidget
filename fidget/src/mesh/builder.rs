@@ -22,15 +22,15 @@ impl MeshBuilder {
         self.out
     }
 
-    pub(crate) fn cell(&mut self, octree: &Octree, cell: CellIndex) {
+    pub(crate) fn cell(&mut self, octree: &Octree, cell: CellIndex<3>) {
         dc::dc_cell(octree, cell, self);
     }
 
     pub(crate) fn face<F: Frame>(
         &mut self,
         octree: &Octree,
-        a: CellIndex,
-        b: CellIndex,
+        a: CellIndex<3>,
+        b: CellIndex<3>,
     ) {
         dc::dc_face::<F>(octree, a, b, self)
     }
@@ -42,10 +42,10 @@ impl MeshBuilder {
     pub(crate) fn edge<F: Frame>(
         &mut self,
         octree: &Octree,
-        a: CellIndex,
-        b: CellIndex,
-        c: CellIndex,
-        d: CellIndex,
+        a: CellIndex<3>,
+        b: CellIndex<3>,
+        c: CellIndex<3>,
+        d: CellIndex<3>,
     ) {
         dc::dc_edge::<F>(octree, a, b, c, d, self)
     }

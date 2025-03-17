@@ -95,7 +95,7 @@ impl Octree {
         mesh.take()
     }
 
-    pub(crate) fn is_leaf(&self, cell: CellIndex) -> bool {
+    pub(crate) fn is_leaf(&self, cell: CellIndex<3>) -> bool {
         match self[cell] {
             Cell::Leaf(..) | Cell::Full | Cell::Empty => true,
             Cell::Branch { .. } => false,
@@ -111,9 +111,9 @@ impl Octree {
     /// If the cell is [`Invalid`](Cell::Invalid)
     pub(crate) fn child<C: Into<Corner<3>>>(
         &self,
-        cell: CellIndex,
+        cell: CellIndex<3>,
         child: C,
-    ) -> CellIndex {
+    ) -> CellIndex<3> {
         let child = child.into();
 
         match self[cell] {
@@ -124,16 +124,16 @@ impl Octree {
     }
 }
 
-impl std::ops::Index<CellIndex> for Octree {
+impl std::ops::Index<CellIndex<3>> for Octree {
     type Output = Cell<3>;
 
-    fn index(&self, i: CellIndex) -> &Self::Output {
+    fn index(&self, i: CellIndex<3>) -> &Self::Output {
         &self.cells[i.index]
     }
 }
 
-impl std::ops::IndexMut<CellIndex> for Octree {
-    fn index_mut(&mut self, i: CellIndex) -> &mut Self::Output {
+impl std::ops::IndexMut<CellIndex<3>> for Octree {
+    fn index_mut(&mut self, i: CellIndex<3>) -> &mut Self::Output {
         &mut self.cells[i.index]
     }
 }
@@ -196,7 +196,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         &mut self,
         eval: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
-        cell: CellIndex,
+        cell: CellIndex<3>,
         max_depth: u8,
         hermite: &mut LeafHermiteData,
     ) {
@@ -204,9 +204,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             .eval_interval
             .eval_v(
                 eval.i_tape(&mut self.tape_storage),
-                cell.bounds.x,
-                cell.bounds.y,
-                cell.bounds.z,
+                cell.bounds[crate::mesh::types::X],
+                cell.bounds[crate::mesh::types::Y],
+                cell.bounds[crate::mesh::types::Z],
                 vars,
             )
             .unwrap();
@@ -264,7 +264,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         &mut self,
         eval: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
-        cell: CellIndex,
+        cell: CellIndex<3>,
     ) -> Cell<3> {
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
@@ -497,7 +497,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// them if they're at the tail end of the array).
     fn check_done(
         &mut self,
-        cell: CellIndex,
+        cell: CellIndex<3>,
         index: usize,
         hermite_data: [LeafHermiteData; 8],
         hermite: &mut LeafHermiteData, // output

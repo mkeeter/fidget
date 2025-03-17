@@ -84,19 +84,19 @@ impl<const D: usize> std::ops::Index<Axis<D>> for CellVertex<D> {
 /// `index` points to where this cell is stored in
 /// [`Octree::cells`](super::Octree::cells)
 #[derive(Copy, Clone, Debug)]
-pub struct CellIndex {
+pub struct CellIndex<const D: usize> {
     pub index: usize,
     pub depth: usize,
-    pub bounds: CellBounds<3>,
+    pub bounds: CellBounds<D>,
 }
 
-impl Default for CellIndex {
+impl<const D: usize> Default for CellIndex<D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CellIndex {
+impl<const D: usize> CellIndex<D> {
     pub fn new() -> Self {
         CellIndex {
             index: 0,
@@ -105,6 +105,18 @@ impl CellIndex {
         }
     }
 
+    /// Returns a child cell for the given corner, rooted at the given index
+    pub fn child(&self, index: usize, i: Corner<D>) -> Self {
+        let bounds = self.bounds.child(i);
+        CellIndex {
+            index: index + i.index(),
+            bounds,
+            depth: self.depth + 1,
+        }
+    }
+}
+
+impl CellIndex<3> {
     /// Returns the position of the given corner (0-7)
     ///
     /// Vertices are numbered as follows:
@@ -125,16 +137,6 @@ impl CellIndex {
     /// vertex.
     pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
         self.bounds.corner(i)
-    }
-
-    /// Returns a child cell for the given corner, rooted at the given index
-    pub fn child(&self, index: usize, i: Corner<3>) -> Self {
-        let bounds = self.bounds.child(i);
-        CellIndex {
-            index: index + i.index(),
-            bounds,
-            depth: self.depth + 1,
-        }
     }
 
     /// Converts from a relative position in the cell to an absolute position
@@ -175,6 +177,22 @@ impl<const D: usize> CellBounds<D> {
             .map(|i| Axis::<D>::new(i))
             .all(|i| self[i].contains(p[i]))
     }
+
+    pub fn child(&self, corner: Corner<D>) -> Self {
+        let mut bounds = [0; D];
+        for i in 0..D {
+            bounds[i] = i;
+        }
+        let bounds = bounds.map(|i| {
+            let axis = Axis::<D>::new(i as u8);
+            if corner & axis {
+                Interval::new(self.bounds[i].midpoint(), self.bounds[i].upper())
+            } else {
+                Interval::new(self.bounds[i].lower(), self.bounds[i].midpoint())
+            }
+        });
+        Self { bounds }
+    }
 }
 
 impl CellBounds<3> {
@@ -195,25 +213,6 @@ impl CellBounds<3> {
             self.bounds[2].lower()
         };
         (x, y, z)
-    }
-
-    pub fn child(&self, i: Corner<3>) -> Self {
-        let x = if i & X {
-            Interval::new(self.bounds[0].midpoint(), self.bounds[0].upper())
-        } else {
-            Interval::new(self.bounds[0].lower(), self.bounds[0].midpoint())
-        };
-        let y = if i & Y {
-            Interval::new(self.bounds[1].midpoint(), self.bounds[1].upper())
-        } else {
-            Interval::new(self.bounds[1].lower(), self.bounds[1].midpoint())
-        };
-        let z = if i & Z {
-            Interval::new(self.bounds[2].midpoint(), self.bounds[2].upper())
-        } else {
-            Interval::new(self.bounds[2].lower(), self.bounds[2].midpoint())
-        };
-        Self { bounds: [x, y, z] }
     }
 
     /// Converts from a relative position in the cell to an absolute position

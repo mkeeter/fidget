@@ -8,7 +8,7 @@ use crate::mesh::{
     Octree,
 };
 
-pub fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
+pub fn dc_cell(octree: &Octree, cell: CellIndex<3>, out: &mut MeshBuilder) {
     if let Cell::Branch { index } = octree[cell] {
         debug_assert_eq!(index % 8, 0);
         for i in Corner::iter() {
@@ -18,7 +18,7 @@ pub fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
         // Helper function for DC face calls
         fn dc_faces<T: Frame>(
             octree: &Octree,
-            cell: CellIndex,
+            cell: CellIndex<3>,
             out: &mut MeshBuilder,
         ) {
             let (t, u, v) = T::frame();
@@ -67,8 +67,8 @@ pub fn dc_cell(octree: &Octree, cell: CellIndex, out: &mut MeshBuilder) {
 /// `T-U-V` is a right-handed coordinate system.
 pub fn dc_face<T: Frame>(
     octree: &Octree,
-    lo: CellIndex,
-    hi: CellIndex,
+    lo: CellIndex<3>,
+    hi: CellIndex<3>,
     out: &mut MeshBuilder,
 ) {
     if octree.is_leaf(lo) && octree.is_leaf(hi) {
@@ -112,10 +112,10 @@ pub fn dc_face<T: Frame>(
 /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
 pub fn dc_edge<T: Frame>(
     octree: &Octree,
-    a: CellIndex,
-    b: CellIndex,
-    c: CellIndex,
-    d: CellIndex,
+    a: CellIndex<3>,
+    b: CellIndex<3>,
+    c: CellIndex<3>,
+    d: CellIndex<3>,
     out: &mut MeshBuilder,
 ) {
     let cs = [a, b, c, d];
