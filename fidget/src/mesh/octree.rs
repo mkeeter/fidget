@@ -141,12 +141,7 @@ impl std::ops::IndexMut<CellIndex<3>> for Octree {
 /// Data structure for an under-construction octree
 #[derive(Debug)]
 pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
-    /// Internal octree
-    ///
-    /// Note that in this internal octree, the `index` field of leaf nodes
-    /// points into `LeafData`, rather than into `verts` directly.  This is
-    /// necessary because each leaf represents _two_ indices: one into `verts`
-    /// and one (optional) index into `hermite`.
+    /// In-construction octree
     pub(crate) o: Octree,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
