@@ -87,7 +87,7 @@ impl<const D: usize> std::ops::Index<Axis<D>> for CellVertex<D> {
 pub struct CellIndex {
     pub index: usize,
     pub depth: usize,
-    pub bounds: CellBounds,
+    pub bounds: CellBounds<3>,
 }
 
 impl Default for CellIndex {
@@ -143,90 +143,85 @@ impl CellIndex {
     }
 }
 
-// TODO make this generic across dimensions?
 #[derive(Copy, Clone, Debug)]
-pub struct CellBounds {
-    pub x: Interval,
-    pub y: Interval,
-    pub z: Interval,
+pub struct CellBounds<const D: usize> {
+    pub bounds: [Interval; D],
 }
 
-impl std::ops::Index<Axis<3>> for CellBounds {
+impl<const D: usize> std::ops::Index<Axis<D>> for CellBounds<D> {
     type Output = Interval;
 
-    fn index(&self, axis: Axis<3>) -> &Self::Output {
-        match axis {
-            X => &self.x,
-            Y => &self.y,
-            Z => &self.z,
-            _ => panic!("invalid axis: {axis:?}"),
-        }
+    fn index(&self, axis: Axis<D>) -> &Self::Output {
+        &self.bounds[axis.index()]
     }
 }
 
-impl Default for CellBounds {
+impl<const D: usize> Default for CellBounds<D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CellBounds {
+impl<const D: usize> CellBounds<D> {
     pub fn new() -> Self {
-        let x = Interval::new(-1.0, 1.0);
-        let y = Interval::new(-1.0, 1.0);
-        let z = Interval::new(-1.0, 1.0);
-        Self { x, y, z }
+        Self {
+            bounds: [Interval::new(-1.0, 1.0); D],
+        }
     }
 
+    /// Checks whether the given position is within the cell
+    pub fn contains(&self, p: CellVertex<D>) -> bool {
+        (0..D as u8)
+            .map(|i| Axis::<D>::new(i))
+            .all(|i| self[i].contains(p[i]))
+    }
+}
+
+impl CellBounds<3> {
     pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
         let x = if i & X {
-            self.x.upper()
+            self.bounds[0].upper()
         } else {
-            self.x.lower()
+            self.bounds[0].lower()
         };
         let y = if i & Y {
-            self.y.upper()
+            self.bounds[1].upper()
         } else {
-            self.y.lower()
+            self.bounds[1].lower()
         };
         let z = if i & Z {
-            self.z.upper()
+            self.bounds[2].upper()
         } else {
-            self.z.lower()
+            self.bounds[2].lower()
         };
         (x, y, z)
     }
 
     pub fn child(&self, i: Corner<3>) -> Self {
         let x = if i & X {
-            Interval::new(self.x.midpoint(), self.x.upper())
+            Interval::new(self.bounds[0].midpoint(), self.bounds[0].upper())
         } else {
-            Interval::new(self.x.lower(), self.x.midpoint())
+            Interval::new(self.bounds[0].lower(), self.bounds[0].midpoint())
         };
         let y = if i & Y {
-            Interval::new(self.y.midpoint(), self.y.upper())
+            Interval::new(self.bounds[1].midpoint(), self.bounds[1].upper())
         } else {
-            Interval::new(self.y.lower(), self.y.midpoint())
+            Interval::new(self.bounds[1].lower(), self.bounds[1].midpoint())
         };
         let z = if i & Z {
-            Interval::new(self.z.midpoint(), self.z.upper())
+            Interval::new(self.bounds[2].midpoint(), self.bounds[2].upper())
         } else {
-            Interval::new(self.z.lower(), self.z.midpoint())
+            Interval::new(self.bounds[2].lower(), self.bounds[2].midpoint())
         };
-        Self { x, y, z }
+        Self { bounds: [x, y, z] }
     }
 
     /// Converts from a relative position in the cell to an absolute position
     pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
-        let x = self.x.lerp(p.x as f32 / u16::MAX as f32);
-        let y = self.y.lerp(p.y as f32 / u16::MAX as f32);
-        let z = self.z.lerp(p.z as f32 / u16::MAX as f32);
+        let x = self.bounds[0].lerp(p.x as f32 / u16::MAX as f32);
+        let y = self.bounds[1].lerp(p.y as f32 / u16::MAX as f32);
+        let z = self.bounds[2].lerp(p.z as f32 / u16::MAX as f32);
         nalgebra::Vector3::new(x, y, z)
-    }
-
-    /// Checks whether the given position is within the cell
-    pub fn contains(&self, p: CellVertex<3>) -> bool {
-        [X, Y, Z].iter().all(|&i| self[i].contains(p[i]))
     }
 }
 
