@@ -489,7 +489,7 @@ fn run2d<F: fidget::eval::Function + fidget::render::RenderHints>(
 fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     shape: fidget::shape::Shape<F>,
     settings: &MeshSettings,
-) -> fidget::mesh::Mesh {
+) -> (fidget::mesh::Mesh, std::time::Duration, std::time::Duration) {
     let mut mesh = fidget::mesh::Mesh::new();
 
     // Transform the shape based on our render settings
@@ -503,6 +503,8 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     let t = center.to_homogeneous() * scale.to_homogeneous();
     let shape = shape.apply_transform(t);
 
+    let mut octree_time = std::time::Duration::ZERO;
+    let mut mesh_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
             #[cfg(not(target_arch = "wasm32"))]
@@ -512,10 +514,15 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
             depth: settings.depth,
             ..Default::default()
         };
+        let start = std::time::Instant::now();
         let octree = fidget::mesh::Octree::build(&shape, settings);
+        octree_time += start.elapsed();
+
+        let start = std::time::Instant::now();
         mesh = octree.walk_dual(settings);
+        mesh_time += start.elapsed();
     }
-    mesh
+    (mesh, octree_time, mesh_time)
 }
 
 fn load_script(settings: &ScriptSettings) -> Result<(Context, Node)> {
@@ -718,7 +725,7 @@ fn main() -> Result<()> {
         Command::Mesh { settings } => {
             let (ctx, root) = load_script(&settings.script)?;
             let start = Instant::now();
-            let mesh = match settings.eval {
+            let (mesh, octree_time, mesh_time) = match settings.eval {
                 #[cfg(feature = "jit")]
                 EvalMode::Jit => {
                     let shape = fidget::jit::JitShape::new(&ctx, root)?;
@@ -737,6 +744,14 @@ fn main() -> Result<()> {
                 start.elapsed().as_micros() as f64
                     / 1000.0
                     / (settings.n as f64)
+            );
+            info!(
+                "  Octree construction: {:?} ms/iter",
+                octree_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
+            );
+            info!(
+                "  Mesh construction: {:?} ms/iter",
+                mesh_time.as_micros() as f64 / 1000.0 / (settings.n as f64)
             );
             if let Some(out) = settings.out {
                 info!("Writing STL to {out:?}");
