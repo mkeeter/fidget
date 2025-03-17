@@ -45,6 +45,21 @@ impl<const D: usize> Axis<D> {
     pub fn index(self) -> usize {
         self.0.trailing_zeros() as usize
     }
+
+    /// Returns an array of valid axes at this dimension
+    pub const fn array() -> [Self; D] {
+        // NOTE: this breaks invariants, but we're going to overwrite them
+        let mut out = [Axis(0); D];
+        let mut i = 0;
+        loop {
+            if i == D {
+                break;
+            }
+            out[i] = Axis::new(1 << i);
+            i += 1;
+        }
+        out
+    }
 }
 
 impl Axis<3> {

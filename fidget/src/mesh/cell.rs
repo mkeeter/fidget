@@ -3,7 +3,7 @@ use crate::types::Interval;
 
 use super::{
     gen::CELL_TO_EDGE_TO_VERT,
-    types::{Axis, CellMask, Corner, Edge, Intersection, X, Y, Z},
+    types::{Axis, CellMask, Corner, Edge, Intersection},
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -114,12 +114,10 @@ impl<const D: usize> CellIndex<D> {
             depth: self.depth + 1,
         }
     }
-}
 
-impl CellIndex<3> {
-    /// Returns the position of the given corner (0-7)
+    /// Returns the position of the given corner
     ///
-    /// Vertices are numbered as follows:
+    /// Vertices are numbered as follows in 3D:
     ///
     /// ```text
     ///         6 -------- 7
@@ -135,10 +133,14 @@ impl CellIndex<3> {
     ///
     /// The 8 octree cells are numbered equivalently, based on their corner
     /// vertex.
-    pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
+    ///
+    /// In 2D, only corners on the XY plane (0-4) are valid.
+    pub fn corner(&self, i: Corner<D>) -> [f32; D] {
         self.bounds.corner(i)
     }
+}
 
+impl CellIndex<3> {
     /// Converts from a relative position in the cell to an absolute position
     pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
         self.bounds.pos(p)
@@ -173,18 +175,14 @@ impl<const D: usize> CellBounds<D> {
 
     /// Checks whether the given position is within the cell
     pub fn contains(&self, p: CellVertex<D>) -> bool {
-        (0..D as u8)
-            .map(|i| Axis::<D>::new(i))
-            .all(|i| self[i].contains(p[i]))
+        Axis::array()
+            .into_iter()
+            .all(|axis| self[axis].contains(p[axis]))
     }
 
     pub fn child(&self, corner: Corner<D>) -> Self {
-        let mut bounds = [0; D];
-        for i in 0..D {
-            bounds[i] = i;
-        }
-        let bounds = bounds.map(|i| {
-            let axis = Axis::<D>::new(i as u8);
+        let bounds = Axis::array().map(|axis| {
+            let i = axis.index();
             if corner & axis {
                 Interval::new(self.bounds[i].midpoint(), self.bounds[i].upper())
             } else {
@@ -193,34 +191,28 @@ impl<const D: usize> CellBounds<D> {
         });
         Self { bounds }
     }
-}
 
-impl CellBounds<3> {
-    pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
-        let x = if i & X {
-            self.bounds[0].upper()
-        } else {
-            self.bounds[0].lower()
-        };
-        let y = if i & Y {
-            self.bounds[1].upper()
-        } else {
-            self.bounds[1].lower()
-        };
-        let z = if i & Z {
-            self.bounds[2].upper()
-        } else {
-            self.bounds[2].lower()
-        };
-        (x, y, z)
+    pub fn corner(&self, corner: Corner<D>) -> [f32; D] {
+        Axis::array().map(|axis| {
+            let i = axis.index();
+            if corner & axis {
+                self.bounds[i].upper()
+            } else {
+                self.bounds[i].lower()
+            }
+        })
     }
 
     /// Converts from a relative position in the cell to an absolute position
-    pub fn pos(&self, p: nalgebra::Vector3<u16>) -> nalgebra::Vector3<f32> {
-        let x = self.bounds[0].lerp(p.x as f32 / u16::MAX as f32);
-        let y = self.bounds[1].lerp(p.y as f32 / u16::MAX as f32);
-        let z = self.bounds[2].lerp(p.z as f32 / u16::MAX as f32);
-        nalgebra::Vector3::new(x, y, z)
+    pub fn pos(
+        &self,
+        p: nalgebra::OVector<u16, nalgebra::Const<D>>,
+    ) -> nalgebra::OVector<f32, nalgebra::Const<D>> {
+        let mut out = nalgebra::OVector::<f32, nalgebra::Const<D>>::zeros();
+        for i in 0..D {
+            out[i] = self.bounds[i].lerp(p[i] as f32 / u16::MAX as f32);
+        }
+        out
     }
 }
 

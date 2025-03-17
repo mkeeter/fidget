@@ -270,7 +270,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         let mut ys = [0.0; 8];
         let mut zs = [0.0; 8];
         for i in Corner::<3>::iter() {
-            let (x, y, z) = cell.corner(i);
+            let [x, y, z] = cell.corner(i);
             xs[i.index()] = x;
             ys[i.index()] = y;
             zs[i.index()] = z;
