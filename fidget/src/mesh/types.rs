@@ -4,20 +4,22 @@
 //! because there are certain properties which need to be tested within a
 //! `compile_fail` doctest.
 
-/// A single axis, represented as a `u8` with one bit (between 0 and 3) set
+/// A single axis, represented as a `u8` with one bit set
 ///
-/// These invariants are enforced at construction
+/// An `Axis<2>` has bit 0 or 1 set; an `Axis<3>` as bit 0, 1, or 2 set.
+///
+/// This invariant is enforced at construction
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Axis(u8);
+pub struct Axis<const D: usize>(u8);
 
-impl Axis {
+impl<const D: usize> Axis<D> {
     /// Builds a new axis
     ///
     /// ```
     /// # use fidget::mesh::types::Axis;
-    /// const X: Axis = Axis::new(1);
-    /// const Y: Axis = Axis::new(2);
-    /// const Z: Axis = Axis::new(4);
+    /// const X: Axis<3> = Axis::new(1);
+    /// const Y: Axis<3> = Axis::new(2);
+    /// const Z: Axis<3> = Axis::new(4);
     /// ```
     ///
     /// # Panics
@@ -31,11 +33,11 @@ impl Axis {
     /// If the input has a bit set that's not in the 0-2 range
     /// ```compile_fail
     /// # use fidget::mesh::types::Axis;
-    /// const A: Axis = Axis::new(0b1000);
+    /// const A: Axis<3> = Axis::new(0b1000);
     /// ```
     pub const fn new(i: u8) -> Self {
         assert!(i.count_ones() == 1);
-        assert!(i.trailing_zeros() < 3);
+        assert!(i.trailing_zeros() < D as u32);
         Self(i)
     }
 
@@ -43,7 +45,9 @@ impl Axis {
     pub fn index(self) -> usize {
         self.0.trailing_zeros() as usize
     }
+}
 
+impl Axis<3> {
     /// Cycles through X-Y-Z axes, returning the next one
     pub const fn next(self) -> Self {
         let u = self.0 << 1;
@@ -56,15 +60,15 @@ impl Axis {
 }
 
 /// The X axis, i.e. `[1, 0, 0]`
-pub const X: Axis = Axis(1);
+pub const X: Axis<3> = Axis(1);
 /// The Y axis, i.e. `[0, 1, 0]`
-pub const Y: Axis = Axis(2);
+pub const Y: Axis<3> = Axis(2);
 /// The Z axis, i.e. `[0, 0, 1]`
-pub const Z: Axis = Axis(4);
+pub const Z: Axis<3> = Axis(4);
 
-impl std::ops::Mul<bool> for Axis {
-    type Output = Axis;
-    fn mul(self, rhs: bool) -> Axis {
+impl<const D: usize> std::ops::Mul<bool> for Axis<D> {
+    type Output = Self;
+    fn mul(self, rhs: bool) -> Self {
         if rhs {
             self
         } else {
@@ -73,29 +77,29 @@ impl std::ops::Mul<bool> for Axis {
     }
 }
 
-impl<const D: usize> std::ops::BitAnd<Corner<D>> for Axis {
+impl<const D: usize> std::ops::BitAnd<Corner<D>> for Axis<D> {
     type Output = bool;
     fn bitand(self, rhs: Corner<D>) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
 
-impl std::ops::BitOr<Axis> for Axis {
-    type Output = Corner<3>;
-    fn bitor(self, rhs: Axis) -> Self::Output {
-        Corner(self.0 | rhs.0)
+impl<const D: usize> std::ops::BitOr<Axis<D>> for Axis<D> {
+    type Output = Corner<D>;
+    fn bitor(self, rhs: Axis<D>) -> Self::Output {
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl<const D: usize> std::ops::BitOr<Corner<D>> for Axis {
+impl<const D: usize> std::ops::BitOr<Corner<D>> for Axis<D> {
     type Output = Corner<D>;
     fn bitor(self, rhs: Corner<D>) -> Self::Output {
-        Corner(self.0 | rhs.0)
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl<const D: usize> From<Axis> for Corner<D> {
-    fn from(a: Axis) -> Self {
+impl<const D: usize> From<Axis<D>> for Corner<D> {
+    fn from(a: Axis<D>) -> Self {
         Corner::new(a.0)
     }
 }
@@ -123,9 +127,9 @@ impl<const D: usize> Corner<D> {
     }
 }
 
-impl<const D: usize> std::ops::BitAnd<Axis> for Corner<D> {
+impl<const D: usize> std::ops::BitAnd<Axis<D>> for Corner<D> {
     type Output = bool;
-    fn bitand(self, rhs: Axis) -> bool {
+    fn bitand(self, rhs: Axis<D>) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
@@ -133,14 +137,14 @@ impl<const D: usize> std::ops::BitAnd<Axis> for Corner<D> {
 impl<const D: usize> std::ops::BitOr<Corner<D>> for Corner<D> {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
-        Corner(self.0 | rhs.0)
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl<const D: usize> std::ops::BitOr<Axis> for Corner<D> {
+impl<const D: usize> std::ops::BitOr<Axis<D>> for Corner<D> {
     type Output = Self;
-    fn bitor(self, rhs: Axis) -> Self {
-        Corner(self.0 | rhs.0)
+    fn bitor(self, rhs: Axis<D>) -> Self {
+        Corner::new(self.0 | rhs.0)
     }
 }
 

@@ -50,6 +50,7 @@ impl<const D: usize> Leaf<D> {
     }
 }
 
+// TODO make this generic across dimensions?
 #[derive(Copy, Clone, Debug)]
 pub struct CellVertex {
     /// Position of this vertex
@@ -64,10 +65,10 @@ impl Default for CellVertex {
     }
 }
 
-impl std::ops::Index<Axis> for CellVertex {
+impl std::ops::Index<Axis<3>> for CellVertex {
     type Output = f32;
 
-    fn index(&self, axis: Axis) -> &Self::Output {
+    fn index(&self, axis: Axis<3>) -> &Self::Output {
         match axis {
             X => &self.pos.x,
             Y => &self.pos.y,
@@ -146,6 +147,7 @@ impl CellIndex {
     }
 }
 
+// TODO make this generic across dimensions?
 #[derive(Copy, Clone, Debug)]
 pub struct CellBounds {
     pub x: Interval,
@@ -153,10 +155,10 @@ pub struct CellBounds {
     pub z: Interval,
 }
 
-impl std::ops::Index<Axis> for CellBounds {
+impl std::ops::Index<Axis<3>> for CellBounds {
     type Output = Interval;
 
-    fn index(&self, axis: Axis) -> &Self::Output {
+    fn index(&self, axis: Axis<3>) -> &Self::Output {
         match axis {
             X => &self.x,
             Y => &self.y,
