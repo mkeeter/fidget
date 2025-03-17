@@ -259,3 +259,40 @@ pub struct Intersection {
     /// Data offset of the vertex located on the edge
     pub edge: Offset,
 }
+
+/// Bitmask of which corners in a cell are inside the shape
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct CellMask<const D: usize>(u8);
+
+impl<const D: usize> CellMask<D> {
+    const MASK: u8 = ((1u16 << (1 << D)) - 1) as u8;
+
+    /// Builds a new `CellMask`
+    ///
+    /// # Panics
+    /// If invalid bits are set in the mask.  This can't happen for
+    /// `CellMask<3>`, but is possible for `CellMask<2>` if any of the upper 4
+    /// bits are set.
+    pub fn new(i: u8) -> Self {
+        assert_eq!(i & Self::MASK, i, "invalid bits set in {i}");
+        Self(i)
+    }
+
+    /// Returns the bitmask as an index
+    ///
+    /// The index has the same value as the bitmask, but is cast to a `usize`
+    pub fn index(&self) -> usize {
+        self.0 as usize
+    }
+
+    pub fn count_ones(&self) -> u32 {
+        self.0.count_ones()
+    }
+}
+
+impl<const N: usize> std::ops::BitAnd<Corner> for CellMask<N> {
+    type Output = bool;
+    fn bitand(self, c: Corner) -> bool {
+        (self.0 & (1 << c.index())) != 0
+    }
+}

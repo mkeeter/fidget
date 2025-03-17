@@ -154,8 +154,8 @@ pub fn dc_edge<T: Frame>(
         // the same sign change, so it doesn't matter which one we pick here.
         let starting_sign = {
             let (start, end) = edges[deepest].corners();
-            let start = leafs[deepest].mask & (1 << start.index()) == 0;
-            let end = leafs[deepest].mask & (1 << end.index()) == 0;
+            let start = !(leafs[deepest].mask & start);
+            let end = !(leafs[deepest].mask & end);
             // If there is no sign change, then there's nothing to do here.
             if start == end {
                 return;
@@ -169,8 +169,8 @@ pub fn dc_edge<T: Frame>(
         for i in 0..4 {
             if cs[i].depth == cs[deepest].depth {
                 let (start, end) = edges[i].corners();
-                let s = leafs[i].mask & (1 << start.index()) == 0;
-                let e = leafs[i].mask & (1 << end.index()) == 0;
+                let s = !(leafs[i].mask & start);
+                let e = !(leafs[i].mask & end);
                 debug_assert_eq!(s, starting_sign);
                 debug_assert_eq!(e, !starting_sign);
                 verts[i] = leafs[i].edge(edges[i]);

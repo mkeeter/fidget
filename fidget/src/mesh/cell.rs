@@ -3,7 +3,7 @@ use crate::types::Interval;
 
 use super::{
     gen::CELL_TO_EDGE_TO_VERT,
-    types::{Axis, Corner, Edge, Intersection, X, Y, Z},
+    types::{Axis, CellMask, Corner, Edge, Intersection, X, Y, Z},
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -25,9 +25,8 @@ impl Cell {
     /// # Panics
     /// If the cell is a branch or invalid
     pub fn corner(self, c: Corner) -> bool {
-        let t = 1 << c.index();
         match self {
-            Cell::Leaf(Leaf { mask, .. }) => mask & t != 0,
+            Cell::Leaf(Leaf { mask, .. }) => mask & c,
             Cell::Empty => false,
             Cell::Full => true,
             Cell::Branch { .. } | Cell::Invalid => panic!(),
@@ -38,7 +37,7 @@ impl Cell {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Leaf {
     /// Mask of corner occupancy
-    pub mask: u8, // TODO make this a stronger type, e.g. CellMask?
+    pub mask: CellMask<3>,
 
     /// Index of first vertex in [`Octree::verts`](super::octree::Octree::verts)
     pub index: usize,
@@ -47,7 +46,7 @@ pub struct Leaf {
 impl Leaf {
     /// Returns the edge intersection for the given edge (if present)
     pub fn edge(&self, e: Edge) -> Option<Intersection> {
-        CELL_TO_EDGE_TO_VERT[self.mask as usize][e.index()]
+        CELL_TO_EDGE_TO_VERT[self.mask.index()][e.index()]
     }
 }
 
@@ -250,7 +249,7 @@ mod test {
             assert!(c.corner(i));
         }
         let c = Cell::Leaf(Leaf {
-            mask: 0b00000010,
+            mask: CellMask::new(0b00000010),
             index: 0,
         });
         assert!(!c.corner(Corner::new(0)));

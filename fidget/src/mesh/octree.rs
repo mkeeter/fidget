@@ -6,7 +6,7 @@ use super::{
     frame::Frame,
     gen::CELL_TO_VERT_TO_EDGES,
     qef::QuadraticErrorSolver,
-    types::{Axis, Corner, Edge},
+    types::{Axis, CellMask, Corner, Edge},
     Mesh, Settings,
 };
 use crate::{
@@ -297,6 +297,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             return Cell::Full;
         }
 
+        let mask = CellMask::new(mask);
+
         // Start and endpoints in 3D space for intersection searches
         let mut start = [nalgebra::Vector3::zeros(); 12];
         let mut end = [nalgebra::Vector3::zeros(); 12];
@@ -304,7 +306,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         // Convert from the corner mask to start and end-points in 3D space,
         // relative to the cell bounds (i.e. as a `Matrix3<u16>`).
-        for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
+        for vs in CELL_TO_VERT_TO_EDGES[mask.index()].iter() {
             for e in *vs {
                 // Find the axis that's being used by this edge
                 let axis = e.start().index() ^ e.end().index();
@@ -451,7 +453,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
         let mut hermite_cell = LeafHermiteData::new();
-        for vs in CELL_TO_VERT_TO_EDGES[mask as usize].iter() {
+        for vs in CELL_TO_VERT_TO_EDGES[mask.index()].iter() {
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
                 let pos = nalgebra::Vector3::new(xs[i].v, ys[i].v, zs[i].v);
@@ -565,7 +567,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
                 // Install cell intersections, of which there must only
                 // be one (since we only collapse manifold cells)
-                let edges = &CELL_TO_VERT_TO_EDGES[mask as usize];
+                let edges = &CELL_TO_VERT_TO_EDGES[mask.index()];
                 debug_assert_eq!(edges.len(), 1);
                 for e in edges[0] {
                     let i = hermite.intersections[e.to_undirected().index()];
@@ -589,7 +591,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// # Panics
     /// `root` must be a multiple of 8, because it points at the root of a
     /// cluster of 8 cells.
-    pub(crate) fn collapsible(&self, root: usize) -> Option<u8> {
+    pub(crate) fn collapsible(&self, root: usize) -> Option<CellMask<3>> {
         assert_eq!(root % 8, 0);
 
         // Unpack cells into a friendlier data type
@@ -605,10 +607,10 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         for (i, &c) in cells.iter().enumerate() {
             let b = match c {
                 Cell::Leaf(Leaf { mask, .. }) => {
-                    if CELL_TO_VERT_TO_EDGES[mask as usize].len() > 1 {
+                    if CELL_TO_VERT_TO_EDGES[mask.index()].len() > 1 {
                         return None;
                     }
-                    (mask & (1 << i) != 0) as u8
+                    (mask.index() & (1 << i) != 0) as u8
                 }
                 Cell::Empty => 0,
                 Cell::Full => 1,
@@ -673,7 +675,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         // TODO: this check may not be necessary, because we're doing *manifold*
         // dual contouring; the collapsed cell can have multiple vertices.
         if CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1 {
-            Some(mask)
+            Some(CellMask::new(mask))
         } else {
             None
         }
