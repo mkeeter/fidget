@@ -25,7 +25,7 @@ pub struct Octree {
     ///
     /// This is indexed by cell leaf index; the exact shape depends heavily on
     /// the number of intersections and vertices within each leaf.
-    pub(crate) verts: Vec<CellVertex>,
+    pub(crate) verts: Vec<CellVertex<3>>,
 }
 
 impl Octree {
@@ -829,7 +829,7 @@ impl LeafHermiteData {
     }
 
     /// Solves the combined QEF
-    pub fn solve(&self) -> (CellVertex, f32) {
+    pub fn solve(&self) -> (CellVertex<3>, f32) {
         let mut qef = self.center_qef;
         for &i in &self.intersections {
             qef += i.into();

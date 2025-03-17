@@ -64,7 +64,11 @@ impl MeshBuilder {
     ///
     /// `v` is an absolute offset into `verts`, which should be a reference to
     /// [`Octree::verts`](super::Octree::verts).
-    pub(crate) fn vertex(&mut self, v: usize, verts: &[CellVertex]) -> usize {
+    pub(crate) fn vertex(
+        &mut self,
+        v: usize,
+        verts: &[CellVertex<3>],
+    ) -> usize {
         if v >= self.map.len() {
             self.map.resize(v + 1, usize::MAX);
         }

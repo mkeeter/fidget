@@ -50,31 +50,27 @@ impl<const D: usize> Leaf<D> {
     }
 }
 
-// TODO make this generic across dimensions?
 #[derive(Copy, Clone, Debug)]
-pub struct CellVertex {
+pub struct CellVertex<const D: usize> {
     /// Position of this vertex
-    pub pos: nalgebra::Vector3<f32>,
+    pub pos: nalgebra::OVector<f32, nalgebra::Const<D>>,
 }
 
-impl Default for CellVertex {
+impl<const D: usize> Default for CellVertex<D> {
     fn default() -> Self {
         Self {
-            pos: nalgebra::Vector3::new(f32::NAN, f32::NAN, f32::NAN),
+            pos: nalgebra::OVector::<f32, nalgebra::Const<D>>::from_element(
+                f32::NAN,
+            ),
         }
     }
 }
 
-impl std::ops::Index<Axis<3>> for CellVertex {
+impl<const D: usize> std::ops::Index<Axis<D>> for CellVertex<D> {
     type Output = f32;
 
-    fn index(&self, axis: Axis<3>) -> &Self::Output {
-        match axis {
-            X => &self.pos.x,
-            Y => &self.pos.y,
-            Z => &self.pos.z,
-            _ => panic!("invalid axis: {axis:?}"),
-        }
+    fn index(&self, axis: Axis<D>) -> &Self::Output {
+        &self.pos[axis.index()]
     }
 }
 
@@ -229,7 +225,7 @@ impl CellBounds {
     }
 
     /// Checks whether the given position is within the cell
-    pub fn contains(&self, p: CellVertex) -> bool {
+    pub fn contains(&self, p: CellVertex<3>) -> bool {
         [X, Y, Z].iter().all(|&i| self[i].contains(p[i]))
     }
 }
