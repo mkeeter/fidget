@@ -7,7 +7,7 @@ use super::{
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Cell {
+pub enum Cell<const D: usize> {
     Invalid,
     Empty,
     Full,
@@ -16,15 +16,15 @@ pub enum Cell {
         /// [`Octree::cells`](super::octree::Octree::cells)
         index: usize,
     },
-    Leaf(Leaf),
+    Leaf(Leaf<D>),
 }
 
-impl Cell {
+impl<const D: usize> Cell<D> {
     /// Checks whether the given corner is empty (`false`) or full (`true`)
     ///
     /// # Panics
     /// If the cell is a branch or invalid
-    pub fn corner(self, c: Corner) -> bool {
+    pub fn corner(self, c: Corner<D>) -> bool {
         match self {
             Cell::Leaf(Leaf { mask, .. }) => mask & c,
             Cell::Empty => false,
@@ -35,15 +35,15 @@ impl Cell {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Leaf {
+pub struct Leaf<const D: usize> {
     /// Mask of corner occupancy
-    pub mask: CellMask<3>,
+    pub mask: CellMask<D>,
 
     /// Index of first vertex in [`Octree::verts`](super::octree::Octree::verts)
     pub index: usize,
 }
 
-impl Leaf {
+impl<const D: usize> Leaf<D> {
     /// Returns the edge intersection for the given edge (if present)
     pub fn edge(&self, e: Edge) -> Option<Intersection> {
         CELL_TO_EDGE_TO_VERT[self.mask.index()][e.index()]
@@ -126,12 +126,12 @@ impl CellIndex {
     ///
     /// The 8 octree cells are numbered equivalently, based on their corner
     /// vertex.
-    pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
+    pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
         self.bounds.corner(i)
     }
 
     /// Returns a child cell for the given corner, rooted at the given index
-    pub fn child(&self, index: usize, i: Corner) -> Self {
+    pub fn child(&self, index: usize, i: Corner<3>) -> Self {
         let bounds = self.bounds.child(i);
         CellIndex {
             index: index + i.index(),
@@ -180,7 +180,7 @@ impl CellBounds {
         Self { x, y, z }
     }
 
-    pub fn corner(&self, i: Corner) -> (f32, f32, f32) {
+    pub fn corner(&self, i: Corner<3>) -> (f32, f32, f32) {
         let x = if i & X {
             self.x.upper()
         } else {
@@ -199,7 +199,7 @@ impl CellBounds {
         (x, y, z)
     }
 
-    pub fn child(&self, i: Corner) -> Self {
+    pub fn child(&self, i: Corner<3>) -> Self {
         let x = if i & X {
             Interval::new(self.x.midpoint(), self.x.upper())
         } else {
@@ -240,15 +240,15 @@ mod test {
 
     #[test]
     fn test_cell_corner() {
-        let c = Cell::Empty;
+        let c = Cell::<3>::Empty;
         for i in Corner::iter() {
             assert!(!c.corner(i));
         }
-        let c = Cell::Full;
+        let c = Cell::<3>::Full;
         for i in Corner::iter() {
             assert!(c.corner(i));
         }
-        let c = Cell::Leaf(Leaf {
+        let c = Cell::<3>::Leaf(Leaf {
             mask: CellMask::new(0b00000010),
             index: 0,
         });

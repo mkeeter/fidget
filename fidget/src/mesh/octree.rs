@@ -19,7 +19,7 @@ use crate::{
 /// Octree storing occupancy and vertex positions for Manifold Dual Contouring
 #[derive(Debug)]
 pub struct Octree {
-    pub(crate) cells: Vec<Cell>,
+    pub(crate) cells: Vec<Cell<3>>,
 
     /// Cell vertices, given as positions within the cell
     ///
@@ -109,7 +109,7 @@ impl Octree {
     ///
     /// # Panics
     /// If the cell is [`Invalid`](Cell::Invalid)
-    pub(crate) fn child<C: Into<Corner>>(
+    pub(crate) fn child<C: Into<Corner<3>>>(
         &self,
         cell: CellIndex,
         child: C,
@@ -125,7 +125,7 @@ impl Octree {
 }
 
 impl std::ops::Index<CellIndex> for Octree {
-    type Output = Cell;
+    type Output = Cell<3>;
 
     fn index(&self, i: CellIndex) -> &Self::Output {
         &self.cells[i.index]
@@ -234,11 +234,11 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             } else {
                 // Reserve new cells for the 8x children
                 let index = self.o.cells.len();
-                for _ in Corner::iter() {
+                for _ in Corner::<3>::iter() {
                     self.o.cells.push(Cell::Invalid);
                 }
                 let mut hermite_child = [LeafHermiteData::default(); 8];
-                for i in Corner::iter() {
+                for i in Corner::<3>::iter() {
                     let cell = cell.child(index, i);
                     self.recurse(
                         sub_tape,
@@ -265,11 +265,11 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         eval: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex,
-    ) -> Cell {
+    ) -> Cell<3> {
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
         let mut zs = [0.0; 8];
-        for i in Corner::iter() {
+        for i in Corner::<3>::iter() {
             let (x, y, z) = cell.corner(i);
             xs[i.index()] = x;
             ys[i.index()] = y;
@@ -501,7 +501,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         index: usize,
         hermite_data: [LeafHermiteData; 8],
         hermite: &mut LeafHermiteData, // output
-    ) -> Cell {
+    ) -> Cell<3> {
         // Check out the children
         let mut full_count = 0;
         let mut empty_count = 0;
@@ -640,7 +640,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             //  - The sign in the middle of a coarse face must agree with the
             //    sign of at least one of the face’s four corners.
             for i in 0..2 {
-                let a: Corner = (t * (i & 1 == 0)).into();
+                let a: Corner<3> = (t * (i & 1 == 0)).into();
                 let b = a | u;
                 let c = a | v;
                 let d = a | u | v;
@@ -735,7 +735,7 @@ impl LeafHermiteData {
             let u = t.next();
             let v = u.next();
             for edge in 0..4 {
-                let mut start = Corner::new(0);
+                let mut start = Corner::<3>::new(0);
                 if edge & 1 != 0 {
                     start = start | u;
                 }
@@ -764,7 +764,11 @@ impl LeafHermiteData {
             let u = t.next();
             let v = t.next();
             for face in 0..2 {
-                let a = if face == 1 { t.into() } else { Corner::new(0) };
+                let a = if face == 1 {
+                    t.into()
+                } else {
+                    Corner::<3>::new(0)
+                };
                 let b = a | u;
                 let c = a | v;
                 let d = a | u | v;
@@ -794,7 +798,7 @@ impl LeafHermiteData {
             let v = t.next();
 
             // Accumulate the four inner face QEFs
-            let a = Corner::new(0);
+            let a = Corner::<3>::new(0);
             let b = a | u;
             let c = a | v;
             let d = a | u | v;
@@ -1135,7 +1139,7 @@ mod test {
 
     fn test_mesh_manifold_inner(mask: u8) {
         let mut shape = vec![];
-        for j in Corner::iter() {
+        for j in Corner::<3>::iter() {
             if mask & (1 << j.index()) != 0 {
                 shape.push(sphere(
                     [

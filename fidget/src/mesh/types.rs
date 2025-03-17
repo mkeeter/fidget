@@ -73,44 +73,44 @@ impl std::ops::Mul<bool> for Axis {
     }
 }
 
-impl std::ops::BitAnd<Corner> for Axis {
+impl<const D: usize> std::ops::BitAnd<Corner<D>> for Axis {
     type Output = bool;
-    fn bitand(self, rhs: Corner) -> bool {
+    fn bitand(self, rhs: Corner<D>) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
 
 impl std::ops::BitOr<Axis> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
+    type Output = Corner<3>;
+    fn bitor(self, rhs: Axis) -> Self::Output {
         Corner(self.0 | rhs.0)
     }
 }
 
-impl std::ops::BitOr<Corner> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
+impl<const D: usize> std::ops::BitOr<Corner<D>> for Axis {
+    type Output = Corner<D>;
+    fn bitor(self, rhs: Corner<D>) -> Self::Output {
         Corner(self.0 | rhs.0)
     }
 }
 
-impl From<Axis> for Corner {
+impl<const D: usize> From<Axis> for Corner<D> {
     fn from(a: Axis) -> Self {
         Corner::new(a.0)
     }
 }
 
-/// Strongly-typed cell corner, in the 0-8 range
+/// Strongly-typed cell corner, in the `[0, 2**D)` range
 #[derive(Copy, Clone, Debug)]
-pub struct Corner(u8);
+pub struct Corner<const D: usize>(u8);
 
-impl Corner {
+impl<const D: usize> Corner<D> {
     /// Builds a new corner
     ///
     /// # Panics
-    /// If `i >= 8`, which is not a valid cube corner index
+    /// If `i >= 8`, which is not a valid corner index
     pub const fn new(i: u8) -> Self {
-        assert!(i < 8);
+        assert!(i < (1 << D));
         Self(i)
     }
     /// Returns the value of this corner as an index
@@ -118,28 +118,28 @@ impl Corner {
         self.0 as usize
     }
     /// Iterates over all 8 corners
-    pub fn iter() -> impl Iterator<Item = Corner> {
-        (0..8).map(Corner)
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..(1 << D)).map(Corner)
     }
 }
 
-impl std::ops::BitAnd<Axis> for Corner {
+impl<const D: usize> std::ops::BitAnd<Axis> for Corner<D> {
     type Output = bool;
     fn bitand(self, rhs: Axis) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
 
-impl std::ops::BitOr<Corner> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
+impl<const D: usize> std::ops::BitOr<Corner<D>> for Corner<D> {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
         Corner(self.0 | rhs.0)
     }
 }
 
-impl std::ops::BitOr<Axis> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
+impl<const D: usize> std::ops::BitOr<Axis> for Corner<D> {
+    type Output = Self;
+    fn bitor(self, rhs: Axis) -> Self {
         Corner(self.0 | rhs.0)
     }
 }
@@ -151,9 +151,9 @@ impl std::ops::BitOr<Axis> for Corner {
 #[derive(Copy, Clone, Debug)]
 pub struct DirectedEdge {
     /// Starting corner
-    start: Corner,
+    start: Corner<3>,
     /// Ending corner
-    end: Corner,
+    end: Corner<3>,
 }
 
 impl DirectedEdge {
@@ -177,17 +177,17 @@ impl DirectedEdge {
     /// const END: Corner = Corner::new(0b111);
     /// const E: DirectedEdge = DirectedEdge::new(START, END);
     /// ```
-    pub const fn new(start: Corner, end: Corner) -> Self {
+    pub const fn new(start: Corner<3>, end: Corner<3>) -> Self {
         assert!(start.0 != end.0);
         assert!((start.0 ^ end.0).count_ones() == 1);
         Self { start, end }
     }
     /// Returns the start corner
-    pub fn start(self) -> Corner {
+    pub fn start(self) -> Corner<3> {
         self.start
     }
     /// Returns the end corner
-    pub fn end(self) -> Corner {
+    pub fn end(self) -> Corner<3> {
         self.end
     }
     pub fn to_undirected(self) -> Edge {
@@ -231,7 +231,7 @@ impl Edge {
     /// In the `t, u, v` coordinate system, the start always the `t` bit clear
     /// and the end always has the `t` bit set; the `u` and `v` bits are the
     /// same at both start and end.
-    pub fn corners(&self) -> (Corner, Corner) {
+    pub fn corners(&self) -> (Corner<3>, Corner<3>) {
         use super::frame::{Frame, XYZ, YZX, ZXY};
         let (t, u, v) = match self.0 / 4 {
             0 => XYZ::frame(),
@@ -290,9 +290,9 @@ impl<const D: usize> CellMask<D> {
     }
 }
 
-impl<const N: usize> std::ops::BitAnd<Corner> for CellMask<N> {
+impl<const N: usize> std::ops::BitAnd<Corner<N>> for CellMask<N> {
     type Output = bool;
-    fn bitand(self, c: Corner) -> bool {
+    fn bitand(self, c: Corner<N>) -> bool {
         (self.0 & (1 << c.index())) != 0
     }
 }
