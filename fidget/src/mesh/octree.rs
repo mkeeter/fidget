@@ -664,7 +664,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             hermite_cell.qef_err = err;
         }
 
-        // TODO: use self.record_leaf here?
         let index = self.o.verts.len();
         self.o.verts.extend(verts);
         self.o.verts.extend(
