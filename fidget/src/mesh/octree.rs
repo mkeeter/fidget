@@ -122,6 +122,196 @@ impl Octree {
             Cell::Invalid => panic!(),
         }
     }
+
+    /// Checks the set of 8 children starting at the given index for completion
+    ///
+    /// If all are empty or full, then pro-actively collapses the cells (freeing
+    /// them if they're at the tail end of the array).
+    fn check_done(
+        &mut self,
+        cell: CellIndex<3>,
+        index: usize,
+        hermite_data: [LeafHermiteData; 8],
+        hermite: &mut LeafHermiteData, // output
+    ) -> Cell<3> {
+        // Check out the children
+        let mut full_count = 0;
+        let mut empty_count = 0;
+        for i in 0..8 {
+            match self.cells[index + i] {
+                Cell::Invalid => {
+                    panic!("found invalid cell during meshing")
+                }
+                Cell::Full => {
+                    full_count += 1;
+                }
+                Cell::Empty => {
+                    empty_count += 1;
+                }
+                Cell::Branch { .. } => return Cell::Branch { index },
+                Cell::Leaf(Leaf { .. }) => (),
+            }
+        }
+
+        // If all of the branches are empty or full, then we're going to
+        // record an Empty or Full cell in the parent and don't need the 8x
+        // children.
+        //
+        // We can drop them if they happen to be at the tail end of the
+        // octree; otherwise, we'll satisfy ourselves with setting them to
+        // invalid.  We will always be at the tail end of the octree during
+        // single-threaded evaluation, it's only during merging octrees from
+        // multiple threads that we'd have cells midway through the array.
+        if full_count == 8 || empty_count == 8 {
+            if index == self.cells.len() - 8 {
+                self.cells.resize(index, Cell::Invalid);
+            } else {
+                self.cells[index..index + 8].fill(Cell::Invalid)
+            }
+        }
+
+        // If all of the branches are empty or full, then we're going to
+        // record an Empty or Full cell in the parent and don't need the
+        // 8x children.  Drop them by resizing the array
+        if full_count == 8 {
+            Cell::Full
+        } else if empty_count == 8 {
+            Cell::Empty
+        } else if let Some(mask) = self.collapsible(index) {
+            *hermite = LeafHermiteData::merge(hermite_data);
+
+            // Empty / full cells should never be produced here.  The
+            // only way to get an empty / full cell is for all eight
+            // corners to be empty / full; if that was the case, then
+            // either:
+            //
+            // - The interior vertices match, in which case this should
+            //   have been collapsed into a single empty / full cell
+            // - The interior vertices *do not* match, in which case the
+            //   cell should not be marked as collapsible.
+            let (pos, new_err) = hermite.solve();
+            if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
+                // Record the newly-collapsed leaf
+                hermite.qef_err = new_err;
+
+                let index = self.verts.len();
+                self.verts.push(pos);
+
+                // Install cell intersections, of which there must only
+                // be one (since we only collapse manifold cells)
+                let edges = &CELL_TO_VERT_TO_EDGES[mask.index()];
+                debug_assert_eq!(edges.len(), 1);
+                for e in edges[0] {
+                    let i = hermite.intersections[e.to_undirected().index()];
+                    self.verts.push(CellVertex { pos: i.pos.xyz() });
+                }
+
+                Cell::Leaf(Leaf { mask, index })
+            } else {
+                Cell::Branch { index }
+            }
+        } else {
+            Cell::Branch { index }
+        }
+    }
+
+    /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
+    ///
+    /// Only topology is checked, based on the three predicates from "Dual
+    /// Contouring of Hermite Data" (Ju et al, 2002), §4.1
+    ///
+    /// # Panics
+    /// `root` must be a multiple of 8, because it points at the root of a
+    /// cluster of 8 cells.
+    pub(crate) fn collapsible(&self, root: usize) -> Option<CellMask<3>> {
+        assert_eq!(root % 8, 0);
+
+        // Unpack cells into a friendlier data type
+        let cells = {
+            let mut cells = [Cell::Invalid; 8];
+            for (&c, o) in self.cells[root..root + 8].iter().zip(&mut cells) {
+                *o = c;
+            }
+            cells
+        };
+
+        let mut mask = 0;
+        for (i, &c) in cells.iter().enumerate() {
+            let b = match c {
+                Cell::Leaf(Leaf { mask, .. }) => {
+                    if CELL_TO_VERT_TO_EDGES[mask.index()].len() > 1 {
+                        return None;
+                    }
+                    (mask.index() & (1 << i) != 0) as u8
+                }
+                Cell::Empty => 0,
+                Cell::Full => 1,
+                Cell::Branch { .. } => return None,
+                Cell::Invalid => panic!(),
+            };
+            mask |= b << i;
+        }
+
+        use super::frame::{XYZ, YZX, ZXY};
+        for (t, u, v) in [XYZ::frame(), YZX::frame(), ZXY::frame()] {
+            //  - The sign in the middle of a coarse edge must agree with the
+            //    sign of at least one of the edge’s two endpoints.
+            for i in 0..4 {
+                let a = (u * ((i & 1) != 0)) | (v * ((i & 2) != 0));
+                let b = a | t;
+                let center = cells[a.index()].corner(b);
+
+                if [a, b]
+                    .iter()
+                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
+                {
+                    return None;
+                }
+            }
+
+            //  - The sign in the middle of a coarse face must agree with the
+            //    sign of at least one of the face’s four corners.
+            for i in 0..2 {
+                let a: Corner<3> = (t * (i & 1 == 0)).into();
+                let b = a | u;
+                let c = a | v;
+                let d = a | u | v;
+
+                let center = cells[a.index()].corner(d);
+
+                if [a, b, c, d]
+                    .iter()
+                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
+                {
+                    return None;
+                }
+            }
+            //  - The sign in the middle of a coarse cube must agree with the
+            //    sign of at least one of the cube’s eight corners.
+            for _i in 0..1 {
+                // Doing this in the t,u,v loop isn't strictly necessary, but it
+                // preserves the structure nicely.
+                let center = cells[0].corner(t | u | v);
+                if (0..8).all(|v| ((mask & (1 << v)) != 0) != center) {
+                    return None;
+                }
+            }
+        }
+
+        // The outer cell must not be empty or full at this point; if it was
+        // empty or full and the other conditions had been met, then it should
+        // have been collapsed already.
+        debug_assert_ne!(mask, 255);
+        debug_assert_ne!(mask, 0);
+
+        // TODO: this check may not be necessary, because we're doing *manifold*
+        // dual contouring; the collapsed cell can have multiple vertices.
+        if CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1 {
+            Some(CellMask::new(mask))
+        } else {
+            None
+        }
+    }
 }
 
 impl std::ops::Index<CellIndex<3>> for Octree {
@@ -245,7 +435,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 }
 
                 // Figure out whether the children can be collapsed
-                self.check_done(cell, index, hermite_child, hermite)
+                self.o.check_done(cell, index, hermite_child, hermite)
             }
         };
     }
@@ -484,196 +674,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         );
 
         Cell::Leaf(Leaf { mask, index })
-    }
-
-    /// Checks the set of 8 children starting at the given index for completion
-    ///
-    /// If all are empty or full, then pro-actively collapses the cells (freeing
-    /// them if they're at the tail end of the array).
-    fn check_done(
-        &mut self,
-        cell: CellIndex<3>,
-        index: usize,
-        hermite_data: [LeafHermiteData; 8],
-        hermite: &mut LeafHermiteData, // output
-    ) -> Cell<3> {
-        // Check out the children
-        let mut full_count = 0;
-        let mut empty_count = 0;
-        for i in 0..8 {
-            match self.o.cells[index + i] {
-                Cell::Invalid => {
-                    panic!("found invalid cell during meshing")
-                }
-                Cell::Full => {
-                    full_count += 1;
-                }
-                Cell::Empty => {
-                    empty_count += 1;
-                }
-                Cell::Branch { .. } => return Cell::Branch { index },
-                Cell::Leaf(Leaf { .. }) => (),
-            }
-        }
-
-        // If all of the branches are empty or full, then we're going to
-        // record an Empty or Full cell in the parent and don't need the 8x
-        // children.
-        //
-        // We can drop them if they happen to be at the tail end of the
-        // octree; otherwise, we'll satisfy ourselves with setting them to
-        // invalid.  We will always be at the tail end of the octree during
-        // single-threaded evaluation, it's only during merging octrees from
-        // multiple threads that we'd have cells midway through the array.
-        if full_count == 8 || empty_count == 8 {
-            if index == self.o.cells.len() - 8 {
-                self.o.cells.resize(index, Cell::Invalid);
-            } else {
-                self.o.cells[index..index + 8].fill(Cell::Invalid)
-            }
-        }
-
-        // If all of the branches are empty or full, then we're going to
-        // record an Empty or Full cell in the parent and don't need the
-        // 8x children.  Drop them by resizing the array
-        if full_count == 8 {
-            Cell::Full
-        } else if empty_count == 8 {
-            Cell::Empty
-        } else if let Some(mask) = self.collapsible(index) {
-            *hermite = LeafHermiteData::merge(hermite_data);
-
-            // Empty / full cells should never be produced here.  The
-            // only way to get an empty / full cell is for all eight
-            // corners to be empty / full; if that was the case, then
-            // either:
-            //
-            // - The interior vertices match, in which case this should
-            //   have been collapsed into a single empty / full cell
-            // - The interior vertices *do not* match, in which case the
-            //   cell should not be marked as collapsible.
-            let (pos, new_err) = hermite.solve();
-            if new_err < hermite.qef_err * 2.0 && cell.bounds.contains(pos) {
-                // Record the newly-collapsed leaf
-                hermite.qef_err = new_err;
-
-                let index = self.o.verts.len();
-                self.o.verts.push(pos);
-
-                // Install cell intersections, of which there must only
-                // be one (since we only collapse manifold cells)
-                let edges = &CELL_TO_VERT_TO_EDGES[mask.index()];
-                debug_assert_eq!(edges.len(), 1);
-                for e in edges[0] {
-                    let i = hermite.intersections[e.to_undirected().index()];
-                    self.o.verts.push(CellVertex { pos: i.pos.xyz() });
-                }
-
-                Cell::Leaf(Leaf { mask, index })
-            } else {
-                Cell::Branch { index }
-            }
-        } else {
-            Cell::Branch { index }
-        }
-    }
-
-    /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
-    ///
-    /// Only topology is checked, based on the three predicates from "Dual
-    /// Contouring of Hermite Data" (Ju et al, 2002), §4.1
-    ///
-    /// # Panics
-    /// `root` must be a multiple of 8, because it points at the root of a
-    /// cluster of 8 cells.
-    pub(crate) fn collapsible(&self, root: usize) -> Option<CellMask<3>> {
-        assert_eq!(root % 8, 0);
-
-        // Unpack cells into a friendlier data type
-        let cells = {
-            let mut cells = [Cell::Invalid; 8];
-            for (&c, o) in self.o.cells[root..root + 8].iter().zip(&mut cells) {
-                *o = c;
-            }
-            cells
-        };
-
-        let mut mask = 0;
-        for (i, &c) in cells.iter().enumerate() {
-            let b = match c {
-                Cell::Leaf(Leaf { mask, .. }) => {
-                    if CELL_TO_VERT_TO_EDGES[mask.index()].len() > 1 {
-                        return None;
-                    }
-                    (mask.index() & (1 << i) != 0) as u8
-                }
-                Cell::Empty => 0,
-                Cell::Full => 1,
-                Cell::Branch { .. } => return None,
-                Cell::Invalid => panic!(),
-            };
-            mask |= b << i;
-        }
-
-        use super::frame::{XYZ, YZX, ZXY};
-        for (t, u, v) in [XYZ::frame(), YZX::frame(), ZXY::frame()] {
-            //  - The sign in the middle of a coarse edge must agree with the
-            //    sign of at least one of the edge’s two endpoints.
-            for i in 0..4 {
-                let a = (u * ((i & 1) != 0)) | (v * ((i & 2) != 0));
-                let b = a | t;
-                let center = cells[a.index()].corner(b);
-
-                if [a, b]
-                    .iter()
-                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
-                {
-                    return None;
-                }
-            }
-
-            //  - The sign in the middle of a coarse face must agree with the
-            //    sign of at least one of the face’s four corners.
-            for i in 0..2 {
-                let a: Corner<3> = (t * (i & 1 == 0)).into();
-                let b = a | u;
-                let c = a | v;
-                let d = a | u | v;
-
-                let center = cells[a.index()].corner(d);
-
-                if [a, b, c, d]
-                    .iter()
-                    .all(|v| ((mask & (1 << v.index())) != 0) != center)
-                {
-                    return None;
-                }
-            }
-            //  - The sign in the middle of a coarse cube must agree with the
-            //    sign of at least one of the cube’s eight corners.
-            for _i in 0..1 {
-                // Doing this in the t,u,v loop isn't strictly necessary, but it
-                // preserves the structure nicely.
-                let center = cells[0].corner(t | u | v);
-                if (0..8).all(|v| ((mask & (1 << v)) != 0) != center) {
-                    return None;
-                }
-            }
-        }
-
-        // The outer cell must not be empty or full at this point; if it was
-        // empty or full and the other conditions had been met, then it should
-        // have been collapsed already.
-        debug_assert_ne!(mask, 255);
-        debug_assert_ne!(mask, 0);
-
-        // TODO: this check may not be necessary, because we're doing *manifold*
-        // dual contouring; the collapsed cell can have multiple vertices.
-        if CELL_TO_VERT_TO_EDGES[mask as usize].len() == 1 {
-            Some(CellMask::new(mask))
-        } else {
-            None
-        }
     }
 }
 
@@ -1210,21 +1210,21 @@ mod test {
 
         let shape = sphere([0.0; 3], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(octree.collapsible(8).is_none());
+        assert!(octree.o.collapsible(8).is_none());
 
         let shape = sphere([-1.0; 3], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(octree.collapsible(8).is_some());
+        assert!(octree.o.collapsible(8).is_some());
 
         let shape = sphere([-1.0, 0.0, 1.0], 0.1);
         let octree = builder(shape, depth1_single_thread());
-        assert!(octree.collapsible(8).is_none());
+        assert!(octree.o.collapsible(8).is_none());
 
         let a = sphere([-1.0; 3], 0.1);
         let b = sphere([1.0; 3], 0.1);
         let shape = a.min(b);
         let octree = builder(shape, depth1_single_thread());
-        assert!(octree.collapsible(8).is_none());
+        assert!(octree.o.collapsible(8).is_none());
     }
 
     #[test]
