@@ -18,15 +18,9 @@ jobs:
     timeout-minutes: 15
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/cache@v4
+    - uses: ./.github/actions/rust-cache
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-test
+        cache-key: test
     - name: Build tests
       run: cargo test --verbose --no-run
     - name: Run crate tests

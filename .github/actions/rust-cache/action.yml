@@ -1,0 +1,19 @@
+name: 'Rust cache'
+description: 'Load Rust folders from the Github cache'
+inputs:
+  cache-key:
+    description: 'Key to include in the cache key'
+    required: true
+    default: ''
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ inputs.cache-key }}

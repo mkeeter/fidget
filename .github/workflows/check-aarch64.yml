@@ -22,15 +22,9 @@ jobs:
     runs-on: macos-14
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/cache@v4
+    - uses: ./.github/actions/rust-cache
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check
+        cache-key: check-aarch64
     - name: Install target
       run: rustup target add ${{ matrix.target }}
     - name: Check
