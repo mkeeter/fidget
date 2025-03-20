@@ -17,15 +17,9 @@ jobs:
         working-directory: ./demos/web-editor/web
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/cache@v4
+    - uses: ./.github/actions/rust-cache
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-wasm
+        cache-key: wasm-demo
     - name: Install wasm target
       run: rustup target add wasm32-unknown-unknown
     - name: Install wasm-pack

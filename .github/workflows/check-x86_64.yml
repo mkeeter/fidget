@@ -21,18 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/cache@v4
+    - uses: ./.github/actions/rust-cache
       with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-check
-    - name: Install target
-      run: rustup target add ${{ matrix.target }}
-    - name: Check
-      run: cargo check --target=${{ matrix.target }} --all-targets --verbose
-    - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} --all-targets --verbose
+        cache-key: check-x86_64
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}
