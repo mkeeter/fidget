@@ -24,9 +24,6 @@ jobs:
     - uses: ./.github/actions/rust-cache
       with:
         cache-key: check-x86_64
-    - name: Install target
-      run: rustup target add ${{ matrix.target }}
-    - name: Check
-      run: cargo check --target=${{ matrix.target }} --all-targets --verbose
-    - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} --all-targets --verbose
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}

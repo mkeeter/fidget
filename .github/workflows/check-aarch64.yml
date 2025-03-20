@@ -25,11 +25,6 @@ jobs:
     - uses: ./.github/actions/rust-cache
       with:
         cache-key: check-aarch64
-    - name: Install target
-      run: rustup target add ${{ matrix.target }}
-    - name: Check
-      run: cargo check --target=${{ matrix.target }} --all-targets --verbose
-    - name: Clippy
-      run: cargo clippy --target=${{ matrix.target }} --all-targets --verbose
-    - name: Check format
-      run: cargo fmt -- --check || exit 1
+    - uses: ./.github/actions/rust-check
+      with:
+        target: ${{ matrix.target }}

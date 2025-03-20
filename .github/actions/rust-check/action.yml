@@ -1,0 +1,21 @@
+name: 'Rust check'
+description: 'Run `cargo check`, `cargo clippy`, and `cargo fmt`'
+inputs:
+  target:
+    description: 'rustc target'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Install target
+      run: rustup target add ${{ inputs.target }}
+      shell: bash
+    - name: Check
+      run: cargo check --target=${{ inputs.target }} --all-targets --verbose
+      shell: bash
+    - name: Clippy
+      run: cargo clippy --target=${{ inputs.target }} --all-targets --verbose
+      shell: bash
+    - name: Check format
+      run: cargo fmt -- --check || exit 1
+      shell: bash
