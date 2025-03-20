@@ -48,7 +48,7 @@ mod octree;
 mod output;
 mod qef;
 
-use crate::render::View3;
+use crate::render::{ThreadPool, View3};
 
 #[doc(hidden)]
 pub mod types;
@@ -75,21 +75,27 @@ impl Mesh {
 }
 
 /// Settings when building an octree and mesh
-#[derive(Copy, Clone, Debug)]
-pub struct Settings {
+#[derive(Copy, Clone)]
+pub struct Settings<'a> {
     /// Depth to recurse in the octree
     pub depth: u8,
 
     /// Viewport to provide a world-to-model transform
     pub view: View3,
-    // TODO add threads
+
+    /// Thread pool to use for rendering
+    ///
+    /// If this is `None`, then rendering is done in a single thread; otherwise,
+    /// the provided pool is used.
+    pub threads: Option<&'a ThreadPool>,
 }
 
-impl Default for Settings {
+impl Default for Settings<'_> {
     fn default() -> Self {
         Self {
             depth: 3,
             view: Default::default(),
+            threads: Some(&ThreadPool::Global),
         }
     }
 }

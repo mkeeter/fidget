@@ -13,25 +13,36 @@ pub fn colonnade_octree_thread_sweep(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, octree) (depth 6)");
 
-    // TODO multiple threads
-    let cfg = &fidget::mesh::Settings {
-        depth: 6,
-        ..Default::default()
-    };
+    for threads in [None, Some(1), Some(4), Some(8)] {
+        let pool = threads.map(|n| {
+            fidget::render::ThreadPool::Custom(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .unwrap(),
+            )
+        });
+        let cfg = &fidget::mesh::Settings {
+            depth: 6,
+            threads: pool.as_ref(),
+            ..Default::default()
+        };
+        let threads = threads.unwrap_or(0);
 
-    #[cfg(feature = "jit")]
-    group.bench_function(BenchmarkId::new("jit", 1), move |b| {
-        b.iter(|| {
-            let cfg = *cfg;
-            black_box(fidget::mesh::Octree::build(shape_jit, cfg))
-        })
-    });
-    group.bench_function(BenchmarkId::new("vm", 1), move |b| {
-        b.iter(|| {
-            let cfg = *cfg;
-            black_box(fidget::mesh::Octree::build(shape_vm, cfg))
-        })
-    });
+        #[cfg(feature = "jit")]
+        group.bench_function(BenchmarkId::new("jit", threads), move |b| {
+            b.iter(|| {
+                let cfg = *cfg;
+                black_box(fidget::mesh::Octree::build(shape_jit, cfg))
+            })
+        });
+        group.bench_function(BenchmarkId::new("vm", threads), move |b| {
+            b.iter(|| {
+                let cfg = *cfg;
+                black_box(fidget::mesh::Octree::build(shape_vm, cfg))
+            })
+        });
+    }
 }
 
 pub fn colonnade_mesh(c: &mut Criterion) {
@@ -46,12 +57,28 @@ pub fn colonnade_mesh(c: &mut Criterion) {
     let mut group =
         c.benchmark_group("speed vs threads (colonnade, meshing) (depth 8)");
 
-    // TODO multiple threads
-    let cfg = &fidget::mesh::Settings { ..cfg };
-    group.bench_function(BenchmarkId::new("walk_dual", 1), move |b| {
-        let cfg = *cfg;
-        b.iter(|| black_box(octree.walk_dual(cfg)))
-    });
+    for threads in [None, Some(1), Some(4), Some(8)] {
+        let pool = threads.map(|n| {
+            fidget::render::ThreadPool::Custom(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(n)
+                    .build()
+                    .unwrap(),
+            )
+        });
+        let threads = threads.unwrap_or(0);
+        let cfg = &fidget::mesh::Settings {
+            threads: pool.as_ref(),
+            ..cfg
+        };
+        group.bench_function(
+            BenchmarkId::new("walk_dual", threads),
+            move |b| {
+                let cfg = *cfg;
+                b.iter(|| black_box(octree.walk_dual(cfg)))
+            },
+        );
+    }
 }
 
 criterion_group!(benches, colonnade_octree_thread_sweep, colonnade_mesh);

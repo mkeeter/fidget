@@ -844,6 +844,7 @@ mod test {
     use crate::{
         context::Tree,
         mesh::types::{Edge, X, Y, Z},
+        render::ThreadPool,
         render::View3,
         shape::EzShape,
         var::Var,
@@ -852,16 +853,18 @@ mod test {
     use nalgebra::Vector3;
     use std::collections::BTreeMap;
 
-    fn depth0_single_thread() -> Settings {
+    fn depth0_single_thread() -> Settings<'static> {
         Settings {
             depth: 0,
+            threads: None,
             ..Default::default()
         }
     }
 
-    fn depth1_single_thread() -> Settings {
+    fn depth1_single_thread() -> Settings<'static> {
         Settings {
             depth: 1,
+            threads: None,
             ..Default::default()
         }
     }
@@ -1011,16 +1014,18 @@ mod test {
     fn test_sphere_manifold() {
         let shape = VmShape::from(sphere([0.0; 3], 0.85));
 
-        // TODO test multiple threads here
-        let settings = Settings {
-            depth: 5,
-            ..Default::default()
-        };
-        let octree = Octree::build(&shape, settings);
-        let sphere_mesh = octree.walk_dual(settings);
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 5,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&shape, settings);
+            let sphere_mesh = octree.walk_dual(settings);
 
-        check_for_vertex_dupes(&sphere_mesh).unwrap();
-        check_for_edge_matching(&sphere_mesh).unwrap();
+            check_for_vertex_dupes(&sphere_mesh).unwrap();
+            check_for_edge_matching(&sphere_mesh).unwrap();
+        }
     }
 
     #[test]
@@ -1132,7 +1137,7 @@ mod test {
         }
     }
 
-    fn test_mesh_manifold_inner(mask: u8) {
+    fn test_mesh_manifold_inner(threads: Option<&ThreadPool>, mask: u8) {
         let mut shape = vec![];
         for j in Corner::<3>::iter() {
             if mask & (1 << j.index()) != 0 {
@@ -1154,6 +1159,7 @@ mod test {
         let shape = VmShape::from(shape);
         let settings = Settings {
             depth: 2,
+            threads,
             ..Default::default()
         };
         let octree = Octree::build(&shape, settings);
@@ -1174,17 +1180,15 @@ mod test {
 
     #[test]
     fn test_mesh_manifold_single_thread() {
-        // TODO test threads
         for mask in 0..=255 {
-            test_mesh_manifold_inner(mask)
+            test_mesh_manifold_inner(None, mask)
         }
     }
 
     #[test]
     fn test_mesh_manifold_multi_thread() {
-        // TODO test multiple threads
         for mask in 0..=255 {
-            test_mesh_manifold_inner(mask)
+            test_mesh_manifold_inner(Some(&ThreadPool::Global), mask)
         }
     }
 
@@ -1232,13 +1236,19 @@ mod test {
         // Make a very smol sphere that won't be sampled
         let shape = VmShape::from(sphere([0.1; 3], 0.05));
 
-        // TODO test multiple threads
-        let settings = Settings {
-            depth: 1,
-            ..Default::default()
-        };
-        let octree = Octree::build(&shape, settings);
-        assert_eq!(octree.cells[0], Cell::Empty, "failed to collapse octree");
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 1,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&shape, settings);
+            assert_eq!(
+                octree.cells[0],
+                Cell::Empty,
+                "failed to collapse octree"
+            );
+        }
     }
 
     #[test]
@@ -1248,16 +1258,18 @@ mod test {
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
-        // TODO test multiple threads
-        let settings = Settings {
-            depth: 5,
-            ..Default::default()
-        };
-        let octree = Octree::build(&tape, settings);
-        let mesh = octree.walk_dual(settings);
-        // Note: the model has duplicate vertices!
-        if let Err(e) = check_for_edge_matching(&mesh) {
-            panic!("colonnade model has {e}");
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 5,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            // Note: the model has duplicate vertices!
+            if let Err(e) = check_for_edge_matching(&mesh) {
+                panic!("colonnade model has {e}");
+            }
         }
     }
 
@@ -1268,23 +1280,25 @@ mod test {
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
-        // TODO test multiple threads
-        let settings = Settings {
-            depth: 8,
-            ..Default::default()
-        };
-        let octree = Octree::build(&tape, settings);
-        let mesh = octree.walk_dual(settings);
-        for v in mesh.vertices.iter() {
-            assert!(
-                v.x < 1.0
-                    && v.x > -1.0
-                    && v.y < 1.0
-                    && v.y > -1.0
-                    && v.z < 1.0
-                    && v.z > -0.5,
-                "invalid vertex {v:?}"
-            );
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 8,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            for v in mesh.vertices.iter() {
+                assert!(
+                    v.x < 1.0
+                        && v.x > -1.0
+                        && v.y < 1.0
+                        && v.y > -1.0
+                        && v.z < 1.0
+                        && v.z > -0.5,
+                    "invalid vertex {v:?}"
+                );
+            }
         }
     }
 
@@ -1295,23 +1309,25 @@ mod test {
             crate::Context::from_text(COLONNADE.as_bytes()).unwrap();
         let tape = VmShape::new(&ctx, root).unwrap();
 
-        // TODO multiple threads
-        let settings = Settings {
-            depth: 5,
-            ..Default::default()
-        };
-        let octree = Octree::build(&tape, settings);
-        let mesh = octree.walk_dual(settings);
-        for v in mesh.vertices.iter() {
-            assert!(
-                v.x < 1.0
-                    && v.x > -0.75
-                    && v.y < 1.0
-                    && v.y > -0.75
-                    && v.z < 0.75
-                    && v.z > -0.75,
-                "invalid vertex {v:?}"
-            );
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 5,
+                threads,
+                ..Default::default()
+            };
+            let octree = Octree::build(&tape, settings);
+            let mesh = octree.walk_dual(settings);
+            for v in mesh.vertices.iter() {
+                assert!(
+                    v.x < 1.0
+                        && v.x > -0.75
+                        && v.y < 1.0
+                        && v.y > -0.75
+                        && v.z < 0.75
+                        && v.z > -0.75,
+                    "invalid vertex {v:?}"
+                );
+            }
         }
     }
 
@@ -1416,6 +1432,7 @@ mod test {
         let settings = Settings {
             depth: 4,
             view: View3::from_center_and_scale(center, 0.5),
+            threads: None,
         };
 
         let octree = Octree::build(&shape, settings).walk_dual(settings);
@@ -1433,23 +1450,25 @@ mod test {
         let sphere = (x.square() + y.square() + z.square()).sqrt() - c;
         let shape = VmShape::from(sphere);
 
-        // TODO multiple threads
-        let settings = Settings {
-            depth: 4,
-            view: View3::default(),
-        };
+        for threads in [None, Some(&ThreadPool::Global)] {
+            let settings = Settings {
+                depth: 4,
+                threads,
+                view: View3::default(),
+            };
 
-        for r in [0.5, 0.75] {
-            let mut vars = ShapeVars::new();
-            vars.insert(v.index().unwrap(), r);
-            let octree = Octree::build_with_vars(&shape, &vars, settings)
-                .walk_dual(settings);
-            for v in octree.vertices.iter() {
-                let n = v.norm();
-                assert!(
-                    n > r - 0.05 && n < r + 0.05,
-                    "invalid vertex at {v:?}: {n} != {r}"
-                );
+            for r in [0.5, 0.75] {
+                let mut vars = ShapeVars::new();
+                vars.insert(v.index().unwrap(), r);
+                let octree = Octree::build_with_vars(&shape, &vars, settings)
+                    .walk_dual(settings);
+                for v in octree.vertices.iter() {
+                    let n = v.norm();
+                    assert!(
+                        n > r - 0.05 && n < r + 0.05,
+                        "invalid vertex at {v:?}: {n} != {r}"
+                    );
+                }
             }
         }
     }
