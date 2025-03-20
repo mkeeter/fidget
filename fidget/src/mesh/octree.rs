@@ -154,26 +154,9 @@ impl Octree {
         }
 
         // If all of the branches are empty or full, then we're going to
-        // record an Empty or Full cell in the parent and don't need the 8x
-        // children.
-        //
-        // We can drop them if they happen to be at the tail end of the
-        // octree; otherwise, we'll satisfy ourselves with setting them to
-        // invalid.  We will always be at the tail end of the octree during
-        // single-threaded evaluation, it's only during merging octrees from
-        // multiple threads that we'd have cells midway through the array.
-        if full_count == 8 || empty_count == 8 {
-            if index == self.cells.len() - 8 {
-                self.cells.resize(index, Cell::Invalid);
-            } else {
-                self.cells[index..index + 8].fill(Cell::Invalid)
-            }
-        }
-
-        // If all of the branches are empty or full, then we're going to
         // record an Empty or Full cell in the parent and don't need the
         // 8x children.  Drop them by resizing the array
-        if full_count == 8 {
+        let out = if full_count == 8 {
             Cell::Full
         } else if empty_count == 8 {
             Cell::Empty
@@ -212,7 +195,24 @@ impl Octree {
             }
         } else {
             Cell::Branch { index }
+        };
+
+        // If we can collapse the cell, then we'll be recording an Empty / Full
+        // / Leaf cell in the parent and don't need the 8x children.
+        //
+        // We can drop them if they happen to be at the tail end of the
+        // octree; otherwise, we'll satisfy ourselves with setting them to
+        // invalid.  We will always be at the tail end of the octree during
+        // single-threaded evaluation, it's only during merging octrees from
+        // multiple threads that we'd have cells midway through the array.
+        if !matches!(out, Cell::Branch { .. }) {
+            if index == self.cells.len() - 8 {
+                self.cells.resize(index, Cell::Invalid);
+            } else {
+                self.cells[index..index + 8].fill(Cell::Invalid)
+            }
         }
+        out
     }
 
     /// Checks whether the set of 8 cells beginning at `root` can be collapsed.
@@ -415,7 +415,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 eval
             };
             if cell.depth == max_depth as usize {
-                self.leaf(sub_tape, vars, cell)
+                self.leaf(sub_tape, vars, cell, hermite)
             } else {
                 // Reserve new cells for the 8x children
                 let index = self.o.cells.len();
@@ -450,6 +450,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
         eval: &mut RenderHandle<F>,
         vars: &ShapeVars<f32>,
         cell: CellIndex<3>,
+        hermite_cell: &mut LeafHermiteData,
     ) -> Cell<3> {
         let mut xs = [0.0; 8];
         let mut ys = [0.0; 8];
@@ -637,7 +638,6 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
 
         let mut verts: arrayvec::ArrayVec<_, 4> = arrayvec::ArrayVec::new();
         let mut i = 0;
-        let mut hermite_cell = LeafHermiteData::new();
         for vs in CELL_TO_VERT_TO_EDGES[mask.index()].iter() {
             let mut qef = QuadraticErrorSolver::new();
             for e in vs.iter() {
@@ -716,9 +716,6 @@ impl Default for LeafHermiteData {
 }
 
 impl LeafHermiteData {
-    fn new() -> Self {
-        Self::default()
-    }
     /// Merges an octree subdivision of leaf hermite data
     fn merge(leafs: [LeafHermiteData; 8]) -> Self {
         let mut out = Self::default();
@@ -1367,7 +1364,7 @@ mod test {
 
     #[test]
     fn test_qef_merging() {
-        let mut hermite = LeafHermiteData::new();
+        let mut hermite = LeafHermiteData::default();
 
         // Add a dummy intersection with a non-zero normal; we'll be counting
         // mass points to check that the merging went smoothly
