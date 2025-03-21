@@ -35,7 +35,7 @@ pub use render2d::{
 
 /// A `RenderHandle` contains lazily-populated tapes for rendering
 ///
-/// This can be cheaply cloned, although it is usually passed by mutable
+/// This can be cheaply cloned, although it is _usually_ passed by mutable
 /// reference to a recursive function.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
@@ -47,6 +47,18 @@ pub struct RenderHandle<F: Function> {
     g_tape: Option<ShapeTape<<F::GradSliceEval as BulkEvaluator>::Tape>>,
 
     next: Option<(F::Trace, Box<Self>)>,
+}
+
+impl<F: Function> Clone for RenderHandle<F> {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            i_tape: self.i_tape.clone(),
+            f_tape: self.f_tape.clone(),
+            g_tape: self.g_tape.clone(),
+            next: None,
+        }
+    }
 }
 
 impl<F: Function> RenderHandle<F> {
@@ -156,7 +168,7 @@ impl<F: Function> RenderHandle<F> {
     }
 
     /// Recycles the entire handle into the given storage vectors
-    fn recycle(
+    pub fn recycle(
         mut self,
         shape_storage: &mut Vec<F::Storage>,
         tape_storage: &mut Vec<F::TapeStorage>,
@@ -300,12 +312,11 @@ where
         }
     }
 
-    // Precompute i_tape so that we only need to do it once
-    let mut rh = RenderHandle::new(shape.clone());
-    let i_tape = rh.i_tape(&mut vec![]).clone();
+    let mut rh = RenderHandle::new(shape);
+
+    let _ = rh.i_tape(&mut vec![]); // populate i_tape before cloning
     let init = || {
-        let mut rh = RenderHandle::new(shape.clone());
-        rh.i_tape = Some(i_tape.clone());
+        let rh = rh.clone();
         let worker = W::new(config);
         (worker, rh)
     };
