@@ -9,8 +9,7 @@ use crate::mesh::{
 };
 
 pub fn dc_cell(octree: &Octree, cell: CellIndex<3>, out: &mut MeshBuilder) {
-    if let Cell::Branch { index } = octree[cell] {
-        debug_assert_eq!(index % 8, 0);
+    if let Cell::Branch { .. } = octree[cell] {
         for i in Corner::iter() {
             out.cell(octree, octree.child(cell, i));
         }

@@ -136,6 +136,10 @@ impl<const D: usize> Corner<D> {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+    /// Returns the value of this corner as a `u8`
+    pub fn get(self) -> u8 {
+        self.0
+    }
     /// Iterates over all 8 corners
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..(1 << D)).map(Corner)

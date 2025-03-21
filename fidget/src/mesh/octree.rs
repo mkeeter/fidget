@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 #[derive(Debug)]
 pub struct Octree {
     pub(crate) root: Cell<3>,
-    pub(crate) cells: Vec<Cell<3>>,
+    pub(crate) cells: Vec<[Cell<3>; 8]>,
 
     /// Cell vertices, given as positions within the cell
     ///
@@ -113,6 +113,7 @@ impl Octree {
         let mut todo = VecDeque::new();
         todo.push_back(CellIndex::<3>::default());
         let mut fixup = vec![];
+        let mut hermites = vec![];
 
         // We want a number of tasks that's significantly larger than our thread
         // count, so that we can fully saturate all cores even if tasks take
@@ -124,13 +125,12 @@ impl Octree {
 
             // Reserve new cells for the 8x children
             let index = root.cells.len();
+            root.cells.push([Cell::Invalid; 8]);
+            hermites.push([LeafHermiteData::default(); 8]);
             for i in Corner::<3>::iter() {
-                root.cells.push(Cell::Invalid);
                 let cell = next.child(index, i);
                 todo.push_back(cell);
             }
-            // The original cell is now a branch!
-            root[next] = Cell::Branch { index };
             fixup.push((next, index));
         }
 
@@ -171,6 +171,12 @@ impl Octree {
                 .collect::<Vec<_>>()
         });
 
+        // Copy hermite data into arrays
+        for o in &out {
+            let (i, j) = o.cell.index.unwrap();
+            hermites[i][j as usize] = o.hermite;
+        }
+
         // At this point, we have a bunch of octree fragments.  Each fragment is
         // rooted at its own root; we need to copy that root to the original
         // CellIndex, after correcting for offsets in leaf and branch positions.
@@ -205,10 +211,24 @@ impl Octree {
                 Cell::Full | Cell::Empty => c,
                 Cell::Invalid => panic!(),
             };
-            root.cells
-                .extend(o.octree.cells.into_iter().map(remap_cell));
+            root.cells.extend(
+                o.octree.cells.into_iter().map(|cs| cs.map(remap_cell)),
+            );
             root.verts.extend(o.octree.verts);
             root[o.cell] = remap_cell(o.octree.root);
+        }
+
+        // Walk back up the tree, merging cells as we go
+        for (cell, index) in fixup.into_iter().rev() {
+            let h = hermites[index];
+            root[cell] = root.check_done(
+                cell,
+                index,
+                h,
+                cell.index
+                    .map(|(i, j)| &mut hermites[i][j as usize])
+                    .unwrap_or(&mut LeafHermiteData::default()),
+            );
         }
         root
     }
@@ -264,7 +284,7 @@ impl Octree {
         let mut full_count = 0;
         let mut empty_count = 0;
         for i in 0..8 {
-            match self.cells[index + i] {
+            match self.cells[index][i] {
                 Cell::Invalid => {
                     panic!("found invalid cell during meshing")
                 }
@@ -332,10 +352,10 @@ impl Octree {
         // single-threaded evaluation, it's only during merging octrees from
         // multiple threads that we'd have cells midway through the array.
         if !matches!(out, Cell::Branch { .. }) {
-            if index == self.cells.len() - 8 {
-                self.cells.resize(index, Cell::Invalid);
+            if index == self.cells.len() - 1 {
+                self.cells.resize(index, [Cell::Invalid; 8]);
             } else {
-                self.cells[index..index + 8].fill(Cell::Invalid)
+                self.cells[index] = [Cell::Invalid; 8];
             }
         }
         out
@@ -350,16 +370,8 @@ impl Octree {
     /// `root` must be a multiple of 8, because it points at the root of a
     /// cluster of 8 cells.
     pub(crate) fn collapsible(&self, root: usize) -> Option<CellMask<3>> {
-        assert_eq!(root % 8, 0);
-
-        // Unpack cells into a friendlier data type
-        let cells = {
-            let mut cells = [Cell::Invalid; 8];
-            for (&c, o) in self.cells[root..root + 8].iter().zip(&mut cells) {
-                *o = c;
-            }
-            cells
-        };
+        // Copy cells to a local variable for simplicity
+        let cells = self.cells[root];
 
         let mut mask = 0;
         for (i, &c) in cells.iter().enumerate() {
@@ -446,7 +458,7 @@ impl std::ops::Index<CellIndex<3>> for Octree {
     fn index(&self, i: CellIndex<3>) -> &Self::Output {
         match i.index {
             None => &self.root,
-            Some(i) => &self.cells[i],
+            Some((i, j)) => &self.cells[i][j as usize],
         }
     }
 }
@@ -455,7 +467,7 @@ impl std::ops::IndexMut<CellIndex<3>> for Octree {
     fn index_mut(&mut self, i: CellIndex<3>) -> &mut Self::Output {
         match i.index {
             None => &mut self.root,
-            Some(i) => &mut self.cells[i],
+            Some((i, j)) => &mut self.cells[i][j as usize],
         }
     }
 }
@@ -552,9 +564,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             } else {
                 // Reserve new cells for the 8x children
                 let index = self.o.cells.len();
-                for _ in Corner::<3>::iter() {
-                    self.o.cells.push(Cell::Invalid);
-                }
+                self.o.cells.push([Cell::Invalid; 8]);
                 let mut hermite_child = [LeafHermiteData::default(); 8];
                 for i in Corner::<3>::iter() {
                     let cell = cell.child(index, i);
@@ -977,7 +987,7 @@ mod test {
         render::View3,
         shape::EzShape,
         var::Var,
-        vm::{VmFunction, VmShape},
+        vm::VmShape,
     };
     use nalgebra::Vector3;
     use std::collections::BTreeMap;
@@ -1083,14 +1093,14 @@ mod test {
 
         // Now, at depth-1, each cell should be a Leaf with one vertex
         let octree = Octree::build(&shape, depth1_single_thread());
-        assert_eq!(octree.cells.len(), 8); // we always build at least 8 cells
+        assert_eq!(octree.cells.len(), 1); // one fanout of 8 cells
         assert_eq!(Cell::Branch { index: 0 }, octree.root);
 
         // Each of the 6 edges is counted 4 times and each cell has 1 vertex
         assert_eq!(octree.verts.len(), 6 * 4 + 8, "incorrect vertex count");
 
         // Each cell is a leaf with 4 vertices (3 edges, 1 center)
-        for o in &octree.cells[8..] {
+        for o in octree.cells[0].iter() {
             let Cell::Leaf(Leaf { index, mask }) = *o else {
                 panic!()
             };
@@ -1323,43 +1333,55 @@ mod test {
 
     #[test]
     fn test_collapsible() {
-        fn builder(
-            shape: Tree,
-            settings: Settings,
-        ) -> OctreeBuilder<VmFunction> {
-            let shape = VmShape::from(shape);
-            let mut eval = RenderHandle::new(shape);
-            let mut out = OctreeBuilder::new();
-            let mut hermite = LeafHermiteData::default();
-            out.recurse(
-                &mut eval,
-                &ShapeVars::new(),
-                CellIndex::default(),
-                settings.depth,
-                &mut hermite, // unused
-            );
-            out
-        }
-
-        let shape = sphere([0.0; 3], 0.1);
-        let octree = builder(shape, depth1_single_thread());
-        assert!(octree.o.collapsible(0).is_none());
+        let shape = VmShape::from(sphere([0.0; 3], 0.1));
+        let octree = Octree::build(&shape, depth1_single_thread());
+        assert!(octree.collapsible(0).is_none());
 
         // If we have a single corner sphere, then the builder will collapse the
         // branch for us, leaving just a leaf.
-        let shape = sphere([-1.0; 3], 0.1);
-        let octree = builder(shape, depth1_single_thread());
-        assert!(matches!(octree.o.root, Cell::Leaf { .. }));
+        let shape = VmShape::from(sphere([-1.0; 3], 0.1));
+        let octree = Octree::build(&shape, depth1_single_thread());
+        assert!(matches!(octree.root, Cell::Leaf { .. }));
 
-        let shape = sphere([-1.0, 0.0, 1.0], 0.1);
-        let octree = builder(shape, depth1_single_thread());
-        assert!(octree.o.collapsible(0).is_none());
+        // Test with a single thread and a deeper tree, which should still work
+        let octree = Octree::build(
+            &shape,
+            Settings {
+                depth: 4,
+                threads: None,
+                ..Default::default()
+            },
+        );
+        assert!(
+            matches!(octree.root, Cell::Leaf { .. }),
+            "root should be a leaf, not {:?}",
+            octree.root
+        );
+
+        // This should also work with multiple threads!
+        let octree = Octree::build(
+            &shape,
+            Settings {
+                depth: 4,
+                threads: Some(&ThreadPool::Global),
+                ..Default::default()
+            },
+        );
+        assert!(
+            matches!(octree.root, Cell::Leaf { .. }),
+            "root should be a leaf, not {:?}",
+            octree.root
+        );
+
+        let shape = VmShape::from(sphere([-1.0, 0.0, 1.0], 0.1));
+        let octree = Octree::build(&shape, depth1_single_thread());
+        assert!(octree.collapsible(0).is_none());
 
         let a = sphere([-1.0; 3], 0.1);
         let b = sphere([1.0; 3], 0.1);
-        let shape = a.min(b);
-        let octree = builder(shape, depth1_single_thread());
-        assert!(octree.o.collapsible(0).is_none());
+        let shape = VmShape::from(a.min(b));
+        let octree = Octree::build(&shape, depth1_single_thread());
+        assert!(octree.collapsible(0).is_none());
     }
 
     #[test]
