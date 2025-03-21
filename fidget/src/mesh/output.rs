@@ -1,5 +1,6 @@
 //! Mesh output implementation
 use super::Mesh;
+use std::io::{BufWriter, Write};
 
 impl Mesh {
     /// Writes a binary STL to the given output
@@ -7,6 +8,9 @@ impl Mesh {
         &self,
         out: &mut F,
     ) -> Result<(), crate::Error> {
+        // We're going to do many small writes and will typically be writing to
+        // a file, so using a `BufWriter` saves excessive syscalls.
+        let mut out = BufWriter::new(out);
         const HEADER: &[u8] = b"This is a binary STL file exported by Fidget";
         static_assertions::const_assert!(HEADER.len() <= 80);
         out.write_all(HEADER)?;
