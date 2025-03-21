@@ -85,7 +85,8 @@ impl<const D: usize> std::ops::Index<Axis<D>> for CellVertex<D> {
 /// [`Octree::cells`](super::Octree::cells)
 #[derive(Copy, Clone, Debug)]
 pub struct CellIndex<const D: usize> {
-    pub index: usize,
+    /// Cell index in `Octree::cells`; `None` is the root
+    pub index: Option<usize>,
     pub depth: usize,
     pub bounds: CellBounds<D>,
 }
@@ -99,7 +100,7 @@ impl<const D: usize> Default for CellIndex<D> {
 impl<const D: usize> CellIndex<D> {
     pub fn new() -> Self {
         CellIndex {
-            index: 0,
+            index: None,
             bounds: CellBounds::default(),
             depth: 0,
         }
@@ -109,7 +110,7 @@ impl<const D: usize> CellIndex<D> {
     pub fn child(&self, index: usize, i: Corner<D>) -> Self {
         let bounds = self.bounds.child(i);
         CellIndex {
-            index: index + i.index(),
+            index: Some(index + i.index()),
             bounds,
             depth: self.depth + 1,
         }
