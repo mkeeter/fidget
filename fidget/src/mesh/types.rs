@@ -30,7 +30,7 @@ impl<const D: usize> Axis<D> {
     /// const A: Axis = Axis::new(0b11);
     /// ```
     ///
-    /// If the input has a bit set that's not in the 0-2 range
+    /// If the input has a bit set that's outside the valid range
     /// ```compile_fail
     /// # use fidget::mesh::types::Axis;
     /// const A: Axis<3> = Axis::new(0b1000);

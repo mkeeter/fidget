@@ -141,10 +141,12 @@ impl Octree {
             octree: Octree,
             hermite: LeafHermiteData,
         }
+        let mut rh = RenderHandle::new(shape.clone());
+        let _ = rh.i_tape(&mut vec![]); // pre-populate interval tape
         let out = threads.run(|| {
             todo.par_iter()
                 .map_init(
-                    || (OctreeBuilder::new(), RenderHandle::new(shape.clone())),
+                    || (OctreeBuilder::new(), rh.clone()),
                     |(builder, eval), cell| {
                         let mut hermite = LeafHermiteData::default();
                         // Patch our cell so that it builds at index 0
@@ -365,10 +367,6 @@ impl Octree {
     ///
     /// Only topology is checked, based on the three predicates from "Dual
     /// Contouring of Hermite Data" (Ju et al, 2002), §4.1
-    ///
-    /// # Panics
-    /// `root` must be a multiple of 8, because it points at the root of a
-    /// cluster of 8 cells.
     pub(crate) fn collapsible(&self, root: usize) -> Option<CellMask<3>> {
         // Copy cells to a local variable for simplicity
         let cells = self.cells[root];
