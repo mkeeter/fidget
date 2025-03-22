@@ -35,7 +35,8 @@ pub use render2d::{
 
 /// A `RenderHandle` contains lazily-populated tapes for rendering
 ///
-/// The tapes are stored as `Arc<..>`, so it can be cheaply cloned.
+/// This can be cheaply cloned, although it is _usually_ passed by mutable
+/// reference to a recursive function.
 ///
 /// The most recent simplification is cached for reuse (if the trace matches).
 pub struct RenderHandle<F: Function> {

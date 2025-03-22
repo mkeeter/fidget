@@ -7,7 +7,7 @@ pub trait Frame {
     type Next: Frame;
 
     /// Returns the right-handed frame
-    fn frame() -> (Axis, Axis, Axis);
+    fn frame() -> (Axis<3>, Axis<3>, Axis<3>);
 }
 
 /// The X-Y-Z coordinate frame
@@ -24,20 +24,20 @@ pub struct ZXY;
 
 impl Frame for XYZ {
     type Next = YZX;
-    fn frame() -> (Axis, Axis, Axis) {
+    fn frame() -> (Axis<3>, Axis<3>, Axis<3>) {
         (X, Y, Z)
     }
 }
 
 impl Frame for YZX {
     type Next = ZXY;
-    fn frame() -> (Axis, Axis, Axis) {
+    fn frame() -> (Axis<3>, Axis<3>, Axis<3>) {
         (Y, Z, X)
     }
 }
 impl Frame for ZXY {
     type Next = XYZ;
-    fn frame() -> (Axis, Axis, Axis) {
+    fn frame() -> (Axis<3>, Axis<3>, Axis<3>) {
         (Z, X, Y)
     }
 }

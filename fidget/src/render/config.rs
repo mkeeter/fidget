@@ -31,6 +31,14 @@ impl ThreadPool {
             ThreadPool::Global => f(),
         }
     }
+
+    /// Returns the number of threads in the pool
+    pub fn thread_count(&self) -> usize {
+        match self {
+            ThreadPool::Custom(p) => p.current_num_threads(),
+            ThreadPool::Global => rayon::current_num_threads(),
+        }
+    }
 }
 
 /// Token to cancel an in-progress operation

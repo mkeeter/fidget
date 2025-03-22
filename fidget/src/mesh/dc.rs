@@ -1,72 +1,24 @@
 //! Dual contouring implementation
 
 use crate::mesh::{
-    cell::{Cell, CellIndex, CellVertex},
+    builder::MeshBuilder,
+    cell::{Cell, CellIndex},
     frame::{Frame, XYZ, YZX, ZXY},
     types::{Corner, Edge, X, Y, Z},
     Octree,
 };
 
-pub trait DcBuilder {
-    /// Type for vertex indexes
-    ///
-    /// This is typically a `usize`, but we'll sometimes explicitly force it to
-    /// be a `u64` if we're planning to use upper bits for flags.
-    type VertexIndex: Copy + Clone;
-
-    fn cell(&mut self, octree: &Octree, cell: CellIndex);
-    fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex);
-
-    /// Handles four cells that share a common edge aligned on axis `T`
-    ///
-    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
-    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
-    fn edge<F: Frame>(
-        &mut self,
-        octree: &Octree,
-        a: CellIndex,
-        b: CellIndex,
-        c: CellIndex,
-        d: CellIndex,
-    );
-
-    /// Record the given triangle
-    ///
-    /// Vertices are indices given by calls to [`Self::vertex`]
-    ///
-    /// The vertices are given in a clockwise winding with the intersection
-    /// vertex (i.e. the one on the edge) always last.
-    fn triangle(
-        &mut self,
-        a: Self::VertexIndex,
-        b: Self::VertexIndex,
-        c: Self::VertexIndex,
-    );
-
-    /// Looks up the given vertex, localizing it within a cell
-    ///
-    /// `v` is an absolute offset into `verts`, which should be a reference to
-    /// [`Octree::verts`](super::Octree::verts).
-    fn vertex(
-        &mut self,
-        v: usize,
-        cell: CellIndex,
-        verts: &[CellVertex],
-    ) -> Self::VertexIndex;
-}
-
-pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
-    if let Cell::Branch { index, .. } = octree[cell] {
-        debug_assert_eq!(index % 8, 0);
+pub fn dc_cell(octree: &Octree, cell: CellIndex<3>, out: &mut MeshBuilder) {
+    if let Cell::Branch { .. } = octree[cell] {
         for i in Corner::iter() {
             out.cell(octree, octree.child(cell, i));
         }
 
         // Helper function for DC face calls
-        fn dc_faces<T: Frame, B: DcBuilder>(
+        fn dc_faces<T: Frame>(
             octree: &Octree,
-            cell: CellIndex,
-            out: &mut B,
+            cell: CellIndex<3>,
+            out: &mut MeshBuilder,
         ) {
             let (t, u, v) = T::frame();
             for c in [Corner::new(0), u.into(), v.into(), u | v] {
@@ -77,9 +29,9 @@ pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
                 );
             }
         }
-        dc_faces::<XYZ, _>(octree, cell, out);
-        dc_faces::<YZX, _>(octree, cell, out);
-        dc_faces::<ZXY, _>(octree, cell, out);
+        dc_faces::<XYZ>(octree, cell, out);
+        dc_faces::<YZX>(octree, cell, out);
+        dc_faces::<ZXY>(octree, cell, out);
 
         #[allow(unused_parens)]
         for i in [false, true] {
@@ -112,11 +64,11 @@ pub fn dc_cell<B: DcBuilder>(octree: &Octree, cell: CellIndex, out: &mut B) {
 ///
 /// `lo` is below `hi` on the `T` axis; the cells share a `UV` face where
 /// `T-U-V` is a right-handed coordinate system.
-pub fn dc_face<T: Frame, B: DcBuilder>(
+pub fn dc_face<T: Frame>(
     octree: &Octree,
-    lo: CellIndex,
-    hi: CellIndex,
-    out: &mut B,
+    lo: CellIndex<3>,
+    hi: CellIndex<3>,
+    out: &mut MeshBuilder,
 ) {
     if octree.is_leaf(lo) && octree.is_leaf(hi) {
         return;
@@ -157,13 +109,13 @@ pub fn dc_face<T: Frame, B: DcBuilder>(
 /// - `dc_edge<X>` is `[0, Y, Y | Z, Z]`
 /// - `dc_edge<Y>` is `[0, Z, Z | X, X]`
 /// - `dc_edge<Z>` is `[0, X, X | Y, Y]`
-pub fn dc_edge<T: Frame, B: DcBuilder>(
+pub fn dc_edge<T: Frame>(
     octree: &Octree,
-    a: CellIndex,
-    b: CellIndex,
-    c: CellIndex,
-    d: CellIndex,
-    out: &mut B,
+    a: CellIndex<3>,
+    b: CellIndex<3>,
+    c: CellIndex<3>,
+    d: CellIndex<3>,
+    out: &mut MeshBuilder,
 ) {
     let cs = [a, b, c, d];
     if cs.iter().all(|v| octree.is_leaf(*v)) {
@@ -201,8 +153,8 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // the same sign change, so it doesn't matter which one we pick here.
         let starting_sign = {
             let (start, end) = edges[deepest].corners();
-            let start = leafs[deepest].mask & (1 << start.index()) == 0;
-            let end = leafs[deepest].mask & (1 << end.index()) == 0;
+            let start = !(leafs[deepest].mask & start);
+            let end = !(leafs[deepest].mask & end);
             // If there is no sign change, then there's nothing to do here.
             if start == end {
                 return;
@@ -216,8 +168,8 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         for i in 0..4 {
             if cs[i].depth == cs[deepest].depth {
                 let (start, end) = edges[i].corners();
-                let s = leafs[i].mask & (1 << start.index()) == 0;
-                let e = leafs[i].mask & (1 << end.index()) == 0;
+                let s = !(leafs[i].mask & start);
+                let e = !(leafs[i].mask & end);
                 debug_assert_eq!(s, starting_sign);
                 debug_assert_eq!(e, !starting_sign);
                 verts[i] = leafs[i].edge(edges[i]);
@@ -239,16 +191,11 @@ pub fn dc_edge<T: Frame, B: DcBuilder>(
         // Pick the intersection vertex based on the deepest cell
         let i = out.vertex(
             leafs[deepest].index + verts[deepest].edge.0 as usize,
-            cs[deepest],
             &octree.verts,
         );
         // Helper function to extract other vertices
         let mut vert = |i: usize| {
-            out.vertex(
-                leafs[i].index + verts[i].vert.0 as usize,
-                cs[i],
-                &octree.verts,
-            )
+            out.vertex(leafs[i].index + verts[i].vert.0 as usize, &octree.verts)
         };
         let vs = [vert(0), vert(1), vert(2), vert(3)];
 

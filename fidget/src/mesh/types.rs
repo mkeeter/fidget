@@ -4,20 +4,22 @@
 //! because there are certain properties which need to be tested within a
 //! `compile_fail` doctest.
 
-/// A single axis, represented as a `u8` with one bit (between 0 and 3) set
+/// A single axis, represented as a `u8` with one bit set
 ///
-/// These invariants are enforced at construction
+/// An `Axis<2>` has bit 0 or 1 set; an `Axis<3>` as bit 0, 1, or 2 set.
+///
+/// This invariant is enforced at construction
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Axis(u8);
+pub struct Axis<const D: usize>(u8);
 
-impl Axis {
+impl<const D: usize> Axis<D> {
     /// Builds a new axis
     ///
     /// ```
     /// # use fidget::mesh::types::Axis;
-    /// const X: Axis = Axis::new(1);
-    /// const Y: Axis = Axis::new(2);
-    /// const Z: Axis = Axis::new(4);
+    /// const X: Axis<3> = Axis::new(1);
+    /// const Y: Axis<3> = Axis::new(2);
+    /// const Z: Axis<3> = Axis::new(4);
     /// ```
     ///
     /// # Panics
@@ -28,14 +30,14 @@ impl Axis {
     /// const A: Axis = Axis::new(0b11);
     /// ```
     ///
-    /// If the input has a bit set that's not in the 0-2 range
+    /// If the input has a bit set that's outside the valid range
     /// ```compile_fail
     /// # use fidget::mesh::types::Axis;
-    /// const A: Axis = Axis::new(0b1000);
+    /// const A: Axis<3> = Axis::new(0b1000);
     /// ```
     pub const fn new(i: u8) -> Self {
         assert!(i.count_ones() == 1);
-        assert!(i.trailing_zeros() < 3);
+        assert!(i.trailing_zeros() < D as u32);
         Self(i)
     }
 
@@ -44,6 +46,23 @@ impl Axis {
         self.0.trailing_zeros() as usize
     }
 
+    /// Returns an array of valid axes at this dimension
+    pub const fn array() -> [Self; D] {
+        // NOTE: this breaks invariants, but we're going to overwrite them
+        let mut out = [Axis(0); D];
+        let mut i = 0;
+        loop {
+            if i == D {
+                break;
+            }
+            out[i] = Axis::new(1 << i);
+            i += 1;
+        }
+        out
+    }
+}
+
+impl Axis<3> {
     /// Cycles through X-Y-Z axes, returning the next one
     pub const fn next(self) -> Self {
         let u = self.0 << 1;
@@ -56,15 +75,15 @@ impl Axis {
 }
 
 /// The X axis, i.e. `[1, 0, 0]`
-pub const X: Axis = Axis(1);
+pub const X: Axis<3> = Axis(1);
 /// The Y axis, i.e. `[0, 1, 0]`
-pub const Y: Axis = Axis(2);
+pub const Y: Axis<3> = Axis(2);
 /// The Z axis, i.e. `[0, 0, 1]`
-pub const Z: Axis = Axis(4);
+pub const Z: Axis<3> = Axis(4);
 
-impl std::ops::Mul<bool> for Axis {
-    type Output = Axis;
-    fn mul(self, rhs: bool) -> Axis {
+impl<const D: usize> std::ops::Mul<bool> for Axis<D> {
+    type Output = Self;
+    fn mul(self, rhs: bool) -> Self {
         if rhs {
             self
         } else {
@@ -73,74 +92,78 @@ impl std::ops::Mul<bool> for Axis {
     }
 }
 
-impl std::ops::BitAnd<Corner> for Axis {
+impl<const D: usize> std::ops::BitAnd<Corner<D>> for Axis<D> {
     type Output = bool;
-    fn bitand(self, rhs: Corner) -> bool {
+    fn bitand(self, rhs: Corner<D>) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
 
-impl std::ops::BitOr<Axis> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
-        Corner(self.0 | rhs.0)
+impl<const D: usize> std::ops::BitOr<Axis<D>> for Axis<D> {
+    type Output = Corner<D>;
+    fn bitor(self, rhs: Axis<D>) -> Self::Output {
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl std::ops::BitOr<Corner> for Axis {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
-        Corner(self.0 | rhs.0)
+impl<const D: usize> std::ops::BitOr<Corner<D>> for Axis<D> {
+    type Output = Corner<D>;
+    fn bitor(self, rhs: Corner<D>) -> Self::Output {
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl From<Axis> for Corner {
-    fn from(a: Axis) -> Self {
+impl<const D: usize> From<Axis<D>> for Corner<D> {
+    fn from(a: Axis<D>) -> Self {
         Corner::new(a.0)
     }
 }
 
-/// Strongly-typed cell corner, in the 0-8 range
+/// Strongly-typed cell corner, in the `[0, 2**D)` range
 #[derive(Copy, Clone, Debug)]
-pub struct Corner(u8);
+pub struct Corner<const D: usize>(u8);
 
-impl Corner {
+impl<const D: usize> Corner<D> {
     /// Builds a new corner
     ///
     /// # Panics
-    /// If `i >= 8`, which is not a valid cube corner index
+    /// If `i >= 8`, which is not a valid corner index
     pub const fn new(i: u8) -> Self {
-        assert!(i < 8);
+        assert!(i < (1 << D));
         Self(i)
     }
     /// Returns the value of this corner as an index
     pub fn index(self) -> usize {
         self.0 as usize
     }
+    /// Returns the value of this corner as a `u8`
+    pub fn get(self) -> u8 {
+        self.0
+    }
     /// Iterates over all 8 corners
-    pub fn iter() -> impl Iterator<Item = Corner> {
-        (0..8).map(Corner)
+    pub fn iter() -> impl Iterator<Item = Self> {
+        (0..(1 << D)).map(Corner)
     }
 }
 
-impl std::ops::BitAnd<Axis> for Corner {
+impl<const D: usize> std::ops::BitAnd<Axis<D>> for Corner<D> {
     type Output = bool;
-    fn bitand(self, rhs: Axis) -> bool {
+    fn bitand(self, rhs: Axis<D>) -> bool {
         (self.0 & rhs.0) != 0
     }
 }
 
-impl std::ops::BitOr<Corner> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Corner) -> Corner {
-        Corner(self.0 | rhs.0)
+impl<const D: usize> std::ops::BitOr<Corner<D>> for Corner<D> {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Corner::new(self.0 | rhs.0)
     }
 }
 
-impl std::ops::BitOr<Axis> for Corner {
-    type Output = Corner;
-    fn bitor(self, rhs: Axis) -> Corner {
-        Corner(self.0 | rhs.0)
+impl<const D: usize> std::ops::BitOr<Axis<D>> for Corner<D> {
+    type Output = Self;
+    fn bitor(self, rhs: Axis<D>) -> Self {
+        Corner::new(self.0 | rhs.0)
     }
 }
 
@@ -151,9 +174,9 @@ impl std::ops::BitOr<Axis> for Corner {
 #[derive(Copy, Clone, Debug)]
 pub struct DirectedEdge {
     /// Starting corner
-    start: Corner,
+    start: Corner<3>,
     /// Ending corner
-    end: Corner,
+    end: Corner<3>,
 }
 
 impl DirectedEdge {
@@ -177,17 +200,17 @@ impl DirectedEdge {
     /// const END: Corner = Corner::new(0b111);
     /// const E: DirectedEdge = DirectedEdge::new(START, END);
     /// ```
-    pub const fn new(start: Corner, end: Corner) -> Self {
+    pub const fn new(start: Corner<3>, end: Corner<3>) -> Self {
         assert!(start.0 != end.0);
         assert!((start.0 ^ end.0).count_ones() == 1);
         Self { start, end }
     }
     /// Returns the start corner
-    pub fn start(self) -> Corner {
+    pub fn start(self) -> Corner<3> {
         self.start
     }
     /// Returns the end corner
-    pub fn end(self) -> Corner {
+    pub fn end(self) -> Corner<3> {
         self.end
     }
     pub fn to_undirected(self) -> Edge {
@@ -231,7 +254,7 @@ impl Edge {
     /// In the `t, u, v` coordinate system, the start always the `t` bit clear
     /// and the end always has the `t` bit set; the `u` and `v` bits are the
     /// same at both start and end.
-    pub fn corners(&self) -> (Corner, Corner) {
+    pub fn corners(&self) -> (Corner<3>, Corner<3>) {
         use super::frame::{Frame, XYZ, YZX, ZXY};
         let (t, u, v) = match self.0 / 4 {
             0 => XYZ::frame(),
@@ -258,4 +281,48 @@ pub struct Intersection {
     pub vert: Offset,
     /// Data offset of the vertex located on the edge
     pub edge: Offset,
+}
+
+/// Bitmask of which corners in a cell are inside the shape
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct CellMask<const D: usize>(u8);
+
+impl<const D: usize> CellMask<D> {
+    const MASK: u8 = ((1u16 << (1 << D)) - 1) as u8;
+
+    /// Builds a new `CellMask`
+    ///
+    /// # Panics
+    /// If invalid bits are set in the mask.  This can't happen for
+    /// `CellMask<3>`, but is possible for `CellMask<2>` if any of the upper 4
+    /// bits are set.
+    ///
+    /// ```should_panic
+    /// # use fidget::mesh::types::{CellMask};
+    /// let m = CellMask::<2>::new(0b11111111);
+    /// ```
+    pub const fn new(i: u8) -> Self {
+        if i & !Self::MASK != 0 {
+            panic!();
+        }
+        Self(i)
+    }
+
+    /// Returns the bitmask as an index
+    ///
+    /// The index has the same value as the bitmask, but is cast to a `usize`
+    pub fn index(&self) -> usize {
+        self.0 as usize
+    }
+
+    pub fn count_ones(&self) -> u32 {
+        self.0.count_ones()
+    }
+}
+
+impl<const N: usize> std::ops::BitAnd<Corner<N>> for CellMask<N> {
+    type Output = bool;
+    fn bitand(self, c: Corner<N>) -> bool {
+        (self.0 & (1 << c.index())) != 0
+    }
 }

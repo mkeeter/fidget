@@ -64,7 +64,7 @@ impl QuadraticErrorSolver {
     /// to increase the likelihood that the vertex is bounded in the cell.
     ///
     /// Also returns the QEF error as the second item in the tuple
-    pub fn solve(&self) -> (CellVertex, f32) {
+    pub fn solve(&self) -> (CellVertex<3>, f32) {
         // This gets a little tricky; see
         // https://www.mattkeeter.com/projects/qef for a walkthrough of QEF math
         // and references to primary sources.

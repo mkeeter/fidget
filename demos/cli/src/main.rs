@@ -179,8 +179,8 @@ struct MeshSettings {
     eval: EvalMode,
 
     /// Number of threads to use
-    #[clap(short, long, default_value_t = NonZeroUsize::new(8).unwrap())]
-    threads: NonZeroUsize,
+    #[clap(short, long)]
+    threads: Option<NonZeroUsize>,
 
     /// Number of times to render (for benchmarking)
     #[clap(short = 'N', default_value_t = 1)]
@@ -503,15 +503,24 @@ fn run_mesh<F: fidget::eval::Function + fidget::render::RenderHints>(
     let t = center.to_homogeneous() * scale.to_homogeneous();
     let shape = shape.apply_transform(t);
 
+    let threads = match settings.threads {
+        Some(n) if n.get() == 1 => None,
+        Some(n) => Some(fidget::render::ThreadPool::Custom(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n.get())
+                .build()
+                .unwrap(),
+        )),
+        None => Some(fidget::render::ThreadPool::Global),
+    };
+    let threads = threads.as_ref();
+
     let mut octree_time = std::time::Duration::ZERO;
     let mut mesh_time = std::time::Duration::ZERO;
     for _ in 0..settings.n {
         let settings = fidget::mesh::Settings {
-            #[cfg(not(target_arch = "wasm32"))]
-            threads: settings.threads.into(),
-            #[cfg(target_arch = "wasm32")]
-            threads: Default::default(),
             depth: settings.depth,
+            threads,
             ..Default::default()
         };
         let start = std::time::Instant::now();

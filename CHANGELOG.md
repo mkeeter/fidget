@@ -2,6 +2,8 @@
 - Change `Option<ThreadPool<'a>>` to `Option<&'a ThreadPool>` throughout the
   codebase; moving the reference out of the `ThreadPool` eliminates the need for
   a separate `rayon::ThreadPool` object on the stack.
+- Significant rewrite of meshing!  It now uses the same `Option<&ThreadPool>`
+  type and is multithreaded using Rayon, meaning it can work in WebAssembly.
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`

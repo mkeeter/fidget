@@ -1,7 +1,7 @@
 //! Mesh builder data structure and implementation
 use super::{
     cell::{CellIndex, CellVertex},
-    dc::{self, DcBuilder},
+    dc,
     frame::Frame,
     Mesh, Octree,
 };
@@ -21,28 +21,42 @@ impl MeshBuilder {
     pub fn take(self) -> Mesh {
         self.out
     }
-}
 
-impl DcBuilder for MeshBuilder {
-    type VertexIndex = usize;
-
-    fn cell(&mut self, octree: &Octree, cell: CellIndex) {
+    pub(crate) fn cell(&mut self, octree: &Octree, cell: CellIndex<3>) {
         dc::dc_cell(octree, cell, self);
     }
-    fn face<F: Frame>(&mut self, octree: &Octree, a: CellIndex, b: CellIndex) {
-        dc::dc_face::<F, _>(octree, a, b, self)
-    }
-    fn edge<F: Frame>(
+
+    pub(crate) fn face<F: Frame>(
         &mut self,
         octree: &Octree,
-        a: CellIndex,
-        b: CellIndex,
-        c: CellIndex,
-        d: CellIndex,
+        a: CellIndex<3>,
+        b: CellIndex<3>,
     ) {
-        dc::dc_edge::<F, _>(octree, a, b, c, d, self)
+        dc::dc_face::<F>(octree, a, b, self)
     }
-    fn triangle(&mut self, a: usize, b: usize, c: usize) {
+
+    /// Handles four cells that share a common edge aligned on axis `T`
+    ///
+    /// Cells positions are in the order `[0, U, U | V, U]`, i.e. a right-handed
+    /// winding about `+T` (where `T, U, V` is a right-handed coordinate frame)
+    pub(crate) fn edge<F: Frame>(
+        &mut self,
+        octree: &Octree,
+        a: CellIndex<3>,
+        b: CellIndex<3>,
+        c: CellIndex<3>,
+        d: CellIndex<3>,
+    ) {
+        dc::dc_edge::<F>(octree, a, b, c, d, self)
+    }
+
+    /// Record the given triangle
+    ///
+    /// Vertices are indices given by calls to [`Self::vertex`]
+    ///
+    /// The vertices are given in a clockwise winding with the intersection
+    /// vertex (i.e. the one on the edge) always last.
+    pub(crate) fn triangle(&mut self, a: usize, b: usize, c: usize) {
         self.out.triangles.push(nalgebra::Vector3::new(a, b, c))
     }
 
@@ -50,11 +64,10 @@ impl DcBuilder for MeshBuilder {
     ///
     /// `v` is an absolute offset into `verts`, which should be a reference to
     /// [`Octree::verts`](super::Octree::verts).
-    fn vertex(
+    pub(crate) fn vertex(
         &mut self,
         v: usize,
-        _cell: CellIndex,
-        verts: &[CellVertex],
+        verts: &[CellVertex<3>],
     ) -> usize {
         if v >= self.map.len() {
             self.map.resize(v + 1, usize::MAX);
