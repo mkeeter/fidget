@@ -296,8 +296,15 @@ impl<const D: usize> CellMask<D> {
     /// If invalid bits are set in the mask.  This can't happen for
     /// `CellMask<3>`, but is possible for `CellMask<2>` if any of the upper 4
     /// bits are set.
-    pub fn new(i: u8) -> Self {
-        assert_eq!(i & Self::MASK, i, "invalid bits set in {i}");
+    ///
+    /// ```should_panic
+    /// # use fidget::mesh::types::{CellMask};
+    /// let m = CellMask::<2>::new(0b11111111);
+    /// ```
+    pub const fn new(i: u8) -> Self {
+        if i & !Self::MASK != 0 {
+            panic!();
+        }
         Self(i)
     }
 
