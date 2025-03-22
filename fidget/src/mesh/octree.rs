@@ -98,7 +98,7 @@ impl Octree {
                 settings.depth,
                 &mut hermite,
             );
-            out.into()
+            out.octree
         }
     }
 
@@ -161,8 +161,10 @@ impl Octree {
                             max_depth,
                             &mut hermite,
                         );
-                        let octree =
-                            std::mem::replace(&mut builder.o, Octree::new());
+                        let octree = std::mem::replace(
+                            &mut builder.octree,
+                            Octree::new(),
+                        );
                         Output {
                             octree,
                             cell: *cell,
@@ -474,7 +476,7 @@ impl std::ops::IndexMut<CellIndex<3>> for Octree {
 #[derive(Debug)]
 pub(crate) struct OctreeBuilder<F: Function + RenderHints> {
     /// In-construction octree
-    pub(crate) o: Octree,
+    pub(crate) octree: Octree,
 
     eval_float_slice: ShapeBulkEval<F::FloatSliceEval>,
     eval_interval: ShapeTracingEval<F::IntervalEval>,
@@ -491,21 +493,11 @@ impl<F: Function + RenderHints> Default for OctreeBuilder<F> {
     }
 }
 
-impl<F: Function + RenderHints> From<OctreeBuilder<F>> for Octree {
-    fn from(o: OctreeBuilder<F>) -> Self {
-        o.o // spooky
-    }
-}
-
 impl<F: Function + RenderHints> OctreeBuilder<F> {
     /// Builds a new octree builder, which allocates data for 8 root cells
     pub(crate) fn new() -> Self {
         Self {
-            o: Octree {
-                root: Cell::Invalid,
-                cells: vec![],
-                verts: vec![],
-            },
+            octree: Octree::new(),
             eval_float_slice: Shape::<F>::new_float_slice_eval(),
             eval_grad_slice: Shape::<F>::new_grad_slice_eval(),
             eval_interval: Shape::<F>::new_interval_eval(),
@@ -538,7 +530,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 vars,
             )
             .unwrap();
-        self.o[cell] = if i.upper() < 0.0 {
+        self.octree[cell] = if i.upper() < 0.0 {
             Cell::Full
         } else if i.lower() > 0.0 {
             Cell::Empty
@@ -561,8 +553,8 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 self.leaf(sub_tape, vars, cell, hermite)
             } else {
                 // Reserve new cells for the 8x children
-                let index = self.o.cells.len();
-                self.o.cells.push([Cell::Invalid; 8]);
+                let index = self.octree.cells.len();
+                self.octree.cells.push([Cell::Invalid; 8]);
                 let mut hermite_child = [LeafHermiteData::default(); 8];
                 for i in Corner::<3>::iter() {
                     let cell = cell.child(index, i);
@@ -576,7 +568,7 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
                 }
 
                 // Figure out whether the children can be collapsed
-                self.o.check_done(cell, index, hermite_child, hermite)
+                self.octree.check_done(cell, index, hermite_child, hermite)
             }
         };
     }
@@ -805,9 +797,9 @@ impl<F: Function + RenderHints> OctreeBuilder<F> {
             hermite_cell.qef_err = err;
         }
 
-        let index = self.o.verts.len();
-        self.o.verts.extend(verts);
-        self.o.verts.extend(
+        let index = self.octree.verts.len();
+        self.octree.verts.extend(verts);
+        self.octree.verts.extend(
             intersections
                 .into_iter()
                 .map(|pos| CellVertex { pos: cell.pos(pos) }),
