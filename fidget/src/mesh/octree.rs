@@ -175,31 +175,19 @@ impl Octree {
                 .collect::<Vec<_>>()
         });
 
-        // Copy hermite data into arrays
+        // Copy hermite data into arrays, and compute cumulative offsets
+        let mut cell_offsets = vec![root.cells.len()];
+        let mut vert_offsets = vec![0];
         for o in &out {
             let (i, j) = o.cell.index.unwrap();
             hermites[i][j as usize] = o.hermite;
+            let c = cell_offsets.last().unwrap() + o.octree.cells.len();
+            cell_offsets.push(c);
+            let v = vert_offsets.last().unwrap() + o.octree.verts.len();
+            vert_offsets.push(v);
         }
-
-        // At this point, we have a bunch of octree fragments.  Each fragment is
-        // rooted at its own root; we need to copy that root to the original
-        // CellIndex, after correcting for offsets in leaf and branch positions.
-        let cell_offsets = out
-            .iter()
-            .scan(root.cells.len(), |state, o| {
-                let out = *state;
-                *state += o.octree.cells.len();
-                Some(out)
-            })
-            .collect::<Vec<usize>>();
-        let vert_offsets = out
-            .iter()
-            .scan(0, |state, o| {
-                let out = *state;
-                *state += o.octree.verts.len();
-                Some(out)
-            })
-            .collect::<Vec<usize>>();
+        root.cells.reserve(*cell_offsets.last().unwrap());
+        root.verts.reserve(*vert_offsets.last().unwrap());
 
         for (i, o) in out.into_iter().enumerate() {
             assert_eq!(cell_offsets[i], root.cells.len());
