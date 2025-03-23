@@ -1,8 +1,8 @@
 use crate::{
     eval::Function,
     render::{
-        DepthImage, Image, ImageSize, NormalImage, RenderConfig, RenderMode,
-        TileSizes, View2, View3, VoxelSize,
+        GeometryBuffer, Image, ImageSize, RenderConfig, RenderMode, TileSizes,
+        View2, View3, VoxelSize,
     },
     shape::{Shape, ShapeVars},
 };
@@ -230,10 +230,7 @@ impl VoxelRenderConfig<'_> {
     ///
     /// Returns a tuple of `(heightmap, RGB image)` or `None` if rendering was
     /// cancelled.
-    pub fn run<F: Function>(
-        &self,
-        shape: Shape<F>,
-    ) -> Option<(DepthImage, NormalImage)> {
+    pub fn run<F: Function>(&self, shape: Shape<F>) -> Option<GeometryBuffer> {
         self.run_with_vars::<F>(shape, &ShapeVars::new())
     }
 
@@ -242,7 +239,7 @@ impl VoxelRenderConfig<'_> {
         &self,
         shape: Shape<F>,
         vars: &ShapeVars<f32>,
-    ) -> Option<(DepthImage, NormalImage)> {
+    ) -> Option<GeometryBuffer> {
         crate::render::render3d::<F>(shape, vars, self)
     }
 

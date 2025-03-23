@@ -262,12 +262,11 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
         ..Default::default()
     };
 
-    let mut depth = Default::default();
-    let mut norm = Default::default();
+    let mut image = Default::default();
 
     let start = std::time::Instant::now();
     for _ in 0..settings.n {
-        (depth, norm) = cfg.run(shape.clone()).unwrap();
+        image = cfg.run(shape.clone()).unwrap();
     }
     info!(
         "Rendered {}x at {:?} ms/frame",
@@ -278,18 +277,17 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
     let start = std::time::Instant::now();
     let out = match mode {
         RenderMode3D::Normals { denoise } => {
-            let norm = if denoise {
-                fidget::render::effects::denoise_normals(&depth, &norm, threads)
+            let image = if denoise {
+                fidget::render::effects::denoise_normals(&image, threads)
             } else {
-                norm
+                image
             };
-            let color = norm.to_color();
-            depth
+            image
                 .into_iter()
-                .zip(color)
-                .flat_map(|(d, p)| {
-                    if d > 0 {
-                        [p[0], p[1], p[2], 255]
+                .flat_map(|p| {
+                    if p.depth > 0 {
+                        let c = p.to_color();
+                        [c[0], c[1], c[2], 255]
                     } else {
                         [0, 0, 0, 0]
                     }
@@ -297,20 +295,19 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::Shaded { ssao, denoise } => {
-            let norm = if denoise {
-                fidget::render::effects::denoise_normals(&depth, &norm, threads)
+            let image = if denoise {
+                fidget::render::effects::denoise_normals(&image, threads)
             } else {
-                norm
+                image
             };
-            let color = fidget::render::effects::apply_shading(
-                &depth, &norm, ssao, threads,
-            );
-            depth
+            let color =
+                fidget::render::effects::apply_shading(&image, ssao, threads);
+            image
                 .into_iter()
                 .zip(color)
-                .flat_map(|(d, p)| {
-                    if d > 0 {
-                        [p[0], p[1], p[2], 255]
+                .flat_map(|(p, c)| {
+                    if p.depth > 0 {
+                        [c[0], c[1], c[2], 255]
                     } else {
                         [0, 0, 0, 0]
                     }
@@ -318,13 +315,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::RawOcclusion { denoise } => {
-            let norm = if denoise {
-                fidget::render::effects::denoise_normals(&depth, &norm, threads)
+            let image = if denoise {
+                fidget::render::effects::denoise_normals(&image, threads)
             } else {
-                norm
+                image
             };
-            let ssao =
-                fidget::render::effects::compute_ssao(&depth, &norm, threads);
+            let ssao = fidget::render::effects::compute_ssao(&image, threads);
             ssao.into_iter()
                 .flat_map(|p| {
                     if p.is_nan() {
@@ -337,13 +333,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::BlurredOcclusion { denoise } => {
-            let norm = if denoise {
-                fidget::render::effects::denoise_normals(&depth, &norm, threads)
+            let image = if denoise {
+                fidget::render::effects::denoise_normals(&image, threads)
             } else {
-                norm
+                image
             };
-            let ssao =
-                fidget::render::effects::compute_ssao(&depth, &norm, threads);
+            let ssao = fidget::render::effects::compute_ssao(&image, threads);
             let blurred = fidget::render::effects::blur_ssao(&ssao, threads);
             blurred
                 .into_iter()
@@ -358,12 +353,12 @@ fn run3d<F: fidget::eval::Function + fidget::render::RenderHints>(
                 .collect()
         }
         RenderMode3D::Heightmap => {
-            let z_max = depth.iter().max().cloned().unwrap_or(1);
-            depth
+            let z_max = image.iter().map(|p| p.depth).max().unwrap_or(1);
+            image
                 .into_iter()
                 .flat_map(|p| {
-                    if p > 0 {
-                        let z = (p * 255 / z_max) as u8;
+                    if p.depth > 0 {
+                        let z = (p.depth * 255 / z_max) as u8;
                         [z, z, z, 255]
                     } else {
                         [0, 0, 0, 0]

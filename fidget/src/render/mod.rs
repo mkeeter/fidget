@@ -404,7 +404,7 @@ pub struct Image<P> {
     height: usize,
 }
 
-impl<P: Default + Clone> Image<P> {
+impl<P: Default + Copy + Clone> Image<P> {
     /// Builds a new image filled with `P::default()`
     pub fn new(width: usize, height: usize) -> Self {
         Self {
@@ -562,37 +562,35 @@ impl<P> std::ops::IndexMut<(usize, usize)> for Image<P> {
     }
 }
 
-/// Single-channel depth image
-pub type DepthImage = Image<u32>;
+/// Pixel type for a [`GeometryBuffer`]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct GeometryPixel {
+    /// Z position of this pixel, in voxel units
+    pub depth: u32, // TODO should this be `f32`?
+    /// Function gradients at this pixel
+    pub normal: [f32; 3],
+}
 
-/// Three-channel normal image
-pub type NormalImage = Image<[f32; 3]>;
-
-impl NormalImage {
-    /// Converts from floating-point normals to RGB colors
-    pub fn to_color(&self) -> ColorImage {
-        let mut data = Vec::with_capacity(self.width * self.height);
-        for [dx, dy, dz] in self.data.iter() {
-            let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
-            let rgb = if s != 0.0 {
-                let scale = u8::MAX as f32 / s;
-                [
-                    (dx.abs() * scale) as u8,
-                    (dy.abs() * scale) as u8,
-                    (dz.abs() * scale) as u8,
-                ]
-            } else {
-                [0; 3]
-            };
-            data.push(rgb);
-        }
-        ColorImage {
-            data,
-            width: self.width,
-            height: self.height,
+impl GeometryPixel {
+    /// Converts the normal into a normalized RGB value
+    pub fn to_color(&self) -> [u8; 3] {
+        let [dx, dy, dz] = self.normal;
+        let s = (dx.powi(2) + dy.powi(2) + dz.powi(2)).sqrt();
+        if s != 0.0 {
+            let scale = u8::MAX as f32 / s;
+            [
+                (dx.abs() * scale) as u8,
+                (dy.abs() * scale) as u8,
+                (dz.abs() * scale) as u8,
+            ]
+        } else {
+            [0; 3]
         }
     }
 }
+
+/// Image containing depth and normal at each pixel
+pub type GeometryBuffer = Image<GeometryPixel>;
 
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;
