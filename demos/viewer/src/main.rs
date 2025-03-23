@@ -232,14 +232,12 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
                 view: *view,
                 ..Default::default()
             };
-            let (depth, norm) = config.run(shape).unwrap();
+            let image = config.run(shape).unwrap();
             match mode {
                 Mode3D::Color => {
-                    let color = norm.to_color();
-                    for (p, (&d, &c)) in
-                        pixels.iter_mut().zip(depth.iter().zip(&color))
-                    {
-                        if d != 0 {
+                    for (p, &i) in pixels.iter_mut().zip(image.iter()) {
+                        if i.depth != 0 {
+                            let c = i.to_color();
                             *p = egui::Color32::from_rgb(c[0], c[1], c[2]);
                         }
                     }
@@ -247,10 +245,10 @@ fn render<F: fidget::eval::Function + fidget::render::RenderHints>(
 
                 Mode3D::Heightmap => {
                     let max_depth =
-                        depth.iter().max().cloned().unwrap_or(1).max(1);
-                    for (p, &d) in pixels.iter_mut().zip(&depth) {
-                        if d != 0 {
-                            let b = (d * 255 / max_depth) as u8;
+                        image.iter().map(|p| p.depth).max().unwrap_or(1).max(1);
+                    for (p, &d) in pixels.iter_mut().zip(&image) {
+                        if d.depth != 0 {
+                            let b = (d.depth * 255 / max_depth) as u8;
                             *p = egui::Color32::from_rgb(b, b, b);
                         }
                     }

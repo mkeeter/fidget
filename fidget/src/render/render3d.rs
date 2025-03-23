@@ -4,7 +4,7 @@ use crate::{
     eval::Function,
     render::{
         config::{Tile, VoxelRenderConfig},
-        DepthImage, NormalImage, RenderWorker, TileSizes, VoxelSize,
+        GeometryBuffer, RenderWorker, TileSizes, VoxelSize,
     },
     shape::{Shape, ShapeBulkEval, ShapeTracingEval, ShapeVars},
     types::{Grad, Interval},
@@ -64,21 +64,19 @@ struct Worker<'a, F: Function> {
     workspace: F::Workspace,
 
     /// Output images for this specific tile
-    depth: DepthImage,
-    color: NormalImage,
+    out: GeometryBuffer,
 }
 
 impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     type Config = VoxelRenderConfig<'a>;
-    type Output = (DepthImage, NormalImage);
+    type Output = GeometryBuffer;
 
     fn new(cfg: &'a Self::Config) -> Self {
         let buf_size = cfg.tile_sizes.last();
         let scratch = Scratch::new(buf_size);
         Worker {
             scratch,
-            depth: Default::default(),
-            color: Default::default(),
+            out: Default::default(),
             tile_sizes: &cfg.tile_sizes,
             image_size: cfg.image_size,
 
@@ -100,8 +98,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     ) -> Self::Output {
         // Prepare local tile data to fill out
         let root_tile_size = self.tile_sizes[0];
-        self.depth = DepthImage::new(root_tile_size, root_tile_size);
-        self.color = NormalImage::new(root_tile_size, root_tile_size);
+        self.out = GeometryBuffer::new(VoxelSize::from(root_tile_size as u32));
         for k in (0..self.image_size[2].div_ceil(root_tile_size as u32)).rev() {
             let tile = Tile::new(Point3::new(
                 tile.corner.x,
@@ -112,9 +109,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
                 break;
             }
         }
-        let depth = std::mem::take(&mut self.depth);
-        let color = std::mem::take(&mut self.color);
-        (depth, color)
+        std::mem::take(&mut self.out)
     }
 }
 
@@ -139,7 +134,7 @@ impl<F: Function> Worker<'_, F> {
         let fill_z = (tile.corner[2] + tile_size + 1).try_into().unwrap();
         if (0..tile_size).all(|y| {
             let i = self.tile_row_offset(tile, y);
-            (0..tile_size).all(|x| self.depth[i + x] >= fill_z)
+            (0..tile_size).all(|x| self.out[i + x].depth >= fill_z)
         }) {
             return false;
         }
@@ -160,7 +155,7 @@ impl<F: Function> Worker<'_, F> {
             for y in 0..tile_size {
                 let i = self.tile_row_offset(tile, y);
                 for x in 0..tile_size {
-                    self.depth[i + x] = self.depth[i + x].max(fill_z);
+                    self.out[i + x].depth = self.out[i + x].depth.max(fill_z);
                 }
             }
             return false; // completely full, stop rendering
@@ -227,7 +222,7 @@ impl<F: Function> Worker<'_, F> {
 
             // Skip pixels which are behind the image
             let zmax = (tile.corner[2] + tile_size).try_into().unwrap();
-            if self.depth[o] >= zmax {
+            if self.out[o].depth >= zmax {
                 continue;
             }
 
@@ -291,8 +286,8 @@ impl<F: Function> Worker<'_, F> {
             // Set the depth of the pixel
             let o = self.tile_sizes.pixel_offset(tile.add(Vector2::new(i, j)));
             let z = (tile.corner[2] + k + 1).try_into().unwrap();
-            assert!(self.depth[o] < z);
-            self.depth[o] = z;
+            assert!(self.out[o].depth < z);
+            self.out[o].depth = z;
 
             // Prepare to do gradient rendering of this point.
             // We step one voxel above the surface to reduce
@@ -326,7 +321,7 @@ impl<F: Function> Worker<'_, F> {
 
             for (index, o) in self.scratch.columns[0..grad].iter().enumerate() {
                 let g = out[index];
-                self.color[*o] = [g.dx, g.dy, g.dz];
+                self.out[*o].normal = [g.dx, g.dy, g.dz];
             }
         }
     }
@@ -350,16 +345,15 @@ pub fn render<F: Function>(
     shape: Shape<F>,
     vars: &ShapeVars<f32>,
     config: &VoxelRenderConfig,
-) -> Option<(DepthImage, NormalImage)> {
+) -> Option<GeometryBuffer> {
     let shape = shape.apply_transform(config.mat());
 
     let tiles = super::render_tiles::<F, Worker<F>>(shape, vars, config)?;
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image_depth = DepthImage::new(width, height);
-    let mut image_color = NormalImage::new(width, height);
-    for (tile, (depth, color)) in tiles {
+    let mut image = GeometryBuffer::new(config.image_size);
+    for (tile, out) in tiles {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {
             let y = j + tile.corner.y;
@@ -367,16 +361,15 @@ pub fn render<F: Function>(
                 let x = i + tile.corner.x;
                 if x < width && y < height {
                     let o = y * width + x;
-                    if depth[index] >= image_depth[o] {
-                        image_color[o] = color[index];
-                        image_depth[o] = depth[index];
+                    if out[index].depth >= image[o].depth {
+                        image[o] = out[index];
                     }
                 }
                 index += 1;
             }
         }
     }
-    Some((image_depth, image_color))
+    Some(image)
 }
 
 #[cfg(test)]
@@ -402,9 +395,8 @@ mod test {
             image_size: VoxelSize::from(128), // very small!
             ..Default::default()
         };
-        let (depth, rgb) = cfg.run(shape).unwrap();
-        assert_eq!(depth.len(), 128 * 128);
-        assert_eq!(rgb.len(), 128 * 128);
+        let image = cfg.run(shape).unwrap();
+        assert_eq!(image.len(), 128 * 128);
     }
 
     fn sphere_var<F: Function + MathFunction>() {
@@ -425,11 +417,12 @@ mod test {
             for r in [0.5, 0.75] {
                 let mut vars = ShapeVars::new();
                 vars.insert(v.index().unwrap(), r);
-                let (depth, _normal) =
+                let image =
                     cfg.run_with_vars::<_>(shape.clone(), &vars).unwrap();
 
                 let epsilon = 0.08;
-                for (i, p) in depth.iter().enumerate() {
+                for (i, p) in image.iter().enumerate() {
+                    let p = p.depth;
                     let size = size as i32;
                     let i = i as i32;
                     let x = (((i % size) - size / 2) as f32 / size as f32)
@@ -438,10 +431,10 @@ mod test {
                     let y = (((i / size) - size / 2) as f32 / size as f32)
                         * 2.0
                         * scale;
-                    let z = (*p as i32 - size / 2) as f32 / size as f32
+                    let z = (p as i32 - size / 2) as f32 / size as f32
                         * 2.0
                         * scale;
-                    if *p == 0 {
+                    if p == 0 {
                         let v = (x.powi(2) + y.powi(2)).sqrt();
                         assert!(
                             v + epsilon > r,

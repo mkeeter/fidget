@@ -1,6 +1,8 @@
 //! Post-processing effects for rendered images
 
-use super::{ColorImage, DepthImage, Image, NormalImage, ThreadPool};
+use super::{
+    ColorImage, GeometryBuffer, GeometryPixel, Image, ImageSize, ThreadPool,
+};
 use nalgebra::{
     Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
     Vector3, Vector4,
@@ -12,22 +14,20 @@ use rand::prelude::*;
 /// # Panics
 /// If the images have different widths or heights
 pub fn denoise_normals(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     threads: Option<&ThreadPool>,
-) -> NormalImage {
-    assert_eq!(depth.width(), norm.width());
-    assert_eq!(depth.height(), norm.height());
-
+) -> GeometryBuffer {
     let radius = 2;
-    let mut out = NormalImage::new(depth.width(), depth.height());
+    let mut out = GeometryBuffer::new(image.size());
     out.apply_effect(
         |x, y| {
-            if depth[(y, x)] > 0 {
-                denoise_pixel(depth, norm, x, y, radius)
+            let depth = image[(y, x)].depth;
+            let normal = if depth > 0 {
+                denoise_pixel(image, x, y, radius)
             } else {
-                [0.0f32; 3]
-            }
+                [0.0; 3]
+            };
+            GeometryPixel { depth, normal }
         },
         threads,
     );
@@ -39,26 +39,23 @@ pub fn denoise_normals(
 /// # Panics
 /// If the images have different widths or heights
 pub fn apply_shading(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     ssao: bool,
     threads: Option<&ThreadPool>,
 ) -> ColorImage {
-    assert_eq!(depth.width(), norm.width());
-    assert_eq!(depth.height(), norm.height());
-
     let ssao = if ssao {
-        let ssao = compute_ssao(depth, norm, threads);
+        let ssao = compute_ssao(image, threads);
         Some(blur_ssao(&ssao, threads))
     } else {
         None
     };
 
-    let mut out = ColorImage::new(depth.width(), depth.height());
+    let size = image.size();
+    let mut out = ColorImage::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
-            if depth[(y, x)] > 0 {
-                shade_pixel(depth, norm, ssao.as_ref(), x, y)
+            if image[(y, x)].depth > 0 {
+                shade_pixel(image, ssao.as_ref(), x, y)
             } else {
                 [0u8; 3]
             }
@@ -73,22 +70,19 @@ pub fn apply_shading(
 /// # Panics
 /// If the images have different widths or heights
 pub fn compute_ssao(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     threads: Option<&ThreadPool>,
 ) -> Image<f32> {
-    // TODO make an object that is a bound Depth + Normal image with conditions
-    // already checked, maybe GBuffer?
-    assert_eq!(depth.width(), norm.width());
-    assert_eq!(depth.height(), norm.height());
     let ssao_kernel = ssao_kernel(64);
     let ssao_noise = ssao_noise(16 * 16);
 
-    let mut out = Image::<f32>::new(depth.width(), depth.height());
+    let size = image.size();
+    let mut out =
+        Image::<f32>::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
-            if depth[(y, x)] > 0 {
-                compute_pixel_ssao(depth, norm, x, y, &ssao_kernel, &ssao_noise)
+            if image[(y, x)].depth > 0 {
+                compute_pixel_ssao(image, x, y, &ssao_kernel, &ssao_noise)
             } else {
                 f32::NAN
             }
@@ -104,7 +98,7 @@ pub fn blur_ssao(
     ssao: &Image<f32>,
     threads: Option<&ThreadPool>,
 ) -> Image<f32> {
-    let mut out = Image::<f32>::new(ssao.width(), ssao.height());
+    let mut out = Image::<f32>::new(ssao.size());
     let blur_radius = 2;
     out.apply_effect(
         |x, y| {
@@ -121,21 +115,19 @@ pub fn blur_ssao(
 
 /// Compute shading for a single pixel
 fn shade_pixel(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     ssao: Option<&Image<f32>>,
     x: usize,
     y: usize,
 ) -> [u8; 3] {
-    let [nx, ny, nz] = norm[(y, x)];
+    let [nx, ny, nz] = image[(y, x)].normal;
     let n = Vector3::new(nx, ny, nz).normalize();
 
     // Convert from pixel to world coordinates
-    // XXX we're missing the actual depth scale
     let p = Vector3::new(
-        2.0 * (x as f32 / depth.width() as f32 - 0.5),
-        2.0 * (y as f32 / depth.height() as f32 - 0.5),
-        2.0 * (depth[(y, x)] as f32 / depth.width() as f32 - 0.5),
+        2.0 * (x as f32 / image.width() as f32 - 0.5),
+        2.0 * (y as f32 / image.height() as f32 - 0.5),
+        2.0 * (image[(y, x)].depth as f32 / image.depth() as f32 - 0.5),
     );
 
     let lights = [
@@ -162,34 +154,34 @@ fn shade_pixel(
 ///
 /// Returns NAN if the pixel is empty (i.e. its depth is 0)
 fn compute_pixel_ssao(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     x: usize,
     y: usize,
     kernel: &OMatrix<f32, nalgebra::Dyn, Const<3>>,
     noise: &OMatrix<f32, nalgebra::Dyn, Const<2>>,
 ) -> f32 {
     let pos = (y, x);
-    let [nx, ny, nz] = norm[pos];
-    let d = depth[pos];
+    let GeometryPixel {
+        normal: [nx, ny, nz],
+        depth: d,
+    } = image[pos];
 
     if d == 0 {
         return f32::NAN;
     }
 
-    // XXX this is guessing at the image depth
     // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
-        (((x as f32) / depth.width() as f32) - 0.5) * 2.0,
-        (((y as f32) / depth.height() as f32) - 0.5) * 2.0,
-        (((d as f32) / depth.width() as f32) - 0.5) * 2.0,
+        (((x as f32) / image.width() as f32) - 0.5) * 2.0,
+        (((y as f32) / image.height() as f32) - 0.5) * 2.0,
+        (((d as f32) / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
     let n = Vector3::new(nx, ny, nz).normalize();
 
     // Get a rotation vector based on pixel index, and add a Z coordinate
-    let idx = pos.0 + pos.1 * depth.width();
+    let idx = pos.0 + pos.1 * image.width();
     let rvec = noise.row((idx * 19) % noise.nrows()).transpose();
     let rvec = Vector3::new(rvec.x, rvec.y, 0.0);
 
@@ -206,22 +198,21 @@ fn compute_pixel_ssao(
 
         // convert to pixel coordinates
         // XXX this distorts samples for non-square images
-        let px = ((sample_pos.x / 2.0) + 0.5) * depth.width() as f32;
-        let py = ((sample_pos.y / 2.0) + 0.5) * depth.height() as f32;
+        let px = ((sample_pos.x / 2.0) + 0.5) * image.width() as f32;
+        let py = ((sample_pos.y / 2.0) + 0.5) * image.height() as f32;
 
         // Get depth from heightmap
-        let actual_h = if px < depth.width() as f32
-            && py < depth.height() as f32
+        let actual_h = if px < image.width() as f32
+            && py < image.height() as f32
             && px > 0.0
             && py > 0.0
         {
-            depth[(py as usize, px as usize)]
+            image[(py as usize, px as usize)].depth
         } else {
             0
         };
 
-        // XXX same caveat about image depth here
-        let actual_z = (((actual_h as f32) / depth.width() as f32) - 0.5) * 2.0;
+        let actual_z = (((actual_h as f32) / image.depth() as f32) - 0.5) * 2.0;
 
         let dz = sample_pos.z - actual_z;
         if dz < RADIUS {
@@ -235,14 +226,12 @@ fn compute_pixel_ssao(
 
 /// If the pixel has a back-facing normal, then pick a normal from neighbors
 fn denoise_pixel(
-    depth: &DepthImage,
-    norm: &NormalImage,
+    image: &GeometryBuffer,
     x: usize,
     y: usize,
     denoise_radius: isize,
 ) -> [f32; 3] {
-    // Only
-    let n = norm[(y, x)];
+    let n = image[(y, x)].normal;
     if n[2] > 0.0 {
         return n;
     }
@@ -264,12 +253,12 @@ fn denoise_pixel(
                 let ty = y + ymin + j;
                 if tx >= 0
                     && ty >= 0
-                    && (tx as usize) < norm.width()
-                    && (ty as usize) < norm.height()
+                    && (tx as usize) < image.width()
+                    && (ty as usize) < image.height()
                 {
                     let pos = (ty as usize, tx as usize);
-                    if depth[pos] != 0 {
-                        let n = norm[pos];
+                    if image[pos].depth != 0 {
+                        let n = image[pos].normal;
                         sum += Vector3::new(n[0], n[1], n[2]);
                         count += 1;
                     }
@@ -287,12 +276,12 @@ fn denoise_pixel(
                 let ty = y + ymin + j;
                 if tx >= 0
                     && ty >= 0
-                    && (tx as usize) < norm.width()
-                    && (ty as usize) < norm.height()
+                    && (tx as usize) < image.width()
+                    && (ty as usize) < image.height()
                 {
                     let pos = (ty as usize, tx as usize);
-                    if depth[pos] != 0 {
-                        let n = norm[pos];
+                    if image[pos].depth != 0 {
+                        let n = image[pos].normal;
                         score += Vector3::new(n[0], n[1], n[2]).dot(&mean);
                     }
                 }
