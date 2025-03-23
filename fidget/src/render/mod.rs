@@ -398,24 +398,38 @@ pub(crate) trait RenderWorker<'a, F: Function> {
 ///        V--------------
 ///   height (rows)
 /// ```
-pub struct Image<P> {
+pub struct Image<P, S = ImageSize> {
     data: Vec<P>,
-    width: usize, // XXX use ImageSize instead?
-    height: usize,
+    size: S,
 }
 
-impl<P: Default + Copy + Clone> Image<P> {
-    /// Builds a new image filled with `P::default()`
-    pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            data: vec![P::default(); width * height],
-            width,
-            height,
-        }
+/// Helper trait to make images generic across [`ImageSize`] and [`VoxelSize`]
+pub trait ImageSizeLike {
+    /// Returns the width of the region, in pixels / voxels
+    fn width(&self) -> u32;
+    /// Returns the height of the region, in pixels / voxels
+    fn height(&self) -> u32;
+}
+
+impl ImageSizeLike for ImageSize {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+    fn height(&self) -> u32 {
+        self.height()
     }
 }
 
-impl<P: Send> Image<P> {
+impl ImageSizeLike for VoxelSize {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+    fn height(&self) -> u32 {
+        self.height()
+    }
+}
+
+impl<P: Send, S: ImageSizeLike + Sync> Image<P, S> {
     /// Generates an image by computing a per-pixel function
     pub fn apply_effect<F: Fn(usize, usize) -> P + Send + Sync>(
         &mut self,
@@ -430,33 +444,58 @@ impl<P: Send> Image<P> {
 
         if let Some(threads) = threads {
             threads.run(|| {
-                self.data.par_chunks_mut(self.width).enumerate().for_each(r)
+                self.data
+                    .par_chunks_mut(self.size.width() as usize)
+                    .enumerate()
+                    .for_each(r)
             })
         } else {
-            self.data.chunks_mut(self.width).enumerate().for_each(r)
+            self.data
+                .chunks_mut(self.size.width() as usize)
+                .enumerate()
+                .for_each(r)
         }
     }
 }
 
-impl<P> Default for Image<P> {
+impl<P, S: Default> Default for Image<P, S> {
     fn default() -> Self {
         Image {
             data: vec![],
-            width: 0,
-            height: 0,
+            size: S::default(),
         }
     }
 }
 
-impl<P> Image<P> {
+impl<P: Default + Clone, S: ImageSizeLike> Image<P, S> {
+    /// Builds a new image filled with `P::default()`
+    pub fn new(size: S) -> Self {
+        Self {
+            data: vec![
+                P::default();
+                size.width() as usize * size.height() as usize
+            ],
+            size,
+        }
+    }
+}
+
+impl<P, S: Clone> Image<P, S> {
+    /// Returns the image size
+    pub fn size(&self) -> S {
+        self.size.clone()
+    }
+}
+
+impl<P, S: ImageSizeLike> Image<P, S> {
     /// Returns the image width
     pub fn width(&self) -> usize {
-        self.width
+        self.size.width() as usize
     }
 
     /// Returns the image height
     pub fn height(&self) -> usize {
-        self.height
+        self.size.width() as usize
     }
 
     /// Checks a `(row, column)` position
@@ -465,18 +504,20 @@ impl<P> Image<P> {
     fn decode_position(&self, pos: (usize, usize)) -> usize {
         let (row, col) = pos;
         assert!(
-            row < self.height,
+            row < self.height(),
             "row ({row}) must be less than image height ({})",
-            self.height
+            self.height()
         );
         assert!(
-            col < self.width,
+            col < self.width(),
             "column ({row}) must be less than image width ({})",
-            self.width
+            self.width()
         );
-        row * self.width + col
+        row * self.width() + col
     }
+}
 
+impl<P, S> Image<P, S> {
     /// Iterates over pixel values
     pub fn iter(&self) -> impl Iterator<Item = &P> + '_ {
         self.data.iter()
@@ -493,7 +534,7 @@ impl<P> Image<P> {
     }
 }
 
-impl<'a, P: 'a> IntoIterator for &'a Image<P> {
+impl<'a, P: 'a, S> IntoIterator for &'a Image<P, S> {
     type Item = &'a P;
     type IntoIter = std::slice::Iter<'a, P>;
     fn into_iter(self) -> Self::IntoIter {
@@ -501,7 +542,7 @@ impl<'a, P: 'a> IntoIterator for &'a Image<P> {
     }
 }
 
-impl<P> IntoIterator for Image<P> {
+impl<P, S> IntoIterator for Image<P, S> {
     type Item = P;
     type IntoIter = std::vec::IntoIter<P>;
     fn into_iter(self) -> Self::IntoIter {
@@ -509,14 +550,14 @@ impl<P> IntoIterator for Image<P> {
     }
 }
 
-impl<P> std::ops::Index<usize> for Image<P> {
+impl<P, S> std::ops::Index<usize> for Image<P, S> {
     type Output = P;
     fn index(&self, index: usize) -> &Self::Output {
         &self.data[index]
     }
 }
 
-impl<P> std::ops::IndexMut<usize> for Image<P> {
+impl<P, S> std::ops::IndexMut<usize> for Image<P, S> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.data[index]
     }
@@ -524,14 +565,14 @@ impl<P> std::ops::IndexMut<usize> for Image<P> {
 
 macro_rules! define_image_index {
     ($ty:ty) => {
-        impl<P> std::ops::Index<$ty> for Image<P> {
+        impl<P, S> std::ops::Index<$ty> for Image<P, S> {
             type Output = [P];
             fn index(&self, index: $ty) -> &Self::Output {
                 &self.data[index]
             }
         }
 
-        impl<P> std::ops::IndexMut<$ty> for Image<P> {
+        impl<P, S> std::ops::IndexMut<$ty> for Image<P, S> {
             fn index_mut(&mut self, index: $ty) -> &mut Self::Output {
                 &mut self.data[index]
             }
@@ -547,7 +588,7 @@ define_image_index!(std::ops::RangeToInclusive<usize>);
 define_image_index!(std::ops::RangeFull);
 
 /// Indexes an image with `(row, col)`
-impl<P> std::ops::Index<(usize, usize)> for Image<P> {
+impl<P, S: ImageSizeLike> std::ops::Index<(usize, usize)> for Image<P, S> {
     type Output = P;
     fn index(&self, pos: (usize, usize)) -> &Self::Output {
         let index = self.decode_position(pos);
@@ -555,7 +596,7 @@ impl<P> std::ops::Index<(usize, usize)> for Image<P> {
     }
 }
 
-impl<P> std::ops::IndexMut<(usize, usize)> for Image<P> {
+impl<P, S: ImageSizeLike> std::ops::IndexMut<(usize, usize)> for Image<P, S> {
     fn index_mut(&mut self, pos: (usize, usize)) -> &mut Self::Output {
         let index = self.decode_position(pos);
         &mut self.data[index]
@@ -590,7 +631,14 @@ impl GeometryPixel {
 }
 
 /// Image containing depth and normal at each pixel
-pub type GeometryBuffer = Image<GeometryPixel>;
+pub type GeometryBuffer = Image<GeometryPixel, VoxelSize>;
+
+impl<P: Default + Copy + Clone> Image<P, VoxelSize> {
+    /// Returns the image depth in voxels
+    pub fn depth(&self) -> usize {
+        self.size.depth() as usize
+    }
+}
 
 /// Three-channel color image
 pub type ColorImage = Image<[u8; 3]>;

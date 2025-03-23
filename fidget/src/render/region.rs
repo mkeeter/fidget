@@ -56,6 +56,21 @@ where
     size: OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
 }
 
+impl<const N: usize> Default for RegionSize<N>
+where
+    Const<N>: DimNameAdd<U1>,
+    DefaultAllocator: Allocator<DimNameSum<Const<N>, U1>, DimNameSum<Const<N>, U1>>,
+    DefaultAllocator: Allocator<<<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>,
+    <Const<N> as DimNameAdd<Const<1>>>::Output: DimNameSub<Const<1>>,
+    OVector<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>: Copy,
+{
+    fn default() -> Self {
+        Self {
+            size: OVector::<u32, <<Const<N> as DimNameAdd<Const<1>>>::Output as DimNameSub<Const<1>>>::Output>::from_element(0)
+        }
+    }
+}
+
 /// Apologies for the terrible trait bounds; they're necessary to persuade the
 /// internals to type-check, but shouldn't be noticeable to library users.
 impl<const N: usize> RegionSize<N>

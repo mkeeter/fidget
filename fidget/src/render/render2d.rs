@@ -248,7 +248,7 @@ impl<'a, F: Function, M: RenderMode> RenderWorker<'a, F> for Worker<'a, F, M> {
         vars: &ShapeVars<f32>,
         tile: super::config::Tile<2>,
     ) -> Self::Output {
-        self.image = Image::new(self.tile_sizes[0], self.tile_sizes[0]);
+        self.image = Image::new((self.tile_sizes[0] as u32).into());
         self.render_tile_recurse(shape, vars, 0, tile);
         std::mem::take(&mut self.image)
     }
@@ -417,7 +417,7 @@ pub fn render<F: Function, M: RenderMode + Sync>(
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image = Image::new(width, height);
+    let mut image = Image::new(config.image_size);
     for (tile, data) in tiles.iter() {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {

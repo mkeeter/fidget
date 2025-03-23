@@ -98,7 +98,7 @@ impl<'a, F: Function> RenderWorker<'a, F> for Worker<'a, F> {
     ) -> Self::Output {
         // Prepare local tile data to fill out
         let root_tile_size = self.tile_sizes[0];
-        self.out = GeometryBuffer::new(root_tile_size, root_tile_size);
+        self.out = GeometryBuffer::new(VoxelSize::from(root_tile_size as u32));
         for k in (0..self.image_size[2].div_ceil(root_tile_size as u32)).rev() {
             let tile = Tile::new(Point3::new(
                 tile.corner.x,
@@ -352,7 +352,7 @@ pub fn render<F: Function>(
 
     let width = config.image_size.width() as usize;
     let height = config.image_size.height() as usize;
-    let mut image = GeometryBuffer::new(width, height);
+    let mut image = GeometryBuffer::new(config.image_size);
     for (tile, out) in tiles {
         let mut index = 0;
         for j in 0..config.tile_sizes[0] {

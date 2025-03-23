@@ -1,6 +1,8 @@
 //! Post-processing effects for rendered images
 
-use super::{ColorImage, GeometryBuffer, GeometryPixel, Image, ThreadPool};
+use super::{
+    ColorImage, GeometryBuffer, GeometryPixel, Image, ImageSize, ThreadPool,
+};
 use nalgebra::{
     Const, Matrix3, MatrixXx2, MatrixXx3, OMatrix, RowVector2, RowVector3,
     Vector3, Vector4,
@@ -16,7 +18,7 @@ pub fn denoise_normals(
     threads: Option<&ThreadPool>,
 ) -> GeometryBuffer {
     let radius = 2;
-    let mut out = GeometryBuffer::new(image.width(), image.height());
+    let mut out = GeometryBuffer::new(image.size());
     out.apply_effect(
         |x, y| {
             let depth = image[(y, x)].depth;
@@ -48,7 +50,8 @@ pub fn apply_shading(
         None
     };
 
-    let mut out = ColorImage::new(image.width(), image.height());
+    let size = image.size();
+    let mut out = ColorImage::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
             if image[(y, x)].depth > 0 {
@@ -73,7 +76,9 @@ pub fn compute_ssao(
     let ssao_kernel = ssao_kernel(64);
     let ssao_noise = ssao_noise(16 * 16);
 
-    let mut out = Image::<f32>::new(image.width(), image.height());
+    let size = image.size();
+    let mut out =
+        Image::<f32>::new(ImageSize::new(size.width(), size.height()));
     out.apply_effect(
         |x, y| {
             if image[(y, x)].depth > 0 {
@@ -93,7 +98,7 @@ pub fn blur_ssao(
     ssao: &Image<f32>,
     threads: Option<&ThreadPool>,
 ) -> Image<f32> {
-    let mut out = Image::<f32>::new(ssao.width(), ssao.height());
+    let mut out = Image::<f32>::new(ssao.size());
     let blur_radius = 2;
     out.apply_effect(
         |x, y| {
@@ -119,11 +124,10 @@ fn shade_pixel(
     let n = Vector3::new(nx, ny, nz).normalize();
 
     // Convert from pixel to world coordinates
-    // XXX we're missing the actual depth scale
     let p = Vector3::new(
         2.0 * (x as f32 / image.width() as f32 - 0.5),
         2.0 * (y as f32 / image.height() as f32 - 0.5),
-        2.0 * (image[(y, x)].depth as f32 / image.width() as f32 - 0.5),
+        2.0 * (image[(y, x)].depth as f32 / image.depth() as f32 - 0.5),
     );
 
     let lights = [
@@ -166,12 +170,11 @@ fn compute_pixel_ssao(
         return f32::NAN;
     }
 
-    // XXX this is guessing at the image depth
     // XXX The implementation in libfive-cuda adds a 0.5 pixel offset
     let p = Vector3::new(
         (((x as f32) / image.width() as f32) - 0.5) * 2.0,
         (((y as f32) / image.height() as f32) - 0.5) * 2.0,
-        (((d as f32) / image.width() as f32) - 0.5) * 2.0,
+        (((d as f32) / image.depth() as f32) - 0.5) * 2.0,
     );
 
     // Get normal from the image
@@ -209,8 +212,7 @@ fn compute_pixel_ssao(
             0
         };
 
-        // XXX same caveat about image depth here
-        let actual_z = (((actual_h as f32) / image.width() as f32) - 0.5) * 2.0;
+        let actual_z = (((actual_h as f32) / image.depth() as f32) - 0.5) * 2.0;
 
         let dz = sample_pos.z - actual_z;
         if dz < RADIUS {
