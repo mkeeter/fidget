@@ -4,6 +4,8 @@
   a separate `rayon::ThreadPool` object on the stack.
 - Significant rewrite of meshing!  It now uses the same `Option<&ThreadPool>`
   type and is multithreaded using Rayon, meaning it can work in WebAssembly.
+- Changed 3D rendering and effects functions to use a new `GeometryBuffer` type,
+  which combines depth and normal data into a single image.
 
 # 0.3.5
 - Added `#[derive(Serialize, Deserialize)]` to `View2` and `View3`
